@@ -28,7 +28,7 @@
 
 | 単位 | 対象・コミットの区切り | 共有先・順序 |
 | --- | --- | --- |
-| U02 一覧選択と現在セル | プレイリスト識別選択 → 再生による現在セル追従 | 選択前半 → U21 → 現在セル後半 → U03。U12へ既存entry識別契約を共有 |
+| U02 再生による現在セル追従 | 再生による選択変更と現在セルを揃える | U21 → U02 → U03。現行の識別選択を維持 |
 | U03 共通表の表示とコピー | TSV空行 → URL幅 → フルスキャンDST編集・非編集案内 → 言語cache | U02後。同担当が能力付与・編集終端・一時投影まで所有。U15のDST検証と順序調整 |
 | U04 履歴列とメニュー | hashコピー廃止・MD5列・末尾separator | 共通列・MainWindow。U03後、U05/U08と直列 |
 | U05 ツリーのdrop・編集とフォルダ識別 | OS drop・展開 → 空名drop → 所属名空白保持 → 遅延改名失効 | MainWindow・Playlist要求/変更。U04/U08と直列 |
@@ -37,18 +37,18 @@
 | U08 手動ランキング取得廃止 | UI・専用通信・資料・専用テストを除去 | MainWindow/composition/Ir。U04/U05後、起動時ローカルcache維持 |
 | U09 確定文字コードの保持と導入・同期への引継ぎ | 保留保存境界 → LR2全体同期 → 導入成功先への引継ぎ | Maintenance/Catalog/Install/LR2。導入serviceはU15との順序調整後、署名変更なし |
 | U10 BMS再生入力 | 親参照の保持 → 明示BASE62 | Ribbit ResourcesとBMSFile。同担当内別単位、U13のWriter検証と調整 |
-| U12 内蔵再生の対象と候補探索 | 現在曲識別・送り位置・FolderSkip・Repeat失敗探索を統合 | 同じPlayback queue/VMで一単位。U02前半のentry索引を利用し、選択scopeは流用しない |
+| U12 内蔵再生の対象と候補探索 | 現在曲識別・送り位置・FolderSkip・Repeat失敗探索を統合 | 同じPlayback queue/VMで一単位。現行のentry索引を利用し、選択scopeは流用しない |
 | U13 音声変換の出力名 | Writerのfile path契約へ統一 | Writer/変換owner。U10と検証の重複を調整 |
 | U14 重複統合候補 | 候補とCtrl+Gを物理条件へ揃える | Duplicate owner。U15の物理パス判定と共有する場合だけ直列 |
 | U15 導入・推定 | 別保留の入力保護 → 宛先による範囲拡張廃止 → 入れ子禁止 → 重複保留の登録整理 → 候補根変換・ユニークhash票 → DST表記 | PackageInstall/service/estimation。同一writer。候補根と票数は同じ座標へ揃える。登録整理は発見結果/完全性を共用。U03/U09と順序調整 |
 | U16 ランプの対象・取得元 | 実NO SONG所属 → 成績と履歴の同一捕捉 | lamp source/model/viewer。U07ランプ・U17日付と直列 |
 | U17 履歴投影・日付境界 | 所属大小文字 → 履歴/ランプの日付共用 | PlayHistory/HistoricalSnapshot、U16後 |
 | U20 外部同期の処理済み進捗 | 通知生産・表示・文言 | ExternalSyncOwner/SyncProgress/Hub、U22と直列、U07の言語資源編集と調整 |
-| U21 詳細セル保存中の編集開始 | 先行保存終端まで次の編集開始を止める | U02前半後、同じ表担当、現在セル後半へ接続 |
+| U21 詳細セル保存中の編集開始 | 先行保存終端まで次の編集開始を止める | 現行の識別選択と編集値引渡しを維持し、同じ表担当でU02へ接続 |
 | U22 standalone外部表の出力名検査 | LR2専用検査をLR2モードへ限定 | ExternalSyncOwner。U20と同担当で順次 |
 | U23 BMSルート確定後の導入先選択表示 | 保存値と選択肢の通知を揃える | Settings VM/page、U07設定通知と編集を調整 |
 
-現在の所有は、`optional-updater` がU02/U21と共通表、`optional-search-ui` がU06と検索、`optional-encoding` がU09、`optional-bms-input` がU12と再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U13/U14/U16/U17/U20/U22/U23は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
+現在の所有は、`optional-updater` がU21後にU02と共通表、`optional-search-ui` がU06と検索、`optional-encoding` がU09、`optional-bms-input` がU12と再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U13/U14/U16/U17/U20/U22/U23は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
 
 ### 開始・引継ぎと計画の更新
 
@@ -68,19 +68,7 @@ Loadedは表示同期と一回購読、Unloadedは表示購読・予約だけの
 
 既存のEditableTextBlockの候補分離/Escape、再生開始時の一回フォーカス、右クリック現在セル、通常一覧の識別復元、保存→出力→必要表示→編集解除→受付解放、三択のCancel/X/Escは維持する境界であり、新規実装対象ではない。設定Bindingや非モーダル終了も、具体的な不足なしに全体を作り直さない。初回重複解析の完了で画面を奪わない保証を、明示Merge/Hash成功後の無条件の次群/存続群選択へ広げない。
 
-## U02 一覧選択と現在セル
-
-### プレイリスト一覧の選択維持
-
-**現存。ユーザー回答で同じ表・譜面の識別維持を採用。** 主行が消えたら残存選択の表示順先頭、選択がすべて消えたら解除。Shift基点消失は既存主行へ寄せる等、既存選択モデルに整合する局所的な詳細として扱う。
-
-通常入口はサマリー/詳細の並べ替え、編集による順序変更、追加削除、view交換。`BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs` の `PlaylistSummaryVersionedCollection` は `ObservableCollection` で、`ReplaceItemsWithoutNotification` が内部Itemsを先に置換し、後で `PublishReset` する。`PlaylistDetailVirtualView.cs` も `ICustomTableSelectionIdentitySource` を実装していない。一方 `CustomTableView` は同interfaceを持つsourceだけから変更前選択を捕捉・復元する。このためプレイリストは行位置を保持して別表・別entryへ移り得る。右クリック時に実ヒット行へ選択が切り替わる既存挙動自体の誤操作とは区別する。
-
-サマリーの識別は `PlaylistId`、詳細は同じ生存 `BMSTableEntry` を基本とする。サマリー内部置換の**前**、詳細の複数局所変更の最終反映に合う既存境界で、選択集合・主行・基点を短命に捕捉する。必要な索引は既存の順序/対象索引に統合し、選択維持用に全行を実体化しない。既存BMT順ドラッグのID復元と操作固有の選択意図は同じ反映先へ整合させ、二重復元を残さない。
-
-「処理開始時に捕捉した選択を最後まで保証する」という追加の並行操作契約にはしない。反映直前の現在選択を既存経路で捕捉する単純案を優先する。選択の世代・保存台帳・操作予約を新設しない。別の表・フォルダへの明示ナビゲーション、他操作後の自動選択にはこの契約を無条件に流用しない。
-
-主な変更先は上記collection/view、`PlaylistWorkspaceViewModel.PlaylistSummaryBuild.cs`、詳細適用側、`CustomTableView`/選択モデル。テストは `CustomTableSelectionModelTests`、`CustomTableNavigationTests`、`PlaylistWorkspacePresentationStateTests`/`PlaylistWorkspaceDetailRefreshTests`、`MainWindowPlaylistWorkspaceWpfTests` に分担。採用した表/entryが並べ替え・主行消失・全消失・複数変更後も実表の後続操作対象と一致することを確認する。内部添字や現在のテスト期待を正解として固定しない。
+## U02 再生による現在セル追従
 
 ### 再生による選択行変更と現在セル
 
@@ -92,7 +80,7 @@ Loadedは表示同期と一回購読、Unloadedは表示購読・予約だけの
 
 `CustomTableNavigationTests` の「外部SelectedIndex変更で現在セルは作り直さない」という旧期待は新契約へ更新する。`CustomTableEditingTests` でAへの一回終端、`MainWindowPlaybackWpfTests` で実再生・Binding・描画/コピー/編集の一致、主行不変時の編集保持を分担する。入力不正や保存失敗は既存保存terminalの通知に従う。再生開始を保存完了まで止める新仕様は含めず、そのための追加状態・再試行は不要。
 
-U02と同じ `CustomTableView` 選択境界を触るため同担当またはU02後に順次統合する。
+現行の `CustomTableView` の識別選択を維持し、編集開始境界を扱うU21の後に同じ担当で実装する。
 
 ## U03 共通表の表示とコピー
 
@@ -126,7 +114,7 @@ U02と同じ `CustomTableView` 選択境界を触るため同担当またはU02�
 
 既存 `CustomTableColumnFactoryTests.InstallDestinationCell_DecoratesCandidatesWithoutChangingEditPaths` はcontextを渡さず候補があれば▼という内部期待を固定しており、利用者契約の根拠にしない。独立テスト設計には追加契約と保持寿命を渡し、`CustomTableEditingTests`、`CustomTablePhase6CacheTests`、`MainWindowPackageMaintenanceWpfTests`、導入先更新と再インストールの既存テストで保証を分担する。実フルスキャン画面の全件・欠落・欠落無視（`FullScanAllChartsFilterSelected` / `FileMissingFilterSelected` / `FileMissingIgnoredFilterSelected`）の通常入口で編集開始、候補選択・手入力、確定・取消、確定値と一覧表示の一致、画面再表示の保持、後続の明示再インストールによる指定先利用を確認する。セル確定だけでは物理処理しないこと、単譜面と保留パッケージ全項目の範囲、全リセット・再起動を越える保持を追加しないことも確認する。候補を持つ同じ元値で非編集一覧は案内なし・編集不可、保留とフルスキャンは案内と操作が一致することを確認し、保留の既存操作を維持する。
 
-U02の選択境界を先に完結させ、この項目はU03の同担当で実装する。導入サービスを共有するU15とは編集・検証の順序を調整する。機能仕様の実装済み記述への反映は製品変更と同時に行う。
+現行の識別選択を維持し、U21とU02の現在セル追従を完結させた同担当が、このU03項目を実装する。導入サービスを共有するU15とは編集・検証の順序を調整する。機能仕様の実装済み記述への反映は製品変更と同時に行う。
 
 ### 共通表の保留候補案内
 
@@ -322,7 +310,7 @@ CP932の基本資源解析を保ち、同じ読取りsnapshotへ `ApplyMetadataE
 
 `BeginPlaybackCore` は開始時の行番号を保存するが、queueは現在の一覧を読む。A再生後に `[A,B]` を `[B,A]` へ並べ替えると、単曲リピートでも古い番号のBを開始し得る。再生中の譜面を対象の正本、一覧の識別を現在位置の照合に使い、番号だけで決めない。
 
-通常行は種類・実pathで区別し、同hash別配置を潰さない。プレイリストは開始した生存 `BMSTableEntry` を既存の非実体化索引で探し、重複譜面行を区別する。U02の選択identity契約を利用するが、絞り込み種別を含む選択scopeを再生へ流用しない。新永続ID・全行実体化は不要。
+通常行は種類・実pathで区別し、同hash別配置を潰さない。プレイリストは開始した生存 `BMSTableEntry` を既存の非実体化索引で探し、重複譜面行を区別する。現行の選択identity契約を利用するが、絞り込み種別を含む選択scopeを再生へ流用しない。新永続ID・全行実体化は不要。
 
 単曲リピートは現在の同譜面を使う。前後送り・自然終了・先読みは、その時点の一覧で現在対象の位置を照合する。行が消えたら単曲リピートは同曲継続、通常自動送りは終曲で停止、手動送りは無作用。単曲の再ロード失敗は停止し、別曲探索へ意味を変えない。
 
@@ -538,7 +526,7 @@ Repeat ONで再生可能行が同一folderしかなければ一巡後に現在�
 
 一回の保存・必要表示・後処理の実終端まで次の詳細セル編集開始だけを拒否し、既存ownerの短命な保存状態へ判定を揃える。必要表示より先に受付を解放しない。行選択・再生を妨げず、終端後は明示編集を受け付ける。待ち行列・自動再保存・永続編集状態は追加しない。
 
-Aの保存を制御している間、Bのクリック・F2・文字入力では編集が始まらず、Aの並べ替えを含む終端後はBを保存できることを実表→owner→保存→変更配送で確認する。成功、保存前失敗、保存後の必要処理失敗、取消、無変更で解除を確認する。`MainWindowPlaylistWorkspaceWpfTests`、`PlaylistWorkspacePersistenceCommandTests`、詳細更新系列を分担する。U02前半後、同じ表担当が所有し、選択問題と入力消失を別に判定する。
+Aの保存を制御している間、Bのクリック・F2・文字入力では編集が始まらず、Aの並べ替えを含む終端後はBを保存できることを実表→owner→保存→変更配送で確認する。成功、保存前失敗、保存後の必要処理失敗、取消、無変更で解除を確認する。`MainWindowPlaylistWorkspaceWpfTests`、`PlaylistWorkspacePersistenceCommandTests`、詳細更新系列を分担する。現行の識別選択・全置換前の編集値引渡しを維持し、同じ表担当が所有して選択維持と入力消失を別に判定する。
 
 ## U22 standalone外部表の出力名検査
 
