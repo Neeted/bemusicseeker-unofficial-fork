@@ -246,9 +246,6 @@
         <MenuItem Name="playHistoryContextMenuItemOpenAssociated" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_association, Mode=OneWay}" Click="playHistoryContextMenuItemOpenAssociatedClick" />
         <MenuItem Name="playHistoryContextMenuItemOpenExplorer" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="playHistoryContextMenuItemOpenExplorerClick" />
         <MenuItem Name="playHistoryContextMenuItemRegisterScore" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_chart_viewer, Mode=OneWay}" Click="playHistoryContextMenuItemRegisterScoreViewerClick" />
-        <Separator Name="playHistoryContextMenuSeparatorHash" />
-        <MenuItem Name="playHistoryContextMenuItemCopyMd5" Tag="Md5" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_copy_md5, Mode=OneWay}" Click="playHistoryContextMenuItemCopyHashClick" />
-        <MenuItem Name="playHistoryContextMenuItemCopySha256" Tag="Sha256" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_copy_sha256, Mode=OneWay}" Click="playHistoryContextMenuItemCopyHashClick" />
         <MenuItem Name="playHistoryContextMenuItemAddDateRangeToSearch" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_add_date_range_to_search, Mode=OneWay}" Click="playHistoryContextMenuItemAddDateRangeToSearchClick" Visibility="Collapsed" />
       </ContextMenu>
       <ContextMenu x:Key="treeViewPlaylistRootContextMenu" HasDropShadow="True" Opened="treeViewPlaylistRootContextMenuOpend">
@@ -335,7 +332,6 @@
       <ContextMenu x:Key="treeViewLibraryFolderRootContextMenu" HasDropShadow="True">
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reload, Mode=OneWay}" Click="treeViewLibraryFolderContextMenuItemReloadClick" />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reinitialize_library, Mode=OneWay}" Click="treeViewLibraryFolderContextMenuItemReinitializeClick" />
-        <Separator />
       </ContextMenu>
       <ContextMenu x:Key="tableColumnHeaderContextMenu" x:Shared="False">
         <FrameworkElement.Resources>
@@ -428,6 +424,7 @@
         <MenuItem Header="PLAY EXSCORE" IsCheckable="True" Style="{StaticResource stylePlayHistoryContextMenuLeftAlignment}" IsChecked="{Binding MainChartList.ColumnsSettings.PlayHistoryPlayExscore.Visibility, Source={StaticResource vm}, Converter={StaticResource visibilityToIsCheckedConverter}}" />
         <MenuItem Header="JUDGES" IsCheckable="True" Style="{StaticResource stylePlayHistoryContextMenuLeftAlignment}" IsChecked="{Binding MainChartList.ColumnsSettings.PlayHistoryJudges.Visibility, Source={StaticResource vm}, Converter={StaticResource visibilityToIsCheckedConverter}}" />
         <Separator />
+        <MenuItem Header="MD5 HASH" IsCheckable="True" Style="{StaticResource stylePlayHistoryContextMenuLeftAlignment}" IsChecked="{Binding MainChartList.ColumnsSettings.Hash.Visibility, Source={StaticResource vm}, Converter={StaticResource visibilityToIsCheckedConverter}}" />
         <MenuItem Header="SHA256" IsCheckable="True" Style="{StaticResource stylePlayHistoryContextMenuLeftAlignment}" IsChecked="{Binding MainChartList.ColumnsSettings.Sha256.Visibility, Source={StaticResource vm}, Converter={StaticResource visibilityToIsCheckedConverter}}" />
         <MenuItem Header="RAW HASH" IsCheckable="True" Style="{StaticResource stylePlayHistoryContextMenuLeftAlignment}" IsChecked="{Binding MainChartList.ColumnsSettings.PlayHistoryRawHash.Visibility, Source={StaticResource vm}, Converter={StaticResource visibilityToIsCheckedConverter}}" />
         <MenuItem Header="FINALIZED" IsCheckable="True" Style="{StaticResource stylePlayHistoryContextMenuLeftAlignment}" IsChecked="{Binding MainChartList.ColumnsSettings.PlayHistoryFinalized.Visibility, Source={StaticResource vm}, Converter={StaticResource visibilityToIsCheckedConverter}}" />

@@ -14,6 +14,42 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomTableColumnSettingsTests
 {
+    /// <summary>履歴のMD5/SHA256/RAWと既存Titleの利用者指定を実providerへ保存し、新wrapperと補完後も幅・順序・可視性を保持して実列へ反映します。</summary>
+    [TestMethod]
+    public void PlayHistoryHashLayouts_SaveAndReloadWithoutChangingExistingChoices()
+    {
+        string directory = MainWindowViewModelTestFactory.CreateIsolatedSettingsDirectory();
+        string path = Path.Combine(directory, "user.config");
+        try
+        {
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(path);
+            var layouts = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+            layouts.Hash.Width = 173; layouts.Hash.DisplayIndex = 100; layouts.Hash.Visibility = Visibility.Visible;
+            layouts.Sha256.Width = 279; layouts.Sha256.DisplayIndex = 101; layouts.Sha256.Visibility = Visibility.Hidden;
+            layouts.PlayHistoryRawHash.Width = 191; layouts.PlayHistoryRawHash.DisplayIndex = 102; layouts.PlayHistoryRawHash.Visibility = Visibility.Visible;
+            layouts.Title.Width = 181; layouts.Title.DisplayIndex = 103; layouts.Title.Visibility = Visibility.Visible;
+            settings.PlayHistoryCustomTableColumnSettings = layouts; settings.Save();
+            Settings reopened = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings.EnsureColumnSettingDefaults(reopened);
+            CustomTableColumnSettings restored = reopened.PlayHistoryCustomTableColumnSettings;
+            var columns = CustomTableColumnFactory.CreateMainColumns(restored).ToDictionary(column => column.Id);
+            foreach ((string id, CustomTableColumnSettings.ColumnLayout actual, int width, int order, Visibility visible) in new[]
+            {
+                ("Hash", restored.Hash, 173, 100, Visibility.Visible), ("Sha256", restored.Sha256, 279, 101, Visibility.Hidden),
+                ("RawHash", restored.PlayHistoryRawHash, 191, 102, Visibility.Visible), ("Title", restored.Title, 181, 103, Visibility.Visible)
+            })
+            {
+                Assert.AreEqual(width, actual.Width); Assert.AreEqual(order, actual.DisplayIndex); Assert.AreEqual(visible, actual.Visibility);
+                Assert.AreEqual(visible == Visibility.Visible, columns.ContainsKey(id));
+                if (columns.TryGetValue(id, out CustomTableColumn? column)) { Assert.AreSame(actual, column.Layout); Assert.AreEqual(width, column.Width); Assert.AreEqual(order, column.DisplayIndex); }
+            }
+            restored.Sha256.Visibility = Visibility.Visible;
+            CustomTableColumn sha = CustomTableColumnFactory.CreateMainColumns(restored).Single(column => column.Id == "Sha256");
+            Assert.AreSame(restored.Sha256, sha.Layout); Assert.AreEqual(279, sha.Width); Assert.AreEqual(101, sha.DisplayIndex);
+        }
+        finally { if (Directory.Exists(directory)) { Directory.Delete(directory, recursive: true); } }
+    }
+
     /// <summary>両URL列の異なる利用者幅を実providerへ保存し、新wrapperで読戻し・既定補完した後も幅だけからボタン/通常セルを復元します。別modeの保存に依存しません。</summary>
     [TestMethod]
     public void UrlWidths_SaveAndReloadThroughProviderRestoreColumnRoles()
@@ -103,6 +139,8 @@ public sealed class CustomTableColumnSettingsTests
         settings.PlayHistoryBestExscore.Visibility = Visibility.Visible;
         settings.PlayHistoryBestExscore.DisplayIndex = 77;
         settings.PlayHistoryJudges = null;
+        // 従来の履歴設定にもHashは保存されるが、履歴の有効列でなかったため位置未設定になり得ます。
+        settings.Hash.Width = 119; settings.Hash.Visibility = Visibility.Visible; settings.Hash.DisplayIndex = -1;
 
         settings.EnsurePlayHistoryColumnDefaults();
 
@@ -111,6 +149,9 @@ public sealed class CustomTableColumnSettingsTests
         Assert.AreEqual(Visibility.Visible, settings.PlayHistoryBestExscore.Visibility);
         Assert.AreEqual(77, settings.PlayHistoryBestExscore.DisplayIndex);
         Assert.IsTrue(GetActiveLayouts(settings).All(item => item.Layout.DisplayIndex >= 0), "missing display index remains");
+        Assert.AreEqual(119, settings.Hash.Width); Assert.AreEqual(Visibility.Visible, settings.Hash.Visibility);
+        Assert.IsTrue(settings.Hash.DisplayIndex >= 0);
+        Assert.AreEqual(GetActiveLayouts(settings).Count, GetActiveLayouts(settings).Select(item => item.Layout.DisplayIndex).Distinct().Count());
     }
 
     /// <summary>既存の履歴列設定は利用者の選択を保持して補完し、設定全体が欠ける場合にも再生成します。</summary>

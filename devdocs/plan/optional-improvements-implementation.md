@@ -17,7 +17,7 @@
 - 詳細セルの保存・必要表示・後処理が終わるまで、次の詳細セルの編集開始だけを止める。行選択・再生は止めず、終端後の明示編集を受け付ける。編集待ち行列や自動再保存は追加しない。
 - 保留文字コードは現在の保留項目の寿命だけで保持し、再起動復元を追加しない。実際に導入成功した譜面の指定だけ成功先の所持データへ保存し、資源だけ更新した別の所持譜面や同hash別配置へ適用を広げない。
 - 親・子それぞれの譜面が自己領域内に実在する音声・BGA・動画を定義する入れ子は重要警告として行を強調し、自動・手動とも導入しない。未使用定義は数える。譜面を持つ子領域は親から除外し、親音源参照だけの子、バナーだけ、未定義の同梱媒体だけでは禁止しない。全ての子譜面を一律拒否する案は採らない。
-- 履歴右クリックのhashコピーを廃止し、MD5列を追加して既存SHA256列を使う。他用途のhash値・ローカルランキングcacheは残す。
+- 履歴のhash列・通常コピーと外部操作は[履歴仕様](../spec/playlist/play-history.md#外部操作と診断)を正本とする。他用途のhash値・ローカルランキングcacheは残す。
 - 外部プレイヤー固有の試聴・再生、資源のみ導入後の保守対象拡張、プロパティ診断への文字コード引継ぎは対象外。
 - 競合を許す必要性を先に判断し、既存受付・未開始拒否・明示再操作を優先する。予約、自動再試行、永続修復台帳、全画面共通管理器を増やさず、受理済みTaskの回収とデータ正しさを保つ。
 - 対象パスはリポジトリ相対、行番号は調査版の目安。既存テストは保証分担の入口であり、テスト数・内部APIの固定要求ではない。
@@ -28,8 +28,7 @@
 
 | 単位 | 対象・コミットの区切り | 共有先・順序 |
 | --- | --- | --- |
-| U04 履歴列とメニュー | hashコピー廃止・MD5列・末尾separator | 共通列・MainWindow。U05と直列 |
-| U05 ツリーのdrop・編集とフォルダ識別 | 遅延改名失効 | MainWindow・Playlist要求/変更。U04と直列 |
+| U05 ツリーのdrop・編集とフォルダ識別 | 遅延改名失効 | MainWindow・Playlist要求/変更 |
 | U09 確定文字コードの導入への引継ぎ | 導入成功先への引継ぎ | Maintenance/Catalog/Install。導入serviceはU15との順序調整後 |
 | U15 導入・推定 | 入れ子禁止 → 重複保留の登録整理 → 候補根変換・ユニークhash票 → DST表記 | PackageInstall/service/estimation。同一writer。候補根と票数は同じ座標へ揃える。登録整理は発見結果/完全性を共用。U09と順序調整 |
 
@@ -52,28 +51,6 @@
 Loadedは表示同期と一回購読、Unloadedは表示購読・予約だけの解除、Closed/Disposeは新規表示の終端とする。開始済みの実処理は既存機能ownerが回収し、Unloadedを最終終了に読み替えない。新しい共通基底・汎用画面差分・入力管理器・新翻訳cache・全行購読/実体化は不要。変更機能の仕様に表示・候補・選択・保存の所有、入力/取消、内外移動、再利用、純表示変更、遅延表示と実Taskの終端を短く記す。
 
 既存のEditableTextBlockの候補分離/Escape、再生開始時の一回フォーカス、右クリック現在セル、通常一覧の識別復元、保存→出力→必要表示→編集解除→受付解放、三択のCancel/X/Escは維持する境界であり、新規実装対象ではない。設定Bindingや非モーダル終了も、具体的な不足なしに全体を作り直さない。初回重複解析の完了で画面を奪わない保証を、明示Merge/Hash成功後の無条件の次群/存続群選択へ広げない。
-
-## U04 履歴列とメニュー
-
-### 履歴の右クリックhashコピー廃止とMD5/SHA256列
-
-**現存。ユーザー確定契約に置換する。** 旧資料の「MD5不明ならMD5メニューだけ隠す」は採らず、履歴専用の右クリックhashコピーを廃止し、不要なseparatorを除く。MD5・SHA256を列から通常セル/TSVコピーできるようにする。
-
-`CustomTableColumnFactory.CreateAllPlayHistoryColumns` にはSHA256列とRAW HASH列が既にあり、MD5列がない。`PlayHistoryRow` はLR2で `Md5=rawHash`、beatorajaで `Md5=md5`、`Sha256=sha256` を持つので、種類の正しい既存値を直接使う。MD5へSHA256を補うfallback、新hash計算、DB列、再読取りを追加しない。RAW HASHは生の履歴識別列として別に存在するため、今回の依頼だけで削除しない。
-
-追加・接続先は `Views/CustomTable/CustomTableColumn.cs`、`ViewModels/ChartList/CustomTableColumnSettings.cs`（既存 `Hash` layout利用を優先）、`ViewModels/PlayHistory/PlayHistorySortEngine.cs`、`Views/MainWindow/MainWindow.xaml` の履歴列メニュー。通常列の表示切替・幅/順序保存・初期化に接続する。既存列ID/設定の不要な破壊や重複した新設定は避ける。
-
-削除候補は `MainWindow.xaml` のCopyMd5/CopySha256項目と専用separator、`MainWindow.cs` の表示switch/`playHistoryContextMenuItemCopyHashClick`、`PlayHistoryContextMenuState` のコピー専用定数/CanCopy/GetCopyValue、`PlayHistoryContextMenuActionKind` のコピー値、`PlayHistoryWorkflowOwner.ContextMenu.cs` のコピーaction/helper、コピー専用資源（全repoの利用箇所を確認して削除）。`ForValue`/Valueも他利用がなければ削る。
-
-**残す責務:** 同じメニューstateのMd5/Sha256は設定Web actionとscore viewerへも渡される。`HasVisibleItem` は現在hashコピーがあることを使って未解決行も受理しているので、コピー廃止で未解決行の設定Web actionまで失わせない。入力値解決とメニューの実際の表示項目の判定を既存責務内で整理する。ここで `RawHash` を無条件にMd5へ入れる旧fallbackを新列へ持ち込まない。設定Web actionのSHA256等は維持する。
-
-保証は未解決beatoraja（MD5空、SHA256既存値）、未解決LR2（MD5生値）、解決済み両hash、行交換後のセルコピー、列設定保存/復元、メニューコピーなし・先頭/末尾/連続separatorなし、設定Web actionとローカル操作/日付検索を維持。`CustomTableColumnFactoryTests`/`CustomTableColumnSettingsTests`、履歴read model/sort系列、`MainWindowPlayHistoryWpfTests` に分担し、削除したcopy actionテストを新列コピーへ置換する。
-
-### ライブラリツリーの末尾separator
-
-**現存。正確な対象はrootメニュー。** `BeMusicSeeker/Views/MainWindow/MainWindow.xaml` の `treeViewLibraryFolderRootContextMenu` はReload、Reinitialize_library、末尾Separatorの3項目で、separatorの後に項目がない。ここを削除する。別の `treeViewLibraryFolderContextMenu` はseparator後にExplorer等があり、同名に近いことを理由に削らない。
-
-メニュー定義一箇所の削除で足り、動的separator管理器は不要。`MainWindowTreePresentationWpfTests` の実rootメニュー代表または既存のcompiledメニュー検証で残る2操作の到達と末尾separatorなしを確認する。削除のためだけの多層テストは増やさない。履歴メニュー変更とXAMLが重なるため同担当または順次統合。
 
 ## U05 ツリーのdrop・編集とフォルダ識別
 

@@ -72,7 +72,7 @@ public sealed class MainWindowTreePresentationWpfTests
         });
     }
 
-    /// <summary>通常フォルダとrootの再読込み入口で操作失敗を一回通知し、詳細は実ログだけへ残します。所有されない取消も通知し、終了要求による取消だけを静穏に終えます。</summary>
+    /// <summary>通常フォルダとrootの再読込み入口で操作失敗を一回通知し、所有された終了取消だけを静穏に終えます。rootの末尾区切りなしとfolderの合法な区切り、両メニューの2操作配送も維持します。</summary>
     [DataTestMethod]
     [DataRow(false, false)] // 普通の失敗は一回ずつ通知し、次の要求へ過去の失敗を持ち越しません。
     [DataRow(true, false)] // 終了要求のない取消は実失敗として通知します。
@@ -112,6 +112,11 @@ public sealed class MainWindowTreePresentationWpfTests
                     {
                         var normalMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
                         var rootMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderRootContextMenu");
+                        Assert.IsTrue(rootMenu.Items.Count > 0); Assert.IsFalse(rootMenu.Items[rootMenu.Items.Count - 1] is Separator);
+                        Control[] folderItems = normalMenu.Items.OfType<Control>().ToArray();
+                        Assert.IsTrue(folderItems.OfType<Separator>().Any(), "folderメニューは後続操作を区切るseparatorを保ちます。");
+                        Assert.IsFalse(folderItems[0] is Separator); Assert.IsFalse(folderItems[^1] is Separator);
+                        for (int i = 1; i < folderItems.Length; i++) { Assert.IsFalse(folderItems[i] is Separator && folderItems[i - 1] is Separator); }
                         MenuItem[] normal = normalMenu.Items.OfType<MenuItem>().Take(2).ToArray();
                         reloadEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(normal[0]));
                         reinitializeEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(normal[1]));

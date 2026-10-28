@@ -271,7 +271,7 @@ LR2互換性警告画面は LR2連携モード・単独動作モード の両方
 | 13 | `PlayHistoryPlayExscore` | `PLAY EXSCORE` | 100 |
 | 14 | `PlayHistoryJudges` | `JUDGES` | 180 |
 
-`ARTIST`, `SHA256`, `RAW HASH`, `FINALIZED` などは、ヘッダーの右クリックメニューから表示できる補助列として保持します。`PROVIDER` / `SOURCE` 系は内部判定用の列設定として保持しますが、利用者向けの通常メニューには出しません。
+`ARTIST`, `MD5 HASH`, `SHA256`, `RAW HASH`, `FINALIZED` などは、ヘッダーの右クリックメニューから表示できる補助列として保持します。MD5は既存 `Hash` レイアウトを使い、履歴の `Md5` 値を表示・並べ替え・通常コピーへ渡します。SHA256と取得元の生hashは別の列として維持します。既存設定の幅・位置・可視性を変えず、未設定の表示位置だけを補完します。`PROVIDER` / `SOURCE` 系は内部判定用の列設定として保持しますが、利用者向けの通常メニューには出しません。
 
 ### 初期非表示の列
 
@@ -349,6 +349,7 @@ URL1/URL2の役割は保存済みの `Width` だけから復元し、別の表�
 | 候補の印と長い導入先の省略表示 | `CustomTableColumnFactory`、`CustomTableSurface` | [`CustomTablePhase6CacheTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTablePhase6CacheTests.cs) の `InstallDestinationCell_RendersCandidateMarkerInsideNarrowCell`: 幅250px・既定行高で実列を描画し、候補0・1・2件と設定先有無について、長いパスが省略されても候補の印の字形がセルのクリップ内に残ることを確認する。 |
 | 省略判定と描画の書体・文字列の一致 | [`CustomTableTextLayoutCache`](../../../BeMusicSeeker/Views/CustomTable/CustomTableTextLayoutCache.cs) | [`CustomTableTextLayoutCacheTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableTextLayoutCacheTests.cs) |
 | 主一覧・サマリーの初期化確認と所有イベント終端 | [`MainWindowColumnResetTerminal`](../../../BeMusicSeeker/Views/MainWindow/MainWindowFeatureTerminals.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowChartPresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs) の `MainColumnResetClickUsesActualCompiledMenuRoute` が対象とコールバックの接続を確認する。明示的なOK限定と呼出し前・`await`失敗の所有`catch`は静的配線点検に分担する。 |
+| 履歴MD5列の既存設定互換・表示切替 | `CustomTableColumnSettings.Hash`、`CustomTableColumnFactory`、履歴列メニュー | `CustomTableColumnSettingsTests.PlayHistoryHashLayouts_SaveAndReloadWithoutChangingExistingChoices` はMD5/SHA/RAW/Titleの専用provider保存・新wrapper読戻し・補完後の実列、`EnsurePlayHistoryColumnDefaults_CompletesMissingLayoutsWithoutOverwritingExistingChoices` は旧設定のHash位置未設定だけを補うことを確認する。実列メニューとhash値・通常コピーの分担は[履歴の対応表](../playlist/play-history.md#実装とテストの対応)へ集約する。 |
 
 ## 関連資料
 

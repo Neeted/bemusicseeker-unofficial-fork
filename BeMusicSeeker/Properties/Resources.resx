@@ -1698,15 +1698,6 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   <data name="Error_PlayHistoryFolderPresetNoPlaylist" xml:space="preserve">
     <value>プレイログ FOLDER 表示プリセットにはプレイリストを 1 つ以上選択してください: {0}</value>
   </data>
-  <data name="Play_history_copy_md5" xml:space="preserve">
-    <value>MD5 をコピー</value>
-  </data>
-  <data name="Play_history_copy_sha256" xml:space="preserve">
-    <value>SHA256 をコピー</value>
-  </data>
-  <data name="Play_history_copy_raw_hash" xml:space="preserve">
-    <value>RAW HASH をコピー</value>
-  </data>
   <data name="Play_history_add_date_range_to_search" xml:space="preserve">
     <value>検索に期間を追加</value>
   </data>

@@ -859,12 +859,6 @@ public class Resources
 
     public static string Error_PlayHistoryFolderPresetNoPlaylist => ResourceManager.GetString("Error_PlayHistoryFolderPresetNoPlaylist", resourceCulture);
 
-    public static string Play_history_copy_md5 => ResourceManager.GetString("Play_history_copy_md5", resourceCulture);
-
-    public static string Play_history_copy_sha256 => ResourceManager.GetString("Play_history_copy_sha256", resourceCulture);
-
-    public static string Play_history_copy_raw_hash => ResourceManager.GetString("Play_history_copy_raw_hash", resourceCulture);
-
     public static string Play_history_add_date_range_to_search => ResourceManager.GetString("Play_history_add_date_range_to_search", resourceCulture);
 
     public static string Msg_confirm_lr2_play_history_schema_install_or_repair => ResourceManager.GetString("Msg_confirm_lr2_play_history_schema_install_or_repair", resourceCulture);

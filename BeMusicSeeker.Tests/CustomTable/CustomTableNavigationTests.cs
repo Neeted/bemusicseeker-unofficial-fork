@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -15,6 +16,52 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomTableNavigationTests
 {
+    /// <summary>実Ctrl+Cが実履歴列の現在行の値を使い、複数選択の副行や交換前sourceを使わないことを確認します。factoryの生値を記録した専用例外でClipboard前に止め、キー配送と値投影を分担します。</summary>
+    [DataTestMethod]
+    [DataRow("Hash")]
+    [DataRow("Sha256")]
+    public void PlayHistoryCopyCurrentCell_UsesLatestSelectedRowAndReplacementSource(string columnId)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            string[] hashes = [new string('a', 32), new string('b', 32), new string('e', 32)];
+            string[] sha256 = [new string('c', 64), new string('d', 64), new string('f', 64)];
+            PlayHistoryProjectionIndex index = PlayHistoryCatalogTestSupport.Create([], hashes.Select((hash, i) => (hash, sha: sha256[i])).ToDictionary(pair => pair.hash, pair => pair.sha));
+            PlayHistoryRow[] rows = [.. PlayHistoryRow.ProjectLr2Rows(new Lr2PlayHistoryReadResult(PlayHistorySourceProfile.Lr2("score.db"),
+                [.. hashes.Select((hash, i) => new Lr2PlayHistoryRecord { hash = hash, history_id = i + 1, played_at = 1000 + i })],
+                [], Lr2PlayHistorySchemaStatus.Installed), index).Rows];
+            var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+            settings.Hash.Visibility = settings.Sha256.Visibility = Visibility.Visible;
+            CustomTableColumn actual = CustomTableColumnFactory.CreateMainColumns(settings).Single(column => column.Id == columnId);
+            var visits = new List<(object Row, string Text)>();
+            var sentinel = new InvalidOperationException("現在セルの観測を終え、Clipboard前で停止します。");
+            var probe = new CustomTableColumn(actual.Id, actual.Header, actual.Layout, actual.FallbackOrder, actual.SortMemberPath, actual.Alignment,
+                actual.GetText, editTextSelector: row => { visits.Add((row, actual.GetEditText(row))); throw sentinel; });
+            CustomTableView table = CreateTable([probe]);
+            try
+            {
+                table.ItemsSource = new[] { rows[0], rows[1] };
+                table.SelectedIndex = 0; Copy(0);
+                table.SelectRowsByPredicate(_ => true, row => ReferenceEquals(row, rows[1])); Copy(1);
+                table.ItemsSource = new[] { rows[2] };
+                table.SelectedIndex = -1;
+                table.SelectedIndex = 0; Copy(2);
+
+                void Copy(int expected)
+                {
+                    object[] selection = [.. table.GetSelectedRowsSnapshot()];
+                    int primary = table.SelectedIndex;
+                    int count = visits.Count;
+                    Assert.AreSame(sentinel, Assert.ThrowsException<InvalidOperationException>(() => table.HandleKeyDown(Key.C, ModifierKeys.Control)));
+                    Assert.AreEqual(count + 1, visits.Count); Assert.AreSame(rows[expected], visits[^1].Row);
+                    Assert.AreEqual(columnId == "Hash" ? hashes[expected] : sha256[expected], visits[^1].Text);
+                    Assert.AreEqual(primary, table.SelectedIndex); CollectionAssert.AreEqual(selection, table.GetSelectedRowsSnapshot().ToArray());
+                }
+            }
+            finally { table.ItemsSource = null; }
+        });
+    }
+
     /// <summary>実Ctrl+Shift+Cが空値の先頭選択行も可視列順でTSVへ渡し、非選択行を読まず選択を保つことを確認します。主行の最終列で専用例外を送出し、Ctrl+Cへの誤接続時もOS Clipboardへ到達させません。</summary>
     [TestMethod]
     public void CopySelectedRowsShortcut_VisitsEmptyAndNonemptySelectedRowsInVisibleColumnOrder()

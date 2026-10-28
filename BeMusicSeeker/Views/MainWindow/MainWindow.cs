@@ -7193,64 +7193,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     item.Visibility = state?.CanOpenScoreViewer == true ? Visibility.Visible : Visibility.Collapsed;
                     item.IsEnabled = state?.CanOpenScoreViewer == true && LongPathFileSystem.FileExists(state.ChartPath);
                     break;
-                case "playHistoryContextMenuSeparatorHash":
-                    item.Visibility = state != null
-                        && (hasConfiguredWebActions || state.HasLocalChartItem)
-                        && state.HasHashCopyItem
-                        ? Visibility.Visible
-                        : Visibility.Collapsed;
-                    break;
-                case "playHistoryContextMenuItemCopyMd5":
-                    item.Visibility = state?.CanCopyMd5 == true ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = state?.CanCopyMd5 == true;
-                    break;
-                case "playHistoryContextMenuItemCopySha256":
-                    item.Visibility = state?.CanCopySha256 == true ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = state?.CanCopySha256 == true;
-                    break;
                 case "playHistoryContextMenuItemAddDateRangeToSearch":
                     item.Visibility = playHistoryDateSearchSnapshot != null ? Visibility.Visible : Visibility.Collapsed;
                     item.IsEnabled = playHistoryDateSearchSnapshot != null;
                     break;
             }
         }
+        CollapseRedundantTableContextMenuSeparators(contextMenu);
     }
 
     private void playHistoryContextMenuClosed(object sender, RoutedEventArgs e)
     {
         playHistoryDateSearchSnapshot = null;
         ResetPlayHistoryDateSearchMenuItem(sender as ContextMenu);
-    }
-
-    private async void playHistoryContextMenuItemCopyHashClick(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            if (sender is not MenuItem { Tag: string copyKind })
-            {
-                return;
-            }
-
-            PlayHistoryContextMenuActionKind? actionKind = copyKind switch
-            {
-                PlayHistoryContextMenuState.CopyMd5Kind => PlayHistoryContextMenuActionKind.CopyMd5,
-                PlayHistoryContextMenuState.CopySha256Kind => PlayHistoryContextMenuActionKind.CopySha256,
-                _ => null
-            };
-            if (!actionKind.HasValue
-                || !TryGetPlayHistoryContextMenuAction(sender, actionKind.Value, out PlayHistoryContextMenuAction action)
-                || string.IsNullOrWhiteSpace(action.Value))
-            {
-                return;
-            }
-
-            Clipboard.SetText(action.Value);
-            e.Handled = true;
-        }
-        catch (Exception exception)
-        {
-            await NotifyMainWindowOperationFailureAsync(exception, "playHistoryContextMenuItemCopyHashClick");
-        }
     }
 
     private void playHistoryContextMenuItemAddDateRangeToSearchClick(object sender, RoutedEventArgs e)

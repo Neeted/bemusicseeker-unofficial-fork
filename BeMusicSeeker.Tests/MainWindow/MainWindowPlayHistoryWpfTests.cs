@@ -23,6 +23,38 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class MainWindowPlayHistoryWpfTests
 {
+    /// <summary>実compiled履歴列メニューのMD5チェックが同じ設定の可視性と表の実列へ双方向反映されることを確認します。初期化と保存主体は既存列設定系列へ分担します。</summary>
+    [TestMethod]
+    public void PlayHistoryColumnMenu_TogglesMd5ColumnThroughCompiledBinding()
+    {
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(MainWindowViewModelTestFactory.CreateIsolatedSettings(), (scope, vm, window) =>
+        {
+            MainWindowPresentationTestHarness.ShowCompiledContent(scope, vm, window);
+            var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+            vm.MainChartList.ApplyRows(new MainChartListRowsApplyRequest
+            {
+                Rows = new[] { CreateResolvedPlayHistoryRow() },
+                ColumnsSettings = settings,
+                SelectionPolicy = MainChartListSelectionPolicy.Reset,
+                Summary = MainChartListSummaryUpdate.Preserve(),
+                Stopwatch = System.Diagnostics.Stopwatch.StartNew()
+            });
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            var table = (CustomTableView)window.FindName("customTableView");
+            var menu = (ContextMenu)window.FindResource("playHistoryColumnHeaderContextMenu");
+            MenuItem md5 = menu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, "MD5 HASH"));
+            Assert.IsTrue(System.Windows.Data.BindingOperations.IsDataBound(md5, MenuItem.IsCheckedProperty));
+            foreach (bool visible in new[] { true, false })
+            {
+                md5.SetCurrentValue(MenuItem.IsCheckedProperty, visible);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(visible ? Visibility.Visible : Visibility.Hidden, settings.Hash.Visibility);
+                Assert.AreEqual(visible, table.VisibleColumns.Any(column => column.Id == "Hash"));
+                Assert.AreSame(settings, table.ColumnsSettings);
+            }
+        });
+    }
+
     /// <summary>履歴の有効化/解除に実dropdownの表示が追随し、保存した表示対象の選択変更が主体へ戻ることを確認し、履歴状態とcompiled双方向Bindingの切断を検出します。</summary>
     [TestMethod]
     public void PlayHistoryDisplayTargetDropdown_BindsToPlayHistoryViewState()
@@ -448,7 +480,7 @@ public sealed class MainWindowPlayHistoryWpfTests
             });
     }
 
-    /// <summary>主行が未解決で副行だけ所持譜面でも主行のローカル操作は出さず期間操作を保つことを確認し、副行の能力を主行へ混ぜる誤りを検出します。</summary>
+    /// <summary>空hashの主行もstate/inputとして受理し、副行だけ所持譜面でも主行のローカル3操作は出さず期間操作と行文脈を保つことを確認し、副行の能力を主行へ混ぜる誤りを検出します。</summary>
     [TestMethod]
     public void PlayHistoryContextMenu_DoesNotInferPrimaryActionsFromSecondaryRows()
     {
@@ -467,16 +499,30 @@ public sealed class MainWindowPlayHistoryWpfTests
                     _ => true,
                     row => ReferenceEquals(row, primary));
 
-                Assert.IsFalse(viewModel.PlayHistory.TryCreateContextMenuState(primary, out _));
-                Assert.IsTrue(viewModel.PlayHistory.TryCreateContextMenuState(secondary, out _));
+                Assert.IsTrue(viewModel.PlayHistory.TryCreateContextMenuState(primary, out PlayHistoryContextMenuState primaryState));
+                Assert.AreEqual(string.Empty, primaryState.Md5);
+                Assert.AreEqual(string.Empty, primaryState.Sha256);
+                Assert.AreEqual(string.Empty, primaryState.ChartPath);
+                Assert.IsFalse(primaryState.CanOpenAssociated);
+                Assert.IsFalse(primaryState.CanOpenExplorer);
+                Assert.IsFalse(primaryState.CanOpenScoreViewer);
+                Assert.IsTrue(viewModel.PlayHistory.TryCreateRightClickActionResolutionInput(primary, _ => true, out RightClickActionResolutionInput primaryInput));
+                Assert.AreEqual(string.Empty, primaryInput.Md5);
+                Assert.AreEqual(string.Empty, primaryInput.Sha256);
+                Assert.IsNull(primaryInput.LocalFilePath);
+                Assert.IsTrue(viewModel.PlayHistory.TryCreateContextMenuState(secondary, out PlayHistoryContextMenuState secondaryState));
+                Assert.IsTrue(secondaryState.CanOpenAssociated);
+                Assert.IsTrue(secondaryState.CanOpenExplorer);
+                Assert.IsTrue(secondaryState.CanOpenScoreViewer);
                 RaiseMenuOpened(playHistoryMenu, table, primary, 0);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 MenuItem dateRange = FindMenuItem(playHistoryMenu, "playHistoryContextMenuItemAddDateRangeToSearch");
                 Assert.AreEqual(Visibility.Visible, dateRange.Visibility);
-                Assert.AreEqual(
-                    Visibility.Collapsed,
-                    FindMenuItem(playHistoryMenu, "playHistoryContextMenuItemOpenExplorer").Visibility);
+                foreach (string name in new[] { "playHistoryContextMenuItemOpenAssociated", "playHistoryContextMenuItemOpenExplorer", "playHistoryContextMenuItemRegisterScore" })
+                {
+                    Assert.AreEqual(Visibility.Collapsed, FindMenuItem(playHistoryMenu, name).Visibility, name);
+                }
                 Assert.AreSame(primary, ((CustomTableContextMenuContext)playHistoryMenu.Tag).Row);
                 RaiseMenuClosed(playHistoryMenu);
             });
@@ -559,11 +605,12 @@ public sealed class MainWindowPlayHistoryWpfTests
             });
     }
 
-    /// <summary>所持bmson履歴で利用者のbmson専用MD5 Web操作を名前通り表示することを確認し、BMS専用条件で登録済みのbmson操作を落とす誤りを検出します。</summary>
+    /// <summary>所持bmson履歴のMD5 Web操作を表示し、実クリックが本来の両hashとactionIDへ一回届くことを確認します。copy専用項目なしと合法なseparatorも維持します。</summary>
     [TestMethod]
     public void PlayHistoryBmsonRowOffersConfiguredMd5WebAction()
     {
         const string actionName = "Bmson MD5";
+        var calls = new List<(RightClickActionResolutionInput Input, ConfiguredExternalActionKind Kind, string Id)>();
         Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
         settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
             new RightClickActionSettings(
@@ -593,15 +640,20 @@ public sealed class MainWindowPlayHistoryWpfTests
                 MenuItem webAction = FindMenuItem(playHistoryMenu, "configuredWebAction_bmson_md5");
                 Assert.AreEqual(actionName, webAction.Header);
                 Assert.AreEqual(Visibility.Visible, webAction.Visibility);
+                AssertHistoryMenuShape(playHistoryMenu);
+                webAction.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, webAction));
+                Assert.AreEqual(1, calls.Count); Assert.AreEqual("bmson-md5", calls[0].Id); Assert.AreEqual(ConfiguredExternalActionKind.Web, calls[0].Kind);
+                Assert.AreEqual(resolved.Md5, calls[0].Input.Md5); Assert.AreEqual(resolved.Sha256, calls[0].Input.Sha256);
                 RaiseMenuClosed(playHistoryMenu);
-            });
+            }, selectedChartContextMenuTerminals: CreateHistoryTerminals(settings, (input, kind, id) => calls.Add((input, kind, id))));
     }
 
-    /// <summary>kind不明の未解決beatoraja履歴には全kindのSHA256 Web操作だけを出しkind限定操作は出さないことを確認し、未知kindへ一方の能力を推測する誤りを検出します。</summary>
+    /// <summary>未解決beatorajaは全kindのSHA256 Web操作だけを表示し、実クリックでもMD5空/SHA正値を維持します。未知kindの推測、copy専用項目の残留と不正なseparatorを検出します。</summary>
     [TestMethod]
     public void PlayHistoryUnresolvedBeatorajaRowOffersOnlyWebActionsForBothChartKinds()
     {
         const string allKindsName = "All kinds";
+        var calls = new List<(RightClickActionResolutionInput Input, string Id)>();
         Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
         settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
             new RightClickActionSettings(
@@ -649,15 +701,21 @@ public sealed class MainWindowPlayHistoryWpfTests
                 MenuItem allKinds = FindMenuItem(playHistoryMenu, "configuredWebAction_all_kinds");
                 Assert.AreEqual(allKindsName, allKinds.Header);
                 Assert.AreEqual(Visibility.Visible, allKinds.Visibility);
+                AssertHistoryMenuShape(playHistoryMenu);
+                allKinds.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, allKinds));
+                Assert.AreEqual(1, calls.Count); Assert.AreEqual("all-kinds", calls[0].Id);
+                Assert.AreEqual(string.Empty, calls[0].Input.Md5); Assert.AreEqual(unresolved.Sha256, calls[0].Input.Sha256); Assert.IsNull(calls[0].Input.LocalFilePath);
                 RaiseMenuClosed(playHistoryMenu);
-            });
+            }, selectedChartContextMenuTerminals: CreateHistoryTerminals(settings, (input, _, id) => calls.Add((input, id))));
     }
 
-    /// <summary>実在ファイルへ解決した履歴では関連付け操作を表示して有効にすることを確認し、履歴の所持譜面へ操作できなくなるcompiledメニュー接続漏れを検出します。</summary>
+    /// <summary>実在ファイルへ解決した履歴の関連付け操作を表示し、実クリックから同じ譜面targetへ一回配送します。OS起動は端末で止め、copy項目なしと合法なseparatorを確認します。</summary>
     [TestMethod]
     public void PlayHistoryResolvedRowOffersAssociatedOpenForExistingFile()
     {
         Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(new RightClickActionSettings([], []));
+        var calls = new List<(ChartOperationTarget Target, SelectedChartExternalActionKind Kind)>();
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
             settings,
             (scope, viewModel, window) =>
@@ -679,8 +737,41 @@ public sealed class MainWindowPlayHistoryWpfTests
                     "playHistoryContextMenuItemOpenAssociated");
                 Assert.AreEqual(Visibility.Visible, associated.Visibility);
                 Assert.IsTrue(associated.IsEnabled);
+                AssertHistoryMenuShape(playHistoryMenu);
+                associated.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, associated));
+                Assert.AreEqual(1, calls.Count); Assert.AreEqual(SelectedChartExternalActionKind.OpenFile, calls[0].Kind);
+                Assert.AreSame(resolved.ResolvedChart, calls[0].Target.Chart);
                 RaiseMenuClosed(playHistoryMenu);
-            });
+            }, selectedChartContextMenuTerminals: CreateHistoryTerminals(settings, (_, _, _) => Assert.Fail("関連付け操作を設定Web操作へ渡しません。"), (target, kind) => calls.Add((target, kind))));
+    }
+
+    private static void AssertHistoryMenuShape(ContextMenu menu)
+    {
+        Assert.IsFalse(menu.Items.OfType<MenuItem>().Any(item => item.Name is "playHistoryContextMenuItemCopyMd5" or "playHistoryContextMenuItemCopySha256"));
+        Control[] visible = menu.Items.OfType<Control>().Where(item => item.Visibility == Visibility.Visible).ToArray();
+        if (visible.Length == 0) { return; }
+        Assert.IsFalse(visible[0] is Separator); Assert.IsFalse(visible[^1] is Separator);
+        for (int i = 1; i < visible.Length; i++) { Assert.IsFalse(visible[i] is Separator && visible[i - 1] is Separator); }
+    }
+
+    // 実resolverの現在設定で表示し、実クリックから端末へ届く入力だけを捕捉します。OS起動は行いません。
+    private static MainWindowSelectedChartContextMenuTerminals CreateHistoryTerminals(Settings settings,
+        Action<RightClickActionResolutionInput, ConfiguredExternalActionKind, string> configured,
+        Action<ChartOperationTarget, SelectedChartExternalActionKind>? local = null)
+    {
+        var external = new MainWindowSelectedChartExternalActionsTerminal(
+            (target, kind) => kind == SelectedChartExternalActionKind.OpenFile && target.HasCapability(ChartOperationCapabilities.OpenFile),
+            (target, kind) => { if (local == null) { Assert.Fail("未指定のローカル操作です。"); } else { local(target, kind); } },
+            _ => false, (_, _) => Task.FromResult(RelatedDocumentQueryReceipt.Unavailable), _ => throw new AssertFailedException("関連文書は対象外です。"),
+            _ => throw new AssertFailedException("履歴の専用入力経路を使います。"),
+            input => { RightClickActionSettingsParseResult parsed = RightClickActionSettingsSerializer.Parse(settings.RightClickActionsJson); Assert.IsTrue(parsed.Succeeded); return RightClickActionResolver.Resolve(parsed.Settings, input); },
+            (input, kind, id) => { configured(input, kind, id); return ExternalConfiguredActionResult.Success; });
+        return new MainWindowSelectedChartContextMenuTerminals(
+            new MainWindowSelectedChartMutationTerminal(_ => throw new AssertFailedException(), _ => throw new AssertFailedException(), _ => throw new AssertFailedException(), _ => throw new AssertFailedException()),
+            new MainWindowSelectedChartResourceHealthTerminal(_ => throw new AssertFailedException(), (_, _) => throw new AssertFailedException()),
+            new MainWindowSelectedChartAudioConversionTerminal((_, _) => throw new AssertFailedException()),
+            new MainWindowChartInfoParseFailureRemovalTerminal(_ => throw new AssertFailedException()),
+            new MainWindowScoreViewerTerminal(_ => false, _ => false, (_, _) => throw new AssertFailedException(), (_, _, _) => throw new AssertFailedException()), external);
     }
 
     private static IReadOnlyList<T> FindVisualChildren<T>(DependencyObject root)

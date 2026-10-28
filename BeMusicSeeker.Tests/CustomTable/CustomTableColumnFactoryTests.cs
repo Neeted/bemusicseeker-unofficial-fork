@@ -18,6 +18,69 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomTableColumnFactoryTests
 {
+    /// <summary>LR2/beatorajaの実履歴投影からMD5/SHA256/RAW列へ本来の値だけを渡し、所持譜面解決・未解決・SHA単独のmetadata取得でも表示/セルコピー/TSVを一致させます。metadata取得をローカル解決と混同し、SHAをMD5へ代用する誤りを検出します。</summary>
+    [DataTestMethod]
+    [DataRow("lr2-resolved")]
+    [DataRow("beatoraja-resolved")]
+    [DataRow("lr2-unresolved")]
+    [DataRow("beatoraja-unresolved")]
+    [DataRow("beatoraja-sha-only")]
+    public void PlayHistoryHashColumns_UseProjectedHashKindsWithoutFallback(string scenario)
+    {
+        string md5 = new string('b', 32);
+        string sha256 = new string('c', 64);
+        bool lr2 = scenario.StartsWith("lr2", StringComparison.Ordinal);
+        bool shaOnly = scenario.EndsWith("sha-only", StringComparison.Ordinal);
+        bool resolved = !scenario.EndsWith("unresolved", StringComparison.Ordinal) && !shaOnly;
+        ChartFile chart = ChartTestValues.Empty(lr2 ? ChartFileKind.Bms : ChartFileKind.Bmson) with { Path = lr2 ? @"C:\history\chart.bms" : @"C:\history\chart.bmson", Md5 = md5, Sha256 = sha256, RawTitle = "History chart" };
+        int metadataRequests = 0;
+        var metadata = new ChartDetails { sha256 = sha256, md5 = string.Empty };
+        PlayHistoryProjectionIndex index = shaOnly
+            ? PlayHistoryCatalogTestSupport.Create([], chartInfoResolver: (requestedSha256, requestedMd5) =>
+            {
+                metadataRequests++;
+                Assert.AreEqual(sha256, requestedSha256);
+                Assert.AreEqual(string.Empty, requestedMd5);
+                return requestedSha256 == sha256 && requestedMd5 == string.Empty ? metadata : null;
+            })
+            : resolved ? PlayHistoryCatalogTestSupport.Create([chart]) : PlayHistoryProjectionIndex.Empty;
+        PlayHistoryRow row = lr2
+            ? PlayHistoryRow.ProjectLr2Rows(new Lr2PlayHistoryReadResult(PlayHistorySourceProfile.Lr2("score.db"),
+                [new Lr2PlayHistoryRecord { history_id = 1, hash = md5, played_at = 1000 }], [], Lr2PlayHistorySchemaStatus.Installed), index).Rows.Single()
+            : PlayHistoryRow.ProjectBeatorajaRows(new BeatorajaPlayHistoryReadResult(PlayHistorySourceProfile.Beatoraja("score.db"),
+                [new BeatorajaPlayHistoryRecord { history_id = 1, sha256 = sha256, played_at = 1000 }], [], Lr2PlayHistorySchemaStatus.Installed), index).Rows.Single();
+        Assert.AreEqual(resolved, row.ResolvedChart != null);
+        if (shaOnly)
+        {
+            Assert.IsNull(row.ResolvedChart);
+            Assert.AreEqual(1, metadataRequests);
+            Assert.AreEqual(PlayHistoryHashKind.Chart, row.HashKind, "所持譜面なしでもmatching metadataの取得を反映する必要があります。");
+        }
+        string expectedMd5 = lr2 || resolved ? md5 : string.Empty;
+        string expectedSha = !lr2 || resolved ? sha256 : string.Empty;
+        Assert.AreEqual(expectedMd5, row.Md5);
+        Assert.AreEqual(expectedSha, row.Sha256);
+        Assert.AreEqual(lr2 ? md5 : sha256, row.RawHash);
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+        settings.Hash.Visibility = settings.Sha256.Visibility = settings.PlayHistoryRawHash.Visibility = Visibility.Visible;
+        var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
+        foreach ((string id, string expected) in new[] { ("Hash", expectedMd5), ("Sha256", expectedSha), ("RawHash", lr2 ? md5 : sha256) })
+        {
+            CustomTableColumn column = columns[id];
+            Assert.AreEqual(expected, column.GetText(row));
+            Assert.AreEqual(expected, CustomTableDataTransfer.BuildCellText(row, column));
+            Assert.IsTrue(CustomTableDataTransfer.TryBuildTsv([row], [column], out string text)); Assert.AreEqual(expected, text);
+        }
+        Assert.AreEqual(nameof(PlayHistoryRow.Md5), columns["Hash"].SortMemberPath);
+        if (scenario == "lr2-resolved")
+        {
+            PlayHistoryRow lower = PlayHistoryRow.ProjectLr2Rows(new Lr2PlayHistoryReadResult(PlayHistorySourceProfile.Lr2("score.db"),
+                [new Lr2PlayHistoryRecord { history_id = 2, hash = new string('a', 32), played_at = 2000 }], [], Lr2PlayHistorySchemaStatus.Installed), PlayHistoryProjectionIndex.Empty).Rows.Single();
+            Assert.IsTrue(PlayHistorySortEngine.TrySort([lower, row], new ChartListSortParameters { ColumnsName = columns["Hash"].SortMemberPath, Direction = System.ComponentModel.ListSortDirection.Descending }, out List<PlayHistoryRow> sorted, out _));
+            CollectionAssert.AreEqual(new[] { row, lower }, sorted);
+        }
+    }
+
     /// <summary>利用者設定で題名を非表示にし、判定列を先頭・指定幅に変えて列生成へ反映することを確認し、列配置を既定値へ戻す誤りを検出します。</summary>
     [TestMethod]
     public void CreateMainColumns_ReflectsVisibilityWidthAndDisplayIndex()

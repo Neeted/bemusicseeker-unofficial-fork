@@ -486,7 +486,8 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("OpHistory", "OP HISTORY", settings.PlayHistoryOpHistory, 12, "OpHistory", TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.OpHistory))),
             new CustomTableColumn("PlayExscore", "PLAY EXSCORE", settings.PlayHistoryPlayExscore, 13, "PlayExscore", TextAlignment.Right, row => GetString(row, nameof(PlayHistoryRow.PlayExscore))),
             new CustomTableColumn("Judges", "JUDGES", settings.PlayHistoryJudges, 14, "JudgeTotal", TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.Judges))),
-            new CustomTableColumn("Sha256", "SHA256", settings.Sha256, 15, nameof(PlayHistoryRow.Sha256), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.Sha256)), maxWidth: 480),
+            new CustomTableColumn("Hash", "MD5 HASH", settings.Hash, 20, nameof(PlayHistoryRow.Md5), TextAlignment.Center, row => (row as PlayHistoryRow)?.Md5, maxWidth: 240),
+            new CustomTableColumn("Sha256", "SHA256", settings.Sha256, 15, nameof(PlayHistoryRow.Sha256), TextAlignment.Center, row => (row as PlayHistoryRow)?.Sha256, maxWidth: 480),
             new CustomTableColumn("RawHash", "RAW HASH", settings.PlayHistoryRawHash, 18, nameof(PlayHistoryRow.RawHash), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.RawHash)), maxWidth: 240),
             new CustomTableColumn("Finalized", "FINALIZED", settings.PlayHistoryFinalized, 19, nameof(PlayHistoryRow.Finalized), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.Finalized)))
         ];

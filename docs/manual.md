@@ -1268,7 +1268,7 @@ The drop-down menu at the top-right of the Play Log view switches the display ta
 
 ### Play Log Context Menu
 
-The play-log context menu uses the same configured `Open web pages` entries, order, and chart-kind rules as the normal list. Hash-only rows expose those entries; rows resolved to a local chart can use `Open with a program`. Explorer, chart viewer, and MD5 / SHA256 copy operations remain available.
+The play-log context menu uses the same configured `Open web pages` entries, order, and chart-kind rules as the normal list. Hash-only rows expose those entries; rows resolved to a local chart can use `Open with a program`. Explorer and chart viewer operations are also available. To copy MD5 or SHA256, show the `MD5 HASH` / `SHA256` columns from the header context menu, then use `Ctrl + C` for the current cell or `Ctrl + Shift + C` for the selected rows.
 
 Play-log rows that resolve to owned charts can be dragged onto a non-externally-synced playlist body or folder to add them. If the selection includes unresolved rows, that drag is not accepted as a playlist add operation.
 

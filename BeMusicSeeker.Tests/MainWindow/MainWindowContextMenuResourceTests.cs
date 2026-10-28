@@ -49,7 +49,7 @@ public sealed class MainWindowContextMenuResourceTests
         }
     }
 
-    /// <summary>解決済み履歴から関連付けパスと履歴scope・OpenFile能力を得ることを確認し、履歴操作から所持譜面への接続漏れを検出します。</summary>
+    /// <summary>解決済み履歴の関連付け/scoreviewer入力と未解決両方式の本来hashを維持し、ローカル操作だけを拒否します。path/MD5欠損は実索引で未解決となる入力として検証し、title空の既存受理とSHA→MD5代用の拒否を分けます。</summary>
     [TestMethod]
     public void PlayHistoryContextMenuOwnerCreatesAssociatedTargetForResolvedRow()
     {
@@ -60,12 +60,51 @@ public sealed class MainWindowContextMenuResourceTests
             row,
             PlayHistoryContextMenuActionKind.OpenAssociated,
             out PlayHistoryContextMenuAction associatedAction));
-        Assert.IsFalse(string.IsNullOrWhiteSpace(associatedAction.Path));
+        Assert.AreEqual(@"C:\BMS\play-history-resolved.bms", associatedAction.Path);
         Assert.IsTrue(owner.TryCreateAssociatedChartOperationTarget(
             row,
             out ChartOperationTarget target));
         Assert.AreEqual(ChartOperationSourceScope.PlayHistory, target.SourceScope);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
+        Assert.IsTrue(owner.TryCreateContextMenuAction(row, PlayHistoryContextMenuActionKind.RegisterScoreViewer, out PlayHistoryContextMenuAction score));
+        Assert.AreEqual(new string('c', 32), score.ScoreViewerTarget.Hash);
+        Assert.AreEqual(@"C:\BMS\play-history-resolved.bms", score.ScoreViewerTarget.Path);
+        Assert.AreEqual("Resolved Play History", score.ScoreViewerTarget.Title);
+        PlayHistoryRow unresolvedLr2 = PlayHistoryRow.ProjectLr2Rows(new Lr2PlayHistoryReadResult(PlayHistorySourceProfile.Lr2("score.db"),
+            [new Lr2PlayHistoryRecord { hash = new string('a', 32), history_id = 1, played_at = 1000 }], [], Lr2PlayHistorySchemaStatus.Installed), PlayHistoryProjectionIndex.Empty).Rows.Single();
+        PlayHistoryRow unresolvedBeatoraja = PlayHistoryRow.ProjectBeatorajaRows(new BeatorajaPlayHistoryReadResult(PlayHistorySourceProfile.Beatoraja("score.db"),
+            [new BeatorajaPlayHistoryRecord { sha256 = new string('b', 64), history_id = 2, played_at = 1000 }], [], Lr2PlayHistorySchemaStatus.Installed), PlayHistoryProjectionIndex.Empty).Rows.Single();
+        PlayHistoryRow missingPath = CreateResolvedPlayHistoryRow(change: file => file with { Path = string.Empty });
+        PlayHistoryRow missingMd5 = CreateResolvedPlayHistoryRow(change: file => file with { Md5 = string.Empty });
+        foreach ((PlayHistoryRow unresolved, string expectedMd5, string expectedSha256) in new[]
+        {
+            (unresolvedLr2, new string('a', 32), string.Empty),
+            (unresolvedBeatoraja, string.Empty, new string('b', 64)),
+            (missingPath, new string('c', 32), new string('d', 64)),
+            (missingMd5, new string('c', 32), new string('d', 64))
+        })
+        {
+            Assert.IsNull(unresolved.ResolvedChart);
+            Assert.AreEqual(string.Empty, unresolved.Path);
+            Assert.AreEqual(expectedMd5, unresolved.Md5);
+            Assert.AreEqual(expectedSha256, unresolved.Sha256);
+            Assert.IsTrue(owner.TryCreateContextMenuState(unresolved, out PlayHistoryContextMenuState state));
+            Assert.AreEqual(expectedMd5, state.Md5);
+            Assert.AreEqual(expectedSha256, state.Sha256);
+            Assert.AreEqual(string.Empty, state.ChartPath);
+            Assert.IsFalse(state.CanOpenAssociated);
+            Assert.IsFalse(state.CanOpenExplorer);
+            Assert.IsFalse(state.CanOpenScoreViewer);
+            Assert.IsTrue(owner.TryCreateRightClickActionResolutionInput(unresolved, _ => true, out RightClickActionResolutionInput input));
+            Assert.AreEqual(expectedMd5, input.Md5);
+            Assert.AreEqual(expectedSha256, input.Sha256);
+            Assert.IsNull(input.LocalFilePath);
+            foreach (PlayHistoryContextMenuActionKind kind in Enum.GetValues<PlayHistoryContextMenuActionKind>())
+            { Assert.IsFalse(owner.TryCreateContextMenuAction(unresolved, kind, out _)); }
+        }
+        PlayHistoryRow untitled = CreateResolvedPlayHistoryRow(change: file => file with { Title = string.Empty, RawTitle = string.Empty });
+        Assert.IsTrue(owner.TryCreateContextMenuAction(untitled, PlayHistoryContextMenuActionKind.RegisterScoreViewer, out score));
+        Assert.AreEqual(string.Empty, score.ScoreViewerTarget.Title);
     }
 
     /// <summary>解析失敗表示で有効MD5を選んだ場合だけ削除項目を出すことを確認し、別表示や空識別子から失敗記録を削除する誤りを検出します。</summary>
@@ -1220,7 +1259,7 @@ public sealed class MainWindowContextMenuResourceTests
             PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey(new Uri("https://www.mediafire.com/file/ar4aa9p35amxfer/%5BULTIMATE-lopears%5D-miyako.7z/file")));
     }
 
-    private static PlayHistoryRow CreateResolvedPlayHistoryRow(string hash = "cccccccccccccccccccccccccccccccc")
+    private static PlayHistoryRow CreateResolvedPlayHistoryRow(string hash = "cccccccccccccccccccccccccccccccc", Func<ChartFile, ChartFile>? change = null)
     {
         string sha256 = new string('d', 64);
         ChartFile file = ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(
@@ -1256,6 +1295,7 @@ public sealed class MainWindowContextMenuResourceTests
             ""
         ]));
         file = file with { Md5 = hash, Sha256 = sha256 };
+        if (change != null) { file = change(file); }
         PlayHistoryProjectionIndex projectionIndex = PlayHistoryCatalogTestSupport.Create(
             [file],
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [hash] = sha256 });

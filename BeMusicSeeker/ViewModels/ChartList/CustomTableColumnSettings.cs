@@ -1434,7 +1434,8 @@ public class CustomTableColumnSettings : NotificationObject
             PlayHistoryProvider,
             PlayHistorySource,
             PlayHistoryRawHash,
-            PlayHistoryFinalized
+            PlayHistoryFinalized,
+            Hash
         ];
     }
 
@@ -1529,6 +1530,7 @@ public class CustomTableColumnSettings : NotificationObject
         _ = ChartSoflan;
     }
 
+    /// <summary>履歴で使う欠損列だけを補い、MD5も既存Hash設定の幅・表示・順序を保持して未設定位置だけ付番します。</summary>
     public void EnsurePlayHistoryColumnDefaults()
     {
         Kind = ViewKind.PLAY_HISTORY;
