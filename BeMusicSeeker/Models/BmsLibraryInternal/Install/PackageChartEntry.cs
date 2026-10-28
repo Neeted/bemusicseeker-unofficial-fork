@@ -783,17 +783,26 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
     }
 
     /// <summary>一回捕捉した入力から共通基本値を直接構成します。</summary>
-    internal static PackageChartEntry FromPath(string filePath)
+    internal static PackageChartEntry FromPath(string filePath) => FromPath(filePath, out _);
+
+    /// <summary>一度読んだ入力から項目と発見専用のPREVIEWを返します。付帯値を長命の項目へ保持しません。</summary>
+    internal static PackageChartEntry FromPath(string filePath, out string preview) => FromPath(filePath, out preview, out _);
+
+    /// <summary>発見時だけ元の読取り失敗も返し、不完全なscopeを空の成功へ置換しないために使います。</summary>
+    internal static PackageChartEntry FromPath(string filePath, out string preview, out Exception failure)
     {
+        preview = string.Empty;
+        failure = null;
         try
         {
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
             return FromChart(ChartFileKindResolver.IsBmsonFilePath(filePath)
                 ? BmsonChartFileParser.ParseSnapshot(snapshot)
-                : BmsChartFileParser.ParseSnapshotWithEncodingDetection(snapshot));
+                : BmsChartFileParser.ParseSnapshotWithEncodingDetection(snapshot, out preview));
         }
-        catch
+        catch (Exception exception)
         {
+            failure = exception;
             return null;
         }
     }

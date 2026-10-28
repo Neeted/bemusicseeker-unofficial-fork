@@ -299,7 +299,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     }
 
     /// <summary>自動取り込みは全既所持と設定保留の新規対象を準備前に除外し、同じバッチの混在だけを推定します。新設定ONは混在の今回確定だけを導入し、OFFは推定までに留まり、除外した新規対象は手動推定できます。</summary>
-    /// <remarks>小さい実FS・SQLiteと本番ownerの受理からidleを通し、ON/OFFの準備到達・評価数・実導入・所持集合・保留DB・受付解放を観測します。Strong条件表と手動全既所持系列は既存のサービス・再グループ化テストへ分担します。</remarks>
+    /// <remarks>小さい実FS・SQLiteと本番ownerの受理からidleを通し、ON/OFFの準備到達・評価数・実導入・所持集合・保留DB・受付解放を観測します。Strong条件表と手動全既所持系列は既存のサービス・保留推定テストへ分担します。</remarks>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -404,12 +404,12 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         }
     }
 
-    /// <summary>推定可能な兄弟がなくても全既所持の分割入力を再グループ化します。登録後の取消では確定済み分割と保留行を維持し、どちらも推定準備・評価を開始しません。</summary>
-    /// <remarks>実ownerへ元ディレクトリだけを渡して発見・登録・公開・終端を通します。分割公開で取消し、通常行の再グループ化条件表は既存の直接系列へ分担します。</remarks>
+    /// <summary>全既所持の分割入力は通常完了と登録後取消のどちらも二つの単体保留・install行を維持し、推定準備・評価を開始しません。</summary>
+    /// <remarks>実ownerへ元ディレクトリだけを渡して発見・登録・公開・終端を通します。分割公開で取消し、通常完了でも同じ初期物理範囲を保つことを確認します。</remarks>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public async Task ProductionImport_AllOwnedSplitWithoutEstimableSiblingRegroupsUnlessCanceledAfterRegistration(bool cancelAfterRegistration)
+    public async Task ProductionImport_AllOwnedSplitKeepsInitialPackagesWithOrWithoutCancellation(bool cancelAfterRegistration)
     {
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         string libraryRoot = Path.Combine(root, "Library");
@@ -427,6 +427,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             File.WriteAllText(installedCharts[i], body, Encoding.ASCII);
             File.WriteAllBytes(Path.Combine(installed, sounds[i]), [1]);
         }
+        File.WriteAllText(Path.Combine(source, "readme.txt"), "unselected");
         string dbPath = Path.Combine(root, "song.db");
         File.WriteAllBytes(dbPath, []);
         var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, ScanBmsFilesOnStartup = true };
@@ -461,13 +462,13 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
             while (background.TryDequeue(out Func<Task>? work)) { await work(); }
             library.PropertyChanged += ObserveSplit;
-            Assert.IsTrue(owner.Enqueue([source]));
+            Assert.IsTrue(owner.Enqueue(sourceCharts));
             await owner.WaitForIdleAsync();
             Assert.IsFalse(publishedSplits.IsEmpty, "発見された2譜面を分割保留として公開してから継続します。");
             Assert.AreEqual(0, observer.Preparations.Count);
             Assert.AreEqual(0, observer.WorkCount);
-            Assert.AreEqual(cancelAfterRegistration ? 2 : 1, library.ChartPackagesPending.Count);
-            string[] expectedPaths = cancelAfterRegistration ? sourceCharts : [source];
+            Assert.AreEqual(2, library.ChartPackagesPending.Count);
+            string[] expectedPaths = sourceCharts;
             CollectionAssert.AreEquivalent(expectedPaths, library.ChartPackagesPending.Select(package => package.path).ToArray());
             using (LR2SongDBExtended db = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly())
             {
@@ -508,7 +509,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             finally
             {
                 try { while (background.TryDequeue(out Func<Task>? work)) { await work(); } }
-                finally { library.RequestShutdown("all-owned-regroup-test"); Directory.Delete(root, recursive: true); }
+                finally { library.RequestShutdown("all-owned-split-test"); Directory.Delete(root, recursive: true); }
             }
         }
     }

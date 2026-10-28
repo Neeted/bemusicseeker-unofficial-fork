@@ -609,114 +609,102 @@ internal sealed class BmsLibraryPackageInstallService
     }
 
     /// <summary>
-    /// ディレクトリ探索で見つかった譜面パッケージと、再統合候補ディレクトリをまとめて返します。
+    /// ディレクトリ探索で見つかった譜面パッケージの一覧を返します。
     /// 直下譜面を単体化した場合も子を探索し、ディレクトリ全体を一パッケージとした場合は包含済みの子を重複発見しません。
     /// </summary>
-    internal ChartPackageDiscoveryResult SearchChartPackagesRecursivelyWithMetadata(string dirfullpath, double dupRateThreshInOnePkg, bool recursive = false)
+    internal ChartPackageDiscoveryResult SearchChartPackagesRecursivelyWithMetadata(string dirfullpath, bool recursive = false)
+        => DiscoverDirectory(dirfullpath, recursive);
+
+    /// <summary>一度の探索でscope・完全性・既知entryを共有し、親の実在資源、子作品、明示一式の順に分類します。</summary>
+    /// <remarks>親一式の収集先を借用する子は既読entryだけを追加し、完全性の確認後に親だけがpackageを生成します。</remarks>
+    private ChartPackageDiscoveryResult DiscoverDirectory(string directory, bool recursive, IReadOnlyList<PackageChartEntry> knownDirectCharts = null, string[] knownEntries = null, CancellationToken token = default, List<PackageChartEntry> enclosingWholeCharts = null)
     {
         var result = new ChartPackageDiscoveryResult();
-        IEnumerable<string> fileSystemEntries;
-        try
+        if (token.IsCancellationRequested) { result.IsComplete = false; result.IncompleteScopes.Add(directory); return result; }
+        string[] entries;
+        try { entries = knownEntries ?? [.. LongPathFileSystem.EnumerateFileSystemEntries(directory, "*", System.IO.SearchOption.TopDirectoryOnly)]; }
+        catch (Exception exception) { result.IsComplete = false; result.IncompleteScopes.Add(directory); result.Failures.Add(exception); return result; }
+        var files = new List<string>();
+        var directories = new List<string>();
+        foreach (string path in entries)
         {
-            fileSystemEntries = [.. LongPathFileSystem.EnumerateFileSystemEntries(dirfullpath, "*", System.IO.SearchOption.TopDirectoryOnly)];
+            if (LongPathFileSystem.FileExists(path)) { files.Add(path); }
+            else if (LongPathFileSystem.DirectoryExists(path)) { directories.Add(path); }
+            else { result.IsComplete = false; result.Failures.Add(new FileNotFoundException(null, path)); }
         }
-        catch
+        var directCharts = new List<PackageChartEntry>();
+        var knownByPath = knownDirectCharts?.ToDictionary(entry => entry.Chart.Path, StringComparer.OrdinalIgnoreCase);
+        bool hasResources = knownDirectCharts != null || HasAdjacentPreviewAudio(files);
+        foreach (string path in files.Where(ChartFileKindResolver.IsSupportedChartFilePath))
         {
-            return result;
-        }
-        if (fileSystemEntries == null || !fileSystemEntries.Any())
-        {
-            return result;
-        }
-        List<string> files = [.. fileSystemEntries.Where(LongPathFileSystem.FileExists)];
-        List<string> directories = [.. fileSystemEntries.Where(LongPathFileSystem.DirectoryExists)];
-        List<string> chartFiles = [.. files.Where(file => ChartFileKindResolver.IsSupportedChartFilePath(file) && LongPathFileSystem.FileExists(file))];
-        if (chartFiles.Count > 0)
-        {
-            List<PackageChartEntry> parsedChartEntries = [.. chartFiles
-                .Select(CreatePackageChartEntryForDiscovery)
-                .Where(entry => entry != null)];
-            bool hasCompleteChartList = parsedChartEntries.Count == chartFiles.Count;
-            bool anyChartHasExistingResources = parsedChartEntries.Any(HasExistingPackageChartResources);
-            if (chartFiles.Count == 1 || anyChartHasExistingResources)
+            if (token.IsCancellationRequested) { result.IsComplete = false; result.IncompleteScopes.Add(directory); return result; }
+            string preview = string.Empty;
+            PackageChartEntry entry;
+            if (knownByPath == null || !knownByPath.TryGetValue(path, out entry))
             {
-                result.Packages.Add(CreatePackageWithKnownCharts(dirfullpath, deleteParent: false, hasCompleteChartList ? parsedChartEntries : null));
+                entry = PackageChartEntry.FromPath(path, out preview, out Exception failure);
+                if (failure != null) { result.Failures.Add(failure); }
+            }
+            if (entry == null) { result.IsComplete = false; continue; }
+            directCharts.Add(entry);
+            hasResources = hasResources || HasExistingPackageChartResources(entry) || HasExistingPreviewResource(entry, preview);
+        }
+        result.ContainsCharts = files.Any(ChartFileKindResolver.IsSupportedChartFilePath);
+        // 親資源で一式が決まる枝だけ収集先を共有し、各祖先への子孫entryの平坦コピーと子package生成を避けます。
+        List<PackageChartEntry> wholeCharts = enclosingWholeCharts;
+        if (wholeCharts != null) { wholeCharts.AddRange(directCharts); }
+        else if (directCharts.Count > 0 && hasResources) { wholeCharts = [.. directCharts]; }
+        bool directComplete = result.IsComplete;
+        var children = new List<ChartPackageDiscoveryResult>();
+        foreach (string child in directories)
+        {
+            ChartPackageDiscoveryResult discovered = DiscoverDirectory(child, recursive: true, token: token, enclosingWholeCharts: wholeCharts);
+            children.Add(discovered);
+            result.IsComplete &= discovered.IsComplete;
+            result.ContainsCharts |= discovered.ContainsCharts;
+            result.IncompleteScopes.AddRange(discovered.IncompleteScopes);
+            result.Failures.AddRange(discovered.Failures);
+        }
+        bool hasKnownChildCharts = children.Any(child => child.ContainsCharts);
+        if (!directComplete || (directCharts.Count > 0 && !result.IsComplete && (hasResources || !hasKnownChildCharts)))
+        {
+            result.IncompleteScopes.Add(directory);
+            return result;
+        }
+        if (enclosingWholeCharts != null) { return result; }
+        if (directCharts.Count > 0)
+        {
+            if (hasResources || !hasKnownChildCharts)
+            {
+                result.Packages.Add(CreatePackageWithKnownCharts(directory, deleteParent: false, wholeCharts ?? directCharts));
                 return result;
             }
-            else
-            {
-                List<IEnumerable<string>> resourcesByChart = [.. parsedChartEntries
-                    .Select(EnumeratePackageGroupingResourcePaths)
-                    .Select(paths => paths
-                        .Select(path => Path.GetFileName(path).ToUpperInvariant())
-                        .Distinct()
-                        .ToList()
-                        .AsEnumerable())];
-                if (resourcesByChart.Count > 0
-                    && (double)resourcesByChart.Aggregate(Enumerable.Intersect).Count() / (double)resourcesByChart.Select(resourceList => resourceList.Count()).Min() >= dupRateThreshInOnePkg)
-                {
-                    result.Packages.Add(CreatePackageWithKnownCharts(dirfullpath, deleteParent: false, hasCompleteChartList ? parsedChartEntries : null));
-                    return result;
-                }
-                else
-                {
-                    var entryByPath = parsedChartEntries
-                        .Where(entry => !string.IsNullOrWhiteSpace(entry.Chart?.Path))
-                        .ToDictionary(entry => entry.Chart.Path, StringComparer.OrdinalIgnoreCase);
-                    result.Packages.AddRange(chartFiles.Select(filePath => CreatePackageWithKnownCharts(filePath, recursive, entryByPath.TryGetValue(filePath, out PackageChartEntry entry) ? new[] { entry } : null)));
-                    result.RegroupEligibleSourceDirectories.Add(NormalizeDirectoryPath(dirfullpath));
-                }
-            }
+            result.Packages.AddRange(directCharts.Select(entry => CreatePackageWithKnownCharts(entry.Chart.Path, recursive, [entry])));
         }
-        if (directories.Count > 0)
-        {
-            foreach (string dir in directories)
-            {
-                ChartPackageDiscoveryResult childResult = SearchChartPackagesRecursivelyWithMetadata(dir, dupRateThreshInOnePkg, recursive: true);
-                result.Packages.AddRange(childResult.Packages);
-                result.RegroupEligibleSourceDirectories.AddRange(childResult.RegroupEligibleSourceDirectories);
-            }
-        }
-        List<string> distinctRegroupEligibleSourceDirectories = [.. result.RegroupEligibleSourceDirectories
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
-        result.RegroupEligibleSourceDirectories.Clear();
-        result.RegroupEligibleSourceDirectories.AddRange(distinctRegroupEligibleSourceDirectories);
+        foreach (ChartPackageDiscoveryResult child in children) { result.Packages.AddRange(child.Packages); }
         return result;
     }
 
-    private static string NormalizeDirectoryPath(string directoryPath)
-    {
-        return string.IsNullOrWhiteSpace(directoryPath)
-            ? null
-            : directoryPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-    }
+    /// <summary>既取得の直下ファイルだけから未参照のpreview慣例を確認します。</summary>
+    private static bool HasAdjacentPreviewAudio(IEnumerable<string> files)
+        => files.Any(path => Path.GetFileName(path).StartsWith("preview", StringComparison.OrdinalIgnoreCase)
+            && ChartResourceExtensions.IsAudioExtension(Path.GetExtension(path)));
 
-    /// <summary>形式によらず、一回の捕捉snapshotから共通譜面と保留項目を作ります。</summary>
-    private static PackageChartEntry CreatePackageChartEntryForDiscovery(string filePath) => PackageChartEntry.FromPath(filePath);
+    /// <summary>発見専用PREVIEWの通常相対参照だけを、既存の音声拡張子互換で解決します。</summary>
+    private static bool HasExistingPreviewResource(PackageChartEntry entry, string preview)
+    {
+        if (string.IsNullOrWhiteSpace(preview) || Path.IsPathRooted(preview.Trim())) { return false; }
+        var reference = ChartResourceReference.Parse(preview, ChartResourceKind.Audio);
+        return reference.Status == ChartResourcePathNormalizationStatus.Valid && !string.IsNullOrWhiteSpace(reference.LookupKey)
+            && ChartResourceExistence.ExistsWithCompatibleExtensions(Path.GetDirectoryName(entry.Chart.Path), reference.LookupKey, ChartResourceExtensions.AudioExtensions);
+    }
 
     private static bool HasExistingPackageChartResources(PackageChartEntry entry)
     {
-        if (entry?.Chart == null)
-        {
-            return false;
-        }
-        ResourceHealthMaintenanceSnapshot maintenanceInfo = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(entry.Chart, includeUnused: true);
-        return maintenanceInfo?.WavFilesExisting > 0
-            || maintenanceInfo?.BgaFilesExisting > 0
-            || maintenanceInfo?.MovieFilesExisting > 0;
-    }
-
-    private static IEnumerable<string> EnumeratePackageGroupingResourcePaths(PackageChartEntry entry)
-    {
-        ChartResourceSnapshot resources = entry?.Chart?.Resources == null ? null : ChartResourceSnapshot.Create(entry.Chart.Resources, includeUnused: true);
-        if (resources == null)
-        {
-            return [];
-        }
-        return resources.AudioRelativePaths
-            .Concat(resources.VisualRelativePaths)
-            .Concat(resources.MovieRelativePaths);
+        if (entry?.Chart == null) { return false; }
+        ResourceHealthMaintenanceSnapshot health = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(entry.Chart, includeUnused: true);
+        return health?.WavFilesExisting > 0 || health?.BgaFilesExisting > 0 || health?.MovieFilesExisting > 0
+            || health?.StagefileExisting == true || health?.BackbmpExisting == true || health?.BannerExisting == true;
     }
 
     private static ResourceHealthMaintenanceSnapshot BuildPendingResourceHealthMaintenanceInfo(PackageChartEntry entry, ChartResourcePlacement placement)
@@ -858,18 +846,6 @@ internal sealed class BmsLibraryPackageInstallService
             : packagePath;
         List<PackageChartEntry> knownEntries = [.. (knownChartEntries ?? [])
             .Where(entry => entry?.Chart != null)];
-        if (LongPathFileSystem.DirectoryExists(canonicalPackagePath))
-        {
-            List<PackageChartEntry> recursiveEntries = [.. PackageInstallEstimationSnapshotBuilder
-                .BuildPackageChartDiscoverySnapshot(canonicalPackagePath)
-                .ChartEntries
-                .Where(entry => entry?.Chart != null)];
-            if (recursiveEntries.Count > 0)
-            {
-                knownEntries = recursiveEntries;
-            }
-        }
-
         if (knownEntries.Count == 0)
         {
             return new ChartPackage
@@ -2385,15 +2361,15 @@ internal sealed class BmsLibraryPackageInstallService
     /// 登録済みBMSルートと配下を除外して入力を発見し、捕捉した完全性設定で自動新規導入と保留へ分類します。
     /// 全定義による発見・グループ化を終え、同一または捕捉済みの親に包含されるパッケージをまとめてから、使用資源の件数と警告を確定します。
     /// </summary>
+    /// <param name="fullySelectedDirectories">元入力で直下全項目を選択した不変集合です。nullだけが未捕捉で、既知空は確保先から再判定しません。</param>
     /// <param name="requireCompleteUsedResourcesForAutoInstall">音声に加え、使用画像・動画・補助画像も必須にする場合はtrue。今回の操作で捕捉済みの値を渡します。</param>
     public AutoInstallWorkflowResult PrepareAutoInstallWorkflow(
         IEnumerable<string> installPaths,
         IEnumerable<ChartPackage> currentPendingPackages,
         IEnumerable<string> registeredBmsRoots,
         Func<ChartFile, bool> isInstalledChart,
-        double dupRateThreshInOnePkg,
         IPrimaryHashLookup installedChartLookup = null,
-        CancellationToken token = default, bool requireCompleteUsedResourcesForAutoInstall = false)
+        CancellationToken token = default, bool requireCompleteUsedResourcesForAutoInstall = false, IReadOnlySet<string> fullySelectedDirectories = null)
     {
         var result = new AutoInstallWorkflowResult();
         var totalStopwatch = Stopwatch.StartNew();
@@ -2407,50 +2383,69 @@ internal sealed class BmsLibraryPackageInstallService
             result.TotalMs = totalStopwatch.ElapsedMilliseconds;
             return result;
         }
-        IEnumerable<IGrouping<string, string>> groupedPaths = from file in normalizedInstallPaths
-                                                              group file by Path.GetDirectoryName(file)?.ToUpperInvariant();
-        List<ChartPackage> discoveredPackages = [];
-        foreach (IGrouping<string, string> paths in groupedPaths)
+        fullySelectedDirectories ??= PackageInstallInputSelection.Capture(normalizedInstallPaths);
+        var discoveries = new List<ChartPackageDiscoveryResult>();
+        foreach (IGrouping<string, string> group in normalizedInstallPaths.GroupBy(Path.GetDirectoryName, StringComparer.OrdinalIgnoreCase))
         {
-            if (string.IsNullOrWhiteSpace(paths.Key) || !LongPathFileSystem.DirectoryExists(paths.Key))
+            if (string.IsNullOrWhiteSpace(group.Key))
             {
+                // drive/share rootの明示directoryは、全項目選択の親がなくてもそれ自身を探索します。
+                foreach (string directory in group.Where(LongPathFileSystem.DirectoryExists))
+                {
+                    discoveries.Add(DiscoverDirectory(directory, recursive: false, token: token));
+                }
                 continue;
             }
-            List<string> files = [.. paths.Where(LongPathFileSystem.FileExists)];
-            List<string> directories = [.. paths.Where(LongPathFileSystem.DirectoryExists)];
-            List<string> chartFiles = [.. files.Where(file => ChartFileKindResolver.IsSupportedChartFilePath(file) && LongPathFileSystem.FileExists(file))];
-            string[] topEntries = [.. LongPathFileSystem.EnumerateFileSystemEntries(paths.Key, "*", System.IO.SearchOption.TopDirectoryOnly)];
-            if (files.Count + directories.Count == topEntries.Length)
+            if (fullySelectedDirectories.Contains(group.Key))
             {
-                ChartPackageDiscoveryResult discoveryResult = SearchChartPackagesRecursivelyWithMetadata(paths.Key, dupRateThreshInOnePkg);
-                discoveredPackages.AddRange(discoveryResult.Packages);
-                result.RegroupEligibleSourceDirectories.AddRange(discoveryResult.RegroupEligibleSourceDirectories);
+                discoveries.Add(DiscoverDirectory(group.Key, recursive: false, token: token));
                 continue;
             }
-            List<PackageChartEntry> parsedChartEntries = [.. chartFiles
-                .Select(CreatePackageChartEntryForDiscovery)
-                .Where(entry => entry != null)];
-            bool anyChartHasExistingResources = parsedChartEntries.Any(HasExistingPackageChartResources);
-            if (chartFiles.Count > 0 && anyChartHasExistingResources)
+            List<string> chartPaths = [.. group.Where(path => LongPathFileSystem.FileExists(path) && ChartFileKindResolver.IsSupportedChartFilePath(path))];
+            var direct = new ChartPackageDiscoveryResult();
+            var directCharts = new List<PackageChartEntry>();
+            bool promote = false;
+            string[] parentEntries = null;
+            foreach (string path in chartPaths)
             {
-                ChartPackageDiscoveryResult discoveryResult = SearchChartPackagesRecursivelyWithMetadata(paths.Key, dupRateThreshInOnePkg);
-                discoveredPackages.AddRange(discoveryResult.Packages);
-                result.RegroupEligibleSourceDirectories.AddRange(discoveryResult.RegroupEligibleSourceDirectories);
-                continue;
+                var entry = PackageChartEntry.FromPath(path, out string preview, out Exception failure);
+                if (failure != null) { direct.Failures.Add(failure); }
+                if (entry == null) { direct.IsComplete = false; continue; }
+                directCharts.Add(entry);
+                promote = promote || HasExistingPackageChartResources(entry) || HasExistingPreviewResource(entry, preview);
             }
-            var entryByPath = parsedChartEntries
-                .Where(entry => !string.IsNullOrWhiteSpace(entry.Chart?.Path))
-                .ToDictionary(entry => entry.Chart.Path, StringComparer.OrdinalIgnoreCase);
-            List<ChartPackage> singleFilePackages = [.. chartFiles.Select(filePath => CreatePackageWithKnownCharts(filePath, deleteParent: false, entryByPath.TryGetValue(filePath, out PackageChartEntry entry) ? new[] { entry } : null))];
-            List<ChartPackage> directoryPackages = [];
-            foreach (string dir in directories)
+            if (direct.IsComplete && chartPaths.Count > 0)
             {
-                ChartPackageDiscoveryResult discoveryResult = SearchChartPackagesRecursivelyWithMetadata(dir, dupRateThreshInOnePkg);
-                directoryPackages.AddRange(discoveryResult.Packages);
-                result.RegroupEligibleSourceDirectories.AddRange(discoveryResult.RegroupEligibleSourceDirectories);
+                try
+                {
+                    parentEntries = [.. LongPathFileSystem.EnumerateFileSystemEntries(group.Key, "*", System.IO.SearchOption.TopDirectoryOnly)];
+                    promote |= HasAdjacentPreviewAudio(parentEntries.Where(LongPathFileSystem.FileExists));
+                }
+                catch (Exception exception) { direct.IsComplete = false; direct.Failures.Add(exception); }
             }
-            discoveredPackages.AddRange(singleFilePackages.Concat(directoryPackages));
+            if (promote && direct.IsComplete)
+            {
+                discoveries.Add(DiscoverDirectory(group.Key, recursive: false, directCharts, parentEntries, token));
+            }
+            else
+            {
+                if (direct.IsComplete)
+                {
+                    direct.Packages.AddRange(directCharts.Select(entry => CreatePackageWithKnownCharts(entry.Chart.Path, deleteParent: false, [entry])));
+                }
+                if (!direct.IsComplete) { direct.IncompleteScopes.Add(group.Key); }
+                discoveries.Add(direct);
+                if (direct.IsComplete)
+                {
+                    foreach (string directory in group.Where(LongPathFileSystem.DirectoryExists))
+                    {
+                        discoveries.Add(DiscoverDirectory(directory, recursive: false, token: token));
+                    }
+                }
+            }
         }
+        List<ChartPackage> discoveredPackages = [.. discoveries.SelectMany(discovery => discovery.Packages)];
+        result.DiscoveryFailures.AddRange(discoveries.SelectMany(discovery => discovery.Failures));
         discoveryStopwatch.Stop();
         result.DiscoveryMs = discoveryStopwatch.ElapsedMilliseconds;
 
@@ -2466,11 +2461,6 @@ internal sealed class BmsLibraryPackageInstallService
             .Where(newPkg => !pendingPackages.Any(oldPkg => !string.IsNullOrWhiteSpace(oldPkg.path) && newPkg.path.Equals(oldPkg.path, StringComparison.OrdinalIgnoreCase)))
             .Where(newPkg => !pendingPackages.Any(oldPkg => !string.IsNullOrWhiteSpace(oldPkg.path) && LongPathFileSystem.DirectoryExists(oldPkg.path) && newPkg.path.StartsWith(oldPkg.path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))];
         RemovePackagesContainedInDiscoveredDirectories(discoveredPackages);
-        List<string> distinctWorkflowRegroupEligibleSourceDirectories = [.. result.RegroupEligibleSourceDirectories
-            .Where(sourceDirectoryPath => !string.IsNullOrWhiteSpace(sourceDirectoryPath))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
-        result.RegroupEligibleSourceDirectories.Clear();
-        result.RegroupEligibleSourceDirectories.AddRange(distinctWorkflowRegroupEligibleSourceDirectories);
         result.DiscoveredPackages.AddRange(discoveredPackages);
         if (discoveredPackages.Count == 0)
         {
@@ -2479,27 +2469,18 @@ internal sealed class BmsLibraryPackageInstallService
             return result;
         }
 
-        if (discoveredPackages.Any(newPkg => !string.IsNullOrWhiteSpace(newPkg.path) && LongPathFileSystem.DirectoryExists(newPkg.path)))
+        List<string> incompleteScopes = [.. discoveries.SelectMany(discovery => discovery.IncompleteScopes)];
+        foreach (ChartPackage directory in discoveredPackages.Where(package => LongPathFileSystem.DirectoryExists(package.path)))
         {
-            List<ChartPackage> pendingPackagesToRemove = [.. pendingPackages.Where(delegate (ChartPackage oldPkg)
-            {
-                IEnumerable<ChartPackage> sourcePackages = discoveredPackages.Where(newPkg => !string.IsNullOrWhiteSpace(newPkg.path) && LongPathFileSystem.DirectoryExists(newPkg.path));
-                string dir;
-                if (LongPathFileSystem.DirectoryExists(oldPkg.path))
-                {
-                    dir = oldPkg.path + Path.DirectorySeparatorChar;
-                }
-                else
-                {
-                    if (!LongPathFileSystem.FileExists(oldPkg.path))
-                    {
-                        return true;
-                    }
-                    dir = oldPkg.path;
-                }
-                return sourcePackages.Any(newPkg => dir.StartsWith(newPkg.path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
-            })];
-            result.PendingPackagesToRemove.AddRange(pendingPackagesToRemove);
+            List<ChartPackage> replaced = [.. pendingPackages.Where(old => IsSameOrWithinPath(old.path, directory.path)
+                && !string.Equals(old.path, directory.path, StringComparison.OrdinalIgnoreCase))];
+            if (replaced.Count > 0) { result.PendingPackageReplacements.Add(directory, replaced); }
+        }
+        if (discoveredPackages.Any(package => LongPathFileSystem.DirectoryExists(package.path)))
+        {
+            result.PendingPackagesToRemove.AddRange(pendingPackages.Where(package => !LongPathFileSystem.EntryExists(package.path)
+                && !incompleteScopes.Any(scope => IsSameOrWithinPath(package.path, scope))
+                && !result.PendingPackageReplacements.Values.Any(group => group.Contains(package))));
         }
 
         var classificationStopwatch = Stopwatch.StartNew();
@@ -2526,6 +2507,12 @@ internal sealed class BmsLibraryPackageInstallService
         result.InstalledCheckMs = installedCheckStopwatch.ElapsedMilliseconds;
 
         var warningClassificationStopwatch = Stopwatch.StartNew();
+        var replacedEntriesByPath = new Dictionary<string, PackageChartEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (PackageChartEntry entry in result.PendingPackageReplacements.Values.SelectMany(packages => packages)
+            .SelectMany(package => package.ChartEntries))
+        {
+            if (!string.IsNullOrWhiteSpace(entry.Chart.Path)) { replacedEntriesByPath.TryAdd(entry.Chart.Path, entry); }
+        }
         foreach (ChartPackage pkg in discoveredPackages)
         {
             bool isSingleFilePackage = !LongPathFileSystem.DirectoryExists(pkg.path);
@@ -2543,6 +2530,13 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 ApplyPendingResourceHealthProjection(entry, out ResourceHealthMaintenanceSnapshot health);
                 entry.InitializeOriginalResourceHealth(health);
+                if (replacedEntriesByPath.TryGetValue(entry.Chart.Path, out PackageChartEntry previous)
+                    && !string.IsNullOrWhiteSpace(entry.Chart.Sha256)
+                    && string.Equals(previous.Chart.Sha256, entry.Chart.Sha256, StringComparison.OrdinalIgnoreCase)
+                    && previous.Chart.ResourceHealthMaintenanceSnapshot?.EncodingFixed == true)
+                {
+                    entry.ApplyCommittedEncoding(previous.Chart);
+                }
                 if (!HasCompleteUsedAudio(health) || (requireCompleteUsedResourcesForAutoInstall && !HasCompleteUsedResources(health)))
                 {
                     pendingByPackage[pkg] = true;
@@ -2574,6 +2568,12 @@ internal sealed class BmsLibraryPackageInstallService
         result.TotalMs = totalStopwatch.ElapsedMilliseconds;
         return result;
     }
+
+    /// <summary>同じ物理scopeと要素境界付き配下だけを照合します。</summary>
+    private static bool IsSameOrWithinPath(string path, string directory)
+        => !string.IsNullOrWhiteSpace(path) && !string.IsNullOrWhiteSpace(directory)
+            && (string.Equals(path, directory, StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>既存保留・登録ルートの除外後、実際に全譜面を捕捉した親がある子だけを同じ要求から除きます。入力順に依存せず、親の通常分類を維持します。</summary>
     private static void RemovePackagesContainedInDiscoveredDirectories(List<ChartPackage> packages)
@@ -2766,10 +2766,27 @@ internal sealed class BmsLibraryPackageInstallService
         installStopwatch.Stop();
         result.InstallMs = installStopwatch.ElapsedMilliseconds;
 
+        foreach ((ChartPackage replacement, List<ChartPackage> sources) in workflow.PendingPackageReplacements)
+        {
+            bool physicallyInstalled = result.AutoInstalledPackages.Contains(replacement) && !workflow.BusyPackages.Contains(replacement);
+            bool acceptedPending = !token.IsCancellationRequested && pendingPackagesToAdd.Contains(replacement)
+                && (workflow.PendingPackagesToAdd.Contains(replacement) || keepInstallablePackagesPending || !canAutoInstallImmediately)
+                && !workflow.BusyPackages.Contains(replacement);
+            if (physicallyInstalled || acceptedPending)
+            {
+                result.PendingPackagesToRemove.AddRange(sources);
+                result.InstallRowsToDelete.AddRange(sources.Select(package => package.path));
+            }
+            else
+            {
+                pendingPackagesToAdd.Remove(replacement);
+                result.AutoInstalledPackages.Remove(replacement);
+            }
+        }
         var applyStopwatch = Stopwatch.StartNew();
         result.PendingPackagesToAdd.AddRange(pendingPackagesToAdd);
         result.InstallRowsToUpsert.AddRange(pendingPackagesToAdd.Where(package => !string.IsNullOrWhiteSpace(package.path)));
-        result.EstimateTargets.AddRange(workflow.PendingPackagesToAdd.Where(package => package != null));
+        result.EstimateTargets.AddRange(workflow.PendingPackagesToAdd.Where(package => package != null && pendingPackagesToAdd.Contains(package)));
         applyStopwatch.Stop();
         result.ApplyMs = applyStopwatch.ElapsedMilliseconds;
         totalStopwatch.Stop();

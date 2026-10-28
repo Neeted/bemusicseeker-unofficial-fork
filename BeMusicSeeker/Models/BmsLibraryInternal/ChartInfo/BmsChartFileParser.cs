@@ -18,12 +18,16 @@ internal static class BmsChartFileParser
 
     /// <summary>捕捉済みの内容・ハッシュ・時刻を使って共通の基本値を返します。任意のdetailsへだけ定義元・定義番号・使用状態・採用行のCP932復号状態と未定義参照を渡し、通常解析の結果には保持しません。</summary>
     internal static ChartFile ParseSnapshot(ChartFileSnapshot snapshot, string codepageName = "shift_jis", ChartResourceParseDetails details = null)
+        => ParseSnapshot(snapshot, codepageName, out _, details);
+
+    /// <summary>通常の解析値を変えず、発見だけで使うCP932のPREVIEW宣言を付帯出力します。保存や演奏資源へ追加しません。</summary>
+    private static ChartFile ParseSnapshot(ChartFileSnapshot snapshot, string codepageName, out string preview, ChartResourceParseDetails details = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         using var stream = new MemoryStream(snapshot.Bytes, writable: false);
         using var reader = new StreamReader(stream, Encoding.GetEncoding(codepageName), detectEncodingFromByteOrderMarks: !IsShiftJis(codepageName));
         using IEnumerator<bool> diagnosticLines = details == null ? null : EnumerateCp932LineDecodeStatuses(snapshot.Bytes).GetEnumerator();
-        ChartFile chart = ParseLines(ReadLines(reader), snapshot.Path, () => snapshot.Md5, () => snapshot.Sha256, details, diagnosticLines);
+        ChartFile chart = ParseLines(ReadLines(reader), snapshot.Path, () => snapshot.Md5, () => snapshot.Sha256, details, diagnosticLines, out preview);
         if (HasCp932DecodeUnsupportedResourceValue(snapshot.Bytes, out ChartResourceKind kind))
         {
             chart = chart with
@@ -61,9 +65,13 @@ internal static class BmsChartFileParser
 
     /// <summary>捕捉した入力から文字コードを判定し、同じ入力の基本値を直接返します。</summary>
     internal static ChartFile ParseSnapshotWithEncodingDetection(ChartFileSnapshot snapshot)
+        => ParseSnapshotWithEncodingDetection(snapshot, out _);
+
+    /// <summary>同じsnapshotから判定した表示メタデータと、CP932による発見専用PREVIEWを返します。</summary>
+    internal static ChartFile ParseSnapshotWithEncodingDetection(ChartFileSnapshot snapshot, out string preview)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        return ParseSnapshot(snapshot, BmsEncodingDetector.Detect(snapshot.Bytes));
+        return ApplyEncodingDetection(snapshot, ParseSnapshot(snapshot, "shift_jis", out preview), BmsEncodingDetector.Detect(snapshot.Bytes));
     }
 
     /// <summary>指定文字コードによる生メタデータだけを更新し、捕捉済み資源結果と識別を継承します。</summary>
@@ -175,8 +183,9 @@ internal static class BmsChartFileParser
         Func<string> md5Provider,
         Func<string> sha256Provider,
         ChartResourceParseDetails details,
-        IEnumerator<bool> diagnosticLines)
+        IEnumerator<bool> diagnosticLines, out string preview)
     {
+        preview = string.Empty;
         string title = string.Empty;
         string subtitle = string.Empty;
         string artist = string.Empty;
@@ -321,6 +330,9 @@ internal static class BmsChartFileParser
             string value = valueStart >= 0 && valueStart <= item.Length ? item.Substring(valueStart) : string.Empty;
             switch (directive)
             {
+                case BmsDirective.Preview:
+                    if (string.IsNullOrWhiteSpace(preview)) { preview = value; }
+                    break;
                 case BmsDirective.Wav:
                     var audioReference = ChartResourceReference.Parse(value, ChartResourceKind.Audio);
                     string audioId = item.TrimStart().Substring(4, 2);
@@ -677,6 +689,7 @@ internal static class BmsChartFileParser
         StageFile,
         BackBmp,
         Banner,
+        Preview,
         PlayLevel,
         MaxTracks,
         Difficulty,
@@ -809,6 +822,11 @@ internal static class BmsChartFileParser
                 }
                 break;
             case 7:
+                if (EqualsAsciiIgnoreCase(line, start, "PREVIEW"))
+                {
+                    directive = BmsDirective.Preview;
+                    return true;
+                }
                 if (EqualsAsciiIgnoreCase(line, start, "BACKBMP"))
                 {
                     directive = BmsDirective.BackBmp;

@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.ViewModels;
@@ -137,10 +139,12 @@ internal sealed class DroppedInstallIngressMaterializer
                 }
             }
 
+            IReadOnlySet<string> fullySelectedDirectories = PackageInstallInputSelection.Capture(normalizedPaths);
+
             if (!transient.Any(value => value))
             {
                 return DroppedInstallIngressAcquisitionResult.Success(
-                    new DroppedInstallBatchRequest(normalizedPaths, originals, [], null, reportCleanupFailure));
+                    new DroppedInstallBatchRequest(normalizedPaths, originals, [], null, reportCleanupFailure, fullySelectedDirectories));
             }
 
             ingressRoot = NormalizeDirectoryPath(createManagedIngressRoot());
@@ -192,7 +196,10 @@ internal sealed class DroppedInstallIngressMaterializer
                 originals,
                 [ingressRoot],
                 deleteManagedIngressRoot,
-                reportCleanupFailure);
+                reportCleanupFailure,
+                fullySelectedDirectories.Select(directory => IsExternalTransientSource(directory)
+                    ? LongPathFileSystem.NormalizePathForStorage(Path.Combine(ingressRoot, Path.GetRelativePath(systemTempRoot, directory)))
+                    : directory).ToFrozenSet(StringComparer.OrdinalIgnoreCase));
             ingressRoot = null;
             return DroppedInstallIngressAcquisitionResult.Success(request);
         }

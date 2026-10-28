@@ -2398,7 +2398,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             BMSLibrary library,
             IEnumerable<string> installPaths,
             CancellationToken token,
-            IPackageInstallProgressWriter progressWriter)
+            IPackageInstallProgressWriter progressWriter, IReadOnlySet<string>? fullySelectedDirectories = null)
         {
             this.progressWriter = progressWriter ?? throw new ArgumentNullException(nameof(progressWriter));
             for (int index = 1; index <= progressCount; index++)
@@ -2460,7 +2460,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             BMSLibrary library,
             IEnumerable<string> installPaths,
             CancellationToken token,
-            IPackageInstallProgressWriter progressWriter)
+            IPackageInstallProgressWriter progressWriter, IReadOnlySet<string>? fullySelectedDirectories = null)
         {
             int invocation = Interlocked.Increment(ref invocationCount);
             if (invocation == 1)
@@ -2694,7 +2694,7 @@ internal sealed class DelegatePackageInstallMutationPort : IPackageInstallMutati
         BMSLibrary library,
         IEnumerable<string> installPaths,
         CancellationToken token,
-        IPackageInstallProgressWriter progressWriter)
+        IPackageInstallProgressWriter progressWriter, IReadOnlySet<string>? fullySelectedDirectories = null)
     {
         return Task.FromResult(install(library, installPaths, token, progressWriter));
     }

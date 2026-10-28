@@ -567,7 +567,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             bool completeAudio = condition is not ("missing-audio" or "empty-name");
             foreach (bool strict in new[] { false, true })
             {
-                AutoInstallWorkflowResult workflow = new BmsLibraryPackageInstallService().PrepareAutoInstallWorkflow([root], [], [], _ => false, 0.6,
+                AutoInstallWorkflowResult workflow = new BmsLibraryPackageInstallService().PrepareAutoInstallWorkflow([root], [], [], _ => false,
                     requireCompleteUsedResourcesForAutoInstall: strict);
                 bool pending = !completeAudio || (strict && condition == "missing-image");
                 Assert.AreEqual(pending ? 1 : 0, workflow.PendingPackagesToAdd.Count, condition + "/" + strict);

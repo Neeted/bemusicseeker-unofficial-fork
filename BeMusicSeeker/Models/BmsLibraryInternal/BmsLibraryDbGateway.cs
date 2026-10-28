@@ -243,16 +243,6 @@ internal sealed class BmsLibraryDbGateway(
         });
     }
 
-    public void ReplaceInstallRows(IEnumerable<string> installPathsToDelete, ChartPackage packageToUpsert)
-    {
-        if (packageToUpsert == null || string.IsNullOrWhiteSpace(packageToUpsert.path))
-        {
-            throw new ArgumentNullException(nameof(packageToUpsert));
-        }
-
-        ApplyInstallTableMutation(installPathsToDelete, [packageToUpsert]);
-    }
-
     public void ApplyInstallTableMutation(
         IEnumerable<string> installPathsToDelete,
         IEnumerable<ChartPackage> packagesToUpsert)

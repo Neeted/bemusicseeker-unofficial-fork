@@ -2070,7 +2070,8 @@ public sealed class PlaybackPanelViewModelTests
             string chartPath = Path.Combine(source, "charts", "chart.bms");
             const string chartText = "#PLAYER 1\n#TITLE Nested\n#WAV01 extra/kick.wav\n#STAGEFILE extra/banner.png\n#00111:01\n";
             File.WriteAllText(chartPath, chartText);
-            File.WriteAllText(Path.Combine(source, "root.bms"), "#PLAYER 1\n#TITLE Root\n");
+            File.WriteAllText(Path.Combine(source, "root.bms"), "#PLAYER 1\n#TITLE Root\n#STAGEFILE root-stage.png\n");
+            File.WriteAllText(Path.Combine(source, "root-stage.png"), "root background");
             string[] resources = ["charts/extra/kick.wav", "charts/other/kick.wav", "charts/extra/banner.png", "top.wav"];
             foreach (string resource in resources)
             {
@@ -2117,7 +2118,7 @@ public sealed class PlaybackPanelViewModelTests
             byte[] chartBytes = File.ReadAllBytes(chartPath);
             byte[] outsideBytes = File.ReadAllBytes(outside);
             ChartPackage package = new BmsLibraryPackageInstallService()
-                .SearchChartPackagesRecursivelyWithMetadata(source, 0.6).Packages.Single();
+                .SearchChartPackagesRecursivelyWithMetadata(source).Packages.Single();
             Assert.AreEqual(source, package.path);
             Assert.IsTrue(package.ChartEntries.Count >= 2);
             Assert.IsTrue(package.ChartEntries.Any(entry => entry.Chart.Path == Path.Combine(source, "root.bms")));

@@ -14,7 +14,7 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class PendingPackageWorkflowOwnerTests
 {
-    /// <summary>確認済みの全所持folderと単体だけを実owner・storeで削除し、不完全な発見・復元一覧や部分管理列から対象外の譜面・資源・install行を失う誤りを検出します。</summary>
+    /// <summary>確認済みの全所持folderと単体だけを実owner・storeで削除し、完全発見後に不正子譜面を追加したfolder・復元部分一覧・部分管理列から対象外の譜面・資源・install行を失う誤りを検出します。</summary>
     /// <remarks>実解析結果から対象を分類し、本番storeを介した物理変更・SQLite・公開集合への反映を観測する。衝突先や対象外のbytesは実FSで保全を確認する。</remarks>
     [TestMethod]
     public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_RealStoreDeletesOnlyAllOwnedSources()
@@ -53,31 +53,38 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             ChartPackage mixed = Package(mixedRoot, WriteChart(mixedRoot, "owned.bms", "owned A"), WriteChart(mixedRoot, "new.bms", "unowned mixed"));
             string unownedRoot = Path.Combine(root, "unowned");
             ChartPackage unowned = Package(unownedRoot, WriteChart(unownedRoot, "new.bms", "unowned standalone"));
-            // 発見時に解析できた一部だけを持つ場合と、DB復元相当の遅延取得を使う場合を区別する。
-            ChartPackage IncompletePackage(string name, bool restored)
+            void AddInvalidChild(string directory)
             {
-                string directory = Path.Combine(root, name);
-                WriteChart(directory, "owned.bms", "owned A");
                 string nested = Path.Combine(directory, "nested");
                 Directory.CreateDirectory(nested);
                 File.WriteAllText(Path.Combine(nested, "unreadable.bmson"), "{invalid json");
                 File.WriteAllBytes(Path.Combine(nested, "sound.wav"), [1, 3, 5]);
-                return restored
-                    ? new ChartPackage { path = directory }
-                    : new BmsLibraryPackageInstallService().SearchChartPackagesRecursivelyWithMetadata(directory, 0.6).Packages.Single();
             }
-            ChartPackage discoveredPartial = IncompletePackage("discovered-partial", false);
-            ChartPackage restoredPartial = IncompletePackage("restored-partial", true);
+            // 子のない有効folderを完全捕捉してから登録し、外部追加による不完全化を削除時に確認します。
+            string discoveredDirectory = Path.Combine(root, "discovered-partial");
+            ChartFile discoveredChart = WriteChart(discoveredDirectory, "owned.bms", "owned A");
+            ChartPackageDiscoveryResult discovery = new BmsLibraryPackageInstallService().SearchChartPackagesRecursivelyWithMetadata(discoveredDirectory);
+            Assert.IsTrue(discovery.IsComplete);
+            ChartPackage discoveredPartial = discovery.Packages.Single();
+            Assert.AreEqual(discoveredDirectory, discoveredPartial.path);
+            Assert.AreEqual(1, discoveredPartial.ChartEntries.Count);
+            Assert.AreEqual(discoveredChart.Path, discoveredPartial.ChartEntries.Single().Chart.Path);
+            Assert.AreEqual(ownedA.Md5, discoveredPartial.ChartEntries.Single().Chart.Md5);
+            string restoredDirectory = Path.Combine(root, "restored-partial");
+            WriteChart(restoredDirectory, "owned.bms", "owned A");
+            AddInvalidChild(restoredDirectory);
+            ChartPackage restoredPartial = new() { path = restoredDirectory };
             string hiddenUnownedRoot = Path.Combine(root, "hidden-unowned");
             ChartPackage hiddenUnowned = Package(hiddenUnownedRoot, WriteChart(hiddenUnownedRoot, "owned.bms", "owned A"));
             File.WriteAllText(Path.Combine(hiddenUnownedRoot, "unowned.bmson"), "{\"version\":\"1.0.0\",\"info\":{\"title\":\"unowned BMSON\",\"init_bpm\":120},\"sound_channels\":[]}");
             File.WriteAllBytes(Path.Combine(hiddenUnownedRoot, "sound.wav"), [2, 4, 6]);
             ChartPackage[] retained = [mixed, unowned, discoveredPartial, restoredPartial, hiddenUnowned];
-            ChartPackage[] packages = [all, single, .. retained];
+            ChartPackage[] packages = [all, discoveredPartial, single, mixed, unowned, restoredPartial, hiddenUnowned];
+            library = CreateNormalPendingLibrary(root, packages, [ownedA, ownedB, ownedC]);
+            AddInvalidChild(discoveredDirectory);
             var preserved = new[] { ownedA.Path, ownedB.Path, ownedC.Path, sibling }
                 .Concat(retained.SelectMany(package => Directory.GetFiles(package.path, "*", SearchOption.AllDirectories)))
                 .ToDictionary(path => path, File.ReadAllBytes);
-            library = CreateNormalPendingLibrary(root, packages, [ownedA, ownedB, ownedC]);
             PendingPackageWorkflowOwner owner = CreateOwner(() => library, [], new BmsLibraryPendingPackageStore(), AcceptedDialogs(),
                 chartFileOperations: library.OperationAdmission, playback: new NoOpChartMutationPlaybackPort());
 

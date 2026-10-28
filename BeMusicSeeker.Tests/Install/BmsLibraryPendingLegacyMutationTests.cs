@@ -232,10 +232,13 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             string nestedResourceDirectoryPath = Path.Combine(successfulDirectoryPath, "resources");
             Directory.CreateDirectory(nestedResourceDirectoryPath);
             File.WriteAllText(Path.Combine(nestedResourceDirectoryPath, "sound.wav"), "remove resource");
+            // 親一式の削除保証を、親の実在根拠を持つ通常検出から準備します。
+            File.WriteAllBytes(Path.Combine(failedDirectoryPath, "preview.ogg"), [1]);
+            File.WriteAllBytes(Path.Combine(successfulDirectoryPath, "preview.ogg"), [2]);
             string unrelatedPath = Path.Combine(tempDirectoryPath, "unrelated.txt");
             File.WriteAllText(unrelatedPath, "keep parent content");
             var service = new BmsLibraryPackageInstallService();
-            List<ChartPackage> packages = service.SearchChartPackagesRecursivelyWithMetadata(tempDirectoryPath, 0.6).Packages;
+            List<ChartPackage> packages = service.SearchChartPackagesRecursivelyWithMetadata(tempDirectoryPath).Packages;
             ChartPackage failedPackage = packages.Single(package => package.path == failedDirectoryPath);
             ChartPackage successfulPackage = packages.Single(package => package.path == successfulDirectoryPath);
             Assert.AreEqual(2, failedPackage.ChartEntries.Count);
@@ -302,8 +305,9 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             string nestedChartPath = CreateChart(nestedDirectoryPath, "nested.bms", "b").Path;
             string resourcePath = Path.Combine(nestedDirectoryPath, "sound.wav");
             File.WriteAllText(resourcePath, "keep until package deletion");
+            File.WriteAllBytes(Path.Combine(packageDirectoryPath, "preview.ogg"), [3]);
             var service = new BmsLibraryPackageInstallService();
-            ChartPackage package = service.SearchChartPackagesRecursivelyWithMetadata(packageDirectoryPath, 0.6).Packages.Single();
+            ChartPackage package = service.SearchChartPackagesRecursivelyWithMetadata(packageDirectoryPath).Packages.Single();
             Assert.AreEqual(packageDirectoryPath, package.path);
             Assert.AreEqual(2, package.ChartEntries.Count);
             ChartFile rootChart = package.ChartEntries.Single(entry => entry.Chart.Path == rootChartPath).Chart;
@@ -375,9 +379,13 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             File.WriteAllText(secondPath, "#PLAYER 1\r\n#TITLE B\r\n#WAVAA absent_b.wav\r\n#00111:AA\r\n");
             string readmePath = Path.Combine(sourceDirectoryPath, "readme.txt");
             File.WriteAllText(readmePath, "keep independent files' parent");
+            string child = Path.Combine(sourceDirectoryPath, "Child");
+            Directory.CreateDirectory(child);
+            string childChart = Path.Combine(child, "child.bms");
+            File.WriteAllText(childChart, "#TITLE Separate child");
             var service = new BmsLibraryPackageInstallService();
-            List<ChartPackage> packages = service.SearchChartPackagesRecursivelyWithMetadata(
-                sourceDirectoryPath, 0.6, recursive: recursiveDiscovery).Packages;
+            var packages = service.SearchChartPackagesRecursivelyWithMetadata(
+                sourceDirectoryPath, recursive: recursiveDiscovery).Packages.Where(package => package.path == firstPath || package.path == secondPath).ToList();
             CollectionAssert.AreEquivalent(new[] { firstPath, secondPath }, packages.Select(package => package.path).ToArray());
             Assert.IsTrue(packages.All(package => package.delete_parent == recursiveDiscovery));
             List<ChartFile> charts = [.. packages.SelectMany(package => package.ChartEntries).Select(entry => entry.Chart)];
@@ -402,6 +410,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             Assert.IsFalse(File.Exists(firstPath));
             Assert.IsFalse(File.Exists(secondPath));
             Assert.IsTrue(Directory.Exists(sourceDirectoryPath));
+            Assert.IsTrue(File.Exists(childChart));
             Assert.AreEqual("keep independent files' parent", File.ReadAllText(readmePath));
             CollectionAssert.AreEquivalent(new[] { firstPath, secondPath }, fileMutationService.DeleteFileShellPaths);
             Assert.AreEqual(0, fileMutationService.DeleteDirectoryShellPaths.Count);

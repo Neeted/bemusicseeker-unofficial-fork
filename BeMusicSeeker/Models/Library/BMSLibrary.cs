@@ -638,7 +638,6 @@ public partial class BMSLibrary : ObservableObject
         LibraryResourceIndex.CreateFromScanResult(new ChartScanResult()));
 
 
-    private readonly double dupRateThreshInOnePkg = 0.9;
 
     private readonly object lockRankingScores = new();
 
@@ -3191,7 +3190,7 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    /// <summary>全推定Taskの終端と再グループ化を待ち、今回実適用した有限の自動導入対象だけを正常時に返します。</summary>
+    /// <summary>全推定Taskの終端を待ち、今回実適用した有限の自動導入対象だけを正常時に返します。</summary>
     private IReadOnlyList<ChartPackage> ProcessPendingInstallEstimateBatch(PendingInstallEstimateBatchRequest request, CancellationToken token)
     {
         if (request == null)
@@ -3201,7 +3200,6 @@ public partial class BMSLibrary : ObservableObject
         if (request.PackageCount == 0)
         {
             token.ThrowIfCancellationRequested();
-            RegroupPendingInstallBatchSources(request.RegroupEligibleSourceDirectories, token);
             return [];
         }
         AutomaticInstallEstimateTargets automaticTargets = request.Source == PendingInstallEstimateBatchSource.AutoInstall
@@ -3240,7 +3238,6 @@ public partial class BMSLibrary : ObservableObject
                     ref completed,
                     ref lowConfidenceCount,
                     ref firstVisibleInteraction, automaticTargets);
-                RegroupPendingInstallBatchSources(request.RegroupEligibleSourceDirectories, token, automaticTargets);
             }
             stopwatch.Stop();
             LogInstallPerformance("pending_estimate_batch done source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + executionPolicy.WorkItemDegree + " estimated=" + completed + " completed=" + (completed + request.DeferredPackageCount) + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " lowConfidence=" + lowConfidenceCount);
@@ -3266,26 +3263,6 @@ public partial class BMSLibrary : ObservableObject
         using (rwlockBMSFiles.GetReaderGuard())
         {
             return automaticTargets.GetEligiblePackages(ChartPackagesPending, ContainsInstalledChartUnsafe);
-        }
-    }
-
-    /// <summary>同じ受理操作の末尾で、取消されていない入力元ごとの保留を既存条件で再グループ化します。推定対象がない場合も共用します。</summary>
-    private void RegroupPendingInstallBatchSources(string[] sourceDirectories, CancellationToken token, AutomaticInstallEstimateTargets automaticTargets = null)
-    {
-        if (token.IsCancellationRequested || sourceDirectories.Length == 0)
-        {
-            return;
-        }
-        using IDisposable collectionMutationScope = packageLifecycleOwner.BeginCollectionMutationScope();
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-        {
-            using (rwlockPendingInstallCharts.GetWriterGuard())
-            {
-                using (rwlockBMSFiles.GetReaderGuard())
-                {
-                    TryRegroupPendingPackagesForSourceDirectoriesUnsafe(sourceDirectories, automaticTargets);
-                }
-            }
         }
     }
 

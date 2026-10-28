@@ -20,16 +20,16 @@ internal interface IPackageInstallMutationPort
 {
     /// <summary>受理済み操作の共通権限を、本番の内部取り込みと必須継続へ渡します。</summary>
     Task<PackageInstallCommandResult> InstallUnderAdmissionAsync(BMSLibrary library, IEnumerable<string> paths, CancellationToken token,
-        IPackageInstallProgressWriter progress, LibraryFileMutationCapability capability)
-        => InstallWithProgressAsync(library, paths, token, progress);
+        IPackageInstallProgressWriter progress, LibraryFileMutationCapability capability, IReadOnlySet<string> fullySelectedDirectories = null)
+        => InstallWithProgressAsync(library, paths, token, progress, fullySelectedDirectories);
 
     /// <summary>必要な物理scopeを確定してから停止し、交差Pを入力cleanupの終端まで外側へ引き渡します。</summary>
     async Task<PackageInstallCommandResult> InstallUnderAdmissionAsync(BMSLibrary library, IEnumerable<string> paths,
         CancellationToken token, IPackageInstallProgressWriter progress, LibraryFileMutationCapability capability,
-        Func<Task> beforePhysicalMutation, Action<LibraryFileMutationLease> retainPlaylistLease)
+        Func<Task> beforePhysicalMutation, Action<LibraryFileMutationLease> retainPlaylistLease, IReadOnlySet<string> fullySelectedDirectories = null)
     {
         await beforePhysicalMutation().ConfigureAwait(false);
-        return await InstallUnderAdmissionAsync(library, paths, token, progress, capability).ConfigureAwait(false);
+        return await InstallUnderAdmissionAsync(library, paths, token, progress, capability, fullySelectedDirectories).ConfigureAwait(false);
     }
 
     /// <summary>取り込みの確定後も同じ受理操作の直接推定を待ち、実失敗と確定事実を返します。</summary>
@@ -37,35 +37,35 @@ internal interface IPackageInstallMutationPort
         BMSLibrary library,
         IEnumerable<string> installPaths,
         CancellationToken token,
-        IPackageInstallProgressWriter progressWriter);
+        IPackageInstallProgressWriter progressWriter, IReadOnlySet<string> fullySelectedDirectories = null);
 }
 
 internal sealed class BmsLibraryPackageInstallMutationPort : IPackageInstallMutationPort
 {
     /// <summary>共通権限を借用し、取り込み・必須LR2反映・推定の実終端を返します。</summary>
     public Task<PackageInstallCommandResult> InstallUnderAdmissionAsync(BMSLibrary library, IEnumerable<string> paths, CancellationToken token,
-        IPackageInstallProgressWriter progress, LibraryFileMutationCapability capability)
-        => library.InstallChartPackagesAutoWithProgressAsync(paths, token, progress, reportAtTerminal: true, capability: capability);
+        IPackageInstallProgressWriter progress, LibraryFileMutationCapability capability, IReadOnlySet<string> fullySelectedDirectories = null)
+        => library.InstallChartPackagesAutoWithProgressAsync(paths, token, progress, reportAtTerminal: true, capability: capability, fullySelectedDirectories: fullySelectedDirectories);
 
     /// <summary>候補準備後に必要なPを取得し、物理停止と実導入・推定を同じL内で待ちます。P寿命は外側の入力回収まで保持します。</summary>
     public Task<PackageInstallCommandResult> InstallUnderAdmissionAsync(BMSLibrary library, IEnumerable<string> paths,
         CancellationToken token, IPackageInstallProgressWriter progress, LibraryFileMutationCapability capability,
-        Func<Task> beforePhysicalMutation, Action<LibraryFileMutationLease> retainPlaylistLease)
+        Func<Task> beforePhysicalMutation, Action<LibraryFileMutationLease> retainPlaylistLease, IReadOnlySet<string> fullySelectedDirectories = null)
         => library.InstallChartPackagesAutoWithProgressAsync(paths, token, progress, reportAtTerminal: true,
-            capability: capability, beforePhysicalMutation: beforePhysicalMutation, retainPlaylistLease: retainPlaylistLease);
+            capability: capability, beforePhysicalMutation: beforePhysicalMutation, retainPlaylistLease: retainPlaylistLease, fullySelectedDirectories: fullySelectedDirectories);
 
     /// <summary>本モデルの取り込みと直接推定を、一つの終端Taskとして実行します。</summary>
     public Task<PackageInstallCommandResult> InstallWithProgressAsync(
         BMSLibrary library,
         IEnumerable<string> installPaths,
         CancellationToken token,
-        IPackageInstallProgressWriter progressWriter)
+        IPackageInstallProgressWriter progressWriter, IReadOnlySet<string> fullySelectedDirectories = null)
     {
         ArgumentNullException.ThrowIfNull(library);
         return library.InstallChartPackagesAutoWithProgressAsync(
             installPaths,
             token,
-            progressWriter, reportAtTerminal: true);
+            progressWriter, reportAtTerminal: true, fullySelectedDirectories: fullySelectedDirectories);
     }
 }
 
@@ -565,7 +565,7 @@ internal sealed class PackageInstallWorkflowOwner
                     try
                     {
                         installation = mutationPort.InstallUnderAdmissionAsync(library, normalizedInstallPaths, token, progressWriter, capability,
-                            playback.StopPlaybackForMutationAsync, retainPlaylistLease);
+                            playback.StopPlaybackForMutationAsync, retainPlaylistLease, request.FullySelectedDirectories);
                     }
                     finally
                     {

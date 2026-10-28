@@ -342,64 +342,6 @@ public sealed class BmsLibraryPackageLifecycleTests
         });
     }
 
-    /// <summary>再編成先が非対象の既存保留pathと衝突する場合は全元packageとDB行を保ち、拒否前の削除・置換を検出します。</summary>
-    /// <remarks>実SQLiteの保存・拒否・失敗と保留collectionの反映を接続し、保存前の公開を迂回しません。</remarks>
-    [TestMethod]
-    public void ReplacePendingPackagesWithRegroupedPackage_RejectsCanonicalCollisionBeforeDbMutation()
-    {
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            var firstSource = new ChartPackage
-            {
-                path = "C:\\Pending\\First",
-                delete_parent = false
-            };
-            var secondSource = new ChartPackage
-            {
-                path = "C:\\Pending\\Second",
-                delete_parent = false
-            };
-            var existingPackage = new ChartPackage
-            {
-                path = "C:\\Pending\\Existing",
-                delete_parent = false
-            };
-            var regroupedPackage = new ChartPackage
-            {
-                path = "C:\\Pending\\Existing\\.",
-                delete_parent = false
-            };
-            using (var songDb = new LR2SongDBExtended(songDbPath))
-            {
-                songDb.CreateTable<LR2SongDBExtended.install>();
-                songDb.InsertOrReplace(firstSource, typeof(LR2SongDBExtended.install));
-                songDb.InsertOrReplace(secondSource, typeof(LR2SongDBExtended.install));
-                songDb.InsertOrReplace(existingPackage, typeof(LR2SongDBExtended.install));
-            }
-
-            var owner = new PackageLifecycleOwner(
-                new BmsLibraryDbGateway(songDbPath),
-                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                _ => { },
-                packages => new ObservableCollection<ChartPackage>(packages ?? []),
-                () => { },
-                _ => { });
-            owner.ReplacePendingPackages([firstSource, secondSource, existingPackage]);
-
-            Assert.ThrowsException<InvalidOperationException>(() => owner.ReplacePendingPackagesWithRegroupedPackage(
-                [firstSource, secondSource],
-                regroupedPackage));
-
-            CollectionAssert.AreEqual(
-                new[] { firstSource, secondSource, existingPackage },
-                owner.PendingPackages.ToArray());
-            using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
-            CollectionAssert.AreEquivalent(
-                new[] { firstSource.path, secondSource.path, existingPackage.path },
-                verifySongDb.Table<ChartPackage>().Select(package => package.path).ToArray());
-        });
-    }
-
     /// <summary>collection変更scope内では新collectionを適用しても公開せず、scope終端で一回だけ通知する順序違反を検出します。</summary>
     [TestMethod]
     public void PackageLifecycleOwner_SetPendingPackagesPublishesAfterCollectionMutationScope()

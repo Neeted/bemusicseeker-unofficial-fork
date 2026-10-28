@@ -18,7 +18,7 @@ internal sealed partial class PackageLifecycleOwner
     /// <summary>
     /// Attempts to normalize a detached pending-package source path before publication.
     /// </summary>
-    /// <param name="path">Source path supplied by discovery or regrouping.</param>
+    /// <param name="path">検出で受け取った入力元パスです。</param>
     /// <returns><see langword="true"/> when a canonical path was produced.</returns>
     internal static bool TryNormalizePendingPackagePath(string path, out string normalizedPath)
     {
@@ -460,35 +460,6 @@ internal sealed partial class PackageLifecycleOwner
     internal void ReplaceInstalledPackages(IEnumerable<ChartPackage> packages)
     {
         SetInstalledPackages(CreatePackageCollection(packages));
-    }
-
-    internal void ReplacePendingPackagesWithRegroupedPackage(
-        IEnumerable<ChartPackage> sourcePackages,
-        ChartPackage regroupedPackage)
-    {
-        List<ChartPackage> sourcePackageList = [.. (sourcePackages ?? []).Where(package => package != null)];
-        if (sourcePackageList.Count == 0)
-        {
-            throw new ArgumentException("At least one source package is required.", nameof(sourcePackages));
-        }
-        if (regroupedPackage == null)
-        {
-            throw new ArgumentNullException(nameof(regroupedPackage));
-        }
-
-        List<ChartPackage> currentPendingPackages = [.. pendingPackages.Where(package => package != null)];
-        int insertIndex = currentPendingPackages.FindIndex(package => sourcePackageList.Contains(package));
-        if (insertIndex < 0)
-        {
-            insertIndex = currentPendingPackages.Count;
-        }
-        List<ChartPackage> replacedPendingPackages = [.. currentPendingPackages.Where(package => !sourcePackageList.Contains(package))];
-        replacedPendingPackages.Insert(insertIndex, regroupedPackage);
-        ObservableCollection<ChartPackage> nextPendingPackages = CreatePackageCollection(replacedPendingPackages);
-
-        ValidatePendingPackagePathUniqueness(nextPendingPackages);
-        dbGateway.ReplaceInstallRows(sourcePackageList.Select(package => package.path), regroupedPackage);
-        SetPendingPackages(nextPendingPackages);
     }
 
     internal void SetPendingPackages(ObservableCollection<ChartPackage> value)

@@ -7,7 +7,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.Models;
 
-/// <summary>同じ受理操作の推定と末尾の再グループ化を引き渡します。推定対象0件でも入力元の再グループ化を継続できます。</summary>
+/// <summary>同じ受理操作の推定対象と評価入力を引き渡します。</summary>
 internal sealed class PendingInstallEstimateBatchRequest
 {
     public PendingInstallEstimateBatchSource Source { get; }
@@ -25,8 +25,6 @@ internal sealed class PendingInstallEstimateBatchRequest
 
     public string DisplayName { get; }
 
-    public string[] RegroupEligibleSourceDirectories { get; }
-
     /// <summary>
     /// 同じ受理操作の評価へ再利用する、準備済み分割と入力元リソースです。
     /// </summary>
@@ -41,7 +39,6 @@ internal sealed class PendingInstallEstimateBatchRequest
         PendingInstallEstimateBatchSource source,
         IEnumerable<ChartPackage> packages,
         string displayName,
-        IEnumerable<string> regroupEligibleSourceDirectories = null,
         int deferredPackageCount = 0,
         PendingEstimateSourceBatchSnapshot batchSourceSnapshot = null,
         PerformanceInteraction? performanceInteraction = null,
@@ -56,9 +53,6 @@ internal sealed class PendingInstallEstimateBatchRequest
         DisplayName = string.IsNullOrWhiteSpace(displayName)
             ? GetDisplayName(Packages.FirstOrDefault()?.path)
             : displayName;
-        RegroupEligibleSourceDirectories = [.. (regroupEligibleSourceDirectories ?? [])
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
         BatchSourceSnapshot = batchSourceSnapshot;
         PerformanceInteraction = performanceInteraction
             ?? PerformanceInteraction.Start("install_estimation");

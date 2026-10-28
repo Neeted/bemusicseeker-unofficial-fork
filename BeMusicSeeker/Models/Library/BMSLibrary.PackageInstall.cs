@@ -164,13 +164,15 @@ public partial class BMSLibrary
     /// <param name="capability">受理済みLと既保有Pの生存権限。内部継続は借用し自己再取得しません。</param>
     /// <param name="beforePhysicalMutation">実scopeのP取得後に待つ再生停止。交差Busyだけでは開始しません。</param>
     /// <param name="retainPlaylistLease">追加Pを全worker・入力回収終端まで所有する外側。省略時は本Taskが所有します。</param>
+    /// <param name="fullySelectedDirectories">コピー前の全項目選択事実。nullの場合だけ元入力から捕捉します。</param>
     /// <returns>確定済み登録・導入と実失敗、Busy未処理の部分結果。取消も全開始Taskと回収終端を待って返します。</returns>
     internal async Task<PackageInstallCommandResult> InstallChartPackagesAutoWithProgressAsync(
         IEnumerable<string> installPaths,
         CancellationToken token,
         IPackageInstallProgressWriter progressWriter,
         bool reportAtTerminal = false, LibraryFileMutationCapability capability = null,
-        Func<Task> beforePhysicalMutation = null, Action<LibraryFileMutationLease> retainPlaylistLease = null)
+        Func<Task> beforePhysicalMutation = null, Action<LibraryFileMutationLease> retainPlaylistLease = null,
+        IReadOnlySet<string> fullySelectedDirectories = null)
     {
         using LibraryFileMutationLease admission = lr2SynchronizationOwner.TryBeginMutation(nameof(InstallChartPackagesAutoWithProgressAsync), capability: capability);
         if (admission == null) { throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy); }
@@ -208,7 +210,7 @@ public partial class BMSLibrary
                     using OperationDialogScope scope = BeginOperationDialogScope();
                     AutoInstallWorkflowResult preparation = null;
                     Exception failure = null;
-                    try { preparation = PrepareAutoInstallWorkflow(paths, token, progressWriter, options, ownedInputPaths.Add); }
+                    try { preparation = PrepareAutoInstallWorkflow(paths, token, progressWriter, options, ownedInputPaths.Add, fullySelectedDirectories); }
                     catch (Exception exception) { failure = exception; }
                     return (preparation, failure, scope.Messages);
                 }).ConfigureAwait(false);
@@ -219,6 +221,7 @@ public partial class BMSLibrary
                     return new PackageInstallCommandResult([], null);
                 }
                 workflow = prepared;
+                workflowFailures.AddRange(workflow.DiscoveryFailures);
                 token.ThrowIfCancellationRequested();
                 IReadOnlyList<string> searchRoots = GetAvailableSearchRoots(options);
                 bool canInstall = !options.KeepInstallablePackagesPending && searchRoots.Count > 0
@@ -428,13 +431,15 @@ public partial class BMSLibrary
             operationResult.EstimatedInstallReceipt, unprocessedPackages, workflowFailures, synchronizationIncomplete, inputCleanupFailures);
     }
 
-    /// <summary>同じ受理Lで一時展開先を作成し、管理元アーカイブを正常展開後に消費して候補・索引を一回準備します。導入・停止は行わず、短いモデル保護を解放して返します。</summary>
+    /// <summary>元の全項目選択を親directory入力へまとめてから、同じ受理Lで書庫展開と候補・索引の一回準備を行います。正常展開した管理元書庫だけを消費し、導入・停止は行わず短いモデル保護を解放して返します。</summary>
     /// <param name="observeCreatedInput">展開開始前に作成済み管理入力を外側へ渡します。準備途中の失敗でも外側が回収を所有します。</param>
     private AutoInstallWorkflowResult PrepareAutoInstallWorkflow(IEnumerable<string> installPaths, CancellationToken token,
-        IPackageInstallProgressWriter progressWriter, BmsLibraryOptionsSnapshot options, Action<string> observeCreatedInput)
+        IPackageInstallProgressWriter progressWriter, BmsLibraryOptionsSnapshot options, Action<string> observeCreatedInput, IReadOnlySet<string> fullySelectedDirectories)
     {
         IReadOnlyList<string> registeredBmsRoots = lr2SearchRootSnapshotOwner.CaptureForUpdate(options).RequestedRoots;
-        List<string> expandedPaths = packageInstallService.ExpandInstallSourcesWithProgress(installPaths,
+        fullySelectedDirectories ??= PackageInstallInputSelection.Capture(installPaths);
+        IReadOnlyList<string> sourcePaths = PackageInstallInputSelection.NormalizeForExpansion(installPaths, fullySelectedDirectories);
+        List<string> expandedPaths = packageInstallService.ExpandInstallSourcesWithProgress(sourcePaths,
             fileMutationService, targetOnlyFileMutationOptions, info => NLogWrapper.FileLogger?.Info(info),
             scopedOperationDialogService, progressWriter, token, diagnostic => diagnostic(), observeCreatedInput);
         List<ChartPackage> pending;
@@ -452,7 +457,7 @@ public partial class BMSLibrary
             return !string.IsNullOrWhiteSpace(hash) && installed.ContainsPrimaryHash(hash);
         }
         AutoInstallWorkflowResult workflow = packageInstallService.PrepareAutoInstallWorkflow(expandedPaths, pending,
-            registeredBmsRoots, IsInstalled, dupRateThreshInOnePkg, installed, token, options.RequireCompleteUsedResourcesForAutoInstall);
+            registeredBmsRoots, IsInstalled, installed, token, options.RequireCompleteUsedResourcesForAutoInstall, fullySelectedDirectories);
         workflow.OptionsSnapshot = options;
         workflow.PendingPackageSnapshot = pending;
         workflow.InstalledChartLookup = installed;
@@ -487,7 +492,6 @@ public partial class BMSLibrary
         List<ChartPackage> pendingPackagesToEstimate = [];
         List<ChartPackage> deferredPendingEstimatePackages = [];
         List<ChartPackage> registeredPackages = [];
-        List<string> regroupEligibleSourceDirectories = [];
         PendingEstimateSourceBatchSnapshot pendingBatchSourceSnapshot = null;
         List<Action> postLeaseEffects = [];
         List<Action> diagnosticEffects = [];
@@ -664,20 +668,18 @@ public partial class BMSLibrary
                 pendingPackagesToEstimate = estimatePreparation.EstimablePackages;
                 deferredPendingEstimatePackages = estimatePreparation.DeferredPackages;
                 pendingBatchSourceSnapshot = estimatePreparation.BatchSourceSnapshot;
-                regroupEligibleSourceDirectories = [.. workflow.RegroupEligibleSourceDirectories];
                 foreach (ChartPackage deferredPackage in deferredPendingEstimatePackages)
                 {
                     LogPendingEstimateSkippedPackage("auto_install", deferredPackage);
                 }
                 if (!token.IsCancellationRequested
-                    && (pendingPackagesToEstimate.Count > 0 || regroupEligibleSourceDirectories.Count > 0))
+                    && pendingPackagesToEstimate.Count > 0)
                 {
                     string displayName = PendingInstallEstimateBatchRequest.GetDisplayName(pendingPackagesToEstimate.FirstOrDefault()?.path);
                     estimateRequest = new(
                             PendingInstallEstimateBatchSource.AutoInstall,
                             pendingPackagesToEstimate,
                             displayName,
-                            regroupEligibleSourceDirectories,
                             deferredPendingEstimatePackages.Count,
                             pendingBatchSourceSnapshot,
                             optionsSnapshot: options);
@@ -2866,233 +2868,6 @@ public partial class BMSLibrary
                 return list;
             }
         }
-    }
-
-    private void TryRegroupPendingPackagesForSourceDirectoriesUnsafe(IEnumerable<string> sourceDirectoryPaths, AutomaticInstallEstimateTargets automaticTargets = null)
-    {
-        List<string> sourceDirectories = [.. (sourceDirectoryPaths ?? [])
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
-        if (sourceDirectories.Count == 0)
-        {
-            return;
-        }
-        IInstalledChartLookupIndex installedDirectoryIndex = CreateInstalledChartLookupSnapshotUnsafe();
-        foreach (string sourceDirectoryPath in sourceDirectories)
-        {
-            TryRegroupPendingPackagesForSourceDirectoryUnsafe(sourceDirectoryPath, installedDirectoryIndex, automaticTargets);
-        }
-    }
-
-    private void TryRegroupPendingPackagesForSourceDirectoryUnsafe(string sourceDirectoryPath, IInstalledChartLookupIndex installedDirectoryIndex, AutomaticInstallEstimateTargets automaticTargets)
-    {
-        if (string.IsNullOrWhiteSpace(sourceDirectoryPath))
-        {
-            return;
-        }
-        List<ChartPackage> sourcePackages = [.. ChartPackagesPending.Where(pendingPackage => pendingPackage != null && string.Equals(GetPendingPackageSourceDirectoryPath(pendingPackage), sourceDirectoryPath, StringComparison.OrdinalIgnoreCase))];
-        if (sourcePackages.Count < 2)
-        {
-            return;
-        }
-        if (sourcePackages.Any(pendingPackage => string.Equals(NormalizePendingPackagePath(pendingPackage.path), sourceDirectoryPath, StringComparison.OrdinalIgnoreCase)))
-        {
-            LogInstallPerformance("pending_regroup skip reason=already_directory_package source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count);
-            return;
-        }
-        if (sourcePackages.Any(pendingPackage => pendingPackage != null && pendingPackage.DeferredEstimateReason != PendingEstimateDeferredReason.None))
-        {
-            LogInstallPerformance("pending_regroup skip reason=deferred_estimate source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count);
-            return;
-        }
-        if (!TryBuildRegroupedPendingPackage(sourceDirectoryPath, sourcePackages, installedDirectoryIndex, out ChartPackage regroupedPackage, out string resolvedDestinationDirectory, out string skipReason, automaticTargets))
-        {
-            LogInstallPerformance("pending_regroup skip reason=" + skipReason + " source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count);
-            return;
-        }
-        ReinitializePendingWarningsForPackageUnsafe(regroupedPackage, CreateInstalledChartKeySnapshotExcludingChartsUnsafe([]));
-        packageLifecycleOwner.ReplacePendingPackagesWithRegroupedPackage(sourcePackages, regroupedPackage);
-        List<PackageChartEntry> regroupedPackageEntries = regroupedPackage.ChartEntries;
-        bool metadataResolved = regroupedPackageEntries.Any(entry => !string.IsNullOrWhiteSpace(entry?.Chart?.InstallDestinationTitle) || !string.IsNullOrWhiteSpace(entry?.Chart?.InstallDestinationArtist));
-        LogInstallPerformance("pending_regroup success source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count + " files=" + regroupedPackageEntries.Count + " dst=" + resolvedDestinationDirectory + " metadataResolved=" + metadataResolved);
-    }
-
-    private bool TryBuildRegroupedPendingPackage(string sourceDirectoryPath, List<ChartPackage> sourcePackages, IInstalledChartLookupIndex installedDirectoryIndex, out ChartPackage regroupedPackage, out string resolvedDestinationDirectory, out string skipReason, AutomaticInstallEstimateTargets automaticTargets = null)
-    {
-        regroupedPackage = null;
-        resolvedDestinationDirectory = null;
-        skipReason = "unknown";
-        if (!PackageLifecycleOwner.TryNormalizePendingPackagePath(
-            sourceDirectoryPath,
-            out string canonicalSourceDirectoryPath))
-        {
-            skipReason = "invalid_source_path";
-            return false;
-        }
-        List<PackageChartEntry> regroupedEntries = [];
-        Dictionary<PackageChartEntry, PackageChartEntry> replacements = automaticTargets == null ? null : [];
-        foreach (ChartPackage sourcePackage in sourcePackages)
-        {
-            foreach (PackageChartEntry sourceEntry in sourcePackage.ChartEntries)
-            {
-                ChartFile sourceChart = sourceEntry?.Chart;
-                if (sourceChart == null)
-                {
-                    continue;
-                }
-                PackageChartEntry existingEntry = regroupedEntries.FirstOrDefault(entry => entry.IsSameChartTarget(sourceEntry));
-                if (existingEntry != null)
-                {
-                    replacements?.Add(sourceEntry, existingEntry);
-                    continue;
-                }
-
-                // 置換とDB更新の受理前は元項目から切り離し、登録時の不変結果も同じ排他境界で引き継ぎます。
-                PackageChartEntry detachedEntry = sourceEntry.ToChartEntrySnapshot();
-                if (detachedEntry != null)
-                {
-                    regroupedEntries.Add(detachedEntry);
-                    replacements?.Add(sourceEntry, detachedEntry);
-                }
-            }
-        }
-        if (regroupedEntries.Count == 0)
-        {
-            skipReason = "no_files";
-            return false;
-        }
-        var expectedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (PackageChartEntry regroupedEntry in regroupedEntries)
-        {
-            if (!TryResolvePendingFileExpectedInstallDirectory(regroupedEntry.Chart, installedDirectoryIndex, out string expectedDirectory, out string unresolvedReason))
-            {
-                skipReason = unresolvedReason;
-                return false;
-            }
-            expectedDirectories.Add(expectedDirectory);
-            if (expectedDirectories.Count > 1)
-            {
-                skipReason = "split_expected_destination";
-                return false;
-            }
-        }
-        resolvedDestinationDirectory = expectedDirectories.Single();
-        if (regroupedEntries.Count == 0)
-        {
-            skipReason = "no_files";
-            return false;
-        }
-        ClearRegroupedOwnedInstallDestinations(regroupedEntries, installedDirectoryIndex);
-        regroupedPackage = ChartPackage.FromChartEntries(regroupedEntries);
-        regroupedPackage.path = canonicalSourceDirectoryPath;
-        regroupedPackage.delete_parent = false;
-        automaticTargets?.Replace(sourcePackages, regroupedPackage, replacements);
-        return true;
-    }
-
-    /// <summary>再編成で既所持の導入先だけを消去します。未所持項目の確定表示根拠・候補は同じ項目状態として引き継ぎ、再照合しません。</summary>
-    private static void ClearRegroupedOwnedInstallDestinations(IEnumerable<PackageChartEntry> entries, IInstalledChartLookupIndex installedDirectoryIndex)
-    {
-        foreach (PackageChartEntry entry in (entries ?? []).Where(entry => entry?.Chart != null))
-        {
-            if (BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesForChart(installedDirectoryIndex, entry.Chart).Count > 0)
-            {
-                ChartWarning[] audioReasons = CaptureInstallAudioEstimationWarnings(entry);
-                entry.ClearInstallDestination();
-                foreach (ChartWarning warning in audioReasons) { entry.SetWarning(warning.Kind, warning.Message); }
-            }
-        }
-    }
-
-    private bool TryResolvePendingFileExpectedInstallDirectory(ChartFile chart, IInstalledChartLookupIndex installedDirectoryIndex, out string expectedDirectory, out string reason)
-    {
-        expectedDirectory = null;
-        reason = "missing_expected_destination";
-        if (chart == null)
-        {
-            reason = "null_chart";
-            return false;
-        }
-        List<string> installedDirectories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesForChart(installedDirectoryIndex, chart);
-        if (installedDirectories.Count > 1)
-        {
-            reason = "multiple_installed_directories";
-            return false;
-        }
-        string installedDirectory = installedDirectories.FirstOrDefault();
-        string estimatedDirectory = string.IsNullOrWhiteSpace(chart.InstallDestination) ? null : chart.InstallDestination;
-        if (!string.IsNullOrWhiteSpace(installedDirectory) && !string.IsNullOrWhiteSpace(estimatedDirectory) && !installedDirectory.Equals(estimatedDirectory, StringComparison.OrdinalIgnoreCase))
-        {
-            reason = "installed_directory_conflict";
-            return false;
-        }
-        expectedDirectory = installedDirectory ?? estimatedDirectory;
-        if (string.IsNullOrWhiteSpace(expectedDirectory))
-        {
-            reason = "missing_expected_destination";
-            return false;
-        }
-        return true;
-    }
-
-    /// <summary>再編成は新たな推定ではないため、元の対象と評価先を示す音源見送り理由だけを引き継ぎます。</summary>
-    private static ChartWarning[] CaptureInstallAudioEstimationWarnings(PackageChartEntry entry)
-        => [.. entry.Chart.Warnings.Where(warning => warning.Kind is ChartWarningKind.InstallEstimationAudioMissing or ChartWarningKind.InstallEstimationAudioUnverifiable)];
-
-    private void ReinitializePendingWarningsForPackageUnsafe(ChartPackage package, IPrimaryHashLookup installedHashes)
-    {
-        if (package == null)
-        {
-            return;
-        }
-        bool isSingleFilePackage = !LongPathFileSystem.DirectoryExists(package.path);
-        IPrimaryHashLookup installedHashLookup = installedHashes ?? EmptyPrimaryHashLookup.Instance;
-        foreach (PackageChartEntry entry in package.ChartEntries)
-        {
-            ChartFile chart = entry?.Chart;
-            if (chart == null)
-            {
-                continue;
-            }
-
-            bool isBmson = chart.Kind == ChartFileKind.Bmson;
-            ChartWarning[] audioReasons = CaptureInstallAudioEstimationWarnings(entry);
-            entry.ClearStructuredWarnings();
-            foreach (ChartWarning warning in audioReasons) { entry.SetWarning(warning.Kind, warning.Message); }
-
-            string key = ChartLookupKey.GetPrimaryHash(chart);
-            if (!string.IsNullOrWhiteSpace(key) && installedHashLookup.ContainsPrimaryHash(key))
-            {
-                entry.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
-                entry.SetWarning(ChartWarningKind.AlreadyInstalled, Resources.Warning_AlreadyInstalled);
-            }
-            else if (isSingleFilePackage)
-            {
-                entry.ClearWarningsByCategory(ChartWarningCategory.PackageLayout);
-                entry.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile, isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
-            }
-        }
-        RefreshPendingResourceHealth(package.ChartEntries, package);
-        BmsLibraryPackageInstallService.ApplyNestedChartFileWarnings(package);
-    }
-
-    private static string GetPendingPackageSourceDirectoryPath(ChartPackage package)
-    {
-        return NormalizePendingPackagePath(package?.path) switch
-        {
-            string normalizedPath when string.IsNullOrWhiteSpace(normalizedPath) => null,
-            string normalizedPath when ChartFileKindResolver.IsSupportedChartFilePath(normalizedPath) => NormalizePendingPackagePath(Path.GetDirectoryName(normalizedPath)),
-            string normalizedPath => normalizedPath
-        };
-    }
-
-    private static string NormalizePendingPackagePath(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return null;
-        }
-        return path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
     private bool HasResourceOverwriteTargetsForInstalledOnlyPackage(ChartPackage package, string destinationDir)

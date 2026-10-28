@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -18,9 +19,13 @@ internal sealed class AutoInstallWorkflowResult
 
     public List<ChartPackage> DiscoveredPackages { get; } = [];
 
-    public List<string> RegroupEligibleSourceDirectories { get; } = [];
+    /// <summary>不完全scopeの元原因です。正常な独立対象を処理してから既存の終端報告へ渡します。</summary>
+    internal List<Exception> DiscoveryFailures { get; } = [];
 
     public List<ChartPackage> PendingPackagesToRemove { get; } = [];
+
+    /// <summary>完全に読めた新directoryと旧保留群です。採用時だけ同じsessionで登録を置換します。</summary>
+    internal Dictionary<ChartPackage, List<ChartPackage>> PendingPackageReplacements { get; } = [];
 
     public List<ChartPackage> PendingPackagesToAdd { get; } = [];
 

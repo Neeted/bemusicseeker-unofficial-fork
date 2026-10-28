@@ -67,6 +67,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         string source = Path.Combine(fixture.Root, "Input");
         string existingSource = Path.Combine(source, "owned.bms");
         File.Copy(Path.Combine(fixture.Destination, "owned.bms"), existingSource);
+        // 親の同hashを保ったまま、通常演奏値に混ざらない実在の親資源で一式を確定します。
+        File.WriteAllBytes(Path.Combine(source, "preview.ogg"), [4]);
         string sourceChart = Path.Combine(child, "new.bms");
         byte[] sourceBytes = File.ReadAllBytes(sourceChart);
         byte[] existingBytes = File.ReadAllBytes(existingSource);
@@ -109,37 +111,41 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         }
     }
 
-    /// <summary>開始時の自動導入・元削除設定を推定中の変更から分離し、再グループ化後のディレクトリと同梱物を導入します。次操作だけが変更後設定を使います。</summary>
+    /// <summary>開始時の自動導入・元削除設定を推定中の変更から分離し、初期検出した混在フォルダの全内容を相対位置のまま導入します。次操作だけが変更後設定を使います。</summary>
     [TestMethod]
     [DataRow(true, false)]
     [DataRow(true, true)]
     [DataRow(false, false)]
-    public async Task AutomaticContinuation_UsesCapturedSettingsAndRegroupedSource(bool enabled, bool deleteSource)
+    public async Task AutomaticContinuation_UsesCapturedSettingsAndInitialDirectoryScope(bool enabled, bool deleteSource)
     {
         await using var fixture = new AutomaticContinuationFixture(enabled, deleteSource);
         string source = fixture.WriteInput("Input", "a.bms", "a");
         fixture.WriteInput("Input", "b.bms", "b");
+        // 未同梱音源の参照が別々でも、明示した一式の範囲を保持します。
         foreach (string name in new[] { "a", "b" })
         {
             string path = Path.Combine(source, name + ".bms");
             File.WriteAllText(path, File.ReadAllText(path).Replace("sound.wav", name + ".wav"), Encoding.ASCII);
         }
         File.WriteAllText(Path.Combine(source, "owned.bms"), CreateValidBmsText("Song"), Encoding.ASCII);
-        // 分割公開を実観測してから再グループ化後の一ディレクトリ導入を確認します。
-        int splitCount = 0;
-        fixture.Library.PropertyChanged += (_, args) =>
-        {
-            if (args.PropertyName == nameof(BMSLibrary.ChartPackagesPending)
-                && fixture.Library.ChartPackagesPending.Count == 3) { Interlocked.Increment(ref splitCount); }
-        };
+        string extraDirectory = Path.Combine(source, "extra");
+        Directory.CreateDirectory(extraDirectory);
+        File.WriteAllBytes(Path.Combine(extraDirectory, "keep.bin"), [4, 5]);
         File.WriteAllBytes(Path.Combine(source, "extra.wav"), [2]);
         File.WriteAllBytes(Path.Combine(source, "image.png"), [3]);
-        fixture.Observer.Applied = () => fixture.Options = fixture.CreateOptions(!enabled, !deleteSource);
+        fixture.Observer.Applied = () =>
+        {
+            Assert.AreEqual(source, fixture.Library.ChartPackagesPending.Single().path);
+            fixture.Options = fixture.CreateOptions(!enabled, !deleteSource);
+        };
         await fixture.InitializeAsync();
-        Assert.IsTrue(fixture.Owner.Enqueue([source]));
-        await fixture.Owner.WaitForIdleAsync();
+        try
+        {
+            Assert.IsTrue(fixture.Owner.Enqueue([source]));
+            await fixture.Owner.WaitForIdleAsync();
+        }
+        finally { fixture.Observer.Applied = null; }
         Assert.IsNull(fixture.Failure, fixture.Failure?.Exception.ToString());
-        Assert.IsTrue(splitCount > 0);
         Assert.AreEqual(enabled ? 0 : 1, fixture.Library.ChartPackagesPending.Count);
         Assert.AreEqual(enabled ? 1 : 0, fixture.Library.ChartPackagesInstalled.Count);
         Assert.AreEqual(!enabled || !deleteSource, Directory.Exists(source));
@@ -158,11 +164,13 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         {
             Assert.IsTrue(File.Exists(Path.Combine(fixture.Destination, "extra.wav")));
             Assert.IsTrue(File.Exists(Path.Combine(fixture.Destination, "image.png")));
+            CollectionAssert.AreEqual(new byte[] { 2 }, File.ReadAllBytes(Path.Combine(fixture.Destination, "extra.wav")));
+            CollectionAssert.AreEqual(new byte[] { 3 }, File.ReadAllBytes(Path.Combine(fixture.Destination, "image.png")));
+            CollectionAssert.AreEqual(new byte[] { 4, 5 }, File.ReadAllBytes(Path.Combine(fixture.Destination, "extra", "keep.bin")));
             Assert.IsNotNull(fixture.Result?.EstimatedInstallReceipt);
             Assert.IsTrue(fixture.Result.EstimatedInstallReceipt.DurableCommit);
         }
         else { Assert.AreEqual(source, fixture.Library.ChartPackagesPending.Single().path); }
-        fixture.Observer.Applied = null;
         string next = fixture.WriteInput("Next", "next.bms", "next");
         Assert.IsTrue(fixture.Owner.Enqueue([next]));
         await fixture.Owner.WaitForIdleAsync();
@@ -276,32 +284,149 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Assert.AreEqual(finalizationFails ? 0 : 2, db.Table<LR2SongDBExtended.install>().Count());
     }
 
-    /// <summary>同じ元へ再結合される以前の手動設定項目を、今回の自動確定へ取り込みません。全体を保留し、今回の兄弟の抜取り導入も行いません。</summary>
+    /// <summary>通常検出で単体となったA/Bは同じ宛先でも範囲を広げず、別保留の子Cを保護します。別宛先と残存整理ON/OFFでも実FS・song/install・保留状態を確認し、後続の明示C導入へ接続します。</summary>
     [TestMethod]
-    public async Task AutomaticContinuation_DoesNotExpandIntoUntrackedRegroupedSibling()
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task AutomaticContinuation_PreservesDetectedFileScopesAndChildPending(bool differentDestinations, bool deleteSource)
     {
-        await using var fixture = new AutomaticContinuationFixture(true, false);
-        string source = fixture.WriteInput("Input", "new.bms", "new");
-        fixture.WriteInput("Input", "previous.bms", "previous");
-        string previousFile = Path.Combine(source, "previous.bms");
-        File.WriteAllText(previousFile, File.ReadAllText(previousFile).Replace("sound.wav", "previous.wav"), Encoding.ASCII);
+        await using var fixture = new AutomaticContinuationFixture(true, deleteSource,
+            destinationSounds: differentDestinations ? ["a.wav"] : ["a.wav", "b.wav"], differentDestinations: differentDestinations);
+        string source = fixture.WriteInput(Path.Combine("Import", "P"), "a.bms", "a");
+        fixture.WriteInput(Path.Combine("Import", "P"), "b.bms", "b");
+        string[] sourcePaths = [Path.Combine(source, "a.bms"), Path.Combine(source, "b.bms")];
+        foreach (string path in sourcePaths)
+        {
+            File.WriteAllText(path, File.ReadAllText(path).Replace("sound.wav", Path.GetFileNameWithoutExtension(path) + ".wav"), Encoding.ASCII);
+        }
+        byte[][] originalBytes = sourcePaths.Select(File.ReadAllBytes).ToArray();
+        string child = fixture.WriteInput(Path.Combine("Import", "P", "Child"), "c.bms", "c");
+        string childChart = Path.Combine(child, "c.bms");
+        File.WriteAllText(childChart, File.ReadAllText(childChart).Replace("sound.wav", "c.wav"), Encoding.ASCII);
+        File.WriteAllBytes(Path.Combine(child, "c.wav"), [7, 8, 9]);
+        string secondDestination = differentDestinations ? Path.Combine(fixture.LibraryRoot, "SecondSong") : fixture.Destination;
+        string[] destinationPaths = [Path.Combine(fixture.Destination, "a.bms"), Path.Combine(secondDestination, "b.bms")];
         await fixture.InitializeAsync();
-        string previousPath = Path.Combine(source, "previous.bms");
-        ChartPackage previous = ChartPackageTestExtensions.CreatePackage(
-            ChartPackageTestExtensions.CreateEntryWithInstallDestination(
-                BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(previousPath)), fixture.Destination));
-        previous.path = previousPath;
-        fixture.Library.ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([previous]);
-        Assert.IsTrue(fixture.Owner.Enqueue([source]));
-        await fixture.Owner.WaitForIdleAsync();
+        CapturedPendingInput? childBefore = null;
+        fixture.Observer.Applied = () =>
+        {
+            if (childBefore != null) { return; }
+            CollectionAssert.AreEquivalent(new[] { sourcePaths[0], sourcePaths[1], child },
+                fixture.Library.ChartPackagesPending.Select(package => package.path).ToArray());
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly();
+            childBefore = new CapturedPendingInput(fixture.Library.ChartPackagesPending.Single(package => package.path == child), db);
+        };
+        try
+        {
+            Assert.IsTrue(fixture.Owner.Enqueue([Path.Combine(fixture.Root, "Import")]));
+            await fixture.Owner.WaitForIdleAsync();
+        }
+        finally { fixture.Observer.Applied = null; }
+        Assert.IsNotNull(childBefore, "保留登録後・後段導入前の実推定適用を観測します。");
+        Assert.IsNotNull(fixture.Result);
+        Assert.IsNotNull(fixture.Result.EstimatedInstallReceipt);
+        Assert.IsTrue(fixture.Result.EstimatedInstallReceipt.DurableCommit);
+        Assert.AreEqual(1, fixture.Result.EstimatedInstallReceipt.ApplyCounts.InstalledTargetApplyCount, "成功分は一つの導入sessionへ集約します。");
         Assert.IsNull(fixture.Failure, fixture.Failure?.Exception.ToString());
+        Assert.AreEqual(2, fixture.Library.ChartPackagesInstalled.Count);
         Assert.AreEqual(1, fixture.Library.ChartPackagesPending.Count);
-        Assert.AreEqual(source, fixture.Library.ChartPackagesPending.Single().path);
-        Assert.AreEqual(2, fixture.Library.ChartPackagesPending.Single().ChartEntries.Count);
-        Assert.AreEqual(0, fixture.Library.ChartPackagesInstalled.Count);
-        Assert.IsFalse(File.Exists(Path.Combine(fixture.Destination, "new.bms")));
-        Assert.IsFalse(File.Exists(Path.Combine(fixture.Destination, "previous.bms")));
-        Assert.IsNull(fixture.Result?.EstimatedInstallReceipt);
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly())
+        {
+            for (int index = 0; index < sourcePaths.Length; index++)
+            {
+                CollectionAssert.AreEqual(originalBytes[index], File.ReadAllBytes(destinationPaths[index]));
+                Assert.IsNotNull(db.Find<LR2SongDB.song>(destinationPaths[index]));
+                Assert.IsTrue(fixture.Library.BmsCharts.Any(chart => chart.Path == destinationPaths[index]));
+                Assert.IsTrue(fixture.Library.ChartPackagesInstalled.Any(package => package.ChartEntries.Any(entry => entry.Chart.Path == destinationPaths[index])));
+                Assert.IsFalse(fixture.Library.ChartPackagesPending.Any(package => package.path == sourcePaths[index]));
+                Assert.IsFalse(db.Table<LR2SongDBExtended.install>().Any(row => row.path == sourcePaths[index]));
+                Assert.IsFalse(File.Exists(sourcePaths[index]));
+            }
+            childBefore.AssertUnchanged(fixture.Library, db);
+            Assert.AreEqual(1, db.Table<LR2SongDBExtended.install>().Count());
+            Assert.IsFalse(db.Table<LR2SongDB.song>().Any(row => row.path == childChart));
+        }
+        foreach (string destination in new[] { fixture.Destination, secondDestination }.Distinct())
+        {
+            Assert.IsFalse(File.Exists(Path.Combine(destination, "c.bms")));
+            Assert.IsFalse(File.Exists(Path.Combine(destination, "c.wav")));
+            Assert.IsFalse(Directory.Exists(Path.Combine(destination, "Child")));
+        }
+        Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
+        // Cを明示選択する新しい要求は、前回の兄弟導入に消費されず正常に完了します。
+        Assert.IsTrue(fixture.Library.SetPendingInstallDestination(childBefore.Package.ChartEntries.Single(), fixture.Destination, isOwnedChartEdit: false));
+        PendingInstallBatchResult followup = fixture.Library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([childBefore.Package]);
+        await fixture.Owner.WaitForIdleAsync();
+        Assert.IsTrue(followup.SessionReceipt.DurableCommit);
+        Assert.IsFalse(followup.SessionReceipt.HasRequiredFailure);
+        Assert.IsFalse(fixture.Library.ChartPackagesPending.Contains(childBefore.Package));
+        CollectionAssert.AreEqual(childBefore.ChartBytes, File.ReadAllBytes(Path.Combine(fixture.Destination, "c.bms")));
+        CollectionAssert.AreEqual(new byte[] { 7, 8, 9 }, File.ReadAllBytes(Path.Combine(fixture.Destination, "c.wav")));
+        using LR2SongDBExtended after = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly();
+        Assert.IsNotNull(after.Find<LR2SongDB.song>(Path.Combine(fixture.Destination, "c.bms")));
+        Assert.IsFalse(after.Table<LR2SongDBExtended.install>().Any(row => row.path == child));
+        Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
+    }
+
+    /// <summary>通常登録した別保留の元入力と現在値を、後段導入前後で照合します。</summary>
+    private sealed class CapturedPendingInput
+    {
+        internal ChartPackage Package { get; }
+        internal byte[] ChartBytes { get; }
+        private readonly string path;
+        private readonly string chartPath;
+        private readonly bool deleteParent;
+        private readonly PendingEstimateDeferredReason deferredReason;
+        private readonly ChartFile chart;
+        private readonly PackageChartInstallDestinationState destination;
+        private readonly string[] warnings;
+        private readonly byte[] audioBytes;
+        private readonly string installPath;
+        private readonly bool installDeleteParent;
+
+        internal CapturedPendingInput(ChartPackage package, LR2SongDBExtended db)
+        {
+            Package = package;
+            path = package.path;
+            deleteParent = package.delete_parent;
+            deferredReason = package.DeferredEstimateReason;
+            PackageChartEntry entry = package.ChartEntries.Single();
+            chart = entry.Chart;
+            chartPath = entry.Chart.Path;
+            ChartBytes = File.ReadAllBytes(chartPath);
+            audioBytes = File.ReadAllBytes(Path.Combine(path, "c.wav"));
+            destination = entry.CaptureInstallDestinationState();
+            warnings = entry.Chart.Warnings.Select(warning => warning.Kind + "|" + warning.Message).ToArray();
+            LR2SongDBExtended.install row = db.Table<LR2SongDBExtended.install>().Single(row => row.path == path);
+            installPath = row.path;
+            installDeleteParent = row.delete_parent;
+        }
+
+        internal void AssertUnchanged(BMSLibrary library, LR2SongDBExtended db)
+        {
+            Assert.IsTrue(library.ChartPackagesPending.Contains(Package));
+            Assert.AreEqual(path, Package.path);
+            Assert.AreEqual(deleteParent, Package.delete_parent);
+            Assert.AreEqual(deferredReason, Package.DeferredEstimateReason);
+            PackageChartEntry entry = Package.ChartEntries.Single();
+            Assert.AreEqual(chartPath, entry.Chart.Path);
+            Assert.AreEqual(chart.Md5, entry.Chart.Md5);
+            Assert.AreEqual(chart.Status, entry.Chart.Status);
+            Assert.AreEqual(chart.WAVHealth, entry.Chart.WAVHealth);
+            CollectionAssert.AreEqual(ChartBytes, File.ReadAllBytes(chartPath));
+            CollectionAssert.AreEqual(audioBytes, File.ReadAllBytes(Path.Combine(path, "c.wav")));
+            PackageChartInstallDestinationState current = entry.CaptureInstallDestinationState();
+            Assert.AreEqual(destination.Destination, current.Destination);
+            Assert.AreEqual(destination.Title, current.Title);
+            Assert.AreEqual(destination.Artist, current.Artist);
+            CollectionAssert.AreEqual(destination.Suggestions.ToArray(), current.Suggestions.ToArray());
+            CollectionAssert.AreEqual(warnings, entry.Chart.Warnings.Select(warning => warning.Kind + "|" + warning.Message).ToArray());
+            LR2SongDBExtended.install row = db.Table<LR2SongDBExtended.install>().Single(row => row.path == path);
+            Assert.AreEqual(installPath, row.path);
+            Assert.AreEqual(installDeleteParent, row.delete_parent);
+        }
     }
 
     /// <summary>交差するXだけをBusyで保留し、独立A/Bを一バッチで確定します。必要同期の実P競合は必須失敗と同期未完了案内を保ち、P解放後もXや同期を再実行しません。</summary>
@@ -568,7 +693,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             }
         }
         internal AutomaticContinuationObserver Observer { get; } = new();
-        internal ArchiveInputFileMutationService Files { get; } = new(_ => { });
+        internal ArchiveInputFileMutationService Files { get; }
         internal TaskCompletionSource PlaybackEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal TaskCompletionSource ReleasePlayback { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal TestBmsLibrary Library { get; }
@@ -576,15 +701,29 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         internal PackageInstallFailure? Failure { get; private set; }
         internal PackageInstallCommandResult? Result { get; private set; }
         private readonly ConcurrentQueue<Func<Task>> background = new();
+        private readonly HashSet<string> extractedRoots = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>実FSと捕捉する走査結果を同じ内容で準備し、必要な場合だけ最終子配置にも音源を置きます。</summary>
         internal AutomaticContinuationFixture(bool enabled, bool deleteSource, bool holdPlayback = false,
             ChartFileOperationSynchronizer? operationAdmission = null, ChartFileOperationSynchronizer? playlistOperationAdmission = null, IUiScheduler? uiScheduler = null, bool nestedAudio = false,
-            IEnumerable<string>? destinationSounds = null)
+            IEnumerable<string>? destinationSounds = null, bool differentDestinations = false, bool temporaryIngress = false, IEnumerable<string>? installedChartBodies = null)
         {
+            Files = new ArchiveInputFileMutationService(path =>
+            {
+                string? extracted = Path.GetDirectoryName(path);
+                if (extracted == null || !TempDirectoryPublisher.IsManagedPath(extracted)) { return; }
+                // この展開のwork rootまで上がり、共有sessionや過去の別実行は対象にしません。
+                while (Path.GetDirectoryName(extracted) is string parent
+                    && Path.GetDirectoryName(parent) is string sessionParent && TempDirectoryPublisher.IsManagedPath(sessionParent))
+                {
+                    extracted = parent;
+                }
+                extractedRoots.Add(extracted);
+            });
             Directory.CreateDirectory(Destination);
-            string installed = Path.Combine(Destination, "owned.bms");
-            File.WriteAllText(installed, CreateValidBmsText("Song"), Encoding.ASCII);
+            string installed = Path.Combine(Destination, installedChartBodies == null ? "owned.bms" : "owned-0000.bms");
+            string[] ownedBodies = (installedChartBodies ?? [CreateValidBmsText("Song")]).ToArray();
+            File.WriteAllText(installed, ownedBodies[0], installedChartBodies == null ? Encoding.ASCII : Encoding.GetEncoding("shift_jis"));
             List<string> sounds = [.. destinationSounds ?? ["sound.wav", "a.wav", "b.wav", "previous.wav"]];
             if (nestedAudio)
             {
@@ -597,20 +736,43 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 if (Path.GetDirectoryName(path) is string directory) { Directory.CreateDirectory(directory); }
                 File.WriteAllBytes(path, [1]);
             }
+            var installedPaths = new List<string> { installed };
+            for (int index = 1; index < ownedBodies.Length; index++)
+            {
+                string path = Path.Combine(Destination, "owned-" + index.ToString("D4") + ".bms");
+                File.WriteAllText(path, ownedBodies[index], Encoding.GetEncoding("shift_jis"));
+                installedPaths.Add(path);
+            }
+            var directorySounds = new Dictionary<string, IEnumerable<string>> { [Destination] = sounds };
+            if (differentDestinations)
+            {
+                string second = Path.Combine(LibraryRoot, "SecondSong");
+                Directory.CreateDirectory(second);
+                string chart = Path.Combine(second, "owned-b.bms");
+                File.WriteAllText(chart, CreateValidBmsText("Song").Replace("sound.wav", "b.wav"), Encoding.ASCII);
+                File.WriteAllBytes(Path.Combine(second, "b.wav"), [1]);
+                installedPaths.Add(chart);
+                directorySounds.Add(second, ["b.wav"]);
+            }
             File.WriteAllBytes(Database, []);
             options = CreateOptions(enabled, deleteSource);
             lr2Owner = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(Root, LibraryRoot));
             ChartFileOperationSynchronizer admission = operationAdmission ?? new ChartFileOperationSynchronizer();
             Library = new TestBmsLibrary(Database, lr2Owner, null, Files, new FileDbReportRecordingDialogs(),
                 uiScheduler ?? new TestUiScheduler(() => null), () => Options,
-                CapturedChartFileScanner.FromFixture([installed], new Dictionary<string, IEnumerable<string>> { [Destination] = sounds }, [Destination]),
+                CapturedChartFileScanner.FromFixture(installedPaths, directorySounds, directorySounds.Keys),
                 Observer, admission, playlistOperationAdmission, rootFileEnumerator: new FastRootFileEnumerator(), settings: TestBmsFactory.CreateRootSettings([LibraryRoot]))
             {
 
                 StartupBackgroundTaskScheduler = (_, _, _, work) => { background.Enqueue(work); return true; }
             };
+            DroppedInstallIngressMaterializer? materializer = temporaryIngress ? new DroppedInstallIngressMaterializer(
+                Path.Combine(Root, "ExternalTemp"), _ => false,
+                () => { string path = Path.Combine(Root, "Ingress"); Directory.CreateDirectory(path); return path; },
+                path => Directory.Delete(path, recursive: true)) : null;
             Owner = new PackageInstallWorkflowOwner(new FileDbReportRecordingDialogs(), admission, new ChartMutationActivityOwner(),
-                new BmsLibraryPackageInstallMutationPort(), new AwaitablePlaybackStop(PlaybackEntered, ReleasePlayback.Task), action => { action(); return true; });
+                new BmsLibraryPackageInstallMutationPort(), new AwaitablePlaybackStop(PlaybackEntered, ReleasePlayback.Task), action => { action(); return true; },
+                droppedInstallIngressMaterializer: materializer);
             Owner.AttachLibrary(Library);
             Owner.CompletionPublished += receipt => Result = receipt.CommandResult;
             Owner.FailurePublished += failure => { Failure = failure; Result = failure.CommandResult; };
@@ -645,7 +807,21 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         {
             ReleasePlayback.TrySetResult();
             try { await Owner.WaitForIdleAsync(); while (background.TryDequeue(out Func<Task>? work)) { await work(); } }
-            finally { Library.RequestShutdown("automatic-continuation-test"); Directory.Delete(Root, recursive: true); }
+            finally
+            {
+                Library.RequestShutdown("automatic-continuation-test");
+                try
+                {
+                    foreach (string path in extractedRoots)
+                    {
+                        if (Directory.Exists(path) || File.Exists(path))
+                        {
+                            Assert.IsTrue(TempDirectoryPublisher.TryDeleteManagedPath(path), "当該fixtureが捕捉した展開rootを回収します: " + path);
+                        }
+                    }
+                }
+                finally { Directory.Delete(Root, recursive: true); }
+            }
         }
     }
 }

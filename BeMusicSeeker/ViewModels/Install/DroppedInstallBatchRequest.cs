@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -34,6 +35,9 @@ internal sealed class DroppedInstallBatchRequest
     /// </summary>
     internal string[] OriginalPaths { get; }
 
+    /// <summary>コピー前に全項目選択と捕捉した親directoryです。nullは未捕捉、空集合は捕捉済みです。</summary>
+    internal IReadOnlySet<string> FullySelectedDirectories { get; }
+
     internal int PathCount => Paths.Length;
 
     /// <summary>
@@ -60,10 +64,11 @@ internal sealed class DroppedInstallBatchRequest
         IEnumerable<string> originalPaths,
         IEnumerable<string> ownedIngressRoots,
         Action<string> deleteOwnedIngressRoot,
-        Action<string, Exception> reportCleanupFailure)
+        Action<string, Exception> reportCleanupFailure, IReadOnlySet<string> fullySelectedDirectories = null)
     {
         Paths = [.. (durablePaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
         OriginalPaths = [.. (originalPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
+        FullySelectedDirectories = fullySelectedDirectories?.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
         this.ownedIngressRoots = [.. (ownedIngressRoots ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)];

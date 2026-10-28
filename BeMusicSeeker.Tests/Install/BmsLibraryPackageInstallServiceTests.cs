@@ -368,11 +368,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
-    /// <summary>発見時の全定義契約を維持します。未使用定義の実在、または実在しなくても未使用の共通定義があれば一つのフォルダパッケージにまとめます。</summary>
+    /// <summary>部分file指定の発見では未使用定義の実在もfolder化の根拠にします。欠落した共通定義だけでは範囲を広げず、通常の使用資源数は保持します。</summary>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public void SearchChartPackagesRecursively_UsesUnusedDefinitionsForDiscoveryAndGrouping(bool existing)
+    public void PrepareAutoInstallWorkflow_UnusedDefinitionsPromoteOnlyWhenExisting(bool existing)
     {
         WithTemporaryDirectory(root =>
         {
@@ -388,11 +388,12 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 File.WriteAllText(Path.Combine(directory, "shared.wav"), "");
             }
 
-            ChartPackageDiscoveryResult discovery = new BmsLibraryPackageInstallService().SearchChartPackagesRecursivelyWithMetadata(directory, 0.6);
-            Assert.AreEqual(1, discovery.Packages.Count);
-            Assert.AreEqual(directory, discovery.Packages.Single().path);
-            Assert.AreEqual(2, discovery.Packages.Single().ChartEntries.Count);
-            foreach (PackageChartEntry entry in discovery.Packages.Single().ChartEntries)
+            string selected = Path.Combine(directory, "a.bms");
+            AutoInstallWorkflowResult discovery = new BmsLibraryPackageInstallService().PrepareAutoInstallWorkflow([selected], [], [], _ => false);
+            ChartPackage package = discovery.DiscoveredPackages.Single();
+            Assert.AreEqual(existing ? directory : selected, package.path);
+            Assert.AreEqual(existing ? 2 : 1, package.ChartEntries.Count);
+            foreach (PackageChartEntry entry in package.ChartEntries)
             {
                 Assert.AreEqual(1, entry.ResourceSnapshot.AudioReferenceCount);
             }
@@ -456,7 +457,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 condition == "fullwidth-audio" ? System.Text.Encoding.GetEncoding("shift_jis") : new System.Text.UTF8Encoding(false));
             foreach (bool strict in new[] { false, true })
             {
-                AutoInstallWorkflowResult result = new BmsLibraryPackageInstallService().PrepareAutoInstallWorkflow([directory], [], [], _ => false, 0.6,
+                AutoInstallWorkflowResult result = new BmsLibraryPackageInstallService().PrepareAutoInstallWorkflow([directory], [], [], _ => false,
                     requireCompleteUsedResourcesForAutoInstall: strict);
                 bool noMissingResources = condition is "unused" or "undefined-audio" or "undefined-bmp";
                 bool pending = condition is "audio" or "space-tab-audio" or "fullwidth-audio" || (strict && !noMissingResources);
@@ -5032,8 +5033,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 [registeredRoot, outsideDirectory],
                 [],
                 [rootPath],
-                _ => true,
-                0.6);
+                _ => true);
 
             Assert.AreEqual(1, result.DiscoveredPackages.Count);
             Assert.IsTrue(string.Equals(outsideDirectory, result.DiscoveredPackages[0].path,
@@ -5073,8 +5073,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 [packageDirectoryPath],
                 [],
                 [],
-                _ => false,
-                0.6);
+                _ => false);
 
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             PackageChartEntry chartEntry = result.PendingPackagesToAdd[0].ChartEntries.Single();
@@ -5116,8 +5115,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 [packageDirectoryPath],
                 [],
                 [],
-                _ => false,
-                0.6);
+                _ => false);
 
             ChartPackage pendingPackage = result.PendingPackagesToAdd.Single();
             PackageChartEntry missingEntry = pendingPackage.ChartEntries.Single(entry => Path.GetFileName(entry.Chart.Path).Equals("missing.bms", StringComparison.OrdinalIgnoreCase));
@@ -5132,7 +5130,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(100, healthyEntry.Chart.WAVHealth);
 
             File.WriteAllText(Path.Combine(packageDirectoryPath, "missing.wav"), "now complete");
-            AutoInstallWorkflowResult complete = service.PrepareAutoInstallWorkflow([packageDirectoryPath], [], [], _ => false, 0.6);
+            AutoInstallWorkflowResult complete = service.PrepareAutoInstallWorkflow([packageDirectoryPath], [], [], _ => false);
             foreach (PackageChartEntry entry in complete.AutoInstallCandidates.SelectMany(package => package.ChartEntries))
             {
                 File.Delete(Path.Combine(packageDirectoryPath, "missing.wav"));
@@ -5168,8 +5166,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 [packageDirectoryPath],
                 [],
                 [],
-                chart => string.Equals(chart?.Path, installedPath, StringComparison.OrdinalIgnoreCase),
-                0.6);
+                chart => string.Equals(chart?.Path, installedPath, StringComparison.OrdinalIgnoreCase));
 
             PackageChartEntry installedEntry = result.PendingPackagesToAdd.Single().ChartEntries.Single();
             Assert.IsTrue(installedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
@@ -5213,7 +5210,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// 直下の独立二譜面を単体化しても子・孫を各一回発見し、子なしの分割と再グループ化対象も維持します。
+    /// 親資源のない差分集は直下二譜面と子・孫を分け、子譜面なしの明示一式はまとめます。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [DataTestMethod]
@@ -5235,7 +5232,6 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 [Path.Combine(packageDirectoryPath, "chart_a.bms")] = [Path.Combine(packageDirectoryPath, "chart_a.bms")],
                 [Path.Combine(packageDirectoryPath, "chart_b.bms")] = [Path.Combine(packageDirectoryPath, "chart_b.bms")]
             };
-            var expectedRegroupDirectories = new List<string> { packageDirectoryPath };
             if (descendants > 0)
             {
                 string child = Path.Combine(packageDirectoryPath, "ChildA");
@@ -5256,12 +5252,18 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 expectedPackages.Add(first, [first]);
                 expectedPackages.Add(second, [second]);
                 expectedPackages.Add(grandchild, [bmson]);
-                expectedRegroupDirectories.Add(child);
             }
 
+            if (descendants == 0)
+            {
+                string[] direct = expectedPackages.Values.SelectMany(paths => paths).ToArray();
+                expectedPackages.Clear();
+                expectedPackages.Add(packageDirectoryPath, direct);
+            }
             var service = new BmsLibraryPackageInstallService();
-            ChartPackageDiscoveryResult result = service.SearchChartPackagesRecursivelyWithMetadata(packageDirectoryPath, 0.6);
+            ChartPackageDiscoveryResult result = service.SearchChartPackagesRecursivelyWithMetadata(packageDirectoryPath);
 
+            Assert.IsTrue(result.IsComplete);
             CollectionAssert.AreEquivalent(expectedPackages.Keys.ToArray(), result.Packages.Select(package => package.path).ToArray());
             CollectionAssert.AreEquivalent(expectedPackages.Values.SelectMany(paths => paths).ToArray(),
                 result.Packages.SelectMany(package => package.ChartEntries).Select(entry => entry.Chart.Path).ToArray());
@@ -5271,31 +5273,6 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Assert.AreEqual(File.Exists(package.path) && Path.GetDirectoryName(package.path) != packageDirectoryPath,
                     package.delete_parent, "直下と再帰中の単体で親cleanup権限を維持します。");
             }
-            CollectionAssert.AreEquivalent(expectedRegroupDirectories, result.RegroupEligibleSourceDirectories);
-        });
-    }
-
-    /// <summary>
-    /// 子フォルダで独立譜面を分割したときその子を再グループ化対象へ返し、親への誤登録や再検索対象の欠落を検出する。
-    /// </summary>
-    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
-    [TestMethod]
-    public void SearchChartPackagesRecursivelyWithMetadata_MarksNestedSplitDirectoryAsRegroupEligible()
-    {
-
-        WithTemporaryDirectory(delegate (string tempDirectoryPath)
-        {
-            string rootDirectoryPath = Path.Combine(tempDirectoryPath, "Root");
-            string childDirectoryPath = Path.Combine(rootDirectoryPath, "Child");
-            Directory.CreateDirectory(childDirectoryPath);
-            File.WriteAllText(Path.Combine(childDirectoryPath, "chart_a.bms"), "#PLAYER 1\r\n#TITLE A\r\n#WAVAA sound_a.wav\r\n#00111:AA\r\n");
-            File.WriteAllText(Path.Combine(childDirectoryPath, "chart_b.bms"), "#PLAYER 1\r\n#TITLE B\r\n#WAVAA sound_b.wav\r\n#00111:AA\r\n");
-
-            var service = new BmsLibraryPackageInstallService();
-            ChartPackageDiscoveryResult result = service.SearchChartPackagesRecursivelyWithMetadata(rootDirectoryPath, 0.6);
-
-            Assert.AreEqual(2, result.Packages.Count);
-            CollectionAssert.AreEqual(new[] { childDirectoryPath }, result.RegroupEligibleSourceDirectories);
         });
     }
 
@@ -5315,7 +5292,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             File.WriteAllText(Path.Combine(packageDirectoryPath, "sound.wav"), "dummy");
 
             var service = new BmsLibraryPackageInstallService();
-            ChartPackageDiscoveryResult result = service.SearchChartPackagesRecursivelyWithMetadata(packageDirectoryPath, 0.6);
+            ChartPackageDiscoveryResult result = service.SearchChartPackagesRecursivelyWithMetadata(packageDirectoryPath);
 
             Assert.AreEqual(1, result.Packages.Count);
             Assert.AreEqual(packageDirectoryPath, result.Packages[0].path);
@@ -5325,14 +5302,14 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// 直下一譜面・同梱資源あり・参照共通率成立の各条件で子を含む一まとまりを保ち、子の二重発見と再グループ化誤登録を防ぎます。
+    /// 親の実在資源だけを子譜面を含む一式の根拠とし、直下1譜面・共通参照だけなら親直下と子作品を分けます。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [DataTestMethod]
     [DataRow("single")]
     [DataRow("resources")]
     [DataRow("shared")]
-    public void SearchChartPackagesRecursivelyWithMetadata_DetectsRootAndNestedChartsAsOneDirectoryPackage(string condition)
+    public void SearchChartPackagesRecursivelyWithMetadata_ParentResourcesControlChildPackageBoundary(string condition)
     {
 
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -5356,13 +5333,22 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             }
 
             var service = new BmsLibraryPackageInstallService();
-            ChartPackageDiscoveryResult result = service.SearchChartPackagesRecursivelyWithMetadata(packageDirectoryPath, 0.6);
+            ChartPackageDiscoveryResult result = service.SearchChartPackagesRecursivelyWithMetadata(packageDirectoryPath);
 
-            Assert.AreEqual(1, result.Packages.Count);
-            Assert.AreEqual(packageDirectoryPath, result.Packages[0].path);
-            CollectionAssert.AreEquivalent(expectedCharts, result.Packages[0].ChartEntries.Select(entry => entry.Chart.Path).ToArray());
-            Assert.IsFalse(result.Packages[0].delete_parent);
-            Assert.AreEqual(0, result.RegroupEligibleSourceDirectories.Count);
+            Assert.IsTrue(result.IsComplete);
+            if (condition == "resources")
+            {
+                Assert.AreEqual(packageDirectoryPath, result.Packages.Single().path);
+                CollectionAssert.AreEquivalent(expectedCharts, result.Packages.Single().ChartEntries.Select(entry => entry.Chart.Path).ToArray());
+            }
+            else
+            {
+                string[] expectedPackages = expectedCharts.Where(path => Path.GetDirectoryName(path) == packageDirectoryPath)
+                    .Append(nestedDirectoryPath).ToArray();
+                CollectionAssert.AreEquivalent(expectedPackages, result.Packages.Select(package => package.path).ToArray());
+                CollectionAssert.AreEquivalent(expectedCharts, result.Packages.SelectMany(package => package.ChartEntries).Select(entry => entry.Chart.Path).ToArray());
+            }
+            Assert.IsTrue(result.Packages.All(package => !package.delete_parent));
         });
     }
 
@@ -5422,8 +5408,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 [bmsonFilePath],
                 [],
                 [],
-                _ => false,
-                0.6);
+                _ => false);
 
             Assert.AreEqual(1, result.DiscoveredPackages.Count);
             Assert.AreEqual(bmsonFilePath, result.DiscoveredPackages[0].path);
@@ -5566,8 +5551,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 [packageDirectoryPath],
                 [],
                 [],
-                chart => string.Equals(chart?.Path, installedBmsonPath, StringComparison.OrdinalIgnoreCase),
-                0.6);
+                chart => string.Equals(chart?.Path, installedBmsonPath, StringComparison.OrdinalIgnoreCase));
 
             PackageChartEntry installedEntry = result.DiscoveredPackages
                 .SelectMany(package => package.ChartEntries)
@@ -5655,8 +5639,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 [packageDirectoryPath],
                 [],
                 [],
-                _ => false,
-                0.6);
+                _ => false);
 
             Assert.AreEqual(1, result.DiscoveredPackages.Count);
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
@@ -5701,8 +5684,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 [packageDirectoryPath],
                 [],
                 [],
-                _ => false,
-                0.6);
+                _ => false);
 
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
@@ -5747,8 +5729,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 [packageDirectoryPath],
                 [],
                 [],
-                _ => false,
-                0.6);
+                _ => false);
 
             Assert.AreEqual(1, result.AutoInstallCandidates.Count);
             Assert.AreEqual(0, result.PendingPackagesToAdd.Count);
@@ -5785,8 +5766,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 [packageDirectoryPath],
                 [],
                 [],
-                _ => false,
-                0.6);
+                _ => false);
 
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
@@ -5820,8 +5800,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 [bmsonFilePath],
                 [],
                 [],
-                _ => false,
-                0.6);
+                _ => false);
 
             Assert.AreEqual(1, result.DiscoveredPackages.Count);
             Assert.IsTrue(string.Equals(packageDirectoryPath, result.DiscoveredPackages[0].path, StringComparison.OrdinalIgnoreCase));
@@ -5861,13 +5840,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 [directoryPackagePath, singleFilePath],
                 [],
                 [],
-                _ => false,
-                0.6);
+                _ => false);
 
             Assert.AreEqual(2, result.DiscoveredPackages.Count);
             Assert.AreEqual(2, result.AutoInstallCandidates.Count);
             Assert.AreEqual(0, result.PendingPackagesToAdd.Count);
-            Assert.AreEqual(0, result.RegroupEligibleSourceDirectories.Count);
             Assert.IsTrue(Directory.Exists(result.AutoInstallCandidates[0].path));
             Assert.IsTrue(result.AutoInstallCandidates.Any(package => package.path.Equals(filePackageDirectoryPath, StringComparison.OrdinalIgnoreCase)));
             Assert.IsTrue(result.DiscoveredPackages.All(package => package.GetBmsChartsForTest().Count > 0));
@@ -5900,8 +5877,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     [directoryPackagePath, singleFilePath],
                     [],
                     [],
-                    _ => false,
-                    0.6);
+                    _ => false);
 
                 Assert.AreEqual(2, result.DiscoveredPackages.Count);
                 foreach (ChartPackage package in result.DiscoveredPackages)
@@ -5936,11 +5912,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// フォルダの一部譜面だけを選択した場合は再グループ化対象にせず、選択外譜面まで次の検索範囲へ広げる誤りを検出する。
+    /// 隣接資源のないフォルダで一部譜面だけを選択した場合は、指定された実ファイルだけを発見します。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
-    public void PrepareAutoInstallWorkflow_DoesNotMarkRegroupEligibleSourceDirectoryForPartialFileSelection()
+    public void PrepareAutoInstallWorkflow_DiscoversOnlySelectedFilesWithoutAdjacentResources()
     {
 
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -5958,11 +5934,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 [firstFilePath, secondFilePath],
                 [],
                 [],
-                _ => false,
-                0.6);
+                _ => false);
 
-            Assert.AreEqual(2, result.DiscoveredPackages.Count);
-            Assert.AreEqual(0, result.RegroupEligibleSourceDirectories.Count);
+            CollectionAssert.AreEquivalent(new[] { firstFilePath, secondFilePath }, result.DiscoveredPackages.Select(package => package.path).ToArray());
             Assert.IsTrue(result.DiscoveredPackages.All(package => File.Exists(package.path)));
         });
     }
@@ -7356,37 +7330,50 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// 不正BMSONが欠けた発見・復元一覧と、有効な未選択BMSONを含まない管理一覧でも、既知の選択BMSだけを削除し非対象の譜面・資源を保つ。
+    /// 完全捕捉後に不正または有効未選択の子BMSONを追加したfolderと、復元部分一覧でも、選択BMSだけを削除し非対象の譜面・資源を保つ。
     /// </summary>
     /// <remarks>小さい実FSと本番の発見・削除サービスを使い、全体skipと誤ったフォルダ削除をともに検出する。</remarks>
     [DataTestMethod]
-    [DataRow("discovered-invalid")]
+    [DataRow("added-invalid-child")]
     [DataRow("restored-invalid")]
-    [DataRow("managed-subset")]
-    public void DeletePendingCharts_IncompleteDiscoveredPackagesDeleteOnlySelectedFiles(string provenance)
+    [DataRow("added-unselected-child")]
+    public void DeletePendingCharts_ChangedOrRestoredFoldersDeleteOnlySelectedFiles(string provenance)
     {
         WithTemporaryDirectory(tempDirectoryPath =>
         {
             string packagePath = Path.Combine(tempDirectoryPath, "package");
             string nested = Path.Combine(packagePath, "nested");
-            Directory.CreateDirectory(nested);
+            Directory.CreateDirectory(packagePath);
             string selectedPath = Path.Combine(packagePath, "selected.bms");
             File.WriteAllText(selectedPath, "#PLAYER 1\r\n#TITLE selected\r\n#BPM 120\r\n#00111:01\r\n");
             string unselectedPath = Path.Combine(nested, "unselected.bmson");
-            File.WriteAllText(unselectedPath, provenance == "managed-subset" ? CreateBmsonJsonWithSound("sound.wav") : "{invalid json");
             string resourcePath = Path.Combine(nested, "sound.wav");
-            File.WriteAllBytes(resourcePath, [3, 1, 4]);
+            void AddUnselectedChild()
+            {
+                Directory.CreateDirectory(nested);
+                File.WriteAllText(unselectedPath, provenance == "added-unselected-child" ? CreateBmsonJsonWithSound("sound.wav") : "{invalid json");
+                File.WriteAllBytes(resourcePath, [3, 1, 4]);
+            }
+            var service = new BmsLibraryPackageInstallService();
+            ChartPackage package;
+            if (provenance == "restored-invalid")
+            {
+                AddUnselectedChild();
+                package = new ChartPackage { path = packagePath };
+            }
+            else
+            {
+                ChartPackageDiscoveryResult discovery = service.SearchChartPackagesRecursivelyWithMetadata(packagePath);
+                Assert.IsTrue(discovery.IsComplete);
+                package = discovery.Packages.Single();
+            }
+            Assert.AreEqual(packagePath, package.path);
+            Assert.AreEqual(1, package.ChartEntries.Count);
+            ChartFile selected = package.ChartEntries.Single().Chart;
+            Assert.AreEqual(selectedPath, selected.Path);
+            if (provenance != "restored-invalid") { AddUnselectedChild(); }
             byte[] unselectedBytes = File.ReadAllBytes(unselectedPath);
             byte[] resourceBytes = File.ReadAllBytes(resourcePath);
-            var service = new BmsLibraryPackageInstallService();
-            ChartPackage package = provenance switch
-            {
-                "restored-invalid" => new ChartPackage { path = packagePath },
-                "managed-subset" => ChartPackage.FromChartEntries([PackageChartEntry.FromPath(selectedPath)]),
-                _ => service.SearchChartPackagesRecursivelyWithMetadata(packagePath, 0.6).Packages.Single()
-            };
-            package.path = packagePath;
-            ChartFile selected = package.ChartEntries.Single().Chart;
 
             PendingFileDeletionResult result = service.DeletePendingCharts(
                 [selected], [package], sendToRecycleBin: false, deleteContainingPackageFoldersWhenNoBms: true,

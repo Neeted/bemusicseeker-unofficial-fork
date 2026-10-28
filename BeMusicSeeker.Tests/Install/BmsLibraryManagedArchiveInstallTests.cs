@@ -118,21 +118,26 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         string a = CreateBmsFile(source, "a.bms", BmsLibraryInitializationTestSupport.CreateValidBmsText("New A").Replace("sound.wav", "missing_a.wav"));
         byte[] aBytes = File.ReadAllBytes(a);
         File.WriteAllBytes(Path.Combine(source, "b.bms"), ownedBytes);
+        string child = Path.Combine(source, "Child");
+        CreateBmsFile(child, "c.bms", BmsLibraryInitializationTestSupport.CreateValidBmsText("Child").Replace("sound.wav", "child.wav"));
         string archive = Path.Combine(fixture.Root, "split.zip");
         ZipFile.CreateFromDirectory(archiveContent, archive);
         PackageInstallCommandResult imported = await fixture.Library.InstallChartPackagesAutoWithProgressAsync(
             [archive], CancellationToken.None, new RecordingPackageInstallProgressWriter());
         Assert.IsTrue(imported.HasDurableCommit);
         Assert.IsFalse(imported.HasRequiredFailure, imported.EstimationFailure?.ToString());
-        Assert.AreEqual(2, fixture.Library.ChartPackagesPending.Count);
+        Assert.AreEqual(3, fixture.Library.ChartPackagesPending.Count);
         ChartPackage first = fixture.Library.ChartPackagesPending.Single(package => Path.GetFileName(package.path) == "a.bms");
         ChartPackage other = fixture.Library.ChartPackagesPending.Single(package => Path.GetFileName(package.path) == "b.bms");
+        ChartPackage childPackage = fixture.Library.ChartPackagesPending.Single(package => Path.GetFileName(package.path) == "Child");
+        string childPath = childPackage.path;
+        byte[] childBytes = File.ReadAllBytes(Path.Combine(childPath, "c.bms"));
         string firstSourcePath = first.path;
         string otherSourcePath = other.path;
         Assert.AreEqual(Path.GetDirectoryName(firstSourcePath), Path.GetDirectoryName(otherSourcePath));
         using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
         {
-            CollectionAssert.AreEquivalent(new[] { firstSourcePath, otherSourcePath }, db.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
+            CollectionAssert.AreEquivalent(new[] { firstSourcePath, otherSourcePath, childPath }, db.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
         }
         string destination = fixture.InstallDestinationDirectory;
         Assert.IsTrue(fixture.Library.SetPendingInstallDestination(other.ChartEntries.Single(), string.Empty, false));
@@ -150,13 +155,14 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         CollectionAssert.AreEqual(ownedBytes, File.ReadAllBytes(otherSourcePath));
         CollectionAssert.AreEqual(ownedBytes, File.ReadAllBytes(ownedPath));
         CollectionAssert.AreEqual(targetExistingBytes, File.ReadAllBytes(targetExistingPath));
-        Assert.AreSame(other, fixture.Library.ChartPackagesPending.Single());
+        CollectionAssert.AreEquivalent(new[] { other, childPackage }, fixture.Library.ChartPackagesPending.ToArray());
+        CollectionAssert.AreEqual(childBytes, File.ReadAllBytes(Path.Combine(childPath, "c.bms")));
         Assert.IsTrue(string.IsNullOrWhiteSpace(other.ChartEntries.Single().Chart.InstallDestination));
         Assert.AreEqual(installedPath, fixture.Library.ChartPackagesInstalled.Single().ChartEntries.Single().Chart.Path);
         CollectionAssert.AreEquivalent(new[] { ownedPath, targetExistingPath, installedPath }, fixture.Library.BmsCharts.Select(chart => chart.Path).ToArray());
         using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
         {
-            Assert.AreEqual(otherSourcePath, db.Table<LR2SongDBExtended.install>().Single().path);
+            CollectionAssert.AreEquivalent(new[] { otherSourcePath, childPath }, db.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
             CollectionAssert.AreEquivalent(new[] { ownedPath, targetExistingPath, installedPath }, db.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
         }
         Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
