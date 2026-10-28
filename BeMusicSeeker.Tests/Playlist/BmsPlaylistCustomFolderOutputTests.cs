@@ -3424,7 +3424,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
-    /// <summary>実詳細編集のDB保存、LR2出力、BMT準備・取消を分け、DB前失敗だけ旧levelへ戻します。空receiptのconsumer故障と実LR2警告の表示・診断故障を区別し、元結果を保って配送終端まで受付と編集状態を保持し、次の明示編集を保存します。</summary>
+    /// <summary>実詳細編集のDB保存、LR2出力、BMT準備・取消を分け、DB前失敗だけ旧levelへ戻します。空receiptのconsumer故障と実LR2警告の表示・診断故障を区別し、元結果を保って配送終端まで受付と編集状態を保持し、次の明示編集を保存します。各実Task終端後の開始gate解除も確認し、終了取消後の新保存成功は要求しません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     // 空receiptでは表示を試みずconsumerだけを故障させる。実表示故障はLR2書込み失敗から生成されたWarningへ重ねる。
@@ -3689,6 +3689,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 entryDeliveries.Count(kind => kind == "playlist_entry_commit_applied"),
                 "DB確定後は出力・取消・通知の失敗でも同じ差分が表示へ届きます。");
             Assert.IsFalse(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+            Assert.IsTrue(workspace.CanBeginDetailEdit(context), "成功・保存前/後失敗・取消のTask終端で保存gateを解除します。終了後の保存成功までは要求しません。");
 
             using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {

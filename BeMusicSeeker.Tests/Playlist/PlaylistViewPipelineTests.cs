@@ -2756,7 +2756,7 @@ public sealed class PlaylistViewPipelineTests
         }
     }
 
-    /// <summary>保存先取得が失敗したmemo編集は元例外をTaskへ返し、live sourceのmemoを保存成功のように同期しません。</summary>
+    /// <summary>保存先取得の同期失敗は元例外と旧memoを保ってTaskへ返し、次の明示編集開始を拒否し続けません。</summary>
     [TestMethod]
     public async Task PlaylistDetailEditing_DurableFailureDoesNotSynchronizeLiveSource()
     {
@@ -2786,6 +2786,7 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.AreEqual("durable detail failure", exception.Message);
         Assert.AreEqual("before", sourceRow.memo);
+        Assert.IsTrue(workspace.CanBeginDetailEdit(context), "保存先providerの同期例外でも次の明示編集を拒否し続けません。");
     }
 
     /// <summary>保留packageのbmsonから表示・target・library参照へ種類とパス・MD5を渡し、導入先・警告・healthも表示へ保持します。</summary>

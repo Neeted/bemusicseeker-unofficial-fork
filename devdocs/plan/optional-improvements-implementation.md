@@ -28,7 +28,7 @@
 
 | 単位 | 対象・コミットの区切り | 共有先・順序 |
 | --- | --- | --- |
-| U02 再生による現在セル追従 | 再生による選択変更と現在セルを揃える | U21 → U02 → U03。現行の識別選択を維持 |
+| U02 再生による現在セル追従 | 再生による選択変更と現在セルを揃える | U02 → U03。現行の識別選択と編集値引渡し・詳細編集開始gateを維持 |
 | U03 共通表の表示とコピー | TSV空行 → URL幅 → フルスキャンDST編集・非編集案内 → 言語cache | U02後。同担当が能力付与・編集終端・一時投影まで所有。U15のDST検証と順序調整 |
 | U04 履歴列とメニュー | hashコピー廃止・MD5列・末尾separator | 共通列・MainWindow。U03後、U05/U08と直列 |
 | U05 ツリーのdrop・編集とフォルダ識別 | OS drop・展開 → 空名drop → 所属名空白保持 → 遅延改名失効 | MainWindow・Playlist要求/変更。U04/U08と直列 |
@@ -43,10 +43,9 @@
 | U16 ランプの対象・取得元 | 実NO SONG所属 → 成績と履歴の同一捕捉 | lamp source/model/viewer。U07ランプ・U17日付と直列 |
 | U17 履歴投影・日付境界 | 所属大小文字 → 履歴/ランプの日付共用 | PlayHistory/HistoricalSnapshot、U16後 |
 | U20 外部同期の処理済み進捗 | 通知生産・表示・文言 | ExternalSyncOwner/SyncProgress/Hub、U22と直列、U07の言語資源編集と調整 |
-| U21 詳細セル保存中の編集開始 | 先行保存終端まで次の編集開始を止める | 現行の識別選択と編集値引渡しを維持し、同じ表担当でU02へ接続 |
 | U22 standalone外部表の出力名検査 | LR2専用検査をLR2モードへ限定 | ExternalSyncOwner。U20と同担当で順次 |
 
-現在の所有は、`optional-updater` がU21後にU02と共通表、`optional-search-ui` がU07の言語表示、`optional-encoding` がU09、`optional-bms-input` がU12と再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U13/U14/U16/U17/U20/U22は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
+現在の所有は、`optional-updater` がU02と共通表、`optional-search-ui` がU07の言語表示、`optional-encoding` がU09、`optional-bms-input` がU12と再生入力、`optional-lr2-output` がU15。空いた作業ツリーを最新devから再利用し、U13/U14/U16/U17/U20/U22は全体ルートが共有先の終了に応じて割り当てる。メイン以外最大5本であり、枠を埋めることを目的にしない。
 
 ### 開始・引継ぎと計画の更新
 
@@ -78,7 +77,7 @@ Loadedは表示同期と一回購読、Unloadedは表示購読・予約だけの
 
 `CustomTableNavigationTests` の「外部SelectedIndex変更で現在セルは作り直さない」という旧期待は新契約へ更新する。`CustomTableEditingTests` でAへの一回終端、`MainWindowPlaybackWpfTests` で実再生・Binding・描画/コピー/編集の一致、主行不変時の編集保持を分担する。入力不正や保存失敗は既存保存terminalの通知に従う。再生開始を保存完了まで止める新仕様は含めず、そのための追加状態・再試行は不要。
 
-現行の `CustomTableView` の識別選択を維持し、編集開始境界を扱うU21の後に同じ担当で実装する。
+現行の `CustomTableView` の識別選択と[詳細セルの編集開始・保存終端](../spec/ui/table-view.md#行のドラッグと編集)を維持し、同じ担当で実装する。
 
 ## U03 共通表の表示とコピー
 
@@ -112,7 +111,7 @@ Loadedは表示同期と一回購読、Unloadedは表示購読・予約だけの
 
 既存 `CustomTableColumnFactoryTests.InstallDestinationCell_DecoratesCandidatesWithoutChangingEditPaths` はcontextを渡さず候補があれば▼という内部期待を固定しており、利用者契約の根拠にしない。独立テスト設計には追加契約と保持寿命を渡し、`CustomTableEditingTests`、`CustomTablePhase6CacheTests`、`MainWindowPackageMaintenanceWpfTests`、導入先更新と再インストールの既存テストで保証を分担する。実フルスキャン画面の全件・欠落・欠落無視（`FullScanAllChartsFilterSelected` / `FileMissingFilterSelected` / `FileMissingIgnoredFilterSelected`）の通常入口で編集開始、候補選択・手入力、確定・取消、確定値と一覧表示の一致、画面再表示の保持、後続の明示再インストールによる指定先利用を確認する。セル確定だけでは物理処理しないこと、単譜面と保留パッケージ全項目の範囲、全リセット・再起動を越える保持を追加しないことも確認する。候補を持つ同じ元値で非編集一覧は案内なし・編集不可、保留とフルスキャンは案内と操作が一致することを確認し、保留の既存操作を維持する。
 
-現行の識別選択を維持し、U21とU02の現在セル追従を完結させた同担当が、このU03項目を実装する。導入サービスを共有するU15とは編集・検証の順序を調整する。機能仕様の実装済み記述への反映は製品変更と同時に行う。
+現行の識別選択と[詳細セルの編集開始・保存終端](../spec/ui/table-view.md#行のドラッグと編集)を維持し、U02の現在セル追従を完結させた同担当が、このU03項目を実装する。導入サービスを共有するU15とは編集・検証の順序を調整する。機能仕様の実装済み記述への反映は製品変更と同時に行う。
 
 ### 共通表の保留候補案内
 
@@ -473,14 +472,6 @@ Repeat ONで再生可能行が同一folderしかなければ一巡後に現在�
 - 多言語リソースが整合し、実ステータスバーでも件数と補足の意味が伝わる。
 
 既存の `BmsPlaylistExternalReloadTests`、`OperationProgressHubViewModelTests`、`MainWindowPlaylistWorkspaceWpfTests` とリソース整合テストを先に調べ、重複する新規テストを増やさない。
-
-## U21 詳細セル保存中の編集開始
-
-`CanBeginDetailEdit` は先行保存中を見ず、AのLEVEL保存中にBのMEMOを編集できる。Aの編集状態解除と遅延整列がBを自動確定し、保存がBusy拒否されると入力欄だけ閉じ得る。実経路の成立は確認済みで、再現検証は実装前の独立設計に含める。
-
-一回の保存・必要表示・後処理の実終端まで次の詳細セル編集開始だけを拒否し、既存ownerの短命な保存状態へ判定を揃える。必要表示より先に受付を解放しない。行選択・再生を妨げず、終端後は明示編集を受け付ける。待ち行列・自動再保存・永続編集状態は追加しない。
-
-Aの保存を制御している間、Bのクリック・F2・文字入力では編集が始まらず、Aの並べ替えを含む終端後はBを保存できることを実表→owner→保存→変更配送で確認する。成功、保存前失敗、保存後の必要処理失敗、取消、無変更で解除を確認する。`MainWindowPlaylistWorkspaceWpfTests`、`PlaylistWorkspacePersistenceCommandTests`、詳細更新系列を分担する。現行の識別選択・全置換前の編集値引渡しを維持し、同じ表担当が所有して選択維持と入力消失を別に判定する。
 
 ## U22 standalone外部表の出力名検査
 

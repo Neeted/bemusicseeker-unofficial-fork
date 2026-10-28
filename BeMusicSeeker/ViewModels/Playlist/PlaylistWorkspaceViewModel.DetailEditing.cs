@@ -10,13 +10,17 @@ public sealed partial class PlaylistWorkspaceViewModel
 {
     private readonly Func<BMSPlaylist> getPlaylistStore;
 
+    private bool detailEditCompletionInProgress;
+
+    /// <summary>詳細行の編集能力と先行編集の保存・必要表示・cleanup終端を確認し、新editorを作る前に次の詳細編集だけを拒否します。</summary>
     internal bool CanBeginDetailEdit(MainChartListCellEditContext context)
     {
-        return context?.Row is PlaylistDetailRow
+        return !detailEditCompletionInProgress && context?.Row is PlaylistDetailRow
             && IsDetailEditableProperty(context.PropertyName)
             && GridRowResolver.CanEditPlaylistCell(context.Row, context.PropertyName);
     }
 
+    /// <summary>開始可能な詳細セルだけを整列延期へ入れます。保存中gateの寿命と現在sourceの編集flagは分けます。</summary>
     internal void BeginDetailEdit(MainChartListCellEditContext context)
     {
         if (!CanBeginDetailEdit(context))
@@ -32,6 +36,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// <summary>
     /// プレイリスト詳細のセル編集をP内で保存し、関連出力・通知の実試行とsession終端まで待ちます。
     /// 確定値の必要表示と編集解除を終えてからPを解放し、先行失敗を保ちます。
+    /// 表示sourceが交換されても、全cleanupと受付解放の終端まで次の詳細編集開始だけを拒否し、選択・再生は維持します。
     /// 再同期前の古い項目は保存せず通知し、最新行からの明示編集を受け付けます。
     /// URL の空白だけの入力は未設定への解除として保存し、非空の無効な絶対 URI は保存しません。
     /// Levelはモデルと同じ固定Float全体・有限値判定を使い、不正入力を保存せず既存receiptから通知します。
@@ -47,90 +52,95 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
-        IDisposable admission = null;
-        LibraryFileMutationCapability authority = null;
-        ExceptionDispatchInfo primaryFailure = null;
-        bool saveAttempted = false;
+        detailEditCompletionInProgress = true;
         try
         {
-            if (!request.Commit
-                || !IsDetailEditableProperty(request.Context.PropertyName)
-                || !GridRowResolver.CanEditPlaylistCell(playlistRow, request.Context.PropertyName))
-            {
-                return;
-            }
-            BMSPlaylist store = getPlaylistStore();
-            if (store == null) { return; }
-            if (!store.TryEnterPlaylistMutation(out admission))
-            {
-                RaiseMutationRejected(PlaylistWorkspaceMutationKind.PropertySave, isBusy: true, isStale: false);
-                return;
-            }
-            SetDetailEntryCommitStore(store);
-            authority = store.CreatePlaylistMutationCapability(admission);
-            if (!store.ContainsCurrentDetailEntry(playlistRow.Entry))
-            {
-                RaiseMutationRejected(PlaylistWorkspaceMutationKind.PropertySave, isBusy: false, isStale: true);
-                return;
-            }
-            string propertyName = request.Context.PropertyName;
-            if ((propertyName == nameof(PlaylistDetailRow.Url) || propertyName == nameof(PlaylistDetailRow.Url_diff))
-                && !BMSTableEntry.TryParseEditedUrl(request.Text, out _))
-            {
-                return;
-            }
-            lock (detailEntryDeliveryLock)
-            { if (detailEntryDelivery.IsCompleted) { detailEntryDelivery = Task.CompletedTask; } }
-            saveAttempted = true;
-            await Task.Run(() => CommitRow(playlistRow, propertyName, request.Text, authority)).ConfigureAwait(true);
-        }
-        catch (Exception failure) { primaryFailure = ExceptionDispatchInfo.Capture(failure); }
-        finally
-        {
+            IDisposable admission = null;
+            LibraryFileMutationCapability authority = null;
+            ExceptionDispatchInfo primaryFailure = null;
+            bool saveAttempted = false;
             try
             {
-                if (saveAttempted)
+                if (!request.Commit
+                    || !IsDetailEditableProperty(request.Context.PropertyName)
+                    || !GridRowResolver.CanEditPlaylistCell(playlistRow, request.Context.PropertyName))
                 {
-                    await WaitForDetailEntryDeliveryAsync().ConfigureAwait(true);
+                    return;
                 }
-            }
-            catch (Exception failure) { CapturePresentationFailure(failure, "playlist_detail_edit_projection_failed"); }
-            try
-            {
-                if (saveAttempted)
+                BMSPlaylist store = getPlaylistStore();
+                if (store == null) { return; }
+                if (!store.TryEnterPlaylistMutation(out admission))
                 {
-                    PlaylistEntryValue saved;
-                    using (playlistRow.Entry.parent.ReaderWriterLock.GetReaderGuard()) { saved = playlistRow.Entry.CaptureValue(); }
-                    PlaylistDetailSourceRow current;
-                    lock (DetailViewState.SyncRoot)
+                    RaiseMutationRejected(PlaylistWorkspaceMutationKind.PropertySave, isBusy: true, isStale: false);
+                    return;
+                }
+                SetDetailEntryCommitStore(store);
+                authority = store.CreatePlaylistMutationCapability(admission);
+                if (!store.ContainsCurrentDetailEntry(playlistRow.Entry))
+                {
+                    RaiseMutationRejected(PlaylistWorkspaceMutationKind.PropertySave, isBusy: false, isStale: true);
+                    return;
+                }
+                string propertyName = request.Context.PropertyName;
+                if ((propertyName == nameof(PlaylistDetailRow.Url) || propertyName == nameof(PlaylistDetailRow.Url_diff))
+                    && !BMSTableEntry.TryParseEditedUrl(request.Text, out _))
+                {
+                    return;
+                }
+                lock (detailEntryDeliveryLock)
+                { if (detailEntryDelivery.IsCompleted) { detailEntryDelivery = Task.CompletedTask; } }
+                saveAttempted = true;
+                await Task.Run(() => CommitRow(playlistRow, propertyName, request.Text, authority)).ConfigureAwait(true);
+            }
+            catch (Exception failure) { primaryFailure = ExceptionDispatchInfo.Capture(failure); }
+            finally
+            {
+                try
+                {
+                    if (saveAttempted)
                     {
-                        PlaylistDetailDependencies dependencies = EnsureDetailDependencies();
-                        dependencies.TryGet(playlistRow.Entry, out current);
-                        // 同値保存ではreceiptを作らないため、直前の表示失敗後もこの明示要求の正本値を必要反映します。
-                        if (current != null && !current.HasEditedValues(saved))
-                        {
-                            PlaylistDetailSourceRow next = current.WithEditedValues(saved);
-                            ReplaceDetailProjection(dependencies, current, next); current = next;
-                        }
+                        await WaitForDetailEntryDeliveryAsync().ConfigureAwait(true);
                     }
-                    if (current != null) { playlistRow.ApplySource(current); }
                 }
+                catch (Exception failure) { CapturePresentationFailure(failure, "playlist_detail_edit_projection_failed"); }
+                try
+                {
+                    if (saveAttempted)
+                    {
+                        PlaylistEntryValue saved;
+                        using (playlistRow.Entry.parent.ReaderWriterLock.GetReaderGuard()) { saved = playlistRow.Entry.CaptureValue(); }
+                        PlaylistDetailSourceRow current;
+                        lock (DetailViewState.SyncRoot)
+                        {
+                            PlaylistDetailDependencies dependencies = EnsureDetailDependencies();
+                            dependencies.TryGet(playlistRow.Entry, out current);
+                            // 同値保存ではreceiptを作らないため、直前の表示失敗後もこの明示要求の正本値を必要反映します。
+                            if (current != null && !current.HasEditedValues(saved))
+                            {
+                                PlaylistDetailSourceRow next = current.WithEditedValues(saved);
+                                ReplaceDetailProjection(dependencies, current, next); current = next;
+                            }
+                        }
+                        if (current != null) { playlistRow.ApplySource(current); }
+                    }
+                }
+                catch (Exception failure) { CapturePresentationFailure(failure, "playlist_detail_edit_row_projection_failed"); }
+                try { playlistRow.EndDraft(); }
+                catch (Exception failure) { CapturePresentationFailure(failure, "playlist_detail_edit_draft_notification_failed"); }
+                try { CompleteDetailEditSession(); }
+                catch (Exception failure) { CapturePresentationFailure(failure, "playlist_detail_edit_refresh_notification_failed"); }
+                authority?.Dispose();
+                admission?.Dispose();
+                primaryFailure?.Throw();
             }
-            catch (Exception failure) { CapturePresentationFailure(failure, "playlist_detail_edit_row_projection_failed"); }
-            try { playlistRow.EndDraft(); }
-            catch (Exception failure) { CapturePresentationFailure(failure, "playlist_detail_edit_draft_notification_failed"); }
-            try { CompleteDetailEditSession(); }
-            catch (Exception failure) { CapturePresentationFailure(failure, "playlist_detail_edit_refresh_notification_failed"); }
-            authority?.Dispose();
-            admission?.Dispose();
-            primaryFailure?.Throw();
-        }
 
-        void CapturePresentationFailure(Exception failure, string reason)
-        {
-            if (primaryFailure == null) { primaryFailure = ExceptionDispatchInfo.Capture(failure); }
-            else { TryLogPlaylistDropSecondaryFailure(failure, reason); }
+            void CapturePresentationFailure(Exception failure, string reason)
+            {
+                if (primaryFailure == null) { primaryFailure = ExceptionDispatchInfo.Capture(failure); }
+                else { TryLogPlaylistDropSecondaryFailure(failure, reason); }
+            }
         }
+        finally { detailEditCompletionInProgress = false; }
     }
 
     private async Task CommitRow(PlaylistDetailRow playlistRow, string propertyName, string text, LibraryFileMutationCapability capability)

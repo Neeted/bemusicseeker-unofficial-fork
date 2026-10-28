@@ -519,8 +519,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         });
     }
 
-    /// <summary>実default端末で詳細とsummaryを一つずつ編集し、入力editorの閉鎖後も出力待ちの間は論理編集/Pを保持して、実controlへ正規化済み正本値を反映してから受付を解放します。</summary>
-    /// <remarks>compiled入力・Binding・実MainWindow接続を担当します。全属性・失敗条件と少数編集の仕事量はowner系列へ分担します。</remarks>
+    /// <summary>実default端末のA LEVEL保存中はB MEMOの再クリック/F2/文字入力の開始を拒否し、選択と標準再生は保ちます。A終端の整列後はB選択を保ち、実クリックでMEMO列を明示して新F2編集を実DBへ保存し、summaryの必要表示/P終端も確認します。</summary>
+    /// <remarks>compiled入力・Binding・実MainWindow接続を担当します。詳細は同期void入口で受理した実P終端を待ち、P解放後にawait/pumpのない同一UI継続で最後のgate解除まで進む接続を使います。保存Task自身の終端はowner系列、summaryのasync void終端は既存Captureへ分担します。全属性・失敗条件と少数編集の仕事量はowner系列へ分担します。</remarks>
     [TestMethod]
     public void CellEdits_DefaultTerminalsDisplaySavedValuesBeforeAdmissionEnds()
     {
@@ -540,7 +540,15 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             {
                 PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
                 fixture.Table.is_external_sync = false;
-                fixture.Table.entries = [new BMSTableEntry { md5 = new string('a', 32), title = "Cell edit", level = 1 }];
+                BMSTableEntry aEntry = new() { md5 = new string('a', 32), title = "Cell A", level = 1 };
+                BMSTableEntry bEntry = new() { md5 = new string('b', 32), title = "Cell B", level = 5, memo = "memo before" };
+                string aPath = Path.Combine(fixture.Root, "edit-a.bms"), bPath = Path.Combine(fixture.Root, "edit-b.bms");
+                File.WriteAllText(aPath, "#TITLE A"); File.WriteAllText(bPath, "#TITLE B");
+                fixture.Library.BmsCharts = [ChartTestValues.Empty() with { Path = aPath, Md5 = aEntry.md5, RawTitle = "A" },
+                    ChartTestValues.Empty() with { Path = bPath, Md5 = bEntry.md5, RawTitle = "B" }];
+                fixture.Table.entries = [aEntry, bEntry];
+                var player = new PlaybackPanelViewModelTests.FakeBmsPlayer();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.ViewModel.PlaybackPanel.ReplacePlayerAsync(player), "actual-detail-replace-player");
                 fixture.Playlist.BMSTables = new ObservableCollection<BMSTable>([fixture.Table]);
                 fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
                 workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
@@ -553,22 +561,25 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 tableItem.IsSelected = true;
                 workspace.RequestDetailSelection(fixture.Table);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
+                workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.Level), System.ComponentModel.ListSortDirection.Ascending);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
                     MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected, false, default), "actual-cell-detail-build");
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "actual-cell-detail-owner-idle");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var table = (CustomTableView)fixture.Window.FindName("customTableView");
-                BindingOperations.GetBindingExpression(table, CustomTableView.ItemsSourceProperty)?.UpdateTarget();
                 var columns = new CustomTableColumnSettings();
-                columns.EntryLevel.Visibility = Visibility.Visible;
-                table.Columns = [.. CustomTableColumnFactory.CreateMainColumns(columns).Where(column => column.EditPropertyName == nameof(PlaylistDetailRow.Level))];
+                columns.EntryLevel.Visibility = Visibility.Visible; columns.EntryLevel.DisplayIndex = 0;
+                columns.Memo.Visibility = Visibility.Visible; columns.Memo.DisplayIndex = 1; columns.Memo.Width = 160;
+                table.Columns = [.. CustomTableColumnFactory.CreateMainColumns(columns).Where(column => column.EditPropertyName is nameof(PlaylistDetailRow.Level) or nameof(PlaylistDetailRow.memo))];
+                CustomTableColumn memoColumn = table.Columns.Single(column => column.EditPropertyName == nameof(PlaylistDetailRow.memo));
                 table.Width = 300; table.Height = 100;
                 table.Measure(new Size(300, 100)); table.Arrange(new Rect(0, 0, 300, 100));
-                table.SelectRowsByPredicate(_ => true);
+                table.SelectRowsByPredicate(row => row is PlaylistDetailRow detail && ReferenceEquals(detail.Entry, aEntry));
                 table.UpdateLayout();
-                Assert.AreEqual(1, ((System.Collections.IList)table.ItemsSource).Count,
+                Assert.AreEqual(2, ((System.Collections.IList)table.ItemsSource).Count,
                     $"entries={fixture.Table.entries.Count} source={workspace.DetailViewState.Source.Rows.Count} view={workspace.DetailViewState.View.Rows.Count} main={fixture.ViewModel.MainChartList.Rows.Count} active={ReferenceEquals(workspace.DetailViewState.Source.CurrentTable, fixture.Table)} binding={BindingOperations.GetBindingExpression(table, CustomTableView.ItemsSourceProperty)?.Status} "
                     + workspace.DescribeDetailBuildState(value => value.ToString()));
+                Assert.AreEqual(nameof(PlaylistDetailRow.Level), table.GetCurrentCellColumn(table.SelectedIndex)?.EditPropertyName);
                 Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
                 TextBox editor = Editor(table) ?? throw new AssertFailedException("実詳細セルのeditorがありません。");
                 editor.Text = "12.5";
@@ -581,14 +592,76 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.IsTrue(workspace.DetailViewState.Source.IsPlaylistCellEditing);
                 Assert.IsFalse(terminal.IsCompleted);
                 Assert.IsFalse(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable blocked)); blocked?.Dispose();
-                holdOutput = false; release.TrySetResult();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "actual-detail-edit-terminal");
-                PlaylistDetailRow row = fixture.ViewModel.MainChartList.Rows[0] as PlaylistDetailRow ?? throw new AssertFailedException();
-                Assert.AreEqual("12.5", row.Level);
-                Assert.IsFalse(workspace.DetailViewState.Source.IsPlaylistCellEditing);
-                Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
-                Assert.AreEqual("12.5", Editor(table)?.Text);
-                table.HandleKeyDown(Key.Escape, ModifierKeys.None);
+                PlaylistDetailRow bRow = table.ItemsSource.Cast<PlaylistDetailRow>().Single(row => ReferenceEquals(row.Entry, bEntry));
+                var rejectedBeginnings = new List<bool>();
+                int bStarted = 0, bEnded = 0;
+                EventHandler<CustomTableCellEditBeginningEventArgs> beginning = (_, args) =>
+                {
+                    if (args.Row is PlaylistDetailRow detail && ReferenceEquals(detail.Entry, bEntry))
+                    { Assert.AreEqual(nameof(PlaylistDetailRow.memo), args.EditPropertyName); rejectedBeginnings.Add(args.Cancel); }
+                };
+                EventHandler<CustomTableCellEditStartedEventArgs> started = (_, args) => { if (args.Row is PlaylistDetailRow detail && ReferenceEquals(detail.Entry, bEntry)) { bStarted++; } };
+                EventHandler<CustomTableCellEditEndedEventArgs> ended = (_, args) => { if (args.Row is PlaylistDetailRow detail && ReferenceEquals(detail.Entry, bEntry)) { bEnded++; } };
+                table.CellEditBeginning += beginning; table.CellEditStarted += started; table.CellEditEnded += ended;
+                try
+                {
+                    Point point = new(table.VisibleColumns.TakeWhile(column => column.Id != memoColumn.Id).Sum(column => column.Width) + 5 - table.HorizontalOffset,
+                        table.HeaderHeight + table.RowHeight + 5);
+                    CustomTableHitTestResult hit = table.HitTestTable(point);
+                    Assert.AreSame(bRow, hit.Row); Assert.AreSame(memoColumn, hit.Column);
+                    Assert.IsTrue(table.HandleCellMouseDown(hit, MouseButton.Left, ModifierKeys.None, 1, point));
+                    Assert.AreEqual(1, table.SelectedIndex); Assert.AreEqual(1, fixture.ViewModel.MainChartList.SelectedIndex);
+                    Assert.AreEqual(0, rejectedBeginnings.Count, "Bへの初回クリックは選択だけを行います。");
+                    table.HandleCellMouseDown(hit, MouseButton.Left, ModifierKeys.None, 1, point);
+                    table.HandleKeyDown(Key.F2, ModifierKeys.None);
+                    table.RaiseEvent(new TextCompositionEventArgs(Keyboard.PrimaryDevice, new TextComposition(InputManager.Current, table, "7"))
+                    { RoutedEvent = TextCompositionManager.PreviewTextInputEvent, Source = table });
+                    CollectionAssert.AreEqual(new[] { true, true, true }, rejectedBeginnings.ToArray());
+                    Assert.AreEqual(0, bStarted); Assert.AreEqual(0, bEnded); Assert.IsNull(Editor(table));
+                    Assert.IsTrue(table.IsEnabled);
+                    Assert.AreSame(bRow, table.ItemsSource[table.SelectedIndex]);
+                    Assert.AreEqual(5d, bEntry.level); Assert.AreEqual("memo before", bEntry.memo);
+                    using (LR2SongDBExtended pending = new BmsLibraryDbGateway(Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly())
+                    {
+                        BMSTableEntry pendingB = pending.Table<BMSTableEntry>().Single(value => value.md5 == bEntry.md5);
+                        Assert.AreEqual(5d, pendingB.level); Assert.AreEqual("memo before", pendingB.memo);
+                    }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Window.RequestPlaybackFromTable(table.SelectedIndex, bRow), "actual-detail-pending-playback");
+                    Assert.AreEqual(1, player.Commands.Count(command => command == "PlayStart:" + bPath));
+                    Assert.IsFalse(terminal.IsCompleted);
+                    holdOutput = false; release.TrySetResult();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "actual-detail-edit-terminal");
+                    Assert.IsFalse(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+                    PlaylistDetailRow firstAfterSave = table.ItemsSource[0] as PlaylistDetailRow
+                        ?? throw new AssertFailedException("保存後の先頭に詳細行がありません。");
+                    Assert.AreSame(bEntry, firstAfterSave.Entry); Assert.AreEqual(0, table.SelectedIndex);
+                    Assert.AreEqual(0, fixture.ViewModel.MainChartList.SelectedIndex);
+                    Assert.AreSame(firstAfterSave, table.GetSelectedRowsSnapshot().Single());
+                    Assert.AreEqual("12.5", table.ItemsSource.Cast<PlaylistDetailRow>().Single(row => ReferenceEquals(row.Entry, aEntry)).Level);
+                    Assert.IsNull(Editor(table)); Assert.AreEqual(0, bStarted); Assert.AreEqual(0, bEnded);
+                    Assert.AreEqual(bPath, fixture.ViewModel.PlaybackPanel.NowPlayingChart?.Path);
+                    Point nextPoint = new(table.VisibleColumns.TakeWhile(column => column.Id != memoColumn.Id).Sum(column => column.Width) + 5 - table.HorizontalOffset,
+                        table.HeaderHeight + 5);
+                    CustomTableHitTestResult nextHit = table.HitTestTable(nextPoint);
+                    Assert.AreSame(firstAfterSave, nextHit.Row); Assert.AreSame(memoColumn, nextHit.Column);
+                    Assert.IsTrue(table.HandleCellMouseDown(nextHit, MouseButton.Left, ModifierKeys.None, 1, nextPoint));
+                    Assert.AreEqual(nameof(PlaylistDetailRow.memo), table.GetCurrentCellColumn(table.SelectedIndex)?.EditPropertyName);
+                    Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                    Assert.AreEqual(false, rejectedBeginnings.Last());
+                    Assert.AreEqual(1, bStarted);
+                    TextBox nextEditor = Editor(table) ?? throw new AssertFailedException("終端後B MEMOの実editorがありません。");
+                    Assert.AreEqual("memo before", nextEditor.Text);
+                    nextEditor.Text = "saved B memo";
+                    Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
+                    terminal = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "actual-detail-next-explicit-save");
+                    Assert.AreEqual(1, bEnded); Assert.AreEqual("saved B memo", bEntry.memo); Assert.AreEqual(5d, bEntry.level);
+                    using LR2SongDBExtended saved = new BmsLibraryDbGateway(Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly();
+                    BMSTableEntry savedB = saved.Table<BMSTableEntry>().Single(value => value.md5 == bEntry.md5);
+                    Assert.AreEqual("saved B memo", savedB.memo); Assert.AreEqual(5d, savedB.level);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.ViewModel.PlaybackPanel.StopPlayback(), "actual-detail-playback-cleanup");
+                }
+                finally { table.CellEditBeginning -= beginning; table.CellEditStarted -= started; table.CellEditEnded -= ended; }
 
                 workspace.SetPlaylistSummaryMode(true);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -621,7 +694,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.AreEqual("Saved summary", Editor(summary)?.Text);
                 summary.HandleKeyDown(Key.Escape, ModifierKeys.None);
                 using LR2SongDBExtended verify = new BmsLibraryDbGateway(Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly();
-                Assert.AreEqual(12.5, verify.Table<BMSTableEntry>().Single(entry => entry.playlist_id == fixture.Table.playlist_id).level);
+                Assert.AreEqual(12.5, verify.Table<BMSTableEntry>().Single(entry => entry.playlist_id == fixture.Table.playlist_id && entry.md5 == aEntry.md5).level);
                 Assert.AreEqual("Saved summary", verify.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id=1;"));
             }
             catch (Exception failure) { primary = failure; throw; }
