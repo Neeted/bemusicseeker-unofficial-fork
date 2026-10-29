@@ -1301,6 +1301,259 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         });
     }
 
+    /// <summary>選択済み見出しの再clickだけが一回の遅延編集を開始し、開始click中の対象内focusを許しても、後発操作・対象退役後に旧要求を再開しません。</summary>
+    /// <remarks>実compiled Preview/bubble入力、Window所有timerの実Tickと編集通知、検索の全文・選択、P未受付と独立DBを観測します。候補確定と保存は既存の編集ケースへ分担し、OS物理focusの取得を前提にしません。</remarks>
+    [TestMethod]
+    public void PlaylistFolderDelayedRename_ExpiresOnLaterInputAndTargetRetirement()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ActualMainWindowFixture fixture = CreatePlaylistDropFixture(scope);
+            ChartFileOperationSynchronizer admission = fixture.Library.Lr2Synchronization.PlaylistOperationAdmission;
+            var leases = new ConcurrentQueue<Task>();
+            int starts = 0;
+            int commits = 0;
+            TaskCompletionSource? nextStart = null;
+            EventHandler availability = (_, _) => { if (admission.IsActive) { leases.Enqueue(admission.WaitForIdleAsync()); } };
+            RoutedEventHandler changed = (_, args) =>
+            {
+                if (args.OriginalSource is EditableTextBlock { IsInEditMode: true })
+                {
+                    starts++;
+                    nextStart?.TrySetResult();
+                }
+                if (args is EditableTextBlockEditModeChangedEventArgs { CommittedText: not null }) { commits++; }
+            };
+            Exception? primary = null;
+            try
+            {
+                fixture.Table.is_external_sync = false;
+                fixture.Table.entries = [new BMSTableEntry { md5 = new string('a', 32), title = "A", folder = "A" },
+                    new BMSTableEntry { md5 = new string('b', 32), title = "B", folder = "B" }];
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                // fixtureのCommitも同じPを一回取得します。準備の実終端後から利用者操作の受付を観測します。
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(admission.WaitForIdleAsync(), "delayed-rename-fixture-persistence-idle");
+                TreeViewItem table = MaterializePlaylistDropTable(fixture);
+                ((TreeView)fixture.Window.FindName("treeViewPlaylist")).Height = 300;
+                table.IsExpanded = true;
+                MaterializePlaylistDropItems(table);
+                var search = (KeywordSearchEditor)fixture.Window.FindName("KeywordSearchEditor");
+                TextBox input = search.InputTextBoxControl;
+                Assert.IsFalse(admission.IsActive, "fixture保存の受付は操作開始前に解放されています。");
+                admission.AvailabilityChanged += availability;
+                fixture.Window.AddHandler(EditableTextBlock.EditModeChangedEvent, changed, true);
+                Folder("B").IsSelected = true;
+                EditableTextBlock first = Header();
+                Click(first);
+                Assert.IsNull(PendingTimer(), "未選択Aの最初のclickは遅延改名を予約しません。");
+                Assert.AreEqual(0, starts);
+                Folder("A").IsSelected = true;
+
+                // 元のPreviewから、同じ入力属性を持つ別argsのbubble終端までだけ、対象内へのfocusを許します。
+                EditableTextBlock normal = Header();
+                MouseButtonEventArgs initial = Preview(normal);
+                DispatcherTimer normalTimer = RequiredTimer();
+                FocusInto(normal, Folder("A"));
+                Assert.AreSame(normalTimer, PendingTimer());
+                Bubble(normal, initial);
+                BeginByClock(normal, normalTimer);
+                Assert.AreEqual("A", normal.CandidateText, "開始時の表示値から候補を作ります。");
+                EndByEscape(normal);
+                AssertNoSave();
+
+                // 同一Windowで各失効を確認します。各回の次の明示clickが開始できることも監視解除の観測です。
+                foreach (string reason in new[] { "search", "focus-after-bubble", "key", "text-start", "text", "f2", "selection-roundtrip", "context", "header-context", "unloaded", "other-edit", "duplicate" })
+                {
+                    EditableTextBlock control = Header();
+                    Folder("A").IsSelected = true;
+                    Click(control);
+                    DispatcherTimer oldTimer = RequiredTimer();
+                    int before = starts;
+                    switch (reason)
+                    {
+                        case "search":
+                            FocusInto(input, control);
+                            input.Text = "search full text";
+                            input.Select(3, 4);
+                            break;
+                        case "focus-after-bubble":
+                            FocusInto(control, Folder("A"));
+                            break;
+                        case "key":
+                            RaiseKey(control, Key.Space, Keyboard.PreviewKeyDownEvent);
+                            break;
+                        case "text-start":
+                        case "text":
+                            // IME開始と確定を独立に配送し、開始→確定待ちの区間にも旧要求を残しません。
+                            input.RaiseEvent(new TextCompositionEventArgs(Keyboard.PrimaryDevice,
+                                new TextComposition(InputManager.Current, input, "x"))
+                            {
+                                RoutedEvent = reason == "text-start" ? TextCompositionManager.PreviewTextInputStartEvent : TextCompositionManager.PreviewTextInputEvent
+                            });
+                            break;
+                        case "f2":
+                            KeyEventArgs f2 = RaiseKey(Folder("A"), Key.F2, Keyboard.PreviewKeyDownEvent);
+                            f2.RoutedEvent = Keyboard.KeyDownEvent;
+                            Folder("A").RaiseEvent(f2);
+                            Assert.IsTrue(control.IsInEditMode);
+                            Assert.AreEqual(before + 1, starts);
+                            EndByEscape(control);
+                            before = starts;
+                            break;
+                        case "selection-roundtrip":
+                            Folder("B").IsSelected = true;
+                            Folder("A").IsSelected = true;
+                            break;
+                        case "context":
+                            control.DataContext = PlaylistFolderNode.CreateFolder("B");
+                            control.ClearValue(FrameworkElement.DataContextProperty);
+                            break;
+                        case "header-context":
+                            var presenter = (ContentPresenter)control.TemplatedParent;
+                            presenter.DataContext = PlaylistFolderNode.CreateFolder("B");
+                            presenter.ClearValue(FrameworkElement.DataContextProperty);
+                            break;
+                        case "unloaded":
+                            TreeViewItem owner = Folder("A");
+                            owner.SetCurrentValue(HeaderedItemsControl.HeaderTemplateProperty, null);
+                            fixture.Window.UpdateLayout();
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                            Assert.IsFalse(control.IsLoaded, "実headerから旧部品を切り離します。");
+                            owner.ClearValue(HeaderedItemsControl.HeaderTemplateProperty);
+                            fixture.Window.UpdateLayout();
+                            break;
+                        case "other-edit":
+                            EditableTextBlock other = FindDescendants<EditableTextBlock>(Folder("B")).Single();
+                            other.IsInEditMode = true;
+                            EndByEscape(other);
+                            before = starts;
+                            break;
+                        case "duplicate":
+                            Click(control);
+                            DispatcherTimer latest = RequiredTimer();
+                            Assert.AreNotSame(oldTimer, latest);
+                            Assert.IsFalse(oldTimer.IsEnabled);
+                            BeginByClock(control, latest);
+                            // 編集中のclickから次の予約を作らず、終端後に旧要求も再開しません。
+                            Click(control);
+                            Assert.IsNull(PendingTimer());
+                            EndByEscape(control);
+                            before = starts;
+                            break;
+                    }
+                    Assert.IsNull(PendingTimer(), reason);
+                    Assert.IsFalse(oldTimer.IsEnabled, reason);
+                    Assert.IsFalse(control.IsInEditMode, reason);
+                    AssertNoSave();
+                    // 取消を同期配送した後のBackground境界を越えても、停止timerの公開Interval変更だけでは再開しません。
+                    oldTimer.Interval = TimeSpan.FromMilliseconds(1);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Window.Dispatcher.InvokeAsync(() => { },
+                        DispatcherPriority.Background).Task, "delayed-rename-cancel-background");
+                    Assert.IsFalse(oldTimer.IsEnabled, reason);
+                    Assert.AreEqual(before, starts, reason);
+                    Assert.IsFalse(control.IsInEditMode, reason);
+                    if (reason == "search")
+                    {
+                        Assert.AreEqual("search full text", input.Text);
+                        Assert.AreEqual(3, input.SelectionStart);
+                        Assert.AreEqual(4, input.SelectionLength);
+                        // 戻っても旧要求を復活させません。Focus/SelectAllへ進まないことは編集開始0との組で保証します。
+                        FocusInto(Header(), input);
+                        Assert.IsNull(PendingTimer());
+                    }
+                    EditableTextBlock fresh = Header();
+                    Click(fresh);
+                    BeginByClock(fresh, RequiredTimer());
+                    EndByEscape(fresh);
+                    AssertNoSave();
+                }
+
+                TreeViewItem Folder(string name) => FindDescendants<TreeViewItem>(table).Single(item =>
+                    item.DataContext is PlaylistFolderNode { IsSpecial: false } node && node.FolderName == name);
+                EditableTextBlock Header() => FindDescendants<EditableTextBlock>(Folder("A")).Single();
+                DispatcherTimer? PendingTimer()
+                {
+                    // 時計到達だけを制御する承認済みの局所反射です。MainWindow所有の当該timerだけを固定し、方式変更時は退役します。
+                    return typeof(MainWindow).GetField("pendingPlaylistFolderRenameTimer", BindingFlags.Instance | BindingFlags.NonPublic)
+                        ?.GetValue(fixture.Window) as DispatcherTimer;
+                }
+                DispatcherTimer RequiredTimer() => PendingTimer() ?? throw new AssertFailedException("再clickの改名timerがありません。");
+                static MouseButtonEventArgs Preview(EditableTextBlock control)
+                {
+                    var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left) { RoutedEvent = Mouse.PreviewMouseDownEvent };
+                    control.RaiseEvent(args);
+                    return args;
+                }
+                static void Bubble(EditableTextBlock control, MouseButtonEventArgs preview)
+                {
+                    // MouseDevice.PostProcessInputと同じく、Previewとbubbleには別argsを配送します。
+                    var down = new MouseButtonEventArgs(preview.MouseDevice, preview.Timestamp, preview.ChangedButton, preview.StylusDevice)
+                    {
+                        RoutedEvent = Mouse.MouseDownEvent
+                    };
+                    control.RaiseEvent(down);
+                }
+                static void Click(EditableTextBlock control) => Bubble(control, Preview(control));
+                static void FocusInto(UIElement destination, IInputElement previous) => destination.RaiseEvent(
+                    new KeyboardFocusChangedEventArgs(Keyboard.PrimaryDevice, 0, previous, destination) { RoutedEvent = Keyboard.GotKeyboardFocusEvent });
+                static KeyEventArgs RaiseKey(UIElement target, Key key, RoutedEvent routedEvent)
+                {
+                    PresentationSource source = PresentationSource.FromVisual(target) ?? throw new AssertFailedException("入力先の表示sourceがありません。");
+                    var args = new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key) { RoutedEvent = routedEvent };
+                    target.RaiseEvent(args);
+                    return args;
+                }
+                void BeginByClock(EditableTextBlock control, DispatcherTimer timer)
+                {
+                    int before = starts;
+                    nextStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    Assert.IsTrue(timer.IsEnabled);
+                    timer.Interval = TimeSpan.FromMilliseconds(1);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(nextStart.Task, "delayed-rename-edit-start");
+                    nextStart = null;
+                    Assert.AreEqual(before + 1, starts);
+                    Assert.IsTrue(control.IsInEditMode);
+                    Assert.IsFalse(timer.IsEnabled);
+                    Assert.IsNull(PendingTimer());
+                }
+                static void EndByEscape(EditableTextBlock control)
+                {
+                    control.UpdateLayout();
+                    TextBox editor = FindDescendants<TextBox>(control).Single();
+                    RaiseKey(editor, Key.Escape, Keyboard.KeyDownEvent);
+                    Assert.IsFalse(control.IsInEditMode);
+                    Window.GetWindow(control)?.UpdateLayout();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                }
+                void AssertNoSave()
+                {
+                    Assert.AreEqual(0, commits);
+                    Assert.AreEqual(0, leases.Count, "未確定の遅延開始と取消はP受付を開始しません。");
+                    using LR2SongDBExtended db = new BmsLibraryDbGateway(Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly();
+                    foreach (string name in new[] { "A", "B" })
+                    {
+                        string hash = new string(name == "A" ? 'a' : 'b', 32);
+                        Assert.AreEqual(name, fixture.Table.entries.Single(entry => entry.md5 == hash).folder);
+                        Assert.AreEqual(name, db.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ?;", fixture.Table.playlist_id, hash));
+                    }
+                }
+            }
+            catch (Exception failure) { primary = failure; throw; }
+            finally
+            {
+                try { foreach (Task lease in leases) { TestUiDispatcherHost.AwaitTaskOnDispatcher(lease, "delayed-rename-cleanup-lease"); } }
+                catch (Exception cleanupFailure) when (primary != null) { primary.Data["DelayedRenameLeaseCleanupFailure"] = cleanupFailure.ToString(); }
+                finally
+                {
+                    admission.AvailabilityChanged -= availability;
+                    fixture.Window.RemoveHandler(EditableTextBlock.EditModeChangedEvent, changed);
+                    try { fixture.Close(); }
+                    catch (Exception cleanupFailure) when (primary != null) { primary.Data["DelayedRenameWindowCleanupFailure"] = cleanupFailure.ToString(); }
+                }
+            }
+        });
+    }
+
     /// <summary>無変更/変更Escape後も表示Bindingを保ち、実scrollで同じ部品を別folderへ再利用して、そのfolderだけを一回保存します。</summary>
     /// <remarks>実compiled入力とMainWindow/DBへの接続を担当します。保存失敗・拒否・選択復元の条件差は既存owner/構造テストに分担し、OS入力・物理focus成功は要求しません。</remarks>
     [DataTestMethod]

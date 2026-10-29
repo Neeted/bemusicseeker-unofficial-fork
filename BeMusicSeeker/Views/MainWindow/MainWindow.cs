@@ -64,6 +64,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private bool replacingPlaylistFolderNodes;
 
+#nullable enable
+    // 同じUI要求のtimerと監視解除だけを保持し、退役後は対象部品をWindowから参照しません。
+    private DispatcherTimer? pendingPlaylistFolderRenameTimer;
+    private Action? pendingPlaylistFolderRenameCleanup;
+#nullable restore
+
     private void ReplacePlaylistFolderNodes(TreeViewItem item, IEnumerable nodes)
     {
         replacingPlaylistFolderNodes = true;
@@ -1759,6 +1765,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="e">キャンセル可能なイベントデータ。</param>
     protected override void OnClosing(CancelEventArgs e)
     {
+        CancelPendingPlaylistFolderRename();
         var closingViewModel = base.DataContext as MainWindowViewModel;
         if (closingViewModel?.ShellShutdownWorkflow is { } shellShutdownWorkflow
             && !terminalWindowCloseAuthorized)
@@ -3575,6 +3582,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     {
         if (e.Key == Key.F2 && sender is TreeViewItem treeViewItem && treeViewItem.Template.FindName("PART_Header", treeViewItem) is ContentPresenter templatedParent && treeViewItem.HeaderTemplate.FindName("etbPlaylistTableFolder", templatedParent) is EditableTextBlock editableTextBlock)
         {
+            CancelPendingPlaylistFolderRename();
             if (TryGetPlaylistFolderNode(editableTextBlock.DataContext, out PlaylistFolderNode folderNode) && !folderNode.IsEditable)
             {
                 return;
@@ -3584,13 +3592,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    private async void playlistTableFolderClicked(object sender, MouseButtonEventArgs e)
+    /// <summary>選択済み見出しの再クリックから、一件だけの取消可能な遅延編集開始を所有します。</summary>
+    private void playlistTableFolderClicked(object sender, MouseButtonEventArgs e)
     {
         if (!(e.ChangedButton == MouseButton.Left) || !(sender is EditableTextBlock { TemplatedParent: ContentPresenter contentPresenter } editableTextBlock))
         {
             return;
         }
-        if (contentPresenter.TemplatedParent is not TreeViewItem ownerTreeViewItem || !ownerTreeViewItem.IsSelected)
+        if (contentPresenter.TemplatedParent is not TreeViewItem ownerTreeViewItem || !ownerTreeViewItem.IsSelected
+            || !editableTextBlock.IsEditable || editableTextBlock.IsInEditMode)
         {
             return;
         }
@@ -3601,24 +3611,112 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
         object originalEditableDataContext = editableTextBlock.DataContext;
         object originalHeaderDataContext = contentPresenter.DataContext;
-        await Task.Delay(1000);
+        CancelPendingPlaylistFolderRename();
+        var timer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromSeconds(1) };
+        // Previewで購読してからbubbleのrouteを作らせ、開始click自身のfocusだけをその終端まで許します。
+        // 時間やDispatcher配送順から「元のclick」を推測しません。
+        MouseButtonEventArgs initialMouseDown = e;
+        pendingPlaylistFolderRenameTimer = timer;
+        pendingPlaylistFolderRenameCleanup = Cleanup;
+        timer.Tick += Tick;
+        AddHandler(Mouse.PreviewMouseDownEvent, new MouseButtonEventHandler(CancelForMouseDown), true);
+        AddHandler(Mouse.MouseDownEvent, new MouseButtonEventHandler(CompleteInitialMouseDown), true);
+        AddHandler(Keyboard.PreviewKeyDownEvent, new KeyEventHandler(CancelForKey), true);
+        AddHandler(TextCompositionManager.PreviewTextInputStartEvent, new TextCompositionEventHandler(CancelForText), true);
+        AddHandler(TextCompositionManager.PreviewTextInputEvent, new TextCompositionEventHandler(CancelForText), true);
+        AddHandler(Mouse.PreviewMouseWheelEvent, new MouseWheelEventHandler(CancelForWheel), true);
+        AddHandler(Keyboard.GotKeyboardFocusEvent, new KeyboardFocusChangedEventHandler(CancelForFocus), true);
+        AddHandler(Keyboard.LostKeyboardFocusEvent, new KeyboardFocusChangedEventHandler(CancelForFocus), true);
+        AddHandler(EditableTextBlock.EditModeChangedEvent, new RoutedEventHandler(CancelForEdit), true);
+        editableTextBlock.DataContextChanged += CancelForContext;
+        contentPresenter.DataContextChanged += CancelForContext;
+        editableTextBlock.Unloaded += CancelForTarget;
+        contentPresenter.Unloaded += CancelForTarget;
+        ownerTreeViewItem.Unselected += CancelForTarget;
+        Deactivated += CancelForWindow;
+        timer.Start();
 
-        // NOTE:
-        // Recycling有効時は待機中にコンテナ再利用が起きるため、編集開始前に同一対象か再検証する。
-        // 再利用済みなら誤った行の編集開始を避けるため何もしない。
-        if (!ReferenceEquals(editableTextBlock.DataContext, originalEditableDataContext) || !ReferenceEquals(contentPresenter.DataContext, originalHeaderDataContext) || !ownerTreeViewItem.IsSelected)
+        void Tick(object timerSender, EventArgs args)
         {
-            return;
+            if (!ReferenceEquals(pendingPlaylistFolderRenameTimer, timer)) { return; }
+            bool canBegin = ReferenceEquals(editableTextBlock.DataContext, originalEditableDataContext)
+                && ReferenceEquals(contentPresenter.DataContext, originalHeaderDataContext)
+                && ReferenceEquals(editableTextBlock.TemplatedParent, contentPresenter)
+                && ReferenceEquals(contentPresenter.TemplatedParent, ownerTreeViewItem)
+                && ReferenceEquals(Window.GetWindow(editableTextBlock), this)
+                && editableTextBlock.IsLoaded && contentPresenter.IsLoaded && ownerTreeViewItem.IsSelected
+                && editableTextBlock.IsEditable && !editableTextBlock.IsInEditMode
+                && (!TryGetPlaylistFolderNode(editableTextBlock.DataContext, out PlaylistFolderNode currentFolder) || currentFolder.IsEditable);
+            CancelThisRequest();
+            if (canBegin) { editableTextBlock.IsInEditMode = true; }
         }
-        if (TryGetPlaylistFolderNode(editableTextBlock.DataContext, out folderNode) && !folderNode.IsEditable)
+
+        void CancelThisRequest()
         {
-            return;
+            // 解除前に構築されたEventRouteから旧handlerが届いても、後発要求を退役させません。
+            if (ReferenceEquals(pendingPlaylistFolderRenameTimer, timer)) { CancelPendingPlaylistFolderRename(); }
         }
-        editableTextBlock.IsInEditMode = true;
+        void CancelForMouseDown(object eventSender, MouseButtonEventArgs args) => CancelThisRequest();
+        void CompleteInitialMouseDown(object eventSender, MouseButtonEventArgs args)
+        {
+            // WPFはPreviewから別のargsを作り、この入力属性を引き継いでMouseDownを配送します。
+            // 後発Previewは既に要求を取り消すため、恒久的な入力IDや時刻の猶予判定は不要です。
+            if (initialMouseDown != null
+                && ReferenceEquals(args.MouseDevice, initialMouseDown.MouseDevice)
+                && args.Timestamp == initialMouseDown.Timestamp && args.ChangedButton == initialMouseDown.ChangedButton
+                && ReferenceEquals(args.StylusDevice, initialMouseDown.StylusDevice) && args.ClickCount == initialMouseDown.ClickCount
+                && ReferenceEquals(FindAncestor<TreeViewItem>(args.OriginalSource as DependencyObject), ownerTreeViewItem))
+            {
+                initialMouseDown = null;
+            }
+        }
+        void CancelForKey(object eventSender, KeyEventArgs args) => CancelThisRequest();
+        void CancelForText(object eventSender, TextCompositionEventArgs args) => CancelThisRequest();
+        void CancelForWheel(object eventSender, MouseWheelEventArgs args) => CancelThisRequest();
+        void CancelForFocus(object eventSender, KeyboardFocusChangedEventArgs args)
+        {
+            if (initialMouseDown != null && args.NewFocus is DependencyObject destination
+                && (ReferenceEquals(destination, ownerTreeViewItem) || ownerTreeViewItem.IsAncestorOf(destination))) { return; }
+            CancelThisRequest();
+        }
+        void CancelForContext(object eventSender, DependencyPropertyChangedEventArgs args) => CancelThisRequest();
+        void CancelForTarget(object eventSender, RoutedEventArgs args) => CancelThisRequest();
+        void CancelForEdit(object eventSender, RoutedEventArgs args) => CancelThisRequest();
+        void CancelForWindow(object eventSender, EventArgs args) => CancelThisRequest();
+        void Cleanup()
+        {
+            timer.Stop();
+            timer.Tick -= Tick;
+            RemoveHandler(Mouse.PreviewMouseDownEvent, new MouseButtonEventHandler(CancelForMouseDown));
+            RemoveHandler(Mouse.MouseDownEvent, new MouseButtonEventHandler(CompleteInitialMouseDown));
+            RemoveHandler(Keyboard.PreviewKeyDownEvent, new KeyEventHandler(CancelForKey));
+            RemoveHandler(TextCompositionManager.PreviewTextInputStartEvent, new TextCompositionEventHandler(CancelForText));
+            RemoveHandler(TextCompositionManager.PreviewTextInputEvent, new TextCompositionEventHandler(CancelForText));
+            RemoveHandler(Mouse.PreviewMouseWheelEvent, new MouseWheelEventHandler(CancelForWheel));
+            RemoveHandler(Keyboard.GotKeyboardFocusEvent, new KeyboardFocusChangedEventHandler(CancelForFocus));
+            RemoveHandler(Keyboard.LostKeyboardFocusEvent, new KeyboardFocusChangedEventHandler(CancelForFocus));
+            RemoveHandler(EditableTextBlock.EditModeChangedEvent, new RoutedEventHandler(CancelForEdit));
+            editableTextBlock.DataContextChanged -= CancelForContext;
+            contentPresenter.DataContextChanged -= CancelForContext;
+            editableTextBlock.Unloaded -= CancelForTarget;
+            contentPresenter.Unloaded -= CancelForTarget;
+            ownerTreeViewItem.Unselected -= CancelForTarget;
+            Deactivated -= CancelForWindow;
+        }
+    }
+
+    /// <summary>未開始の改名要求を同期的に退役させ、タイマーとその要求だけの監視を解除します。</summary>
+    private void CancelPendingPlaylistFolderRename()
+    {
+        pendingPlaylistFolderRenameTimer = null;
+        Action cleanup = pendingPlaylistFolderRenameCleanup;
+        pendingPlaylistFolderRenameCleanup = null;
+        cleanup?.Invoke();
     }
 
     private async void playlistTableFolderNameChanged(object sender, RoutedEventArgs e)
     {
+        CancelPendingPlaylistFolderRename();
         if (sender is not EditableTextBlock editableTextBlock
             || e is not EditableTextBlockEditModeChangedEventArgs { CommittedText: string nameAfter })
         {
@@ -5442,6 +5540,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// </summary>
     private void treeViewPlaylistTableFolderContextMenuItemChangeFolderNameClick(object sender, RoutedEventArgs e)
     {
+        CancelPendingPlaylistFolderRename();
         EditableTextBlock editableTextBlock = _getETBFromContextMenuClickEvent(sender);
         if (editableTextBlock != null && (!TryGetPlaylistFolderNode(editableTextBlock.DataContext, out PlaylistFolderNode folderNode) || folderNode.IsEditable))
         {

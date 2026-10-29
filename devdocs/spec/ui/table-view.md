@@ -42,6 +42,12 @@ LEVELの整列は型付き数値キーを優先し、必要な文字列fallback�
 
 ### プレイリストツリーのフォルダ名編集
 
+選択済みで編集可能な通常フォルダの見出しを再クリックすると、MainWindowがそのクリックに対応する遅延開始要求を一件だけ持ち、1秒後に同じ対象の編集を一回開始します。最初の選択だけのクリックと編集中のクリックでは要求を作りません。開始時の表示値から候補を作り、遅延開始だけで改名を保存しません。
+
+要求は見出しのPreviewMouseDownで作り、その開始クリックのMouseDownがWindowまでbubbleする間だけ、開始クリック自身による対象見出し・所有TreeViewItem内へのフォーカス移動を許します。Previewとbubbleのイベント引数は別の参照であり、引き継がれる入力属性と対象ツリー内の配送経路で開始クリックの終端を照合します。後発のクリック・キー・文字入力・マウスホイール・フォーカス移動、選択離脱、対象または見出しのDataContext交換・Unloaded、別の編集の開始・終端、Windowの非active化・終了で同期的に失効させます。後発の有効な再クリックだけが新しい一件へ置き換えます。F2・メニューの明示編集も旧要求を取り消して既存の編集入口を使います。取消後に検索から戻る、A→B→Aと選び直す、別編集を終了する操作で旧要求を復活させません。要求の退役は現在参照の除去、DispatcherTimerの停止とTick・監視解除を編集開始より先に終え、開始直前にも対象の参照・接続・選択・編集許可と未編集中を確認します。
+
+文字入力はIMEの入力開始時点から旧要求を失効させ、文字列の確定まで待ちません。解除済み監視へ配送中の旧イベントが届いても、その要求が現在の一件である場合だけ取り消し、後発要求へ適用しません。
+
 `EditableTextBlock.Text` は `PlaylistFolderNode.DisplayName` のOneWay表示Bindingを保持します。内部TextBoxは編集期間だけ有効な `CandidateText` を更新し、表示元やモデルへ書き戻しません。実際のfalse→trueで表示値から候補を作り、trueの重複設定では候補を作り直しません。編集不可の間のtrue要求は成立せず、後から編集を許可しても自動再開しません。
 
 Enterまたはフォーカス離脱で候補を確定し、Escape、DataContext交換、Unloadedでは候補を破棄します。終端は開始値・候補を破棄してから `EditModeChanged` へ変更不能な確定値を渡します。開始・取消・無変更はnull、変更確定は空文字を含む文字列で区別し、Enterに続くLostFocusで二重確定しません。通知中に次の編集が始まっても、旧終端の後処理でその候補を消しません。
@@ -346,6 +352,7 @@ DPIは変更コールバックと描画開始時の環境確認で追従しま�
 | ツリー名編集の条件 | 実装 | 検証の分担 |
 | --- | --- | --- |
 | 無変更/変更Escape、同一部品の実scroll再利用、再利用先だけの正常改名 | [`EditableTextBlock`](../../../BeMusicSeeker/Views/EditableTextBlock.cs)、[内部editor](../../../BeMusicSeeker/Views/EditableTextBlock.xaml)、`MainWindow.playlistTableFolderNameChanged` | 同WPFクラスの `PlaylistFolderEdit_CancelKeepsBindingAndRecycledControlRenamesCurrentFolder` の2行で外側表示Binding・内部候補Binding・既知の新context/表示を別々に観測する。同一部品の実tree所属と再利用を必須にし、取消時P開始0、確定時通知1/P開始1/拒否0、捕捉P実終端と構成Binding consumer後の独立DB読取でA・他フォルダ保持とCだけの改名を確認する。 |
+| 再クリックの遅延編集開始と後発操作・対象退役による失効 | `MainWindow.playlistTableFolderClicked` / `CancelPendingPlaylistFolderRename`、compiled見出しのPreviewMouseDown | 同WPFクラスの `PlaylistFolderDelayedRename_ExpiresOnLaterInputAndTargetRetirement` は同じ入力属性を持つ別argsのPreview→bubbleと実Tickを通し、開始click中の対象内focusとbubble後の同owner内移動を区別する。検索全文・選択を保持し、F2終端、A→B→A、context/header交換、実Unloaded、別編集、重複click後に旧開始なし・確定0・P受付0・独立DBの所属不変を確認する。停止timerの公開Interval変更とBackground境界の後、次の明示clickだけが正常開始する。時計到達のためのMainWindow所有timer取得だけを局所反射し、方式変更時に退役する。旧Task.Delayの退役と監視解除の一回性は静的確認へ分担する。 |
 | context交換/Unloadedの候補破棄、空文字/null、不変通知、通知中の次編集、重複true、編集不可時の開始要求、確定後のsource追従、Enter/LostFocus | 同編集部品のDP callback・compiledイベント | 同クラスの `EditableTreeHeader_CompiledEditorKeepsCandidateLifetimeAndImmutableCompletion` が一つの非活性Windowで確認する。手動context交換を実recyclingの保証には使わない。 |
 
 これらの自動検証は実OSフォーカス取得・物理キー入力の成功を合否条件にしません。Pの解放tokenは改名メソッド自体のTaskとは区別し、既存catch・開始済みTask・受付解放順の維持は接続の静的確認にも分担します。保存前失敗・出力失敗・受付拒否の条件差と改名receiptは既存workspace/保存主体のテストを維持し、WPF代表へ複写しません。
