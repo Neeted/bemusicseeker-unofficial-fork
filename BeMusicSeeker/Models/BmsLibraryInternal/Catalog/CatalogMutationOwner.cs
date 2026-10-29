@@ -758,13 +758,22 @@ internal sealed class CatalogMutationOwner
     /// <summary>移転によって変わるLR2互換性だけを再評価し、未取得のメンテナンス情報は作成しません。</summary>
     private static ResourceHealthMaintenanceSnapshot RefreshRelocatedMaintenanceInfo(ResourceHealthMaintenanceSnapshot value, string newPath)
     {
-        ChartResourceSnapshot resources = null;
         if (value.Lr2ResourceHasParentTraversal == true)
         {
-            try { resources = ChartResourceSnapshot.Create(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(newPath)).Resources); }
+            try
+            {
+                // 親参照の長さは保存した最大相対長だけでは求められません。既存の一回取得からCP932三事実だけを受け取り、通常資源から逆算しません。
+                ResourceHealthMaintenanceSnapshot facts = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(newPath)).ResourceHealthMaintenanceSnapshot;
+                value = value with
+                {
+                    Lr2WarningFlags = facts.Lr2WarningFlags,
+                    Lr2ResourceMaxRelativeCp932Bytes = facts.Lr2ResourceMaxRelativeCp932Bytes,
+                    Lr2ResourceHasParentTraversal = facts.Lr2ResourceHasParentTraversal
+                };
+            }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException) { }
         }
-        return Lr2CompatibilityEvaluator.RefreshRelocatedMaintenanceFacts(value, newPath, resources);
+        return Lr2CompatibilityEvaluator.RefreshRelocatedMaintenanceFacts(value, newPath);
     }
 
     private static void ValidateChartPathChange(ChartFile chart, string newPath, string oldPath)

@@ -22,6 +22,102 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryMaintenanceServiceTests
 {
+    /// <summary>三用途とも先頭非空値を分類後に繰り上げず、後続の実在・不足・親参照を健康度や全定義探索へ混ぜません。</summary>
+    [TestMethod]
+    [DataRow(".png", "live.png", false, false)]
+    [DataRow("missing.png", "live.png", true, false)]
+    [DataRow("live.png", "../missing.png", true, true)]
+    public void BuildResourceHealthSnapshot_OptionalImagesUseOnlyFirstNonEmptyDefinition(string first, string later, bool defined, bool existing)
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(BmsLibraryMaintenanceServiceTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            File.WriteAllBytes(Path.Combine(root, "live.png"), []);
+            string text = string.Join("\n", new[] { "STAGEFILE", "BACKBMP", "BANNER" }.Select(role => $"#{role} \n#{role} {first}\n#{role} {later}\n#{role} live.png"));
+            ChartFile chart = BmsChartFileParser.ParseSnapshot(new ChartFileSnapshot(Path.Combine(root, "chart.bms"), Encoding.ASCII.GetBytes(text), DateTime.UnixEpoch, "md5", "sha256"));
+            ResourceHealthMaintenanceSnapshot result = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(chart);
+            Assert.AreEqual(defined, result.StagefileDefined);
+            Assert.AreEqual(defined ? existing : (bool?)null, result.StagefileExisting);
+            Assert.AreEqual(defined, result.BackbmpDefined);
+            Assert.AreEqual(defined ? existing : (bool?)null, result.BackbmpExisting);
+            Assert.AreEqual(defined, result.BannerDefined);
+            Assert.AreEqual(defined ? existing : (bool?)null, result.BannerExisting);
+            var all = ChartResourceSnapshot.Create(chart.Resources, includeUnused: true);
+            Assert.AreEqual(defined ? 1 : 0, all.OptionalImageReferenceCount);
+            Assert.IsFalse(all.HasUnsupportedParentTraversalReference);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    /// <summary>同じ正常集合の存在結果を共有しても、譜面固有の非照合0/1/2件と任意画像の不足を返却時に合成します。順序による分母混同を検出します。</summary>
+    [TestMethod]
+    public void BuildResourceHealthSnapshot_CacheCombinesOnlyMatchableCountsWithIndividualUnmatchableRequests()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(BmsLibraryMaintenanceServiceTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            File.WriteAllBytes(Path.Combine(root, "tone.ogg"), []);
+            var context = new ResourceHealthLookupContext(null);
+            foreach (int count in new[] { 2, 0, 1, 2, 1, 0 })
+            {
+                var references = new List<ChartResourceReference> { ChartResourceReference.Parse("tone.wav", ChartResourceKind.Audio) };
+                for (int index = 0; index < count; index++) { references.Add(ChartResourceReference.Parse($"../nonmatch{index}.wav", ChartResourceKind.Audio)); }
+                references.Add(ChartResourceReference.Parse(count == 0 ? ".png" : "../stage.png", ChartResourceKind.Image, ChartResourceUsage.Stagefile));
+                ChartFile chart = ChartTestValues.Empty() with { Path = Path.Combine(root, $"{count}.bms"), Resources = references.ToImmutableList() };
+                ResourceHealthMaintenanceSnapshot result = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(chart, context);
+                Assert.AreEqual(count + 1, result.WavFilesDefined);
+                Assert.AreEqual(1, result.WavFilesExisting);
+                Assert.AreEqual(count > 0, result.StagefileDefined);
+                Assert.AreEqual(count > 0 ? false : (bool?)null, result.StagefileExisting);
+            }
+            Assert.AreEqual(1, context.ResourceHealthSetCacheEntryCount);
+            Assert.AreEqual(5L, context.ResourceHealthSetCacheHitCount);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    /// <summary>対応拡張子だけを照合し、stemの短縮や相対配置を重ねません。物理・取得済み索引・候補配置で同じ正負を確認します。</summary>
+    [TestMethod]
+    [DataRow("stem", "stem", 0)]
+    [DataRow("stem.", "stem..wav", 0)]
+    [DataRow("stem.wav", "stem.ogg", 1)]
+    [DataRow("foo.v2.wav", "foo.v2.ogg", 1)]
+    [DataRow("foo.v2.wav", "foo.ogg", 0)]
+    [DataRow(".hidden.wav", ".hidden.ogg", 1)]
+    [DataRow("audio.wav/tone.wav", "audio.wav/tone.ogg", 1)]
+    [DataRow("sub/tone.wav", "sibling/tone.ogg", 0)]
+    [DataRow("sub/tone.wav", "tone.ogg", 0)]
+    public void BuildResourceHealthSnapshot_PhysicalIndexAndPlacementUseOneLookupKey(string request, string asset, int expected)
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(BmsLibraryMaintenanceServiceTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string actual = Path.Combine(root, asset.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(actual) ?? root);
+            File.WriteAllBytes(actual, []);
+            string path = Path.Combine(root, "chart.bms");
+            ChartFile chart = ChartTestValues.Empty() with { Path = path, Resources = [ChartResourceReference.Parse(request, ChartResourceKind.Audio)] };
+            ChartScanResult scan = ChartDirectoryScanBuilder.BuildFromAbsolutePaths([path],
+                ChartResourceExtensions.IsAudioExtension(Path.GetExtension(actual)) ? [actual] : [], [], []);
+            DirectoryResourceLookupCache cache = LibraryResourceIndex.CreateFromScanResult(scan).DirectoryLookupCache;
+            var placement = new ChartResourcePlacement(ChartResourcePlacementBasis.Destination, root, candidate: cache.GetEntryOrNull(root));
+            foreach (ResourceHealthMaintenanceSnapshot result in new[]
+            {
+                BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(chart),
+                BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(chart, new ResourceHealthLookupContext(cache)),
+                BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(chart, placement: placement)
+            })
+            {
+                Assert.AreEqual(1, result.WavFilesDefined);
+                Assert.AreEqual(expected, result.WavFilesExisting);
+            }
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     /// <summary>
     /// 確定した具体名だけを保持して生5項目と合成表示を再復号し、固定印だけの推定名と未確定の具体名は従来検出します。
     /// ASCIIをUTF-8確定からShift_JISへ戻す誤り、確定CP932の復号漏れ、同値再評価の余分な保存を検出します。
@@ -190,7 +286,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.AreEqual(string.Format(Resources.Warning_WavFilesNotFound, 25, 1, 4), warning.Message);
     }
 
-    /// <summary>使用集合ごとに保守キャッシュを分離します。未定義IDを混ぜても定義先二件中一件の50%を保ち、未定義だけなら0件・N/A・不足警告なし、定義済み不正は照合不能とします。</summary>
+    /// <summary>使用集合ごとに保守キャッシュを分離します。未定義IDを混ぜても定義先二件中一件の50%を保ち、未定義だけなら0件・N/A・不足警告なし、名前付き親参照は個別の未充足へ計数します。</summary>
     [TestMethod]
     public void BuildResourceHealthSnapshot_UsedSetsAndUndefinedIdsDoNotMixInCacheOrProjection()
     {
@@ -229,7 +325,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.IsNull(updated.WAVHealth);
             Assert.IsNull(LibraryChartRow.FromChartFile(updated).WAVHealth);
             Assert.AreEqual(100, old.WAVHealth);
-            Assert.IsNull(BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(Parse("03"), context).WavFilesDefined);
+            Assert.AreEqual(1, BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(Parse("03"), context).WavFilesDefined);
+            Assert.AreEqual(0, BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(Parse("03"), context).WavFilesExisting);
         }
         finally { Directory.Delete(root, recursive: true); }
     }
@@ -305,16 +402,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void BuildResourceHealthSnapshot_PersistsLr2CompatibilityFactsForBmsOnly()
     {
-        ChartFile bms = CreateFile("0123456789abcdef0123456789abcdef");
-        bms = bms with { Path = @"D:\BMS\Pack\Song\chart.bms" };
-        bms = bms with { Resources = TestChartResources.ReplaceAudio(bms.Resources, ["sound.wav"]) };
-        bms = bms with { Resources = TestChartResources.ReplaceVisual(bms.Resources, []) };
-        bms = bms with
-        {
-            Resources = [
-            ChartResourceReference.Parse("sound.wav", ChartResourceKind.Audio)
-        ]
-        };
+        ChartFile bms = BmsChartFileParser.ParseSnapshot(new ChartFileSnapshot(@"D:\BMS\Pack\Song\chart.bms",
+            Encoding.ASCII.GetBytes("#WAV01 sound.wav\n#00111:01\n"), DateTime.UnixEpoch, "0123456789abcdef0123456789abcdef", "sha256"));
         ChartFile bmsChart = (bms);
 
         ResourceHealthMaintenanceSnapshot bmsInfo = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(bmsChart);
@@ -1763,11 +1852,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
         try
         {
-            ChartFile bmsFile = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsFilePath));
+            ChartFile bmsFile = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsFilePath), new BmsEncodingDetectionResult("unknown", BmsEncodingDetectionOutcome.Unknown, false, null));
             Assert.AreNotEqual("保守する曲", bmsFile.RawTitle);
             bmsFile = bmsFile with { Favorite = 3, AddDate = 12345, Tag = "keep-user-tag" };
             Directory.CreateDirectory(Path.Combine(tempDirectoryPath, "sub"));
-            File.WriteAllBytes(Path.Combine(tempDirectoryPath, "sub", "ﾃｩ.wav"), [1]);
+            File.WriteAllBytes(Path.Combine(tempDirectoryPath, "sub", "é.wav"), [1]);
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, new ResourceHealthMaintenanceSnapshot { Path = bmsFile.Path, Hash = bmsFile.Md5, Origin = MaintenanceInfoOrigin.Placeholder });
             string originalMd5 = bmsFile.Md5;
             string originalSha256 = bmsFile.Sha256;
@@ -2565,8 +2654,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
         const string expectedGenre = "一致GENRE";
         File.WriteAllText(
             bmsFilePath,
-            "#TITLE " + expectedTitle + "\r\n#ARTIST " + expectedArtist + "\r\n#GENRE " + expectedGenre + "\r\n",
+            "#TITLE " + expectedTitle + "\r\n#ARTIST " + expectedArtist + "\r\n#GENRE " + expectedGenre + "\r\n#WAV01 资源.wav\n#WAV02 ascii.wav\n#00111:0102\n",
             Encoding.GetEncoding("gb2312", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
+        File.WriteAllBytes(Path.Combine(tempDirectoryPath, "资源.ogg"), []);
+        File.WriteAllBytes(Path.Combine(tempDirectoryPath, "ascii.ogg"), []);
         try
         {
             ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -2586,6 +2677,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual("gb2312", file.ResourceHealthMaintenanceSnapshot.Encoding);
             Assert.IsTrue(file.ResourceHealthMaintenanceSnapshot.EncodingFixed);
             Assert.AreEqual(0, result.SongMetadataUpdates.Count);
+            Assert.AreEqual(2, file.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
+            Assert.AreEqual(2, file.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
+            CollectionAssert.AreEquivalent(new[] { "资源.wav", "ascii.wav" }, file.Resources.Select(value => value.RawPath).ToArray());
             CollectionAssert.AreEqual(new ResourceHealthMaintenanceSnapshot[] { file.ResourceHealthMaintenanceSnapshot }, result.MaintenanceInfosToUpsert);
         }
         finally
@@ -2682,7 +2776,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
             file = file with { Title = expectedTitle, RawTitle = expectedTitle };
             file = file with { Artist = expectedArtist, RawArtist = expectedArtist };
             file = file with { Genre = expectedGenre };
-            var info = new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5, Encoding = "shift_jis", EncodingFixed = alreadyFixed };
+            file = file with { Token = new OwnedChartToken(), Resources = [], ResourceHealthMaintenanceSnapshot = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsFilePath)).ResourceHealthMaintenanceSnapshot };
+            ResourceHealthMaintenanceSnapshot info = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(file) with { Encoding = "shift_jis", EncodingFixed = alreadyFixed };
             file = ChartFileProjection.WithMaintenance(file, info);
 
             MaintenanceEncodingUpdateResult result = service.ApplyEncoding([file], requestedEncoding);
@@ -3415,7 +3510,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     /// </summary>
     /// <remarks>実入力の読取りと実SQLite書込みを保ち、保存receiptを通った現在値を観測する。</remarks>
     [TestMethod]
-    public void UpdateMaintenanceInfo_BmsMissingEncodingOnlySkipsResourceHealthScan()
+    public void UpdateMaintenanceInfo_BmsMissingEncodingReevaluatesResourcesAfterAdoptingText()
     {
 
         var service = new BmsLibraryMaintenanceService(1);
@@ -3456,10 +3551,12 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(1, result.CheckedFileCount);
             Assert.AreEqual(0, result.MissingInfoTargetCount);
             Assert.AreEqual(1, result.MissingEncodingTargetCount);
-            Assert.AreEqual(0, result.HealthTargetCount);
-            Assert.AreEqual(0, result.BmsResourceTargetCount);
-            Assert.AreEqual(0, result.HealthFileExistsFallbackCount);
-            Assert.AreEqual(0, lookupContext.FileExistsFallbackCount);
+            Assert.AreEqual(1, result.HealthTargetCount);
+            Assert.AreEqual(1, result.BmsResourceTargetCount);
+            Assert.AreEqual(1, result.HealthFileExistsFallbackCount);
+            Assert.AreEqual(1, lookupContext.FileExistsFallbackCount);
+            Assert.AreEqual(1, bmsFile.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
+            Assert.AreEqual(0, bmsFile.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
             Assert.AreEqual("shift_jis", bmsFile.ResourceHealthMaintenanceSnapshot.Encoding);
             Assert.AreEqual(1, result.MaintenanceInfoUpsertCount);
         }
@@ -3803,10 +3900,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
             var cache = new DirectoryResourceLookupCache();
             cache.AddDir(directory, [stem + ".wav"]);
             var context = new ResourceHealthLookupContext(cache);
-            ChartFile wav = CreateProjectionOnlyBmsChart(Path.Combine(directory, "chart.bms"), new string('a', 32),
-                audioResourcePaths: [stem + ".wav"]);
-            ChartFile flac = CreateProjectionOnlyBmsChart(Path.Combine(directory, "chart.bms"), new string('b', 32),
-                audioResourcePaths: [stem + ".flac"]);
+            ChartFile Parse(string extension, string hash) => BmsChartFileParser.ParseSnapshot(new ChartFileSnapshot(Path.Combine(directory, "chart.bms"),
+                Encoding.ASCII.GetBytes("#WAV01 " + stem + extension + "\n#00111:01\n"), DateTime.UnixEpoch, hash, "sha256"));
+            ChartFile wav = Parse(".wav", new string('a', 32));
+            ChartFile flac = Parse(".flac", new string('b', 32));
             ResourceHealthMaintenanceSnapshot wavInfo = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(wav, context);
             ResourceHealthMaintenanceSnapshot flacInfo = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(flac, context);
             Assert.AreEqual(1, wavInfo.WavFilesExisting);

@@ -388,7 +388,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             result.SuggestedDestinationDirectories.Add(destinationDirectory);
         }
         EvaluateAudioPermission(result, resourceSnapshot, destinationDirectory, resourceSnapshot?.BundledResources, directoryLookupCache);
-        if (ApplySelectedCandidateMetadata(result, EvaluateSelectedCandidateMetadata(destinationDirectory, match)) && result.AudioAutoApplyAllowed)
+        if (ApplySelectedCandidateMetadata(result, EvaluateSelectedCandidateMetadata(destinationDirectory, match)) && CanAutomaticallyApplyDestination(result, resourceSnapshot))
         {
             result.DestinationDirectory = destinationDirectory;
             result.ShouldAutoApplyDestination = true;
@@ -579,14 +579,14 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
                 result.ConfidenceReason = "reinstall_candidate_not_improved";
                 return result;
             }
-            result.ShouldAutoApplyDestination = result.AudioAutoApplyAllowed;
+            result.ShouldAutoApplyDestination = CanAutomaticallyApplyDestination(result, snapshot);
             result.ConfidenceReason = "reinstall_single_improved_candidate";
         }
         else
         {
             result.Confidence = ambiguous ? InstallEstimationConfidence.Low : InstallEstimationConfidence.High;
             result.LowConfidenceKind = ambiguous ? InstallEstimationLowConfidenceKind.AmbiguousCandidates : InstallEstimationLowConfidenceKind.None;
-            result.ShouldAutoApplyDestination = result.AudioAutoApplyAllowed && (!ambiguous || options.AutoApplyAmbiguousInstallDestination);
+            result.ShouldAutoApplyDestination = CanAutomaticallyApplyDestination(result, snapshot) && (!ambiguous || options.AutoApplyAmbiguousInstallDestination);
             result.ConfidenceReason = ambiguous ? "tie_on_strong_primary_metrics" : "distinct_strong_primary_metrics";
         }
         result.DestinationDirectory = selected.DirectoryPath;
@@ -687,6 +687,10 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             : snapshot?.SourceSurfaceScanLimitExceeded == true ? "source_surface_limit_exceeded"
             : allowed ? "per_chart_audio_threshold_satisfied" : "per_chart_audio_threshold_not_met";
     }
+
+    /// <summary>音声閾値と独立して、対象群の採用親参照があればDSTの自動代入を許可しません。候補を消す前に判定します。</summary>
+    private static bool CanAutomaticallyApplyDestination(InstallEstimationResult result, PackageInstallEstimationSnapshot snapshot)
+        => result.AudioAutoApplyAllowed && snapshot?.DefinedResources?.HasUnsupportedParentTraversalReference != true;
 
     private static void SetNoViableDestinationResult(InstallEstimationResult result)
     {

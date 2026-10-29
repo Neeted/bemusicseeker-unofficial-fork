@@ -145,7 +145,9 @@ internal sealed class NormalLibraryRefreshPublisher
             ResourceHealthWarningsIgnored = before.ResourceHealthWarningsIgnored,
             ChartInfo = before.ChartInfo,
             ChartInfoDisplay = before.ChartInfoDisplay,
-            Score = before.Score
+            Score = before.Score,
+            // 資源参照の取得・更新・解放は短命な保守入力であり、通常一覧の基本値の変更にはしません。
+            Resources = before.Resources
         });
         LibraryChartRefreshEffects effects = sourceChanged ? LibraryChartRefreshEffects.SourceChanged : LibraryChartRefreshEffects.None;
         if (maintenanceChanged && !ignoreOnly)

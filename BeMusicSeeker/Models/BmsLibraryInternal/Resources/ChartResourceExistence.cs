@@ -20,8 +20,7 @@ internal static class ChartResourceExistence
             string fullPath = LongPathFileSystem.NormalizePathForStorage(Path.Combine(chartDirectory, file));
             string directory = Path.GetDirectoryName(fullPath) + Path.DirectorySeparatorChar;
             string basename = Path.GetFileName(fullPath);
-            return LongPathFileSystem.FileExists(fullPath)
-                || (extensions ?? []).Any(ext => !string.IsNullOrWhiteSpace(ext) && LongPathFileSystem.FileExists(directory + basename + ext));
+            return (extensions ?? []).Any(ext => !string.IsNullOrWhiteSpace(ext) && LongPathFileSystem.FileExists(directory + basename + ext));
         }
         catch
         {

@@ -2335,7 +2335,9 @@ internal sealed partial class LibraryMutationOwner
             ChartFile current = entry.Chart;
             if (current.Token == null && pendingByPath.TryGetValue(current.Path, out ChartFile value))
             {
+                using IDisposable deferred = entry.DeferPropertyChangedNotifications();
                 entry.ApplyCommittedEncoding(value);
+                BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjection(entry);
             }
         }
     }
@@ -2344,7 +2346,7 @@ internal sealed partial class LibraryMutationOwner
     /// warning presentation の変更を common mutation dispatch へ渡します。
     /// </summary>
     /// <param name="reason">dispatch 理由。</param>
-    internal void DispatchWarningPresentationChanged(string reason, IReadOnlyList<string> detailMd5s = null, IReadOnlyList<string> detailSha256s = null, IReadOnlyList<ChartFile> changedCharts = null, bool basicValuesChanged = false)
+    internal void DispatchWarningPresentationChanged(string reason, IReadOnlyList<string> detailMd5s = null, IReadOnlyList<string> detailSha256s = null, IReadOnlyList<ChartFile> changedCharts = null, bool basicValuesChanged = false, ResourceHealthIndexMutation resourceHealthMutation = null)
     {
         var mutationResult = new OwnedChartCollectionMutationResult
         {
@@ -2352,6 +2354,11 @@ internal sealed partial class LibraryMutationOwner
             ChangedDetailMd5s = detailMd5s ?? [],
             ChangedDetailSha256s = detailSha256s ?? []
         };
+        if (resourceHealthMutation != null)
+        {
+            CopyResourceHealthIndexMutation(resourceHealthMutation, mutationResult.ResourceHealthMutation);
+            mutationResult.MaintenancePresentationChanged = resourceHealthMutation.HasChanges;
+        }
         mutationResult.PresentationChangedCharts.AddRange(changedCharts ?? []);
         mutationResult.OwnedCollectionChanged = basicValuesChanged && changedCharts?.Count > 0;
         Action duplicateChartGroupsPostLeaseNotification = ApplyOwnedChartCollectionMutation(

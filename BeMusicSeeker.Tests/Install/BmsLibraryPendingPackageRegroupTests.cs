@@ -45,7 +45,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             SeedPendingPackages(library, db, package);
             SetLibraryResourceIndex(library, BuildDirectoryLookupCache(source, ownedDst, pendingDst));
             library.SearchEstimatedInstallationDirectory(package);
-            Assert.AreEqual(PendingEstimateDeferredReason.UnsupportedResourcePath, package.DeferredEstimateReason);
+            Assert.AreEqual(PendingEstimateDeferredReason.None, package.DeferredEstimateReason);
             PendingEstimateDeferredReason reasonBefore = package.DeferredEstimateReason;
             (ChartWarningKind Kind, string Message)[][] warningsBefore = package.ChartEntries.Select(entry => entry.Chart.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray()).ToArray();
             string unsupportedMessage = unsupported.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.UnsupportedResourcePath).Message;
@@ -1209,10 +1209,10 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
-    /// <summary>親ディレクトリ参照を持つ入力は推定を保留し、導入先や低確度候補を捏造せず未対応理由を通知用警告へ残す。</summary>
+    /// <summary>正常4件と親参照1件の80%で候補と代表情報まで到達し、自動確定だけを止めます。警告を保った明示候補選択も確認します。</summary>
     /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
-    public void SearchEstimatedInstallationDirectory_UnsupportedParentResourcePath_WarnsAndSkipsEstimation()
+    public void SearchEstimatedInstallationDirectory_ParentResourcePath_KeepsCandidateAndBlocksAutomaticDestination()
     {
 
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
@@ -1226,9 +1226,10 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 + "#TITLE Unsupported Resource Path\r\n"
                 + "#ARTIST Test\r\n"
                 + "#WAVAA ..\\Base\\sound.wav\r\n"
-                + "#00111:AA\r\n");
-            string candidateFilePath = CreateBmsFileWithContents(candidateDirectoryPath, "candidate.bms", "#PLAYER 1\r\n#TITLE Current Directory Resource Path\r\n#ARTIST Test\r\n");
-            File.WriteAllText(Path.Combine(candidateDirectoryPath, "sound.wav"), "audio");
+                + "#WAV01 one.wav\r\n#WAV02 two.wav\r\n#WAV03 three.wav\r\n#WAV04 four.wav\r\n"
+                + "#00111:AA01020304\r\n");
+            string candidateFilePath = CreateBmsFileWithContents(candidateDirectoryPath, "candidate.bms", "#PLAYER 1\r\n#TITLE Unsupported Resource Path\r\n#ARTIST Test\r\n");
+            foreach (string name in new[] { "one", "two", "three", "four" }) { File.WriteAllText(Path.Combine(candidateDirectoryPath, name + ".ogg"), "audio"); }
             ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(pendingFilePath))]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
@@ -1239,16 +1240,22 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
 
-            Assert.AreEqual(PendingEstimateDeferredReason.UnsupportedResourcePath, pendingPackage.DeferredEstimateReason);
+            Assert.AreEqual(PendingEstimateDeferredReason.None, pendingPackage.DeferredEstimateReason);
             PackageChartEntry pendingEntry = GetEntryByFileName(pendingPackage, "unsupported.bms");
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingEntry.Chart.InstallDestination));
+            CollectionAssert.AreEqual(new[] { candidateDirectoryPath }, pendingEntry.Chart.InstallDestinationSuggestions.ToArray());
+            Assert.IsFalse(string.IsNullOrWhiteSpace(pendingEntry.Chart.InstallDestinationTitle));
+            Assert.AreEqual(80, pendingEntry.Chart.WAVHealth);
             Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingEntry));
             Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.UnsupportedResourcePath));
             StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), BeMusicSeeker.Properties.Resources.Warning_UnsupportedResourcePath);
+            Assert.IsTrue(library.SetPendingInstallDestination(pendingEntry, candidateDirectoryPath, false));
+            Assert.AreEqual(candidateDirectoryPath, pendingEntry.Chart.InstallDestination);
+            Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.UnsupportedResourcePath));
         });
     }
 
-    /// <summary>現在ディレクトリ付き参照を正規化して候補を選びます。拡張子だけの使用参照は候補を保って自動適用を止め、未使用時は妨げず、双方で親参照非対応と誤分類しません。</summary>
+    /// <summary>現在ディレクトリ付き参照を正規化して候補を選びます。拡張子だけ・未知BMPの使用参照は対象外とし、通常音声だけで自動確定できることを確認します。</summary>
     /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     [DataRow(false)]
@@ -1284,15 +1291,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             Assert.AreEqual(PendingEstimateDeferredReason.None, pendingPackage.DeferredEstimateReason);
             PackageChartEntry pendingEntry = GetEntryByFileName(pendingPackage, "current-dir.bms");
-            if (usesEmptyKey)
-            {
-                Assert.IsTrue(string.IsNullOrEmpty(pendingEntry.Chart.InstallDestination));
-                CollectionAssert.AreEqual(new[] { candidateDirectoryPath }, pendingEntry.Chart.InstallDestinationSuggestions.ToArray());
-            }
-            else
-            {
-                Assert.AreEqual(candidateDirectoryPath, pendingEntry.Chart.InstallDestination);
-            }
+            Assert.AreEqual(candidateDirectoryPath, pendingEntry.Chart.InstallDestination);
             Assert.IsFalse(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.UnsupportedResourcePath));
         });
     }

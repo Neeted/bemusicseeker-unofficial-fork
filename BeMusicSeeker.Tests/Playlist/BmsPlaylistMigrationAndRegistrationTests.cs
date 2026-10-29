@@ -1484,7 +1484,8 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
             byte[] originalBytes = File.ReadAllBytes(chartPath);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            ChartFile file = BmsChartFileParser.ParseSnapshot(snapshot) with
+            // 旧版で保存済みの未補正CP932値を明示的に準備します。新しい自動判定を旧保存状態の生成に使いません。
+            ChartFile file = BmsChartFileParser.ParseSnapshot(snapshot, "shift_jis") with
             {
                 Date = 123456,
                 AddDate = 98765,

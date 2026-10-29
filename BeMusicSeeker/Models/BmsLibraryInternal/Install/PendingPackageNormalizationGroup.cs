@@ -25,8 +25,6 @@ internal sealed class PendingPackageNormalizationGroup
     internal Dictionary<ChartPackage, PendingPackageScopeObservation> SourceScopes { get; } = [];
     /// <summary>完全に読めた場合だけ採用できる、現在の非重複単位です。</summary>
     internal List<ChartPackage> Packages { get; } = [];
-    /// <summary>新scopeの健康度を初期評価した後に採用する、同path・同SHAの確定復号だけです。旧健康度のfallbackに使いません。</summary>
-    internal Dictionary<PackageChartEntry, ChartFile> FixedEncodings { get; } = [];
     /// <summary>全譜面と完全性を共有する取得結果です。</summary>
     internal ChartPackageDiscoveryResult Discovery { get; set; }
     /// <summary>この群の新集合を一括採用できるかを示します。</summary>

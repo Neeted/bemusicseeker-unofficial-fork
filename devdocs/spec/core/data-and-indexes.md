@@ -181,15 +181,15 @@ flowchart TB
 
 ### リソース健全性
 
-存在件数は取得済みの `ChartFile.Resources` の使用参照だけから索引化した検索集合で計算します。同じ種別の `sound.wav` と `sound.ogg` は検索・分母では1件、元記述は2件保持します。`foo.v2.wav` の `LookupKey` は `foo.v2` のまま使い、集約や照合で再度拡張子を除去しません。任意画像は通常のBGAの分母へ入れず、stagefile・backbmp・bannerの用途別に計算します。両形式とも補助画像の空白でない元記述を定義ありとし、不正パス・親参照などで解決できなければ存在falseとして補助画像不足を通知します。未指定・null・空文字は対象外です。
+存在件数は取得済みの `ChartFile.Resources` の使用参照だけから索引化した検索集合で計算します。同じ種別の `sound.wav` と `sound.ogg` は検索・分母では1件、元記述は2件保持します。`foo.v2.wav` の `LookupKey` は `foo.v2` のまま使い、集約や照合で再度拡張子を除去しません。任意画像は通常のBGAの分母へ入れず、stagefile・backbmp・bannerの用途別に計算します。両形式とも先頭非空の採用補助画像を分類し、対象外以外を定義ありとし、不正パス・親参照などで解決できなければ存在falseとして補助画像不足を通知します。未指定・null・空文字は対象外です。
 
 WAV/BGA/MOVIEの健康度は使用ファイルキーの存在数／要求数です。平方根によるペナルティは加えず、不足が一件でもあれば整数表示を100%にしません。要求0件は対象外としてnullを返し、画面は `-` を表示します。新しく計算した0件は既存maintenance列へ0/0を保存し、旧保存値の定義0・存在nullも検査済みとして扱います。健康度のnullだけで検査済みかを判断しません。
 
-定義済みの使用参照が不正パスや空キーで照合不能なら、該当カテゴリの件数をnull/nullにして未判定を表します。未定義IDは要求へ加えません。補助画像3役割の検査がすべて完了し、各カテゴリの件数が取得済み（旧0/nullを含む）またはnull/nullなら、リソース評価を一度終えた状態として扱います。片側だけ欠落した件数や補助検査の未取得は検査済みにしません。既存列から取得状態を導き、追加の永続状態や一時的な取得済みフラグを持ちません。
+名前付き非照合は同カテゴリの個別未充足として要求数へ含め、照合可能な存在数と合成します。同一性はカテゴリ・別々の譜面相対配置・前後空白除去／区切り統一／OrdinalIgnoreCaseだけを施した原文で決め、拡張子を除去しません。対象外と未定義IDは要求へ加えません。未取得・読取り失敗・必要配置の欠落は従来の未判定として区別し、名前付き非照合を理由にカテゴリ全体をnull/nullへ落としません。補助画像は対象外=false/null、照合成功=true/true、不足・非照合=true/false、必要配置未取得=true/nullです。
 
 この形の未解決結果はDB読込み後も起動時の再解析対象にしません。同じ保存形の古い部分データは区別できないため、自動補完せず手動再スキャンで更新します。補助検査の未取得や不完全な件数を持つ従来の補完対象は維持します。明示された未判定の投影を旧100%で補いません。既存DBの件数は手動再スキャンまで旧基準を含んでよく、スキーマ変更・移行・読込み時失効や、基準変更を理由とする起動時再計算は追加しません。
 
-同じディレクトリと種別・用途別の検索集合で共有するのは存在件数です。定義の有無は用途別にキーと区別し、未知拡張子・空キーから親参照理由を作りません。未取得の表示用メンテナンス情報は件数未確定のまま扱い、健全性の計算やファイル取得を開始しません。LR2の長さ・文字コード・親参照は各譜面の全元記述から毎回評価し、存在件数キャッシュに依存しません。原文と解析状態の正本は[共通譜面](../library/chart-model.md#譜面情報とリソース保守)です。
+同じディレクトリと種別・用途別の検索集合で共有するのは存在件数です。定義の有無は用途別にキーと区別し、未知拡張子・空キーから親参照理由を作りません。未取得の表示用メンテナンス情報は件数未確定のまま扱い、健全性の計算やファイル取得を開始しません。LR2の長さ・文字コード・親参照は同snapshotのCP932全原文から独立して集約し、存在件数キャッシュに依存しません。原文と解析状態の正本は[共通譜面](../library/chart-model.md#譜面情報とリソース保守)です。
 
 有効なメンテナンス情報はDBから反映した `DbHydrated` または計算済みの `Calculated` です。未計算の仮値を健全性索引の正本にしません。通常起動では保存済み情報を読み、欠落・古い対象だけを後続保守へ回します。
 
@@ -233,6 +233,8 @@ BMSの削除前ハッシュは対象パスの一時表から主キーを引き�
 
 譜面情報の補完保存では、パスとMD5が一致する既存BMS行の `level`、`difficulty`、`maxbpm`、`minbpm`、`bga`、`exlevel`、`longnote`、`random`、`karinotes` だけを更新します。基本列・利用者管理列を再生成せず、欠落行を挿入しません。所持主体のない `chart_info` もメタデータキャッシュとして保持し、補完を理由に全削除しません。
 
+照合可能集合だけの存在件数キャッシュへ譜面固有の非照合数と任意画像状態を返却時に合成します。対応拡張子だけを物理・索引共通の照合対象とし、拡張子なし裸ファイルへの直接存在確認は行いません。外部プレイヤーの全挙動を再現する保証ではありません。`BmsLibraryMaintenanceServiceTests`の分類・キャッシュ共有・OptionalImageRolesDistinct・HashCollisions系列が境界を確認します。
+
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
@@ -255,6 +257,8 @@ BMSの削除前ハッシュは対象パスの一時表から主キーを引き�
 | 導入差分の通知前反映と統合後の遅延構築 | [`LibraryMutationOwner`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.Common.cs)、[`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs) | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `UsesPreflightDestinationAndWarmDelta` を含む自動・推定先・強制導入テストで現在性・局所差分・旧snapshotを確認する。[`BmsLibraryDuplicateServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) の `MergeChartDirectory_RechecksResourcesWithinAcceptedOperation` でBMS/BMSONの実統合後の未構築状態、初回表示の構築、同世代の再利用を確認する。 |
 | IR取得の単一期限・取消、失敗時の既存データ保持 | [`BmsLibraryIrService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrService.cs) | [`AppHttpClientTests`](../../../BeMusicSeeker.Tests/Runtime/AppHttpClientTests.cs)、[`BmsLibraryIrServiceTests`](../../../BeMusicSeeker.Tests/Ir/BmsLibraryIrServiceTests.cs)、[`BmsLibraryIrStartupTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryIrStartupTests.cs) |
 | 局所パス整理・旧ハッシュ捕捉・残存所有者の保護 | [`BmsLibraryDbGateway`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) | [`CatalogMutationOwnerTests`](../../../BeMusicSeeker.Tests/Catalog/CatalogMutationOwnerTests.cs) の `ApplyCatalogMutation_PathCleanupUsesBoundedExactSetAndPreservesDigestOwnership`。実接続のPROFILEで `FULLSCAN_STEP` / `VM_STEP` を観測し、補助的に問合せ計画も確認します。 |
+| 三分類・個別非照合数と照合可能集合の存在キャッシュ | `ChartResourceSnapshot`、`BmsLibraryMaintenanceService`、`ChartResourceExistence` | `BmsLibraryMaintenanceServiceTests`が同キーの1/1・1/2・1/3、裸ファイル陰性、用途・hash衝突と既知0/0／必要配置未取得を確認する。 |
+
 
 ## 関連資料
 

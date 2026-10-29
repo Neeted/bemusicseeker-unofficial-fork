@@ -123,10 +123,10 @@ public sealed class BMSFileSnapshotTests
     }
 
     /// <summary>
-    /// 韓国語を検出して表示メタデータを読み直しても音声・画像の参照はCP932解釈を保ち、LR2互換参照の書換えを検出する。
+    /// 韓国語を検出して音声・画像の要求も表示と同じ本文から取得し、保存画像三項目は従来CP932のまま保持します。
     /// </summary>
     [TestMethod]
-    public void CreateBMSFileFromSnapshot_WithDetectedEncodingKeepsResourceReferencesShiftJis()
+    public void CreateBMSFileFromSnapshot_WithDetectedEncodingUpdatesResourcesAndKeepsSavedImages()
     {
         WithTempDirectory(delegate (string tempDirectory)
         {
@@ -137,10 +137,13 @@ public sealed class BMSFileSnapshotTests
             const string imageName = "\uac00.png";
             File.WriteAllText(
                 filePath,
-                "#PLAYER 1\r\n#TITLE " + title + "\r\n#ARTIST " + artist + "\r\n#WAV01 " + resourceName + "\r\n#STAGEFILE " + imageName + "\r\n#BANNER " + imageName + "\r\n#BACKBMP " + imageName + "\r\n",
+                "#PLAYER 1\r\n#TITLE " + title + "\r\n#ARTIST " + artist + "\r\n#WAV01 " + resourceName
+                + "\r\n#STAGEFILE \r\n#STAGEFILE " + imageName + "\r\n#STAGEFILE later-stage.png"
+                + "\r\n#BANNER \r\n#BANNER " + imageName + "\r\n#BANNER later-banner.png"
+                + "\r\n#BACKBMP \r\n#BACKBMP " + imageName + "\r\n#BACKBMP later-back.png\r\n",
                 Encoding.GetEncoding("ks_c_5601-1987"));
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            ChartFile shiftJisParsed = BmsChartFileParser.ParseSnapshot(snapshot);
+            string expectedSavedImage = Encoding.GetEncoding(932).GetString(Encoding.GetEncoding("ks_c_5601-1987").GetBytes(imageName));
             BmsEncodingDetectionResult detectionResult = BmsEncodingDetector.Detect((snapshot).Bytes);
 
             ChartFile actual = BmsChartFileParser.ParseSnapshot(snapshot, detectionResult);
@@ -148,32 +151,24 @@ public sealed class BMSFileSnapshotTests
             Assert.AreEqual("ks_c_5601-1987", detectionResult.EncodingName);
             Assert.AreEqual(title, actual.RawTitle);
             Assert.AreEqual(artist, actual.RawArtist);
-            Assert.AreEqual(
-                shiftJisParsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath,
-                actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
-            Assert.AreEqual(
-                shiftJisParsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).NormalizedPath,
-                actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).NormalizedPath);
-            CollectionAssert.AreEqual(
-                shiftJisParsed.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).OrderBy(path => path, StringComparer.Ordinal).ToArray(),
-                actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).OrderBy(path => path, StringComparer.Ordinal).ToArray());
-            Assert.AreEqual(shiftJisParsed.Stagefile, actual.Stagefile);
-            Assert.AreEqual(shiftJisParsed.Banner, actual.Banner);
-            Assert.AreEqual(shiftJisParsed.Backbmp, actual.Backbmp);
-            Assert.AreNotEqual(resourceName, actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
+            Assert.AreEqual(resourceName, actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
+            Assert.AreEqual(resourceName, actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).NormalizedPath);
+            Assert.AreEqual(expectedSavedImage, actual.Stagefile);
+            Assert.AreEqual(expectedSavedImage, actual.Banner);
+            Assert.AreEqual(expectedSavedImage, actual.Backbmp);
             Assert.AreNotEqual(imageName, actual.Stagefile);
         });
     }
 
     /// <summary>
-    /// BMS/PMSの先頭・後続TITLEを実自動判定から原文どおり復元し、判定名との不一致、CP932資源や原byteのhashの変更を検出する。
+    /// BMS/PMSの先頭・後続TITLEを実自動判定から原文どおり復元し、判定名との不一致、実採用資源・CP932保存画像・原byteのhashの変更を検出する。
     /// </summary>
     [TestMethod]
     [DataRow("bms", true)]
     [DataRow("bms", false)]
     [DataRow("pms", true)]
     [DataRow("pms", false)]
-    public void CreateBMSFileFromSnapshot_WithDetectedUtf8BomKeepsResourceReferencesShiftJis(string extension, bool titleFirst)
+    public void CreateBMSFileFromSnapshot_WithDetectedUtf8BomAdoptsResourcesAndKeepsSavedImages(string extension, bool titleFirst)
     {
         WithTempDirectory(delegate (string tempDirectory)
         {
@@ -206,7 +201,7 @@ public sealed class BMSFileSnapshotTests
             Assert.AreEqual(subartist, actual.Subartist);
             Assert.AreEqual(genre, actual.Genre);
             // éのUTF-8 bytes C3 A9はCP932で半角の「ﾃｩ」となる。
-            Assert.AreEqual("ﾃｩ.wav", actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
+            Assert.AreEqual("é.wav", actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
             Assert.AreEqual("ﾃｩ.png", actual.Stagefile);
             Assert.AreEqual(Convert.ToHexStringLower(MD5.HashData(bytes)), actual.Md5);
             Assert.AreEqual(Convert.ToHexStringLower(SHA256.HashData(bytes)), actual.Sha256);
@@ -214,7 +209,7 @@ public sealed class BMSFileSnapshotTests
     }
 
     /// <summary>
-    /// UTF-8 BOM本文に生CP932資源名が混在しても実判定・解析で受理し、有効UTF-8の原文5項目・CP932資源・原byte hashを失う誤りを検出する。
+    /// UTF-8 BOM本文に生CP932資源名が混在しても実判定・解析で受理し、有効UTF-8の原文5項目・既存置換復号の資源・原byte hashを失う誤りを検出する。
     /// </summary>
     [TestMethod]
     public void CreateBMSFileFromSnapshot_Utf8BomWithCp932ResourceBytesPreservesMetadataAndHashes()
@@ -233,7 +228,7 @@ public sealed class BMSFileSnapshotTests
                 .. Encoding.UTF8.GetBytes("#TITLE " + title + "\r\n#SUBTITLE " + subtitle
                     + "\r\n#ARTIST " + artist + "\r\n#SUBARTIST " + subartist
                     + "\r\n#GENRE " + genre + "\r\n#WAV01 "),
-                // CP932の「あ」。UTF-8本文としては不正でも、資源名はこの元byteで解釈する。
+                // CP932の「あ」。実採用UTF-8の既存置換規則で解釈し、入力自体は拒否しません。
                 0x82, 0xA0,
                 .. Encoding.ASCII.GetBytes(".wav\r\n#00111:01\r\n")
             ];
@@ -251,8 +246,8 @@ public sealed class BMSFileSnapshotTests
             Assert.AreEqual(subartist, actual.Subartist);
             Assert.AreEqual(genre, actual.Genre);
             ChartResourceReference resource = actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal);
-            Assert.AreEqual("あ.wav", resource.RawPath);
-            Assert.AreEqual("あ.wav", resource.NormalizedPath);
+            Assert.AreEqual("��.wav", resource.RawPath);
+            Assert.AreEqual("��.wav", resource.NormalizedPath);
             Assert.AreEqual(ChartResourcePathNormalizationStatus.Valid, resource.Status);
             Assert.AreEqual(Convert.ToHexStringLower(MD5.HashData(bytes)), actual.Md5);
             Assert.AreEqual(Convert.ToHexStringLower(SHA256.HashData(bytes)), actual.Sha256);
@@ -556,7 +551,7 @@ public sealed class BMSFileSnapshotTests
             AssertResourceReference(actual, ChartResourceKind.Audio, @".\sound\kick.wav", Path.Combine("sound", "kick.wav"));
             AssertResourceReference(actual, ChartResourceKind.Image, @"visual\bg.final.png", Path.Combine("visual", "bg.final.png"));
             AssertResourceReference(actual, ChartResourceKind.Movie, @"movie\op.mpg", Path.Combine("movie", "op.mpg"));
-            Assert.AreEqual(1, actual.Resources.Count(reference => reference.Status == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported || reference.Status == ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported));
+            Assert.AreEqual(1, actual.Resources.Count(reference => reference.Status == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported));
             Assert.AreEqual(@"..\shared\hit.wav", actual.Resources.First(reference => reference.Status == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported).RawPath);
         });
     }
@@ -618,7 +613,7 @@ public sealed class BMSFileSnapshotTests
                 "#PLAYER 1\r\n#TITLE After\r\n#SUBTITLE SubAfter\r\n#ARTIST ArtistAfter\r\n#SUBARTIST SubArtistAfter\r\n#GENRE GenreAfter\r\n",
                 Encoding.GetEncoding("shift_jis"));
 
-            file = BmsChartFileParser.ApplyMetadataEncoding(snapshot, file, "shift_jis");
+            file = BmsChartFileParser.ApplyEncoding(snapshot, file, "shift_jis");
 
             Assert.AreEqual("Before", file.RawTitle);
             Assert.AreEqual("SubBefore", file.RawSubtitle);
@@ -647,10 +642,10 @@ public sealed class BMSFileSnapshotTests
             File.WriteAllText(filePath,
                 "#PLAYER 1\r\n#TITLE " + title + "\r\n#SUBTITLE " + subtitle + "\r\n#ARTIST " + artist + "\r\n#SUBARTIST " + subartist + "\r\n#GENRE " + genre + "\r\n",
                 Encoding.GetEncoding("ks_c_5601-1987"));
-            ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath));
+            ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath), new BmsEncodingDetectionResult("unknown", BmsEncodingDetectionOutcome.Unknown, false, null));
             Assert.AreNotEqual(title + " " + subtitle, file.Title);
 
-            file = BmsChartFileParser.ApplyMetadataEncoding(ChartFileContentReader.ReadSnapshot(file.Path), file, "ks_c_5601-1987");
+            file = BmsChartFileParser.ApplyEncoding(ChartFileContentReader.ReadSnapshot(file.Path), file, "ks_c_5601-1987");
 
             Assert.AreEqual(title, file.RawTitle);
             Assert.AreEqual(subtitle, file.RawSubtitle);
@@ -678,7 +673,7 @@ public sealed class BMSFileSnapshotTests
 
             ChartFile captured = file;
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(file.Path);
-            file = BmsChartFileParser.ApplyMetadataEncoding(snapshot, file, "shift_jis?");
+            file = BmsChartFileParser.ApplyEncoding(snapshot, file, "shift_jis?");
 
             Assert.AreEqual("ASCII", file.RawTitle);
             Assert.AreEqual("Artist", file.RawArtist);
@@ -707,8 +702,8 @@ public sealed class BMSFileSnapshotTests
                 "#PLAYER 1\r\n#TITLE " + title + "\r\n#SUBTITLE " + subtitle + "\r\n#ARTIST " + artist + "\r\n#SUBARTIST " + subartist + "\r\n#GENRE " + genre + "\r\n#WAV01 sound.wav\r\n#00101:01\r\n",
                 Encoding.GetEncoding("ks_c_5601-1987"));
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            ChartFile file = BmsChartFileParser.ParseSnapshot(snapshot);
-            Assert.AreNotEqual(title, file.Title);
+            ChartFile file = BmsChartFileParser.ParseSnapshot(snapshot, new BmsEncodingDetectionResult("unknown", BmsEncodingDetectionOutcome.Unknown, false, null));
+            Assert.AreNotEqual(title, file.RawTitle);
 
             BmsEncodingDetectionResult detectionResult = BmsEncodingDetector.Detect((snapshot).Bytes);
             file = BmsChartFileParser.ApplyEncodingDetection(snapshot, file, detectionResult);

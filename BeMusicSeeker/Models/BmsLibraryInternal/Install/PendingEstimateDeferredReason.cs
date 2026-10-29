@@ -4,7 +4,6 @@ internal enum PendingEstimateDeferredReason
 {
     None = 0,
     CompleteSourceAudio,
-    UnsupportedResourcePath,
     InstalledDestinationResolveFailed,
     SourceSurfaceScanLimitExceeded
 }

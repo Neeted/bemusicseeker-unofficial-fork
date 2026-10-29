@@ -19,7 +19,7 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class RegularChartNormalLibraryRefreshTests
 {
-    /// <summary>実重複検索後に一件だけ文字コードを確定し、空検索/新語加入/旧語離脱で表示済み・検索外入力、Title順、再選択を更新します。空検索は通知配送前の再選択も固定し、実再調査で両形式の健康度・固有警告と、固有兄弟・旧snapshot・未訪問行も維持します。</summary>
+    /// <summary>実重複検索後に一件だけ文字コードを確定し、空検索/新語加入/旧語離脱で表示済み・検索外入力、Title順、再選択を更新します。空検索は通知配送前の再選択も固定し、文字コード確定時の健康度更新と、音源実追加後の再調査で両形式の健康度・固有警告を確認し、固有兄弟・旧snapshot・未訪問行も維持します。</summary>
     [DataTestMethod]
     [DataRow("", false)]
     [DataRow("日本語", false)]
@@ -43,7 +43,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 File.WriteAllText(chartPath, text, new UTF8Encoding(false));
                 return BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
             }
-            // CP932資源解析でも次の物理行を保ち、今回の変更をメタデータの復号だけに限定する。
+            // ASCII音源名を使い、文字コード確定時の健康度と、後続の実音源追加による変化を区別します。
             const string contents = "#PLAYER 1\n#TITLE Alpha 日本語 title\n#ARTIST 新作者 artist\n#WAV01 missing.wav\n#00111:01\n";
             ChartFile target = ReadBms(firstDirectory, "target", contents) with
             { Title = "Zulu old", RawTitle = "Zulu old", Artist = "Old artist", RawArtist = "Old artist" };
@@ -122,6 +122,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 Assert.AreEqual("Alpha 日本語 title", updated.Title);
                 Assert.AreEqual("新作者 artist", updated.Artist);
                 Assert.AreEqual("utf-8", updated.encoding);
+                Assert.AreEqual(0, updated.WAVHealth, "文字コード確定時にも採用資源の健康度を反映します。");
                 if (displayedTarget != null) { Assert.AreSame(displayedTarget, updated); }
             }
             Assert.AreEqual("Zulu old", capturedTarget.Title);
@@ -158,19 +159,22 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 Stopwatch = Stopwatch.StartNew()
             }).WasCommitted);
             view = fixture.View;
-            var first = (LibraryChartRow)view[4];
+            // 対象BMSは文字コード確定時に0%となり、未調査nullの群から既に移動しています。
+            var first = (LibraryChartRow)view[3];
             Assert.AreEqual(siblings[0].Path, first.Chart.Path);
-            fixture.Table.SelectedIndex = 4;
+            fixture.Table.SelectedIndex = 3;
             int unrelatedNotifications = 0;
             first.PropertyChanged += (_, _) => unrelatedNotifications++;
             ChartFile[] current = fixture.Library.CaptureNormalLibraryChartSnapshot().BmsRows.ToArray();
             ChartFile currentTarget = current.Single(chart => chart.Path == target.Path);
             ChartFile currentBmson = fixture.Library.CaptureNormalLibraryChartSnapshot().BmsonRows.Single(chart => chart.Path == bmsonPath);
+            // 同じ元folderの未選択兄弟は更新せず、選択BMSだけが実追加音源で充足します。別folderのBMSONは不足のままです。
+            File.WriteAllBytes(Path.Combine(firstDirectory, "missing.wav"), []);
             work.Clear();
             fixture.Table.RowProjection.NormalInputWorkObserver = (kind, count) => work[kind] = work.GetValueOrDefault(kind) + count;
             MaintenanceWorkflowResult scan = fixture.Library.RescanResourceHealthCharts([currentTarget, currentBmson]);
             Assert.AreEqual(2, scan.CheckedFileCount);
-            Assert.AreEqual(0, scan.ChangedCharts.Single(chart => chart.Path == target.Path).WAVHealth, "BMSの実再調査で不足を確定します。");
+            Assert.AreEqual(100, scan.ChangedCharts.Single(chart => chart.Path == target.Path).WAVHealth, "BMSの実再調査で追加音源の充足を確定します。");
             Assert.AreEqual(0, scan.ChangedCharts.Single(chart => chart.Path == bmson.Path).WAVHealth, "BMSONの実再調査で不足を確定します。");
             await DeliverReferencesAsync(fixture);
             Assert.AreSame(view, fixture.Table.Rows);
@@ -186,9 +190,11 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
             CollectionAssert.AreEquivalent(new[] { target.Path, bmson.Path }, rescanned.Select(row => row.Chart.Path).ToArray());
             foreach (LibraryChartRow row in rescanned)
             {
-                Assert.AreEqual(0, row.WAVHealth);
+                Assert.AreEqual(row.Chart.Path == target.Path ? 100 : 0, row.WAVHealth);
                 Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
-                StringAssert.Contains(row.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
+                Assert.AreEqual(row.Chart.Path == bmson.Path,
+                    row.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing, StringComparison.Ordinal),
+                    "所持行の資源警告は現在の健康度から行へ投影され、BMSの不足解消とBMSONの不足継続を区別します。");
             }
             Assert.IsFalse(first.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart), "固有の兄弟譜面へ重複警告を付けません。");
             Assert.AreSame(group, fixture.Library.DuplicateChartGroups.Single());
@@ -197,7 +203,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
             fixture.Table.RowProjection.NormalInputWorkObserver = null;
             request.Stopwatch = Stopwatch.StartNew();
             Assert.IsTrue(fixture.Owner.ApplyRegularView(request).WasCommitted);
-            Assert.AreEqual(0, ((LibraryChartRow)fixture.View[0]).WAVHealth);
+            Assert.AreEqual(100, ((LibraryChartRow)fixture.View[0]).WAVHealth);
             Assert.AreEqual(0, ((LibraryChartRow)fixture.View[2]).WAVHealth);
         }
     }

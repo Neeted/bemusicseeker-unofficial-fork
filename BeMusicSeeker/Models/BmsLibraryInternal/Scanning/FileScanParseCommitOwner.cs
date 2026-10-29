@@ -887,8 +887,22 @@ internal sealed class FileScanParseCommitOwner
             ChartFile file;
             try
             {
-                detection = BmsEncodingDetector.Detect(snapshot.Bytes);
-                file = BmsChartFileParser.ParseSnapshot(snapshot, detection);
+                string fixedEncoding = BmsChartFileParser.GetConcreteFixedEncoding(candidate.ExistingBmsFile);
+                if (fixedEncoding != null && string.Equals(candidate.ExistingBmsFile.Md5, snapshot.Md5, StringComparison.OrdinalIgnoreCase))
+                {
+                    detection = null;
+                    file = BmsChartFileParser.ParseSnapshot(snapshot, fixedEncoding);
+                    file = file with
+                    {
+                        ResourceHealthMaintenanceSnapshot = file.ResourceHealthMaintenanceSnapshot with
+                        { Encoding = fixedEncoding, EncodingFixed = true }
+                    };
+                }
+                else
+                {
+                    detection = BmsEncodingDetector.Detect(snapshot.Bytes);
+                    file = BmsChartFileParser.ParseSnapshot(snapshot, detection);
+                }
             }
             catch (Exception ex) when (IsIndependentChartInputFailure(ex))
             {

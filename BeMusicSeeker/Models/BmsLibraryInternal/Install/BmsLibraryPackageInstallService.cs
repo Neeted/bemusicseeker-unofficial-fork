@@ -619,7 +619,7 @@ internal sealed partial class BmsLibraryPackageInstallService
 
     /// <summary>一度の探索でscope・完全性・既知entryを共有し、親の実在資源、子作品、明示一式の順に分類します。</summary>
     /// <remarks>親一式の収集先を借用する子は既読entryだけを追加し、完全性の確認後に親だけがpackageを生成します。</remarks>
-    private ChartPackageDiscoveryResult DiscoverDirectory(string directory, bool recursive, IReadOnlyList<PackageChartEntry> knownDirectCharts = null, string[] knownEntries = null, CancellationToken token = default, List<PackageChartEntry> enclosingWholeCharts = null, List<PackageChartEntry> observedEntries = null, IReadOnlyDictionary<string, PendingPackageScopeObservation> sourceScopes = null)
+    private ChartPackageDiscoveryResult DiscoverDirectory(string directory, bool recursive, IReadOnlyList<PackageChartEntry> knownDirectCharts = null, string[] knownEntries = null, CancellationToken token = default, List<PackageChartEntry> enclosingWholeCharts = null, List<PackageChartEntry> observedEntries = null, IReadOnlyDictionary<string, PendingPackageScopeObservation> sourceScopes = null, Func<ChartFileSnapshot, ChartFile> fixedEncodingSource = null)
     {
         observedEntries ??= [];
         var result = new ChartPackageDiscoveryResult { ObservedEntries = observedEntries, SourceDirectory = directory };
@@ -652,11 +652,11 @@ internal sealed partial class BmsLibraryPackageInstallService
         foreach (string path in files.Where(ChartFileKindResolver.IsSupportedChartFilePath))
         {
             if (token.IsCancellationRequested) { result.IsComplete = false; result.IncompleteScopes.Add(directory); return result; }
-            string preview = string.Empty;
+            ChartResourceReference? preview = null;
             PackageChartEntry entry;
             if (knownByPath == null || !knownByPath.TryGetValue(path, out entry))
             {
-                entry = PackageChartEntry.FromPath(path, out preview, out Exception failure);
+                entry = PackageChartEntry.FromPath(path, out preview, out Exception failure, fixedEncodingSource);
                 if (failure != null) { result.Failures.Add(failure); }
             }
             if (entry == null) { result.IsComplete = false; continue; }
@@ -673,7 +673,7 @@ internal sealed partial class BmsLibraryPackageInstallService
         var children = new List<ChartPackageDiscoveryResult>();
         foreach (string child in directories)
         {
-            ChartPackageDiscoveryResult discovered = DiscoverDirectory(child, recursive: true, token: token, enclosingWholeCharts: wholeCharts, observedEntries: observedEntries, sourceScopes: sourceScopes);
+            ChartPackageDiscoveryResult discovered = DiscoverDirectory(child, recursive: true, token: token, enclosingWholeCharts: wholeCharts, observedEntries: observedEntries, sourceScopes: sourceScopes, fixedEncodingSource: fixedEncodingSource);
             children.Add(discovered);
             result.IsComplete &= discovered.IsComplete;
             result.ContainsCharts |= discovered.ContainsCharts;
@@ -710,13 +710,9 @@ internal sealed partial class BmsLibraryPackageInstallService
         });
 
     /// <summary>発見専用PREVIEWの通常相対参照だけを、既存の音声拡張子互換で解決します。</summary>
-    private static bool HasExistingPreviewResource(PackageChartEntry entry, string preview)
-    {
-        if (string.IsNullOrWhiteSpace(preview) || Path.IsPathRooted(preview.Trim())) { return false; }
-        var reference = ChartResourceReference.Parse(preview, ChartResourceKind.Audio);
-        return reference.Status == ChartResourcePathNormalizationStatus.Valid && !string.IsNullOrWhiteSpace(reference.LookupKey)
+    private static bool HasExistingPreviewResource(PackageChartEntry entry, ChartResourceReference? preview)
+        => preview is { Classification: ChartResourceClassification.Matchable } reference
             && ChartResourceExistence.ExistsWithCompatibleExtensions(Path.GetDirectoryName(entry.Chart.Path), reference.LookupKey, ChartResourceExtensions.AudioExtensions);
-    }
 
     private static bool HasExistingPackageChartResources(PackageChartEntry entry)
     {
@@ -763,7 +759,7 @@ internal sealed partial class BmsLibraryPackageInstallService
         // 発見・グループ化が終わった後は、全定義を保持せず、LR2診断を確定値へ引き継ぎます。
         using IDisposable deferredNotification = entry.DeferPropertyChangedNotifications();
         ChartFile chart = entry.Chart;
-        entry.ApplyCurrentChart(chart with { Resources = chart.Resources.Where(reference => reference.IsUsed || reference.Usage == ChartResourceUsage.InputDiagnostic).ToImmutableList() });
+        entry.ApplyCurrentChart(chart with { Resources = chart.Resources.Where(reference => reference.IsUsed).ToImmutableList() });
         return entry.ApplyCalculatedResourceHealth(ChartFileProjection.WithMaintenance(entry.Chart, maintenanceInfo), placement);
     }
 
@@ -2491,6 +2487,7 @@ internal sealed partial class BmsLibraryPackageInstallService
         List<ChartPackage> normalizablePending = [.. pendingPackages.Where(package => !libraryDirectories.Any(directory =>
             LongPathFileSystem.IsSameOrDescendantDirectoryPath(package.path, directory)))];
         Dictionary<string, PendingPackageScopeObservation> sourceScopes = PendingPackageScopeObservation.CaptureSources(pendingPackages);
+        Func<ChartFileSnapshot, ChartFile> fixedEncodingSource = CapturePendingFixedEncodingSource(normalizablePending);
         var oldDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (ChartPackage package in normalizablePending)
         {
@@ -2511,13 +2508,13 @@ internal sealed partial class BmsLibraryPackageInstallService
                 // drive/share rootの明示directoryは、全項目選択の親がなくてもそれ自身を探索します。
                 foreach (string directory in group.Where(LongPathFileSystem.DirectoryExists))
                 {
-                    discoveries.Add(DiscoverDirectory(directory, recursive: false, token: token, sourceScopes: sourceScopes));
+                    discoveries.Add(DiscoverDirectory(directory, recursive: false, token: token, sourceScopes: sourceScopes, fixedEncodingSource: fixedEncodingSource));
                 }
                 continue;
             }
             if (fullySelectedDirectories.Contains(group.Key))
             {
-                discoveries.Add(DiscoverDirectory(group.Key, recursive: false, token: token, sourceScopes: sourceScopes));
+                discoveries.Add(DiscoverDirectory(group.Key, recursive: false, token: token, sourceScopes: sourceScopes, fixedEncodingSource: fixedEncodingSource));
                 continue;
             }
             List<string> chartPaths = [.. group.Where(path => LongPathFileSystem.FileExists(path) && ChartFileKindResolver.IsSupportedChartFilePath(path))];
@@ -2527,7 +2524,7 @@ internal sealed partial class BmsLibraryPackageInstallService
             string[] parentEntries = null;
             foreach (string path in chartPaths)
             {
-                var entry = PackageChartEntry.FromPath(path, out string preview, out Exception failure);
+                var entry = PackageChartEntry.FromPath(path, out ChartResourceReference? preview, out Exception failure, fixedEncodingSource);
                 if (failure != null) { direct.Failures.Add(failure); }
                 if (entry == null) { direct.IsComplete = false; continue; }
                 directCharts.Add(entry);
@@ -2544,7 +2541,7 @@ internal sealed partial class BmsLibraryPackageInstallService
             }
             if (promote && direct.IsComplete)
             {
-                discoveries.Add(DiscoverDirectory(group.Key, recursive: false, directCharts, parentEntries, token, sourceScopes: sourceScopes));
+                discoveries.Add(DiscoverDirectory(group.Key, recursive: false, directCharts, parentEntries, token, sourceScopes: sourceScopes, fixedEncodingSource: fixedEncodingSource));
             }
             else
             {
@@ -2558,7 +2555,7 @@ internal sealed partial class BmsLibraryPackageInstallService
                 {
                     foreach (string directory in group.Where(LongPathFileSystem.DirectoryExists))
                     {
-                        discoveries.Add(DiscoverDirectory(directory, recursive: false, token: token, sourceScopes: sourceScopes));
+                        discoveries.Add(DiscoverDirectory(directory, recursive: false, token: token, sourceScopes: sourceScopes, fixedEncodingSource: fixedEncodingSource));
                     }
                 }
             }
@@ -2571,7 +2568,7 @@ internal sealed partial class BmsLibraryPackageInstallService
             if (LongPathFileSystem.TryNormalizePhysicalScopePath(discovery.SourceDirectory, out string directory)) { directoryInputs.Add(directory); }
         }
         List<PendingPackageNormalizationGroup> normalizations = DiscoverPendingPackageNormalizations(
-            normalizablePending, inputEmitPositions.Keys, directoryInputs, token, discoveries, sourceScopes);
+            normalizablePending, inputEmitPositions.Keys, directoryInputs, token, discoveries, sourceScopes, fixedEncodingSource);
         result.PendingPackageNormalizations.AddRange(normalizations);
         var normalizedSources = new HashSet<ChartPackage>(normalizations.SelectMany(group => group.Sources));
         var normalizationsByRoot = normalizations.ToDictionary(group => group.RootPath, StringComparer.OrdinalIgnoreCase);
@@ -2675,8 +2672,6 @@ internal sealed partial class BmsLibraryPackageInstallService
         result.InstalledCheckMs = installedCheckStopwatch.ElapsedMilliseconds;
 
         var warningClassificationStopwatch = Stopwatch.StartNew();
-        var fixedEncodings = result.PendingPackageNormalizations.SelectMany(group => group.FixedEncodings)
-            .ToDictionary(pair => pair.Key, pair => pair.Value);
         DirectoryResourceLookupCache retainedDestinationCache = null;
         foreach (ChartPackage pkg in discoveredPackages)
         {
@@ -2695,10 +2690,8 @@ internal sealed partial class BmsLibraryPackageInstallService
             foreach (PackageChartEntry entry in pkg.ChartEntries)
             {
                 ApplyPendingResourceHealthProjection(entry, out ResourceHealthMaintenanceSnapshot health);
-                // 新単位の健康度を作ってから復号だけを採用し、旧健康度・LR2診断をfallbackで持ち込みません。
-                if (fixedEncodings.TryGetValue(entry, out ChartFile previous)) { entry.ApplyCommittedEncoding(previous); }
                 entry.InitializeOriginalResourceHealth(entry.Chart.ResourceHealthMaintenanceSnapshot);
-                if (!HasCompleteUsedAudio(health) || (requireCompleteUsedResourcesForAutoInstall && !HasCompleteUsedResources(health)))
+                if (entry.ResourceSnapshot.HasUnsupportedParentTraversalReference || !HasCompleteUsedAudio(health) || (requireCompleteUsedResourcesForAutoInstall && !HasCompleteUsedResources(health)))
                 {
                     pendingByPackage[pkg] = true;
                 }

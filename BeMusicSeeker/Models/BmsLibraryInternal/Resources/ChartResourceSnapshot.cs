@@ -29,7 +29,25 @@ internal sealed class ChartResourceSnapshot
 
     private readonly List<ChartResourceReference> resourceReferences = [];
 
-    private bool hasUnresolvedAudio;
+    private readonly HashSet<(int Category, string Directory, string Raw)> unmatchable = new(new UnmatchableComparer());
+    private int unmatchableAudio;
+    private int unmatchableVisual;
+    private int unmatchableMovie;
+    private int unmatchableOptional;
+
+    private sealed class UnmatchableComparer : IEqualityComparer<(int Category, string Directory, string Raw)>
+    {
+        public bool Equals((int Category, string Directory, string Raw) x, (int Category, string Directory, string Raw) y)
+            => x.Category == y.Category && StringComparer.OrdinalIgnoreCase.Equals(x.Directory, y.Directory)
+                && StringComparer.OrdinalIgnoreCase.Equals(x.Raw, y.Raw);
+        public int GetHashCode((int Category, string Directory, string Raw) value)
+            => HashCode.Combine(value.Category, StringComparer.OrdinalIgnoreCase.GetHashCode(value.Directory), StringComparer.OrdinalIgnoreCase.GetHashCode(value.Raw));
+    }
+
+    /// <summary>同じカテゴリ・譜面相対配置・原文の非照合要求を一件として数えます。検索キーは作りません。</summary>
+    internal int UnmatchableAudioReferenceCount => unmatchableAudio;
+    internal int UnmatchableVisualReferenceCount => unmatchableVisual;
+    internal int UnmatchableMovieReferenceCount => unmatchableMovie;
 
     public HashSet<string> AudioRelativePaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -63,32 +81,18 @@ internal sealed class ChartResourceSnapshot
 
     public HashSet<uint> OptionalImagePathAwareRelativePathHashes { get; } = [];
 
-    public int AudioReferenceCount => AudioRelativePaths.Count;
+    public int AudioReferenceCount => AudioRelativePaths.Count + unmatchableAudio;
 
-    public int VisualReferenceCount => VisualRelativePaths.Count;
+    public int VisualReferenceCount => VisualRelativePaths.Count + unmatchableVisual;
 
-    public int MovieReferenceCount => MovieRelativePaths.Count;
+    public int MovieReferenceCount => MovieRelativePaths.Count + unmatchableMovie;
 
-    public int OptionalImageReferenceCount => OptionalImageRelativePaths.Count;
+    public int OptionalImageReferenceCount => OptionalImageRelativePaths.Count + unmatchableOptional;
 
     public int TotalReferenceCount => AudioReferenceCount + VisualReferenceCount + MovieReferenceCount + OptionalImageReferenceCount;
 
-    public int UnsupportedResourceReferenceCount => resourceReferences.Count(IsUnsupported);
-
     /// <summary>使用参照に独立した <c>..</c> セグメントがあるかを返します。未使用定義のLR2診断は全原文から別に評価します。</summary>
-    public bool HasUnsupportedParentTraversalReference => resourceReferences.Any(reference => reference.IsUsed && reference.Status == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported);
-
-    /// <summary>構築時に確定した使用音声の照合不能を返します。源側評価で重複原文を再走査せず、未定義IDは参照へ含めません。</summary>
-    internal bool HasUnresolvedAudio => hasUnresolvedAudio;
-
-    /// <summary>種類を確定できないBMPも画像・動画双方の未判定理由にします。</summary>
-    internal bool HasUnresolvedVisual => resourceReferences.Any(reference => IsUnresolved(reference) && reference.Kind is ChartResourceKind.Image or ChartResourceKind.Unknown);
-
-    /// <summary>使用動画の照合不能と種類不明BMPを返します。</summary>
-    internal bool HasUnresolvedMovie => resourceReferences.Any(reference => IsUnresolved(reference) && reference.Kind is ChartResourceKind.Movie or ChartResourceKind.Unknown);
-
-    private static bool IsUnresolved(ChartResourceReference reference) => reference.IsUsed && reference.Usage == ChartResourceUsage.Normal
-        && (reference.Status != ChartResourcePathNormalizationStatus.Valid || string.IsNullOrWhiteSpace(reference.LookupKey));
+    public bool HasUnsupportedParentTraversalReference => resourceReferences.Any(reference => reference.RestrictsAutomaticDestination);
 
     public int PathSegmentReferenceCount { get; private set; }
 
@@ -109,11 +113,6 @@ internal sealed class ChartResourceSnapshot
     public IReadOnlyList<ResourceReference> OptionalImageReferences => optionalImageReferences;
 
     public IReadOnlyList<ChartResourceReference> ResourceReferences => resourceReferences;
-
-    public IEnumerable<ChartResourceReference> UnsupportedResourceReferences => resourceReferences.Where(IsUnsupported);
-
-    private static bool IsUnsupported(ChartResourceReference reference) => reference.Status == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported
-        || reference.Status == ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported;
 
     public HashSet<uint> EnumerateAllRelativePathHashes()
     {
@@ -192,10 +191,18 @@ internal sealed class ChartResourceSnapshot
     private void AddReference(ChartResourceReference reference, bool includeUnused = false, string relativeDirectory = null)
     {
         resourceReferences.Add(reference);
-        hasUnresolvedAudio |= IsUnresolved(reference) && reference.Kind == ChartResourceKind.Audio;
-        if ((!includeUnused && !reference.IsUsed)
-            || reference.Status != ChartResourcePathNormalizationStatus.Valid || string.IsNullOrWhiteSpace(reference.LookupKey))
+        if ((!includeUnused && !reference.IsUsed) || reference.Classification == ChartResourceClassification.Excluded) { return; }
+        if (reference.Classification == ChartResourceClassification.Unmatchable)
         {
+            bool optional = reference.Usage != ChartResourceUsage.Normal;
+            int category = optional ? 4 : (int)reference.Kind;
+            if (unmatchable.Add((category, relativeDirectory ?? string.Empty, reference.RawPath.Trim().Replace('/', '\\'))))
+            {
+                if (optional) { unmatchableOptional++; }
+                else if (reference.Kind == ChartResourceKind.Audio) { unmatchableAudio++; }
+                else if (reference.Kind == ChartResourceKind.Image) { unmatchableVisual++; }
+                else if (reference.Kind == ChartResourceKind.Movie) { unmatchableMovie++; }
+            }
             return;
         }
 
@@ -204,10 +211,7 @@ internal sealed class ChartResourceSnapshot
             ChartResourceKeyHash.GetLookupHash(lookupKey), IsNormalizedPathAware(lookupKey));
         if (reference.Usage != ChartResourceUsage.Normal)
         {
-            if (reference.Usage != ChartResourceUsage.InputDiagnostic)
-            {
-                AddResourceKey(OptionalImageRelativePaths, OptionalImageRelativePathHashes, OptionalImagePathAwareRelativePaths, OptionalImagePathAwareRelativePathHashes, optionalImageReferences, key);
-            }
+            AddResourceKey(OptionalImageRelativePaths, OptionalImageRelativePathHashes, OptionalImagePathAwareRelativePaths, OptionalImagePathAwareRelativePathHashes, optionalImageReferences, key);
 
             return;
         }

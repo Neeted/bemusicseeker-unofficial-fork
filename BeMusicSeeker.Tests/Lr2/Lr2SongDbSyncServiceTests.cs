@@ -846,7 +846,7 @@ public sealed class Lr2SongDbSyncServiceTests
     [DataRow("big5", "中文標題", "副標題", "作者", "編曲", "音樂")]
     [DataRow("utf-8", "日本語題名", "副題", "作曲者", "編曲者", "ジャンル")]
     [DataRow("shift_jis", "日本語題名", "副題", "作曲者", "編曲者", "ジャンル")]
-    public void SyncService_AppliesFixedMetadataEncodingWithoutRedecodingResources(
+    public void SyncService_AppliesFixedEncodingWithIndependentCp932Facts(
         string encoding, string title, string subtitle, string artist, string subartist, string genre)
     {
         using var scope = TestDatabaseScope.Create();

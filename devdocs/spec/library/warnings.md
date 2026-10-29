@@ -42,7 +42,7 @@
 
 保留登録時には、既存の初期評価で計算した元配置の `ResourceHealthMaintenanceSnapshot` を項目に一件保持します。自動導入候補から設定・失敗・取消等により後で保留へ回る項目も同じ初期評価で確定します。起動時の保留復元ではDBからこの結果を読み戻さず、既存の起動時評価で確定します。候補切り替え・再推定・通常の健康度更新は、この元配置結果を上書きしません。
 
-確定DSTが存続する削除・統合の候補失効では、候補metadata・曖昧性・候補音源の評価に依存する推定警告を解除します。同じInstallEstimation分類でも、入力元の推定不能 `UnsupportedResourcePath`、入力面探索上限 `SourceSurfaceScanLimitExceeded`、所持先解決失敗 `InstalledDestinationResolveFailed` は候補評価の失効とは独立した診断なので、通常の手動DST確定後も、確定DSTが統合先へ追従した後もkind/Messageを保持します。scope外の確定DSTと診断にも作用させません。DST空への元配置復元、成功全体削除scope内のDST解除、利用者の明示全クリアでは、この三診断を含む従来の分類全体の解除を維持します。
+確定DSTが存続する削除・統合の候補失効では、候補metadata・曖昧性・候補音源の評価に依存する推定警告を解除します。同じInstallEstimation分類でも、入力元の親参照自動制限`UnsupportedResourcePath`、入力面探索上限 `SourceSurfaceScanLimitExceeded`、所持先解決失敗 `InstalledDestinationResolveFailed` は候補評価の失効とは独立した診断なので、通常の手動DST確定後も、確定DSTが統合先へ追従した後もkind/Messageを保持します。scope外の確定DSTと診断にも作用させません。DST空への元配置復元、成功全体削除scope内のDST解除、利用者の明示全クリアでは、候補由来の分類を解除しますが、現在の採用要求に親参照が残る間はUnsupportedResourcePathを保持します。
 
 保留の「インストール先をクリア」は、導入先・代表情報・候補・`InstallEstimation` 警告を消し、保存済みの音声・画像・動画の定義数/存在数と補助画像3役割の定義/存在値を復元します。`ResourceHealth` 警告は復元した値から再生成し、現在の警告無視設定を維持します。文字コード・修正状態・LR2互換性情報と、他分類の警告は現在値を維持します。配置は元の譜面ディレクトリの `Current` へ戻し、捕捉済み同梱索引と完全性を保持します。
 
@@ -58,7 +58,7 @@
 
 導入の必須後処理が全て成功したら、今回の所持現在値を加入済みentryへ渡し、通常・新規一覧で同じ計算済みのWAV・BGA・MOVIE充足値を表示します。要求数0件の充足値は対象外のnullで、表示は `-` です。検査済み0件と未検査・未解決は保存件数と取得状態で区別し、nullを旧100%で補いません。保存値と算式は[リソース健全性](../core/data-and-indexes.md#リソース健全性)に従います。
 
-不足警告の分数は使用ファイルキーの存在数／要求数です。未使用定義の欠損と未定義の使用IDは不足警告へ含めません。これはBMS/PMSのWAV/BMP IDと、BMSONのBGA/LAYER/POORイベントのヘッダー未定義IDに共通です。定義済みの不正パスや空nameは照合不能として扱い、架空のファイル名で不足件数を作りません。
+不足警告の分数は使用ファイルキーの存在数／要求数です。未使用定義の欠損と未定義の使用IDは不足警告へ含めません。これはBMS/PMSのWAV/BMP IDと、BMSONのBGA/LAYER/POORイベントのヘッダー未定義IDに共通です。空name等は対象外、名前付き不正パス・親参照は個別未充足として数えます。架空の検索キーは作りません。
 
 起動時のメンテナンス情報読込みはDBの結果を適用するもので、全リソースの再検査ではありません。不足分を追加した後は、選択譜面または全譜面の再スキャンで再評価します。計算結果が既存行と同じならDBを書き直しません。所持currentに反映する保守・警告の実変更はカタログ版と対象差分を同時確定し、登録済みの同じ結果で該当行を更新します。通常一覧とplaylistは同じ現在値・専門警告の投影を使い、検査事実に保存した古いfull譜面を表示値の正本にしません。
 
@@ -90,7 +90,7 @@
 | `InstallEstimationReinstallNotImproved` | `InstallEstimation` | 43 | `再導入改善なし` | true | 該当する警告がある場合 |
 | `InstalledDestinationAmbiguous` | `InstallEstimation` | 43 | `導入先複数` | true | 該当する警告がある場合 |
 | `InstalledDestinationAutoAppliedAmbiguous` | `InstallEstimation` | 43 | `導入先複数` | true | 該当する警告がある場合 |
-| `UnsupportedResourcePath` | `InstallEstimation` | 44 | `リソースパス非対応` | false | 該当する警告がある場合 |
+| `UnsupportedResourcePath` | `InstallEstimation` | 44 | `親参照（自動確定なし）` | false | 該当する警告がある場合 |
 | `InstalledDestinationResolveFailed` | `InstallEstimation` | 45 | `導入先不明` | false | 該当する警告がある場合 |
 | `SourceSurfaceScanLimitExceeded` | `InstallEstimation` | 46 | `探索上限` | false | 該当する警告がある場合 |
 | `InstallEstimationLowConfidence` | `InstallEstimation` | 47 | `導入先推定` | true | 該当する警告がある場合 |
@@ -111,7 +111,7 @@
 | 種類・分類 | 生成と解除 |
 | --- | --- |
 | `InstallEstimation` | 再推定で分類単位に置換し、明示クリア・導入成功で解除する。候補選択・手動入力・空編集では推定時の理由を保持する。複数候補の自動適用と未適用は別の種類とし、候補を詳細に残す |
-| `UnsupportedResourcePath` | 親参照 `..` がある場合に付け、推定しない |
+| `UnsupportedResourcePath` | 採用要求に名前付き親参照がある場合に付け、候補を保持して自動確定・自動導入を止める |
 | `SourceSurfaceScanLimitExceeded` | ディレクトリパッケージ自身の50000件上限超過で付ける。単一ファイルの親の規模では付けない |
 | `DuplicateChart` | 重複の種類だけを設定・解除する |
 | `ZeroNoteMismatch` | BMSの詳細情報が0ノートで、本文に可視ノートらしい記述がある場合に付ける。情報未生成または0でなくなれば解除する |
@@ -125,6 +125,8 @@
 LR2互換性では、譜面の完全パスとリソース名のCP932表現、LR2の従来の長さ制限を区別します。アプリ自身が長パスを読めるなら登録を続けます。親参照はLR2非対応の理由にせず、移動時に再解析が必要な情報として保持します。親参照がない場合は、保存した相対パスの最大バイト長と移動後のディレクトリで軽量に再評価できます。
 
 LR2用パスを表現できないことを理由にBMS行を削除しません。CRCの生成、相対パス補正の条件、既存行の保持は[LR2楽曲DB](../integration/lr2-song-db.md#songの生成)を正本とします。
+
+手動文字コード変更は、資源だけが変化した場合も新参照で元配置と捕捉済み現在配置の健康度・警告を更新し、明示DST・候補・所属を維持します。通常の候補切替や再スキャンが登録時元配置を保持する契約とは区別します。CP932復号不能と親参照は別々のLR2保守事実であり、CP932診断だけを通常資源の親参照WARNINGへ読み替えません。
 
 ## 実装とテストの対応
 
@@ -146,6 +148,8 @@ LR2用パスを表現できないことを理由にBMS行を削除しません�
 | 現在のメンテナンス情報、差分更新と再評価 | [`ResourceHealthIndexOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ResourceHealth/ResourceHealthIndexOwner.cs)、[`ResourceHealthWarningProjection`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ResourceHealth/ResourceHealthWarningProjection.cs) | [`ResourceHealthIndexOwnerTests`](../../../BeMusicSeeker.Tests/ResourceHealth/ResourceHealthIndexOwnerTests.cs)、[`ResourceHealthFullOwnedTargetFreshnessTests`](../../../BeMusicSeeker.Tests/ResourceHealth/ResourceHealthFullOwnedTargetFreshnessTests.cs) |
 | LR2のパス・リソース互換性 | [`Lr2SongRowEnricher`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongRowEnricher.cs) | [`BmsLibraryLr2SongDbSyncTests`](../../../BeMusicSeeker.Tests/Lr2/BmsLibraryLr2SongDbSyncTests.cs)、[`ChartWarningCollectionTests`](../../../BeMusicSeeker.Tests/Chart/ChartWarningCollectionTests.cs) |
 | BMSの追加、相対パス補正、表現不能なパスの行の保持 | [`Lr2SongRowEnricher`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongRowEnricher.cs)、[`BMSLibrary`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs) | [`BmsLibraryInitializationInstallTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationInstallTests.cs)、[`BmsLibraryInitializationLoadTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationLoadTests.cs) |
+| 文字コード変更による元配置・現在配置の更新、親WARNING保持 | `PackageChartEntry`、`CatalogMaintenanceOwner`、`BmsLibraryPackageInstallService` | MaintenanceのApplyEncodingとInstallのEncoding系列が資源だけの変更・元配置／捕捉配置・明示DST保持・失敗非反映を確認し、PendingRegroup系列が候補・明示選択後のWARNINGを確認する。 |
+
 
 ## 関連資料
 

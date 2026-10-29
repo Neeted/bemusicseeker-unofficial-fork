@@ -2078,7 +2078,7 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>インストール先複数</value>
   </data>
   <data name="WarningDigest_UnsupportedResourcePath" xml:space="preserve">
-    <value>リソースパス非対応</value>
+    <value>親参照（自動確定なし）</value>
   </data>
   <data name="WarningDigest_InstalledDestinationResolveFailed" xml:space="preserve">
     <value>インストール先不明</value>
@@ -2143,7 +2143,7 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>既所持譜面からインストール先を特定できません。ライブラリの状態を確認してください。</value>
   </data>
   <data name="Warning_UnsupportedResourcePath" xml:space="preserve">
-    <value>親ディレクトリを参照するリソースパスはインストール先推定に対応していません。該当するリソース記述を確認してください。</value>
+    <value>採用リソースに親ディレクトリ参照があるため、導入先の自動確定と自動導入を行いません。候補の選択・手入力による明示導入は可能です。</value>
   </data>
   <data name="Warning_SourceSurfaceScanLimitExceeded" xml:space="preserve">
     <value>1つの推定対象フォルダ内で、インストール先推定のための周辺リソース探索が {0} 件を超えたため、自動推定を中止しました。パッケージ単位のフォルダへ移動するか、手動でインストール先を指定してください。</value>
@@ -3666,7 +3666,7 @@ ON：すべての使用リソースを要求し、不足時は保留にします
     <value>譜面パス</value>
   </data>
   <data name="ChartPropertiesIssues" xml:space="preserve">
-    <value>不足・確認不能</value>
+    <value>リソースの問題と任意画像定義</value>
   </data>
   <data name="ChartPropertiesFailed" xml:space="preserve">
     <value>譜面の読取りまたは解析に失敗しました。再確認するには閉じて開き直してください。</value>
@@ -3678,10 +3678,10 @@ ON：すべての使用リソースを要求し、不足時は保留にします
     <value>不正なパス</value>
   </data>
   <data name="ChartPropertiesUnsupported" xml:space="preserve">
-    <value>未対応の参照またはパス</value>
+    <value>親参照</value>
   </data>
   <data name="ChartPropertiesCp932Unsupported" xml:space="preserve">
-    <value>リソース値をCP932で復号できません</value>
+    <value>LR2互換性診断：CP932で復号できません。実採用文字コードの充足結果とは独立しています</value>
   </data>
   <data name="ChartPropertiesUnusedDefinitions" xml:space="preserve">
     <value>未使用リソース定義</value>
@@ -3690,13 +3690,13 @@ ON：すべての使用リソースを要求し、不足時は保留にします
     <value>未定義参照番号</value>
   </data>
   <data name="ChartPropertiesUnusedDescription" xml:space="preserve">
-    <value>定義はあるものの、この譜面の発音・表示用の参照に使われていない #WAV・#BMP を表示します。別の定義番号や譜面が同じファイルを使う場合があります。</value>
+    <value>定義はあるものの、この譜面の発音・表示用の参照に使われていない #WAV・#BMP を表示します。別の定義番号や譜面が同じファイルを使う場合があります。 この譜面の要求数には含めません。</value>
   </data>
   <data name="ChartPropertiesUndefinedDescription" xml:space="preserve">
     <value>譜面から参照されているものの、対応する #WAV・#BMP 定義が存在しない定義番号を表示します。無音ノーツなどが該当します。</value>
   </data>
   <data name="ChartPropertiesBmsonUnusedDescription" xml:space="preserve">
-    <value>この譜面の発音・表示に使われていない音声チャンネルと bga_header の定義を表示します。別のチャンネルや譜面が同じファイルを使う場合があります。</value>
+    <value>この譜面の発音・表示に使われていない音声チャンネルと bga_header の定義を表示します。別のチャンネルや譜面が同じファイルを使う場合があります。 この譜面の要求数には含めません。</value>
   </data>
   <data name="ChartPropertiesBmsonUndefinedDescription" xml:space="preserve">
     <value>BGAイベントから参照されているものの、対応する bga_header 定義が存在しない定義番号を表示します。</value>
@@ -4065,5 +4065,38 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   </data>
   <data name="Error_PendingRestoreChoiceUnknown" xml:space="preserve">
     <value>保留パッケージの復元確認で不明な選択が返されました。</value>
+  </data>
+  <data name="ChartPropertiesDefinitionLine" xml:space="preserve">
+    <value>行 {0}</value>
+  </data>
+  <data name="ChartPropertiesAdopted" xml:space="preserve">
+    <value>採用値</value>
+  </data>
+  <data name="ChartPropertiesDiagnosticOnly" xml:space="preserve">
+    <value>診断専用（未採用）</value>
+  </data>
+  <data name="ChartPropertiesExcludedEmpty" xml:space="preserve">
+    <value>空の指定</value>
+  </data>
+  <data name="ChartPropertiesExcludedFileName" xml:space="preserve">
+    <value>ファイル名本体なし</value>
+  </data>
+  <data name="ChartPropertiesExcludedKind" xml:space="preserve">
+    <value>画像・動画の種別不明</value>
+  </data>
+  <data name="ChartPropertiesExcludedSyntax" xml:space="preserve">
+    <value>不正構文</value>
+  </data>
+  <data name="ChartPropertiesSatisfied" xml:space="preserve">
+    <value>対応する資源が存在します</value>
+  </data>
+  <data name="ChartPropertiesCountedUnfulfilled" xml:space="preserve">
+    <value>個別の未充足として計数します</value>
+  </data>
+  <data name="ChartPropertiesNotCounted" xml:space="preserve">
+    <value>要求数に含めません</value>
+  </data>
+  <data name="ChartPropertiesCp932AlternativeInterpretation" xml:space="preserve">
+    <value>LR2用の別解釈（CP932・通常の解釈と併記される場合があります）</value>
   </data>
 </root>

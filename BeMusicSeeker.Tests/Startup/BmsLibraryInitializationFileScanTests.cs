@@ -861,7 +861,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(bmsPath, result.AddedFiles[0].Path);
             Assert.IsTrue(result.AddedFiles[0].Warnings.Any(warning => warning.Kind == ChartWarningKind.Lr2PathTooLong));
             Assert.IsFalse(string.IsNullOrWhiteSpace(BmsEncodingDetector.Detect(ChartFileContentReader.ReadSnapshot(bmsPath).Bytes).EncodingName));
-            result.AddedFiles[0] = BmsChartFileParser.ApplyMetadataEncoding(ChartFileContentReader.ReadSnapshot(result.AddedFiles[0].Path), result.AddedFiles[0], "shift_jis");
+            result.AddedFiles[0] = BmsChartFileParser.ApplyEncoding(ChartFileContentReader.ReadSnapshot(result.AddedFiles[0].Path), result.AddedFiles[0], "shift_jis");
             Assert.AreEqual("Long Path", result.AddedFiles[0].RawTitle);
 
             ChartFile registered = result.AddedFiles[0] with { Favorite = 3, AddDate = 34567, Tag = "long-path-keep" };

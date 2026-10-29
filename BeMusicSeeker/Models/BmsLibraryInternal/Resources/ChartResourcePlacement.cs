@@ -83,9 +83,10 @@ internal sealed class ChartResourcePlacement(
         return candidate == null || !bundledComplete ? null : false;
     }
 
-    /// <summary>照合不能な参照の存在確認は未確認として返します。</summary>
+    /// <summary>要求対象外は未確認、名前付き非照合は個別の未充足として返し、照合可能な参照だけを探索します。</summary>
     internal bool? Exists(ChartResourceReference reference)
-        => reference.Status != ChartResourcePathNormalizationStatus.Valid ? null
+        => reference.Classification == ChartResourceClassification.Excluded ? null
+            : reference.Classification == ChartResourceClassification.Unmatchable ? false
             : Exists(reference.LookupKey, reference.Usage == ChartResourceUsage.Normal ? reference.Kind : ChartResourceKind.Image);
 
     /// <summary>使用集合の重複を除いた件数を評価し、未取得を正常な0件へ置き換えません。</summary>
@@ -107,7 +108,7 @@ internal sealed class ChartResourcePlacement(
     /// <summary>存在確認を一回だけ行い、許可と警告で同じ結果を共有します。</summary>
     internal InstallAudioEvaluation EvaluateAudioResources(ChartResourceSnapshot resources)
     {
-        if (resources == null || resources.HasUnresolvedAudio) { return new(InstallAudioCompleteness.Unverifiable, 0, resources?.AudioReferenceCount ?? 0); }
+        if (resources == null) { return new(InstallAudioCompleteness.Unverifiable, 0, 0); }
         int? existing = CountExisting(resources.AudioReferences, ChartResourceKind.Audio);
         return new(!existing.HasValue ? InstallAudioCompleteness.Unverifiable
             : existing.Value == resources.AudioReferenceCount ? InstallAudioCompleteness.Complete : InstallAudioCompleteness.Missing,

@@ -1079,6 +1079,7 @@ Depending on library size, disk speed, and Everything availability, this may tak
 </tr>
 </tbody>
 </table></div>
+<p>If a used resource name contains a parent-folder reference (<code>../</code> or <code>..\</code>), you can inspect the candidates, but automatic destination selection and automatic installation are held. Select a candidate or enter a destination, then install explicitly if needed. The warning remains.</p>
 <p>See <a href="#install-destination-estimation">Install-Destination Estimation</a> for reviewing candidates and running manual estimation.</p>
 <h4 id="overwriting-and-source-package-cleanup">Overwriting and source package cleanup</h4>
 <p><img alt="Install Settings: Overwriting and Confirmation" src="img/設定_インストール_ファイルと確認.PNG"/></p>
@@ -1367,7 +1368,7 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 <h4 id="checking-encoding-and-file-state">Checking Encoding and File State</h4>
 <ul>
 <li><code>Chart properties</code>: Check the <a href="#checking-chart-properties">resource details</a> in a read-only window.</li>
-<li><code>Fix character encoding</code>: Specifies the character encoding from options such as Japanese Shift_JIS, UTF-8, Korean KS_C_5601, Simplified Chinese GB2312, and Traditional Chinese Big5. <code>Mark as fixed</code> treats the current estimated result as confirmed.</li>
+<li><code>Fix character encoding</code>: Specifies the character encoding from options such as Japanese Shift_JIS, UTF-8, Korean KS_C_5601, Simplified Chinese GB2312, and Traditional Chinese Big5. Resource names in the chart are read again using the same encoding, and chart health is updated. <code>Mark as fixed</code> treats the current estimated result as confirmed.</li>
 <li><code>File scan</code>: Re-scans the selected chart and resets chart health information that can be checked in places such as the full resource scan screen. <code>Rescan all charts</code> targets all charts in the library. <code>Add to ignore list</code> / <code>Remove from ignore list</code> are settings used to exclude or include charts in displays such as the full resource scan.</li>
 </ul>
 <h4 id="installation-and-destination-correction">Installation and Destination Correction</h4>
@@ -1404,10 +1405,11 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 <p>Select one chart with a local file and choose <code>Chart properties</code> from the list context menu. Charts inside pending packages are supported too. The chart is read from its original file; resources are checked against the configured installation destination, or the first candidate if unset, or the current location if neither exists. Bundled resources that would be installed are included for destinations and candidates. Multiple selections and unowned charts are unavailable.</p>
 <p>The window shows the title, artist, chart path, resource verification basis and verification path, with three categories:</p>
 <ul>
-<li><code>Missing / unverifiable</code>: Required, defined references shown with their command, definition number, original filename and a reason at the end, such as <code>#WAV01 sound.wav (Missing)</code> or <code>#BMP02 movie.mp4 (Missing)</code>. Specified STAGEFILE/BACKBMP/BANNER images are included.</li>
-<li><code>Unused resource definitions</code>: #WAV and #BMP definitions not referenced for sound or display in this chart. Another definition number or chart may use the same file.</li>
+<li><code>Resource issues and optional image definitions</code>: Check missing resources, excluded definitions and invalid paths, plus all auxiliary-image definitions with their selection and existence status. Each entry retains its source, definition number, line number and original text.</li>
+<li><code>Unused resource definitions</code>: #WAV and #BMP definitions not referenced for sound or display in this chart, with their original text and classification reason. Another definition number or chart may use the same file.</li>
 <li><code>Undefined reference numbers</code>: Definition numbers referenced by the chart without a corresponding #WAV or #BMP definition, such as silent notes. <code>#WAV01</code> and <code>#BMP01</code> are listed separately.</li>
 </ul>
+<p>CP932 diagnostics for LR2 are attached to the same definition when they use the normal interpretation. When the interpretation differs, the original text and line position are marked as an <code>Alternative interpretation for LR2</code>. The same specification may appear alongside its normal interpretation.</p>
 <p>For BMSON, the window lists unused audio channels and <code>bga_header</code> definitions, and BGA reference numbers with no matching definition. Audio and auxiliary images use their native field names, such as <code>sound_channels</code> and <code>info.back_image</code>.</p>
 <p>Select text in values or lists and use Ctrl+A to select all and Ctrl+C to copy. Results are read when the window opens. If reading or analysis fails, a message appears below the chart path. To check again, close the window with the title-bar close button or Esc and reopen it. You can close it while reading or after a failure.</p>
 <h3 id="tree-context-menu">Tree Context Menu</h3>
@@ -1982,7 +1984,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <h3 id="full-resource-scan">Full Resource Scan</h3>
 <p><img alt="Full Resource Scan" src="img/一覧_構成ファイルフルスキャン.PNG"/></p>
 <p>This view checks missing WAV, BGA, video, image, and similar resources.</p>
-<p><code>WAV</code>, <code>BGA</code>, and <code>MOVIE</code> show existing / required files used by the chart. Multiple IDs referencing the same file count once, and unused definitions are excluded. All files defined for the same used ID are checked, without excluding conditional branches or LNOBJ references. For example, three existing files out of four required files give 75%. A category with no used files shows <code>-</code>.</p>
+<p><code>WAV</code>, <code>BGA</code>, and <code>MOVIE</code> show existing / required files used by the chart. Multiple IDs referencing the same file count once, and unused definitions are excluded. All files defined for the same used ID are checked, without excluding conditional branches or LNOBJ references. For example, three existing files out of four required files give 75%. A category with no used files shows <code>-</code>. Empty names, extension-only names and images of unknown type are excluded. Invalid paths with a filename count as individual missing requirements. A chart with no audio requirements is not treated as missing audio. <code>-</code> also appears when the chart or resources cannot be checked.</p>
 <p><code>-</code> also appears before a check or when coverage cannot be determined. IDs without a resource definition are excluded from missing-resource checks. Rescanning also updates older saved counts to the used-file basis.</p>
 <p>An explicitly specified invalid auxiliary image path or parent-folder reference (<code>../</code>) in BMSON also produces a missing-image warning. With complete audio, requiring all used resources keeps the package pending when ON and permits automatic new installation when OFF.</p>
 <p><code>Rescan all charts</code> is an explicit heavy operation. Ordinary startup does not revalidate resources for all charts. After adding missing resources externally, follow <a href="#maintenance-troubleshooting">Maintenance Troubleshooting</a> to update their status.</p>

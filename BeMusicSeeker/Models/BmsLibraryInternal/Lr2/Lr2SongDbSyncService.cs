@@ -1988,9 +1988,9 @@ internal static class Lr2SongDbSyncService
                 && !string.IsNullOrWhiteSpace(maintenance.Encoding)
                 && !maintenance.Encoding.Equals("unknown", StringComparison.OrdinalIgnoreCase)
                 && !maintenance.Encoding.EndsWith("?", StringComparison.Ordinal);
-            // 資源は常にCP932で読み、同じ内容への確定指定だけを表示メタデータへ反映します。
+            // 同じ内容への確定指定を通常資源と表示文字列へ適用し、保存画像とLR2診断は同じCP932走査へ残します。
             ChartFile parsed = (useFixedEncoding
-                ? BmsChartFileParser.ApplyMetadataEncoding(snapshot, BmsChartFileParser.ParseSnapshot(snapshot), maintenance.Encoding)
+                ? BmsChartFileParser.ParseSnapshot(snapshot, maintenance.Encoding)
                 : BmsChartFileParser.ParseSnapshotWithEncodingDetection(snapshot)) with
             {
                 Token = existingSong.Token,
@@ -2249,7 +2249,7 @@ internal static class Lr2SongDbSyncService
         }
 
         Lr2ChartPathEvaluation pathEvaluation = Lr2CompatibilityEvaluator.EvaluateChartPath(row.Path);
-        Lr2ResourceReferenceEvaluation resourceEvaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(row.Path, ChartResourceSnapshot.Create(row.Resources));
+        Lr2ResourceReferenceEvaluation resourceEvaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(row);
         info = new ResourceHealthMaintenanceSnapshot
         {
             Path = row.Path,

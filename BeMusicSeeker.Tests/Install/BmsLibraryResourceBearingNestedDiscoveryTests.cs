@@ -31,6 +31,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [DataRow("undefined-media", false)]
     [DataRow("missing", false)]
     [DataRow("invalid-resource-path", false)]
+    [DataRow("unknown-bmp", false)]
+    [DataRow("bmson-audio-unknown-extension", true)]
     [DataRow("bms-preview", false)]
     [DataRow("bmson-preview", false)]
     [DataRow("bmson-preview-normal", true)]
@@ -61,6 +63,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 childBody = "#TITLE Child\n#BMP01 " + media + "\n#00104:01\n";
             }
             else if (condition == "invalid-resource-path") { childBody = "#TITLE Child\n#WAV01 bad:name.wav\n#00111:01\n"; }
+            else if (condition == "unknown-bmp") { childBody = "#TITLE Child\n#BMP01 mystery.xyz\n#00104:01\n"; media = "mystery.png"; }
             else if (condition == "unused") { childBody = "#TITLE Child\n#WAV01 tone.wav\n"; }
             else if (condition == "parent-reference") { childBody = "#TITLE Child\n#WAV01 ../tone.wav\n#00111:01\n"; }
             else if (condition is "banner-only" or "backbmp-only" or "stagefile-only")
@@ -78,10 +81,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 CreateBmsFile(sibling, "sibling.bms", "#TITLE Sibling\n#WAV01 tone.wav\n#00111:01\n");
                 File.WriteAllBytes(Path.Combine(sibling, "tone.wav"), [2]);
             }
-            if (condition is "audio-bmson" or "bmson-preview" or "bmson-preview-normal")
+            if (condition is "audio-bmson" or "bmson-preview" or "bmson-preview-normal" or "bmson-audio-unknown-extension")
             {
                 bool preview = condition.StartsWith("bmson-preview", StringComparison.Ordinal);
-                string channels = condition == "bmson-preview" ? "[]" : "[{\"name\":\"tone.wav\",\"notes\":[]}]";
+                string channels = condition == "bmson-preview" ? "[]" : "[{\"name\":\"" + (condition == "bmson-audio-unknown-extension" ? "tone.xyz" : "tone.wav") + "\",\"notes\":[]}]";
                 File.WriteAllText(Path.Combine(child, "child.bmson"), "{\"info\":{\"title\":\"Child\"" + (preview ? ",\"preview_music\":\"tone.wav\"" : "") + "},\"sound_channels\":" + channels + "}");
             }
             else if (condition != "resource-only-child")
@@ -105,7 +108,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             foreach (PackageChartEntry entry in package.ChartEntries)
             {
                 ChartFile parsed = PackageChartEntry.FromPath(entry.Chart.Path).Chart;
-                string[] expected = parsed.Resources.Where(reference => reference.IsUsed || reference.Usage == ChartResourceUsage.InputDiagnostic)
+                string[] expected = parsed.Resources.Where(reference => reference.IsUsed)
                     .Select(reference => reference.Kind + "|" + reference.Usage + "|" + reference.RawPath + "|" + reference.IsUsed).ToArray();
                 CollectionAssert.AreEqual(expected, entry.Chart.Resources.Select(reference => reference.Kind + "|" + reference.Usage + "|" + reference.RawPath + "|" + reference.IsUsed).ToArray());
             }

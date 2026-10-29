@@ -28,7 +28,7 @@
 
 対象はパッケージまたは単独の譜面です。[取得済みの共通リソース結果](chart-model.md#譜面情報とリソース保守)の使用参照を `ChartResourceSnapshot` へ索引化し、複数譜面では検索キーを和集合にして音声・画像・動画・任意画像を分けます。分母は使用IDから解決した種別別のユニークな要求ファイルキー数です。未使用定義を含めず、同じファイルへの複数ID参照は一件とします。抽出条件は[軽量解析の使用リソース](parser-compatibility.md#軽量解析の使用リソース)に従います。原文・用途・解析状態は失わず保持し、未取得を保存主体やファイルから隠れて補完しません。
 
-BMS/PMSの未定義WAV/BMP IDとBMSONの参照先ヘッダーのないBGA/LAYER/POOR IDは、必要集合へ加えず、健康度・不足警告・導入自動設定へ影響させません。定義済みの使用参照の不正パスや空name・取得失敗は正常な要求0件へ置き換えません。未使用定義だけの親参照は使用要求の非対応理由にしません。
+BMS/PMSの未定義WAV/BMP IDとBMSONの参照先ヘッダーのないBGA/LAYER/POOR IDは、必要集合へ加えず、健康度・不足警告・導入自動設定へ影響させません。名前付き非照合と取得失敗は要求0件へ置き換えず、空name等の対象外と区別します。未使用定義だけの親参照は使用要求の非対応理由にしません。
 
 キーは拡張子を除いた譜面相対のパスです。`foo.wav` と `./foo.wav` は `foo`、`sound/./foo.wav` は `sound/foo`、`sound/foo.v2.wav` は `sound/foo.v2` になります。`foo` と `sound/foo` は別であり、ファイル名だけに戻して一致させません。既に正規化した参照をパッケージ集約時に再正規化しません。
 
@@ -38,9 +38,9 @@ BMS/PMSの未定義WAV/BMP IDとBMSONの参照先ヘッダーのないBGA/LAYER/
 
 drive rootの逆引き候補も絶対 `C:\` を保持し、非root現在位置へ依存する `C:` に変換しません。rootと通常子候補の祖先関係を同じ自己所有・関連性の抑制規則へ渡し、通常directoryとUNCの従来の同一性を維持します。
 
-パス解析で独立した `..` セグメントが見つかった場合だけ、親参照の非対応理由を登録し、索引のキーへ入れません。`sound/../foo.wav` も対象ですが、名前中の `foo..bar.wav` は親参照ではありません。実際の親参照が対象に一件でも含まれる場合は推定せず、`UnsupportedResourcePath` を表示します。
+名前のある採用要求に独立した`..`がある場合は索引キーへ入れず、個別の未充足と`UnsupportedResourcePath` WARNINGを保持します。`sound/../foo.wav`は該当し、`foo..bar.wav`は該当しません。候補計算を継続し、候補・代表情報・一致率を保持します。候補を消す前に群全体の親参照を判定し、DST自動確定と継続自動導入を禁止します。音声0/0・音声閾値を満たす場合も同じです。利用者の候補選択・手入力・明示導入は従来条件で許可し、警告を維持します。
 
-`.wav`、`.ogg`、`.png` など拡張子除去後のキーが空になる参照は索引へ追加せず、親参照の理由にも使いません。種類不明だけでもその理由を生成せず、未知拡張子の既存の解析採用範囲、空文字・不正パス・ドライブ絶対パス・先頭区切りの既存の正規化を維持します。既に解析された非対応理由は単体・パッケージ集約へ引き継ぎ、CP932のデコード非対応を親参照へ置き換えません。
+分類は[軽量解析](parser-compatibility.md#軽量解析の使用リソース)に従います。対象外・未使用・任意画像後続・BMS発見PREVIEW・CP932診断だけを自動禁止理由にしません。非照合を含む正常3+1=75%は候補閾値未達、正常4+親1=80%は候補を保持します。音声閾値98%なら98/100は許可条件を満たしますが、採用親参照があれば別条件で自動確定を止めます。各譜面の分母と相対配置を使い、群の和集合で少数譜面の欠損を隠しません。
 
 ### 入力元に同梱されたリソース
 
@@ -306,7 +306,7 @@ TITLEは `()`・`[]`・`<>`・`【】`・`《》` の対応と入れ子を考慮
 
 通常追加はsourceのcanonical単位で属性事実を要求内に一回捕捉し、旧directory除外・群の構成・根の分類・missing整理・同path状態継承へ共用します。実file/directoryは取得成功のDirectory属性だけで判定し、supported譜面拡張子を持つdirectoryもfileへ推定しません。確認済NotFoundだけを従来の不存在整理へ渡し、アクセス拒否やI/Oなどのkind不能は原因付き不完全scopeとして旧登録・指定・元入力を保ちます。既知fileを祖先にせず、unknownは要素境界の保全関係だけを持ち、directory成功資格や物理操作権限を与えません。unknown singletonやその配下の別成功Discoveryを新採用へ漏らさず、別のmissing整理からも削除しません。独立した正常入力と確認済不存在の従来処理は維持し、取得事実はpackage寿命へ保存しません。
 
-同じcanonical pathとfile/directory範囲を持つ単位はDST・代表情報・候補・`delete_parent`を維持します。分割・統合で変わった単位はDST・候補を解除し、現在の検出factoryの`delete_parent`を使います。旧boolをコピー・ORして後片付け範囲を広げず、別単位へ旧相対配置・元健康度・配置依存診断をコピーしません。同じ実行中のpath（`OrdinalIgnoreCase`）と非空SHA256が一致する譜面だけ、確定文字コードと対応する復号metadataを引き継ぎます。内容違い・別pathへ拡散せず、再起動保存は追加しません。
+同じcanonical pathとfile/directory範囲を持つ単位はDST・代表情報・候補・`delete_parent`を維持します。分割・統合で変わった単位はDST・候補を解除し、現在の検出factoryの`delete_parent`を使います。旧boolをコピー・ORして後片付け範囲を広げず、別単位へ旧相対配置・元健康度・配置依存診断をコピーしません。同じ実行中のpath（`OrdinalIgnoreCase`）と非空SHA256が一致する譜面だけ、発見・親昇格・入れ子分類より前に確定指定を渡し、同じ採用本文からメタデータと通常資源を作ります。内容違い・別pathへ拡散せず、再起動保存は追加しません。
 
 起動復元では、同じcanonical物理範囲のaliasをcase-onlyも含め一単位へ揃え、初期DB列挙順の最初の有効rowとその`delete_parent`を保持します。canonical表記のrow優先・boolのORは行いません。初期snapshotの全生キーを`Ordinal`で保持し、復元全体の完成後だけexact削除とcanonical行保存を一括確定します。不完全な表示survivorと隠れた生キーを併存させず、通常追加でDBを再取得したり後続mutationで全表の別名を補償したりしません。package寿命のキー台帳・文字コード保存も追加しません。
 
@@ -442,12 +442,15 @@ ownerから完了・失敗receiverまで、成功として公開できる初段�
 | 導入済み対象だけのリソース上書きに必要な実配置の一致 | `BmsLibraryInstallEstimationService.TryPrepareInstalledOnlyPackageDestination`、[`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs) | [`InstalledOnlyResourceOverwriteValidationTests`](../../../BeMusicSeeker.Tests/Install/InstalledOnlyResourceOverwriteValidationTests.cs) は既存の全8ケースに加え、`RequiresCommonConvertedRoot` と `MultipleLocationsRemainAmbiguousBeforeRootConversion` で直下＋子の共通根・不一致・別根と、変換前の複数所持先拒否を確認する。[`BmsLibraryPackageInstallServiceTests.OverwritePendingInstalledOnlyPackagesResources_PreservesChartsAndUpdatesChildResourceAtPackageRoot`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) は実FS・SQLiteで子音源bytesだけを更新し、譜面bytes・MD5・件数、相対配置と保留解除を確認する。 |
 | 評価入力の変更不能性とリソース相対キー | [`ChartResourceSnapshot`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/ChartResourceSnapshot.cs) | [`ChartResourceSnapshotTests`](../../../BeMusicSeeker.Tests/Resources/ChartResourceSnapshotTests.cs) |
 | 空キー・種類不明から親参照理由を生成せず、正常なキー・件数・ハッシュと解析採用範囲を保持 | [`ChartResourceSnapshot`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/ChartResourceSnapshot.cs)、`BmsChartFileParser`、`BmsonChartFileParser` | [`ChartResourceSnapshotTests`](../../../BeMusicSeeker.Tests/Resources/ChartResourceSnapshotTests.cs) の `Create_ExtensionOnlyBmsResourcesKeepNormalKeysWithoutParentTraversal` は小さい実BMSから投影配列の有無、単体・集約を確認する。`AnalyzeReferencePathForLookup_PreservesExistingPathClassification` と `Create_UnknownResourcePreservesOnlyActualParentTraversal` は解析・種類不明の境界を確認する。[`BmsonSongParserTests`](../../../BeMusicSeeker.Tests/ChartInfo/BmsonSongParserTests.cs) の `Parse_ExtractsResourceReferences` は実bmsonから直接・投影・集約を確認する。 |
-| 空キー等があっても既存候補を推定し、実親参照では警告して保留 | `BMSLibrary.PackageInstall`、[`ChartResourceSnapshot`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/ChartResourceSnapshot.cs) | [`BmsLibraryPendingPackageRegroupTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPendingPackageRegroupTests.cs) の `SearchEstimatedInstallationDirectory_CurrentDirectoryResourcePath_NormalizesAndEstimates` は本番解析から候補・保留理由・警告なしを、`SearchEstimatedInstallationDirectory_UnsupportedParentResourcePath_WarnsAndSkipsEstimation` は実親参照の警告・保留を確認する。 |
-| CP932デコード非対応の理由を単体・集約に保持し、親参照と区別 | [`ChartResourceSnapshot`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/ChartResourceSnapshot.cs)、`Lr2CompatibilityEvaluator` | [`Lr2CompatibilityGoldenTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2CompatibilityGoldenTests.cs) の `EvaluatorFlagsCp932DecodeUnsupportedResourceAndContinuesLengthEvaluation` は入力バイト列から理由の保持と親参照falseを確認し、既存の符号化・長さの評価も維持する。 |
+| 空キー等があっても既存候補を推定し、実親参照でも候補・代表を保持し、自動確定を禁止 | `BMSLibrary.PackageInstall`、[`ChartResourceSnapshot`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/ChartResourceSnapshot.cs) | [`BmsLibraryPendingPackageRegroupTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPendingPackageRegroupTests.cs) の `SearchEstimatedInstallationDirectory_CurrentDirectoryResourcePath_NormalizesAndEstimates` は本番解析から候補・保留理由・警告なしを、`SearchEstimatedInstallationDirectory_ParentResourcePath_KeepsCandidateAndBlocksAutomaticDestination` は実親参照の警告・保留を確認する。 |
+| CP932診断を通常資源から分離し、復号不能と親参照の両事実を保持 | [`ChartResourceSnapshot`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/ChartResourceSnapshot.cs)、`Lr2CompatibilityEvaluator` | [`Lr2CompatibilityGoldenTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2CompatibilityGoldenTests.cs) の `EvaluatorFlagsCp932DecodeUnsupportedResourceAndContinuesLengthEvaluation` は入力バイト列から理由の保持と親参照falseを確認し、既存の符号化・長さの評価も維持する。 |
+| 親参照でも候補保持・自動禁止、非照合数を含む音声閾値 | `BmsLibraryInstallEstimationService`、`PackageChartEntry`、`BMSLibrary` | `Estimate_NamedUnmatchableCountsAndParentGateReachEveryEntrance`が98/100を通常・限定・hashへ通し、`EvaluateInstalledChartHashDestination_ParentOptionalImageBlocksCompleteAudio`が音声完全時も親制限を確認する。`SearchEstimatedInstallationDirectory_ParentResourcePath_KeepsCandidateAndBlocksAutomaticDestination`は4+1の候補・代表保持と明示選択を実libraryで確認する。 |
 
 | 再導入の唯一Strong・複数Strong・現配置改善・同梱不使用 | `BmsLibraryInstallEstimationService` | `BmsLibraryInstallEstimationServiceTests` の再導入系列がRelated共存の唯一Strong採用、異順位でも複数Strong拒否、改善なし・音源未確認の拒否、同梱で救済しないことを確認する。 |
 | 一操作の保持モード、生成済み行へのRelated表示、改名・移動後の候補編集と絶対drive root入力 | `PendingPackageWorkflowOwner`、`MainWindow`、共通分類器 | [`PendingPackageWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PendingPackageWorkflowOwnerTests.cs) が要求方針と対象・元の編集Taskと受付を、[`MainWindowPackageMaintenanceWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.cs) の `PendingEstimationAndCandidateEditingReachRealizedRowsWithRelatedEvidence` がcompiled treeの実推定、改名・別root移動後の子候補と絶対drive rootのcompiled入力から項目・現在行・再編集初期値、各回の実受信Task・Presentation・L終端、root直下譜面の非対象保全、空編集/クリアと別パッケージ保持を、[`ChartListVirtualViewTests`](../../../BeMusicSeeker.Tests/ChartList/ChartListVirtualViewTests.cs) が受信側投影を分担する。 |
 | Related根拠の確定値引継ぎ・失効後の再評価 | `BMSLibrary`、`PackageChartEntry`、`CatalogOwnedCollectionOwner` | [`BmsLibraryPendingPackageRegroupTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPendingPackageRegroupTests.cs) と [`CatalogMaintenanceCurrentValueTests`](../../../BeMusicSeeker.Tests/Catalog/CatalogMaintenanceCurrentValueTests.cs) が群と候補編集、プロフィール依存の失効を確認する。 |
+
+
 
 ## 関連資料
 

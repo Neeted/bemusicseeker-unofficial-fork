@@ -160,7 +160,7 @@ public sealed class BmsLibraryInitializationLoadTests
         }
     }
 
-    /// <summary>実DB復元のnull/null件数と補助完了から検査済みを導き、非force保守では読取りも書込みも行いません。手動forceでは同じ入力を再評価できます。</summary>
+    /// <summary>旧版の保存済みnull/null件数と補助完了から検査済みを導き、起動・非force保守では再読取りも再保存も行いません。明示forceだけが対象外定義を新基準の0/0へ更新します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void LoadMaintenanceTable_UnresolvedCompletedCountsSkipAutomaticMaintenanceAndAllowForce()
@@ -174,7 +174,22 @@ public sealed class BmsLibraryInitializationLoadTests
                 string path = Path.Combine(root, "unresolved.bms");
                 File.WriteAllText(path, "#TITLE Unresolved\n#WAV01 .wav\n#BMP01 invalid\0path\n#00111:01\n#00104:01\n", Encoding.ASCII);
                 ChartFile parsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path));
-                ResourceHealthMaintenanceSnapshot evaluated = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(parsed) with { Encoding = "shift_jis" };
+                // 旧版で保存済みの未判定値を固定します。現行の計数で旧DB状態を合成しません。
+                var evaluated = new ResourceHealthMaintenanceSnapshot
+                {
+                    Path = path,
+                    Hash = parsed.Md5,
+                    Encoding = "shift_jis",
+                    WavFilesDefined = null,
+                    WavFilesExisting = null,
+                    BgaFilesDefined = null,
+                    BgaFilesExisting = null,
+                    MovieFilesDefined = null,
+                    MovieFilesExisting = null,
+                    StagefileDefined = false,
+                    BannerDefined = false,
+                    BackbmpDefined = false
+                };
                 ExecuteSongDbFixtureTransaction(songDbPath, db =>
                 {
                     db.CreateTable<LR2SongDB.song>();
@@ -208,8 +223,18 @@ public sealed class BmsLibraryInitializationLoadTests
                 MaintenanceWorkflowResult forced = maintenance.UpdateMaintenanceInfo([loaded], true, Write, null);
                 Assert.AreEqual(1, forced.HealthTargetCount);
                 Assert.AreEqual(1, forced.CheckedFileCount);
-                Assert.AreEqual(1, forced.MaintenanceInfoUnchangedCount);
-                Assert.AreEqual(0, writes);
+                Assert.AreEqual(0, forced.MaintenanceInfoUnchangedCount);
+                Assert.AreEqual(1, forced.MaintenanceInfoUpsertCount);
+                Assert.AreEqual(1, writes);
+                using LR2SongDBExtended saved = gateway.OpenSongDbReadOnly();
+                LR2SongDBExtended.maintenance updated = saved.Table<LR2SongDBExtended.maintenance>().Single();
+                Assert.AreEqual(0, updated.wav_files_defined);
+                Assert.AreEqual(0, updated.wav_files_existing);
+                Assert.AreEqual(0, updated.bga_files_defined);
+                Assert.AreEqual(0, updated.bga_files_existing);
+                Assert.AreEqual(0, updated.movie_files_defined);
+                Assert.AreEqual(0, updated.movie_files_existing);
+                Assert.IsNull(restored.WavFilesDefined, "旧捕捉値は明示再評価後も書き換えません。");
             });
         }
         finally

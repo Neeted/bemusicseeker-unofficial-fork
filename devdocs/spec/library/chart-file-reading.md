@@ -24,7 +24,7 @@
 | BMSの軽量解析 | `BmsChartFileParser.ParseSnapshot` | 共通基本値とリソース参照を直接生成する |
 | BMSONの軽量解析 | `BmsonChartFileParser.ParseSnapshot` | 共通基本値とリソース参照を直接生成する |
 | 詳細解析 | `ChartInfoParser.ParseBytesDetailed` | 譜面情報、診断、時間超過、解析失敗を生成する |
-| 文字コードによる再読解 | `ReloadBMSMetadataWithEncodingDetection` | 同じバイト列から表示用の基本情報を読み直す |
+| 文字コードによる再読解 | `BmsChartFileParser.ApplyEncodingDetection` / `ApplyEncoding` | 同じ採用本文から表示メタデータと通常資源を読み直す |
 
 [譜面プロパティ](../ui/chart-properties.md)では、同じ軽量解析の任意受取先 `ChartResourceParseDetails` にだけ定義元・定義番号と未定義参照番号を収集します。通常のライブラリ解析の戻り値・DB・長寿命のモデルには追加しません。
 
@@ -38,7 +38,7 @@ BMSONの旧キーは基本値・詳細値が共有する `BmsonJsonParser` で�
 
 ### 保留項目の文字コード
 
-保留BMSへの文字コード指定と現指定の確定は、現在の `PackageChartEntry` の寿命内だけで保持します。表示・導入先推定・フォルダ名生成は、その項目の同じ復号済みメタデータを使います。保留だけの操作は `song`・`maintenance` を新設・更新せず、DB確定を必要としません。空の保存要求が `NotApplied` でも失敗と扱いません。所持混在要求は所持分を従来の保存契約で確定してから両方へ反映し、保存失敗時は所持・保留とも新しい指定や復号値を反映しません。
+保留BMSへの文字コード指定と現指定の確定は、現在の `PackageChartEntry` の寿命内だけで保持します。表示・導入先推定・フォルダ名生成は、その項目の同じ復号済みメタデータと通常資源を使います。保留だけの操作は `song`・`maintenance` を新設・更新せず、DB確定を必要としません。空の保存要求が `NotApplied` でも失敗と扱いません。所持混在要求は所持分を従来の保存契約で確定してから両方へ反映し、保存失敗時は所持・保留とも新しい指定や復号値を反映しません。
 
 選択保留の資源再調査も現在の文字コード・修正印を保持し、評価結果を項目と既存表示行へ届けます。入力元と配置先の再評価・表示の分担は[警告仕様](warnings.md#リソース状態の評価)に従います。再起動を越える指定復元や由来・状態の追加は行いません。既存の孤立した保守行は通常の整理に委ね、操作ごとの移行・修復を追加しません。
 
@@ -50,7 +50,7 @@ BMSONの旧キーは基本値・詳細値が共有する `BmsonJsonParser` で�
 
 正本DBの読取り後にBMSルートの再検査が失敗した場合も、保存済み内容を保持し、部分列挙からの追加・削除を行いません。初期の必須設定検証と出力先検査、DB保存と必須公開の成否は別の境界です。開始済みの走査・mtime取得Taskは既存の所有で終端まで待ち、早期の非反映結果にも捕捉した設定を渡します。起動の利用開始条件は[起動仕様](../runtime/startup.md#登録ディレクトリの検査)に従います。
 
-初期化、全体の再初期化、軽量差分更新で追加・更新したファイルは、読取り、ハッシュ生成、軽量解析、メンテナンス情報・譜面情報の準備、DB確定、メモリ公開の順に扱います。
+初期化、全体の再初期化、軽量差分更新で追加・更新したファイルは、読取り、ハッシュ生成、軽量解析、メンテナンス情報・譜面情報の準備、DB確定、メモリ公開の順に扱います。更新日時の一致による既存情報の再利用は[保証の前提](file-db-consistency.md#保証の前提)に従います。
 
 読取りは `ChartFileReadPipelinePolicy` に従い、対象が複数でCPUが十分なら最大2並列とします。件数上限のある待ち行列で入力を制御し、ハッシュ計算は解析側で行います。独立した読取り・ハッシュ・基本解析の通常失敗は、原因が未分類でも今回の対象を非採用にし、`FileScanFailures` と診断へ残します。譜面ごとに初期化ダイアログを出さず、未完成の新規行を保存しません。有効な既存行と利用者列、正常な別対象を保持し、未知失敗を恒久的な解析不能記録へ保存しません。詳細解析の失敗だけでは、軽量解析で得た共通基本値の登録を止めません。
 
@@ -114,33 +114,33 @@ DB書込みの完了だけをファイル差分全体の公開完了とは扱い
 
 ### リソース参照と文字コード
 
-軽量解析で得る両形式の不変な `Resources` は、同じ処理中の保守とLR2互換性評価まで共有します。抽出時に確定した `LookupKey` を音声・画像・動画別の索引へ照合し、元記述はLR2評価へ渡します。初期化・差分処理は既存の公開・確定境界までに両形式の結果を解放し、全件常駐や直後の再読取りを生みません。DB由来で未取得の既存譜面は、保守の既存入口で明示取得します。通常保守と強制再走査でも、各譜面の評価結果へ集約した後は適用する共通現在値のリソース参照を解放し、保存成功後の状態へ戻しません。捕捉済みの入力値とパッケージが共有する結果は変更しません。保存失敗では共通現在値を適用せず、その処理で新たに取得した短命な参照を残しません。パッケージは評価に必要な期間だけ同じ結果を共有し、元バイト列を長期保持しません。参照の契約は[共通譜面](chart-model.md#譜面情報とリソース保守)に従います。
+軽量解析で得る両形式の不変な `Resources` は、同じ処理中の保守とLR2互換性評価まで共有します。実採用本文から確定した`LookupKey`を音声・画像・動画別の索引へ照合します。LR2診断は同じsnapshotの独立したCP932走査へ集約します。初期化・差分処理は既存の公開・確定境界までに両形式の結果を解放し、全件常駐や直後の再読取りを生みません。DB由来で未取得の既存譜面は、保守の既存入口で明示取得します。通常保守と強制再走査でも、各譜面の評価結果へ集約した後は適用する共通現在値のリソース参照を解放し、保存成功後の状態へ戻しません。捕捉済みの入力値とパッケージが共有する結果は変更しません。保存失敗では共通現在値を適用せず、その処理で新たに取得した短命な参照を残しません。パッケージは評価に必要な期間だけ同じ結果を共有し、元バイト列を長期保持しません。参照の契約は[共通譜面](chart-model.md#譜面情報とリソース保守)に従います。
 
-リソース索引にディレクトリがある場合は、その集合へ直接照合します。索引がない場合だけ共有の存在確認キャッシュを補助的に使います。同じディレクトリ・同じ使用ファイルキー集合で共有できるのは存在件数です。パス、ハッシュ、文字コード、LR2互換性、警告の無視状態、保守行全体を共有しません。画像でもstagefile・backbmp・bannerの役割は区別します。定義済み照合不能参照による未判定化は各譜面へ反映し、同じ照合可能キーを持つ別譜面とのキャッシュ共有で消しません。未定義IDは要求へ含めません。
+リソース索引にディレクトリがある場合は、その集合へ直接照合します。索引がない場合だけ共有の存在確認キャッシュを補助的に使います。同じディレクトリ・同じ使用ファイルキー集合で共有できるのは存在件数です。パス、ハッシュ、文字コード、LR2互換性、警告の無視状態、保守行全体を共有しません。画像でもstagefile・backbmp・bannerの役割は区別します。名前付き非照合の個別未充足数は各譜面へ合成し、同じ照合可能キーを持つ別譜面とのキャッシュ共有で消しません。未定義IDは要求へ含めません。
 
 物理フォルダの改名・移動・削除・統合後は、[変更セッション](mutations.md#操作ごとの反映範囲)が旧新祖先の既存Entryも最終FSへ揃えます。親譜面が子の音声・画像・動画を相対参照する場合、後続の明示保守は更新済みEntryへ照合し、存在しなくなった旧相対keyを古い索引から復活させません。親の参照の書換え・複製や、全関連譜面の即時再評価は行いません。
 
 健康度・推定は[使用参照](parser-compatibility.md#軽量解析の使用リソース)を使い、発見・グループ化の全定義判定とLR2の原文診断を別用途として維持します。全定義による用途を消費した後に解析参照を解放し、今回の保守結果と警告を投影します。表示やツールチップから再読取りを始めません。
 
-BMSの基本情報とリソース参照はまずCP932系の既定で読みます。同じバイト列からASCII、Shift_JIS、KS_C_5601、UTF-8、不明を判定し、非Shift_JISが確定した場合だけ、`title`、`subtitle`、`artist`、`subartist`、`genre` を元の個別値として読み直します。不明や推定末尾の `?` では補正しません。タイトルと副題、アーティストと副アーティストを合成しません。
+BMSは同じsnapshotをCP932でBOM自動認識せずに走査し、既存基本数値・保存画像三項目とLR2三事実（警告flags・最大相対CP932バイト長・親参照）を確定します。通常の文字メタデータと資源は実採用本文から一緒に抽出します。自動のunknown・末尾`?`・CP932は従来のCP932初期解析を使い、確定した非CP932は検出済み本文を再利用します。明示指定は既存`DecodeBytes`のBOM認識を維持します。実EncodingのCodePageが932かつStreamReaderが認識するBOM（UTF-8・UTF-16・UTF-32）がない場合だけ、同じbytesと既定置換復号になる初期CP932結果を共用します。BOM付きは別本文とし、文字コード名の一致だけでは共用しません。タイトルと副題、アーティストと副アーティストは合成しません。
 
 UTF-8 BOM付きのBMS/PMSは、BOMを優先して判定名と実際の復号方式をUTF-8へ揃え、BOM直後の先頭指示行も表示用メタデータとして読み取ります。BOMなしの判定規則は維持します。新規登録、明示保守、LR2同期、パッケージ読取りはこの共通判定を使い、ハッシュはBOMを含む元のバイト列から計算します。この補正のためにparser版を更新したり、既所持譜面を自動で全件再解析したりしません。
 
-BOM付き本文の復号は従来のBOM自動認識と同じ置換復号を使い、CP932の資源名バイトが混在する既存入力を新たに拒否しません。有効なUTF-8で記述された表示用5項目を読み取り、資源名は引き続き元のバイト列をCP932で解釈します。
+BOM付き本文も従来の置換復号を維持し、混在入力を新たに拒否しません。BOM直後の通常資源も実採用本文で読みます。保存BMSのstagefile・backbmp・bannerだけは従来のCP932先頭非空値を維持し、BMSONの画像・preview保存値も従来の正規化を維持します。
 
-リソース参照と画像パスは、LR2の本文解釈に合わせ、BOM自動判定をしないCP932の値を維持します。`maintenance.encoding` は表示・保守用であり、詳細解析の文字コードを変更しません。
+LR2診断はCP932自身の論理行で全WAV/BMP・任意画像の原文を評価し、未使用・対象外・後続画像も含めます。CR・LF・CRLFと不正先行バイトによる改行消費は既存の復号規則を維持し、実採用本文へ行番号で診断を結合しません。復号不能と親参照は同時に保持します。同じCP932本文の診断事実は解析中の同定義へ添え、別行へ再収集しません。採用本文が異なる場合と先頭BOM専用の独立診断は、CP932の問題原文・CP932自身の論理行を[譜面プロパティ](../ui/chart-properties.md)で「LR2用の別解釈」と明示します。同じ指定の通常解釈との併記を許し、別本文間をID・行番号で結合しません。通常資源からLR2原文を逆算せず、長命なbytes・本文・CP932定義履歴を追加しません。`maintenance.encoding`は詳細ノート解析の文字コードを変えません。
 
 ### 導入と手動再走査
 
 保留中に読んだバイト列を導入まで長期保持しません。導入は実際の配置先を読み直して詳細情報を生成し、影響する譜面の保守を操作単位で行います。保留中は[警告の配置基準](warnings.md#リソース状態の評価)に従い、設定済みの導入先、先頭候補、現在の入力元配置の順で健康度と一時的な `ResourceHealth` 警告を評価します。設定先・候補では実際に持ち込む同梱資源を加算します。導入成功時にこの一時警告を解除し、導入後は通常ライブラリと同じメンテナンス情報から表示します。保存・必須反映・公開は[変更セッション](mutations.md)に従い、パッケージごとの確定・通知に分割しません。
 
-手動の再スキャンと全譜面再スキャンは、リソース、文字コード、BMSONの参照を再評価する重い操作です。所持BMSで `EncodingFixed=true` かつ具体的な文字コード名を保存済みの場合は、手動・自動の由来を分けず、その文字コードと確定状態を保持して表示メタデータ5項目を同じ入力から再復号します。具体名は非空で、`unknown`（大文字小文字を区別しない）でも末尾 `?` 付きでもない名前です。確定したCP932も指定復号し、`EncodingFixed=true` の `shift_jis?` や、未確定の具体名は従来の検出対象にします。資源は文字コードの保持と独立して従来どおり再評価します。
+手動・全譜面再スキャンはリソースと文字コードを再評価します。同path・同内容の`EncodingFixed=true`で具体名（非空、unknown以外、末尾`?`なし）なら、由来を分けず指定を保持し、同じ入力から文字メタデータと通常資源を再復号します。確定CP932も明示のBOM認識へ従います。未確定値は既存検出対象です。資源だけが変わる文字コード変更も所持の保守・現在値・健全性索引へ反映し、保存成功前には公開しません。元bytes・hash・保存BMS画像三項目・利用者列は変えません。
 
 上限付きの読取り、並列評価、単一DB書込みを使い、変更した保守行だけを保存します。確定文字コードで再復号したメタデータと保守値が同じ場合は書きません。資源だけが変化した場合は保守行だけを保存します。未確定値の再検出で非CP932が確定した場合は、文字列が同値でも従来の限定した `song` 更新を維持します。保存列・由来推測・全件再保存は追加しません。この操作では `chart_info` を作らず、不足や版違いは情報の読込み・補完に任せます。
 
 ### LR2同期と全件補完
 
-LR2の `song_rows` は、一回だけ読んだスナップショットへCP932の基本解析を行います。親受付内で捕捉した不変の楽曲行の保守値に、同一path（`Ordinal`完全一致）・同一MD5（大小文字を区別しない）の具体的な確定文字コードがあれば、手動・自動の由来を分けず、同じスナップショットへ `ApplyMetadataEncoding` で生メタデータ5項目だけを指定復号します。具体名の条件は所持再スキャンと同じです。未指定・未確定・別path・別hashは従来どおり自動検出し、資源指示・資源名は指定にかかわらずCP932を保ちます。
+LR2の`song_rows`は一回だけ読んだsnapshotを共通入口で解析します。親受付で捕捉した同path（Ordinal完全一致）・同MD5（大小無視）の具体的な確定指定は`ApplyEncoding`へ渡し、文字メタデータと通常資源へ採用します。未指定・未確定・別path・別hashは自動検出です。保存画像三項目とLR2診断は独立したCP932値を保ちます。
 
 開始時に情報と時間上限を考慮した失敗集合を捕捉し、追加の読取り・DB検索なしで `EvaluateSnapshot` へ渡します。回復可能な行生成失敗で既存行を保つ経路は、その失敗を保持したまま使います。LR2互換性の反映では既存のリソース健康度・警告無視を保持し、同path別内容hashへの更新時だけ、同じSQLで旧内容の文字コード指定を失効させます。同一MD5の表記大小差では指定を保持します。保存条件と再読込みは[LR2 song DB](../integration/lr2-song-db.md#読込みと確定結果の再利用)に従います。parser版21と保存同期署名は変更しません。
 
@@ -163,6 +163,8 @@ LR2の `song_rows` は、一回だけ読んだスナップショットへCP932�
 | `chart_info_backfill start/done` | 補完解析の読取り数・量・並列数・解析時間 |
 | `chart_info_backfill parse_failed` | 共通解析処理の失敗。名称だけで補完経路と断定せず、周辺の集計と合わせる |
 
+手動指定は保留の元配置と捕捉済み現在配置を新参照で再評価し、明示DST・候補・所属を維持します。旧キーに基づく推定は自動確定に再利用せず、既存の再推定入口で新参照を評価します。同path・SHAの既取得固定指定は発見・昇格・入れ子分類より前へ渡し、内容変更時は引き継ぎません。資源だけの実DB保存は`SelectedChartMutationWorkflowOwnerTests.ApplyEncoding_RealStorePersistsEncodingAndFixedMarkUnderSameAdmission`、探索前の指定は`BmsLibraryPackageInstallServiceTests.PrepareAutoInstallWorkflow_AppliesSameInputFixedEncodingBeforePackageDiscovery`、再取得・プロパティの捕捉指定は既存Maintenance/ChartProperties系列で確認します。
+
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
@@ -170,8 +172,8 @@ LR2の `song_rows` は、一回だけ読んだスナップショットへCP932�
 | 旧BMSONの基本値・使用音源と通常フォルダ導入 | [`BmsonChartFileParser`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/BmsonChartFileParser.cs)、共通JSON境界、`BMSLibrary.InstallChartPackagesAutoWithProgressAsync` | [`BmsonSongParserTests.ParseSnapshot_LegacySoundChannelsMatchModernUsedResources`](../../../BeMusicSeeker.Tests/ChartInfo/BmsonSongParserTests.cs) が実snapshotの旧0.21・versionlessと新形式の資源一致・空notes除外を確認する。`BmsLibraryPackageInstallServiceTests.InstallChartPackagesAuto_BmsonFolderPreservesLegacyResourceAndStorageContracts` は3形式の通常フォルダを実導入入口へ渡し、音源ありの実配置・所持・新DB接続のbmson_song/詳細保存literal版21と、欠損時の元入力保持・不足警告付き保留・未導入を確認する。 |
 | 保留文字コードの項目寿命内の保持、所持混在の保存成功境界 | [`CatalogMaintenanceOwner.ApplyEncoding`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogMaintenanceOwner.cs)、`BmsLibraryMaintenanceService.ApplyEncoding`、`PackageChartEntry` | [`SelectedChartMutationWorkflowOwnerTests.ApplyEncoding_RealStoreUpdatesSelectedPendingEntriesWithoutChangingPlacement`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartMutationWorkflowOwnerTests.cs) は実owner・store・Library・SQLiteでBig5明示再復号と現指定確定、保留の新設禁止・既存行不変、所持混在成功・所持保存失敗時の両者非反映と成功通知なしを確認する。同じ項目と生成済み行の復号値・固定印、`BuildTargetMetadataProfile` の原題・元作者受渡しも確認する。`ApplyEncoding_AndPendingResourceRescanKeepBig5WithoutDatabase` はDBファイルなしで指定後の資源増減と既存行の表示保持を確認する。フォルダ名生成の `CreateChartFolderPathFromCharts` が同じ項目から渡されたTitle/Artistを使うことは静的確認、所持の限定保存列網羅は既存 `MaintenanceMetadataSongFixture`、孤立行の整理は既存Catalog系列へ分担する。 |
 | 所持再スキャンの具体的な確定文字コード保持・指定復号・同値無書込み | [`BmsLibraryMaintenanceService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Maintenance/BmsLibraryMaintenanceService.cs) | [`BmsLibraryMaintenanceServiceTests.UpdateMaintenanceInfo_ForceUpdatePreservesOnlyConcreteFixedEncoding`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryMaintenanceServiceTests.cs) は確定UTF-8のASCII・BOMなし非ASCII、生5項目、確定CP932、推定名と未確定具体名の従来検出、固定mtime同値でwriter非呼出を確認する。[`SelectedChartResourceHealthWorkflowOwnerTests.Rescan_FixedUtf8AfterDbLoadPreservesMetadataAndOnlyPersistsResourceChanges`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartResourceHealthWorkflowOwnerTests.cs) は実DB読込み後の選択・全所持入口で保存値・現在一覧と資源増減を確認し、song更新拒否triggerで資源だけの変更に余分なsong更新がないことを検出する。 |
-| LR2同期の確定指定適用とCP932資源・単回読取り | [`Lr2SongDbSyncService.CreateSyncSongRow`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs) | `Lr2SongDbSyncServiceTests.SyncService_AppliesFixedMetadataEncodingWithoutRedecodingResources` はBig5・UTF-8・CP932の生5項目literal、混在CP932資源の既知長・警告と読取り1回を実Run・SQLiteで確認する。`SyncService_DetectsEncodingUnlessConcreteFixedIdentityMatches` は未指定・空名・unknown・推定名・未確定・別path・path大小差・別hashの自動検出を分担し、BOMあり／なしの従来検出・詳細再利用は既存service系列へ残す。DB再読込み後の非復活と実Catalog捕捉の接続は[LR2 song DBの対応表](../integration/lr2-song-db.md#実装とテストの対応)に集約する。 |
-| UTF-8 BOMの実判定と原文メタデータ、CP932資源・原byte hashの保持 | [`BmsEncodingDetector`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/BmsEncodingDetector.cs)、[`BmsChartFileParser`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/BmsChartFileParser.cs) | [`BMSFileSnapshotTests`](../../../BeMusicSeeker.Tests/Chart/BMSFileSnapshotTests.cs) の `CreateBMSFileFromSnapshot_WithDetectedUtf8BomKeepsResourceReferencesShiftJis` はBMS/PMSと先頭・後続TITLEを実Detectと共通解析へ渡し、5項目の原文、既知CP932資源名、BOM込みbytesの独立計算hashを確認する。`CreateBMSFileFromSnapshot_Utf8BomWithCp932ResourceBytesPreservesMetadataAndHashes` は有効UTF-8の5項目と生CP932資源名が混在する入力の受理・原文・既知資源名・原byte hashを確認する。韓国語資源・ASCII・捕捉後の差替えと時刻は同じ既存系列が分担する。 |
+| LR2同期の確定指定適用と通常資源・CP932保守事実・単回読取り | [`Lr2SongDbSyncService.CreateSyncSongRow`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs) | `Lr2SongDbSyncServiceTests.SyncService_AppliesFixedEncodingWithIndependentCp932Facts` はBig5・UTF-8・CP932の生5項目literal、混在CP932資源の既知長・警告と読取り1回を実Run・SQLiteで確認する。`SyncService_DetectsEncodingUnlessConcreteFixedIdentityMatches` は未指定・空名・unknown・推定名・未確定・別path・path大小差・別hashの自動検出を分担し、BOMあり／なしの従来検出・詳細再利用は既存service系列へ残す。DB再読込み後の非復活と実Catalog捕捉の接続は[LR2 song DBの対応表](../integration/lr2-song-db.md#実装とテストの対応)に集約する。 |
+| UTF-8 BOMの実判定と実採用メタデータ・通常資源、CP932保存画像・原byte hashの保持 | [`BmsEncodingDetector`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/BmsEncodingDetector.cs)、[`BmsChartFileParser`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/BmsChartFileParser.cs) | [`BMSFileSnapshotTests`](../../../BeMusicSeeker.Tests/Chart/BMSFileSnapshotTests.cs) の `CreateBMSFileFromSnapshot_WithDetectedUtf8BomAdoptsResourcesAndKeepsSavedImages` はBMS/PMSと先頭・後続TITLEを実Detectと共通解析へ渡し、5項目の原文、実採用本文の資源名、BOM込みbytesの独立計算hashを確認する。`CreateBMSFileFromSnapshot_Utf8BomWithCp932ResourceBytesPreservesMetadataAndHashes` は有効UTF-8の5項目と生CP932資源名が混在する入力の受理・採用原文・原byte hashを確認する。韓国語資源・ASCII・捕捉後の差替えと時刻は同じ既存系列が分担する。 |
 | 共通判定から各入口の保存・現在値・通知への接続 | [`FileScanParseCommitOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/FileScanParseCommitOwner.cs)、[`BmsLibraryMaintenanceService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Maintenance/BmsLibraryMaintenanceService.cs)、[`Lr2SongDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs)、[`PackageChartEntry`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/PackageChartEntry.cs) | [`BmsLibraryInitializationFileScanTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationFileScanTests.cs) の `ApplyFileScanDiff_AddsBmsWithLr2FolderAndParentHashes` はBOM付き新規差分のDB原文・encodingと一覧用現在値、hash・通常列・LR2列を確認する。[`BmsLibraryMaintenanceServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryMaintenanceServiceTests.cs) の `UpdateMaintenanceInfo_BmsEncodingMaintenanceDoesNotMutateDigest` は文字化け済み値の自動判定・保存とdigest・利用者列・CP932資源を確認する。[`Lr2SongDbSyncServiceTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncServiceTests.cs) の `SyncService_ParsesSongRowsWithDetectedUtf8Encoding` はBOMなし・ありの実SQLite保存・確定通知を確認し、[`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `PackageChartEntry_FromPathReadsUtf8BomMetadata` は実pathからの共通値を確認する。条件網羅はsnapshot系列へ集約する。 |
 | フォルダ変更後の親相対資源参照 | [`LibraryMutationSession`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.Session.cs) と通常の明示保守 | [`BmsLibraryFolderRenameRefreshTests.FolderMutation_RefreshesExistingAncestorsOnceFromFinalFilesystem`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) が既知配置から決めた音声・画像・動画の旧新key、六分類・reverseを照合し、親参照を変えず実libraryの明示保守で旧音声を存在扱いにしないことを確認する。 |
 | 未採用走査の失敗・非再実行・通常終端と完全な代替走査 | [`LibraryFileScanPipelineOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/LibraryFileScanPipelineOwner.cs) | [`LibraryFileScanPipelineOwnerTests`](../../../BeMusicSeeker.Tests/Scanning/LibraryFileScanPipelineOwnerTests.cs) の `ApplyActiveFileScan_IncompletePrefetchWarnsAndJoinsWithoutApplyingBeforeNextRequest` は不完全結果と失敗した先行Task、mtime回収、保存済み目録と捕捉設定、次要求を確認する。先行Taskの故障代替は非再実行の識別に限り、通知の耐性保証にはしない。`ApplyActiveFileScan_EverythingUnavailableAppliesCompleteManagedFallback` は実ファイルによる完全な代替結果の採用・保存を確認する。 |
@@ -183,8 +185,10 @@ LR2の `song_rows` は、一回だけ読んだスナップショットへCP932�
 | 詳細情報の再利用、公開順序、補完時の限定更新 | [`ChartInfoBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoBuildService.cs)、[`ChartInfoInlineBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoInlineBuildService.cs) | [`ChartInfoInlineHydrationTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoInlineHydrationTests.cs)、[`ChartInfoBackfillStorageTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoBackfillStorageTests.cs) |
 | 導入先からの解析と失敗再利用 | [`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs) | [`ChartInfoInstallFailureRetryTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoInstallFailureRetryTests.cs)、[`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) |
 | LR2行の生成と差分直後の同期 | [`Lr2SongRowEnricher`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongRowEnricher.cs) | [`BmsLibraryLr2SongDbSyncTests`](../../../BeMusicSeeker.Tests/Lr2/BmsLibraryLr2SongDbSyncTests.cs) |
+| 資源だけが変わる指定の保存と探索前の固定指定 | `CatalogMaintenanceOwner`、`BmsLibraryMaintenanceService`、`BmsLibraryPackageInstallService` | `SelectedChartMutationWorkflowOwnerTests.ApplyEncoding_RealStorePersistsEncodingAndFixedMarkUnderSameAdmission`が実DBの健康度・現在値・索引とsong非更新を、`PrepareAutoInstallWorkflow_AppliesSameInputFixedEncodingBeforePackageDiscovery`が同path/SHAの親昇格と内容変更時の非継承を確認する。 |
 
 導入成功先への文字コード保存は [`BmsLibraryPackageInstallServiceTests.PendingFixedEncoding_InstallPersistsOnlySuccessfulPlacementAndSurvivesRescan`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceEncodingTests.cs) が固定Big5の実bytes・タイトル・MD5/SHA-256を通常新規・推定先の実FS/SQLite、所持と同じlive項目、再調査と新しいDB読取りで照合します。元フォルダと成功先のCP932対応可否が逆になる二方向では、実保留評価のLR2警告投影を成功時に解放し、再調査前から同じlive項目と所持の成功先診断が一致することも確認します。自然な単体再投入から実推定・自動後段へ進む接続は [`PackageInstallWorkflowOwnerTests.AutomaticContinuation_ReimportedPendingFixedEncodingReachesInstalledDatabase`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerEncodingTests.cs)、資源のみの別所持・同MD5別配置の不変は `PendingFixedEncoding_ResourceOnlyInstallDoesNotOverwriteOwnedSameHashPlacements` が担当します。
+
 
 ## 関連資料
 

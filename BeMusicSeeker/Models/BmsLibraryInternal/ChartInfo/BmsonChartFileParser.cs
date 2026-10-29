@@ -22,7 +22,7 @@ internal static class BmsonChartFileParser
         string banner = ExtractComponentPath(info.BannerImage, references, ChartResourceKind.Image, ChartResourceUsage.Banner, details: details, source: "info.banner_image");
         string backbmp = ExtractComponentPath(info.BackImage, references, ChartResourceKind.Image, ChartResourceUsage.Backbmp, details: details, source: "info.back_image");
         string stagefile = ExtractComponentPath(info.EyecatchImage, references, ChartResourceKind.Image, ChartResourceUsage.Stagefile, details: details, source: "info.eyecatch_image");
-        string preview = string.IsNullOrWhiteSpace(info.PreviewMusic) ? string.Empty : ExtractComponentPath(info.PreviewMusic, references, ChartResourceKind.Audio, details: details, source: "info.preview_music");
+        string preview = string.IsNullOrEmpty(info.PreviewMusic) ? string.Empty : ExtractComponentPath(info.PreviewMusic, references, ChartResourceKind.Audio, details: details, source: "info.preview_music");
         foreach ((string Name, bool HasNotes, string Source) channel in EnumerateAudioChannels(root, details != null))
         {
             ExtractComponentPath(channel.Name, references, ChartResourceKind.Audio, isUsed: channel.HasNotes, details: details, source: channel.Source);
@@ -86,24 +86,20 @@ internal static class BmsonChartFileParser
         ChartResourceKind expectedKind, ChartResourceUsage usage = ChartResourceUsage.Normal, bool isUsed = true,
         ChartResourceParseDetails details = null, string definitionId = null, string source = null)
     {
-        if (path == null && (usage != ChartResourceUsage.Normal || (!isUsed && details == null)))
+        if ((string.IsNullOrEmpty(path) && usage != ChartResourceUsage.Normal)
+            || (path == null && !isUsed && details == null))
         {
             return string.Empty;
         }
-        var reference = ChartResourceReference.Parse(path, ChartResourceKind.Unknown, usage);
-        // bmsonの音声候補は音声拡張子だけを検索対象とする。非対応理由の種別は定義用途を維持する。
-        ChartResourceKind kind = usage != ChartResourceUsage.Normal || reference.Status != ChartResourcePathNormalizationStatus.Valid
-            ? expectedKind == ChartResourceKind.Unknown ? reference.Kind : expectedKind
-            : (expectedKind == ChartResourceKind.Audio && reference.Kind != ChartResourceKind.Audio)
-                || (expectedKind == ChartResourceKind.Unknown && reference.Kind == ChartResourceKind.Audio)
-                    ? ChartResourceKind.Unknown : reference.Kind;
-        reference = new ChartResourceReference(kind, usage, reference.RawPath, reference.NormalizedPath, reference.LookupKey, reference.Status, isUsed);
+        ChartResourceReference reference = ChartResourceReference.Parse(path, expectedKind, usage).WithUsage(isUsed);
         if (path != null || isUsed)
         {
             references.Add(reference);
         }
         details?.Definitions.Add(new ChartResourceDefinition(source, definitionId, reference));
-        return reference.Status == ChartResourcePathNormalizationStatus.Valid ? reference.NormalizedPath : string.Empty;
+        // 保存メタデータは共通要求分類の対象外判定と独立した従来の正規化を維持します。
+        ChartResourcePathNormalizationResult saved = ChartResourcePathNormalizer.AnalyzeReferencePathForLookup(path);
+        return saved.IsValid ? saved.NormalizedPath : string.Empty;
     }
 
     private static string ComposeSubtitle(string subtitle, string chartName)

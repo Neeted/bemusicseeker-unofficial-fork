@@ -25,7 +25,7 @@ BMSは `BMSDecoder`、`Section`、`BMSModel`、`TimeLine`、BMSONは `BMSONDecod
 
 ### BMSの文字コードと行の解釈
 
-軽量解析のリソース抽出は[共通譜面の不変結果](chart-model.md#譜面情報とリソース保守)へ確定します。BMSのCP932元記述とbmsonのJSON文字列を保持し、照合用の別名拡張子・用途・解析状態を抽出入口で一度だけ決めます。種類不明や拡張子のみの空キー、実際の親参照、CP932のパスなし診断を区別し、従来受理したデータを厳格化して拒否しません。詳細解析の戻り値・解釈とは別の保証です。
+軽量解析のリソース抽出は[共通譜面の不変結果](chart-model.md#譜面情報とリソース保守)へ確定します。BMSは実採用した復号本文、BMSONはJSON文字列を通常資源の原文とし、用途・分類・照合キーを入口で一度だけ決めます。LR2のCP932診断は別の保守事実へ集約し、通常資源へ混在させません。詳細解析の戻り値・解釈とは別の保証です。
 
 通常の詳細解析はMS932系の既定で読み、表示用の `maintenance.encoding` を使いません。低水準の検証用 `encodingName` は残しますが、通常の補完解析からはnullを渡します。
 
@@ -50,9 +50,13 @@ BMSは `BMSDecoder`、`Section`、`BMSModel`、`TimeLine`、BMSONは `BMSONDecod
 
 軽量解析ではRANDOM/IFの実行条件を評価せず、不成立のIFや入れ子を含む全行から使用IDを収集します。LNOBJによる除外は行いません。同じ使用IDの定義先は、条件の有無や行順を問わずすべて要求へ含め、同じ種別・正規化済みパスの重複を除きます。これは詳細ノート解析や再生側の条件分岐・LNOBJ解釈とは別の契約です。
 
-WAV00・BMP00の省略や、定義のない使用WAV/BMP IDは要求へ含めません。BMSONのBGA/LAYER/POORイベントにも、対応ヘッダーのないIDは同じ扱いを適用します。これらは健康度・不足警告・導入自動設定を変えません。定義済みの使用参照の不正パスや空nameなどの照合不能・読取り失敗は0件成功へ読み替えません。未使用定義の欠損や親参照は使用要求の完全性を妨げません。
+WAV00・BMP00の省略や、定義のない使用WAV/BMP IDは要求へ含めません。BMSONのBGA/LAYER/POORイベントも同じです。対象外の定義と未定義IDは健康度・不足警告・導入自動設定を変えません。名前付き非照合と取得失敗は正常な要求0件へ読み替えません。未使用定義の欠損・親参照は使用要求の完全性を妨げません。
 
-パッケージ発見・グループ化は全定義由来の存在確認・共通率を維持します。LR2の原文・CP932・パス診断も別用途として維持し、使用要求と混同しません。全定義と使用IDの集合を永続化しません。
+通常要求は正規化前の原文と用途から三分類します。空・空白、最終要素が空／`.`／`..`、`.wav`のように最後のドットより前の名前がない値、不正なWAV/BMP定義構文、種類不明のBMP・BGAは対象外です。`stem..wav`、`.hidden.wav`、`foo.v2.wav`、親名にドットがある通常相対パスは対象にします。音声用途は拡張子なし・末尾ドット・未知拡張子でもAudioとし、BMP・BGAの音声拡張子は対象外です。名前のある要求で通常相対パスを照合できれば照合可能、不正パス・rooted・独立した`..`を含めば名前付き非照合です。対象外は分母・存在照合・自動禁止へ含めず、名前付き非照合は架空の検索キーを作らず個別の未充足として数えます。
+
+任意画像は各役割の最初の非空白値を採用してから分類し、対象外や欠損でも後続へ繰り上げません。後続定義は診断専用で、未使用を含める取得でも通常要求へ戻しません。保存BMS画像三項目のCP932値は[読取り仕様](chart-file-reading.md#リソース参照と文字コード)に従います。
+
+パッケージ発見・グループ化は分類済み全定義の照合可能な存在確認・共通率を使います。対象外・非照合・後続任意画像を根拠へ戻しません。LR2のCP932診断は未使用・対象外・後続任意画像も含む全原文から独立して集約します。全定義と使用IDの集合を永続化しません。
 
 地雷音の用途は[参照解析器](https://github.com/exch-bms2/jbms-parser/blob/master/src/bms/model/Section.java)、BMP00と0Aは[プレイヤーの仕様](https://github.com/lifthrasiir/angolmois/blob/master/INTERNALS.md)、BMSONの音声・BGAイベントは[形式仕様](https://bmson-spec.readthedocs.io/en/master/doc/index.html)を根拠とします。使用判定は構文上の参照収集であり、すべてのプレイヤーの実行結果の再現を保証するものではありません。
 
@@ -195,6 +199,9 @@ BGA使用は、BMSのBGA・LAYERチャンネルまたはBMSONの `bga_events` �
 | Java互換の数値読取りと文字列化 | [`JavaDoubleParserJdk17`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/JavaDoubleParserJdk17.cs)、[`JavaDoubleToStringJdk21`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/JavaDoubleToStringJdk21.cs) | [`ChartInfoParserBehaviorTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoParserBehaviorTests.cs)、[`ChartInfoProductionCompareTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoProductionCompareTests.cs) |
 | 参照DBとの値比較、RANDOMと未定義の扱い | [`ChartInfoCompareRunner`](../../../tools/chart-info-compare/ChartInfoCompareCore.cs) | [`ChartInfoProductionCompareTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoProductionCompareTests.cs) |
 | 時間上限、共通評価、保存と公開の分離 | [`ChartInfoBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoBuildService.cs)、[`CatalogMutationOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogMutationOwner.cs) | [`ChartInfoBackfillStorageTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoBackfillStorageTests.cs)、[`ChartInfoInlineHydrationTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoInlineHydrationTests.cs)、[`ChartInfoInstallFailureRetryTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoInstallFailureRetryTests.cs) |
+| 実採用本文の三分類・任意画像先頭採用・CP932分離 | `BmsChartFileParser`、`BmsonChartFileParser`、`ChartResourceReference` | `ChartResourceSnapshotTests`が元bytesと用途・使用IDから要求数を、`ChartResourceDiagnosticsTests`が後続全原文・CR/LF/CRLF、同CP932本文の一回出力と別解釈の独立原文を、`Lr2CompatibilityGoldenTests`がCP932三事実を確認する。 |
+
+
 
 ## 関連資料
 

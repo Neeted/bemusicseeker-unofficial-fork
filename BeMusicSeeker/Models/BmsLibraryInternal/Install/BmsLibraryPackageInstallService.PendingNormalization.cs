@@ -14,9 +14,11 @@ internal sealed partial class BmsLibraryPackageInstallService
         IEnumerable<ChartPackage> pending, IEnumerable<string> inputs = null,
         IReadOnlySet<string> directoryInputs = null, CancellationToken token = default,
         IReadOnlyList<ChartPackageDiscoveryResult> knownDiscoveries = null,
-        IReadOnlyDictionary<string, PendingPackageScopeObservation> sourceScopes = null)
+        IReadOnlyDictionary<string, PendingPackageScopeObservation> sourceScopes = null,
+        Func<ChartFileSnapshot, ChartFile> fixedEncodingSource = null)
     {
         List<ChartPackage> sources = [.. pending ?? []];
+        fixedEncodingSource ??= CapturePendingFixedEncodingSource(sources);
         sourceScopes ??= PendingPackageScopeObservation.CaptureSources(sources);
         List<PendingPackageNormalizationGroup> groups = PendingPackageNormalizationGroup.Build(sources, sourceScopes, inputs, directoryInputs);
         var knownByDirectory = new Dictionary<string, ChartPackageDiscoveryResult>(StringComparer.OrdinalIgnoreCase);
@@ -42,30 +44,40 @@ internal sealed partial class BmsLibraryPackageInstallService
                 continue;
             }
             group.Discovery = knownByDirectory.TryGetValue(group.RootPath, out ChartPackageDiscoveryResult known)
-                ? known : DiscoverDirectory(group.RootPath, recursive: false, token: token, sourceScopes: sourceScopes);
+                ? known : DiscoverDirectory(group.RootPath, recursive: false, token: token, sourceScopes: sourceScopes, fixedEncodingSource: fixedEncodingSource);
             if (group.IsComplete) { group.Packages.AddRange(group.Discovery.Packages); }
             if (group.IsComplete) { InheritPendingNormalizationState(group); }
         }
         return groups;
     }
 
-    /// <summary>同一物理単位の指定を継承し、同path・同内容の確定復号を初期評価後へ準備します。別単位の配置・診断・元健康度は使いません。</summary>
+    /// <summary>保留の既取得指定を同path・SHA単位で捕捉し、一回の入力取得後・発見前にだけ解決します。旧本文・元配置健康度は保持しません。</summary>
+    private static Func<ChartFileSnapshot, ChartFile> CapturePendingFixedEncodingSource(IEnumerable<ChartPackage> sources)
+    {
+        var byPath = new Dictionary<string, Dictionary<string, ChartFile>>(StringComparer.OrdinalIgnoreCase);
+        foreach (ChartPackage source in sources ?? [])
+        {
+            foreach (PackageChartEntry entry in source.CaptureMaterializedChartEntries())
+            {
+                ChartFile chart = entry.Chart;
+                if (chart.Kind != ChartFileKind.Bms || chart.ResourceHealthMaintenanceSnapshot?.EncodingFixed != true || string.IsNullOrWhiteSpace(chart.Sha256)) { continue; }
+                if (!byPath.TryGetValue(chart.Path, out Dictionary<string, ChartFile> byHash))
+                { byPath.Add(chart.Path, byHash = new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase)); }
+                byHash.TryAdd(chart.Sha256, chart);
+            }
+        }
+        return snapshot => byPath.TryGetValue(snapshot.Path, out Dictionary<string, ChartFile> byHash)
+            && byHash.TryGetValue(snapshot.Sha256, out ChartFile chart) ? chart : null;
+    }
+
+    /// <summary>同一物理単位の配置指定だけを継承します。文字コードは同path・同内容を確認した入力解析時に適用済みです。</summary>
     internal static void InheritPendingNormalizationState(PendingPackageNormalizationGroup group)
     {
-        var fixedChartsByPath = new Dictionary<string, Dictionary<string, ChartFile>>(StringComparer.OrdinalIgnoreCase);
         var sameUnits = new Dictionary<string, ChartPackage>(StringComparer.OrdinalIgnoreCase);
         foreach (ChartPackage source in group.Sources)
         {
             string path = group.SourceScopes[source].Path;
             sameUnits.TryAdd(path, source);
-            foreach (PackageChartEntry entry in source.CaptureMaterializedChartEntries())
-            {
-                ChartFile chart = entry.Chart;
-                if (chart.ResourceHealthMaintenanceSnapshot?.EncodingFixed != true || string.IsNullOrWhiteSpace(chart.Sha256)) { continue; }
-                if (!fixedChartsByPath.TryGetValue(chart.Path, out Dictionary<string, ChartFile> byHash))
-                { fixedChartsByPath.Add(chart.Path, byHash = new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase)); }
-                byHash.TryAdd(chart.Sha256, chart);
-            }
         }
         foreach (ChartPackage package in group.Packages)
         {
@@ -82,12 +94,7 @@ internal sealed partial class BmsLibraryPackageInstallService
                 {
                     entry.RestoreInstallDestinationState(sameEntry.CaptureInstallDestinationState());
                 }
-                if (!string.IsNullOrWhiteSpace(entry.Chart.Sha256)
-                    && fixedChartsByPath.TryGetValue(entry.Chart.Path, out Dictionary<string, ChartFile> byHash)
-                    && byHash.TryGetValue(entry.Chart.Sha256, out ChartFile previous))
-                {
-                    group.FixedEncodings.Add(entry, previous);
-                }
+
             }
         }
     }

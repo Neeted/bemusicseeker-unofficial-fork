@@ -357,6 +357,9 @@ Select a new-install destination from the registered BMS directories and configu
 | Minimum audio completeness for automatic destination selection | 100% | Automatic selection requires each chart’s audio completeness, combining the candidate destination and bundled files, to meet this value. Choose 90–100% in 1% steps. Missing-resource warnings remain, and this does not change the conditions for allowing new installation. |
 | Install automatically when estimation after import determines a destination | OFF | After packages are added to Pending, install without confirmation those whose destination is determined by that automatic estimation. Manual estimation is excluded. Other settings control overwriting and source package deletion. |
 
+If a used resource name contains a parent-folder reference (`../` or `..\`), you can inspect the candidates, but automatic destination selection and automatic installation are held. Select a candidate or enter a destination, then install explicitly if needed. The warning remains.
+
+
 See [Install-Destination Estimation](#install-destination-estimation) for reviewing candidates and running manual estimation.
 
 #### Overwriting and source package cleanup
@@ -548,7 +551,7 @@ Right-clicking a chart row or playlist row opens operations for the selected row
 #### Checking Encoding and File State
 
 - `Chart properties`: Check the [resource details](#checking-chart-properties) in a read-only window.
-- `Fix character encoding`: Specifies the character encoding from options such as Japanese Shift_JIS, UTF-8, Korean KS_C_5601, Simplified Chinese GB2312, and Traditional Chinese Big5. `Mark as fixed` treats the current estimated result as confirmed.
+- `Fix character encoding`: Specifies the character encoding from options such as Japanese Shift_JIS, UTF-8, Korean KS_C_5601, Simplified Chinese GB2312, and Traditional Chinese Big5. Resource names in the chart are read again using the same encoding, and chart health is updated. `Mark as fixed` treats the current estimated result as confirmed.
 - `File scan`: Re-scans the selected chart and resets chart health information that can be checked in places such as the full resource scan screen. `Rescan all charts` targets all charts in the library. `Add to ignore list` / `Remove from ignore list` are settings used to exclude or include charts in displays such as the full resource scan.
 
 #### Installation and Destination Correction
@@ -596,9 +599,11 @@ Select one chart with a local file and choose `Chart properties` from the list c
 
 The window shows the title, artist, chart path, resource verification basis and verification path, with three categories:
 
-- `Missing / unverifiable`: Required, defined references shown with their command, definition number, original filename and a reason at the end, such as `#WAV01 sound.wav (Missing)` or `#BMP02 movie.mp4 (Missing)`. Specified STAGEFILE/BACKBMP/BANNER images are included.
-- `Unused resource definitions`: #WAV and #BMP definitions not referenced for sound or display in this chart. Another definition number or chart may use the same file.
+- `Resource issues and optional image definitions`: Check missing resources, excluded definitions and invalid paths, plus all auxiliary-image definitions with their selection and existence status. Each entry retains its source, definition number, line number and original text.
+- `Unused resource definitions`: #WAV and #BMP definitions not referenced for sound or display in this chart, with their original text and classification reason. Another definition number or chart may use the same file.
 - `Undefined reference numbers`: Definition numbers referenced by the chart without a corresponding #WAV or #BMP definition, such as silent notes. `#WAV01` and `#BMP01` are listed separately.
+
+CP932 diagnostics for LR2 are attached to the same definition when they use the normal interpretation. When the interpretation differs, the original text and line position are marked as an `Alternative interpretation for LR2`. The same specification may appear alongside its normal interpretation.
 
 For BMSON, the window lists unused audio channels and `bga_header` definitions, and BGA reference numbers with no matching definition. Audio and auxiliary images use their native field names, such as `sound_channels` and `info.back_image`.
 
@@ -1222,7 +1227,7 @@ For failed moves or merges, see [File Moving or Merging Fails](#file-moving-or-m
 
 This view checks missing WAV, BGA, video, image, and similar resources.
 
-`WAV`, `BGA`, and `MOVIE` show existing / required files used by the chart. Multiple IDs referencing the same file count once, and unused definitions are excluded. All files defined for the same used ID are checked, without excluding conditional branches or LNOBJ references. For example, three existing files out of four required files give 75%. A category with no used files shows `-`.
+`WAV`, `BGA`, and `MOVIE` show existing / required files used by the chart. Multiple IDs referencing the same file count once, and unused definitions are excluded. All files defined for the same used ID are checked, without excluding conditional branches or LNOBJ references. For example, three existing files out of four required files give 75%. A category with no used files shows `-`. Empty names, extension-only names and images of unknown type are excluded. Invalid paths with a filename count as individual missing requirements. A chart with no audio requirements is not treated as missing audio. `-` also appears when the chart or resources cannot be checked.
 
 `-` also appears before a check or when coverage cannot be determined. IDs without a resource definition are excluded from missing-resource checks. Rescanning also updates older saved counts to the used-file basis.
 

@@ -164,7 +164,7 @@ public sealed class Lr2CompatibilityGoldenTests
             ChartResourceReference.Parse("4.org1_1.wav", ChartResourceKind.Audio));
         var snapshot = ChartResourceSnapshot.Create(CreateChart(file));
 
-        Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file.Path, snapshot);
+        Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file);
 
         Assert.AreEqual(Lr2CompatibilityWarningFlags.None, evaluation.WarningFlags);
         Assert.AreEqual(StrictShiftJisByteCount("4.org1_1.wav"), evaluation.MaxRelativeCp932Bytes);
@@ -180,10 +180,10 @@ public sealed class Lr2CompatibilityGoldenTests
         const string chartPath = @"D:\BMS\Pack\Song\chart.bms";
         const string parentTraversalPath = @"..\Shared\hit.wav";
         ChartFile file = CreateBmsFileWithResource(chartPath, ChartResourceReference.Parse("sound.wav", ChartResourceKind.Audio));
-        file = file with { Resources = file.Resources.Add(ChartResourceReference.Parse(parentTraversalPath, ChartResourceKind.Audio)) };
+        file = ParseCp932(chartPath, "#WAV01 sound.wav\n#WAV02 " + parentTraversalPath + "\n#00111:0102\n");
         var snapshot = ChartResourceSnapshot.Create(CreateChart(file));
 
-        Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file.Path, snapshot);
+        Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file);
 
         Assert.AreEqual(Lr2CompatibilityWarningFlags.None, evaluation.WarningFlags);
         Assert.AreEqual(StrictShiftJisByteCount(parentTraversalPath), evaluation.MaxRelativeCp932Bytes);
@@ -197,13 +197,9 @@ public sealed class Lr2CompatibilityGoldenTests
     public void EvaluatorDetectsParentTraversalFromRawBmsResourceLists()
     {
         const string parentTraversalPath = @"..\Shared\hit.wav";
-        ChartFile file = ChartTestValues.Empty() with
-        {
-            Path = @"D:\BMS\Pack\Song\chart.bms",
-            Resources = TestChartResources.Create([parentTraversalPath], [])
-        };
+        ChartFile file = ParseCp932(@"D:\BMS\Pack\Song\chart.bms", "#WAV01 " + parentTraversalPath + "\n#00111:01\n");
 
-        Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file.Path, ChartResourceSnapshot.Create(CreateChart(file)));
+        Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file);
 
         Assert.AreEqual(Lr2CompatibilityWarningFlags.None, evaluation.WarningFlags);
         Assert.AreEqual(StrictShiftJisByteCount(parentTraversalPath), evaluation.MaxRelativeCp932Bytes);
@@ -219,27 +215,26 @@ public sealed class Lr2CompatibilityGoldenTests
         string chartPath = BuildAsciiChartPathWithDirectorySegment(242);
         const string parentTraversalPath = @"..\Shared\hit.wav";
         ChartFile file = CreateBmsFileWithResource(chartPath, ChartResourceReference.Parse("sound.wav", ChartResourceKind.Audio));
-        file = file with { Resources = file.Resources.Add(ChartResourceReference.Parse(parentTraversalPath, ChartResourceKind.Audio)) };
+        file = ParseCp932(chartPath, "#WAV01 sound.wav\n#WAV02 " + parentTraversalPath + "\n#00111:0102\n");
         var snapshot = ChartResourceSnapshot.Create(CreateChart(file));
 
-        Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file.Path, snapshot);
+        Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file);
 
         Assert.IsTrue(evaluation.WarningFlags.HasFlag(Lr2CompatibilityWarningFlags.ResourcePathTooLong));
         Assert.IsTrue(evaluation.HasParentTraversal);
     }
 
     /// <summary>
-    /// 未対応文字を含む音声参照を警告し、表現不能な参照へバイト長を付ける誤りを検出する。
+    /// 実bytesの復号不能な音声定義を警告し、復号不能な原文へバイト長を付ける誤りを検出する。
     /// </summary>
     [TestMethod]
-    public void EvaluatorFlagsCp932UnsupportedResourcePath()
+    public void EvaluatorFlagsCp932DecodeFailureWithoutRelativeByteCount()
     {
-        ChartFile file = CreateBmsFileWithResource(
-            @"D:\BMS\Pack\Song\chart.bms",
-            ChartResourceReference.Parse(@"sound\😀.wav", ChartResourceKind.Audio));
+        byte[] bytes = [.. Encoding.ASCII.GetBytes("#WAV01 sound/"), 0x81, .. Encoding.ASCII.GetBytes("\r\n#00111:01\r\n")];
+        ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.CreateSnapshot(@"D:\BMS\Pack\Song\chart.bms", bytes, DateTime.UnixEpoch));
         var snapshot = ChartResourceSnapshot.Create(CreateChart(file));
 
-        Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file.Path, snapshot);
+        Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file);
 
         Assert.IsTrue(evaluation.WarningFlags.HasFlag(Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported));
         Assert.IsNull(evaluation.MaxRelativeCp932Bytes);
@@ -264,12 +259,12 @@ public sealed class Lr2CompatibilityGoldenTests
         var resources = ChartResourceSnapshot.Create(CreateChart(file));
         var aggregate = ChartResourceSnapshot.CreateAggregate([CreateChart(file)]);
 
-        Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file.Path, resources);
+        Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file);
 
-        Assert.IsTrue(file.Resources.Any(reference => reference.Status == ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported));
+        Assert.IsTrue(file.Resources.All(reference => reference.Status != ChartResourcePathNormalizationStatus.MalformedSyntax));
         foreach (ChartResourceSnapshot resourceSnapshot in new[] { resources, aggregate })
         {
-            Assert.IsTrue(resourceSnapshot.ResourceReferences.Any(reference => reference.Status == ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported));
+            Assert.AreEqual(1, resourceSnapshot.AudioReferenceCount);
             Assert.IsFalse(resourceSnapshot.HasUnsupportedParentTraversalReference);
         }
         Assert.IsTrue(evaluation.WarningFlags.HasFlag(Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported));
@@ -284,18 +279,10 @@ public sealed class Lr2CompatibilityGoldenTests
     public void EvaluatorUsesAllRawResourceReferencesEvenWhenLookupKeyIsDuplicate()
     {
         string longRawPath = string.Concat(Enumerable.Repeat(@".\", 130)) + "sound.wav";
-        ChartFile file = ChartTestValues.Empty() with
-        {
-            Path = @"D:\BMS\Pack\Song\chart.bms",
-            Resources =
-            [
-                ChartResourceReference.Parse(@".\sound.wav", ChartResourceKind.Audio),
-                ChartResourceReference.Parse(longRawPath, ChartResourceKind.Audio)
-            ]
-        };
+        ChartFile file = ParseCp932(@"D:\BMS\Pack\Song\chart.bms", "#WAV01 .\\sound.wav\n#WAV02 " + longRawPath + "\n#00111:0102\n");
         var snapshot = ChartResourceSnapshot.Create(CreateChart(file));
 
-        Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file.Path, snapshot);
+        Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file);
 
         Assert.AreEqual(1, snapshot.AudioReferenceCount);
         Assert.AreEqual(2, snapshot.ResourceReferences.Count);
@@ -340,10 +327,10 @@ public sealed class Lr2CompatibilityGoldenTests
     {
         string raw = "resource" + extension;
         string path = BuildAsciiChartPathWithDirectorySegment(resolvedBytes - 4 - raw.Length);
-        var reference = ChartResourceReference.Parse(raw, ChartResourceKind.Unknown);
+        var reference = ChartResourceReference.Parse(raw, extension == ".flac" ? ChartResourceKind.Audio : ChartResourceKind.Unknown);
         var index = ChartResourceSnapshot.Create(TestChartResources.Create(
             extension == ".flac" ? [raw] : [], extension == ".jpeg" ? [raw] : []));
-        Lr2ResourceReferenceEvaluation result = Lr2CompatibilityEvaluator.EvaluateResourceReferences(path, index);
+        Lr2ResourceReferenceEvaluation result = Lr2CompatibilityEvaluator.EvaluateResourceReferences(ParseCp932(path, (extension == ".flac" ? "#WAV01 " : "#BMP01 ") + raw + "\n"));
         Assert.AreEqual(raw.Length, result.MaxRelativeCp932Bytes);
         Assert.AreEqual(tooLong, result.WarningFlags.HasFlag(Lr2CompatibilityWarningFlags.ResourcePathTooLong));
         Assert.AreEqual(raw, reference.RawPath);
@@ -371,47 +358,36 @@ public sealed class Lr2CompatibilityGoldenTests
         ];
         foreach (ChartFile chart in charts)
         {
-            // bmsonの空previewは省略し、使用される音声2件・BGA1件と補助3役割の空原文は保持します。
-            Assert.AreEqual(chart.Kind == ChartFileKind.Bms ? 7 : 6, chart.Resources.Count);
+            // 空原文が残る場合も通常要求へ含めません。省略された任意画像も既知0件です。
             Assert.IsTrue(chart.Resources.All(reference => reference.Status == ChartResourcePathNormalizationStatus.Empty));
             Assert.IsTrue(chart.Resources.All(reference => string.IsNullOrWhiteSpace(reference.RawPath)));
             var snapshot = ChartResourceSnapshot.Create(chart);
-            Lr2ResourceReferenceEvaluation empty = Lr2CompatibilityEvaluator.EvaluateResourceReferences(chart.Path, snapshot);
+            Lr2ResourceReferenceEvaluation empty = Lr2CompatibilityEvaluator.EvaluateResourceReferences(chart);
 
             Assert.AreEqual(0, snapshot.TotalReferenceCount);
             Assert.AreEqual(Lr2CompatibilityWarningFlags.None, empty.WarningFlags);
             Assert.IsNull(empty.MaxRelativeCp932Bytes);
             Assert.IsFalse(empty.HasParentTraversal);
 
-            var withNonemptyKeylessPath = ChartResourceSnapshot.Create(chart.Resources.Add(
-                ChartResourceReference.Parse(".wav", ChartResourceKind.Audio)));
-            Lr2ResourceReferenceEvaluation keyless = Lr2CompatibilityEvaluator.EvaluateResourceReferences(chart.Path, withNonemptyKeylessPath);
-            Assert.AreEqual(0, withNonemptyKeylessPath.TotalReferenceCount);
-            Assert.AreEqual(4, keyless.MaxRelativeCp932Bytes);
-            Assert.IsTrue(keyless.WarningFlags.HasFlag(Lr2CompatibilityWarningFlags.ResourcePathTooLong));
+
         }
     }
 
     /// <summary>
-    /// パスなし復号診断の後も空キーの非空参照と未知拡張子を評価し、診断と長さ警告の取り落としを検出する。
+    /// 通常要求が0でも、対象外の先頭画像・後続画像の復号不能と親参照・未使用の名前なし親参照を全原文から評価し、復号不能後の長さと親参照の取り落としを検出する。
     /// </summary>
     [TestMethod]
-    public void EvaluatorIncludesUnknownEmptyKeyAndContinuesAfterPathlessCp932Diagnostic()
+    public void EvaluatorIncludesExcludedDefinitionsAndContinuesAfterCp932DecodeFailure()
     {
-        var diagnostic = new ChartResourceReference(ChartResourceKind.Unknown, ChartResourceUsage.InputDiagnostic,
-            string.Empty, string.Empty, string.Empty, ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported);
-        var index = ChartResourceSnapshot.Create(new[]
-        {
-            diagnostic,
-            ChartResourceReference.Parse(".wav", ChartResourceKind.Audio),
-            ChartResourceReference.Parse(new string('a', 260) + ".xyz", ChartResourceKind.Unknown)
-        });
-        Lr2ResourceReferenceEvaluation result = Lr2CompatibilityEvaluator.EvaluateResourceReferences("chart.bms", index);
-        Assert.AreEqual(0, index.TotalReferenceCount);
-        Assert.IsFalse(index.HasUnsupportedParentTraversalReference);
+        byte[] bytes = [.. Encoding.ASCII.GetBytes("#WAV01 "), 0x81, .. Encoding.ASCII.GetBytes("\r\n#WAV02 .wav\r\n#BMP01 " + new string('a', 260) + ".xyz\r\n#STAGEFILE .png\r\n#STAGEFILE ../image"), 0x81, 0x30,
+            .. Encoding.ASCII.GetBytes(".png\r\n#WAV03 ../.wav\r\n")];
+        ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.CreateSnapshot(@"D:\BMS\chart.bms", bytes, DateTime.UnixEpoch));
+        Lr2ResourceReferenceEvaluation result = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file);
+        Assert.AreEqual(0, ChartResourceSnapshot.Create(file).TotalReferenceCount);
         Assert.AreEqual(264, result.MaxRelativeCp932Bytes);
         Assert.IsTrue(result.WarningFlags.HasFlag(Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported));
         Assert.IsTrue(result.WarningFlags.HasFlag(Lr2CompatibilityWarningFlags.ResourcePathTooLong));
+        Assert.IsTrue(result.HasParentTraversal);
     }
 
     private static int StrictShiftJisByteCount(string value)
@@ -437,15 +413,11 @@ public sealed class Lr2CompatibilityGoldenTests
 
     private static ChartFile CreateBmsFileWithResource(string path, ChartResourceReference reference)
     {
-        return ChartTestValues.Empty() with
-        {
-            Path = path,
-            Resources = [reference]
-        };
+        return ParseCp932(path, "#WAV01 " + reference.RawPath + "\n#00111:01\n");
     }
 
-    private static ChartFile CreateChart(ChartFile file)
-    {
-        return new ChartFile(ChartFileKind.Bms, file.Path, file.Md5, file.Sha256, file.Title, file.RawTitle, file.Artist, file.Genre, "Song", file.Tag, file.Level?.ToString(), null, file.Mode, null, resources: file.Resources);
-    }
+    private static ChartFile ParseCp932(string path, string text)
+        => BmsChartFileParser.ParseSnapshot(ChartFileContentReader.CreateSnapshot(path, Encoding.GetEncoding(932).GetBytes(text), DateTime.UnixEpoch));
+
+    private static ChartFile CreateChart(ChartFile file) => file;
 }

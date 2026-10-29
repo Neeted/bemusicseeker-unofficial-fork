@@ -48,9 +48,9 @@ public sealed class BmsonSongParserTests
         CollectionAssert.AreEquivalent(new[] { "bg", "poor" }, resources.VisualRelativePaths.ToArray());
         CollectionAssert.AreEquivalent(new[] { "movie" }, resources.MovieRelativePaths.ToArray());
         Assert.AreEqual(1, resources.OptionalImageReferenceCount);
-        Assert.IsFalse(resources.HasUnresolvedAudio);
-        Assert.IsFalse(resources.HasUnresolvedVisual);
-        Assert.IsFalse(resources.HasUnresolvedMovie);
+        Assert.AreEqual(0, resources.UnmatchableAudioReferenceCount);
+        Assert.AreEqual(0, resources.UnmatchableVisualReferenceCount);
+        Assert.AreEqual(0, resources.UnmatchableMovieReferenceCount);
     }
 
     /// <summary>従来無視されたイベントIDの文字列・objectをBGA/LAYER/POORすべてで受理します。有効な数値IDだけを使用要求へ残し、詳細配置・ノート数・時間をIDなし入力から変えません。</summary>
@@ -73,8 +73,8 @@ public sealed class BmsonSongParserTests
             var resources = ChartResourceSnapshot.Create(chart);
             CollectionAssert.AreEquivalent(new[] { "bg", "poor" }, resources.VisualRelativePaths.ToArray());
             CollectionAssert.AreEquivalent(new[] { "movie" }, resources.MovieRelativePaths.ToArray());
-            Assert.IsFalse(resources.HasUnresolvedVisual);
-            Assert.IsFalse(resources.HasUnresolvedMovie);
+            Assert.AreEqual(0, resources.UnmatchableVisualReferenceCount);
+            Assert.AreEqual(0, resources.UnmatchableMovieReferenceCount);
         }
         ChartInfoParser.ChartInfoParseResult expected = ChartInfoParser.ParseBytesDetailed(baseline, "event.bmson");
         ChartInfoParser.ChartInfoParseResult actual = ChartInfoParser.ParseBytesDetailed(changed, "event.bmson");
@@ -87,7 +87,7 @@ public sealed class BmsonSongParserTests
         Assert.AreEqual(expected.Row.speedchange, actual.Row.speedchange);
     }
 
-    /// <summary>ノートを持つ音声と参照済みBGAのnull/空nameを省略へ読み替えず、使用カテゴリを照合不能として保持します。previewと補助画像の未指定は要求に加えません。</summary>
+    /// <summary>ノートを持つ音声と参照済みBGAのnull/空nameは診断可能な対象外として保持し、カテゴリを0要求へ集約します。previewと補助画像の未指定は要求に加えません。</summary>
     [TestMethod]
     [DataRow("sound_channels", "null")]
     [DataRow("key_channels", "null")]
@@ -97,7 +97,7 @@ public sealed class BmsonSongParserTests
     [DataRow("key_channels", "\"\"")]
     [DataRow("mine_channels", "\"\"")]
     [DataRow("bga", "\"\"")]
-    public void ParseSnapshot_UsedResourcesWithMissingNamesRemainUnresolved(string kind, string name)
+    public void ParseSnapshot_UsedResourcesWithMissingNamesRemainExcludedAndDiagnosable(string kind, string name)
     {
         string component = kind == "bga"
             ? "\"bga\":{\"bga_header\":[{\"id\":20,\"name\":" + name + "}],\"bga_events\":[{\"id\":20}]}"
@@ -107,16 +107,16 @@ public sealed class BmsonSongParserTests
             System.Text.Encoding.UTF8.GetBytes(json), DateTime.UtcNow, "md5", "sha256"));
         var resources = ChartResourceSnapshot.Create(chart);
         Assert.AreEqual(0, resources.TotalReferenceCount);
-        Assert.AreEqual(kind != "bga", resources.HasUnresolvedAudio);
-        Assert.AreEqual(kind == "bga", resources.HasUnresolvedVisual);
-        Assert.AreEqual(kind == "bga", resources.HasUnresolvedMovie);
+        Assert.AreEqual(0, resources.UnmatchableAudioReferenceCount);
+        Assert.AreEqual(0, resources.UnmatchableVisualReferenceCount);
+        Assert.AreEqual(0, resources.UnmatchableMovieReferenceCount);
         Assert.AreEqual(1, resources.ResourceReferences.Count(reference => reference.IsUsed && reference.Usage == ChartResourceUsage.Normal));
         ResourceHealthMaintenanceSnapshot health = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(chart);
         Assert.IsTrue(health.IsInformationChecked);
-        Assert.AreEqual(kind == "bga" ? (int?)0 : null, health.WavFilesDefined);
-        Assert.AreEqual(kind == "bga" ? (int?)0 : null, health.WavFilesExisting);
-        Assert.AreEqual(kind == "bga" ? null : (int?)0, health.BgaFilesDefined);
-        Assert.AreEqual(kind == "bga" ? null : (int?)0, health.MovieFilesDefined);
+        Assert.AreEqual(0, health.WavFilesDefined);
+        Assert.AreEqual(0, health.WavFilesExisting);
+        Assert.AreEqual(0, health.BgaFilesDefined);
+        Assert.AreEqual(0, health.MovieFilesDefined);
         Assert.AreEqual(false, health.BannerDefined);
     }
 
@@ -231,8 +231,8 @@ public sealed class BmsonSongParserTests
                 + "}");
 
             ChartFile parsed = ChartTestValues.ReadBmson(filePath);
-            CollectionAssert.AreEquivalent(new[] { "keysound.wav", "preview.wav", ".wav" }, parsed.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
-            CollectionAssert.AreEquivalent(new[] { "image.png", "movie.mp4", ".png" }, parsed.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && (reference.Kind == ChartResourceKind.Image || reference.Kind == ChartResourceKind.Movie)).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+            CollectionAssert.AreEquivalent(new[] { "keysound.wav", "preview.wav" }, parsed.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+            CollectionAssert.AreEquivalent(new[] { "image.png", "movie.mp4" }, parsed.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && (reference.Kind == ChartResourceKind.Image || reference.Kind == ChartResourceKind.Movie)).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
             ChartFile chart = parsed;
             // 生の参照、単譜面、集約の各入口で、拡張子だけの参照を索引へ混入させない。
             foreach (ChartResourceSnapshot snapshot in new[] { ChartResourceSnapshot.Create(parsed.Resources), ChartResourceSnapshot.Create(chart), ChartResourceSnapshot.CreateAggregate([chart]) })
@@ -243,7 +243,7 @@ public sealed class BmsonSongParserTests
                 Assert.AreEqual(0, snapshot.OptionalImageReferenceCount);
                 CollectionAssert.AreEquivalent(new[] { "keysound", "preview", "image", "movie" }, snapshot.EnumerateAllRelativePaths().ToArray());
                 CollectionAssert.AreEquivalent(new[] { "keysound", "preview", "image", "movie" }.Select(ChartResourceKeyHash.GetLookupHash).ToArray(), snapshot.EnumerateAllRelativePathHashes().ToArray());
-                Assert.AreEqual(0, snapshot.UnsupportedResourceReferenceCount);
+                Assert.AreEqual(0, snapshot.ResourceReferences.Count(reference => reference.Classification == ChartResourceClassification.Unmatchable));
                 Assert.IsFalse(snapshot.HasUnsupportedParentTraversalReference);
             }
         }
@@ -285,12 +285,14 @@ public sealed class BmsonSongParserTests
 
             Assert.AreEqual(0, parsed.Resources.Count(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio));
             Assert.AreEqual(0, parsed.Resources.Count(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && (reference.Kind == ChartResourceKind.Image || reference.Kind == ChartResourceKind.Movie)));
-            Assert.AreEqual(4, parsed.Resources.Count(reference => reference.Status == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported || reference.Status == ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported));
-            Assert.AreEqual(4, snapshot.UnsupportedResourceReferenceCount);
+            Assert.AreEqual(4, parsed.Resources.Count(reference => reference.Status == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported));
+            Assert.AreEqual(4, snapshot.ResourceReferences.Count(reference => reference.Classification == ChartResourceClassification.Unmatchable));
             Assert.IsTrue(snapshot.HasUnsupportedParentTraversalReference);
-            Assert.AreEqual(2, snapshot.UnsupportedResourceReferences.Count(reference => reference.Kind == ChartResourceKind.Audio));
-            Assert.AreEqual(1, snapshot.UnsupportedResourceReferences.Count(reference => reference.Kind == ChartResourceKind.Image));
-            Assert.AreEqual(1, snapshot.UnsupportedResourceReferences.Count(reference => reference.Kind == ChartResourceKind.Movie));
+            Assert.AreEqual(2, snapshot.UnmatchableAudioReferenceCount);
+            Assert.AreEqual(0, snapshot.UnmatchableVisualReferenceCount);
+            Assert.AreEqual(1, snapshot.UnmatchableMovieReferenceCount);
+            Assert.IsTrue(snapshot.GetOptionalImage(ChartResourceUsage.Stagefile) is
+            { Classification: ChartResourceClassification.Unmatchable, Status: ChartResourcePathNormalizationStatus.ParentTraversalUnsupported });
         }
         finally
         {

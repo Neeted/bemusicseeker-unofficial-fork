@@ -48,7 +48,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
                 BmsonChartFileParser.ParseSnapshot(snapshot, details);
                 packageLayoutDefinitions = CaptureBmsonPackageLayoutDefinitions(details);
             }
-            else { packageLayoutDefinitions = BmsChartFileParser.ParseSnapshot(snapshot).Resources; }
+            else { packageLayoutDefinitions = BmsChartFileParser.ParseSnapshot(snapshot, BmsChartFileParser.GetConcreteFixedEncoding(chart)).Resources; }
             return packageLayoutDefinitions;
         }
     }
@@ -145,15 +145,30 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
     {
         lock (mutationGate)
         {
-            if (chart.Resources != null)
+            // DB由来の旧null診断は、通常参照が残っていてもCP932取得済みの証拠にはなりません。
+            bool needsLr2Facts = chart.Kind == ChartFileKind.Bms
+                && chart.ResourceHealthMaintenanceSnapshot is { Origin: MaintenanceInfoOrigin.DbHydrated, Lr2WarningFlags: null };
+            if (chart.Resources != null && !needsLr2Facts)
             {
+                RefreshUnsupportedResourcePathWarningCore();
                 return;
             }
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chart.Path);
-            ImmutableList<ChartResourceReference> resources = chart.Kind == ChartFileKind.Bmson
-                ? BmsonChartFileParser.ParseSnapshot(snapshot).Resources
-                : BmsChartFileParser.ParseSnapshot(snapshot).Resources;
-            chart = ChartFileProjection.WithResources(chart, resources);
+            ChartFile parsed = chart.Kind == ChartFileKind.Bmson ? BmsonChartFileParser.ParseSnapshot(snapshot)
+                : BmsChartFileParser.ParseSnapshot(snapshot, BmsChartFileParser.GetConcreteFixedEncoding(chart));
+            ResourceHealthMaintenanceSnapshot previous = chart.ResourceHealthMaintenanceSnapshot;
+            ResourceHealthMaintenanceSnapshot facts = parsed.ResourceHealthMaintenanceSnapshot;
+            chart = chart with
+            {
+                Resources = parsed.Resources,
+                ResourceHealthMaintenanceSnapshot = previous == null ? facts : facts == null ? previous : previous with
+                {
+                    Lr2WarningFlags = facts.Lr2WarningFlags,
+                    Lr2ResourceMaxRelativeCp932Bytes = facts.Lr2ResourceMaxRelativeCp932Bytes,
+                    Lr2ResourceHasParentTraversal = facts.Lr2ResourceHasParentTraversal
+                }
+            };
+            RefreshUnsupportedResourcePathWarningCore();
         }
     }
 
@@ -172,6 +187,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         lock (mutationGate)
         {
             chart = value ?? throw new ArgumentNullException(nameof(value));
+            RefreshUnsupportedResourcePathWarningCore();
         }
         RaiseChartChanged();
     }
@@ -190,33 +206,17 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         return warnings;
     }
 
-    /// <summary>保存済みの文字コードとメタデータだけを採用し、登録時結果・現在の健康度投影・導入状態を保持します。</summary>
+    /// <summary>保存成功後の文字コード・新参照・元配置健康度を採用します。既存のDST・候補と配置を保ち、その後の再推定は新しい参照を使います。</summary>
     internal void ApplyCommittedEncoding(ChartFile value)
     {
         ArgumentNullException.ThrowIfNull(value);
         lock (mutationGate)
         {
-            ChartFile projection = Chart;
-            ResourceHealthMaintenanceSnapshot health = chart.ResourceHealthMaintenanceSnapshot ?? value.ResourceHealthMaintenanceSnapshot;
-            chart = chart with
-            {
-                Title = value.Title,
-                Subtitle = value.Subtitle,
-                Artist = value.Artist,
-                RawTitle = value.RawTitle,
-                RawSubtitle = value.RawSubtitle,
-                RawArtist = value.RawArtist,
-                Subartist = value.Subartist,
-                Genre = value.Genre,
-                EncodingName = value.EncodingName,
-                ResourceHealthMaintenanceSnapshot = health with
-                { Encoding = value.ResourceHealthMaintenanceSnapshot.Encoding, EncodingFixed = value.ResourceHealthMaintenanceSnapshot.EncodingFixed }
-            };
-            if (hasResourceHealthProjection)
-            {
-                resourceHealthProjectionState = ChartFileTransientState.FromResourceHealthChart(
-                    projection with { EncodingName = value.EncodingName });
-            }
+            chart = value;
+            packageLayoutDefinitions = null;
+            originalResourceHealth = value.ResourceHealthMaintenanceSnapshot;
+            hasResourceHealthProjection = false;
+            resourceHealthProjectionState = ChartFileTransientState.Empty;
         }
         RaiseChartChanged();
     }
@@ -390,12 +390,16 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, Properties.Resources.Warning_InstalledDestinationResolveFailed);
     }
 
-    /// <summary>推定できないリソースパスを、この項目の警告へ反映します。</summary>
-    internal void ApplyUnsupportedResourcePathWarning()
+    /// <summary>候補・代表・DSTを変更せず、採用要求の親参照WARNINGだけを更新します。未取得時は既存事実を維持します。</summary>
+    private void RefreshUnsupportedResourcePathWarningCore()
     {
-        ReplacePendingInstallDestination(null, string.Empty, string.Empty, [], forceProjection: true);
-        ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
-        SetWarning(ChartWarningKind.UnsupportedResourcePath, Properties.Resources.Warning_UnsupportedResourcePath);
+        if (chart.Resources == null) { return; }
+        if (chart.Resources.Any(reference => reference.RestrictsAutomaticDestination))
+        {
+            pendingWarnings[ChartWarningKind.UnsupportedResourcePath] = ChartWarning.Create(ChartWarningKind.UnsupportedResourcePath, Properties.Resources.Warning_UnsupportedResourcePath);
+            projectedWarningCategories.Add(ChartWarningCategory.InstallEstimation);
+        }
+        else { pendingWarnings.Remove(ChartWarningKind.UnsupportedResourcePath); }
     }
 
     /// <summary>入力元探索が既存上限に達した事実を、この項目の警告へ反映します。</summary>
@@ -568,9 +572,15 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
 
     private void ClearWarningsByCategoryCore(ChartWarningCategory category)
     {
+        ChartWarning preservedParent = chart.Resources == null && pendingWarnings.TryGetValue(ChartWarningKind.UnsupportedResourcePath, out ChartWarning previousParent) ? previousParent : null;
         foreach (ChartWarningKind kind in pendingWarnings.Where(pair => pair.Value.Category == category).Select(pair => pair.Key).ToList())
         {
             pendingWarnings.Remove(kind);
+        }
+        if (category == ChartWarningCategory.InstallEstimation)
+        {
+            if (preservedParent != null) { pendingWarnings[ChartWarningKind.UnsupportedResourcePath] = preservedParent; }
+            else { RefreshUnsupportedResourcePathWarningCore(); }
         }
     }
 
@@ -778,21 +788,28 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
     internal static PackageChartEntry FromPath(string filePath) => FromPath(filePath, out _);
 
     /// <summary>一度読んだ入力から項目と発見専用のPREVIEWを返します。付帯値を長命の項目へ保持しません。</summary>
-    internal static PackageChartEntry FromPath(string filePath, out string preview) => FromPath(filePath, out preview, out _);
+    internal static PackageChartEntry FromPath(string filePath, out ChartResourceReference? preview) => FromPath(filePath, out preview, out _);
 
     /// <summary>発見時だけ元の読取り失敗も返し、不完全なscopeを空の成功へ置換しないために使います。</summary>
-    internal static PackageChartEntry FromPath(string filePath, out string preview, out Exception failure)
+    internal static PackageChartEntry FromPath(string filePath, out ChartResourceReference? preview, out Exception failure, Func<ChartFileSnapshot, ChartFile> fixedEncodingSource = null)
     {
-        preview = string.Empty;
+        preview = null;
         failure = null;
         try
         {
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
             bool isBmson = ChartFileKindResolver.IsBmsonFilePath(filePath);
             ChartResourceParseDetails details = isBmson ? new ChartResourceParseDetails() : null;
-            PackageChartEntry entry = FromChart(isBmson
-                ? BmsonChartFileParser.ParseSnapshot(snapshot, details)
-                : BmsChartFileParser.ParseSnapshotWithEncodingDetection(snapshot, out preview));
+            ChartFile previous = isBmson ? null : fixedEncodingSource?.Invoke(snapshot);
+            string fixedEncoding = BmsChartFileParser.GetConcreteFixedEncodingName(previous?.EncodingName, previous?.ResourceHealthMaintenanceSnapshot?.EncodingFixed == true);
+            ChartFile parsed = isBmson ? BmsonChartFileParser.ParseSnapshot(snapshot, details)
+                : BmsChartFileParser.ParseForPackageDiscovery(snapshot, fixedEncoding, out preview);
+            if (previous != null)
+            {
+                parsed = ChartFileProjection.WithMaintenance(parsed, parsed.ResourceHealthMaintenanceSnapshot with
+                { Encoding = previous.EncodingName, EncodingFixed = previous.ResourceHealthMaintenanceSnapshot.EncodingFixed });
+            }
+            PackageChartEntry entry = FromChart(parsed);
             // 同じsnapshotの全定義を健康度による未使用解放より先に消費します。BMSONのpreviewだけを定義元で除外します。
             entry.packageLayoutDefinitions = isBmson ? CaptureBmsonPackageLayoutDefinitions(details) : entry.Chart.Resources;
             return entry;

@@ -139,7 +139,7 @@ public sealed class ChartWarningCollectionTests
         Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(file));
         Assert.IsFalse(ChartWarningCollection.HasAnyHighlightedWarning(file.Warnings));
         Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.UnsupportedResourcePath));
-        Assert.AreEqual("[1] リソースパス非対応", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
+        Assert.AreEqual("[1] " + Resources.WarningDigest_UnsupportedResourcePath, ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
         StringAssert.Contains(ChartWarningCollection.BuildTooltipText(file.Warnings), Resources.Warning_UnsupportedResourcePath);
     }
 

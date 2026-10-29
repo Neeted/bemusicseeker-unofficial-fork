@@ -78,9 +78,9 @@ internal sealed class BmsLibraryMaintenanceService
         if (placement != null)
         {
             counts = new ResourceHealthLookupContext.ResourceHealthCounts(
-                resources.AudioReferenceCount, placementAudio ?? 0,
-                resources.VisualReferenceCount, placementVisual ?? 0,
-                resources.MovieReferenceCount, placementMovie ?? 0,
+                resources.AudioReferences.Count, placementAudio ?? 0,
+                resources.VisualReferences.Count, placementVisual ?? 0,
+                resources.MovieReferences.Count, placementMovie ?? 0,
                 IsOptionalImageDefined(resources.GetOptionalImage(ChartResourceUsage.Stagefile)), resources.GetOptionalImage(ChartResourceUsage.Stagefile) is { } stage && placement.Exists(stage) == true,
                 IsOptionalImageDefined(resources.GetOptionalImage(ChartResourceUsage.Backbmp)), resources.GetOptionalImage(ChartResourceUsage.Backbmp) is { } back && placement.Exists(back) == true,
                 IsOptionalImageDefined(resources.GetOptionalImage(ChartResourceUsage.Banner)), resources.GetOptionalImage(ChartResourceUsage.Banner) is { } banner && placement.Exists(banner) == true);
@@ -93,25 +93,25 @@ internal sealed class BmsLibraryMaintenanceService
         Lr2ChartPathEvaluation path = chart.Kind == ChartFileKind.Bms
             ? Lr2CompatibilityEvaluator.EvaluateChartPath(chart.Path) : default;
         Lr2ResourceReferenceEvaluation resource = chart.Kind == ChartFileKind.Bms
-            ? Lr2CompatibilityEvaluator.EvaluateResourceReferences(chart.Path, resources) : default;
+            ? Lr2CompatibilityEvaluator.EvaluateResourceReferences(chart) : default;
         return new ResourceHealthMaintenanceSnapshot
         {
             Path = chart.Path,
             Hash = chart.Md5,
             Encoding = chart.Kind == ChartFileKind.Bmson ? "utf-8" : null,
             Origin = MaintenanceInfoOrigin.Calculated,
-            WavFilesDefined = !includeUnused && (resources.HasUnresolvedAudio || (placement != null && !placementAudio.HasValue)) ? null : counts.AudioDefined,
-            WavFilesExisting = !includeUnused && (resources.HasUnresolvedAudio || (placement != null && !placementAudio.HasValue)) ? null : counts.AudioExisting,
-            BgaFilesDefined = !includeUnused && (resources.HasUnresolvedVisual || (placement != null && !placementVisual.HasValue)) ? null : counts.VisualDefined,
-            BgaFilesExisting = !includeUnused && (resources.HasUnresolvedVisual || (placement != null && !placementVisual.HasValue)) ? null : counts.VisualExisting,
-            MovieFilesDefined = !includeUnused && (resources.HasUnresolvedMovie || (placement != null && !placementMovie.HasValue)) ? null : counts.MovieDefined,
-            MovieFilesExisting = !includeUnused && (resources.HasUnresolvedMovie || (placement != null && !placementMovie.HasValue)) ? null : counts.MovieExisting,
-            StagefileDefined = counts.StagefileDefined,
-            StagefileExisting = counts.StagefileDefined ? (placement != null && resources.GetOptionalImage(ChartResourceUsage.Stagefile) is { } referenceStagefile ? placement.Exists(referenceStagefile) : counts.StagefileExisting) : null,
-            BackbmpDefined = counts.BackbmpDefined,
-            BackbmpExisting = counts.BackbmpDefined ? (placement != null && resources.GetOptionalImage(ChartResourceUsage.Backbmp) is { } referenceBackbmp ? placement.Exists(referenceBackbmp) : counts.BackbmpExisting) : null,
-            BannerDefined = counts.BannerDefined,
-            BannerExisting = counts.BannerDefined ? (placement != null && resources.GetOptionalImage(ChartResourceUsage.Banner) is { } referenceBanner ? placement.Exists(referenceBanner) : counts.BannerExisting) : null,
+            WavFilesDefined = (placement != null && !placementAudio.HasValue) ? null : counts.AudioDefined + resources.UnmatchableAudioReferenceCount,
+            WavFilesExisting = (placement != null && !placementAudio.HasValue) ? null : counts.AudioExisting,
+            BgaFilesDefined = (placement != null && !placementVisual.HasValue) ? null : counts.VisualDefined + resources.UnmatchableVisualReferenceCount,
+            BgaFilesExisting = (placement != null && !placementVisual.HasValue) ? null : counts.VisualExisting,
+            MovieFilesDefined = (placement != null && !placementMovie.HasValue) ? null : counts.MovieDefined + resources.UnmatchableMovieReferenceCount,
+            MovieFilesExisting = (placement != null && !placementMovie.HasValue) ? null : counts.MovieExisting,
+            StagefileDefined = IsOptionalImageDefined(resources.GetOptionalImage(ChartResourceUsage.Stagefile)),
+            StagefileExisting = GetOptionalImageExisting(resources.GetOptionalImage(ChartResourceUsage.Stagefile), placement, counts.StagefileExisting),
+            BackbmpDefined = IsOptionalImageDefined(resources.GetOptionalImage(ChartResourceUsage.Backbmp)),
+            BackbmpExisting = GetOptionalImageExisting(resources.GetOptionalImage(ChartResourceUsage.Backbmp), placement, counts.BackbmpExisting),
+            BannerDefined = IsOptionalImageDefined(resources.GetOptionalImage(ChartResourceUsage.Banner)),
+            BannerExisting = GetOptionalImageExisting(resources.GetOptionalImage(ChartResourceUsage.Banner), placement, counts.BannerExisting),
             FilesWarningIgnored = !forceUpdate && chart.ResourceHealthWarningsIgnored,
             Lr2WarningFlags = chart.Kind == ChartFileKind.Bms ? (int)(path.WarningFlags | resource.WarningFlags) : null,
             Lr2ResourceMaxRelativeCp932Bytes = chart.Kind == ChartFileKind.Bms ? resource.MaxRelativeCp932Bytes : null,
@@ -128,7 +128,7 @@ internal sealed class BmsLibraryMaintenanceService
         string lookupDirectory = NormalizeLookupDirectory(chartDirectory);
         DirectoryResourceLookupCache.Entry resourceEntry = lookupContext?.GetResourceEntryOrNull(lookupDirectory);
         var counters = new ResourceHealthLookupCounters();
-        int audioDefined = resources.AudioReferenceCount;
+        int audioDefined = resources.AudioReferences.Count;
         int audioExisting = audioDefined > 0
             ? CountExistingResourceReferences(
                 chartDirectory,
@@ -140,7 +140,7 @@ internal sealed class BmsLibraryMaintenanceService
                 lookupContext,
                 ref counters)
             : 0;
-        int visualDefined = resources.VisualReferenceCount;
+        int visualDefined = resources.VisualReferences.Count;
         int visualExisting = visualDefined > 0
             ? CountExistingResourceReferences(
                 chartDirectory,
@@ -152,7 +152,7 @@ internal sealed class BmsLibraryMaintenanceService
                 lookupContext,
                 ref counters)
             : 0;
-        int movieDefined = resources.MovieReferenceCount;
+        int movieDefined = resources.MovieReferences.Count;
         int movieExisting = movieDefined > 0
             ? CountExistingResourceReferences(
                 chartDirectory,
@@ -165,7 +165,7 @@ internal sealed class BmsLibraryMaintenanceService
                 ref counters)
             : 0;
         ChartResourceReference? stagefile = resources.GetOptionalImage(ChartResourceUsage.Stagefile);
-        bool stagefileDefined = IsOptionalImageDefined(stagefile);
+        bool stagefileDefined = IsMatchableOptionalImage(stagefile);
         bool stagefileExisting = stagefileDefined && ExistsOptionalImageResource(
             chartDirectory,
             lookupDirectory,
@@ -174,7 +174,7 @@ internal sealed class BmsLibraryMaintenanceService
             lookupContext,
             ref counters);
         ChartResourceReference? backbmp = resources.GetOptionalImage(ChartResourceUsage.Backbmp);
-        bool backbmpDefined = IsOptionalImageDefined(backbmp);
+        bool backbmpDefined = IsMatchableOptionalImage(backbmp);
         bool backbmpExisting = backbmpDefined && ExistsOptionalImageResource(
             chartDirectory,
             lookupDirectory,
@@ -183,7 +183,7 @@ internal sealed class BmsLibraryMaintenanceService
             lookupContext,
             ref counters);
         ChartResourceReference? banner = resources.GetOptionalImage(ChartResourceUsage.Banner);
-        bool bannerDefined = IsOptionalImageDefined(banner);
+        bool bannerDefined = IsMatchableOptionalImage(banner);
         bool bannerExisting = bannerDefined && ExistsOptionalImageResource(
             chartDirectory,
             lookupDirectory,
@@ -209,11 +209,11 @@ internal sealed class BmsLibraryMaintenanceService
 
     private static ResourceHealthLookupContext.ResourceHealthSetSignature BuildResourceHealthSetSignature(ChartResourceSnapshot resources)
     {
-        string stagefile = IsOptionalImageDefined(resources.GetOptionalImage(ChartResourceUsage.Stagefile))
+        string stagefile = IsMatchableOptionalImage(resources.GetOptionalImage(ChartResourceUsage.Stagefile))
             ? resources.GetOptionalImage(ChartResourceUsage.Stagefile)?.LookupKey : null;
-        string backbmp = IsOptionalImageDefined(resources.GetOptionalImage(ChartResourceUsage.Backbmp))
+        string backbmp = IsMatchableOptionalImage(resources.GetOptionalImage(ChartResourceUsage.Backbmp))
             ? resources.GetOptionalImage(ChartResourceUsage.Backbmp)?.LookupKey : null;
-        string banner = IsOptionalImageDefined(resources.GetOptionalImage(ChartResourceUsage.Banner))
+        string banner = IsMatchableOptionalImage(resources.GetOptionalImage(ChartResourceUsage.Banner))
             ? resources.GetOptionalImage(ChartResourceUsage.Banner)?.LookupKey : null;
         return new ResourceHealthLookupContext.ResourceHealthSetSignature(
             resources?.AudioRelativePaths,
@@ -224,9 +224,17 @@ internal sealed class BmsLibraryMaintenanceService
             banner);
     }
 
-    /// <summary>形式を問わず非空の明示参照を定義として扱い、照合不能なパスは既存なしとして不足を通知します。</summary>
+    /// <summary>対象外を除き、採用された任意画像一件を要求として扱います。</summary>
     private static bool IsOptionalImageDefined(ChartResourceReference? reference)
-        => reference.HasValue && !string.IsNullOrWhiteSpace(reference.Value.RawPath);
+        => reference.HasValue && reference.Value.Classification != ChartResourceClassification.Excluded;
+
+    private static bool IsMatchableOptionalImage(ChartResourceReference? reference)
+        => reference.HasValue && reference.Value.Classification == ChartResourceClassification.Matchable;
+
+    private static bool? GetOptionalImageExisting(ChartResourceReference? reference, ChartResourcePlacement placement, bool cached)
+        => !IsOptionalImageDefined(reference) ? null
+            : !IsMatchableOptionalImage(reference) ? false
+            : placement == null ? cached : placement.Exists(reference.Value);
 
     internal static IReadOnlyList<ChartWarning> BuildResourceHealthWarnings(
         ResourceHealthMaintenanceSnapshot snapshot)
@@ -487,20 +495,24 @@ internal sealed class BmsLibraryMaintenanceService
             }
 
             ChartFile updated = chart;
-            if (!string.IsNullOrWhiteSpace(encoding) && LongPathFileSystem.FileExists(chart.Path))
+            ResourceHealthMaintenanceSnapshot nextInfo = info;
+            bool reparsed = false;
+            if (LongPathFileSystem.FileExists(chart.Path))
             {
                 ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chart.Path);
-                updated = BmsChartFileParser.ApplyMetadataEncoding(snapshot, chart, nextEncoding);
-
+                updated = BmsChartFileParser.ApplyEncoding(snapshot, chart, nextEncoding);
+                reparsed = true;
+                nextInfo = (BuildResourceHealthSnapshot(updated) ?? updated.ResourceHealthMaintenanceSnapshot) with { FilesWarningIgnored = info.FilesWarningIgnored };
             }
-            if (!info.EncodingFixed || !HasSameDecodedMetadataText(chart, updated) || !string.Equals(info.Encoding, nextEncoding, StringComparison.Ordinal))
+            nextInfo = nextInfo with { Encoding = nextEncoding, EncodingFixed = true };
+            bool metadataChanged = !HasSameDecodedMetadataText(chart, updated);
+            if (metadataChanged || !Equals(info with { Origin = nextInfo.Origin }, nextInfo)
+                || (chart.Resources != null && !chart.Resources.SequenceEqual(updated.Resources ?? []))
+                || (chart.Token == null && reparsed))
             {
-                updated = ChartFileProjection.WithMaintenance(updated, info with { Encoding = nextEncoding, EncodingFixed = true });
-                if (!HasSameDecodedMetadataText(chart, updated))
-                {
-                    result.SongMetadataUpdates.Add(SongMetadataUpdate.FromChart(updated));
-                }
-                result.MaintenanceInfosToUpsert.Add(updated.ResourceHealthMaintenanceSnapshot);
+                updated = ChartFileProjection.WithMaintenance(updated, nextInfo);
+                if (metadataChanged) { result.SongMetadataUpdates.Add(SongMetadataUpdate.FromChart(updated)); }
+                if (!Equals(info with { Origin = nextInfo.Origin }, nextInfo)) { result.MaintenanceInfosToUpsert.Add(nextInfo); }
                 result.ChangedCharts.Add(updated);
             }
         }
@@ -654,7 +666,7 @@ internal sealed class BmsLibraryMaintenanceService
         var stopwatch = Stopwatch.StartNew();
         List<MaintenanceWorkflowTarget> targets = CreateSnapshotPipelineTargets(charts, forceUpdate, selectedPendingPaths);
         result.CheckedFileCount = targets.Count;
-        result.BmsResourceTargetCount = targets.Count(target => target.Kind == ChartFileKind.Bms && (forceUpdate || GetResourceHealthSnapshot(target.Chart)?.IsInformationChecked != true));
+        result.BmsResourceTargetCount = targets.Count(target => target.Kind == ChartFileKind.Bms && (forceUpdate || GetResourceHealthSnapshot(target.Chart)?.IsInformationChecked != true || string.IsNullOrWhiteSpace(target.Chart.EncodingName)));
         result.BmsonResourceTargetCount = targets.Count(target => target.Kind == ChartFileKind.Bmson);
         result.HealthTargetCount = result.BmsResourceTargetCount + result.BmsonResourceTargetCount;
         result.HealthDegree = maintenanceHealthDegree;
@@ -1078,102 +1090,95 @@ internal sealed class BmsLibraryMaintenanceService
     {
         var result = new MaintenanceEvaluationResult();
         ResourceHealthMaintenanceSnapshot before = GetResourceHealthSnapshot(chart);
+        bool needsEncoding = !resourceOnly && chart.Kind == ChartFileKind.Bms && (forceUpdate || string.IsNullOrWhiteSpace(before?.Encoding));
+        bool needsHealth = forceUpdate || before?.IsInformationChecked != true || needsEncoding;
         ChartFile parsed = chart;
+        string adoptedEncoding = before?.Encoding ?? (resourceOnly ? chart.EncodingName : null);
+        bool encodingFixed = before?.EncodingFixed == true;
         long refreshStart = Stopwatch.GetTimestamp();
-        bool needsHealth = forceUpdate || before?.IsInformationChecked != true;
-        if (needsHealth && snapshot != null && ((forceUpdate && !reuseCapturedResources) || chart.Resources == null
-            || (chart.Kind == ChartFileKind.Bmson && chart.LastWriteTimeUtc != snapshot.LastWriteTimeUtc)))
+        if (chart.Kind == ChartFileKind.Bms && (needsHealth || needsEncoding))
         {
-            ChartFile resources;
-            try
+            long encodingStart = Stopwatch.GetTimestamp();
+            string fixedEncoding = BmsChartFileParser.GetConcreteFixedEncoding(chart);
+            bool parseInput = chart.Resources == null || ((forceUpdate || needsEncoding) && !reuseCapturedResources);
+            ChartFileSnapshot input = snapshot;
+            if ((parseInput || needsEncoding) && input == null) { input = ChartFileContentReader.ReadSnapshot(chart.Path); }
+            BmsEncodingDetectionResult detection = null;
+            if (fixedEncoding == null)
             {
-                resources = chart.Kind == ChartFileKind.Bmson ? BmsonChartFileParser.ParseSnapshot(snapshot) : BmsChartFileParser.ParseSnapshot(snapshot);
+                detection = needsEncoding ? detectedEncoding ?? BmsEncodingDetector.Detect(input.Bytes)
+                    : new BmsEncodingDetectionResult(adoptedEncoding ?? "unknown", BmsEncodingDetectionOutcome.Other, false, null);
             }
-            catch when (chart.Kind == ChartFileKind.Bmson)
+            // Inlineは直前に同snapshot・同採用経路で解析済みの結果を使い、通常保守は一回だけ解析します。
+            ChartFile fresh = parseInput ? fixedEncoding != null ? BmsChartFileParser.ParseSnapshot(input, fixedEncoding)
+                : BmsChartFileParser.ParseSnapshot(input, detection) : chart;
+            parsed = chart with { Resources = fresh.Resources, ResourceHealthMaintenanceSnapshot = fresh.ResourceHealthMaintenanceSnapshot };
+            if (needsEncoding)
             {
-                // bmson の資源再取得失敗は対象単位で分類し、古い検査結果を保存せず他の対象を継続します。
-                result.BmsonRefreshResult = BmsonResourceRefreshResult.Failed;
-                result.BmsonRefreshElapsedTicks = Stopwatch.GetTimestamp() - refreshStart;
-                return result;
-            }
-            // 保守の資源読取りは内容識別を更新しません。基本ハッシュの収束は差分走査・詳細の入口が担当します。
-            parsed = chart with
-            {
-                Resources = resources.Resources,
-                Stagefile = chart.Kind == ChartFileKind.Bmson ? resources.Stagefile : chart.Stagefile,
-                Banner = chart.Kind == ChartFileKind.Bmson ? resources.Banner : chart.Banner,
-                Backbmp = chart.Kind == ChartFileKind.Bmson ? resources.Backbmp : chart.Backbmp,
-                PreviewMusic = chart.Kind == ChartFileKind.Bmson ? resources.PreviewMusic : chart.PreviewMusic
-            };
-            if (chart.Kind == ChartFileKind.Bmson)
-            {
-                result.BmsonRefreshResult = BmsonResourceRefreshResult.Success;
+                adoptedEncoding = fixedEncoding ?? detection.EncodingName;
+                bool reloaded = fixedEncoding != null ? !HasSameDecodedMetadataText(chart, fresh)
+                    : !string.IsNullOrWhiteSpace(detection.EncodingName) && !detection.EncodingName.EndsWith("?", StringComparison.Ordinal)
+                        && !detection.EncodingName.Equals("unknown", StringComparison.OrdinalIgnoreCase)
+                        && System.Text.Encoding.GetEncoding(detection.EncodingName).CodePage != 932;
+                if (fixedEncoding == null) { result.EncodingDetectionResult = detection; encodingFixed |= reloaded; }
+                if (reloaded)
+                {
+                    parsed = parsed with
+                    {
+                        Title = fresh.Title,
+                        Subtitle = fresh.Subtitle,
+                        Artist = fresh.Artist,
+                        RawTitle = fresh.RawTitle,
+                        RawSubtitle = fresh.RawSubtitle,
+                        RawArtist = fresh.RawArtist,
+                        Subartist = fresh.Subartist,
+                        Genre = fresh.Genre,
+                        Date = Lr2SongRowEnricher.ToLr2UnixSeconds(input.LastWriteTimeUtc),
+                        LastWriteTimeUtc = input.LastWriteTimeUtc
+                    };
+                    result.EncodingReloadCount = 1;
+                    result.ReloadedBmsChart = parsed;
+                }
+                result.EncodingElapsedTicks = Stopwatch.GetTimestamp() - encodingStart;
+                result.EncodingReloadElapsedTicks = reloaded ? result.EncodingElapsedTicks : 0;
             }
         }
         else if (chart.Kind == ChartFileKind.Bmson)
         {
-            result.BmsonRefreshResult = BmsonResourceRefreshResult.Reused;
+            if (needsHealth && snapshot != null && ((forceUpdate && !reuseCapturedResources) || chart.Resources == null
+                || chart.LastWriteTimeUtc != snapshot.LastWriteTimeUtc))
+            {
+                ChartFile fresh;
+                try { fresh = BmsonChartFileParser.ParseSnapshot(snapshot); }
+                catch
+                {
+                    result.BmsonRefreshResult = BmsonResourceRefreshResult.Failed;
+                    result.BmsonRefreshElapsedTicks = Stopwatch.GetTimestamp() - refreshStart;
+                    return result;
+                }
+                parsed = chart with
+                {
+                    Resources = fresh.Resources,
+                    Stagefile = fresh.Stagefile,
+                    Banner = fresh.Banner,
+                    Backbmp = fresh.Backbmp,
+                    PreviewMusic = fresh.PreviewMusic
+                };
+                result.BmsonRefreshResult = BmsonResourceRefreshResult.Success;
+            }
+            else { result.BmsonRefreshResult = BmsonResourceRefreshResult.Reused; }
         }
-
         result.BmsonRefreshElapsedTicks = chart.Kind == ChartFileKind.Bmson ? Stopwatch.GetTimestamp() - refreshStart : 0;
         long healthStart = Stopwatch.GetTimestamp();
         ResourceHealthMaintenanceSnapshot after = needsHealth ? BuildResourceHealthSnapshot(parsed, lookup, forceUpdate) : before with { Origin = MaintenanceInfoOrigin.Calculated };
         result.HealthElapsedTicks = Stopwatch.GetTimestamp() - healthStart;
-        if (after == null)
-        {
-            return result;
-        }
-
+        if (after == null) { return result; }
         after = after with
         {
             FilesWarningIgnored = !forceUpdate && before?.FilesWarningIgnored == true,
-            Encoding = chart.Kind == ChartFileKind.Bms ? before?.Encoding ?? (resourceOnly ? chart.EncodingName : null) : "utf-8",
-            EncodingFixed = before?.EncodingFixed == true
+            Encoding = chart.Kind == ChartFileKind.Bms ? adoptedEncoding : "utf-8",
+            EncodingFixed = encodingFixed
         };
-        if (!resourceOnly && chart.Kind == ChartFileKind.Bms && (forceUpdate || string.IsNullOrWhiteSpace(after.Encoding)))
-        {
-            long encodingStart = Stopwatch.GetTimestamp();
-            ChartFileSnapshot input = snapshot ?? ChartFileContentReader.ReadSnapshot(chart.Path);
-            bool preserveEncoding = after.EncodingFixed && !string.IsNullOrWhiteSpace(after.Encoding)
-                && !after.Encoding.EndsWith("?", StringComparison.Ordinal) && !after.Encoding.Equals("unknown", StringComparison.OrdinalIgnoreCase);
-            ChartFile decoded;
-            bool reloaded;
-            if (preserveEncoding)
-            {
-                decoded = BmsChartFileParser.ApplyMetadataEncoding(input, parsed, after.Encoding);
-                reloaded = !HasSameDecodedMetadataText(parsed, decoded);
-            }
-            else
-            {
-                BmsEncodingDetectionResult detection = detectedEncoding ?? BmsEncodingDetector.Detect(input.Bytes);
-                result.EncodingDetectionResult = detection;
-                decoded = BmsChartFileParser.ApplyEncodingDetection(input, parsed, detection);
-                // 未確定値の非CP932再検出は、同値でも従来どおり限定したsong更新を要求します。
-                reloaded = !string.IsNullOrWhiteSpace(detection.EncodingName) && !detection.EncodingName.EndsWith("?", StringComparison.Ordinal)
-                    && detection.EncodingName != "unknown" && System.Text.Encoding.GetEncoding(detection.EncodingName).CodePage != 932;
-                after = after with { Encoding = detection.EncodingName, EncodingFixed = reloaded || after.EncodingFixed };
-            }
-            if (reloaded)
-            {
-                parsed = parsed with
-                {
-                    Title = decoded.Title,
-                    Subtitle = decoded.Subtitle,
-                    Artist = decoded.Artist,
-                    RawTitle = decoded.RawTitle,
-                    RawSubtitle = decoded.RawSubtitle,
-                    RawArtist = decoded.RawArtist,
-                    Subartist = decoded.Subartist,
-                    Genre = decoded.Genre,
-                    Date = Lr2SongRowEnricher.ToLr2UnixSeconds(input.LastWriteTimeUtc),
-                    LastWriteTimeUtc = input.LastWriteTimeUtc
-                };
-                result.EncodingReloadCount = 1;
-                result.ReloadedBmsChart = parsed;
-            }
-            result.EncodingElapsedTicks = Stopwatch.GetTimestamp() - encodingStart;
-            result.EncodingReloadElapsedTicks = reloaded ? result.EncodingElapsedTicks : 0;
-        }
         result.MaintenanceInfo = after;
         // 保留は現在項目の寿命内で比較・反映し、保存要求には含めません。取得の由来は比較へ混ぜません。
         result.MaintenanceInfoChanged = !Equals(before is null ? null : before with { Origin = after.Origin }, after);

@@ -120,34 +120,14 @@ internal static class Lr2CompatibilityEvaluator
         }
     }
 
-    /// <summary>取得済みの確定結果から原文のCP932長と互換性を評価します。取得や照合用別名への置換は行いません。</summary>
-    internal static Lr2ResourceReferenceEvaluation EvaluateResourceReferences(
-        string chartPath,
-        ChartResourceSnapshot snapshot)
+    /// <summary>解析時のCP932走査で保守値へ集約した三事実を返します。通常資源の実採用原文からLR2原文を逆算しません。</summary>
+    internal static Lr2ResourceReferenceEvaluation EvaluateResourceReferences(ChartFile chart)
     {
-        ArgumentNullException.ThrowIfNull(snapshot);
-
-        Lr2CompatibilityWarningFlags flags = Lr2CompatibilityWarningFlags.None;
-        int? maxRelativeBytes = null;
-        bool hasParentTraversal = false;
-        Lr2ResourcePathEvaluationContext context = CreateResourcePathEvaluationContext(chartPath);
-        foreach (ChartResourceReference reference in snapshot.ResourceReferences)
-        {
-            if (reference.Status == ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported)
-            {
-                flags |= Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported;
-                continue;
-            }
-            // 空定義は従来の列挙対象外です。非空のUnknownや空LookupKeyの原文は引き続き評価します。
-            if (string.IsNullOrWhiteSpace(reference.RawPath))
-            {
-                continue;
-            }
-            ApplyResourcePathEvaluation(context, reference.RawPath,
-                ref flags, ref maxRelativeBytes, ref hasParentTraversal);
-        }
-
-        return new Lr2ResourceReferenceEvaluation(flags, maxRelativeBytes, hasParentTraversal);
+        ResourceHealthMaintenanceSnapshot facts = chart?.ResourceHealthMaintenanceSnapshot;
+        return new Lr2ResourceReferenceEvaluation(
+            (Lr2CompatibilityWarningFlags)(facts?.Lr2WarningFlags ?? 0)
+                & (Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported | Lr2CompatibilityWarningFlags.ResourcePathTooLong),
+            facts?.Lr2ResourceMaxRelativeCp932Bytes, facts?.Lr2ResourceHasParentTraversal == true);
     }
 
     internal static Lr2ResourceReferenceEvaluation ReevaluateResourceReferencesForRelocatedPath(
@@ -167,10 +147,9 @@ internal static class Lr2CompatibilityEvaluator
         return new Lr2ResourceReferenceEvaluation(flags, maxRelativeCp932Bytes, hasParentTraversal: false);
     }
 
-    /// <summary>移転先の保守事実を更新します。親参照は呼出元が明示取得した結果で再評価し、取得できない場合は既存の事実を維持します。</summary>
-    /// <summary>移転先の経路に依存する保守事実だけを不変共通値へ反映します。</summary>
+    /// <summary>移転先の経路に依存する保守事実を更新します。親参照を含む場合は最大相対長だけでは再計算できないため、再解析まで既存の資源診断を維持します。</summary>
     internal static ResourceHealthMaintenanceSnapshot RefreshRelocatedMaintenanceFacts(
-        ResourceHealthMaintenanceSnapshot value, string path, ChartResourceSnapshot resources = null)
+        ResourceHealthMaintenanceSnapshot value, string path)
     {
         if (value == null || (!value.Lr2WarningFlags.HasValue && !value.Lr2ResourceMaxRelativeCp932Bytes.HasValue
             && !value.Lr2ResourceHasParentTraversal.HasValue))
@@ -181,16 +160,14 @@ internal static class Lr2CompatibilityEvaluator
         Lr2ChartPathEvaluation pathEvaluation = EvaluateChartPath(path);
         var previousFlags = (Lr2CompatibilityWarningFlags)(value.Lr2WarningFlags ?? 0);
         Lr2ResourceReferenceEvaluation resourceEvaluation = value.Lr2ResourceHasParentTraversal == true
-            ? resources == null
-                ? new(previousFlags & (Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported | Lr2CompatibilityWarningFlags.ResourcePathTooLong), value.Lr2ResourceMaxRelativeCp932Bytes, true)
-                : EvaluateResourceReferences(path, resources)
+            ? new Lr2ResourceReferenceEvaluation(previousFlags & (Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported | Lr2CompatibilityWarningFlags.ResourcePathTooLong), value.Lr2ResourceMaxRelativeCp932Bytes, hasParentTraversal: true)
             : ReevaluateResourceReferencesForRelocatedPath(path, value.Lr2ResourceMaxRelativeCp932Bytes, previousFlags);
         return value with
         {
             Path = path,
             Lr2WarningFlags = (int)(pathEvaluation.WarningFlags | resourceEvaluation.WarningFlags),
             Lr2ResourceMaxRelativeCp932Bytes = resourceEvaluation.MaxRelativeCp932Bytes,
-            Lr2ResourceHasParentTraversal = resourceEvaluation.HasParentTraversal,
+            Lr2ResourceHasParentTraversal = value.Lr2ResourceHasParentTraversal,
             Origin = MaintenanceInfoOrigin.Calculated
         };
     }
@@ -217,7 +194,8 @@ internal static class Lr2CompatibilityEvaluator
         }
     }
 
-    private static Lr2ResourcePathEvaluationContext CreateResourcePathEvaluationContext(string chartPath)
+    /// <summary>同じCP932走査で各原文の長さを集約するため、配置に依存する共通値を一度だけ作ります。</summary>
+    internal static Lr2ResourcePathEvaluationContext CreateResourcePathEvaluationContext(string chartPath)
     {
         try
         {
@@ -236,14 +214,21 @@ internal static class Lr2CompatibilityEvaluator
         }
     }
 
-    private static void ApplyResourcePathEvaluation(
+    /// <summary>一原文の親参照とCP932長を集約します。復号不能でも親参照は保持し、置換後文字列から長さを逆算しません。</summary>
+    internal static void ApplyResourcePathEvaluation(
         Lr2ResourcePathEvaluationContext context,
         string rawPath,
         ref Lr2CompatibilityWarningFlags flags,
         ref int? maxRelativeBytes,
-        ref bool hasParentTraversal)
+        ref bool hasParentTraversal,
+        bool decodeUnsupported = false)
     {
         hasParentTraversal |= HasParentTraversalSegment(rawPath);
+        if (decodeUnsupported)
+        {
+            flags |= Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported;
+            return;
+        }
         if (!TryGetCp932ByteCount(rawPath, out _))
         {
             flags |= Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported;

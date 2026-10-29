@@ -264,7 +264,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         ChartPackage first = originals.Single(package => package.path == a);
         ChartPackage other = originals.Single(package => package.path == unrelated);
         PackageChartEntry oldEntry = first.ChartEntries.Single();
-        ChartFile specified = BmsChartFileParser.ApplyMetadataEncoding(ChartFileContentReader.ReadSnapshot(a), oldEntry.Chart, "windows-1252") with
+        ChartFile specified = BmsChartFileParser.ApplyEncoding(ChartFileContentReader.ReadSnapshot(a), oldEntry.Chart, "windows-1252") with
         {
             ResourceHealthMaintenanceSnapshot = oldEntry.Chart.ResourceHealthMaintenanceSnapshot with { Encoding = "windows-1252", EncodingFixed = true }
         };

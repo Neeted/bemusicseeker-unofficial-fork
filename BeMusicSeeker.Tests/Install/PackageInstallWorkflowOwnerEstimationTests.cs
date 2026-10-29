@@ -239,15 +239,15 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Assert.AreEqual(onlyVisualMissing ? 0 : 1, observer.WorkCount);
             if (onlyVisualMissing)
             {
-                // 親参照の既存非対応判定も自動推定を省略します。通常画像不足では音源完全による省略を確認します。
-                Assert.AreEqual(invalidAuxiliary ? PendingEstimateDeferredReason.UnsupportedResourcePath : PendingEstimateDeferredReason.CompleteSourceAudio,
+                // 音源完全による既存の探索省略を維持し、親参照は別の自動導入禁止条件とします。
+                Assert.AreEqual(PendingEstimateDeferredReason.CompleteSourceAudio,
                     package.DeferredEstimateReason);
                 Assert.IsTrue(string.IsNullOrEmpty(package.ChartEntries.Single().Chart.InstallDestination));
                 ChartFile pendingChart = package.ChartEntries.Single().Chart;
                 if (invalidAuxiliary)
                 {
-                    Assert.IsNull(pendingChart.StagefileHealth);
-                    Assert.IsFalse(pendingChart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceStagefileMissing));
+                    Assert.AreEqual(false, pendingChart.StagefileHealth);
+                    Assert.IsTrue(pendingChart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceStagefileMissing));
                     Assert.IsTrue(pendingChart.Warnings.Any(warning => warning.Kind == ChartWarningKind.UnsupportedResourcePath));
                 }
                 else

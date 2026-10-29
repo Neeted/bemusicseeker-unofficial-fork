@@ -35,7 +35,8 @@ internal sealed class ChartPropertiesViewModel : ViewModel
         VerificationPath = placement.Directory;
         placementBasis = placement.Basis;
         ChartResourcePlacement capturedPlacement = placement;
-        this.read = read ?? (() => new ChartResourceDiagnosticsService().Read(chart.Path, chart.Kind, capturedPlacement));
+        string capturedEncoding = BmsChartFileParser.GetConcreteFixedEncoding(chart);
+        this.read = read ?? (() => new ChartResourceDiagnosticsService().Read(chart.Path, chart.Kind, capturedPlacement, capturedEncoding));
         ResourceService.Current.PropertyChanged += ResourceServicePropertyChanged;
     }
 
@@ -66,7 +67,7 @@ internal sealed class ChartPropertiesViewModel : ViewModel
     public string Artist { get; private set; }
     /// <summary>取得・解析失敗時だけ表示する文言です。初期・読取り中・成功時は空です。</summary>
     public string Status { get; private set; } = string.Empty;
-    /// <summary>取得済みの不足・確認不能を現言語で整形した、コピー可能な一覧です。</summary>
+    /// <summary>通常参照の問題と、正常・採用状態を含む任意画像の全定義を現言語で整形した、コピー可能な一覧です。</summary>
     public string Issues { get; private set; } = string.Empty;
     /// <summary>定義元を保つ未使用リソース定義の一覧です。</summary>
     public string UnusedDefinitions { get; private set; } = string.Empty;
@@ -132,9 +133,21 @@ internal sealed class ChartPropertiesViewModel : ViewModel
         // 初期・読取り中を成功した空一覧へ読み替えず、取得済みの事実だけを再整形します。
         if (diagnostics is not null)
         {
-            Issues = JoinOrNone(diagnostics.Issues.Select(issue =>
-                FormatDefinition(issue.Definition) + " (" + FormatReason(issue.Reason) + ")"));
-            UnusedDefinitions = JoinOrNone(diagnostics.UnusedDefinitions.Select(FormatDefinition));
+            IEnumerable<ChartResourceDiagnosticIssue> definitions = diagnostics.Issues;
+            if (!diagnostics.OptionalImageDefinitions.IsDefault) { definitions = definitions.Concat(diagnostics.OptionalImageDefinitions); }
+            IEnumerable<string> issueLines = definitions.Select(issue => FormatDefinition(issue.Definition)
+                + (issue.Definition.Reference.Usage == ChartResourceUsage.Normal ? string.Empty
+                    : " [" + (issue.Definition.IsAdopted ? Resources.ChartPropertiesAdopted : Resources.ChartPropertiesDiagnosticOnly) + "]")
+                + FormatDiagnosticFacts(issue.Definition, issue.Reason));
+            if (!diagnostics.AlternativeCp932Definitions.IsDefault)
+            {
+                issueLines = issueLines.Concat(diagnostics.AlternativeCp932Definitions.Select(definition =>
+                    "[" + Resources.ChartPropertiesCp932AlternativeInterpretation + "] " + FormatDefinition(definition)
+                    + " (" + Resources.ChartPropertiesCp932Unsupported + ")"));
+            }
+            Issues = JoinOrNone(issueLines);
+            UnusedDefinitions = JoinOrNone(diagnostics.UnusedDefinitions.Select(definition =>
+                FormatDefinition(definition) + FormatUnusedProblem(definition)));
             UndefinedReferences = JoinOrNone(diagnostics.UndefinedReferences.Select(number => FormatNumber(number.Source, number.Id)));
         }
         Status = failed ? Resources.ChartPropertiesFailed : string.Empty;
@@ -154,7 +167,40 @@ internal sealed class ChartPropertiesViewModel : ViewModel
     }
 
     private static string FormatDefinition(ChartResourceDefinition definition)
-        => FormatNumber(definition.Source, definition.Id) + " " + definition.Reference.RawPath;
+        => FormatNumber(definition.Source, definition.Id)
+            + (definition.LineNumber.HasValue ? " [" + string.Format(Resources.ChartPropertiesDefinitionLine, definition.LineNumber.Value) + "]" : string.Empty)
+            + " " + (definition.RawLine ?? definition.Reference.RawPath);
+
+    private static string FormatUnusedProblem(ChartResourceDefinition definition)
+        => FormatDiagnosticFacts(definition, definition.Reference.Classification == ChartResourceClassification.Matchable ? null
+            : definition.Reference.Status switch
+            {
+                ChartResourcePathNormalizationStatus.Empty => ChartResourceDiagnosticReason.Empty,
+                ChartResourcePathNormalizationStatus.MissingFileName => ChartResourceDiagnosticReason.MissingFileName,
+                ChartResourcePathNormalizationStatus.UnknownKind => ChartResourceDiagnosticReason.UnknownKind,
+                ChartResourcePathNormalizationStatus.MalformedSyntax => ChartResourceDiagnosticReason.MalformedSyntax,
+                ChartResourcePathNormalizationStatus.ParentTraversalUnsupported => ChartResourceDiagnosticReason.Unsupported,
+                _ => ChartResourceDiagnosticReason.InvalidPath
+            });
+
+    // 同一解析のCP932事実は通常理由へ添えます。別解釈との行番号・IDによる結合は行いません。
+    private static string FormatDiagnosticFacts(ChartResourceDefinition definition, ChartResourceDiagnosticReason? reason)
+    {
+        string text = reason.HasValue ? FormatReason(reason.Value) + FormatCountingContext(definition) : string.Empty;
+        if (definition.Cp932DecodeUnsupported)
+        {
+            text += (text.Length == 0 ? string.Empty : "; ") + Resources.ChartPropertiesCp932Unsupported;
+        }
+        return text.Length == 0 ? string.Empty : " (" + text + ")";
+    }
+
+    // 分類理由は使用・採用状態に依存しません。要求への算入だけを定義の文脈で区別します。
+    private static string FormatCountingContext(ChartResourceDefinition definition)
+        => !definition.Reference.IsUsed || !definition.IsAdopted
+            || definition.Reference.Classification == ChartResourceClassification.Excluded
+                ? "; " + Resources.ChartPropertiesNotCounted
+                : definition.Reference.Classification == ChartResourceClassification.Unmatchable
+                    ? "; " + Resources.ChartPropertiesCountedUnfulfilled : string.Empty;
 
     private static string FormatNumber(string source, string id)
         => string.IsNullOrEmpty(id) ? source
@@ -163,9 +209,13 @@ internal sealed class ChartPropertiesViewModel : ViewModel
     private static string FormatReason(ChartResourceDiagnosticReason reason) => reason switch
     {
         ChartResourceDiagnosticReason.Missing => Resources.ChartPropertiesMissing,
+        ChartResourceDiagnosticReason.Empty => Resources.ChartPropertiesExcludedEmpty,
+        ChartResourceDiagnosticReason.MissingFileName => Resources.ChartPropertiesExcludedFileName,
+        ChartResourceDiagnosticReason.UnknownKind => Resources.ChartPropertiesExcludedKind,
+        ChartResourceDiagnosticReason.MalformedSyntax => Resources.ChartPropertiesExcludedSyntax,
+        ChartResourceDiagnosticReason.Satisfied => Resources.ChartPropertiesSatisfied,
         ChartResourceDiagnosticReason.Unverifiable => Resources.ChartPropertiesUnverifiable,
         ChartResourceDiagnosticReason.InvalidPath => Resources.ChartPropertiesInvalidPath,
-        ChartResourceDiagnosticReason.Cp932DecodeUnsupported => Resources.ChartPropertiesCp932Unsupported,
         _ => Resources.ChartPropertiesUnsupported
     };
 }

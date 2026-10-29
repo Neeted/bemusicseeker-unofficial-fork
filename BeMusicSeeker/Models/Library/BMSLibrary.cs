@@ -2457,7 +2457,6 @@ public partial class BMSLibrary : ObservableObject
     private enum PendingInstallEstimateEvaluationOutcomeKind
     {
         NoOp,
-        UnsupportedResourcePath,
         SourceSurfaceScanLimitExceeded,
         EstimatedResult,
         NotEvaluated
@@ -3564,11 +3563,6 @@ public partial class BMSLibrary : ObservableObject
         {
             entry.AcquireResources();
         }
-        if (HasUnsupportedResourcePath(request.TargetEntries))
-        {
-            result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.UnsupportedResourcePath;
-            return result;
-        }
 
         if (request.AttemptInstalledResolve)
         {
@@ -3757,9 +3751,6 @@ public partial class BMSLibrary : ObservableObject
 
         switch (evaluationResult.OutcomeKind)
         {
-            case PendingInstallEstimateEvaluationOutcomeKind.UnsupportedResourcePath:
-                ApplyUnsupportedResourcePathToPackageUnsafe(package, currentTargetEntries);
-                return false;
             case PendingInstallEstimateEvaluationOutcomeKind.SourceSurfaceScanLimitExceeded:
                 LogSourceSurfaceScanLimitExceeded(evaluationResult.EstimationData, package?.path);
                 ApplySourceSurfaceScanLimitExceededToPackageUnsafe(
@@ -4013,7 +4004,6 @@ public partial class BMSLibrary : ObservableObject
         string reasonLog = reason switch
         {
             PendingEstimateDeferredReason.CompleteSourceAudio => "complete_source_audio",
-            PendingEstimateDeferredReason.UnsupportedResourcePath => "unsupported_resource_path",
             PendingEstimateDeferredReason.InstalledDestinationResolveFailed => "installed_destination_resolve_failed",
             PendingEstimateDeferredReason.SourceSurfaceScanLimitExceeded => "source_surface_scan_limit_exceeded",
             _ => "unknown"
@@ -4042,8 +4032,7 @@ public partial class BMSLibrary : ObservableObject
 
             foreach (PendingEstimateSourceBatchPackageState state in candidateSnapshot.PackageStates)
             {
-                if (HasUnsupportedResourcePath(state.TargetEntries)
-                    || HasInstalledDestinationResolveFailed(state)
+                if (HasInstalledDestinationResolveFailed(state)
                     || HasSourceSurfaceScanLimitExceeded(state))
                 {
                     continue;
@@ -4100,13 +4089,6 @@ public partial class BMSLibrary : ObservableObject
         {
             foreach (PendingEstimateSourceBatchPackageState state in candidateSnapshot.PackageStates)
             {
-                if (HasUnsupportedResourcePath(state.TargetEntries))
-                {
-                    ApplyPackageMixedInstallWarningsToEntries(state.AlreadyInstalledEntries);
-                    ApplyUnsupportedResourcePathToPackageUnsafe(state.Package, state.TargetEntries);
-                    committedResult.DeferredPackages.Add(state.Package);
-                    continue;
-                }
 
                 if (HasInstalledDestinationResolveFailed(state))
                 {
@@ -4197,7 +4179,6 @@ public partial class BMSLibrary : ObservableObject
 
             if (state.HasTargetEntries
                 && !HasInstalledDestinationResolveFailed(state)
-                && !HasUnsupportedResourcePath(state.TargetEntries)
                 && LongPathFileSystem.DirectoryExists(state.Package?.path)
                 && !string.IsNullOrWhiteSpace(state.SourceDirectory)
                 && LongPathFileSystem.DirectoryExists(state.SourceDirectory))
@@ -4213,11 +4194,6 @@ public partial class BMSLibrary : ObservableObject
         foreach (PendingEstimateSourceBatchPackageState state in snapshot.PackageStates)
         {
             if (HasInstalledDestinationResolveFailed(state))
-            {
-                continue;
-            }
-
-            if (HasUnsupportedResourcePath(state.TargetEntries))
             {
                 continue;
             }
@@ -8578,7 +8554,7 @@ public partial class BMSLibrary : ObservableObject
         }
         libraryMutationOwner.ApplyPendingEncoding(pendingEntries, result.ChangedCharts);
         libraryMutationOwner.DispatchWarningPresentationChanged("encoding_changed",
-            changedCharts: result.ChangedCharts.Where(chart => chart.Token != null).ToArray(), basicValuesChanged: result.SongMetadataUpdates.Count > 0);
+            changedCharts: result.ChangedCharts.Where(chart => chart.Token != null).ToArray(), basicValuesChanged: result.SongMetadataUpdates.Count > 0, resourceHealthMutation: result.ResourceHealthMutation);
     }
 
     /// <summary>

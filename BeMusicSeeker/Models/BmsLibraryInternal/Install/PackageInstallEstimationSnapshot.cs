@@ -174,9 +174,8 @@ internal readonly record struct InstallEstimationSourceAudio(int ObservedMatched
     {
         ISet<uint> supplied = bundled?.AudioRelativePathHashes;
         int observed = supplied == null || resources == null ? 0 : resources.AudioReferences.Count(reference => supplied.Contains(reference.RelativePathHash));
-        bool unresolved = resources?.HasUnresolvedAudio == true;
-        if (resources == null || unresolved || scanLimitExceeded)
-        { return new(observed, resources == null || unresolved ? null : resources.AudioReferenceCount, InstallEstimationSourceAudioStatus.Unverifiable); }
+        if (resources == null || scanLimitExceeded)
+        { return new(observed, resources?.AudioReferenceCount, InstallEstimationSourceAudioStatus.Unverifiable); }
         if (resources.AudioReferenceCount == 0) { return new(observed, 0, InstallEstimationSourceAudioStatus.NoAudioReferences); }
         return new(observed, resources.AudioReferenceCount, bundled == null ? InstallEstimationSourceAudioStatus.Unverifiable
             : complete || observed == resources.AudioReferenceCount ? InstallEstimationSourceAudioStatus.Verified : InstallEstimationSourceAudioStatus.LowerBound);

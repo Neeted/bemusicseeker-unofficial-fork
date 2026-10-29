@@ -370,8 +370,10 @@ internal sealed class CatalogMaintenanceOwner
                     return result;
                 }
 
+                using ResourceHealthIndexOwner.ResourceHealthInputMutation inputMutation = result.SongMetadataUpdates.Count > 0 || result.MaintenanceInfosToUpsert.Any(value => ownedKeys.Contains((value.Path, value.Hash)))
+                    ? resourceHealthOwner.BeginInputMutation() : null;
                 var writeRequest = new CatalogMaintenanceWriteRequest(
-                    result.ChangedCharts.Where(chart => chart.Token != null).Select(chart => chart.ResourceHealthMaintenanceSnapshot),
+                    result.MaintenanceInfosToUpsert.Where(value => ownedKeys.Contains((value.Path, value.Hash))),
                     result.SongMetadataUpdates, currentValues: result.ChangedCharts);
                 if (writeRequest.HasChanges && !catalogMutationOwner.ApplyMaintenanceWriteUnderGuard(writeRequest).Applied)
                 {
@@ -380,6 +382,13 @@ internal sealed class CatalogMaintenanceOwner
 
                 durable = true;
                 ApplyCommittedCurrentValues(result.ChangedCharts.Where(chart => chart.Token != null));
+                if (inputMutation != null)
+                {
+                    result.ResourceHealthMutation.UpdatedTargets.AddRange(result.ChangedCharts.Where(chart => chart.Token != null));
+                    result.ResourceHealthMutation.DeltaBaseResourceHealthInputVersion = inputMutation.BaseInputVersion;
+                    result.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion = inputMutation.TargetInputVersion;
+                    result.ResourceHealthMutation.InvalidateIfDeltaFails = true;
+                }
             }
         }
         catch (Exception exception)
@@ -413,7 +422,8 @@ internal sealed class CatalogMaintenanceOwner
                 Stagefile = value.Stagefile,
                 Banner = value.Banner,
                 Backbmp = value.Backbmp,
-                PreviewMusic = value.PreviewMusic
+                PreviewMusic = value.PreviewMusic,
+                Resources = null
             });
         return receipt.Changes.Any(change => !BmsLibraryMaintenanceService.HasSameDecodedMetadataText(change.Before, change.After));
     }

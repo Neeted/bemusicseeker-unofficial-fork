@@ -9,4 +9,6 @@ internal sealed class MaintenanceEncodingUpdateResult
     internal List<SongMetadataUpdate> SongMetadataUpdates { get; } = [];
     internal List<ResourceHealthMaintenanceSnapshot> MaintenanceInfosToUpsert { get; } = [];
     internal List<ChartFile> ChangedCharts { get; } = [];
+    /// <summary>所持分の保存・現在値確定後に同じ一括反映へ渡す健康度索引差分です。保留だけなら空です。</summary>
+    internal ResourceHealthIndexMutation ResourceHealthMutation { get; } = new();
 }

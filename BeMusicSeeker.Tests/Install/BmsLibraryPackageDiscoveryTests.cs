@@ -21,6 +21,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [DataRow("preview-case", true)]
     [DataRow("preview-first", true)]
     [DataRow("preview-cp932", true)]
+    [DataRow("preview-utf8", true)]
+    [DataRow("preview-unknown-extension", true)]
+    [DataRow("stagefile-later-excluded", false)]
+    [DataRow("stagefile-later-missing", false)]
+    [DataRow("unknown-bmp", false)]
     [DataRow("preview-missing", false)]
     [DataRow("preview-parent", false)]
     [DataRow("preview-rooted", false)]
@@ -38,6 +43,12 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 directive = "#" + kind.ToUpperInvariant() + " artwork.png\n";
                 resource = "artwork.png";
             }
+            else if (kind.StartsWith("stagefile-later", StringComparison.Ordinal))
+            {
+                directive = "#STAGEFILE " + (kind.EndsWith("excluded", StringComparison.Ordinal) ? ".png" : "missing.png") + "\n#STAGEFILE artwork.png\n";
+                resource = "artwork.png";
+            }
+            else if (kind == "unknown-bmp") { directive = "#BMP01 mystery.xyz\n#00104:01\n"; resource = "mystery.png"; }
             else if (kind.StartsWith("preview", StringComparison.Ordinal))
             {
                 string reference = kind switch
@@ -47,13 +58,14 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     "preview-parent" => "../trailer.wav",
                     "preview-rooted" => Path.Combine(root, "trailer.wav"),
                     "preview-invalid" => "bad|name.wav",
-                    "preview-cp932" => "試聴.wav",
+                    "preview-cp932" or "preview-utf8" => "試聴.wav",
+                    "preview-unknown-extension" => "trailer.xyz",
                     _ => "trailer.wav"
                 };
                 directive = "  #pReViEw\t" + reference + "\n";
                 if (kind == "preview-first") { directive = "#PREVIEW   \n" + directive + "#PREVIEW missing.wav\n"; }
                 if (kind == "preview-sub") { resource = Path.Combine("media", "trailer.mp3"); }
-                if (kind == "preview-cp932") { resource = "試聴.flac"; }
+                if (kind is "preview-cp932" or "preview-utf8") { resource = "試聴.flac"; }
                 if (kind == "preview-missing") { resource = "unrelated.ogg"; }
             }
             string physical = kind is "preview-parent" or "preview-rooted" ? Path.Combine(root, "trailer.wav") : Path.Combine(directory, resource);
@@ -61,7 +73,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             File.WriteAllBytes(physical, [9, 7]);
             string first = Path.Combine(directory, "a.pms");
             string second = Path.Combine(directory, "b.bms");
-            File.WriteAllText(first, "#TITLE Song\n#ARTIST Artist\n#WAV01 missing-a.wav\n#00111:01\n" + directive, Encoding.GetEncoding("shift_jis"));
+            File.WriteAllText(first, "#TITLE Song\n#ARTIST Artist\n#WAV01 missing-a.wav\n#00111:01\n" + directive, kind == "preview-utf8" ? new UTF8Encoding(true) : Encoding.GetEncoding("shift_jis"));
             File.WriteAllText(second, "#TITLE Other\n#WAV01 missing-b.wav\n#00111:01\n", Encoding.ASCII);
             File.WriteAllText(Path.Combine(directory, "readme.txt"), "unselected");
             var service = new BmsLibraryPackageInstallService();

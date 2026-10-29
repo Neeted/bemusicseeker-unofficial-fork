@@ -1149,11 +1149,6 @@ public partial class BMSLibrary
                     {
                         entry.AcquireResources();
                     }
-                    if (HasUnsupportedResourcePath(targetEntryList))
-                    {
-                        ApplyUnsupportedResourcePathToPackageUnsafe(package, targetEntryList);
-                        return;
-                    }
                     foreach (PackageChartEntry entry in targetEntryList)
                     {
                         entry.SetSearchingStatus(isSearching: true);
@@ -1201,31 +1196,6 @@ public partial class BMSLibrary
         foreach (PackageChartEntry entry in (missingEntries ?? []).Where(entry => entry?.Chart != null))
         {
             entry.ApplyInstalledDestinationResolveFailed();
-        }
-        RefreshPendingResourceHealth(missingEntries, package);
-    }
-
-    private static bool HasUnsupportedResourcePath(IEnumerable<PackageChartEntry> entries)
-    {
-        return (entries ?? []).Any(entry => entry?.Chart != null && entry.ResourceSnapshot.HasUnsupportedParentTraversalReference);
-    }
-
-    private void ApplyUnsupportedResourcePathToPackageUnsafe(ChartPackage package, IEnumerable<PackageChartEntry> missingEntries)
-    {
-        if (package != null)
-        {
-            package.DeferredEstimateReason = PendingEstimateDeferredReason.UnsupportedResourcePath;
-        }
-        foreach (PackageChartEntry entry in (missingEntries ?? []).Where(entry => entry?.Chart != null))
-        {
-            if (entry.ResourceSnapshot.HasUnsupportedParentTraversalReference)
-            {
-                entry.ApplyUnsupportedResourcePathWarning();
-            }
-            else
-            {
-                entry.ClearInstallDestination();
-            }
         }
         RefreshPendingResourceHealth(missingEntries, package);
     }
@@ -1303,11 +1273,6 @@ public partial class BMSLibrary
                         foreach (PackageChartEntry entry in targetEntries)
                         {
                             entry.AcquireResources();
-                        }
-                        if (HasUnsupportedResourcePath(targetEntries))
-                        {
-                            ApplyUnsupportedResourcePathToPackageUnsafe(package, targetEntries);
-                            return;
                         }
                         // 部分既所持パッケージでは、既存譜面の実配置先を優先利用して未所持譜面の導入先を補完する。
                         if (alreadyInstalledEntries.Count > 0)

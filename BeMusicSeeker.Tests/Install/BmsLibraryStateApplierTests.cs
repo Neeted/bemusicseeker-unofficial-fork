@@ -19,7 +19,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryStateApplierTests
 {
-    /// <summary>手動確定で残った入力元・所持先解決の診断を、確定DSTの統合追従でも保持し、全体削除による解除では従来どおり消去します。</summary>
+    /// <summary>手動確定で残った入力元・所持先解決の診断を、確定DSTの統合追従でも保持し、全体削除によるDST解除では候補診断を消し、採用親参照のWARNINGは保持します。</summary>
     /// <remarks>実診断producer→実手動DST編集→merge参照facts生成→実applierを接続します。物理成功の認定とsession・公開は既存の実統合/削除系列へ分担します。</remarks>
     [DataTestMethod]
     [DataRow(nameof(ChartWarningKind.UnsupportedResourcePath))] // 使用した親参照は、候補の評価結果とは独立した入力元診断です。
@@ -55,7 +55,7 @@ public sealed class BmsLibraryStateApplierTests
                 BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry);
                 switch (diagnosticKind)
                 {
-                    case ChartWarningKind.UnsupportedResourcePath: entry.ApplyUnsupportedResourcePathWarning(); break;
+                    case ChartWarningKind.UnsupportedResourcePath: break; // 初期の実資源投影が親参照WARNINGを生成済みです。
                     case ChartWarningKind.SourceSurfaceScanLimitExceeded: entry.ApplySourceSurfaceScanLimitExceededWarning(50000); break;
                     case ChartWarningKind.InstalledDestinationResolveFailed: entry.ApplyInstalledDestinationResolveFailed(); break;
                     default: throw new AssertFailedException("検証対象の非候補診断が必要です。");
@@ -128,7 +128,8 @@ public sealed class BmsLibraryStateApplierTests
                 Assert.AreEqual(string.Empty, entries[0].Chart.InstallDestinationTitle);
                 Assert.AreEqual(string.Empty, entries[0].Chart.InstallDestinationArtist);
                 Assert.AreEqual(0, entries[0].Chart.InstallDestinationSuggestions.Count);
-                Assert.IsFalse(entries[0].Chart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
+                Assert.AreEqual(diagnosticKind == ChartWarningKind.UnsupportedResourcePath,
+                    entries[0].Chart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
                 Assert.AreEqual(originalSource.WAVHealth, entries[0].Chart.WAVHealth);
                 Assert.AreEqual(ChartResourcePlacementBasis.Current, entries[0].ResourcePlacement.Basis);
                 Assert.AreEqual(Path.GetDirectoryName(entries[0].Chart.Path), entries[0].ResourcePlacement.Directory);

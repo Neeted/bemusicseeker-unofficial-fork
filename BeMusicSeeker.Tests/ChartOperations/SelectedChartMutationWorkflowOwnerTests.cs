@@ -1659,21 +1659,37 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         });
     }
 
-    /// <summary>実ownerから本番adapter・モデル・DBへ同じLを渡し、文字コードと修正印の保存、Busy、公開終端を確認します。</summary>
+    /// <summary>実ownerから本番adapter・モデル・DBへ同じLを渡します。資源だけが変わるBig5でも保存・現在値・健康度索引を更新し、余分なsong更新をせず、Busyと公開終端を守ります。</summary>
     [TestMethod]
-    public async Task ApplyEncoding_RealStorePersistsEncodingAndFixedMarkUnderSameAdmission()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ApplyEncoding_RealStorePersistsEncodingAndFixedMarkUnderSameAdmission(bool resourcesOnly)
     {
         await WithTemporarySongDbAsync(async songDbPath =>
         {
             string path = Path.Combine(Path.GetDirectoryName(songDbPath)!, "encoding.bms");
-            File.WriteAllText(path, "#TITLE encoding");
+            string requestedEncoding = resourcesOnly ? "big5" : "utf-8";
+            File.WriteAllText(path, "#TITLE encoding\n" + (resourcesOnly ? "#WAV01 中文.wav\n#00111:01\n" : string.Empty), System.Text.Encoding.GetEncoding(requestedEncoding));
+            if (resourcesOnly) { File.WriteAllBytes(Path.Combine(Path.GetDirectoryName(path)!, "中文.ogg"), []); }
+            ChartFile parsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path));
+            ResourceHealthMaintenanceSnapshot initial = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(parsed) with { Encoding = "shift_jis" };
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(),
                 new FileDbReportRecordingDialogs(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
-            { BmsCharts = [CreateFile(new string('c', 32), path)], BmsonCharts = [] };
+            { BmsCharts = [ChartFileProjection.WithMaintenance(parsed, initial)], BmsonCharts = [] };
             var gateway = new BmsLibraryDbGateway(songDbPath);
             gateway.UpsertSongs(library.BmsCharts);
             ChartFile chart = library.BmsCharts.Single();
+            ResourceHealthIndexSnapshot beforeIndex = library.GetResourceHealthIndexSnapshotForView("encoding-before");
+            Assert.AreEqual(resourcesOnly, beforeIndex.GetProjection(chart).HasIssues);
+            if (resourcesOnly)
+            {
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+                {
+                    db.Execute("CREATE TRIGGER reject_encoding_only_song_update BEFORE UPDATE ON song BEGIN SELECT RAISE(ABORT, 'unexpected song update'); END;");
+                    db.Execute("CREATE TRIGGER reject_encoding_only_song_insert BEFORE INSERT ON song BEGIN SELECT RAISE(ABORT, 'unexpected song insert'); END;");
+                });
+            }
             var target = new ChartOperationTarget(chart, null, ChartOperationSourceScope.Library,
                 true, false, false, ChartOperationCapabilities.RunBmsEncodingFix);
             var owner = new SelectedChartMutationWorkflowOwner(() => library, library.OperationAdmission,
@@ -1695,17 +1711,25 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 Assert.IsTrue(library.OperationAdmission.TryEnter(out IDisposable busy));
                 using (busy)
                 {
-                    Assert.IsFalse((await owner.ApplyEncodingAsync(new SelectedChartEncodingRequest([target], "utf-8"))).Succeeded);
+                    Assert.IsFalse((await owner.ApplyEncodingAsync(new SelectedChartEncodingRequest([target], requestedEncoding))).Succeeded);
                     using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
                     Assert.IsFalse(read.Table<LR2SongDBExtended.maintenance>().Any(row => row.path == path));
                 }
-                Assert.IsTrue((await owner.ApplyEncodingAsync(new SelectedChartEncodingRequest([target], "utf-8"))).Succeeded);
+                Assert.IsTrue((await owner.ApplyEncodingAsync(new SelectedChartEncodingRequest([target], requestedEncoding))).Succeeded);
                 using (LR2SongDBExtended read = gateway.OpenSongDbReadOnly())
                 {
                     LR2SongDBExtended.maintenance row = read.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == path);
-                    Assert.AreEqual("utf-8", row.encoding);
+                    Assert.AreEqual(requestedEncoding, row.encoding);
+                    Assert.AreEqual(resourcesOnly ? 1 : 0, MaintenanceStorageMapping.ToCommon(row).WavFilesExisting);
                     Assert.IsTrue(row.is_encoding_fixed);
                 }
+                ChartFile current = library.BmsCharts.Single();
+                Assert.AreEqual("encoding", current.RawTitle);
+                Assert.AreEqual(chart.Md5, current.Md5);
+                Assert.AreEqual(chart.Sha256, current.Sha256);
+                Assert.AreEqual(resourcesOnly ? 100 : (int?)null, current.WAVHealth);
+                Assert.IsNull(current.Resources);
+                Assert.IsFalse(library.GetResourceHealthIndexSnapshotForView("encoding-after").GetProjection(current).HasIssues);
                 Assert.AreEqual(1, published);
                 Assert.IsFalse(library.OperationAdmission.IsActive);
             }
@@ -1736,7 +1760,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             const string artist = "作曲者 artist";
             string pendingPath = Path.Combine(source, "pending.bms");
             File.WriteAllText(pendingPath, "#TITLE " + title + "\n#ARTIST " + artist + "\n#WAV01 tone.wav\n#00111:01\n", System.Text.Encoding.GetEncoding("big5"));
-            ChartFile parsed = BmsChartFileParser.ApplyMetadataEncoding(ChartFileContentReader.ReadSnapshot(pendingPath),
+            ChartFile parsed = BmsChartFileParser.ApplyEncoding(ChartFileContentReader.ReadSnapshot(pendingPath),
                 PackageChartEntry.FromPath(pendingPath).Chart, "big5");
             ResourceHealthMaintenanceSnapshot initial = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(parsed) with
             { Encoding = decode ? "utf-8" : "big5", EncodingFixed = false };
@@ -1863,7 +1887,9 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 Assert.AreEqual(title, profile.DominantPairDisplayTitle);
                 Assert.AreEqual(artist, profile.DominantPairDisplayArtist);
                 Assert.IsTrue(current.ResourceHealthMaintenanceSnapshot.EncodingFixed);
-                Assert.AreSame(original, entry.GetOriginalResourceHealth());
+                Assert.AreEqual(0, entry.GetOriginalResourceHealth().GetWavHealth());
+                Assert.AreEqual("big5", entry.GetOriginalResourceHealth().Encoding);
+                Assert.IsTrue(entry.GetOriginalResourceHealth().EncodingFixed);
                 Assert.AreSame(placement, entry.ResourcePlacement);
                 Assert.AreEqual(before.WAVHealth, current.WAVHealth);
                 CollectionAssert.AreEqual(before.Warnings.ToArray(), current.Warnings.ToArray());
@@ -1940,7 +1966,8 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                     Assert.AreEqual(title, row.Chart.RawTitle);
                     Assert.AreEqual("big5", row.Chart.EncodingName);
                     Assert.IsTrue(row.Chart.ResourceHealthMaintenanceSnapshot.EncodingFixed);
-                    Assert.AreSame(original, entry.GetOriginalResourceHealth());
+                    Assert.AreEqual(original.GetWavHealth(), entry.GetOriginalResourceHealth().GetWavHealth());
+                    Assert.AreEqual("big5", entry.GetOriginalResourceHealth().Encoding);
                     Assert.AreSame(entry, package.ChartEntries.Single());
                     Assert.IsFalse(File.Exists(songDbPath), "保留だけの操作はDBを開いて新設しません。");
                 }

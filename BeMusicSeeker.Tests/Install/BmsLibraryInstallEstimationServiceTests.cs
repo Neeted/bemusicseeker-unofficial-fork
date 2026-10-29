@@ -290,7 +290,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual("no_audio_references", empty.Reason);
         var unresolved = InstallEstimationSourceAudio.Evaluate(ChartResourceSnapshot.Create(CreateFile("h", @"C:\Source\c.bms", "tone.wav", @"..\bad.wav")), entry, true);
         Assert.AreEqual(1, unresolved.ObservedMatched);
-        Assert.AreEqual(InstallEstimationSourceAudioStatus.Unverifiable, unresolved.Status);
+        Assert.AreEqual(InstallEstimationSourceAudioStatus.Verified, unresolved.Status);
+        Assert.AreEqual(2, unresolved.Required);
         Assert.AreEqual(InstallEstimationRelatedRule.AnyField, unresolved.RelatedRule);
     }
 
@@ -486,7 +487,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [DataRow("complete", true)]
     [DataRow("missing", false)]
     [DataRow("undefined", true)]
-    [DataRow("empty-key", false)]
+    [DataRow("empty-key", true)]
     [DataRow("unavailable", false)]
     [DataRow("zero", true)]
     [DataRow("bundled-complete", true)]
@@ -527,7 +528,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 state == "unavailable" ? null : snapshot, state == "unavailable" || bundledOnly ? null : index);
             Assert.AreEqual(apply, result.ShouldAutoApplyDestination);
             Assert.AreEqual(apply ? InstallAudioCompleteness.Complete
-                : state is "empty-key" or "unavailable" or "bundled-partial" ? InstallAudioCompleteness.Unverifiable : InstallAudioCompleteness.Missing,
+                : state is "unavailable" or "bundled-partial" ? InstallAudioCompleteness.Unverifiable : InstallAudioCompleteness.Missing,
                 result.AudioCompleteness);
             Assert.AreEqual(apply, result.Success);
             entries[0].ApplyInstallEstimationResult(result);
@@ -543,7 +544,60 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
-    /// <summary>実BMSONの完全音源は未定義BGA/LAYER/POORの追加で変わりません。定義済み画像不足だけは厳格ONで保留し、音源不足・空nameは両設定で保留とします。導入先の共通評価は音源完全性とStrongを使います。</summary>
+    /// <summary>98/100の名前付き非照合を閾値98で許容し、100では止めます。親参照は閾値を満たしても別の自動禁止条件となり、通常・候補限定・所持hashの候補と代表情報を維持します。</summary>
+    [TestMethod]
+    [DataRow(false, 98, true)]
+    [DataRow(false, 100, false)]
+    [DataRow(true, 98, false)]
+    public void Estimate_NamedUnmatchableCountsAndParentGateReachEveryEntrance(bool parent, int threshold, bool apply)
+    {
+        string[] names = [.. Enumerable.Range(0, 98).Select(i => $"tone{i}.wav"), parent ? @"..\bad1.wav" : @"C:\bad1.wav", parent ? @"..\bad2.wav" : @"C:\bad2.wav"];
+        ChartFile target = CreateFile("md5", @"C:\Source\chart.bms", names) with { RawTitle = "Song", RawArtist = "Artist", Artist = "Artist" };
+        var resources = ChartResourceSnapshot.Create(target);
+        InstallEstimationMetadataProfile profile = InstallEstimationMetadataNormalizer.BuildProfile([("Song", "Artist", "chart.bms")]);
+        var snapshot = new PackageInstallEstimationSnapshot
+        {
+            RepresentativeChart = target,
+            DefinedResources = resources,
+            TargetChartResources = [(resources, string.Empty)],
+            TargetMetadataProfile = profile
+        };
+        var index = new DirectoryResourceLookupCache();
+        index.AddDir(@"C:\Candidate", names.Take(98));
+        var service = new BmsLibraryInstallEstimationService(new BmsLibraryOptionsSnapshot { InstallDestinationAutoApplyMinAudioHealth = threshold });
+        InstallEstimationResult[] results = [service.EstimateInstallationDirectory(snapshot, index, false, ChartInstallationEstimateMode.Normal, _ => profile),
+            service.EstimateInstallationDirectoryForCandidateDirectories(snapshot, [@"C:\Candidate"], index, 1, ChartInstallationEstimateMode.Normal, _ => profile),
+            service.EvaluateInstalledChartHashDestination(@"C:\Candidate", [PackageChartEntry.FromChart(target)], _ => profile, snapshot, index)];
+        foreach (InstallEstimationResult result in results)
+        {
+            Assert.IsTrue(result.HasViableDestination);
+            Assert.IsTrue(result.SelectedCandidateMetadataEvidenceStrong);
+            Assert.AreEqual(apply, result.ShouldAutoApplyDestination);
+            Assert.AreEqual(InstallAudioCompleteness.Missing, result.AudioCompleteness);
+            Assert.AreEqual(@"C:\Candidate", result.SelectedCandidate.DirectoryPath);
+            if (!apply) { CollectionAssert.Contains(result.SuggestedDestinationDirectories, @"C:\Candidate"); }
+        }
+    }
+
+    /// <summary>音声完全の所持hash経路でも採用任意画像の親参照を別条件で検査し、音声完全なら自動確定できるという混同を防ぎます。</summary>
+    [TestMethod]
+    public void EvaluateInstalledChartHashDestination_ParentOptionalImageBlocksCompleteAudio()
+    {
+        ChartFile target = CreateFile("md5", @"C:\Source\chart.bms", "sound.wav") with { RawTitle = "Song", RawArtist = "Artist", Artist = "Artist" };
+        target = target with { Resources = target.Resources.Add(ChartResourceReference.Parse(@"..\stage.png", ChartResourceKind.Image, ChartResourceUsage.Stagefile)) };
+        InstallEstimationMetadataProfile profile = InstallEstimationMetadataNormalizer.BuildProfile([("Song", "Artist", "chart.bms")]);
+        var resources = ChartResourceSnapshot.Create(target);
+        var snapshot = new PackageInstallEstimationSnapshot { RepresentativeChart = target, DefinedResources = resources, TargetChartResources = [(resources, string.Empty)], TargetMetadataProfile = profile };
+        var index = new DirectoryResourceLookupCache(); index.AddDir(@"C:\Candidate", ["sound.wav"]);
+        InstallEstimationResult result = CreateService().EvaluateInstalledChartHashDestination(@"C:\Candidate", [PackageChartEntry.FromChart(target)], _ => profile, snapshot, index);
+        Assert.AreEqual(InstallAudioCompleteness.Complete, result.AudioCompleteness);
+        Assert.IsTrue(result.AudioAutoApplyAllowed);
+        Assert.IsFalse(result.ShouldAutoApplyDestination);
+        Assert.AreEqual(@"C:\Candidate", result.SelectedCandidate.DirectoryPath);
+        CollectionAssert.Contains(result.SuggestedDestinationDirectories, @"C:\Candidate");
+    }
+
+    /// <summary>実BMSONの完全音源は未定義BGA/LAYER/POORの追加で変わりません。定義済み画像不足だけは厳格ONで保留し、音源不足は両設定で保留し、空nameは既知0要求として扱います。導入先の共通評価は音源完全性とStrongを使います。</summary>
     [TestMethod]
     [DataRow("complete")]
     [DataRow("undefined")]
@@ -566,7 +620,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 + "\",\"notes\":[{\"x\":1,\"y\":0}]}],\"bga\":{" + bga + "}}";
             string path = Path.Combine(root, "chart.bmson");
             File.WriteAllText(path, text, new UTF8Encoding(false));
-            bool completeAudio = condition is not ("missing-audio" or "empty-name");
+            bool completeAudio = condition != "missing-audio";
             foreach (bool strict in new[] { false, true })
             {
                 AutoInstallWorkflowResult workflow = new BmsLibraryPackageInstallService().PrepareAutoInstallWorkflow([root], [], [], _ => false,

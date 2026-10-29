@@ -14,6 +14,39 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class BmsLibraryPackageInstallServiceTests
 {
+    /// <summary>同path・SHAの固定指定を発見前に適用し、非ASCII音声の実在を親一式への根拠に使います。内容変更時は旧指定を渡さず、元の単体・子単位を保ちます。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PrepareAutoInstallWorkflow_AppliesSameInputFixedEncodingBeforePackageDiscovery(bool changedContent)
+    {
+        WithTemporaryDirectory(root =>
+        {
+            string parent = Path.Combine(root, "Collection");
+            Directory.CreateDirectory(parent);
+            string path = Path.Combine(parent, "a.bms");
+            File.WriteAllText(path, "#TITLE ASCII\n#WAV01 é.wav\n#00111:01\n", Encoding.GetEncoding("windows-1252"));
+            File.WriteAllBytes(Path.Combine(parent, "é.ogg"), []);
+            string child = Path.Combine(parent, "Child");
+            string childPath = CreateBmsFile(child, "child.bms", "#TITLE Child\n");
+            var entry = PackageChartEntry.FromPath(path);
+            ChartFile fixedChart = BmsChartFileParser.ApplyEncoding(ChartFileContentReader.ReadSnapshot(path), entry.Chart, "windows-1252");
+            entry.ApplyCommittedEncoding(ChartFileProjection.WithMaintenance(fixedChart,
+                BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(fixedChart) with { Encoding = "windows-1252", EncodingFixed = true }));
+            var oldFile = ChartPackage.FromChartEntries([entry]);
+            oldFile.path = path;
+            var oldChild = ChartPackage.FromChartEntries([PackageChartEntry.FromPath(childPath)]);
+            oldChild.path = child;
+            if (changedContent) { File.AppendAllText(path, "#GENRE changed\n", Encoding.ASCII); }
+            AutoInstallWorkflowResult result = new BmsLibraryPackageInstallService().PrepareAutoInstallWorkflow([parent], [oldFile, oldChild], [], _ => false);
+            CollectionAssert.AreEquivalent(changedContent ? new[] { path, child } : new[] { parent }, result.DiscoveredPackages.Select(package => package.path).ToArray(), string.Join(";", result.DiscoveredPackages.SelectMany(package => package.ChartEntries).Select(item => $"{item.Chart.Path} / {item.Chart.EncodingName} / {item.Chart.ResourceHealthMaintenanceSnapshot?.EncodingFixed} / {string.Join(",", item.Chart.Resources?.Select(r => r.RawPath) ?? [])}")));
+            PackageChartEntry current = result.DiscoveredPackages.SelectMany(package => package.ChartEntries).Single(item => item.Chart.Path == path);
+            Assert.AreEqual(!changedContent, current.Chart.ResourceHealthMaintenanceSnapshot.EncodingFixed);
+            Assert.AreEqual(changedContent ? 0 : 100, current.Chart.WAVHealth);
+            if (!changedContent) { Assert.AreEqual("é.wav", current.Chart.Resources.Single().RawPath); }
+        });
+    }
+
     /// <summary>旧親と子の重複をA/B単体と子作品へ分割し、変化した単位のDSTを解除します。同じ子単位の指定と同path同SHAの確定復号だけを維持し、無関係な未具体化保留を読みません。</summary>
     [TestMethod]
     [DataRow(false)]
@@ -33,7 +66,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             var oldC = PackageChartEntry.FromPath(c);
             BmsLibraryPackageInstallService.InitializePendingResourceHealth(oldA);
             BmsLibraryPackageInstallService.InitializePendingResourceHealth(oldC);
-            ChartFile fixedA = BmsChartFileParser.ApplyMetadataEncoding(ChartFileContentReader.ReadSnapshot(a), oldA.Chart, "windows-1252") with
+            ChartFile fixedA = BmsChartFileParser.ApplyEncoding(ChartFileContentReader.ReadSnapshot(a), oldA.Chart, "windows-1252") with
             {
                 ResourceHealthMaintenanceSnapshot = oldA.Chart.ResourceHealthMaintenanceSnapshot with { Encoding = "windows-1252", EncodingFixed = true }
             };
