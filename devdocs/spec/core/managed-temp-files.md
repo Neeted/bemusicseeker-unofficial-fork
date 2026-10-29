@@ -14,6 +14,8 @@ URL取込みとアーカイブ導入で作る一時ファイルを、利用者�
 
 管理一時領域は `%TEMP%\BeMusicSeeker\<session>\...` です。セッション名は `session-` で始まり、アプリが作ったことを示す印を持ちます。利用者がドロップ・選択した通常ファイル、導入済み譜面、現在のセッション外に手動で置いたファイルを、同名・同内容という理由で削除しません。
 
+同一プロセスから初回の取得が並列に始まっても、セッションの作成印の初期化は競合させません。各取得は同じセッション内の独立したディレクトリを返し、返却時には作成印の書込みを完了しています。初期化の実I/O失敗は取得元へ伝播し、再試行や別領域への置換で成功扱いにしません。
+
 管理一時パスの判定は削除の権限を決めるものであり、入力受付の許可一覧ではありません。借用したドロップ入力の確保と受渡しは[ドロップ導入](../library/drop-install.md)に従います。
 
 ### 削除の時機
@@ -38,6 +40,7 @@ URL取込みとアーカイブ導入で作る一時ファイルを、利用者�
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 作成印、セッション内外、管理下にないファイルの保護 | [`TempDirectoryPublisher`](../../../BeMusicSeeker/TempDirectoryPublisher.cs) | [`TempDirectoryPublisherTests`](../../../BeMusicSeeker.Tests/FileOperations/TempDirectoryPublisherTests.cs) |
+| 並列の初回取得、返却時の作成印、同じセッション内の独立した領域 | `TempDirectoryPublisher.Get` / `EnsureSessionDirectory` | `TempDirectoryPublisherTests.ConcurrentFirstGetsReturnDistinctDirectoriesWithCompletedSessionMarker` は実製品の分離ロードで未使用セッションから並列取得し、各返却直後に作成印を読む。内部I/Oの交錯の強制はせず、存在確認から書込み完了までの排他と失敗伝播は静的確認で補う。 |
 | 並列に確保した入力の寿命と一括解放 | [`temporarilyCopyFiles`](../../../BeMusicSeeker/ViewModels/ChartOperations/temporarilyCopyFiles.cs) | [`TemporaryCopyFilesTests`](../../../BeMusicSeeker.Tests/ChartOperations/TemporaryCopyFilesTests.cs) |
 | 展開・保留・削除に伴う寿命 | [導入入口](../library/drop-install.md)と[パッケージ変更](../library/mutations.md) | 各仕様の実入口テストで確認する。 |
 | URL取得入力の所有移転と保留の保持 | [URL取得](../playlist/downloads.md) | `PlaylistUrlAcquisitionOwnershipTests.DownloadedChart_RealEstimationRetainsPendingBytesForLaterManualInstall` は実推定後の保留正本・DB・バイト列と後の明示導入を確認する。開始前の回収、未受理、実導入中の寿命は同クラスの所有テストが分担する。 |

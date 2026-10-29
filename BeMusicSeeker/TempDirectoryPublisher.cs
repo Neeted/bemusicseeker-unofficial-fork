@@ -20,11 +20,15 @@ public static class TempDirectoryPublisher
     private static readonly string SessionDirectoryName = CreateSessionDirectoryName();
     private static readonly string SessionDirectoryPath = Path.Combine(ManagedRootPath, SessionDirectoryName);
 
+    /// <summary>作成印の初期化を終えた現在のセッション内に、作業用の独立した管理ディレクトリを作ります。</summary>
+    /// <remarks>並列の初回取得とI/O失敗の扱いは <see cref="Get(string)"/> と同じです。</remarks>
     public static string Get()
     {
         return Get("work");
     }
 
+    /// <summary>指定用途の独立した管理ディレクトリを、現在のセッション内に作って返します。</summary>
+    /// <remarks>初回取得が並列でも作成印の初期化を競合させず、返却前に書込みを完了します。実I/O失敗は取得元へ伝播します。</remarks>
     public static string Get(string purpose)
     {
         string normalizedPurpose = NormalizePurpose(purpose);
@@ -111,11 +115,15 @@ public static class TempDirectoryPublisher
 
     private static void EnsureSessionDirectory()
     {
-        Directory.CreateDirectory(SessionDirectoryPath);
-        string markerPath = Path.Combine(SessionDirectoryPath, SessionMarkerFileName);
-        if (!File.Exists(markerPath))
+        // 初回の並列取得でも、作成印の存在確認から書込み完了までを一体にする。
+        lock (SyncRoot)
         {
-            File.WriteAllText(markerPath, "BeMusicSeeker managed temporary session");
+            Directory.CreateDirectory(SessionDirectoryPath);
+            string markerPath = Path.Combine(SessionDirectoryPath, SessionMarkerFileName);
+            if (!File.Exists(markerPath))
+            {
+                File.WriteAllText(markerPath, "BeMusicSeeker managed temporary session");
+            }
         }
     }
 
