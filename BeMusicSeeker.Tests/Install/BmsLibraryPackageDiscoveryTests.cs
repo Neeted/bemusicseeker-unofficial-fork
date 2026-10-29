@@ -11,7 +11,7 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class BmsLibraryPackageInstallServiceTests
 {
-    /// <summary>直接file指定から新しい三根拠の実在・相対範囲・音声互換を確認し、通常音声の参照数・不足とPREVIEW非保存を維持します。全選択や通常音源による偶然のfolder化を使いません。</summary>
+    /// <summary>直接file指定から補助画像・明示PREVIEWの実在・相対範囲・音声互換を確認し、通常音声の参照数・不足とPREVIEW非保存を維持します。全選択や通常音源による偶然のfolder化を使いません。</summary>
     [DataTestMethod]
     [DataRow("stagefile", true)]
     [DataRow("backbmp", true)]
@@ -25,9 +25,6 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [DataRow("preview-parent", false)]
     [DataRow("preview-rooted", false)]
     [DataRow("preview-invalid", false)]
-    [DataRow("prefix", true)]
-    [DataRow("prefix-image", false)]
-    [DataRow("prefix-child", false)]
     public void PrepareAutoInstallWorkflow_SupplementEvidencePromotesOnlyActualAdjacentScope(string kind, bool promoted)
     {
         WithTemporaryDirectory(root =>
@@ -59,7 +56,6 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 if (kind == "preview-cp932") { resource = "試聴.flac"; }
                 if (kind == "preview-missing") { resource = "unrelated.ogg"; }
             }
-            else { resource = kind switch { "prefix" => "PrEvIeW_demo.FLAC", "prefix-image" => "preview.png", _ => Path.Combine("media", "preview.wav") }; }
             string physical = kind is "preview-parent" or "preview-rooted" ? Path.Combine(root, "trailer.wav") : Path.Combine(directory, resource);
             Directory.CreateDirectory(Path.GetDirectoryName(physical) ?? throw new AssertFailedException());
             File.WriteAllBytes(physical, [9, 7]);
@@ -79,6 +75,87 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, chart.WAVHealth);
             Assert.AreEqual(string.Empty, chart.PreviewMusic);
             Assert.IsFalse(resources.HasUnsupportedParentTraversalReference, "発見専用PREVIEWの親参照を通常資源へ混入させません。");
+        });
+    }
+
+    /// <summary>直下のpreview・_preview音源だけを両発見入口の根拠とし、親直下の兄弟と子譜面を欠落・重複なく一式へ含めます。暗黙音源の要求化・PREVIEW保存と、非音声・中間一致・子階層・同名directoryによる誤昇格を検出します。</summary>
+    [DataTestMethod]
+    [DataRow("_preview.wav", false, true)]
+    [DataRow("_PrEvIeW_demo.FLAC", false, true)]
+    [DataRow("preview.ogg", false, true)]
+    [DataRow("preview_demo.wav", false, true)]
+    [DataRow("PrEvIeW_demo.FLAC", false, true)]
+    [DataRow("_preview_demo.mp3", false, true)]
+    [DataRow("_preview.png", false, false)]
+    [DataRow("preview.png", false, false)]
+    [DataRow("x_preview.wav", false, false)]
+    [DataRow("__preview.wav", false, false)]
+    [DataRow("media/_preview.wav", false, false)]
+    [DataRow("media/preview.wav", false, false)]
+    [DataRow("_preview.wav", true, false)]
+    public void ImplicitPreviewAudio_PromotesOnlyAdjacentAudioAndIncludesEachChartOnce(string relativePath, bool directoryResource, bool promoted)
+    {
+        WithTemporaryDirectory(root =>
+        {
+            string parent = Path.Combine(root, "Input");
+            string a = CreateBmsFile(parent, "a.bms", "#TITLE A\n#WAV01 missing-a.wav\n#00111:01\n");
+            string b = CreateBmsFile(parent, "b.bms", "#TITLE B\n#WAV01 missing-b.wav\n#00111:01\n");
+            string child = Path.Combine(parent, "sub");
+            string c = CreateBmsFile(child, "c.bms", "#TITLE C\n#WAV01 missing-c.wav\n#00111:01\n");
+            File.WriteAllText(Path.Combine(parent, "readme.txt"), "unselected");
+            string physical = Path.Combine(parent, relativePath);
+            Directory.CreateDirectory(directoryResource ? physical : Path.GetDirectoryName(physical) ?? throw new AssertFailedException());
+            if (!directoryResource) { File.WriteAllBytes(physical, [9, 7]); }
+            var service = new BmsLibraryPackageInstallService();
+
+            ChartPackageDiscoveryResult discovery = service.SearchChartPackagesRecursivelyWithMetadata(parent);
+            Assert.IsTrue(discovery.IsComplete);
+            AssertPackages(discovery.Packages, promoted ? [parent] : [a, b, child], [a, b, c]);
+
+            AutoInstallWorkflowResult workflow = service.PrepareAutoInstallWorkflow([a], [], [], _ => false);
+            AssertPackages(workflow.DiscoveredPackages, promoted ? [parent] : [a], promoted ? [a, b, c] : [a]);
+            // 健康度は発見だけの入口では計算せず、自動導入準備で評価した結果を観測します。
+            foreach (PackageChartEntry entry in workflow.DiscoveredPackages.SelectMany(package => package.ChartEntries))
+            { Assert.AreEqual(0, entry.Chart.WAVHealth); }
+            if (relativePath == "_preview.wav" && promoted)
+            {
+                AutoInstallWorkflowResult overlapping = service.PrepareAutoInstallWorkflow([a, c, a], [], [], _ => false);
+                AssertPackages(overlapping.DiscoveredPackages, [parent], [a, b, c]);
+            }
+
+            void AssertPackages(IEnumerable<ChartPackage> packages, string[] packagePaths, string[] chartPaths)
+            {
+                ChartPackage[] actual = packages.ToArray();
+                CollectionAssert.AreEquivalent(packagePaths, actual.Select(package => package.path).ToArray());
+                CollectionAssert.AreEquivalent(chartPaths, actual.SelectMany(package => package.ChartEntries).Select(entry => entry.Chart.Path).ToArray());
+                foreach (PackageChartEntry entry in actual.SelectMany(package => package.ChartEntries))
+                {
+                    Assert.AreEqual(1, ChartResourceSnapshot.Create(entry.Chart.Resources, includeUnused: true).AudioReferenceCount);
+                    Assert.AreEqual(string.Empty, entry.Chart.PreviewMusic);
+                }
+            }
+        });
+    }
+
+    /// <summary>暗黙previewと同じ音源を使用WAVで明示した場合も通常要求一件として充足させ、暗黙検出による二重計数や通常要求の除外を防ぎます。</summary>
+    [TestMethod]
+    public void PrepareAutoInstallWorkflow_ExplicitWavUsingImplicitPreviewAudioRemainsOneSatisfiedRequest()
+    {
+        WithTemporaryDirectory(root =>
+        {
+            string parent = Path.Combine(root, "Input");
+            string path = CreateBmsFile(parent, "a.bms", "#TITLE A\n#WAV01 _preview.wav\n#00111:01\n");
+            File.WriteAllBytes(Path.Combine(parent, "_preview.wav"), [9, 7]);
+            File.WriteAllText(Path.Combine(parent, "readme.txt"), "unselected");
+
+            AutoInstallWorkflowResult result = new BmsLibraryPackageInstallService().PrepareAutoInstallWorkflow([path], [], [], _ => false);
+
+            ChartPackage package = result.DiscoveredPackages.Single();
+            Assert.AreEqual(parent, package.path);
+            ChartFile chart = package.ChartEntries.Single().Chart;
+            Assert.AreEqual(1, ChartResourceSnapshot.Create(chart.Resources, includeUnused: true).AudioReferenceCount);
+            Assert.AreEqual(100, chart.WAVHealth);
+            Assert.AreEqual(string.Empty, chart.PreviewMusic);
         });
     }
 

@@ -197,6 +197,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataRow("all")]
     [DataRow("partial")]
     [DataRow("partial-preview")]
+    [DataRow("partial-_preview")]
     public async Task ProductionIngress_PreservesOriginalSelectionAcrossPrivateCopy(string selection)
     {
         await using var fixture = new AutomaticContinuationFixture(false, false, temporaryIngress: true);
@@ -210,7 +211,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         string sub = Path.Combine(source, "sub");
         Directory.CreateDirectory(sub);
         File.WriteAllBytes(Path.Combine(sub, "omakefile.txt"), [7, 4]);
-        if (selection == "partial-preview") { File.WriteAllBytes(Path.Combine(source, "preview.ogg"), [9]); }
+        string previewName = selection == "partial-_preview" ? "_preview.wav" : "preview.ogg";
+        if (selection is "partial-preview" or "partial-_preview") { File.WriteAllBytes(Path.Combine(source, previewName), [9]); }
         string[] selected = selection switch { "folder" => [source], "all" => Directory.GetFileSystemEntries(source), _ => [a, b] };
         await fixture.InitializeAsync();
         DroppedInstallIngressAcquisitionResult acquisition = fixture.Owner.AcquireAndTryEnqueueDroppedPaths(selected);
@@ -227,7 +229,9 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         { CollectionAssert.AreEqual(File.ReadAllBytes(Path.Combine(source, name)), File.ReadAllBytes(Path.Combine(staged, name))); }
         Assert.AreEqual(!partial, File.Exists(Path.Combine(staged, "readme.txt")));
         Assert.AreEqual(!partial, File.Exists(Path.Combine(staged, "sub", "omakefile.txt")));
-        Assert.IsFalse(File.Exists(Path.Combine(staged, "preview.ogg")));
+        Assert.IsFalse(File.Exists(Path.Combine(staged, previewName)));
+        if (selection is "partial-preview" or "partial-_preview")
+        { CollectionAssert.AreEqual(new byte[] { 9 }, File.ReadAllBytes(Path.Combine(source, previewName))); }
         Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
     }
 

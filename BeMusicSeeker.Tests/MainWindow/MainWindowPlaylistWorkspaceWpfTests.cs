@@ -1302,7 +1302,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     }
 
     /// <summary>選択済み見出しの再clickだけが一回の遅延編集を開始し、開始click中の対象内focusを許しても、後発操作・対象退役後に旧要求を再開しません。</summary>
-    /// <remarks>実compiled Preview/bubble入力、Window所有timerの実Tickと編集通知、検索の全文・選択、P未受付と独立DBを観測します。候補確定と保存は既存の編集ケースへ分担し、OS物理focusの取得を前提にしません。</remarks>
+    /// <remarks>実compiled Preview/bubble入力と編集中のPreview要求、Window所有timerの実Tickと編集通知、検索の全文・選択、P未受付と独立DBを観測します。候補確定と保存は既存の編集ケースへ分担し、OS物理button押下・focusの取得を前提にしません。</remarks>
     [TestMethod]
     public void PlaylistFolderDelayedRename_ExpiresOnLaterInputAndTargetRetirement()
     {
@@ -1434,10 +1434,19 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                             Assert.AreNotSame(oldTimer, latest);
                             Assert.IsFalse(oldTimer.IsEnabled);
                             BeginByClock(control, latest);
-                            // 編集中のclickから次の予約を作らず、終端後に旧要求も再開しません。
-                            Click(control);
+                            control.UpdateLayout();
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                            TextBox editor = FindDescendants<TextBox>(control).Single();
+                            Assert.IsTrue(editor.IsLoaded);
+                            Assert.IsTrue(control.IsInEditMode);
+                            int editingStarts = starts;
+                            // OSの物理button状態に依存するbubbleを避け、同editorからcompiled Previewの開始要求を配送します。
+                            Preview(editor);
                             Assert.IsNull(PendingTimer());
-                            EndByEscape(control);
+                            Assert.AreEqual(editingStarts, starts);
+                            Assert.AreSame(editor, FindDescendants<TextBox>(control).Single());
+                            Assert.IsTrue(control.IsInEditMode);
+                            EndByEscape(control, editor);
                             before = starts;
                             break;
                     }
@@ -1478,7 +1487,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         ?.GetValue(fixture.Window) as DispatcherTimer;
                 }
                 DispatcherTimer RequiredTimer() => PendingTimer() ?? throw new AssertFailedException("再clickの改名timerがありません。");
-                static MouseButtonEventArgs Preview(EditableTextBlock control)
+                static MouseButtonEventArgs Preview(UIElement control)
                 {
                     var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left) { RoutedEvent = Mouse.PreviewMouseDownEvent };
                     control.RaiseEvent(args);
@@ -1516,10 +1525,10 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     Assert.IsFalse(timer.IsEnabled);
                     Assert.IsNull(PendingTimer());
                 }
-                static void EndByEscape(EditableTextBlock control)
+                static void EndByEscape(EditableTextBlock control, TextBox? editor = null)
                 {
                     control.UpdateLayout();
-                    TextBox editor = FindDescendants<TextBox>(control).Single();
+                    editor ??= FindDescendants<TextBox>(control).Single();
                     RaiseKey(editor, Key.Escape, Keyboard.KeyDownEvent);
                     Assert.IsFalse(control.IsInEditMode);
                     Window.GetWindow(control)?.UpdateLayout();

@@ -700,10 +700,14 @@ internal sealed partial class BmsLibraryPackageInstallService
         return result;
     }
 
-    /// <summary>既取得の直下ファイルだけから未参照のpreview慣例を確認します。</summary>
+    /// <summary>既取得の直下ファイルだけから未参照のpreview・_preview始まりの音声慣例を確認します。</summary>
     private static bool HasAdjacentPreviewAudio(IEnumerable<string> files)
-        => files.Any(path => Path.GetFileName(path).StartsWith("preview", StringComparison.OrdinalIgnoreCase)
-            && ChartResourceExtensions.IsAudioExtension(Path.GetExtension(path)));
+        => files.Any(path =>
+        {
+            string name = Path.GetFileName(path);
+            return (name.StartsWith("preview", StringComparison.OrdinalIgnoreCase) || name.StartsWith("_preview", StringComparison.OrdinalIgnoreCase))
+                && ChartResourceExtensions.IsAudioExtension(Path.GetExtension(path));
+        });
 
     /// <summary>発見専用PREVIEWの通常相対参照だけを、既存の音声拡張子互換で解決します。</summary>
     private static bool HasExistingPreviewResource(PackageChartEntry entry, string preview)
