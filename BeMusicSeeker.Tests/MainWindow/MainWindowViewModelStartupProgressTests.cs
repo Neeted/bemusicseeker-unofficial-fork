@@ -2080,6 +2080,8 @@ public sealed class MainWindowViewModelStartupProgressTests
         internal Func<UiMessageRequest, Task>? MessageObservedAsync { get; set; }
         internal MessageBoxResult ConfirmationResult { get; set; } = MessageBoxResult.Yes;
         internal int ConfirmationCount { get; private set; }
+        internal Func<Task<UiWindowDialogResult<PendingPackageRestoreChoice>>>? PendingRestoreObservedAsync { get; set; }
+        internal int PendingRestoreCount { get; private set; }
         public async Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
         {
             if (MessageObservedAsync != null) { await MessageObservedAsync(request); }
@@ -2090,7 +2092,12 @@ public sealed class MainWindowViewModelStartupProgressTests
             ConfirmationCount++;
             return Task.FromResult(UiDialogResult.FromMessageBoxResult(ConfirmationResult));
         }
-        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(UiWindowDialogRequest<TWindow, TResult> request, CancellationToken cancellationToken = default) where TWindow : Window => throw new NotSupportedException();
+        public async Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(UiWindowDialogRequest<TWindow, TResult> request, CancellationToken cancellationToken = default) where TWindow : Window
+        {
+            if (typeof(TWindow) != typeof(PendingPackageRestoreWindow) || PendingRestoreObservedAsync == null) { throw new NotSupportedException(); }
+            PendingRestoreCount++;
+            return (UiWindowDialogResult<TResult>)(object)await PendingRestoreObservedAsync();
+        }
         public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();

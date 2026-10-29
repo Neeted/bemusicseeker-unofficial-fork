@@ -56,7 +56,7 @@ public sealed class StartupRequiredInitializationTests
         fixture.Library.AttachStartupRequestProgressSources();
         var originatingRequest = new OperationProgressRequest(44, 55, "required_initialization", 1);
         Task<StartupRequiredInitializationResult> operation = owner.InitializeRequiredAsync(fixture.Library, fixture.Playlist,
-            new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_startup"), accepted.Capability, originatingRequest, leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
+            new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_startup"), accepted.Capability, new MainWindowViewModelStartupProgressTests.CompletionDialogs(), originatingRequest, leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
         try
         {
             await Task.WhenAny(runtime.Entered.Task, operation);
@@ -180,7 +180,7 @@ public sealed class StartupRequiredInitializationTests
             fixture.Library.Lr2Synchronization.PlaylistOperationAdmission))
         {
             await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => owner.InitializeRequiredAsync(fixture.Library, fixture.Playlist,
-                new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_score_cancellation"), accepted.Capability, origin, leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification));
+                new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_score_cancellation"), accepted.Capability, new MainWindowViewModelStartupProgressTests.CompletionDialogs(), origin, leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification));
             Assert.IsFalse(runtime.Entered.Task.IsCompleted);
             Assert.AreEqual(0, fixture.Playlist.PlaylistEntriesHydrationRequestedVersion);
         }
@@ -211,7 +211,7 @@ public sealed class StartupRequiredInitializationTests
             fixture.Library.Lr2Synchronization.PlaylistOperationAdmission))
         {
             PlaylistMutationPostCommitException failure = await Assert.ThrowsExceptionAsync<PlaylistMutationPostCommitException>(() => owner.InitializeRequiredAsync(fixture.Library, fixture.Playlist,
-                new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_startup"), accepted.Capability, origin, leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification));
+                new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_startup"), accepted.Capability, new MainWindowViewModelStartupProgressTests.CompletionDialogs(), origin, leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification));
             Assert.IsInstanceOfType<IOException>(failure.InnerException);
             Assert.IsFalse(runtime.Entered.Task.IsCompleted);
         }
@@ -253,7 +253,7 @@ public sealed class StartupRequiredInitializationTests
             fixture.Library.Lr2Synchronization.PlaylistOperationAdmission))
         {
             result = await owner.InitializeRequiredAsync(fixture.Library, fixture.Playlist,
-                new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_startup"), accepted.Capability, leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
+                new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_startup"), accepted.Capability, new MainWindowViewModelStartupProgressTests.CompletionDialogs(), leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
         }
         Assert.IsNotNull(result.Lr2Failure);
         Assert.AreEqual(1, failurePublications, "下位で確定したFailedを必須ownerが再公開しない。");
@@ -288,7 +288,7 @@ public sealed class StartupRequiredInitializationTests
             fixture.Library.Lr2Synchronization.PlaylistOperationAdmission))
         {
             result = await owner.InitializeRequiredAsync(fixture.Library, fixture.Playlist,
-                new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_lr2_acceptance_failure"), accepted.Capability, leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
+                new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_lr2_acceptance_failure"), accepted.Capability, new MainWindowViewModelStartupProgressTests.CompletionDialogs(), leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
         }
         Assert.AreSame(failure, result.Lr2Failure);
         Assert.AreEqual(1, failurePublications);
@@ -331,7 +331,7 @@ public sealed class StartupRequiredInitializationTests
         StartupRequiredOperationLease accepted = owner.AcquireRequiredOperation(fixture.Library.OperationAdmission,
             fixture.Library.Lr2Synchronization.PlaylistOperationAdmission);
         Task<StartupRequiredInitializationResult> operation = owner.InitializeRequiredAsync(fixture.Library, fixture.Playlist,
-            new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_lr2_shutdown"), accepted.Capability, leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
+            new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_lr2_shutdown"), accepted.Capability, new MainWindowViewModelStartupProgressTests.CompletionDialogs(), leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
         try
         {
             await Task.WhenAny(inputEntered.Task, operation);
@@ -378,7 +378,7 @@ public sealed class StartupRequiredInitializationTests
                 fixture.Library.Lr2Synchronization.PlaylistOperationAdmission, settings.Capability))
             {
                 first = (await owner.InitializeRequiredAsync(fixture.Library, fixture.Playlist,
-                    new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_startup"), borrowed.Capability, leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification)).FileResult;
+                    new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_startup"), borrowed.Capability, new MainWindowViewModelStartupProgressTests.CompletionDialogs(), leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification)).FileResult;
             }
             Assert.IsFalse(fixture.Library.OperationAdmission.TryEnter(out _));
             Assert.IsFalse(fixture.Playlist.TryEnterPlaylistMutation(out _));
@@ -390,7 +390,7 @@ public sealed class StartupRequiredInitializationTests
         using StartupRequiredOperationLease next = owner.AcquireRequiredOperation(fixture.Library.OperationAdmission,
             fixture.Library.Lr2Synchronization.PlaylistOperationAdmission);
         StartupRequiredInitializationResult second = await owner.ReinitializeAsync(fixture.Library, fixture.Playlist,
-            new Lr2SongDbSyncWorkflowOwner(runtime), next.Capability, leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
+            new Lr2SongDbSyncWorkflowOwner(runtime), next.Capability, new MainWindowViewModelStartupProgressTests.CompletionDialogs(), leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
         Assert.AreNotSame(first, second.FileResult);
         Assert.IsTrue(second.FileResult.CommittedBmsPaths.Contains(fixture.ChartPath));
         Assert.AreEqual("changed", fixture.Library.BmsCharts.Single().Title);
@@ -414,7 +414,7 @@ public sealed class StartupRequiredInitializationTests
         StartupRequiredOperationLease accepted = owner.AcquireRequiredOperation(fixture.Library.OperationAdmission,
             fixture.Library.Lr2Synchronization.PlaylistOperationAdmission);
         Task<StartupRequiredInitializationResult> operation = owner.InitializeRequiredAsync(fixture.Library, fixture.Playlist,
-            new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_startup"), accepted.Capability, leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
+            new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_startup"), accepted.Capability, new MainWindowViewModelStartupProgressTests.CompletionDialogs(), leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
         try
         {
             await Task.WhenAny(Task.WhenAll(filesEntered.Task, headersEntered.Task), operation);
@@ -452,7 +452,7 @@ public sealed class StartupRequiredInitializationTests
         using StartupRequiredOperationLease accepted = owner.AcquireRequiredOperation(fixture.Library.OperationAdmission,
             fixture.Library.Lr2Synchronization.PlaylistOperationAdmission);
         StartupRequiredInitializationResult result = await owner.InitializeRequiredAsync(fixture.Library, fixture.Playlist,
-            new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_startup"), accepted.Capability, leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
+            new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_startup"), accepted.Capability, new MainWindowViewModelStartupProgressTests.CompletionDialogs(), leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
         Assert.IsNull(result.Lr2Failure);
         Assert.AreEqual(0, fixture.Library.Lr2SongDbSyncRequestedVersion);
         Assert.IsTrue(Directory.EnumerateFiles(fixture.BmtPath, "*.bmt", SearchOption.AllDirectories)
@@ -474,7 +474,7 @@ public sealed class StartupRequiredInitializationTests
             fixture.Library.Lr2Synchronization.PlaylistOperationAdmission))
         {
             StartupRequiredInitializationResult first = await owner.InitializeRequiredAsync(fixture.Library, fixture.Playlist,
-                lr2, PerformanceInteraction.Start("test_required_startup"), accepted.Capability, leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
+                lr2, PerformanceInteraction.Start("test_required_startup"), accepted.Capability, new MainWindowViewModelStartupProgressTests.CompletionDialogs(), leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
             Assert.IsNull(first.Lr2Failure);
         }
         int requestedVersion = fixture.Library.Lr2SongDbSyncRequestedVersion;
@@ -490,7 +490,7 @@ public sealed class StartupRequiredInitializationTests
             fixture.Library.Lr2Synchronization.PlaylistOperationAdmission))
         {
             StartupRequiredInitializationResult second = await owner.InitializeRequiredAsync(fixture.Library, fixture.Playlist,
-                lr2, PerformanceInteraction.Start("test_required_startup"), accepted.Capability, leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
+                lr2, PerformanceInteraction.Start("test_required_startup"), accepted.Capability, new MainWindowViewModelStartupProgressTests.CompletionDialogs(), leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
             Assert.IsNull(second.Lr2Failure);
         }
         Assert.AreEqual(requestedVersion, fixture.Library.Lr2SongDbSyncRequestedVersion);

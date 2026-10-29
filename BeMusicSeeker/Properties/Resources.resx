@@ -4030,4 +4030,40 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="DialogButtonNo" xml:space="preserve">
     <value>いいえ</value>
   </data>
+  <data name="PendingRestoreTitle" xml:space="preserve">
+    <value>保留パッケージの復元に失敗しました</value>
+  </data>
+  <data name="PendingRestoreMessage" xml:space="preserve">
+    <value>保留パッケージを復元できませんでした。再試行するか、保留一覧を初期化して続行するか、終了してください。</value>
+  </data>
+  <data name="PendingRestoreResetWarning" xml:space="preserve">
+    <value>「保留一覧を初期化して続行」は、すべての保留登録を消去します。この操作で元のファイルや導入済みの楽曲は削除しません。</value>
+  </data>
+  <data name="PendingRestoreRetry" xml:space="preserve">
+    <value>再試行</value>
+  </data>
+  <data name="PendingRestoreReset" xml:space="preserve">
+    <value>保留一覧を初期化して続行</value>
+  </data>
+  <data name="PendingRestoreExit" xml:space="preserve">
+    <value>終了</value>
+  </data>
+  <data name="Error_PendingDiscoveryIncompleteFormat" xml:space="preserve">
+    <value>保留パッケージの列挙が完了しませんでした: {0}</value>
+  </data>
+  <data name="Error_PendingChartUnreadableFormat" xml:space="preserve">
+    <value>保留譜面を読み取れませんでした: {0}</value>
+  </data>
+  <data name="Error_PendingChartEnumerationFailedFormat" xml:space="preserve">
+    <value>保留譜面の列挙に失敗しました: {0} {1} {2}</value>
+  </data>
+  <data name="Error_PendingRestoreUncommitted" xml:space="preserve">
+    <value>保留パッケージの復元を確定できませんでした。</value>
+  </data>
+  <data name="Error_PendingRestoreDialogFailedFormat" xml:space="preserve">
+    <value>保留パッケージの復元確認に失敗しました: {0}</value>
+  </data>
+  <data name="Error_PendingRestoreChoiceUnknown" xml:space="preserve">
+    <value>保留パッケージの復元確認で不明な選択が返されました。</value>
+  </data>
 </root>

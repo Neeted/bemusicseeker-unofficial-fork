@@ -1363,5 +1363,17 @@
   "Settings_bmt_url_switch_failed": "The new BMT settings were saved, but table URLs could not be switched. Previous managed URLs may still be active. No further file cleanup was performed at the previous output location after this failure.",
   "Settings_bmt_files_remain": "The new BMT settings and table URLs were applied, but some previous managed files could not be removed.",
   "Playlist_reload_processed_label_format": "{0} {1}/{2} tables processed",
-  "Playlist_reload_last_processed_label_format": "Last processed: {0}"
+  "Playlist_reload_last_processed_label_format": "Last processed: {0}",
+  "PendingRestoreTitle": "Pending packages could not be restored",
+  "PendingRestoreMessage": "The pending packages could not be restored. Retry, reset the pending list and continue, or exit.",
+  "PendingRestoreResetWarning": "“Reset pending list and continue” clears all pending registrations. This operation does not delete the original files or installed songs.",
+  "PendingRestoreRetry": "Retry",
+  "PendingRestoreReset": "Reset pending list and continue",
+  "PendingRestoreExit": "Exit",
+  "Error_PendingDiscoveryIncompleteFormat": "Pending package discovery was incomplete: {0}",
+  "Error_PendingChartUnreadableFormat": "Pending chart could not be read: {0}",
+  "Error_PendingChartEnumerationFailedFormat": "Pending chart enumeration failed: {0} {1} {2}",
+  "Error_PendingRestoreUncommitted": "Pending package restoration could not be committed.",
+  "Error_PendingRestoreDialogFailedFormat": "Pending package restore dialog failed: {0}",
+  "Error_PendingRestoreChoiceUnknown": "Unknown pending package restore choice."
 }

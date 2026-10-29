@@ -954,7 +954,7 @@ internal sealed class CatalogMutationOwner
     /// <param name="targets">確定先とdetachedな共通値を保持する導入対象。</param>
     /// <param name="failureFact">DB書込み失敗のimmutable fact。</param>
     /// <param name="onValidationPassed">DB validation通過時に一度だけ呼ぶcallback。</param>
-    /// <param name="installPathsToDelete">同じtransactionで削除するpending install rowのpath。</param>
+    /// <param name="installPathsToDelete">同じtransactionで削除するpending install行の元の生キー。</param>
     /// <param name="installRowsToUpsert">同じtransactionでupsertするpending install row。</param>
     /// <returns>DB・storage・owned collectionの確定receipt。</returns>
     internal CatalogInstalledTargetUpsertReceipt ApplyInstalledTargetUpsertWithDeferredFailurePublication(
@@ -1141,16 +1141,9 @@ internal sealed class CatalogMutationOwner
                         songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(chart), typeof(LR2SongDBExtended.bmson_song));
                     }
                 }
-                if (hasInstallRowDeletion)
+                if (hasInstallRowDeletion || hasInstallRowUpsert)
                 {
-                    foreach (string installPath in request.InstallPathsToDelete)
-                    {
-                        songDb.Delete<LR2SongDBExtended.install>(installPath);
-                    }
-                }
-                if (hasInstallRowUpsert)
-                {
-                    songDb.InsertAll(request.InstallRowsToUpsert, typeof(LR2SongDBExtended.install));
+                    BmsLibraryDbGateway.ApplyInstallTableMutationWithinTransaction(songDb, request.InstallPathsToDelete, request.InstallRowsToUpsert);
                 }
             });
         }
@@ -1382,7 +1375,7 @@ internal sealed class CatalogInstalledTargetUpsertRequest
     /// </summary>
     /// <param name="targets">確定先とdetachedな共通値を保持する導入対象。</param>
     /// <param name="beforeByPath">要求作成時の対象完全一致pathごとの所持識別とdigest。不在はnull。</param>
-    /// <param name="installPathsToDelete">同じtransactionで削除するpending install rowのpath。</param>
+    /// <param name="installPathsToDelete">同じtransactionで削除するpending install行の元の生キー。</param>
     /// <param name="installRowsToUpsert">同じtransactionでupsertするpending install row。</param>
     internal CatalogInstalledTargetUpsertRequest(ChartStorageTargetSet targets, IReadOnlyDictionary<string, LibraryChartRef> beforeByPath, IEnumerable<string> installPathsToDelete = null, IEnumerable<ChartPackage> installRowsToUpsert = null)
     {

@@ -243,6 +243,9 @@ internal sealed class BmsLibraryDbGateway(
         });
     }
 
+    /// <summary>捕捉したinstall生キーの完全一致削除と確定行の保存を一transactionで反映します。</summary>
+    /// <param name="installPathsToDelete">解除する元の生キーです。現在行の再解決や物理回収は行いません。</param>
+    /// <param name="packagesToUpsert">同じ確定で保存する登録です。</param>
     public void ApplyInstallTableMutation(
         IEnumerable<string> installPathsToDelete,
         IEnumerable<ChartPackage> packagesToUpsert)
@@ -259,16 +262,27 @@ internal sealed class BmsLibraryDbGateway(
 
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
-            foreach (string path in paths)
-            {
-                songDb.Delete<LR2SongDBExtended.install>(path);
-            }
-            if (packages.Count > 0)
-            {
-                songDb.InsertAll(packages, typeof(LR2SongDBExtended.install));
-            }
+            ApplyInstallTableMutationWithinTransaction(songDb, paths, packages);
         });
     }
+
+    /// <summary>呼出元の既存transaction内で、捕捉した生installキーを完全一致で削除して確定行を保存します。接続・transaction・commitは所有しません。</summary>
+    /// <param name="songDb">呼出元がtransactionを保持する接続です。</param>
+    /// <param name="installPathsToDelete">初期snapshotまたは確定した通常操作が保持する元の生キーです。</param>
+    /// <param name="packagesToUpsert">削除後に従来どおり保存する確定行です。</param>
+    internal static void ApplyInstallTableMutationWithinTransaction(LR2SongDBExtended songDb,
+        IEnumerable<string> installPathsToDelete, IEnumerable<ChartPackage> packagesToUpsert)
+    {
+        ArgumentNullException.ThrowIfNull(songDb);
+        foreach (string path in (installPathsToDelete ?? []).Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.Ordinal))
+        { songDb.Delete<LR2SongDBExtended.install>(path); }
+        List<ChartPackage> packages = [.. (packagesToUpsert ?? []).Where(package => package != null && !string.IsNullOrWhiteSpace(package.path))];
+        if (packages.Count > 0) { songDb.InsertAll(packages, typeof(LR2SongDBExtended.install)); }
+    }
+
+    /// <summary>明示選択された保留一覧初期化としてinstall全登録だけを一transactionで削除します。元入力・他表・物理回収は扱いません。</summary>
+    internal void ResetInstallTable()
+        => ExecuteSongDbTransaction(songDb => songDb.DeleteAll<LR2SongDBExtended.install>());
 
     /// <summary>不変な譜面の生成列をDB境界で保存行へ変換して反映します。</summary>
     public void UpsertSongs(IEnumerable<ChartFile> bmsFiles)

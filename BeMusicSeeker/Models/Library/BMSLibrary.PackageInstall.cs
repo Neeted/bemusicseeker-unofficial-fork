@@ -524,7 +524,8 @@ public partial class BMSLibrary
                 InstalledChartLookupIndexSnapshot installedChartLookup = workflow.InstalledChartLookup;
                 List<ChartPackage> discoveredPackages = [.. workflow.DiscoveredPackages];
                 LogInstallPerformance("auto_install_prepare discovered=" + discoveredPackages.Count + " autoInstall=" + workflow.AutoInstallCandidates.Count + " pendingAdd=" + workflow.PendingPackagesToAdd.Count + " pendingRemove=" + workflow.PendingPackagesToRemove.Count + " discoveryMs=" + workflow.DiscoveryMs + " installedCheckMs=" + workflow.InstalledCheckMs + " warningClassifyMs=" + workflow.WarningClassificationMs + " classificationMs=" + workflow.ClassificationMs + " totalMs=" + workflow.TotalMs);
-                if (discoveredPackages.Count == 0 || token.IsCancellationRequested)
+                if ((discoveredPackages.Count == 0 && !workflow.PendingPackageNormalizations.Any(group => group.IsComplete))
+                    || token.IsCancellationRequested)
                 {
                     return CreatePackageInstallCommandResult(registeredPackages, null);
                 }

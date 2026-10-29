@@ -3192,4 +3192,40 @@ public class Resources
 
     /// <summary>直近に試行を終了した表の補足書式を取得します。</summary>
     public static string Playlist_reload_last_processed_label_format => ResourceManager.GetString("Playlist_reload_last_processed_label_format", resourceCulture);
+    /// <summary>保留復元失敗の選択画面に使う題名です。</summary>
+    public static string PendingRestoreTitle => ResourceManager.GetString("PendingRestoreTitle", resourceCulture);
+
+    /// <summary>保留復元失敗の選択画面に使う案内です。</summary>
+    public static string PendingRestoreMessage => ResourceManager.GetString("PendingRestoreMessage", resourceCulture);
+
+    /// <summary>保留復元失敗の選択画面に使う全登録消去とファイル保持の説明です。</summary>
+    public static string PendingRestoreResetWarning => ResourceManager.GetString("PendingRestoreResetWarning", resourceCulture);
+
+    /// <summary>保留復元失敗の選択画面に使う再試行ボタンです。</summary>
+    public static string PendingRestoreRetry => ResourceManager.GetString("PendingRestoreRetry", resourceCulture);
+
+    /// <summary>保留復元失敗の選択画面に使う一覧初期化ボタンです。</summary>
+    public static string PendingRestoreReset => ResourceManager.GetString("PendingRestoreReset", resourceCulture);
+
+    /// <summary>保留復元失敗の選択画面に使う終了ボタンです。</summary>
+    public static string PendingRestoreExit => ResourceManager.GetString("PendingRestoreExit", resourceCulture);
+
+    /// <summary>保留パッケージの不完全な列挙と対象pathを示す書式です。</summary>
+    public static string Error_PendingDiscoveryIncompleteFormat => ResourceManager.GetString("Error_PendingDiscoveryIncompleteFormat", resourceCulture);
+
+    /// <summary>読み取れない保留譜面のpathを示す書式です。</summary>
+    public static string Error_PendingChartUnreadableFormat => ResourceManager.GetString("Error_PendingChartUnreadableFormat", resourceCulture);
+
+    /// <summary>保留譜面の列挙失敗をpathと既存診断理由付きで示す書式です。</summary>
+    public static string Error_PendingChartEnumerationFailedFormat => ResourceManager.GetString("Error_PendingChartEnumerationFailedFormat", resourceCulture);
+
+    /// <summary>元原因を保持する保留復元の未確定失敗を示す文言です。</summary>
+    public static string Error_PendingRestoreUncommitted => ResourceManager.GetString("Error_PendingRestoreUncommitted", resourceCulture);
+
+    /// <summary>保留復元確認の表示失敗を、既存の表示状態付きで示す書式です。</summary>
+    public static string Error_PendingRestoreDialogFailedFormat => ResourceManager.GetString("Error_PendingRestoreDialogFailedFormat", resourceCulture);
+
+    /// <summary>保留復元確認から不明な選択が返った場合の説明です。</summary>
+    public static string Error_PendingRestoreChoiceUnknown => ResourceManager.GetString("Error_PendingRestoreChoiceUnknown", resourceCulture);
+
 }

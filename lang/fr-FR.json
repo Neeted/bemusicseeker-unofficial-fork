@@ -1363,5 +1363,17 @@
   "Settings_bmt_url_switch_failed": "Les nouveaux paramètres BMT ont été enregistrés, mais les URL des tables n’ont pas pu être remplacées. Les anciennes URL gérées peuvent rester actives. Aucun nettoyage supplémentaire des fichiers à l’ancien emplacement de sortie n’a été effectué après cet échec.",
   "Settings_bmt_files_remain": "Les nouveaux paramètres BMT et les URL des tables ont été appliqués, mais certains anciens fichiers gérés n’ont pas pu être supprimés.",
   "Playlist_reload_processed_label_format": "{0} : {1}/{2} tables traitées",
-  "Playlist_reload_last_processed_label_format": "Dernier traitement terminé : {0}"
+  "Playlist_reload_last_processed_label_format": "Dernier traitement terminé : {0}",
+  "PendingRestoreTitle": "Échec de la restauration des paquets en attente",
+  "PendingRestoreMessage": "Les paquets en attente n’ont pas pu être restaurés. Réessayez, réinitialisez la liste pour continuer ou quittez.",
+  "PendingRestoreResetWarning": "« Réinitialiser la liste et continuer » efface tous les enregistrements en attente. Cette opération ne supprime ni les fichiers d’origine ni les morceaux installés.",
+  "PendingRestoreRetry": "Réessayer",
+  "PendingRestoreReset": "Réinitialiser la liste et continuer",
+  "PendingRestoreExit": "Quitter",
+  "Error_PendingDiscoveryIncompleteFormat": "La recherche du paquet en attente est incomplète : {0}",
+  "Error_PendingChartUnreadableFormat": "La partition en attente n’a pas pu être lue : {0}",
+  "Error_PendingChartEnumerationFailedFormat": "L’énumération des partitions en attente a échoué : {0} {1} {2}",
+  "Error_PendingRestoreUncommitted": "La restauration des paquets en attente n’a pas pu être validée.",
+  "Error_PendingRestoreDialogFailedFormat": "Échec de la boîte de dialogue de restauration des paquets en attente : {0}",
+  "Error_PendingRestoreChoiceUnknown": "Choix de restauration des paquets en attente inconnu."
 }

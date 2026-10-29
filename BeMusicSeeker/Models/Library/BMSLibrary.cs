@@ -4820,7 +4820,7 @@ public partial class BMSLibrary : ObservableObject
             performanceInteraction, capability, originatingRequest, leapYearRepairApproval, repairNotificationObserver, warningObserver, scoreNotificationObserver);
     }
 
-    /// <summary>受理済み共通権限の内部継続として再初期化します。</summary>
+    /// <summary>受理済み共通権限の内部継続として再初期化のfiles段階を実行します。保留復元は外側が同じ権限で合成します。</summary>
     /// <param name="originatingRequest">保存済みスコアの受付と実終端へ引き継ぐ親の表示識別。</param>
     /// <param name="leapYearRepairApproval">親受付前の限定読取・YesNo判断。借用経路では同じDBの要求を必須とします。</param>
     /// <param name="repairNotificationObserver">親受付解放後に提示する実修復結果の受渡し。借用中は画面を待たず、呼出元が終端後に通知します。</param>
@@ -5017,8 +5017,8 @@ public partial class BMSLibrary : ObservableObject
         }
         DateTime now;
         InitializationExecutionResult initializeResult;
-        IDisposable installTableCollectionMutationScope = null;
         List<Action> initializationPostLeaseEffects = [];
+        Action pendingPublication = null;
         Action scoreNotification = null;
         LeapYearFolderRepairResult leapYearRepairResult = new();
         LeapYearFolderRepairNotification repairNotification = null;
@@ -5049,7 +5049,6 @@ public partial class BMSLibrary : ObservableObject
                     directoryPreflightRequest, warningObserver);
                 fileScanLifecycleStarted = true;
             }
-            try
             {
                 NLogWrapper.DebuggerLogger?.Trace("hazimari: " + GC.GetTotalMemory(forceFullCollection: false));
                 LogInstallPerformance("init_library_enter mode=" + mode + " songTblLoad=" + songTblLoad.ToString().ToLowerInvariant() + " songTblFileCheck=" + songTblFileCheck.ToString().ToLowerInvariant() + " installTblCheck=" + flag.ToString().ToLowerInvariant() + " rwlockInitAll currentRead=" + rwlockBMSFilesInitializedAll.CurrentReadCount + " lockingRead=" + rwlockBMSFilesInitializedAll.LockingReadCount + " lockingWrite=" + rwlockBMSFilesInitializedAll.LockingWriteCount + " waitingWrite=" + rwlockBMSFilesInitializedAll.WaitingWriteCount);
@@ -5057,7 +5056,7 @@ public partial class BMSLibrary : ObservableObject
                 {
                     TryImportChartInfoMetadataBundleAtStartup();
                 }
-                packageLifecycleOwner.StartupReadiness.Reset();
+                if (!isScoreOnly) { packageLifecycleOwner.StartupReadiness.Reset(); }
                 using (rwlockBMSFilesInitializedAll.GetWriterGuard())
                 {
                     LogInstallPerformance("init_library_lock_acquired rwlockInitAll currentRead=" + rwlockBMSFilesInitializedAll.CurrentReadCount + " lockingRead=" + rwlockBMSFilesInitializedAll.LockingReadCount + " lockingWrite=" + rwlockBMSFilesInitializedAll.LockingWriteCount + " waitingWrite=" + rwlockBMSFilesInitializedAll.WaitingWriteCount);
@@ -5107,38 +5106,11 @@ public partial class BMSLibrary : ObservableObject
 
                 }
             }
-            finally
-            {
-                installTableCollectionMutationScope?.Dispose();
-                installTableCollectionMutationScope = null;
-            }
+            // 同期公開入口は自有L/Pの中で同じ復元stageを合成します。
+            // 借用入口はfiles段階だけ返し、外側がheaders成功後に同じstageを呼びます。
+            if (flag && capability == null)
+            { pendingPublication = RestorePendingPackagesCore(mutationCapability, options); }
 
-            if (flag)
-            {
-                IReadOnlyList<string> registeredBmsRoots =
-                    lr2SearchRootSnapshotOwner.CaptureForUpdate(options).RequestedRoots;
-                installTableCollectionMutationScope = packageLifecycleOwner.BeginCollectionMutationScope();
-                using (rwlockPendingInstallCharts.GetWriterGuard())
-                {
-                    using (rwlockBMSFiles.GetReaderGuard())
-                    {
-                        _ = packageLifecycleOwner.ReloadInstallTable(
-                            initializationService,
-                            dbGateway,
-                            registeredBmsRoots,
-                            ContainsInstalledChartUnsafe);
-                    }
-                }
-                packageLifecycleOwner.StartupReadiness.MarkPendingPackagesRestored();
-            }
-            if (installTableCollectionMutationScope != null)
-            {
-                IDisposable collectionMutationScope = installTableCollectionMutationScope;
-                installTableCollectionMutationScope = null;
-                TryInvokePostLeaseNotification(
-                    collectionMutationScope.Dispose,
-                    "initialization_collection_publication_failed");
-            }
         }
         catch
         {
@@ -5152,8 +5124,6 @@ public partial class BMSLibrary : ObservableObject
         }
         finally
         {
-            installTableCollectionMutationScope?.Dispose();
-            installTableCollectionMutationScope = null;
             mutationCapability.Dispose();
             primaryCapability.Dispose();
             publicPlaylistCapability?.Dispose();
@@ -5172,12 +5142,105 @@ public partial class BMSLibrary : ObservableObject
                 }
             }
         }
+        // 必須通知は自有L/P解放後に実行し、失敗を任意通知のbest-effortへ落としません。
+        if (pendingPublication != null)
+        {
+            uiScheduler.Invoke(pendingPublication);
+            CompletePendingRestorationReadiness(now.ToUniversalTime());
+        }
         // 公開入口は既存の公開効果を排出してから通知し、後続の独立背景処理をまだ開始しない。
         try { FlushPostLeaseEffects(initializationPostLeaseEffects, diagnosticEffects: null); }
         finally
         {
             if (repairNotificationObserver == null && repairNotification != null) { PresentLeapYearFolderRepair(repairNotification); }
         }
+        long installableElapsedMs = (long)(DateTime.Now - now).TotalMilliseconds;
+        TimeSpan timeSpan2 = DateTime.Now - now;
+        NLogWrapper.DebuggerLogger?.Trace(timeSpan2.ToString());
+        synchronizationInput = synchronizationInput with { FollowUp = new(deferredMaintenanceReason, !isScoreOnly, installableElapsedMs) };
+        if (capability == null) { ScheduleInitializationFollowUp(synchronizationInput.FollowUp); }
+        LogInstallPerformance("init_library saved_data_ms=" + initializeResult.SavedDataMs
+            + " files_projection_ms=" + initializeResult.FilesAndProjectionMs + " wait_continuation_ms=" + initializeResult.WaitContinuationMs
+            + " total_ms=" + initializeResult.TotalMs);
+        if (Net10PerformanceLog.IsEnabled)
+        {
+            int catalogRowCount;
+            int bmsonRowCount;
+            using (rwlockBMSFiles.GetReaderGuard())
+            {
+                catalogRowCount = BmsCharts?.Count ?? 0;
+                bmsonRowCount = BmsonCharts?.Count ?? 0;
+            }
+            Net10PerformanceLog.Write(
+                performanceInteraction,
+                "data_ready",
+                "mode=" + mode
+                + " catalogRows=" + catalogRowCount
+                + " bmsonRows=" + bmsonRowCount
+                + " totalMs=" + initializeResult.TotalMs);
+        }
+        return synchronizationInput;
+    }
+
+    /// <summary>同L/Pで保留全復元だけをworker上でfresh実行し、model保護を解放した後の必須UI通知を非同期に待ちます。files・headersは再実行しません。</summary>
+    /// <param name="capability">呼出元が保持する同libraryの生存L/P権限です。</param>
+    /// <param name="options">同じ初期化要求で捕捉した設定です。</param>
+    /// <exception cref="PendingPackageRestoreException">DB確定前の復元失敗です。確定後のswap・公開・準備完了の失敗はこの型へ包みません。</exception>
+    internal async Task RestorePendingPackagesUnderAdmissionAsync(LibraryFileMutationCapability capability, BmsLibraryOptionsSnapshot options)
+    {
+        DateTime started = DateTime.UtcNow;
+        Action publication = await Task.Run(() => RestorePendingPackagesCore(capability, options)).ConfigureAwait(false);
+        await uiScheduler.InvokeAsync(publication).ConfigureAwait(false);
+        CompletePendingRestorationReadiness(started);
+    }
+
+    /// <summary>明示承認されたinstall全登録の初期化をworker上で実行し、成功後の必須UI通知を非同期に待ちます。再実行は外側の新たな明示選択でだけ行います。</summary>
+    /// <param name="capability">呼出元が保持する同libraryの生存L/P権限です。</param>
+    /// <exception cref="PendingPackageRestoreException">全行削除が確定せず旧登録・一覧を保持した失敗です。確定後の公開失敗は通常の失敗として返します。</exception>
+    internal async Task ResetPendingPackagesUnderAdmissionAsync(LibraryFileMutationCapability capability)
+    {
+        DateTime started = DateTime.UtcNow;
+        Action publication = await Task.Run(() => ResetPendingPackagesCore(capability)).ConfigureAwait(false);
+        await uiScheduler.InvokeAsync(publication).ConfigureAwait(false);
+        CompletePendingRestorationReadiness(started);
+    }
+
+    /// <summary>同期公開入口とasync入口が共用する全復元coreです。DB・model保護を解放し、実行していない純通知だけを返します。</summary>
+    private Action RestorePendingPackagesCore(LibraryFileMutationCapability capability, BmsLibraryOptionsSnapshot options)
+    {
+        ValidatePendingRestorationAdmission(capability);
+        ArgumentNullException.ThrowIfNull(options);
+        IReadOnlyList<string> roots = lr2SearchRootSnapshotOwner.CaptureForUpdate(options).RequestedRoots;
+        using (rwlockPendingInstallCharts.GetWriterGuard())
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            packageLifecycleOwner.ReloadInstallTableWithoutPublishing(initializationService, dbGateway, roots, ContainsInstalledChartUnsafe, out Action publication);
+            return publication;
+        }
+    }
+
+    /// <summary>明示Resetの同期coreです。install以外のDB行・入力・導入済曲を変更せず、純通知だけを返します。</summary>
+    private Action ResetPendingPackagesCore(LibraryFileMutationCapability capability)
+    {
+        ValidatePendingRestorationAdmission(capability);
+        using (rwlockPendingInstallCharts.GetWriterGuard())
+        { return packageLifecycleOwner.ResetPendingPackagesWithoutPublishing(dbGateway); }
+    }
+
+    /// <summary>復元専用失敗へ包む前に、既存の権限と終了取消を判定します。</summary>
+    private void ValidatePendingRestorationAdmission(LibraryFileMutationCapability capability)
+    {
+        ArgumentNullException.ThrowIfNull(capability);
+        capability.Validate(OperationAdmission);
+        ArgumentNullException.ThrowIfNull(capability.PlaylistCapability);
+        capability.PlaylistCapability.Validate(lr2SynchronizationOwner.PlaylistOperationAdmission);
+        if (IsShutdownRequested) { throw new OperationCanceledException(); }
+    }
+
+    /// <summary>復元・一覧初期化の成功だけを同じ保留準備完了へ合流させます。既存集合通知はmodel保護の解放後に完了しています。</summary>
+    private void CompletePendingRestorationReadiness(DateTime started)
+    {
+        packageLifecycleOwner.StartupReadiness.MarkPendingPackagesRestored();
         DirectoryResourceLookupCache installableLookupCacheSnapshot = null;
         int catalogRowCount = 0;
         int bmsonRowCount = 0;
@@ -5194,7 +5257,7 @@ public partial class BMSLibrary : ObservableObject
         {
             pendingPackageCount = ChartPackagesPending.Count;
         }
-        long installableElapsedMs = (long)(DateTime.Now - now).TotalMilliseconds;
+        long installableElapsedMs = (long)(DateTime.UtcNow - started).TotalMilliseconds;
         if (packageLifecycleOwner.StartupReadiness.TryMarkInstallEstimationReady())
         {
             LogInstallPerformance("startup_install_estimation_ready elapsedMs=" + installableElapsedMs
@@ -5212,24 +5275,6 @@ public partial class BMSLibrary : ObservableObject
             LogInstallPerformance("startup_install_ready elapsedMs=" + installableElapsedMs
                 + " pendingPackages=" + pendingPackageCount);
         }
-        TimeSpan timeSpan2 = DateTime.Now - now;
-        NLogWrapper.DebuggerLogger?.Trace(timeSpan2.ToString());
-        synchronizationInput = synchronizationInput with { FollowUp = new(deferredMaintenanceReason, !isScoreOnly, installableElapsedMs) };
-        if (capability == null) { ScheduleInitializationFollowUp(synchronizationInput.FollowUp); }
-        LogInstallPerformance("init_library saved_data_ms=" + initializeResult.SavedDataMs
-            + " files_projection_ms=" + initializeResult.FilesAndProjectionMs + " wait_continuation_ms=" + initializeResult.WaitContinuationMs
-            + " total_ms=" + initializeResult.TotalMs);
-        if (Net10PerformanceLog.IsEnabled)
-        {
-            Net10PerformanceLog.Write(
-                performanceInteraction,
-                "data_ready",
-                "mode=" + mode
-                + " catalogRows=" + catalogRowCount
-                + " bmsonRows=" + bmsonRowCount
-                + " totalMs=" + initializeResult.TotalMs);
-        }
-        return synchronizationInput;
     }
 
     /// <summary>必須UIの成功後に捕捉済み後続を明示登録します。公開モデル入口も同じ手順を使います。</summary>

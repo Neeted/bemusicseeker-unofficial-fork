@@ -48,6 +48,16 @@
 
 カタログの確定、メモリ上の必須反映、補助的な公開を区別します。予期しない物理処理の失敗では安全に続けられない後続を止め、確認済みの成功集合に一回だけ確定を試みます。全体の巻戻し、DB処理の再実行、継続不能を永続化する新たな全体状態は追加しません。
 
+### 重複する保留の登録整理
+
+通常追加では、[物理範囲の整理](install-estimation.md#検出した物理範囲の保持)で完全に読めた旧群の複数削除と新単位の複数追加を、既存の変更セッションの一transactionへ集約します。入力回収を伴う`RemovePendingPackagesAsync`は使わず、DB成功後に状態を公開します。読取不完全な群は旧登録を保持し、独立正常群は処理できます。DB失敗では同じtransaction内の全未確定登録を保全し、新集合や成功を公開しません。群別のsavepoint・先行別commitは追加しません。
+
+起動・全再初期化の保留復元は、初期DBsnapshotから全対象をdetachedで取得・分類し、警告と完成collectionを事前構築します。正常な不存在は整理候補とし、不正保存pathの既存処理による実失敗、アクセス・列挙・譜面読取失敗が一つでもあれば試行全体を破棄して全旧登録・既存一覧を保ちます。完成した場合だけ、捕捉した全生キーのexact差分とcanonical登録を既存一transactionで確定し、完成一覧を一度swapします。DB確定前の失敗は原因付き専用失敗として返し、確定後の同期・公開障害を復元Retryへ再分類しません。
+
+明示された一覧初期化は、install全登録だけを一transactionで削除し、成功時だけ保留を空にします。DB失敗では全旧行と既存一覧を保ち、元入力・導入済み曲・他表を削除しません。管理入力の通常寿命は別とし、`RemovePendingPackagesAsync`の物理回収を流用しません。専用stageと失敗選択の接続範囲は[起動復元](../runtime/startup.md#導入とプレイリストの準備完了)に従います。
+
+登録整理が未確定で物理成功もない段階の協調取消は、旧群と入力を保持します。読取り完了だけを永続確定と扱いません。同じ重複群に通常導入の物理成功が既にある場合は、成功receiptと同群の残る全新保留を同じsessionで確定します。独立した物理成功のない群は、他群の成功を理由に置換せず、取消で旧登録を保持します。消費済み範囲を覆う旧親を復活させず、未実行分を導入成功へ数えません。物理成功後のDB失敗は既存の確認候補と失敗receiptを維持し、物理処理の全体rollbackや登録だけの先行commitを行いません。
+
 ### 単一ファイルの置換
 
 単一ファイルは同じ親ディレクトリの一意な一時ファイルへ全内容を書き、閉じてから公開します。既存ファイルは `File.Replace`、初回は `File.Move` で公開し、先に既存ファイルを削除しません。公開に失敗した場合は旧ファイルを保全し、一時ファイルの回収失敗で元の例外を置き換えません。永続的な回復日誌をこの規則のためだけに増やしません。
@@ -143,6 +153,7 @@ flowchart TB
 | --- | --- | --- |
 | 後続通常先を保つ保護採番と確定後の消費 | `BmsLibraryPackageInstallService`、`FileDbMutationExecutor` | `BmsLibraryPackageInstallServiceTests.InstallPendingPackages_ProtectedNamesPreserveWholeBatchAndStoredPendingRemoval` は独立先行成功と衝突packageを一sessionへ通し、実bytes・song/install表・所持/保留・受付終端を確認する。`MovePackageFilesWithReceipt_SmartSameComponentDeletesSourceDuringFinalize` は通常同等と実在suffix同内容をdurable後だけ消費する。正逆/3拡張子/親directoryの条件は[導入の対応表](drop-install.md#実装とテストの対応)へ分担し、型衝突・確定失敗・回収の既存系列を維持する。 |
 | 保留候補・配置へ成功scopeだけを一sessionで反映、失敗・未処理・prefix兄弟を保持 | `LibraryMutationSession`、`LibraryInstallDestinationChange`、`PackageStateMutationApplier.ApplyPackageReferenceFacts` | [`BmsLibraryFolderRenameRefreshTests.ApplyAutoRenamePlans_UnexpectedMoveFailureCommitsConfirmedPrefixAndStopsSuffix`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) が実FS/SQLiteの成功prefixだけの候補追従、`OwnedChartCollectionLibraryMutationTests.RemoveLibraryCharts_PublishesOneResourceGenerationForConfirmedFoldersOnly` が実削除APIの成功scopeだけの候補失効・確定DST解除を確認する。状態遷移の条件表は[変更操作の対応表](mutations.md#実装とテストの対応)へ分担する。 |
+| 保留復元全体の確定・明示Resetと通常導入の部分成功の分離 | `BmsLibraryInitializationService.LoadInstallTable`、`PackageLifecycleOwner`、`BmsLibraryDbGateway` | `BmsLibraryInitializationInstallTests.ReloadInstallTable_IncompleteRestoreKeepsAllRowsAndExistingCollections`が重複群/孤立fileのreadlockと正常群・alias・不存在の混在で全旧行/一覧/bytes保持を、`ReloadInstallTable_InvalidStoredPathKeepsEveryRowAndExistingCollection`が不正保存pathの実失敗と全旧行保持を、`ReloadInstallTable_NormalizationDatabaseFailureKeepsRowsAndStopsBeforePublication`がINSERT後abortを確認する。`ResetPendingPackages_ChangesOnlyInstallAfterAtomicSuccess`は実管理rootと導入済曲を含む保持・最後のDELETE後abortを、`ReloadInstallTable_CommittedPublicationFailureIsNotRestoreFailure`は確定後公開失敗の区別を分担する。実Libraryの`PendingRestoreStage_AwaitsRequiredPublicationBeforeReadiness`と`PendingRestoreStage_PropagatesPublicationFailureAfterCommit`が必須通知の非同期待合せ・今回Ready・確定後fault/rejectを確認する。通常の`ApplyPendingPackageMutationDelta_NormalizationUsesOneTransactionBeforePublication`と`ProductionImport_SplitOverlapCommitsPhysicalPrefixAndRemainingUnitsOnCancellation`、既存ForceInstallの物理prefix/suffix・receiptは維持する。 |
 | 物理成功と登録保存・catalogの独立回収 | [`LibraryChartRemovalOutcome`](../../../BeMusicSeeker/Models/BmsLibraryInternal/FileOperations/LibraryChartRemovalOutcome.cs) | `OwnedChartCollectionLibraryMutationTests.RemoveLibraryCharts_RegistrationAndCatalogFinalizeIndependently` が4終端を実FS/SQLite/configで、`LibraryChartRemovalReportTests` と選択workflowの報告接続が両原因と物理件数の保持を確認する。 |
 | 原子的な単一ファイルの公開と失敗時の保全 | [`AtomicFileWriter`](../../../BeMusicSeeker/Models/Utils/FileOperations/AtomicFileWriter.cs) | [`AtomicFileWriterTests`](../../../BeMusicSeeker.Tests/FileOperations/AtomicFileWriterTests.cs) |
 | SQLiteの確定と巻戻し、元の例外の保持 | [`SQLiteConnectionEx`](../../../BeMusicSeeker/Models/LR2/SQLiteConnectionEx.cs)、[`BmsLibraryDbGateway`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) | [`SQLiteProviderRuntimeTests`](../../../BeMusicSeeker.Tests/Runtime/SQLiteProviderRuntimeTests.cs)、[`CatalogMutationOwnerTests`](../../../BeMusicSeeker.Tests/Catalog/CatalogMutationOwnerTests.cs)。`SQLiteConnectionEx_CommitBusyRemainsFailureAndRollsBackUncommittedChanges` は`DELETE` ジャーナルの読取りトランザクションで確定時に `Busy` を発生させ、失敗・未確定行不在・先行行保持・次の明示トランザクションを確認する。`ApplyLr2NormalFolderSync_RaiseRollbackKeepsPrimaryFailureAndAllowsNextExplicitSave` は通常フォルダ（`type=1`）の保存中に実際の `ROLLBACK` トリガーで元SQLite原因・未変更DBと現在値・接続解放後の次の明示保存を確認する。生値読取りの`step`／`finalize`と元原因は既存SQLiteケースが分担する。 |

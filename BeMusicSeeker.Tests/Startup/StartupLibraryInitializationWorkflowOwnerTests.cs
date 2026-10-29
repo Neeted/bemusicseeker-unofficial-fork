@@ -13,7 +13,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-public sealed class StartupLibraryInitializationWorkflowOwnerTests
+public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
 {
     /// <summary>バックアップ・修復・完了案内の独立した通知を全て試み、表示のIO失敗と所有していない取消しを初期化へ再送出しません。</summary>
     /// <remarks>Windowを作らず、実通知管理主体と表示依存だけを用います。失敗位置と例外種類を変えて後続通知の欠落も検査します。</remarks>

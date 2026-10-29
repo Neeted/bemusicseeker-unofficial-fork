@@ -135,6 +135,50 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
     }
 
+    /// <summary>未選択兄弟とreadmeを残す部分file登録を同file＋独立directoryで再投入します。成功fileをdirectory探索へ渡さず、単entry・DST・DB・兄弟bytesを保持します。</summary>
+    [TestMethod]
+    public async Task ProductionImport_KnownFileRedropKeepsFileScopeAndDestination()
+    {
+        var port = new ObservingInstallMutationPort();
+        await using var fixture = new AutomaticContinuationFixture(false, false, mutationPort: port);
+        string parent = fixture.WriteInput("Partial", "a.bms", "known-file");
+        fixture.WriteInput("Partial", "b.bms", "unselected");
+        File.WriteAllText(Path.Combine(parent, "readme.txt"), "unselected");
+        // 音源・previewはなく、未選択b/readmeがあるので親promotion/全選択になりません。
+        string chart = Path.Combine(parent, "a.bms");
+        string independent = fixture.WriteInput("Independent", "normal.bms", "known-file-independent");
+        Dictionary<string, byte[]> before = Directory.GetFiles(parent).ToDictionary(path => path, File.ReadAllBytes);
+        await fixture.InitializeAsync();
+        Assert.IsTrue(fixture.Owner.Enqueue([chart]));
+        await fixture.Owner.WaitForIdleAsync();
+        ChartPackage original = fixture.Library.ChartPackagesPending.Single();
+        Assert.AreEqual(chart, original.path);
+        Assert.AreEqual(1, original.ChartEntries.Count);
+        bool deleteParent = original.delete_parent;
+        original.ChartEntries.Single().RestoreInstallDestinationState(new PackageChartInstallDestinationState(fixture.Destination, "Kept file title", "Kept file artist", [fixture.Destination]));
+        PackageChartInstallDestinationState destination = original.ChartEntries.Single().CaptureInstallDestinationState();
+        Assert.IsTrue(fixture.Owner.Enqueue([chart, independent]));
+        await fixture.Owner.WaitForIdleAsync();
+        Assert.IsNotNull(port.LatestResult);
+        Assert.IsFalse(port.LatestResult.HasRequiredFailure);
+        Assert.IsTrue(port.LatestResult.HasDurableCommit);
+        ChartPackage retained = fixture.Library.ChartPackagesPending.Single(package => package.path == chart);
+        Assert.AreEqual(1, retained.ChartEntries.Count);
+        PackageChartEntry entry = retained.ChartEntries.Single();
+        Assert.AreEqual(chart, entry.Chart.Path);
+        Assert.AreEqual(deleteParent, retained.delete_parent);
+        Assert.AreEqual(destination.Destination, entry.Chart.InstallDestination);
+        Assert.AreEqual(destination.Title, entry.Chart.InstallDestinationTitle);
+        Assert.AreEqual(destination.Artist, entry.Chart.InstallDestinationArtist);
+        CollectionAssert.AreEqual(destination.Suggestions.ToArray(), entry.Chart.InstallDestinationSuggestions.ToArray());
+        Assert.IsTrue(fixture.Library.ChartPackagesPending.Any(package => package.path == independent));
+        var gateway = new BmsLibraryDbGateway(fixture.Database);
+        CollectionAssert.AreEquivalent(new[] { chart, independent }, gateway.LoadInstallPackages().Select(row => row.path).ToArray());
+        Assert.AreEqual(deleteParent, gateway.LoadInstallPackages().Single(row => row.path == chart).delete_parent);
+        foreach ((string path, byte[] bytes) in before) { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path)); }
+        Assert.AreEqual(0, fixture.Library.ChartPackagesInstalled.Count);
+    }
+
     /// <summary>展開の有無を一意に観測できる、譜面一つだけの人工書庫を作ります。</summary>
     private static byte[] CreateEmbeddedChartArchive(string name)
     {

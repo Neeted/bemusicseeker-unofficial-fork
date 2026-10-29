@@ -1363,5 +1363,17 @@
   "Settings_bmt_url_switch_failed": "新的BMT设置已保存，但无法切换表格URL。旧的受管理URL可能仍然有效。此次失败后，未对旧输出位置的文件进行进一步清理。",
   "Settings_bmt_files_remain": "新的BMT设置和表格URL已应用，但部分旧的受管理文件无法删除，仍然保留。",
   "Playlist_reload_processed_label_format": "{0} 已处理 {1}/{2} 个表",
-  "Playlist_reload_last_processed_label_format": "最近处理结束：{0}"
+  "Playlist_reload_last_processed_label_format": "最近处理结束：{0}",
+  "PendingRestoreTitle": "无法恢复待处理包",
+  "PendingRestoreMessage": "无法恢复待处理包。请重试、清空待处理列表后继续，或退出。",
+  "PendingRestoreResetWarning": "“清空待处理列表并继续”会清除所有待处理注册记录。此操作不会删除原始文件或已安装的歌曲。",
+  "PendingRestoreRetry": "重试",
+  "PendingRestoreReset": "清空待处理列表并继续",
+  "PendingRestoreExit": "退出",
+  "Error_PendingDiscoveryIncompleteFormat": "未能完成待处理包的发现: {0}",
+  "Error_PendingChartUnreadableFormat": "无法读取待处理谱面: {0}",
+  "Error_PendingChartEnumerationFailedFormat": "枚举待处理谱面失败: {0} {1} {2}",
+  "Error_PendingRestoreUncommitted": "无法确认待处理包的恢复。",
+  "Error_PendingRestoreDialogFailedFormat": "待处理包恢复对话框失败：{0}",
+  "Error_PendingRestoreChoiceUnknown": "未知的待处理包恢复选项。"
 }

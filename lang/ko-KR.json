@@ -1363,5 +1363,17 @@
   "Settings_bmt_url_switch_failed": "새 BMT 설정은 저장했지만 테이블 URL을 전환하지 못했습니다. 이전 관리 URL이 여전히 활성 상태일 수 있습니다. 이 실패 후에는 이전 출력 위치의 파일을 추가로 정리하지 않았습니다.",
   "Settings_bmt_files_remain": "새 BMT 설정과 테이블 URL을 적용했지만 일부 이전 관리 파일을 삭제하지 못해 남아 있습니다.",
   "Playlist_reload_processed_label_format": "{0} {1}/{2}개 처리 완료",
-  "Playlist_reload_last_processed_label_format": "최근 처리 종료: {0}"
+  "Playlist_reload_last_processed_label_format": "최근 처리 종료: {0}",
+  "PendingRestoreTitle": "보류 패키지를 복원하지 못했습니다",
+  "PendingRestoreMessage": "보류 패키지를 복원하지 못했습니다. 다시 시도하거나, 보류 목록을 초기화하고 계속하거나, 종료해 주세요.",
+  "PendingRestoreResetWarning": "“보류 목록을 초기화하고 계속”은 모든 보류 등록을 지웁니다. 이 작업으로 원본 파일이나 설치된 곡은 삭제되지 않습니다.",
+  "PendingRestoreRetry": "다시 시도",
+  "PendingRestoreReset": "보류 목록을 초기화하고 계속",
+  "PendingRestoreExit": "종료",
+  "Error_PendingDiscoveryIncompleteFormat": "보류 패키지 검색을 완료하지 못했습니다: {0}",
+  "Error_PendingChartUnreadableFormat": "보류 채보를 읽을 수 없습니다: {0}",
+  "Error_PendingChartEnumerationFailedFormat": "보류 채보 열거에 실패했습니다: {0} {1} {2}",
+  "Error_PendingRestoreUncommitted": "보류 패키지 복원을 확정하지 못했습니다.",
+  "Error_PendingRestoreDialogFailedFormat": "보류 패키지 복원 대화 상자를 처리하지 못했습니다: {0}",
+  "Error_PendingRestoreChoiceUnknown": "알 수 없는 보류 패키지 복원 선택입니다."
 }

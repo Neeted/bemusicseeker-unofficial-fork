@@ -580,6 +580,20 @@ internal sealed class ShellShutdownWorkflowOwner
         }
     }
 
+    /// <summary>初期化の明示終了選択を実Windowの通常Closeへ配送します。終了準備や終端のreceiptは要求元へ返しません。</summary>
+    internal event Action InitializationExitRequested;
+
+    /// <summary>親受付と初期化gateの解放後に通常Closeだけを要求します。UI配送の完了だけを待ち、呼出元自身の終了待機は作りません。</summary>
+    internal Task RequestInitializationExitAsync()
+        => dispatchToUi(() =>
+        {
+            if (IsClosingOrClosed) { return Task.CompletedTask; }
+            Action request = InitializationExitRequested
+                ?? throw new InvalidOperationException("Initialization exit request has no MainWindow subscriber.");
+            request();
+            return Task.CompletedTask;
+        });
+
     internal Task<ShellShutdownWorkflowCompletionReceipt> RequestWindowCloseAsync()
     {
         TryBeginWindowCloseRequest(out Task<ShellShutdownWorkflowCompletionReceipt> request);

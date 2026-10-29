@@ -24,8 +24,11 @@ internal sealed class AutoInstallWorkflowResult
 
     public List<ChartPackage> PendingPackagesToRemove { get; } = [];
 
-    /// <summary>完全に読めた新directoryと旧保留群です。採用時だけ同じsessionで登録を置換します。</summary>
-    internal Dictionary<ChartPackage, List<ChartPackage>> PendingPackageReplacements { get; } = [];
+    /// <summary>旧群と一度の探索から作った非重複の新単位です。採用時だけ同じsessionで登録を置換します。</summary>
+    internal List<PendingPackageNormalizationGroup> PendingPackageNormalizations { get; } = [];
+
+    /// <summary>今回入力と無関係な整理結果です。登録だけを行い、新しい自動推定・導入資格を与えません。</summary>
+    internal HashSet<ChartPackage> RegistrationOnlyPackages { get; } = [];
 
     public List<ChartPackage> PendingPackagesToAdd { get; } = [];
 

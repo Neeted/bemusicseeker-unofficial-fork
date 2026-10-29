@@ -1363,5 +1363,17 @@
   "Settings_bmt_url_switch_failed": "新的BMT設定已儲存，但無法切換表格URL。舊的受管理URL可能仍然有效。此次失敗後，未對舊輸出位置的檔案進行進一步清理。",
   "Settings_bmt_files_remain": "新的BMT設定和表格URL已套用，但部分舊的受管理檔案無法刪除，仍然保留。",
   "Playlist_reload_processed_label_format": "{0} 已處理 {1}/{2} 個表",
-  "Playlist_reload_last_processed_label_format": "最近處理結束：{0}"
+  "Playlist_reload_last_processed_label_format": "最近處理結束：{0}",
+  "PendingRestoreTitle": "無法還原待處理套件",
+  "PendingRestoreMessage": "無法還原待處理套件。請重試、清空待處理清單後繼續，或結束。",
+  "PendingRestoreResetWarning": "「清空待處理清單並繼續」會清除所有待處理登錄記錄。此操作不會刪除原始檔案或已安裝的歌曲。",
+  "PendingRestoreRetry": "重試",
+  "PendingRestoreReset": "清空待處理清單並繼續",
+  "PendingRestoreExit": "結束",
+  "Error_PendingDiscoveryIncompleteFormat": "未能完成待處理套件的探索: {0}",
+  "Error_PendingChartUnreadableFormat": "無法讀取待處理譜面: {0}",
+  "Error_PendingChartEnumerationFailedFormat": "列舉待處理譜面失敗: {0} {1} {2}",
+  "Error_PendingRestoreUncommitted": "無法確認待處理套件的還原。",
+  "Error_PendingRestoreDialogFailedFormat": "待處理套件還原對話方塊失敗：{0}",
+  "Error_PendingRestoreChoiceUnknown": "未知的待處理套件還原選項。"
 }

@@ -15,7 +15,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ResourceBearingNestedRestoreTests
 {
-    /// <summary>実DBの保存済み入力を新libraryで完全復元し、健康度の未使用解放前に禁止と親行警告を再捕捉します。強制導入でも元bytes・保存行・所持を保ちます。</summary>
+    /// <summary>実DBの親子重複を新libraryで一式へ揃え、健康度の未使用解放前に禁止と親行警告を再捕捉します。強制導入でも元bytes・存続保存行・所持を保ちます。</summary>
     [TestMethod]
     public async Task Initialize_ResourceBearingNestedChartsAreRestoredBeforePhysicalInstall()
     {
@@ -35,6 +35,7 @@ public sealed class ResourceBearingNestedRestoreTests
         {
             db.CreateTable<LR2SongDBExtended.install>();
             db.Insert(new LR2SongDBExtended.install { path = source, delete_parent = false });
+            db.Insert(new LR2SongDBExtended.install { path = child, delete_parent = true });
         });
         var background = new ConcurrentQueue<Func<Task>>();
         TestBmsLibrary? library = null;
@@ -48,6 +49,8 @@ public sealed class ResourceBearingNestedRestoreTests
             library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
             while (background.TryDequeue(out Func<Task>? work)) { await work(); }
             ChartPackage restored = library.ChartPackagesPending.Single();
+            Assert.AreEqual(source, restored.path);
+            Assert.IsFalse(restored.delete_parent, "同じ親単位を保持し、旧子のtrueをORしません。");
             Assert.IsTrue(restored.HasResourceBearingNestedCharts);
             Assert.IsTrue(restored.ChartEntries.All(entry => entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceBearingNestedCharts)));
 

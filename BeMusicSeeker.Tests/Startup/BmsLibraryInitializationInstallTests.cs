@@ -19,10 +19,10 @@ namespace BeMusicSeeker.Tests;
 
 
 [TestClass]
-public sealed class BmsLibraryInitializationInstallTests
+public sealed partial class BmsLibraryInitializationInstallTests
 {
     /// <summary>
-    /// 保存済みpending packageを起動で復元しても自動推定せず、手動要求では実ライブラリの導入先へ推定できる。
+    /// 保存済み親子重複を起動で単体と子作品へ整理しても自動推定せず、手動要求では実ライブラリの導入先へ推定できる。
     /// </summary>
     /// <remarks>実ライブラリの起動入口・DB・物理入力・通知を接続し、処理段階を跨ぐ確定と受付の保証を確認する。</remarks>
     [TestMethod]
@@ -36,6 +36,9 @@ public sealed class BmsLibraryInitializationInstallTests
         Directory.CreateDirectory(pending);
         string installedChart = Path.Combine(installed, "chart.bms");
         string pendingChart = Path.Combine(pending, "diff.bms");
+        string child = Path.Combine(pending, "Child");
+        Directory.CreateDirectory(child);
+        File.WriteAllText(Path.Combine(child, "child.bms"), CreateValidBmsText("Child"), Encoding.ASCII);
         string songDb = Path.Combine(root, "song.db");
         File.WriteAllText(installedChart, CreateValidBmsText("Song"), Encoding.ASCII);
         File.WriteAllText(pendingChart, CreateValidBmsText("Song") + "#PLAYLEVEL 12\r\n", Encoding.ASCII);
@@ -50,6 +53,7 @@ public sealed class BmsLibraryInitializationInstallTests
             {
                 connection.CreateTable<LR2SongDBExtended.install>();
                 connection.InsertOrReplace(new LR2SongDBExtended.install { path = pending, delete_parent = false });
+                connection.InsertOrReplace(new LR2SongDBExtended.install { path = child, delete_parent = true });
             });
             var options = new BmsLibraryOptionsSnapshot
             {
@@ -72,15 +76,31 @@ public sealed class BmsLibraryInitializationInstallTests
                     return true;
                 }
             };
+            int pendingPublications = 0;
+            bool admissionHeldAtPendingPublication = false;
+            library.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName != nameof(BMSLibrary.ChartPackagesPending)) { return; }
+                pendingPublications++;
+                admissionHeldAtPendingPublication |= library.OperationAdmission.IsActive
+                    || library.Lr2Synchronization.PlaylistOperationAdmission.IsActive;
+            };
             library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
+            Assert.IsTrue(pendingPublications > 0);
+            Assert.IsFalse(admissionHeldAtPendingPublication, "同期公開入口の必須通知は自有L/Pの解放後です。");
             Assert.IsFalse(library.GetInstallEstimationProgressSnapshot().IsActive);
             while (backgroundWork.TryDequeue(out Func<Task>? work))
             {
                 await work();
             }
             Assert.AreEqual(0, observer.StartedCount, "復元と必須背景更新では評価を開始しません。");
-            ChartPackage restored = library.ChartPackagesPending.Single();
-            Assert.AreEqual(pending, restored.path);
+            Assert.AreEqual(2, library.ChartPackagesPending.Count);
+            ChartPackage restored = library.ChartPackagesPending.Single(package => package.path == pendingChart);
+            Assert.IsTrue(library.ChartPackagesPending.Single(package => package.path == child).delete_parent);
+            using (LR2SongDBExtended restoredDb = new BmsLibraryDbGateway(songDb).OpenSongDbReadOnly())
+            {
+                CollectionAssert.AreEquivalent(new[] { pendingChart, child }, restoredDb.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
+            }
             Assert.IsTrue(restored.ChartEntries.All(entry => string.IsNullOrEmpty(entry.Chart.InstallDestination)));
 
             library.SearchEstimatedInstallationDirectory(restored);
@@ -302,7 +322,7 @@ public sealed class BmsLibraryInitializationInstallTests
                 chart => string.Equals(chart?.Md5, installedHash, StringComparison.OrdinalIgnoreCase));
 
             Assert.AreEqual(2, result.PendingPackages.Count);
-            Assert.AreEqual(1, result.StaleInstallPaths.Count);
+            Assert.AreEqual(1, result.InstallPathsToDelete.Count);
             Assert.AreEqual(1, result.InstalledWarningCount);
             Assert.AreEqual(1, result.SingleFileWarningCount);
             Assert.AreEqual(0, result.StrictWarningCount);
@@ -371,13 +391,13 @@ public sealed class BmsLibraryInitializationInstallTests
             string rootAlias = Path.Combine(registeredRoot, ".").ToUpperInvariant()
                 + Path.DirectorySeparatorChar;
 
-            InstallTableLoadResult firstLoad = owner.ReloadInstallTable(
+            InstallTableLoadResult firstLoad = owner.ReloadInstallTableWithoutPublishing(
                 new BmsLibraryInitializationService(),
                 dbGateway,
                 [rootAlias],
-                _ => true);
+                _ => true, out _);
 
-            CollectionAssert.AreEquivalent(protectedRows, firstLoad.StaleInstallPaths);
+            CollectionAssert.AreEquivalent(protectedRows, firstLoad.InstallPathsToDelete);
             Assert.AreEqual(2, firstLoad.PendingPackages.Count);
             CollectionAssert.AreEquivalent(
                 new[] { outsideDirectory, remainingDirectory },
@@ -386,13 +406,13 @@ public sealed class BmsLibraryInitializationInstallTests
                 new[] { outsideDirectory, remainingDirectory },
                 dbGateway.LoadInstallPackages().Select(package => package.path).ToArray());
 
-            InstallTableLoadResult secondLoad = owner.ReloadInstallTable(
+            InstallTableLoadResult secondLoad = owner.ReloadInstallTableWithoutPublishing(
                 new BmsLibraryInitializationService(),
                 dbGateway,
                 [registeredRoot, outsideDirectory],
-                _ => true);
+                _ => true, out _);
 
-            CollectionAssert.AreEquivalent(new[] { outsideDirectory }, secondLoad.StaleInstallPaths);
+            CollectionAssert.AreEquivalent(new[] { outsideDirectory }, secondLoad.InstallPathsToDelete);
             Assert.AreEqual(1, owner.PendingPackages.Count);
             Assert.AreEqual(remainingDirectory, owner.PendingPackages[0].path);
             Assert.AreEqual(remainingDirectory, dbGateway.LoadInstallPackages().Single().path);
@@ -447,11 +467,11 @@ public sealed class BmsLibraryInitializationInstallTests
                 packages => new ObservableCollection<ChartPackage>(packages ?? []),
                 () => { },
                 _ => { });
-            InstallTableLoadResult result = packageLifecycleOwner.ReloadInstallTable(
+            InstallTableLoadResult result = packageLifecycleOwner.ReloadInstallTableWithoutPublishing(
                 new BmsLibraryInitializationService(),
                 dbGateway,
                 [],
-                _ => false);
+                _ => false, out _);
 
             string canonicalValidPackagePath = LongPathFileSystem.TrimTrailingDirectorySeparators(
                 LongPathFileSystem.NormalizePathForStorage(validPackagePath));
@@ -459,7 +479,7 @@ public sealed class BmsLibraryInitializationInstallTests
             Assert.AreEqual(canonicalValidPackagePath, result.PendingPackages[0].path);
             CollectionAssert.AreEquivalent(
                 new[] { duplicateAliasPath, noChartPackagePath, missingPackagePath },
-                result.StaleInstallPaths);
+                result.InstallPathsToDelete);
 
             List<ChartPackage> remainingInstallRows = dbGateway.LoadInstallPackages();
             Assert.AreEqual(1, remainingInstallRows.Count);
@@ -479,111 +499,57 @@ public sealed class BmsLibraryInitializationInstallTests
     }
 
     /// <summary>
-    /// 非正規aliasだけが残るpendingを正規化してdelete_parentを保ち、case違いの別キーと後続package追加もDB・公開集合で維持する。
+    /// Windowsの物理範囲整理ではcase-onlyも同unitへ揃え、現DB列挙順の最初の有効rowのdelete_parentを保持します。
+    /// 先頭falseと後続trueでもORせず、全raw別名キーの除去・入力bytes保持・後続packageの追加を確認します。
     /// </summary>
     [TestMethod]
-    public void LoadInstallTable_SoleNonCanonicalSurvivorConvergesDatabaseBeforePendingPublication()
+    [DataRow(true)]
+    [DataRow(false)]
+    public void LoadInstallTable_SoleNonCanonicalSurvivorConvergesDatabaseBeforePendingPublication(bool firstDeleteParent)
     {
-
-        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        WithTemporaryLr2SongDb((lr2RootPath, songDbPath) =>
         {
             string packagePath = Path.Combine(lr2RootPath, "SoleAliasPending");
             Directory.CreateDirectory(packagePath);
-            File.WriteAllText(
-                Path.Combine(packagePath, "chart.bms"),
-                CreateValidBmsText("Sole alias pending"),
-                Encoding.ASCII);
-            string rawAliasPath = Path.Combine(packagePath, ".");
-            string caseOnlyPackagePath = Path.Combine(lr2RootPath, "solealiaspending");
-            string caseOnlyAliasPath = Path.Combine(caseOnlyPackagePath, ".");
-            string canonicalPackagePath = LongPathFileSystem.TrimTrailingDirectorySeparators(
-                LongPathFileSystem.NormalizePathForStorage(packagePath));
-
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            string chartPath = Path.Combine(packagePath, "chart.bms");
+            File.WriteAllText(chartPath, CreateValidBmsText("Sole alias pending"), Encoding.ASCII);
+            byte[] inputBytes = File.ReadAllBytes(chartPath);
+            string[] rawPaths = [Path.Combine(packagePath, "."), Path.Combine(lr2RootPath, "solealiaspending"), Path.Combine(lr2RootPath, "solealiaspending", ".")];
+            ExecuteSongDbFixtureTransaction(songDbPath, db =>
             {
-                songDb.RunInTransaction(() =>
+                db.CreateTable<LR2SongDBExtended.install>();
+                for (int index = 0; index < rawPaths.Length; index++)
                 {
-                    songDb.CreateTable<LR2SongDBExtended.install>();
-                    songDb.InsertOrReplace(new ChartPackage
-                    {
-                        path = rawAliasPath,
-                        delete_parent = true
-                    }, typeof(LR2SongDBExtended.install));
-                    songDb.InsertOrReplace(new ChartPackage
-                    {
-                        path = caseOnlyPackagePath
-                    }, typeof(LR2SongDBExtended.install));
-                    songDb.InsertOrReplace(new ChartPackage
-                    {
-                        path = caseOnlyAliasPath
-                    }, typeof(LR2SongDBExtended.install));
-                });
-            }
-
+                    db.Insert(new LR2SongDBExtended.install { path = rawPaths[index], delete_parent = index == 0 ? firstDeleteParent : !firstDeleteParent });
+                }
+            });
             var dbGateway = new BmsLibraryDbGateway(songDbPath);
-            var packageLifecycleOwner = new PackageLifecycleOwner(
-                dbGateway,
-                new TestUiScheduler(() => null!),
-                _ => { },
-                packages => new ObservableCollection<ChartPackage>(packages ?? []),
-                () => { },
-                _ => { });
-            InstallTableLoadResult result = packageLifecycleOwner.ReloadInstallTable(
-                new BmsLibraryInitializationService(),
-                dbGateway,
-                [],
-                _ => false);
-
-            Assert.AreEqual(2, result.PendingPackages.Count);
-            Assert.IsTrue(result.PendingPackages.Any(package =>
-                string.Equals(package.path, canonicalPackagePath, StringComparison.Ordinal)));
-            Assert.IsTrue(result.PendingPackages.Any(package =>
-                string.Equals(package.path, caseOnlyPackagePath, StringComparison.Ordinal)));
-            Assert.AreEqual(2, result.StaleInstallPaths.Count);
-            Assert.IsTrue(result.StaleInstallPaths.Any(path =>
-                string.Equals(path, rawAliasPath, StringComparison.Ordinal)));
-            Assert.IsTrue(result.StaleInstallPaths.Any(path =>
-                string.Equals(path, caseOnlyAliasPath, StringComparison.Ordinal)));
-            Assert.AreEqual(2, packageLifecycleOwner.PendingPackages.Count);
-            ChartPackage canonicalPendingPackage = packageLifecycleOwner.PendingPackages.Single(package =>
-                string.Equals(package.path, canonicalPackagePath, StringComparison.Ordinal));
-            Assert.IsTrue(canonicalPendingPackage.delete_parent);
-            Assert.IsTrue(packageLifecycleOwner.PendingPackages.Any(package =>
-                string.Equals(package.path, caseOnlyPackagePath, StringComparison.Ordinal)));
-
-            List<ChartPackage> remainingInstallRows = dbGateway.LoadInstallPackages();
-            Assert.AreEqual(2, remainingInstallRows.Count);
-            ChartPackage canonicalInstallRow = remainingInstallRows.Single(row =>
-                string.Equals(row.path, canonicalPackagePath, StringComparison.Ordinal));
-            Assert.IsNotNull(remainingInstallRows.SingleOrDefault(row =>
-                string.Equals(row.path, caseOnlyPackagePath, StringComparison.Ordinal)));
-            Assert.IsFalse(remainingInstallRows.Any(row =>
-                string.Equals(row.path, rawAliasPath, StringComparison.Ordinal)));
-            Assert.IsFalse(remainingInstallRows.Any(row =>
-                string.Equals(row.path, caseOnlyAliasPath, StringComparison.Ordinal)));
-            Assert.IsTrue(canonicalInstallRow.delete_parent);
-
-            var followOnPackage = new ChartPackage
+            ChartPackage firstValid = dbGateway.LoadInstallPackages().First();
+            string canonicalPath = LongPathFileSystem.TrimTrailingDirectorySeparators(LongPathFileSystem.NormalizePathForStorage(firstValid.path));
+            var owner = new PackageLifecycleOwner(dbGateway, new TestUiScheduler(() => null), _ => { },
+                packages => new ObservableCollection<ChartPackage>(packages ?? []), () => { }, _ => { });
+            InstallTableLoadResult result = owner.ReloadInstallTableWithoutPublishing(new BmsLibraryInitializationService(), dbGateway, [], _ => false, out _);
+            Assert.AreEqual(1, result.PendingPackages.Count);
+            Assert.AreEqual(canonicalPath, result.PendingPackages.Single().path);
+            Assert.AreEqual(firstValid.delete_parent, result.PendingPackages.Single().delete_parent);
+            CollectionAssert.AreEquivalent(rawPaths.Where(path => !string.Equals(path, canonicalPath, StringComparison.Ordinal)).ToArray(), result.InstallPathsToDelete);
+            Assert.AreEqual(1, owner.PendingPackages.Count);
+            ChartPackage row = dbGateway.LoadInstallPackages().Single();
+            Assert.AreEqual(canonicalPath, row.path);
+            Assert.AreEqual(firstValid.delete_parent, row.delete_parent);
+            foreach (string rawPath in rawPaths.Where(path => !string.Equals(path, canonicalPath, StringComparison.Ordinal)))
             {
-                path = Path.Combine(lr2RootPath, "FollowOnPackage"),
-                delete_parent = false
-            };
-            packageLifecycleOwner.ApplyPendingPackageMutationDelta(
-                new PendingPackageMutationDelta
-                {
-                    HasChanges = true,
-                    RemainingPackages = [.. packageLifecycleOwner.PendingPackages]
-                },
-                packagesToAdd: [followOnPackage],
-                installRowsToUpsert: [followOnPackage]);
-
-            Assert.AreEqual(3, packageLifecycleOwner.PendingPackages.Count);
-            Assert.IsTrue(packageLifecycleOwner.PendingPackages.Any(package =>
-                string.Equals(package.path, followOnPackage.path, StringComparison.Ordinal)));
-            remainingInstallRows = dbGateway.LoadInstallPackages();
-            Assert.AreEqual(3, remainingInstallRows.Count);
-            Assert.IsNotNull(remainingInstallRows.SingleOrDefault(row =>
-                string.Equals(row.path, followOnPackage.path, StringComparison.Ordinal)));
+                Assert.IsFalse(dbGateway.LoadInstallPackages().Any(candidate => string.Equals(candidate.path, rawPath, StringComparison.Ordinal)));
+            }
+            CollectionAssert.AreEqual(inputBytes, File.ReadAllBytes(chartPath));
+            var followOnPackage = new ChartPackage { path = Path.Combine(lr2RootPath, "FollowOnPackage") };
+            owner.ApplyPendingPackageMutationDelta(new PendingPackageMutationDelta
+            {
+                HasChanges = true,
+                RemainingPackages = [.. owner.PendingPackages]
+            }, [followOnPackage], [followOnPackage]);
+            Assert.AreEqual(2, owner.PendingPackages.Count);
+            CollectionAssert.AreEquivalent(new[] { canonicalPath, followOnPackage.path }, dbGateway.LoadInstallPackages().Select(package => package.path).ToArray());
         });
     }
 

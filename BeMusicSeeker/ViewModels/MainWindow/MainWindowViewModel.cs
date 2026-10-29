@@ -3016,8 +3016,13 @@ public partial class MainWindowViewModel : ViewModel,
             playHistoryWorkflowOwner.InvalidateReadCache("full_reinitialize");
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree
                 | UiRefreshChannel.PlaylistTree | UiRefreshChannel.DuplicateTree);
-            StartupRequiredInitializationResult required = await startupLibraryInitializationWorkflowOwner.ReinitializeAsync(files, tables, Lr2SongDbSyncWorkflow, capability,
-                new(startupBackgroundTaskScheduler.CurrentGeneration, operationToken, "reinitialize", operationToken), approval, repairNotificationObserver, warning => scanWarnings.TryAdd(warning.Kind, warning), notification => scoreNotification = notification);
+            StartupRequiredInitializationResult required = await startupLibraryInitializationWorkflowOwner.ReinitializeAsync(files, tables, Lr2SongDbSyncWorkflow, capability, FileDbMutationDialogs,
+                new(startupBackgroundTaskScheduler.CurrentGeneration, operationToken, "reinitialize", operationToken), approval, repairNotificationObserver, warning => scanWarnings.TryAdd(warning.Kind, warning), notification => scoreNotification = notification, () => IsRequiredInitializationShutdownRequested);
+            if (required.ExitRequested)
+            {
+                return new(StartupInitializationOutcome.ExitRequested, GetStartupSettingsSnapshot(), operationToken,
+                    RequiredResult: required, OperationKind: StartupProgressOperationKind.FullReinitialize, ScoreNotification: scoreNotification);
+            }
             if (required.Lr2Failure != null) { UpdateLr2SongDbSyncRuntimeStatus(files.GetLr2SongDbSyncStatusSnapshot()); }
             startupReadyDataReached = true;
             operationResult = new(StartupInitializationOutcome.Succeeded, GetStartupSettingsSnapshot(), operationToken,
@@ -3142,6 +3147,13 @@ public partial class MainWindowViewModel : ViewModel,
         try
         {
             if (result == null) { return null; }
+            if (result.Outcome == StartupInitializationOutcome.ExitRequested)
+            {
+                // 初期化自身の終端を待つshutdownをここでawaitしない。実L/P・gate・UI抑止は呼出元で解放済み。
+                startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
+                await ShellShutdownWorkflow.RequestInitializationExitAsync();
+                return result;
+            }
             Action scoreNotification = result.ScoreNotification;
             result = result with { ScoreNotification = null };
             scoreNotification?.Invoke();
@@ -3636,9 +3648,9 @@ public partial class MainWindowViewModel : ViewModel,
         {
             requiredResult = await InitializeStartupLibraryFilesAsync(
                 () => startupLibraryInitializationWorkflowOwner.InitializeRequiredAsync(
-                    files, tables, Lr2SongDbSyncWorkflow, startupPerformanceInteraction, capability,
+                    files, tables, Lr2SongDbSyncWorkflow, startupPerformanceInteraction, capability, FileDbMutationDialogs,
                     new(startupBackgroundTaskScheduler.CurrentGeneration, operationToken, "required_initialization", operationToken),
-                    startupCustomFolderSettings, leapYearRepairApproval, repairNotificationObserver, warningObserver, scoreNotificationObserver, forceBeatorajaBmtProjection));
+                    startupCustomFolderSettings, leapYearRepairApproval, repairNotificationObserver, warningObserver, scoreNotificationObserver, forceBeatorajaBmtProjection, () => IsRequiredInitializationShutdownRequested));
         }
         catch (Exception failure)
         {
@@ -3646,6 +3658,8 @@ public partial class MainWindowViewModel : ViewModel,
             catch (Exception preparationFailure) { throw new AggregateException(failure, preparationFailure); }
             throw;
         }
+        if (requiredResult.ExitRequested)
+        { return new(StartupInitializationOutcome.ExitRequested, startupSettings, operationToken, RequiredResult: requiredResult); }
         await files.CompleteAcceptedDuplicateDataAsync(capability);
         if (IsRequiredInitializationShutdownRequested) { return new(StartupInitializationOutcome.ShutdownRequested); }
         return new(StartupInitializationOutcome.Succeeded, startupSettings, operationToken, RequiredResult: requiredResult, BackupNotifications: backupNotifications);
@@ -3664,6 +3678,7 @@ public partial class MainWindowViewModel : ViewModel,
         try
         {
             StartupRequiredInitializationResult result = await initializeRequired();
+            if (result.ExitRequested) { return result; }
             if (result.Lr2Failure != null) { UpdateLr2SongDbSyncRuntimeStatus(files.GetLr2SongDbSyncStatusSnapshot()); }
             PublishLatestLr2PlayHistorySchemaStatusSnapshotFromLibrary();
             LogInitStage("files_initialize_done", "Initialize");

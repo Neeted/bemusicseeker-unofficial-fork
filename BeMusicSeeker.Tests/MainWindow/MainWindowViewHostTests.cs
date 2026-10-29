@@ -32,7 +32,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 // 実WindowはApplication.Resourcesの画面VMを共有し、音声runtimeとログ構成も一時変更するため所有範囲を並列化しません。
 [DoNotParallelize]
-public sealed class MainWindowViewHostTests
+public sealed partial class MainWindowViewHostTests
 {
     /// <summary>実receiverのawait後の通知失敗を報告し、元の操作失敗と受付終端、Dispatcherと次要求を維持します。</summary>
     [TestMethod]

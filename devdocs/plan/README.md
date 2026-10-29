@@ -4,7 +4,6 @@
 
 | 計画 | 内容 |
 | --- | --- |
-| [採用した任意改善の実装計画](optional-improvements-implementation.md) | 別チャット・作業ワークツリーへ割り当てる単位、確定方針、依存関係、検証条件。 |
 | [既知の課題・未採用の任意改善](release-follow-up-candidates.md) | 今回着手しない改善・検討項目。共有URLのBMTと標準偏差0のT-SCOREを含む。 |
 
 ## 運用

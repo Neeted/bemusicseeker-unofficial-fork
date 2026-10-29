@@ -25,6 +25,10 @@ internal static class LongPathFileSystem
         public DateTime LastWriteTimeUtc { get; }
     }
 
+    /// <summary>属性・列挙の失敗が正常な不存在を示す場合だけ真です。アクセス拒否や一般I/Oを不存在へ読み替えません。</summary>
+    internal static bool IsNotFoundFailure(Exception failure)
+        => failure is FileNotFoundException or DirectoryNotFoundException;
+
     public static string NormalizePathForStorage(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -36,6 +40,30 @@ internal static class LongPathFileSystem
         return IsFullyQualifiedWindowsPath(normalized)
             ? NormalizeFullyQualifiedWindowsPath(normalized)
             : Path.GetFullPath(normalized);
+    }
+
+    /// <summary>既存の物理単位照合規則でdot・末尾区切りを正規化します。復元では正規化の実失敗を原因として伝え、DB生キー自体は変更しません。</summary>
+    internal static string NormalizePhysicalScopePath(string path)
+        => TrimTrailingDirectorySeparators(NormalizePathForStorage(path?.Trim()));
+
+    /// <summary>物理単位の照合用pathを作れた場合だけ真です。通常入力の既存の受理規則を維持し、FSを参照しません。</summary>
+    /// <param name="path">既存の保留範囲または照合対象のパスです。</param>
+    /// <param name="normalizedPath">従来の保留復元と同じ規則で得た照合用パスです。</param>
+    /// <returns>正規化できた場合は真です。不能なDBキーのexact処理を拒否するものではありません。</returns>
+    internal static bool TryNormalizePhysicalScopePath(string path, out string normalizedPath)
+    {
+        normalizedPath = null;
+        if (string.IsNullOrWhiteSpace(path)) { return false; }
+        try
+        {
+            normalizedPath = NormalizePhysicalScopePath(path);
+            return !string.IsNullOrWhiteSpace(normalizedPath);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException or IOException)
+        {
+            normalizedPath = null;
+            return false;
+        }
     }
 
     public static string TrimTrailingDirectorySeparators(string path)

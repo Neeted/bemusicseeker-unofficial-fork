@@ -501,7 +501,7 @@ internal sealed class LibraryDirectoryPreflightService
     {
         return exception switch
         {
-            FileNotFoundException or DirectoryNotFoundException =>
+            Exception failure when LongPathFileSystem.IsNotFoundFailure(failure) =>
                 LibraryDirectoryPreflightFailureCause.NotFound,
             UnauthorizedAccessException => LibraryDirectoryPreflightFailureCause.AccessDenied,
             ArgumentException or NotSupportedException or PathTooLongException =>

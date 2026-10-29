@@ -671,6 +671,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
 
     internal sealed class AutomaticContinuationObserver : IInstallEstimationExecutionObserver
     {
+        internal ConcurrentQueue<string> PreparedPaths { get; } = new();
+        public void ObservePreparation(InstallEstimationPreparationObservation observation) => PreparedPaths.Enqueue(observation.PackagePath);
         internal Action? Applied { get; set; }
         public IDisposable BeginWorkItem(InstallEstimationWorkItemObservation observation) => new EmptyScope();
         public void ObserveProgress(InstallEstimationProgressObservation observation) { }
@@ -710,9 +712,11 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         private readonly HashSet<string> extractedRoots = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>実FSと捕捉する走査結果を同じ内容で準備し、必要な場合だけ最終子配置にも音源を置きます。</summary>
+        /// <param name="mutationPort">本番portの戻り値を観測する場合だけ渡します。省略時は従来と同じ本番portを使います。</param>
         internal AutomaticContinuationFixture(bool enabled, bool deleteSource, bool holdPlayback = false,
             ChartFileOperationSynchronizer? operationAdmission = null, ChartFileOperationSynchronizer? playlistOperationAdmission = null, IUiScheduler? uiScheduler = null, bool nestedAudio = false,
-            IEnumerable<string>? destinationSounds = null, bool differentDestinations = false, bool temporaryIngress = false, IEnumerable<string>? installedChartBodies = null)
+            IEnumerable<string>? destinationSounds = null, bool differentDestinations = false, bool temporaryIngress = false, IEnumerable<string>? installedChartBodies = null,
+            IPackageInstallMutationPort? mutationPort = null)
         {
             Files = new ArchiveInputFileMutationService(path =>
             {
@@ -777,7 +781,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 () => { string path = Path.Combine(Root, "Ingress"); Directory.CreateDirectory(path); return path; },
                 path => Directory.Delete(path, recursive: true)) : null;
             Owner = new PackageInstallWorkflowOwner(new FileDbReportRecordingDialogs(), admission, new ChartMutationActivityOwner(),
-                new BmsLibraryPackageInstallMutationPort(), new AwaitablePlaybackStop(PlaybackEntered, ReleasePlayback.Task), action => { action(); return true; },
+                mutationPort ?? new BmsLibraryPackageInstallMutationPort(), new AwaitablePlaybackStop(PlaybackEntered, ReleasePlayback.Task), action => { action(); return true; },
                 droppedInstallIngressMaterializer: materializer);
             Owner.AttachLibrary(Library);
             Owner.CompletionPublished += receipt => Result = receipt.CommandResult;

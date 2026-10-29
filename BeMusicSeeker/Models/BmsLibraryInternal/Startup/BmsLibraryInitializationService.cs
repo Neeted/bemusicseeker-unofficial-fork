@@ -2334,83 +2334,86 @@ internal sealed class BmsLibraryInitializationService
     }
 
     /// <summary>
-    /// Restores detached pending packages outside the registered BMS roots.
-    /// Protected source paths are classified as stale install rows for the existing
-    /// startup reconciliation; neither their files nor catalog rows are deleted.
+    /// 登録ルート外の保留を復元し、getterより先に親子重複を一度の探索へまとめます。
+    /// 全保留の読取り・分類・警告を完成させた場合だけexact登録差分を返し、一件でも復元不能なら原因を伝えます。
+    /// 登録ルート内の行の整理でも、入力ファイルやcatalog行は削除しません。
     /// </summary>
     public InstallTableLoadResult LoadInstallTable(
         BmsLibraryDbGateway dbGateway,
         IEnumerable<string> registeredBmsRoots,
         Func<ChartFile, bool> isInstalledChart = null)
     {
+        ArgumentNullException.ThrowIfNull(dbGateway);
         var result = new InstallTableLoadResult();
-        if (dbGateway == null)
-        {
-            throw new ArgumentNullException(nameof(dbGateway));
-        }
         var totalStopwatch = Stopwatch.StartNew();
         var loadStopwatch = Stopwatch.StartNew();
-        try
+        // 初期DB行のpathは変更しません。正常確定時のexact差分だけに使い、試行失敗では全て破棄します。
+        List<ChartPackage> rows = dbGateway.LoadInstallPackages();
+        List<string> libraryDirectories = [.. (registeredBmsRoots ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
+        var units = new Dictionary<string, ChartPackage>(StringComparer.OrdinalIgnoreCase);
+        var sourceScopes = new Dictionary<string, PendingPackageScopeObservation>(StringComparer.OrdinalIgnoreCase);
+        foreach (ChartPackage row in rows)
         {
-            List<ChartPackage> packages = dbGateway.LoadInstallPackages();
-            List<string> libraryDirectories = [.. (registeredBmsRoots ?? [])
-                .Where(dir => !string.IsNullOrWhiteSpace(dir))];
-            var seenCanonicalPaths = new HashSet<string>(StringComparer.Ordinal);
-            foreach (ChartPackage package in packages ?? [])
+            // 不正保存pathの実失敗も復元不能です。不存在と確認できない行を黙って整理しません。
+            string path = LongPathFileSystem.NormalizePhysicalScopePath(row.path);
+            if (libraryDirectories.Any(root => LongPathFileSystem.IsSameOrDescendantDirectoryPath(path, root))
+                || units.ContainsKey(path)) { continue; }
+            var scope = PendingPackageScopeObservation.Capture(path);
+            if (scope.Failure != null) { throw scope.Failure; }
+            if (scope.IsDirectory == false && !ChartFileKindResolver.IsSupportedChartFilePath(path)) { continue; }
+            units.Add(path, row);
+            sourceScopes.Add(path, scope);
+        }
+        var packageService = new BmsLibraryPackageInstallService();
+        List<PendingPackageNormalizationGroup> groups = PendingPackageNormalizationGroup.Build(units.Values, sourceScopes);
+        var grouped = new HashSet<ChartPackage>(groups.SelectMany(group => group.Sources));
+        foreach (PendingPackageNormalizationGroup group in groups)
+        {
+            if (group.RootScope.IsMissing) { continue; }
+            group.Discovery = packageService.SearchChartPackagesRecursivelyWithMetadata(group.RootPath, sourceScopes: sourceScopes);
+            if (!group.Discovery.IsComplete)
             {
-                string rawPath = package?.path;
-                if (package == null
-                    || !TryNormalizePendingPackagePath(rawPath, out string canonicalPath)
-                    || libraryDirectories.Any(dir =>
-                        LongPathFileSystem.IsSameOrDescendantDirectoryPath(canonicalPath, dir))
-                    || (!LongPathFileSystem.FileExists(canonicalPath)
-                        && !LongPathFileSystem.DirectoryExists(canonicalPath))
-                    || package.ChartEntries == null
-                    || package.ChartEntries.Count == 0
-                    || !seenCanonicalPaths.Add(canonicalPath))
-                {
-                    if (package != null)
-                    {
-                        result.StalePackages.Add(package);
-                    }
-                    if (!string.IsNullOrWhiteSpace(rawPath))
-                    {
-                        result.StaleInstallPaths.Add(rawPath);
-                    }
-                    continue;
-                }
-
-                if (!string.Equals(rawPath, canonicalPath, StringComparison.Ordinal))
-                {
-                    // Keep the raw primary-key path in the reconciliation set.
-                    // The owner deletes it and upserts this canonical survivor
-                    // in one existing install-table transaction before publish.
-                    result.StaleInstallPaths.Add(rawPath);
-                }
-                package.path = canonicalPath;
-                result.PendingPackages.Add(package);
+                throw group.Discovery.Failures.FirstOrDefault()
+                    ?? new IOException(string.Format(Resources.Error_PendingDiscoveryIncompleteFormat, group.RootPath));
             }
+            group.Packages.AddRange(group.Discovery.Packages);
+            BmsLibraryPackageInstallService.InheritPendingNormalizationState(group);
+            result.PendingPackages.AddRange(group.Packages);
         }
-        catch
+        foreach ((string path, ChartPackage row) in units)
         {
-            totalStopwatch.Stop();
-            result.TotalMs = totalStopwatch.ElapsedMilliseconds;
-            throw;
+            if (grouped.Contains(row) || sourceScopes[path].IsMissing) { continue; }
+            PackageChartDiscoverySnapshot snapshot = PackageInstallEstimationSnapshotBuilder.BuildPackageChartDiscoverySnapshot(path, out Exception failure, sourceScopes[path].IsDirectory);
+            if (!snapshot.IsComplete) { throw failure ?? new IOException(string.Format(Resources.Error_PendingDiscoveryIncompleteFormat, path)); }
+            List<PackageChartEntry> entries = snapshot.ChartEntries;
+            if (entries.Count == 0) { continue; }
+            var package = ChartPackage.FromChartEntries(entries);
+            package.path = path;
+            package.delete_parent = row.delete_parent;
+            result.PendingPackages.Add(package);
         }
+        // 先頭有効rowのboolとcanonical表記を採用し、各旧生キーは一度だけexact差分へ渡します。
+        var expected = result.PendingPackages.ToDictionary(package => package.path, StringComparer.Ordinal);
+        var unchanged = new HashSet<string>(StringComparer.Ordinal);
+        foreach (ChartPackage row in rows)
+        {
+            if (row.path != null && expected.TryGetValue(row.path, out ChartPackage package) && row.delete_parent == package.delete_parent)
+            { unchanged.Add(row.path); }
+            else if (!string.IsNullOrWhiteSpace(row.path)) { result.InstallPathsToDelete.Add(row.path); }
+        }
+        result.InstallRowsToUpsert.AddRange(result.PendingPackages.Where(package => !unchanged.Contains(package.path)));
         loadStopwatch.Stop();
         result.LoadMs = loadStopwatch.ElapsedMilliseconds;
         var warningStopwatch = Stopwatch.StartNew();
-        foreach (ChartPackage pendingPackage in result.PendingPackages)
+        foreach (ChartPackage package in result.PendingPackages)
         {
-            BmsLibraryPackageInstallService.CaptureResourceBearingNestedCharts(pendingPackage);
-            bool isSingleFilePackage = !Directory.Exists(pendingPackage.path);
-            foreach (PackageChartEntry entry in pendingPackage.ChartEntries)
+            BmsLibraryPackageInstallService.CaptureResourceBearingNestedCharts(package);
+            string path = package.path;
+            bool isSingleFilePackage = sourceScopes.TryGetValue(path, out PendingPackageScopeObservation scope) && scope.IsDirectory.HasValue
+                ? scope.IsDirectory == false : !PendingPackageScopeObservation.IsDirectoryPackage(package);
+            foreach (PackageChartEntry entry in package.ChartEntries)
             {
-                ChartFile chart = entry?.Chart;
-                if (chart == null)
-                {
-                    continue;
-                }
+                ChartFile chart = entry.Chart;
                 bool isBmson = chart.Kind == ChartFileKind.Bmson;
                 if (isInstalledChart != null && isInstalledChart(chart))
                 {
@@ -2421,42 +2424,19 @@ internal sealed class BmsLibraryInitializationService
                 else if (isSingleFilePackage)
                 {
                     entry.ClearWarningsByCategory(ChartWarningCategory.PackageLayout);
-                    entry.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile, isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
+                    entry.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile,
+                        isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
                     result.SingleFileWarningCount++;
                 }
             }
-            result.StrictWarningCount += BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjectionToEntries(pendingPackage.ChartEntries, initializeOriginal: true);
-            BmsLibraryPackageInstallService.ApplyNestedChartFileWarnings(pendingPackage);
+            result.StrictWarningCount += BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjectionToEntries(package.ChartEntries, initializeOriginal: true);
+            BmsLibraryPackageInstallService.ApplyNestedChartFileWarnings(package);
         }
         warningStopwatch.Stop();
         result.WarningInitMs = warningStopwatch.ElapsedMilliseconds;
         totalStopwatch.Stop();
         result.TotalMs = totalStopwatch.ElapsedMilliseconds;
         return result;
-    }
-
-    private static bool TryNormalizePendingPackagePath(string path, out string normalizedPath)
-    {
-        normalizedPath = null;
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return false;
-        }
-        try
-        {
-            normalizedPath = LongPathFileSystem.TrimTrailingDirectorySeparators(
-                LongPathFileSystem.NormalizePathForStorage(path.Trim()));
-            return !string.IsNullOrWhiteSpace(normalizedPath);
-        }
-        catch (Exception exception) when (
-            exception is ArgumentException
-            or NotSupportedException
-            or PathTooLongException
-            or IOException)
-        {
-            normalizedPath = null;
-            return false;
-        }
     }
 
     /// <summary>保存済み準備と必要な差分・投影を実行し、開始した公開継続を失敗時も全て回収します。</summary>

@@ -1363,5 +1363,17 @@
   "Settings_bmt_url_switch_failed": "新しいBMT設定は保存しましたが、管理URLを切り替えられませんでした。旧管理URLが有効なまま残っている可能性があります。この失敗後、旧出力先のファイルの追加整理は行っていません。",
   "Settings_bmt_files_remain": "新しいBMT設定と管理URLを反映しましたが、一部の旧管理ファイルを削除できず残っています。",
   "Playlist_reload_processed_label_format": "{0} {1}/{2}件処理済み",
-  "Playlist_reload_last_processed_label_format": "直近の処理終了：{0}"
+  "Playlist_reload_last_processed_label_format": "直近の処理終了：{0}",
+  "PendingRestoreTitle": "保留パッケージの復元に失敗しました",
+  "PendingRestoreMessage": "保留パッケージを復元できませんでした。再試行するか、保留一覧を初期化して続行するか、終了してください。",
+  "PendingRestoreResetWarning": "「保留一覧を初期化して続行」は、すべての保留登録を消去します。この操作で元のファイルや導入済みの楽曲は削除しません。",
+  "PendingRestoreRetry": "再試行",
+  "PendingRestoreReset": "保留一覧を初期化して続行",
+  "PendingRestoreExit": "終了",
+  "Error_PendingDiscoveryIncompleteFormat": "保留パッケージの列挙が完了しませんでした: {0}",
+  "Error_PendingChartUnreadableFormat": "保留譜面を読み取れませんでした: {0}",
+  "Error_PendingChartEnumerationFailedFormat": "保留譜面の列挙に失敗しました: {0} {1} {2}",
+  "Error_PendingRestoreUncommitted": "保留パッケージの復元を確定できませんでした。",
+  "Error_PendingRestoreDialogFailedFormat": "保留パッケージの復元確認に失敗しました: {0}",
+  "Error_PendingRestoreChoiceUnknown": "保留パッケージの復元確認で不明な選択が返されました。"
 }

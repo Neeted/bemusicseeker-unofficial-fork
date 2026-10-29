@@ -19,11 +19,12 @@
 ```mermaid
 flowchart TB
     Prepare["登録先・設定・DBの事前判断"] --> Parent["親がL＋Pを取得／設定から借用"]
-    Parent --> Files["走査・DB読込み・差分確定・索引・保留復元"]
+    Parent --> Files["走査・DB読込み・差分確定・索引"]
     Parent --> Headers["保存済み表の見出し読込み"]
     Files --> Join{"両Taskの実終端"}
     Headers --> Join
-    Join --> Outputs["必要情報を準備、保存済み項目・修復・BMTを完了"]
+    Join --> Pending["保留全復元／未確定失敗の明示選択"]
+    Pending --> Outputs["必要情報を準備、保存済み項目・修復・BMTを完了"]
     Outputs --> Lr2["状態・署名で必要判定し、LR2全体同期を直接待つ"]
     Lr2 --> Release["全開始Taskとcleanupを回収しL＋P解放"]
     Release --> Ui["必須UI反映・実host接続のTask終端"]
@@ -60,6 +61,14 @@ LR2失敗の保存・公開は既存のLR2管理主体で終結し、既に確�
 確定済み一覧の閲覧・検索と独立したフォルダ最終読取りは必須処理の終端を妨げません。変更操作はL/Pで拒否し、UIスレッド・DBトランザクション・モデルロックを持ったまま別主体の完了を同期的に待ちません。設定の閲覧・編集・取消と、Busy時のdraft保持を維持します。
 
 初回の完了案内は必須ローカル準備と操作解禁、追加処理の一括登録・閉鎖・開始後です。既存dialog serviceの実Taskとして終端を待ちますが、難易度表リスト取得は案内の終了や無関係な追加処理を待たず開始できます。案内の失敗は成立済みのlocal/UI成功・初回完了・操作解禁を取り消さず、その通知境界で元例外を診断します。独立した次の案内は引き続き試み、初期化の失敗通知や再表示へ変換せず、受理済み後続を未始動で残しません。案内から次の明示操作へ再入した場合も、旧tokenの仕事を新しい起動の表示へ混入させません。LR2単独失敗でもローカル準備成功の意味を維持し、外部同期やメンテナンス情報更新の完了を案内しません。後続の終了記録はschedulerで追跡する順位・XML取得の実終端を含み、独立readerの表示収束は含みません。追加親の消去は[対象起動だけの実終端](progress.md#追加処理の段階と終端)で判定し、この終了記録や終了待機の全追跡対象の意味を変えません。
+
+### 保留復元の失敗時選択
+
+通常起動と初回開始・設定反映が合流する必須初期化では、ファイル段階と保存ヘッダーの両方が成功した後に、保留パッケージ全体を復元します。All再初期化ではファイル段階の成功後に同じ復元処理へ進みます。正常な不存在の整理も全体復元と一括確定し、取得・読取り・未確定DB失敗では全保留登録と既存の確定一覧を保持します。ScoreOnly・FileDiffへはこの復元や選択を追加しません。
+
+DB確定前の保留復元失敗だけに、元原因を表示して「再試行」「保留一覧を初期化して続行」「終了」を提示します。再試行は全保留DBと入力を新たに取得し、他のファイル走査・ヘッダー・閏年修復等を一律に再実行しません。一覧初期化は毎回の明示承認で全保留登録を一transactionで消去し、成功後だけ空一覧で通常初期化へ進みます。元入力・導入済み楽曲は削除しません。削除失敗は原因を表示して同じ三択へ戻り、自動続行・自動再実行を行いません。×・Escは登録を保持した当回の初期化失敗です。
+
+選択待機中も親L/Pは生存しますが、DBtransaction・モデルロックは解放済みです。DB確定後の一覧公開・通知・配送・Ready障害、表示失敗、他段階の失敗を保留復元の三択へ戻しません。既存Shellで終了が受け付けられた後は新しい復元確認を開始しません。明示した終了選択は短命な結果で親L/P・gate・UI抑止の解放後まで渡し、実Windowの通常Closeへ配送します。初期化Taskは自分の終了準備完了を待たず、既存OnClosing・終了receipt・Window終端の所有を保ちます。既に終了中なら追加Closeを要求しません。
 
 ### 有限の入口と段階選択
 
@@ -182,7 +191,11 @@ flowchart TB
     Ready --> Estimate["導入先推定を開始可能"]
 ```
 
-保留復元は復元だけを行い、自動推定を開始しません。復元した対象は[明示的な手動推定](../library/install-estimation.md#自動推定と並列処理)で扱います。保留復元は既存行のパスを正規化し、完全一致で先着を残します。大小文字だけの違いは別の保存識別で、ドットや末尾の表記差は正規化後の衝突として扱います。不正・欠落・譜面なしと重複の生行を既存トランザクションで削除し、残す正規行を書き込みます。パス以外の `delete_parent` 等は生存行から保ち、確定後に保留状態を公開します。
+保留復元は[親子重複の物理範囲整理](../library/install-estimation.md#検出した物理範囲の保持)を全対象の完成後に一括確定します。初期DB列挙順の最初の有効rowと`delete_parent`を保持し、case-onlyやdotのaliasの全生キーを正確に消費します。属性取得のNotFoundだけを正常な不存在として整理し、既存Normalizerや属性取得で不正保存pathのため実行不能となる場合、列挙後欠落・不完全列挙・譜面読取不能は原因付き復元全体の失敗です。新しい構文検査を通常入力へ追加せず、判定不能な保存行を黙って削除しません。孤立単位もsnapshotの完全性を検査し、部分一覧を公開しません。復元した対象に自動推定・自動導入は行いません。
+
+モデルの`RestorePendingPackagesUnderAdmissionAsync`は同じL/P内でDBと入力を毎回freshに取得し、全評価・警告・完成collectionの事前構築、一transaction exact差分、完成一覧のswapを行います。同期公開初期化は同じstageを自有L/P内で合成し、借用files入口は外側の共通必須workflowがheaders成功後にstageを呼ぶ契約です。`ResetPendingPackagesUnderAdmissionAsync`は明示選択用にinstall全登録だけを一括削除し、成功時だけ保留を空にします。両API自身が同期coreをTask.Runで一回実行し、model保護とtransactionを保持しない純通知Actionを受け取ります。外側はstageを直接awaitし、外側Task.Runを追加しません。必須通知を既存InvokeAsyncでawaitしてから保留・導入準備のReadinessへ合流させます。同期公開初期化だけは同じcoreの通知を自有L/P解放後にInvokeし、その成功後にReadyへ進みます。同期Task待ちや任意通知のbest-effortへ置換しません。
+
+DB確定前の読取・DB失敗は`PendingPackageRestoreException`が元原因を保持し、DBと再初期化前の一覧を変更せず返します。model lock・DBtransactionは応答前に解放します。権限不備・終了取消・他の初期化phase失敗は専用復元失敗へ変換しません。DB確定後のcollection同期・通知障害も既存の公開失敗へ伝播し、確定済み試行を復元Retryへ戻しません。画面との接続は[保留復元の失敗時選択](#保留復元の失敗時選択)に従います。
 
 `StartupReadinessCoordinator` は必須プレイリスト準備と導入先推定の準備完了を独立して通知します。外部・おすすめの新規取込みは準備未完では受け付けず、通信、解析・保存、公開集合の変更を開始しません。準備完了後も[競合ポリシー](../core/operation-concurrency-policy.md)に従って通信前にPを取得し、Busyは未受理として予約・自動再実行を行いません。受理した一要求は必要出力・公開・後片付けの実終端まで所有します。
 
@@ -257,6 +270,8 @@ flowchart TB
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 保留復元失敗の明示選択と通常終了への引渡し | [`StartupLibraryInitializationWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupLibraryInitializationWorkflowOwner.cs)、[`PendingPackageRestoreWindow`](../../../BeMusicSeeker/Views/Dialogs/PendingPackageRestoreWindow.xaml)、[`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) | `StartupLibraryInitializationWorkflowOwnerTests.PendingRestore_*` は共通選択条件を、`PendingRestore_PostCommitNotificationFailureDoesNotOfferRecoveryOrPublishReady` は実Libraryの必須通知失敗を三択へ戻さずReady未成立・DB確定保持・元原因伝播とする境界を確認する。[`PendingPackageRestoreInitializationTests`](../../../BeMusicSeeker.Tests/MainWindow/PendingPackageRestoreInitializationTests.cs) は通常起動Retry・All再初期化Reset再承認・閉鎖／終了・他失敗の実接続、[`PendingPackageRestoreWindowTests`](../../../BeMusicSeeker.Tests/Dialogs/PendingPackageRestoreWindowTests.cs) は実ボタン・Esc・Bindingを分担する。`MainWindowViewHostTests.MainWindow_PendingRestoreExitUsesExistingCloseAndTerminalLifetime` は実Closeから既存終端への到達を確認する。設定合流は既存設定テストと共通終端への接続を点検する。 |
+| 保留復元全体の完成・DB先行一括確定・alias先着・Reset | `BmsLibraryInitializationService.LoadInstallTable`、`PackageLifecycleOwner.ReloadInstallTableWithoutPublishing`、`BMSLibrary.RestorePendingPackagesUnderAdmissionAsync` | `BmsLibraryInitializationInstallTests.Initialize_RestoresPendingWithoutAutomaticEstimationAndAllowsManualEstimation`が公開初期化・自動推定なし・後の手動推定を確認する。`ReloadInstallTable_IncompleteRestoreKeepsAllRowsAndExistingCollections`、`ReloadInstallTable_InvalidStoredPathKeepsEveryRowAndExistingCollection`、`ReloadInstallTable_NormalizationDatabaseFailureKeepsRowsAndStopsBeforePublication`、`ResetPendingPackages_ChangesOnlyInstallAfterAtomicSuccess`、`ReloadInstallTable_CommittedPublicationFailureIsNotRestoreFailure`が全体失敗/rollback/元入力と他表/確定後公開失敗を分担する。`PendingRestoreStage_AwaitsRequiredPublicationBeforeReadiness`は実borrowed files準備後の通知待ち・DBとmodel読取解放をRestore/Resetで、`PendingRestoreStage_PropagatesPublicationFailureAfterCommit`は必須通知fault/rejectの通常失敗を確認する。`LoadInstallTable_SoleNonCanonicalSurvivorConvergesDatabaseBeforePendingPublication`は先頭bool・rawキー・後続通常追加を、`ResourceBearingNestedRestoreTests`は全定義判定と導入拒否を確認する。 |
 | 未設定LR2のモード保存後も必須不足で利用開始を停止 | [モード保存と明示開始](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs)、[`MainWindowViewModel.InitializeAsync`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) | `SettingDialogEditCompletionTests.UnconfiguredLr2ModeSave_ExplicitStartAndFreshStartupRequireSettings` は初回・非初回修復での実保存、実明示開始と同じ保存物を読む新compositionの通常起動を通し、設定案内、profile非公開、モデル工場・DB・出力未開始をWindowなしで確認する。既存の無効パス条件表と空root・有効個別パス互換は `InitializeAsync_InvalidLr2SettingsUseSettingsGuidanceAndPreserveFiles` 等へ分担する。 |
 | 確定readerと不変起動入力 | [`StartupSettingsSnapshot`](../../../BeMusicSeeker/ViewModels/Startup/StartupSettingsSnapshot.cs)、[`ApplicationComposition`](../../../BeMusicSeeker/ViewModels/MainWindow/ApplicationComposition.cs) | `StartupLibraryProfileTests` / `StartupSettingsSnapshotTests` が起動入力と実Library/Playlistの接続を、`SettingDialogEditCompletionTests.BmsConfirmation_CompletesRealFileDiffBeforeClosing` が公開後の実差分走査を確認する。 |
 | 初回設定からのLR2正本引継ぎと再初期化 | [`StartupLibraryConstructionOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupLibraryConstructionOwner.cs)、[`Lr2ConfigOwner`](../../../BeMusicSeeker/Models/LR2/Lr2ConfigOwner.cs) | [`Lr2InitialSettingsSaveIsInheritedByFirstLibraryConstruction`](../../../BeMusicSeeker.Tests/Settings/SettingDialogLr2OwnerTests.cs) が未構築時の保存から初回開始を、[`BmsConfirmation_CompletesRealFileDiffBeforeClosing`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) が実LR2profileの保存・DB・表示と次差分・全再初期化を確認します。 |

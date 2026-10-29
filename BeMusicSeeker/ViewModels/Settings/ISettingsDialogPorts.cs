@@ -7,7 +7,7 @@ using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
 
-/// <summary>初期化の成功、設定修復、処理・必須公開の失敗、既に要求した終了を区別します。</summary>
+/// <summary>初期化の成功、設定修復、処理・必須公開の失敗、要求済み終了と親解放後の終了選択を区別します。</summary>
 internal enum StartupInitializationOutcome
 {
     /// <summary>必須ローカル準備の成功経路です。親解放後のUIと完了公開はCompletionPublishedで区別し、解禁後の通知失敗は結果へ併記します。</summary>
@@ -17,7 +17,9 @@ internal enum StartupInitializationOutcome
     /// <summary>処理または必須公開が失敗しました。設定修復の必要性や次操作の安全性はこの分類だけで判断しません。</summary>
     OperationFailed,
     /// <summary>終了を要求済みです。設定画面へは戻りません。</summary>
-    ShutdownRequested
+    ShutdownRequested,
+    /// <summary>保留復元の選択で終了を明示しました。親受付解放後の共通終端から通常終了へ引き渡します。</summary>
+    ExitRequested
 }
 
 /// <summary>必須処理の実終端と、親受付解放後の完了公開を同じ局所結果で受け渡します。共有の保留状態は持ちません。</summary>

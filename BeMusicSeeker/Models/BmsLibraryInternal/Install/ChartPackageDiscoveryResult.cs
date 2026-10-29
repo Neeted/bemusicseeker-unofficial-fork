@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
-/// ディレクトリ探索で見つかった保留パッケージ群を返します。
+/// directory探索または同じ親bucketの直接file取得で見つかったパッケージ群と完全性を返します。
 /// </summary>
 internal sealed class ChartPackageDiscoveryResult
 {
@@ -12,6 +12,12 @@ internal sealed class ChartPackageDiscoveryResult
     /// 探索で見つかった chart package 一覧です。
     /// </summary>
     public List<ChartPackage> Packages { get; } = [];
+
+    /// <summary>同じ根の再読取りを避けるため、失敗時も読めたentryを一つの収集先で保持します。</summary>
+    internal List<PackageChartEntry> ObservedEntries { get; set; } = [];
+
+    /// <summary>directoryとして一度取得した根です。直接file入力から昇格した場合も同じ探索を旧群の整理へ渡します。</summary>
+    internal string SourceDirectory { get; init; }
 
     /// <summary>一式として読取りを完了できなかったscopeです。独立した子の成功と区別して旧群を保全します。</summary>
     internal List<string> IncompleteScopes { get; } = [];

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -286,46 +287,49 @@ internal static class PackageInstallEstimationSnapshotBuilder
         };
     }
 
-    /// <summary>対象の譜面一覧を取得し、フォルダ内の全譜面を確認できたかを同じ走査の結果として返します。</summary>
+    /// <summary>対象の譜面一覧と完全性を取得します。通常の遅延getterは従来どおり不完全な観測列も保持します。</summary>
     internal static PackageChartDiscoverySnapshot BuildPackageChartDiscoverySnapshot(string packagePath)
-    {
-        if (string.IsNullOrWhiteSpace(packagePath))
-        {
-            return new PackageChartDiscoverySnapshot();
-        }
+        => BuildPackageChartDiscoverySnapshot(packagePath, out _);
 
-        string normalizedPath;
+    /// <summary>同じ取得の完全性と短命な原因を返します。復元試行は不完全を拒否し、例外は長命snapshotへ保存しません。</summary>
+    /// <param name="packagePath">取得する物理単位です。</param>
+    /// <param name="failure">属性・列挙・譜面読取りが失敗した原因です。</param>
+    /// <param name="knownDirectory">同じ復元要求で属性取得済みの場合だけ渡す実kindです。source属性を再取得しません。</param>
+    internal static PackageChartDiscoverySnapshot BuildPackageChartDiscoverySnapshot(string packagePath, out Exception failure, bool? knownDirectory = null)
+    {
+        failure = null;
+        var snapshot = new PackageChartDiscoverySnapshot();
         try
         {
-            normalizedPath = LongPathFileSystem.NormalizePathForStorage(packagePath);
-        }
-        catch
-        {
-            return new PackageChartDiscoverySnapshot();
-        }
-
-        if (LongPathFileSystem.DirectoryExists(normalizedPath))
-        {
-            RootFileEnumerationResult enumerationResult = EnumerateChartsOnlyFastOnly(normalizedPath);
-            IReadOnlyCollection<string> chartPaths = enumerationResult.GetPaths(ChartDirectoryScanBuilder.ChartGroupName);
-            List<PackageChartEntry> entries = CreatePendingChartEntriesFromPaths(chartPaths);
-            return new PackageChartDiscoverySnapshot
+            string normalizedPath = LongPathFileSystem.NormalizePathForStorage(packagePath);
+            snapshot.SourcePath = normalizedPath;
+            bool directory = knownDirectory ?? (LongPathFileSystem.GetAttributes(normalizedPath) & FileAttributes.Directory) != 0;
+            IReadOnlyCollection<string> chartPaths;
+            RootFileEnumerationResult enumeration = null;
+            if (directory)
             {
-                SourcePath = normalizedPath,
-                IsComplete = enumerationResult.Success && enumerationResult.IsComplete && entries.Count == chartPaths.Count,
-                ChartEntries = entries
-            };
+                enumeration = EnumerateChartsOnlyFastOnly(normalizedPath);
+                chartPaths = enumeration.GetPaths(ChartDirectoryScanBuilder.ChartGroupName);
+            }
+            else if (ChartFileKindResolver.IsSupportedChartFilePath(normalizedPath)) { chartPaths = [normalizedPath]; }
+            else { chartPaths = []; }
+            List<PackageChartEntry> entries = [];
+            foreach (string path in chartPaths)
+            {
+                var entry = PackageChartEntry.FromPath(path, out _, out Exception readFailure);
+                failure ??= readFailure;
+                if (entry != null) { entries.Add(entry); }
+                else { failure ??= new IOException(string.Format(Resources.Error_PendingChartUnreadableFormat, path)); }
+            }
+            snapshot.ChartEntries = entries;
+            if (enumeration != null && (!enumeration.Success || !enumeration.IsComplete))
+            {
+                failure ??= new IOException(string.Format(Resources.Error_PendingChartEnumerationFailedFormat, normalizedPath, enumeration.ErrorReason, enumeration.IncompleteReason));
+            }
+            snapshot.IsComplete = failure == null && (enumeration != null || entries.Count == 1);
         }
-
-        List<PackageChartEntry> fileEntries = LongPathFileSystem.FileExists(normalizedPath) && ChartFileKindResolver.IsSupportedChartFilePath(normalizedPath)
-            ? [.. new List<PackageChartEntry> { PackageChartEntry.FromPath(normalizedPath) }.Where(entry => entry != null)]
-            : [];
-        return new PackageChartDiscoverySnapshot
-        {
-            SourcePath = normalizedPath,
-            IsComplete = fileEntries.Count == 1,
-            ChartEntries = fileEntries
-        };
+        catch (Exception exception) { failure = exception; }
+        return snapshot;
     }
 
     /// <summary>
@@ -471,13 +475,6 @@ internal static class PackageInstallEstimationSnapshotBuilder
         return new BoundedSourceSurfaceEnumerator(maxVisitedFileSystemEntryCount).EnumerateFiles(
             [rootDirectory],
             ChartDirectoryScanBuilder.CreateDefaultEnumerationGroups(includeAllFiles: false));
-    }
-
-    private static List<PackageChartEntry> CreatePendingChartEntriesFromPaths(IEnumerable<string> chartPaths)
-    {
-        return [.. (chartPaths ?? [])
-            .Select(PackageChartEntry.FromPath)
-            .Where(entry => entry != null)];
     }
 
     private static int CountDistinctPaths(params IReadOnlyCollection<string>[] groups)

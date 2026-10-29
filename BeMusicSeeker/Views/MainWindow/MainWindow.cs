@@ -690,6 +690,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         viewModel.StartupUpdateWorkflow.FailurePresentationRequested += MainWindowViewModel_StartupUpdateFailurePresentationRequested;
         viewModel.StartupUpdateWorkflow.ApplicationShutdownRequested += MainWindowViewModel_StartupUpdateApplicationShutdownRequested;
         viewModel.ShellShutdownWorkflow.OperationModeRestartRequested += MainWindowViewModel_OperationModeRestartRequested;
+        viewModel.ShellShutdownWorkflow.InitializationExitRequested += MainWindowViewModel_InitializationExitRequested;
         viewModel.ElevatedProcessWarningWorkflow.PresentationRequested += MainWindowViewModel_ElevatedProcessWarningPresentationRequested;
     }
 
@@ -724,6 +725,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         subscribedViewModel.StartupUpdateWorkflow.FailurePresentationRequested -= MainWindowViewModel_StartupUpdateFailurePresentationRequested;
         subscribedViewModel.StartupUpdateWorkflow.ApplicationShutdownRequested -= MainWindowViewModel_StartupUpdateApplicationShutdownRequested;
         subscribedViewModel.ShellShutdownWorkflow.OperationModeRestartRequested -= MainWindowViewModel_OperationModeRestartRequested;
+        subscribedViewModel.ShellShutdownWorkflow.InitializationExitRequested -= MainWindowViewModel_InitializationExitRequested;
         subscribedViewModel.ElevatedProcessWarningWorkflow.PresentationRequested -= MainWindowViewModel_ElevatedProcessWarningPresentationRequested;
         subscribedViewModel = null;
     }
@@ -1185,6 +1187,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         closeCompletion = CompleteTerminalShutdownOnDispatcherAsync();
         closeCompletion.ObserveFault("MainWindow.StartupUpdateTerminalShutdown");
     }
+
+    /// <summary>初期化側は受付を解放済みであり、通常Closeの取消・準備・実終端は既存のWindow寿命へ渡します。</summary>
+    private void MainWindowViewModel_InitializationExitRequested() => Close();
 
     private void MainWindowViewModel_OperationModeRestartRequested()
     {

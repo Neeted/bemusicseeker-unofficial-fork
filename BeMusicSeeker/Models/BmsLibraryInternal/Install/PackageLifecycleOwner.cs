@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,35 +14,6 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed partial class PackageLifecycleOwner
 {
-    /// <summary>
-    /// Attempts to normalize a detached pending-package source path before publication.
-    /// </summary>
-    /// <param name="path">検出で受け取った入力元パスです。</param>
-    /// <returns><see langword="true"/> when a canonical path was produced.</returns>
-    internal static bool TryNormalizePendingPackagePath(string path, out string normalizedPath)
-    {
-        normalizedPath = null;
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return false;
-        }
-        try
-        {
-            normalizedPath = LongPathFileSystem.TrimTrailingDirectorySeparators(
-                LongPathFileSystem.NormalizePathForStorage(path.Trim()));
-            return !string.IsNullOrWhiteSpace(normalizedPath);
-        }
-        catch (Exception exception) when (
-            exception is ArgumentException
-            or NotSupportedException
-            or PathTooLongException
-            or IOException)
-        {
-            normalizedPath = null;
-            return false;
-        }
-    }
-
     /// <summary>
     /// Validates canonical source-path uniqueness without changing package state.
     /// </summary>
@@ -71,7 +41,7 @@ internal sealed partial class PackageLifecycleOwner
                     "Pending package ingress was rejected because the same package instance appears more than once.");
             }
 
-            if (!TryNormalizePendingPackagePath(package.path, out string canonicalPath))
+            if (!LongPathFileSystem.TryNormalizePhysicalScopePath(package.path, out string canonicalPath))
             {
                 throw new InvalidOperationException(
                     "Pending package ingress was rejected because its source path could not be normalized.");
@@ -90,7 +60,7 @@ internal sealed partial class PackageLifecycleOwner
             {
                 continue;
             }
-            if (!TryNormalizePendingPackagePath(installRow.path, out string canonicalPath))
+            if (!LongPathFileSystem.TryNormalizePhysicalScopePath(installRow.path, out string canonicalPath))
             {
                 throw new InvalidOperationException(
                     "Pending install-row projection was rejected because its source path could not be normalized.");
@@ -496,94 +466,80 @@ internal sealed partial class PackageLifecycleOwner
         }
     }
 
-    /// <summary>
-    /// Reconciles persisted install rows against the registered BMS roots before
-    /// replacing the canonical pending collection. Rejected rows lose only their
-    /// install record; this restore boundary never removes source files.
-    /// </summary>
-    internal InstallTableLoadResult ReloadInstallTable(
+    /// <summary>全保留をdetachedで取得・評価し、一transaction確定後に完成collectionへ一度だけ置き換えます。通知を実行せず、確定前失敗ではDBと既存一覧を保持します。</summary>
+    /// <param name="initializationService">全復元を取得・評価する既存サービスです。</param>
+    /// <param name="dbGateway">この確定に使う既存DB窓口です。</param>
+    /// <param name="registeredBmsRoots">保留から除く登録済みルートです。</param>
+    /// <param name="isInstalledChart">既所持警告の判定です。</param>
+    /// <param name="publication">確定後に呼出元がUIへ渡す純通知です。scope・guard・transactionを保持しません。</param>
+    internal InstallTableLoadResult ReloadInstallTableWithoutPublishing(
         BmsLibraryInitializationService initializationService,
         BmsLibraryDbGateway dbGateway,
         IEnumerable<string> registeredBmsRoots,
-        Func<ChartFile, bool> isInstalledChart)
+        Func<ChartFile, bool> isInstalledChart, out Action publication)
     {
-        if (initializationService == null)
+        ArgumentNullException.ThrowIfNull(initializationService);
+        ArgumentNullException.ThrowIfNull(dbGateway);
+        InstallTableLoadResult result;
+        ObservableCollection<ChartPackage> pending;
+        ObservableCollection<ChartPackage> installed;
+        ReadOnlyObservableCollection<ChartPackage> pendingView;
+        try
         {
-            throw new ArgumentNullException(nameof(initializationService));
+            result = initializationService.LoadInstallTable(dbGateway, registeredBmsRoots, isInstalledChart);
+            ValidatePendingPackagePathUniqueness(result.PendingPackages, result.InstallRowsToUpsert);
+            pending = CreatePackageCollection(result.PendingPackages);
+            installed = CreatePackageCollection([]);
+            pendingView = new ReadOnlyObservableCollection<ChartPackage>(pending);
+            dbGateway.ApplyInstallTableMutation(result.InstallPathsToDelete, result.InstallRowsToUpsert);
         }
-        if (dbGateway == null)
+        catch (Exception failure) when (failure is not OperationCanceledException and not OutOfMemoryException)
         {
-            throw new ArgumentNullException(nameof(dbGateway));
+            throw new PendingPackageRestoreException(failure);
         }
-
-        InstallTableLoadResult result = initializationService.LoadInstallTable(
-            dbGateway,
-            registeredBmsRoots,
-            isInstalledChart);
-        // StalePackages identifies rows that were classified for pruning. A
-        // raw path in StaleInstallPaths that is not in this set is the
-        // detached primary key of an otherwise valid survivor alias.
-        var classifiedStalePaths = new HashSet<string>(
-            result.StalePackages
-                .Where(package => package != null && !string.IsNullOrWhiteSpace(package.path))
-                .Select(package => package.path),
-            StringComparer.Ordinal);
-        var pendingCanonicalPaths = new HashSet<string>(StringComparer.Ordinal);
-        foreach (ChartPackage pendingPackage in result.PendingPackages)
+        // DB確定後の同期・通知失敗は専用復元失敗へ包まず、既存の公開失敗として伝えます。
+        bool pendingChanged;
+        bool installedChanged;
+        lock (packageCollectionStateLock)
         {
-            if (pendingPackage != null
-                && TryNormalizePendingPackagePath(pendingPackage.path, out string canonicalPath))
-            {
-                pendingCanonicalPaths.Add(canonicalPath);
-            }
+            pendingChanged = !ReferenceEquals(pendingPackages, pending);
+            pendingPackages = pending;
+            pendingPackagesView = pendingView;
+            installedChanged = ReplaceInstalledPackagesCore(installed);
         }
-
-        var survivorAliasCanonicalPaths = new HashSet<string>(StringComparer.Ordinal);
-        foreach (string rawPath in result.StaleInstallPaths)
+        Action<string> notify = raisePropertyChanged;
+        publication = () =>
         {
-            if (string.IsNullOrWhiteSpace(rawPath)
-                || classifiedStalePaths.Contains(rawPath)
-                || !TryNormalizePendingPackagePath(rawPath, out string canonicalPath)
-                || string.Equals(rawPath, canonicalPath, StringComparison.Ordinal)
-                || !pendingCanonicalPaths.Contains(canonicalPath))
-            {
-                continue;
-            }
-            survivorAliasCanonicalPaths.Add(canonicalPath);
-        }
-
-        var aliasTransactionPaths = new List<string>();
-        foreach (string rawPath in result.StaleInstallPaths)
-        {
-            if (!string.IsNullOrWhiteSpace(rawPath)
-                && TryNormalizePendingPackagePath(rawPath, out string canonicalPath)
-                && survivorAliasCanonicalPaths.Contains(canonicalPath))
-            {
-                aliasTransactionPaths.Add(rawPath);
-            }
-        }
-
-        if (aliasTransactionPaths.Count > 0)
-        {
-            List<ChartPackage> survivorPackages = [.. result.PendingPackages.Where(package =>
-                package != null
-                && TryNormalizePendingPackagePath(package.path, out string canonicalPath)
-                && survivorAliasCanonicalPaths.Contains(canonicalPath))];
-            dbGateway.ApplyInstallTableMutation(
-                aliasTransactionPaths,
-                survivorPackages);
-        }
-
-        List<string> staleInstallPaths = [.. result.StaleInstallPaths
-            .Where(path => !aliasTransactionPaths.Contains(path, StringComparer.Ordinal))];
-        if (staleInstallPaths.Count > 0)
-        {
-            dbGateway.DeleteInstallRows(staleInstallPaths);
-        }
-        SetPendingPackages(CreatePackageCollection([]));
-        SetInstalledPackages(CreatePackageCollection([]));
-        AddPendingPackages(result.PendingPackages);
+            if (pendingChanged) { notify("ChartPackagesPending"); }
+            if (installedChanged) { notify("ChartPackagesInstalled"); }
+        };
         return result;
+    }
+
+    /// <summary>明示選択された一覧初期化としてinstall全登録だけを一括削除し、成功時だけ保留を空にします。導入済み一覧と入力ファイルは変更しません。</summary>
+    /// <returns>呼出元が確定後にUIへ渡す純通知です。schedulerやmodel保護へ戻りません。</returns>
+    internal Action ResetPendingPackagesWithoutPublishing(BmsLibraryDbGateway dbGateway)
+    {
+        ArgumentNullException.ThrowIfNull(dbGateway);
+        ObservableCollection<ChartPackage> pending;
+        ReadOnlyObservableCollection<ChartPackage> pendingView;
+        try
+        {
+            pending = CreatePackageCollection([]);
+            pendingView = new ReadOnlyObservableCollection<ChartPackage>(pending);
+            dbGateway.ResetInstallTable();
+        }
+        catch (Exception failure) when (failure is not OperationCanceledException and not OutOfMemoryException)
+        {
+            throw new PendingPackageRestoreException(failure);
+        }
+        lock (packageCollectionStateLock)
+        {
+            pendingPackages = pending;
+            pendingPackagesView = pendingView;
+        }
+        Action<string> notify = raisePropertyChanged;
+        return () => notify("ChartPackagesPending");
     }
 
     private void InvokeOnUi(Action mutation)

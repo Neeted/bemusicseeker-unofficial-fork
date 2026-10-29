@@ -6,6 +6,7 @@ using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Ribbit.Logging;
 using Ribbit.Util.Extensions;
@@ -311,11 +312,13 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
     }
 
     /// <summary>独立した保存ヘッダーとファイル走査を並列に読み、ローカル出力、必要LR2同期を順に直接待ちます。</summary>
+    /// <param name="isShutdownRequested">既存Shellの終了受付も含め、選択の前後で確認する寿命。</param>
+    /// <param name="dialogs">保留復元の未確定失敗に限り明示選択を待つ画面窓口。</param>
     /// <param name="scoreNotificationObserver">親の局所結果への単純受渡し。採用は本体で完了し、返された純通知は実親L/P解放後に実行します。</param>
     /// <param name="forceBeatorajaBmtProjection">今回の必要BMT出力に署名一致による省略を適用しないか。</param>
     internal async Task<StartupRequiredInitializationResult> InitializeRequiredAsync(BMSLibrary library, BMSPlaylist playlist,
-        Lr2SongDbSyncWorkflowOwner lr2Workflow, PerformanceInteraction performanceInteraction, LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null, CustomFolderOutputSettingsSnapshot customFolderSettings = null,
-        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<Action> scoreNotificationObserver = null, bool forceBeatorajaBmtProjection = false)
+        Lr2SongDbSyncWorkflowOwner lr2Workflow, PerformanceInteraction performanceInteraction, LibraryFileMutationCapability capability, IUiDialogService dialogs, OperationProgressRequest originatingRequest = null, CustomFolderOutputSettingsSnapshot customFolderSettings = null,
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<Action> scoreNotificationObserver = null, bool forceBeatorajaBmtProjection = false, Func<bool> isShutdownRequested = null)
     {
         Task<LibraryFileInitializationResult> filesTask = Task.Run(() => library.InitializeStartup([], null, performanceInteraction, capability, originatingRequest, leapYearRepairApproval, repairNotificationObserver, warningObserver, scoreNotificationObserver));
         Task<bool> headersTask;
@@ -323,18 +326,72 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
         catch (Exception failure) { headersTask = Task.FromException<bool>(failure); }
         // 一方が失敗しても開始済みの相手とcleanupを回収してから親受付を解放する。
         await Task.WhenAll(filesTask, headersTask).ConfigureAwait(false);
-        return await CompleteRequiredAsync(library, playlist, lr2Workflow, await filesTask.ConfigureAwait(false),
+        LibraryFileInitializationResult fileResult = await filesTask.ConfigureAwait(false);
+        if (await RestorePendingPackagesAsync(library, capability, fileResult.Options, dialogs, isShutdownRequested).ConfigureAwait(false))
+        { return new(fileResult, null, ExitRequested: true); }
+        return await CompleteRequiredAsync(library, playlist, lr2Workflow, fileResult,
             await headersTask.ConfigureAwait(false), capability, originatingRequest, customFolderSettings, forceBeatorajaBmtProjection).ConfigureAwait(false);
     }
 
     /// <summary>再初期化の既存のファイル更新範囲を保ち、今回の結果で必要出力と同期を完了します。</summary>
+    /// <param name="isShutdownRequested">既存Shellの終了受付も含め、選択の前後で確認する寿命。</param>
+    /// <param name="dialogs">保留復元の未確定失敗に限り明示選択を待つ画面窓口。</param>
     /// <param name="scoreNotificationObserver">親の局所結果への単純受渡し。採用は本体で完了し、返された純通知は実親L/P解放後に実行します。</param>
     internal async Task<StartupRequiredInitializationResult> ReinitializeAsync(BMSLibrary library, BMSPlaylist playlist,
-        Lr2SongDbSyncWorkflowOwner lr2Workflow, LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null,
-        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<Action> scoreNotificationObserver = null)
+        Lr2SongDbSyncWorkflowOwner lr2Workflow, LibraryFileMutationCapability capability, IUiDialogService dialogs, OperationProgressRequest originatingRequest = null,
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<Action> scoreNotificationObserver = null, Func<bool> isShutdownRequested = null)
     {
         LibraryFileInitializationResult result = await Task.Run(() => library.ReinitializeUnderAdmission(capability, originatingRequest, leapYearRepairApproval, repairNotificationObserver, warningObserver, scoreNotificationObserver)).ConfigureAwait(false);
+        if (await RestorePendingPackagesAsync(library, capability, result.Options, dialogs, isShutdownRequested).ConfigureAwait(false))
+        { return new(result, null, ExitRequested: true); }
         return await CompleteRequiredAsync(library, playlist, lr2Workflow, result, false, capability, originatingRequest).ConfigureAwait(false);
+    }
+
+    /// <summary>保留全復元だけを再試行し、未確定失敗に対する明示選択を同じ親L/P内で待ちます。モデルの保護は各APIの終端で解放済みです。</summary>
+    /// <param name="library">今回のライブラリ。</param>
+    /// <param name="capability">呼出元が実終端まで保持するL/P権限。</param>
+    /// <param name="options">ファイル段階が捕捉した今回の設定。</param>
+    /// <param name="dialogs">型付き選択を表示する既存の窓口。</param>
+    /// <param name="isShutdownRequested">モデル終了通知前の既存Shell終了受付も確認する寿命。</param>
+    /// <returns>通常の終了経路への引渡しを明示選択した場合だけ真。</returns>
+    internal async Task<bool> RestorePendingPackagesAsync(BMSLibrary library, LibraryFileMutationCapability capability,
+        BmsLibraryOptionsSnapshot options, IUiDialogService dialogs, Func<bool> isShutdownRequested = null)
+    {
+        ArgumentNullException.ThrowIfNull(dialogs);
+        PendingPackageRestoreException currentFailure;
+        try
+        {
+            await library.RestorePendingPackagesUnderAdmissionAsync(capability, options).ConfigureAwait(false);
+            return false;
+        }
+        catch (PendingPackageRestoreException failure) { currentFailure = failure; }
+        while (true)
+        {
+            // DB確定後の通知・配送・Readyの失敗はこのcatchへ含めず、通常の初期化失敗へ返す。
+            try { NLogWrapper.FileLogger?.Warn(currentFailure.InnerException ?? currentFailure, "pending_package_restore_failed"); }
+            catch { /* 元の復元原因を診断の失敗で置き換えません。 */ }
+            if (library.IsShutdownRequested || isShutdownRequested?.Invoke() == true) { throw new OperationCanceledException(); }
+            UiWindowDialogResult<PendingPackageRestoreChoice> response = await dialogs.ShowWindowAsync(
+                new UiWindowDialogRequest<PendingPackageRestoreWindow, PendingPackageRestoreChoice>(
+                    () => new PendingPackageRestoreWindow(currentFailure.InnerException?.Message ?? currentFailure.Message),
+                    window => window.Choice)).ConfigureAwait(false);
+            if (library.IsShutdownRequested || isShutdownRequested?.Invoke() == true) { throw new OperationCanceledException(); }
+            if (response.Status is not (UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser))
+            { throw new InvalidOperationException(string.Format(BeMusicSeeker.Properties.Resources.Error_PendingRestoreDialogFailedFormat, response.Status), response.Error); }
+            if (!response.IsAccepted || response.Value == PendingPackageRestoreChoice.None)
+            { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(currentFailure).Throw(); }
+            if (response.Value == PendingPackageRestoreChoice.Exit) { return true; }
+            try
+            {
+                if (response.Value == PendingPackageRestoreChoice.Reset)
+                { await library.ResetPendingPackagesUnderAdmissionAsync(capability).ConfigureAwait(false); }
+                else if (response.Value == PendingPackageRestoreChoice.Retry)
+                { await library.RestorePendingPackagesUnderAdmissionAsync(capability, options).ConfigureAwait(false); }
+                else { throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_PendingRestoreChoiceUnknown); }
+                return false;
+            }
+            catch (PendingPackageRestoreException failure) { currentFailure = failure; }
+        }
     }
 
     private async Task<StartupRequiredInitializationResult> CompleteRequiredAsync(BMSLibrary library, BMSPlaylist playlist,
@@ -433,6 +490,7 @@ internal sealed class StartupRequiredOperationLease : IDisposable
     }
 }
 
-/// <summary>ローカル成功とLR2だけの失敗を区別して返します。ローカル失敗は例外で伝播します。</summary>
+/// <summary>ローカル成功・LR2単独失敗と、親受付解放後に引き渡す明示終了選択を区別します。ローカル失敗は例外で伝播します。</summary>
+/// <param name="ExitRequested">保留復元の選択で明示した終了です。通常成功と出力・後続の開始より前に、親受付解放後の既存Closeへ渡します。</param>
 internal sealed record StartupRequiredInitializationResult(LibraryFileInitializationResult FileResult, Exception Lr2Failure,
-    RequiredChartInfoHydrationResult ChartInfo = null);
+    RequiredChartInfoHydrationResult ChartInfo = null, bool ExitRequested = false);
