@@ -739,6 +739,8 @@
   "Warning_AlreadyInstalled": "Déjà installé",
   "Warning_SingleBmsFile": "Fichier BMS unique",
   "Warning_SingleBmsonFile": "Fichier BMSON unique",
+  "Warning_ResourceBearingNestedCharts": "Ce paquet ne peut pas être installé car les dossiers de partitions parent et enfant contiennent chacun des ressources audio, BGA ou vidéo définies. Corrigez la disposition des fichiers, puis réinitialisez la bibliothèque.",
+  "WarningDigest_ResourceBearingNestedCharts": "Ressources imbriquées (installation bloquée)",
   "Warning_NestedChartFileInPackage": "Un fichier de chart valide se trouve dans un sous-dossier du paquet. Déplacez-le ou remplacez son extension par une extension invalide si nécessaire.",
   "WarningDigest_NestedChart": "Chart imbriqué",
   "WarningDigest_ZeroNoteMismatch": "Zéro note incohérent",

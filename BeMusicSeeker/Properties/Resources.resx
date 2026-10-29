@@ -2029,6 +2029,12 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   <data name="Warning_SingleBmsonFile" xml:space="preserve">
     <value>BMSONファイル単体です</value>
   </data>
+  <data name="Warning_ResourceBearingNestedCharts" xml:space="preserve">
+    <value>親と子の譜面フォルダがそれぞれ定義済みの音声・BGA・動画を持つため、このパッケージは導入できません。入力の配置を修正した後、再初期化してください。</value>
+  </data>
+  <data name="WarningDigest_ResourceBearingNestedCharts" xml:space="preserve">
+    <value>資源付き入れ子（導入不可）</value>
+  </data>
   <data name="Warning_NestedChartFileInPackage" xml:space="preserve">
     <value>パッケージ内のサブフォルダに有効な譜面ファイルがあります。必要に応じて移動するか、無効な拡張子に変更してください。</value>
   </data>

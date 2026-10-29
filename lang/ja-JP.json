@@ -739,6 +739,8 @@
   "Warning_AlreadyInstalled": "インストールされています",
   "Warning_SingleBmsFile": "BMSファイル単体です",
   "Warning_SingleBmsonFile": "BMSONファイル単体です",
+  "Warning_ResourceBearingNestedCharts": "親と子の譜面フォルダがそれぞれ定義済みの音声・BGA・動画を持つため、このパッケージは導入できません。入力の配置を修正した後、再初期化してください。",
+  "WarningDigest_ResourceBearingNestedCharts": "資源付き入れ子（導入不可）",
   "Warning_NestedChartFileInPackage": "パッケージ内のサブフォルダに有効な譜面ファイルがあります。必要に応じて移動するか、無効な拡張子に変更してください。",
   "WarningDigest_NestedChart": "サブフォルダ譜面",
   "WarningDigest_ZeroNoteMismatch": "ゼロノート不整合",

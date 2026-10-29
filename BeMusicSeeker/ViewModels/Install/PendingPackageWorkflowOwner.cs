@@ -86,16 +86,25 @@ internal sealed class PendingPackageMutationResult
         Exception failure,
         bool shouldApplyView,
         PackageCatalogSection? emptySection,
-        LibraryMutationSessionReceipt sessionReceipt = null)
+        LibraryMutationSessionReceipt sessionReceipt = null,
+        bool hasInstallRefusal = false)
     {
         Succeeded = succeeded;
         Failure = failure;
         ShouldApplyView = shouldApplyView;
         EmptySection = emptySection;
         SessionReceipt = sessionReceipt;
+        HasInstallRefusal = hasInstallRefusal;
     }
 
     internal bool Succeeded { get; }
+
+    /// <summary>元packageの確定条件による非例外の導入拒否です。物理失敗や未設定DSTへ読み替えません。</summary>
+    internal bool HasInstallRefusal { get; }
+
+    /// <summary>確定済み成功と既存Failureを保持したまま、拒否を含む操作の結果を作ります。</summary>
+    internal PendingPackageMutationResult WithInstallRefusal()
+        => new(false, Failure, ShouldApplyView, EmptySection, SessionReceipt, hasInstallRefusal: true);
 
     internal Exception Failure { get; }
 
@@ -612,6 +621,7 @@ internal sealed class PendingPackageWorkflowOwner
             {
                 await exitForUnrestoredDestination(result.SessionReceipt.PrimaryFailure);
             }
+            await PublishInstallRefusalAsync(result);
         }
     }
 
@@ -948,6 +958,7 @@ internal sealed class PendingPackageWorkflowOwner
             {
                 await exitForUnrestoredDestination(result.SessionReceipt.PrimaryFailure);
             }
+            await PublishInstallRefusalAsync(result);
         }
     }
 
@@ -958,19 +969,20 @@ internal sealed class PendingPackageWorkflowOwner
     {
         try
         {
+            bool hasInstallRefusal = packages.Any(package => package.HasResourceBearingNestedCharts);
             switch (kind)
             {
                 case PendingInstallPackageOperationKind.ForceInstall:
                     ISet<ChartPackage> approvedPackages = await ConfirmNormalInstallOverridesAsync(packages);
                     return await ExecuteInstallAsync(
                         (library, operationStore) => operationStore.ForceInstallPackagesWithReceipt(library, packages, approvedPackages),
-                        acquiredOperationGate, packages.Where(approvedPackages.Contains).ToArray(), forceInstall: true);
+                        acquiredOperationGate, packages.Where(approvedPackages.Contains).ToArray(), forceInstall: true, hasInstallRefusal: hasInstallRefusal);
                 case PendingInstallPackageOperationKind.ManualInstall:
                     return await ExecuteInstallAsync(
                         (library, operationStore) => (operationStore.ManualInstallPackagesWithReceipt(library, packages)
                             ?? throw new InvalidOperationException("Pending manual install returned no batch result."))
                             .SessionReceipt ?? throw new InvalidOperationException("Pending manual install returned no session receipt."),
-                        acquiredOperationGate, packages, forceInstall: false);
+                        acquiredOperationGate, packages, forceInstall: false, hasInstallRefusal: hasInstallRefusal);
                 default:
                     throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported pending install package operation.");
             }
@@ -983,7 +995,7 @@ internal sealed class PendingPackageWorkflowOwner
 
     private async Task<PendingPackageMutationResult> ExecuteInstallAsync(
         Func<BMSLibrary, IPendingPackageStore, LibraryMutationSessionReceipt> mutationWithReceipt,
-        IDisposable acquiredOperationGate, IReadOnlyList<ChartPackage> packages, bool forceInstall)
+        IDisposable acquiredOperationGate, IReadOnlyList<ChartPackage> packages, bool forceInstall, bool hasInstallRefusal)
     {
         bool pendingSectionEmpty = false;
         LibraryMutationSessionReceipt sessionReceipt = null;
@@ -1007,17 +1019,31 @@ internal sealed class PendingPackageWorkflowOwner
             {
                 return PendingPackageMutationResult.Rejected;
             }
-            return PendingPackageMutationResult.FromTerminal(
+            var terminal = PendingPackageMutationResult.FromTerminal(
                 sessionReceipt,
                 pendingSectionEmpty ? PackageCatalogSection.Pending : null);
+            return hasInstallRefusal ? terminal.WithInstallRefusal() : terminal;
         }
         catch (Exception exception)
         {
-            return viewApplyRequired
+            PendingPackageMutationResult terminal = viewApplyRequired
                 ? PendingPackageMutationResult.FailedAfterMutation(exception,
                     pendingSectionEmpty ? PackageCatalogSection.Pending : null, sessionReceipt)
                 : PendingPackageMutationResult.FailedBeforeMutation(exception);
+            return hasInstallRefusal && viewApplyRequired ? terminal.WithInstallRefusal() : terminal;
         }
+    }
+
+    /// <summary>受付と物理排他の終端後に導入拒否を一度案内します。表示の失敗で既存の操作結果・原因を置き換えません。</summary>
+    private async Task PublishInstallRefusalAsync(PendingPackageMutationResult result)
+    {
+        if (result?.HasInstallRefusal != true) { return; }
+        try
+        {
+            await ShowMessageAsync(BeMusicSeeker.Properties.Resources.Warning_ResourceBearingNestedCharts,
+                BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, "Resource-bearing nested package installation refusal");
+        }
+        catch (Exception exception) { LogPendingPresentationFailure(exception); }
     }
 
     private async Task<ISet<ChartPackage>> ConfirmNormalInstallOverridesAsync(
@@ -1028,6 +1054,7 @@ internal sealed class PendingPackageWorkflowOwner
         var approvedPackages = new HashSet<ChartPackage>();
         foreach (ChartPackage package in packages)
         {
+            if (package.HasResourceBearingNestedCharts) { continue; }
             bool hasInstallDestination = (package.ChartEntries ?? []).Any(entry =>
                 !string.IsNullOrWhiteSpace(entry?.Chart?.InstallDestination));
             if (!hasInstallDestination && !settings.ShowNewPackageInstallConfirmation)

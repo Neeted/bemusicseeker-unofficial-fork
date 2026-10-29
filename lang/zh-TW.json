@@ -739,6 +739,8 @@
   "Warning_AlreadyInstalled": "已安裝",
   "Warning_SingleBmsFile": "單一BMS檔案",
   "Warning_SingleBmsonFile": "單一BMSON檔案",
+  "Warning_ResourceBearingNestedCharts": "父層與子層譜面資料夾各自包含已定義的音訊、BGA 或影片資源，因此無法安裝此套件。請修正輸入檔案的配置，然後重新初始化曲庫。",
+  "WarningDigest_ResourceBearingNestedCharts": "含資源的巢狀資料夾（禁止安裝）",
   "Warning_NestedChartFileInPackage": "套件內的子資料夾中存在有效譜面檔案。請視需要移動它或將副檔名改為無效副檔名。",
   "WarningDigest_NestedChart": "子資料夾譜面",
   "WarningDigest_ZeroNoteMismatch": "零音符不一致",

@@ -90,6 +90,20 @@ BMS/PMSのPREVIEWは、`PackageChartEntry.FromPath` が一度読んだsnapshot�
 
 単体・子作品・後続入力の成功対象を一つの変更セッションへ集め、不足資源の譜面は保留へ残します。[重複・重なる入力の除外](mutations.md#導入と導入先修正)と[初期物理範囲の保持](install-estimation.md#検出した物理範囲の保持)に従い、成功した子の消費や親の後片付けで、親に残る保留譜面や後続入力を削除しません。管理元書庫を消費した後も保留が参照する展開先を保持し、借用書庫の元データを保持します。
 
+### 資源を持つ入れ子の導入禁止
+
+有効譜面directory直下の譜面が定義する、自己領域に実在する音声・BGA・動画を判定する。未使用定義も含める。資源の所属は最も近い有効譜面directoryとし、譜面のない `A/sound/` はA、譜面のある `A/B/` はBへ所属する。Bの領域をAの根拠へ重複計上しない。資源を持つdirectoryが親子双方にある場合だけ、元package全体を重要警告付きで保留し、導入を拒否する。資源のない中間譜面directoryがあっても親子の関係は成立する。
+
+親音源を参照するだけの子譜面、資源だけの子directory、`.bms_`、背景補助・バナーだけ、未定義の同梱媒体だけでは、この禁止条件を加えない。BMSONの `info.preview_music` 由来の定義だけも根拠から除外する。同じpathに通常音声定義があれば未使用でも数える。既存の一般入れ子警告・不足警告・親参照の推定不能は維持し、通常Resources・健康度・共有率の意味を変えない。
+
+完全な発見・復元時には、健康度投影で未使用定義を解放する前に、同一snapshot由来の全定義を使って元packageのbool一件を確定する。BMSONは既存の定義元情報でpreview由来を除き、短命の判定材料を消費後に解放する。通常の `FromChart` に読取りを追加せず、元packageの準備時に材料が不足する場合だけ明示取得する。通常Resourcesが非nullでも全定義取得済みとは扱わない。読取り失敗を入れ子なしの証明へ変換しない。既存の不完全な復元部分群の受入を未知値の一律拒否へ変更しない。
+
+判定値は保存せず元packageの寿命で保持し、警告文言・色・未所持だけに絞った作業packageから可否を再構成しない。初段自動、推定後自動、強制新規、指定先導入、全既所持資源上書き、清掃だけの分岐を物理処理前に拒否する。宛先予約・component件数・清掃callbackより前に確認し、DST指定でも解除しない。拒否packageを導入成功へ数えず、正常な別packageの処理と受付終端を保つ。初段の正常な保留登録を一律にFailureへ変換しない。手動・強制導入では拒否を含む操作を `Succeeded=false` として返し、他のFailureがなければ例外を合成しない。正常分の成功receiptと既存Failureを保持し、論理受付・物理排他の終端後に重要警告を一操作で一回案内する。
+
+親行を含む全entryへ [重要警告](warnings.md#要約・詳細・強調) を投影する。既存paletteの行強調を使い、一般の入れ子警告の意味と非強調は保つ。`UpdateInstallDestination` は削除や無効拡張子への改名にも使うため剥奪せず、解消操作自体を許可する。
+
+入力修正後は、同一起動中の既存UI「再初期化」から元packageを作り直して評価する。この経路は管理一時入力でもinstall行と修正済み入力のpath・bytesを保持する。同pathの再dropや削除・改名に新しい自動再捕捉を加えない。通常再読込、管理入力を削除し得る保留解除、終了時回収を伴うアプリの終了・再起動は、この非破壊の再評価経路の代用にしない。
+
 ### 導入後の入力の寿命
 
 未準備入力は `InstallChartPackagesAutoWithProgressAsync` で一回だけ準備します。元入力の存在は展開前に確認し、適用直前には展開済み入力と必要なパッケージの存在を確認します。正常消費された管理元アーカイブの残存は、自動導入・保留登録・直接推定の条件にしません。設定、解析結果、所持索引は同じ受理操作内で再利用します。
@@ -162,6 +176,8 @@ WPFの対応形式は `DataFormats.FileDrop` です。ドラッグ中は `GetDat
 | 準備警告の生成と解放後の一回配送 | 同上、`BmsLibraryPackageInstallService` | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryManagedArchiveInstallTests.cs) の `AutoInstall_ArchiveWarningsSurviveEmptyOrMixedPreparation` は全必須日時失敗／壊れZIP混在の対象・原因と正常対象の確定を、[`PackageInstallWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerArchiveTests.cs) の `ProductionImport_ArchiveWarningsAreDeliveredOnceAfterRelease` は実通知一度・解放後配送と、混在操作の実idle後に受理する次の明示要求の確定を確認する。表示失敗と元結果の分担は[変更操作](mutations.md#実装とテストの対応)を参照する。 |
 
 先行操作の実終端後に受理した明示要求は、先行のidle Taskと別の寿命で追跡します。`DropInstallQueueProcessorTests.Enqueue_RejectsAdditionalRequestWithoutReservationAndAcceptsFreshRequest`が拒否要求の非実行と独立した次要求の終端を確認します。terminal callback内での再受付は保証対象にしません。
+
+資源を持つ入れ子の条件表は [`BmsLibraryResourceBearingNestedDiscoveryTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryResourceBearingNestedDiscoveryTests.cs) が実発見へ入力する。形式・音声/BGA/動画・未使用・最寄所有・previewの定義元と陰性境界、通常Resourcesと親行の強調を分担する。全導入入口と正常別packageの継続、実FS・SQLite・受付終端は [`PackageInstallResourceBearingNestedWorkflowTests`](../../../BeMusicSeeker.Tests/Install/PackageInstallResourceBearingNestedWorkflowTests.cs) と [`PendingPackageResourceBearingNestedWorkflowTests`](../../../BeMusicSeeker.Tests/Install/PendingPackageResourceBearingNestedWorkflowTests.cs) が確認する。後者は実発見後に所有mediaを退避した清掃だけの二経路と、削除・改名を含む。新libraryでの復元は [`ResourceBearingNestedRestoreTests`](../../../BeMusicSeeker.Tests/Startup/ResourceBearingNestedRestoreTests.cs)、実VMの再初期化と管理入力を含む非破壊再評価は [`ResourceBearingNestedReinitializeTests`](../../../BeMusicSeeker.Tests/MainWindow/ResourceBearingNestedReinitializeTests.cs) へ分担する。一般の警告要約・tooltipと既存paletteによる描画は[警告](warnings.md)・[一覧表示](../ui/table-view.md)の系列を再利用する。
 
 ## 関連資料
 

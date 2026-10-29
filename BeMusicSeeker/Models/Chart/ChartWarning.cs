@@ -12,6 +12,7 @@ namespace BeMusicSeeker.Models;
 internal enum ChartWarningKind
 {
     NestedChartFileInPackage,
+    ResourceBearingNestedCharts,
     AlreadyInstalled,
     SingleBmsFile,
     SingleBmsonFile,
@@ -194,6 +195,7 @@ internal sealed class ChartWarningDefinition
         return kind switch
         {
             ChartWarningKind.NestedChartFileInPackage => new ChartWarningDefinition(ChartWarningCategory.PackageLayout, 10, Resources.WarningDigest_NestedChart, highlightRow: false),
+            ChartWarningKind.ResourceBearingNestedCharts => new ChartWarningDefinition(ChartWarningCategory.PackageLayout, 9, Resources.WarningDigest_ResourceBearingNestedCharts, highlightRow: true),
             ChartWarningKind.ZeroNoteMismatch => new ChartWarningDefinition(ChartWarningCategory.ChartContent, 20, Resources.WarningDigest_ZeroNoteMismatch, highlightRow: true),
             ChartWarningKind.ChartInfoParseFailure => new ChartWarningDefinition(ChartWarningCategory.ChartMetadata, 15, Resources.WarningDigest_ChartInfoParseFailure, highlightRow: true),
             ChartWarningKind.Lr2PathEncodingUnsupported => new ChartWarningDefinition(ChartWarningCategory.Lr2Compatibility, 18, Resources.WarningDigest_Lr2PathEncodingUnsupported, highlightRow: true),

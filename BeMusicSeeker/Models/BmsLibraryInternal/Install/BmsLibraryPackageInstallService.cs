@@ -861,8 +861,64 @@ internal sealed class BmsLibraryPackageInstallService
         return package;
     }
 
+    /// <summary>発見・復元した元packageの全定義を一回消費し、資源を持つ親子の禁止条件を確定します。通常資源・健康度は変更しません。</summary>
+    internal static void CaptureResourceBearingNestedCharts(ChartPackage package)
+    {
+        List<PackageChartEntry> entries = package.ChartEntries;
+        try
+        {
+            if (!package.HasCompleteChartDiscovery) { return; }
+            var chartDirectories = new HashSet<string>(entries.Select(entry => Path.GetDirectoryName(entry.Chart.Path)), StringComparer.OrdinalIgnoreCase);
+            if (chartDirectories.Count < 2) { return; }
+            var resourceOwners = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // 子の資源を親へ計上しないため、全有効chartdirを固定してから最寄りの所有者と照合します。
+            foreach (PackageChartEntry entry in entries)
+            {
+                string directory = Path.GetDirectoryName(entry.Chart.Path);
+                if (resourceOwners.Contains(directory)) { continue; }
+                foreach (ChartResourceReference reference in entry.AcquirePackageLayoutDefinitions())
+                {
+                    if (reference.Usage != ChartResourceUsage.Normal || reference.Status != ChartResourcePathNormalizationStatus.Valid) { continue; }
+                    string[] extensions = reference.Kind switch
+                    {
+                        ChartResourceKind.Audio => ChartResourceExtensions.AudioExtensions,
+                        ChartResourceKind.Image => ChartResourceExtensions.ImageExtensions,
+                        ChartResourceKind.Movie => ChartResourceExtensions.MovieExtensions,
+                        _ => []
+                    };
+                    if (extensions.Length == 0) { continue; }
+                    // 入口で相対pathの「.」「..」を処理済みです。存在照合前の追加FullPath検査で従来の入力受理範囲を狭めません。
+                    string owner = Path.GetDirectoryName(Path.Combine(directory, reference.NormalizedPath));
+                    while (!string.IsNullOrEmpty(owner) && !chartDirectories.Contains(owner)) { owner = Path.GetDirectoryName(owner); }
+                    if (string.Equals(owner, directory, StringComparison.OrdinalIgnoreCase)
+                        && ChartResourceExistence.ExistsWithCompatibleExtensions(directory, reference.LookupKey, extensions))
+                    {
+                        resourceOwners.Add(directory);
+                        break;
+                    }
+                }
+            }
+            package.HasResourceBearingNestedCharts = resourceOwners.Any(directory =>
+            {
+                for (string parent = Path.GetDirectoryName(directory); !string.IsNullOrEmpty(parent); parent = Path.GetDirectoryName(parent))
+                {
+                    if (resourceOwners.Contains(parent)) { return true; }
+                }
+                return false;
+            });
+        }
+        finally
+        {
+            foreach (PackageChartEntry entry in entries) { entry.ReleasePackageLayoutDefinitions(); }
+        }
+    }
+
+    /// <summary>元packageの確定条件だけを確認します。DSTや警告文字列から条件を再構成せず、物理scopeの準備でも項目通知を発行しません。</summary>
+    internal static bool IsInstallBlockedByResourceBearingNestedCharts(ChartPackage package)
+        => package?.HasResourceBearingNestedCharts == true;
+
     /// <summary>
-    /// パッケージ直下以外にある譜面へ、保留画面で最優先表示する警告を付与します。
+    /// パッケージ直下以外にある譜面へ一般警告を付与し、元package全体の導入禁止警告も維持します。
     /// </summary>
     /// <param name="package">判定対象の保留パッケージ。</param>
     /// <returns>入れ子譜面の警告を付与または維持した場合は true。</returns>
@@ -873,20 +929,25 @@ internal sealed class BmsLibraryPackageInstallService
             return false;
         }
 
+        bool blocked = IsInstallBlockedByResourceBearingNestedCharts(package);
         bool hasNestedChart = false;
         foreach (PackageChartEntry entry in package.ChartEntries)
         {
             if (!IsNestedChartFileInPackage(package.path, entry?.Chart?.Path))
             {
+                if (blocked) { entry.SetWarning(ChartWarningKind.ResourceBearingNestedCharts, Resources.Warning_ResourceBearingNestedCharts); }
                 continue;
             }
 
-            entry.ClearWarningsByCategory(ChartWarningCategory.PackageLayout);
-            entry.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
+            var nestedWarning = ChartWarning.Create(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
+            // 一般警告の従来の分類置換と、重要警告の維持を同じ項目更新で確定します。
+            entry.ReplaceWarningsByCategory(ChartWarningCategory.PackageLayout, blocked
+                ? [nestedWarning, ChartWarning.Create(ChartWarningKind.ResourceBearingNestedCharts, Resources.Warning_ResourceBearingNestedCharts)]
+                : [nestedWarning]);
             hasNestedChart = true;
         }
 
-        return hasNestedChart;
+        return blocked || hasNestedChart;
     }
 
     private static bool IsNestedChartFileInPackage(string packageDirectoryPath, string chartFilePath)
@@ -2516,6 +2577,7 @@ internal sealed class BmsLibraryPackageInstallService
         foreach (ChartPackage pkg in discoveredPackages)
         {
             bool isSingleFilePackage = !LongPathFileSystem.DirectoryExists(pkg.path);
+            CaptureResourceBearingNestedCharts(pkg);
             foreach (PackageChartEntry entry in pkg.ChartEntries)
             {
                 if (isSingleFilePackage && !HasAlreadyInstalledWarning(entry))
@@ -3000,6 +3062,12 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 continue;
             }
+            if (IsInstallBlockedByResourceBearingNestedCharts(originalPackage))
+            {
+                result.FailedPackages.Add(originalPackage);
+                logInfo?.Invoke("estimated_install blocked_resource_bearing_nested path=" + originalPackage.path);
+                continue;
+            }
             try
             {
                 var itemStopwatch = Stopwatch.StartNew();
@@ -3147,6 +3215,7 @@ internal sealed class BmsLibraryPackageInstallService
         ChartPackage originalPackage,
         IPrimaryHashLookup installedHashes, bool applyWarnings = true)
     {
+        if (IsInstallBlockedByResourceBearingNestedCharts(originalPackage)) { return null; }
         List<PackageChartEntry> packageEntries = [.. (originalPackage?.ChartEntries ?? [])
             .Where(entry => entry?.Chart != null)];
         if (packageEntries.Count == 0)
@@ -3288,6 +3357,11 @@ internal sealed class BmsLibraryPackageInstallService
         for (int packageIndex = 0; packageIndex < packages.Count; packageIndex++)
         {
             ChartPackage package = packages[packageIndex];
+            if (IsInstallBlockedByResourceBearingNestedCharts(package))
+            {
+                result.FailedPackages.Add(package);
+                continue;
+            }
             HashSet<string> excludedComponentPaths = null;
             excludedComponentPathsByPackage?.TryGetValue(package, out excludedComponentPaths);
             PackageInstallSessionMoveResult moveResult;
@@ -3430,6 +3504,14 @@ internal sealed class BmsLibraryPackageInstallService
                 continue;
             }
 
+            if (IsInstallBlockedByResourceBearingNestedCharts(pendingPackage))
+            {
+                result.Processed++;
+                result.Failed++;
+                logInfo?.Invoke("force_install_batch blocked_resource_bearing_nested path=" + pendingPackage.path);
+                continue;
+            }
+
             // 導入先未設定でも利用者が新規導入を拒否できるため、全対象で承認結果を守ります。
             if (confirmNormalInstallOverride != null
                 && !confirmNormalInstallOverride(pendingPackage))
@@ -3540,6 +3622,15 @@ internal sealed class BmsLibraryPackageInstallService
                 result.SkippedNotPending++;
                 result.Processed++;
                 logInfo?.Invoke("advanced_pending_resource_overwrite skip_not_pending path=" + requestedPackage.path);
+                onEachProcessed?.Invoke();
+                continue;
+            }
+
+            if (IsInstallBlockedByResourceBearingNestedCharts(pendingPackage))
+            {
+                result.Failed++;
+                result.Processed++;
+                logInfo?.Invoke("advanced_pending_resource_overwrite blocked_resource_bearing_nested path=" + pendingPackage.path);
                 onEachProcessed?.Invoke();
                 continue;
             }

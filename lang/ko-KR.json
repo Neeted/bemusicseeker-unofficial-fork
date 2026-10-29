@@ -739,6 +739,8 @@
   "Warning_AlreadyInstalled": "이미 설치됨",
   "Warning_SingleBmsFile": "단일 BMS 파일",
   "Warning_SingleBmsonFile": "단일 BMSON 파일",
+  "Warning_ResourceBearingNestedCharts": "상위 및 하위 채보 폴더에 각각 정의된 오디오, BGA 또는 동영상 리소스가 있어 이 패키지를 설치할 수 없습니다. 입력 파일 배치를 수정한 후 라이브러리를 다시 초기화하세요.",
+  "WarningDigest_ResourceBearingNestedCharts": "리소스가 있는 중첩 폴더 (설치 불가)",
   "Warning_NestedChartFileInPackage": "패키지 안의 하위 폴더에 유효한 채보 파일이 있습니다. 필요에 따라 이동하거나 무효한 확장자로 변경하세요.",
   "WarningDigest_NestedChart": "하위 폴더 채보",
   "WarningDigest_ZeroNoteMismatch": "제로노트 불일치",

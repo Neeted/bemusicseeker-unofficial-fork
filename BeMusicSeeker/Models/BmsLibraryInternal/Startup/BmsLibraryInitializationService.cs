@@ -2402,6 +2402,7 @@ internal sealed class BmsLibraryInitializationService
         var warningStopwatch = Stopwatch.StartNew();
         foreach (ChartPackage pendingPackage in result.PendingPackages)
         {
+            BmsLibraryPackageInstallService.CaptureResourceBearingNestedCharts(pendingPackage);
             bool isSingleFilePackage = !Directory.Exists(pendingPackage.path);
             foreach (PackageChartEntry entry in pendingPackage.ChartEntries)
             {

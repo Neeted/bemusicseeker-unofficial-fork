@@ -70,6 +70,7 @@
 
 | 種類（コード識別子） | 分類 | 優先順位 | 要約表示 | 行の強調 | 要約の表示条件 |
 | --- | --- | ---: | --- | --- | --- |
+| `ResourceBearingNestedCharts` | `PackageLayout` | 9 | `資源付き入れ子（導入不可）` | true | 元packageの[資源付き入れ子条件](drop-install.md#資源を持つ入れ子の導入禁止)が成立する全行 |
 | `NestedChartFileInPackage` | `PackageLayout` | 10 | `サブフォルダ譜面` | false | 該当する警告がある場合 |
 | `ChartInfoParseFailure` | `ChartMetadata` | 15 | `メタデータ解析エラー` | true | 該当する警告がある場合 |
 | `Lr2PathEncodingUnsupported` | `Lr2Compatibility` | 18 | `LR2パス非対応` | true | 該当する警告がある場合 |

@@ -1561,6 +1561,12 @@ public class Resources
     public static string Warning_SingleBmsonFile => ResourceManager.GetString("Warning_SingleBmsonFile", resourceCulture);
 
 
+    /// <summary>資源を持つ親子譜面フォルダの導入禁止を案内します。</summary>
+    public static string Warning_ResourceBearingNestedCharts => ResourceManager.GetString("Warning_ResourceBearingNestedCharts", resourceCulture);
+
+    /// <summary>資源を持つ入れ子の重要警告要約です。</summary>
+    public static string WarningDigest_ResourceBearingNestedCharts => ResourceManager.GetString("WarningDigest_ResourceBearingNestedCharts", resourceCulture);
+
     public static string Warning_NestedChartFileInPackage => ResourceManager.GetString("Warning_NestedChartFileInPackage", resourceCulture);
 
 

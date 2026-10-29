@@ -20,6 +20,12 @@ public class ChartPackage : LR2SongDBExtended.install
 
     internal PendingEstimateDeferredReason DeferredEstimateReason { get; set; }
 
+    /// <summary>発見・完全復元した元packageの寿命で保持する導入禁止条件です。導入先編集や未所持抽出では再評価しません。保存しません。</summary>
+    internal bool HasResourceBearingNestedCharts { get; set; }
+
+    /// <summary>復元時に捕捉した全譜面の完全性です。既存の不完全な復元部分群の受入契約は変更しません。</summary>
+    internal bool HasCompleteChartDiscovery => hasExplicitChartFiles || packageChartDiscoverySnapshot?.IsComplete == true;
+
     /// <summary>確定後、受付権とモデル排他を解放してからパスとヘッダーを公開します。</summary>
     internal void PublishPath()
     {

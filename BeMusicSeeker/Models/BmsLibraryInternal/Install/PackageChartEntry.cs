@@ -33,6 +33,36 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
 
     private ResourceHealthMaintenanceSnapshot originalResourceHealth;
 
+    private IReadOnlyList<ChartResourceReference> packageLayoutDefinitions;
+
+    /// <summary>元パッケージの捕捉時だけ全定義を取得します。通常Resourcesの非nullは未使用定義の保持を保証しないため、未捕捉なら明示的に読みます。</summary>
+    internal IReadOnlyList<ChartResourceReference> AcquirePackageLayoutDefinitions()
+    {
+        lock (mutationGate)
+        {
+            if (packageLayoutDefinitions != null) { return packageLayoutDefinitions; }
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chart.Path);
+            if (chart.Kind == ChartFileKind.Bmson)
+            {
+                var details = new ChartResourceParseDetails();
+                BmsonChartFileParser.ParseSnapshot(snapshot, details);
+                packageLayoutDefinitions = CaptureBmsonPackageLayoutDefinitions(details);
+            }
+            else { packageLayoutDefinitions = BmsChartFileParser.ParseSnapshot(snapshot).Resources; }
+            return packageLayoutDefinitions;
+        }
+    }
+
+    /// <summary>packageのbool確定後、定義元情報を含まない短命材料も解放します。</summary>
+    internal void ReleasePackageLayoutDefinitions()
+    {
+        lock (mutationGate) { packageLayoutDefinitions = null; }
+    }
+
+    private static IReadOnlyList<ChartResourceReference> CaptureBmsonPackageLayoutDefinitions(ChartResourceParseDetails details)
+        => details.Definitions.Where(definition => definition.Source != "info.preview_music")
+            .Select(definition => definition.Reference).ToArray();
+
     /// <summary>最後の評価で捕捉した不変配置です。通常の導入先編集では再評価し、成功した改名・移動では捕捉済み資源を保ってpathだけを追従させます。</summary>
     internal ChartResourcePlacement ResourcePlacement { get; private set; }
 
@@ -744,7 +774,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         }
     }
 
-    /// <summary>一回捕捉した入力から共通基本値を直接構成します。</summary>
+    /// <summary>一回捕捉した入力から共通基本値と、元packageの判定まで共有する短命の全定義材料を構成します。</summary>
     internal static PackageChartEntry FromPath(string filePath) => FromPath(filePath, out _);
 
     /// <summary>一度読んだ入力から項目と発見専用のPREVIEWを返します。付帯値を長命の項目へ保持しません。</summary>
@@ -758,9 +788,14 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         try
         {
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            return FromChart(ChartFileKindResolver.IsBmsonFilePath(filePath)
-                ? BmsonChartFileParser.ParseSnapshot(snapshot)
+            bool isBmson = ChartFileKindResolver.IsBmsonFilePath(filePath);
+            ChartResourceParseDetails details = isBmson ? new ChartResourceParseDetails() : null;
+            PackageChartEntry entry = FromChart(isBmson
+                ? BmsonChartFileParser.ParseSnapshot(snapshot, details)
                 : BmsChartFileParser.ParseSnapshotWithEncodingDetection(snapshot, out preview));
+            // 同じsnapshotの全定義を健康度による未使用解放より先に消費します。BMSONのpreviewだけを定義元で除外します。
+            entry.packageLayoutDefinitions = isBmson ? CaptureBmsonPackageLayoutDefinitions(details) : entry.Chart.Resources;
+            return entry;
         }
         catch (Exception exception)
         {

@@ -739,6 +739,8 @@
   "Warning_AlreadyInstalled": "Already installed",
   "Warning_SingleBmsFile": "Single BMS file",
   "Warning_SingleBmsonFile": "Single BMSON file",
+  "Warning_ResourceBearingNestedCharts": "This package cannot be installed because both parent and child chart folders contain defined audio, BGA, or movie resources. Correct the input layout, then reinitialize the library.",
+  "WarningDigest_ResourceBearingNestedCharts": "Nested resources (installation blocked)",
   "Warning_NestedChartFileInPackage": "A valid chart file is in a subfolder of the package. Move it or change its extension to an invalid one if needed.",
   "WarningDigest_NestedChart": "Nested chart",
   "WarningDigest_ZeroNoteMismatch": "Zero-note mismatch",

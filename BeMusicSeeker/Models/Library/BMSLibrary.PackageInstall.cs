@@ -1754,6 +1754,7 @@ public partial class BMSLibrary
         HashSet<string> reserved = new(StringComparer.OrdinalIgnoreCase);
         foreach (ChartPackage package in packages)
         {
+            if (BmsLibraryPackageInstallService.IsInstallBlockedByResourceBearingNestedCharts(package)) { continue; }
             paths.Add(package.path);
             if (package.delete_parent) { paths.Add(System.IO.Path.GetDirectoryName(package.path)); }
             if (forceInstall)
@@ -1825,7 +1826,7 @@ public partial class BMSLibrary
                 || (!string.IsNullOrWhiteSpace(package?.path)
                     && !string.IsNullOrWhiteSpace(requestedPackage?.path)
                     && string.Equals(package.path, requestedPackage.path, StringComparison.OrdinalIgnoreCase)));
-            if (pendingPackage == null)
+            if (pendingPackage == null || BmsLibraryPackageInstallService.IsInstallBlockedByResourceBearingNestedCharts(pendingPackage))
             {
                 continue;
             }
