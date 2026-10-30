@@ -542,33 +542,68 @@ public sealed class RibbitBmsFileTimingTests
     }
 
     /// <summary>
-    /// 親採用時は内ELSEIFだけ、親不採用時は内側全体を飛ばして外ELSEだけを採用し、内外の停止命令の混同を検出する。
-    /// 内側を飛ばす場合も全資源pathと未使用乱数を収集し、後続乱数まで記述順で一回記録する。
+    /// 同一RANDOMをIF側・ELSE側の入れ子へ引き継ぎ、内IF・二つのELSEIF・ELSEの一枝だけを採用する。
+    /// 別RANDOMの既存選択と、内側を飛ばす場合の全資源path・未使用乱数・後続乱数の一回記録も維持する。
     /// </summary>
     [DataTestMethod]
-    [DataRow(1, 2, "inner-elseif", 1, true)]
-    [DataRow(2, 3, "outer-else", 3, false)]
+    [DataRow(1, 2, "inner-elseif", 1, true, true, false)]
+    [DataRow(2, 3, "outer-else", 3, false, true, false)]
+    [DataRow(1, 1, "inner-if", 0, true, false, false)] // 成立する内IFのELSEを採用しません。
+    [DataRow(2, 2, "inner-elseif", 1, true, false, true)] // 外ELSEでも現在値を引き継ぎます。
+    [DataRow(3, 3, "inner-elseif2", 2, true, false, true)]
+    [DataRow(4, 4, "inner-else", 3, true, false, true)]
     public void NestedConditionalBranchesKeepSelectionResourcesAndAuditAtTheirOwnDepth(
-        int outerChoice, int innerChoice, string branch, int measure, bool innerUsed)
+        int outerChoice, int innerChoice, string branch, int measure, bool innerUsed,
+        bool declaresInnerRandom, bool nestedInOuterElse)
     {
-        string source = "#BPM 120\n#WAV02 common.wav\n#RANDOM 2\n#IF 1\n#RANDOM 3\n#IF 1\n"
+        string innerSource = (declaresInnerRandom ? "#RANDOM 3\n" : string.Empty) + "#IF 1\n"
             + BranchSource("inner-if", 0) + "#ELSEIF 2\n" + BranchSource("inner-elseif", 1)
-            + "#ELSE\n" + BranchSource("inner-else", 2) + "#ENDIF\n#ELSE\n"
-            + BranchSource("outer-else", 3) + "#ENDIF\n#RANDOM 4\n#00401:02\n";
+            + "#ELSEIF 3\n" + BranchSource("inner-elseif2", 2)
+            + "#ELSE\n" + BranchSource("inner-else", 3) + "#ENDIF\n";
+        int outerRange = declaresInnerRandom ? 2 : 4;
+        string source = $"#BPM 120\n#WAV02 common.wav\n#RANDOM {outerRange}\n#IF 1\n"
+            + (nestedInOuterElse ? BranchSource("outer-if", 0) : innerSource) + "#ELSE\n"
+            + (nestedInOuterElse ? innerSource : BranchSource("outer-else", 3)) + "#ENDIF\n#RANDOM 4\n#00401:02\n";
         var observed = new List<(int Range, int Value, bool Used)>();
         var options = new BmsParseOptions { RandomChoice = value => observed.Add((value.Range, value.Value, value.Used)) };
         WithChart(source, bms =>
         {
             AssertSelectedBranch(bms, branch, measure);
-            AssertCollectedBranchResources(bms, ["inner-if", "inner-elseif", "inner-else", "outer-else"]);
-            (int Range, int Value, bool Used)[] expected = [(2, outerChoice, true), (3, innerChoice, innerUsed), (4, 3, true)];
+            AssertCollectedBranchResources(bms,
+                ["inner-if", "inner-elseif", "inner-elseif2", "inner-else", nestedInOuterElse ? "outer-if" : "outer-else"]);
+            (int Range, int Value, bool Used)[] expected = declaresInnerRandom
+                ? [(2, outerChoice, true), (3, innerChoice, innerUsed), (4, 3, true)]
+                : [(4, outerChoice, true), (4, 3, true)];
             CollectionAssert.AreEqual(expected, observed.ToArray());
             CollectionAssert.AreEqual(expected, bms.RandomPattern.Select(value => (value.Range, value.Value, value.Used)).ToArray());
-        }, options: options, choices: new Queue<int>([outerChoice, innerChoice, 3]));
+        }, options: options, choices: new Queue<int>(declaresInnerRandom ? [outerChoice, innerChoice, 3] : [outerChoice, 3]));
     }
 
     /// <summary>
-    /// ELSEIF採用結果を再生境界へ投影し、曲名・音源名・二つの発音時刻に未選択枝や重複が戻る接続の誤りを検出する。
+    /// 内側の別RANDOMを解析した後も外側のIFは元の選択で成立し、内側の値が外へ漏れてELSEを誤採用する誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    public void InnerRandomDoesNotReplaceTheOuterSelectionAfterTheBranchEnds()
+    {
+        string source = "#BPM 120\n#WAV02 common.wav\n#RANDOM 2\n#IF 1\n#RANDOM 3\n#IF 2\n"
+            + "#SUBTITLE inner-selected\n#ENDIF\n#ENDIF\n#IF 1\n" + BranchSource("outer-restored", 0)
+            + "#ELSE\n" + BranchSource("outer-lost", 1) + "#ENDIF\n#00401:02\n";
+        var observed = new List<(int Range, int Value, bool Used)>();
+        var options = new BmsParseOptions { RandomChoice = value => observed.Add((value.Range, value.Value, value.Used)) };
+        WithChart(source, bms =>
+        {
+            Assert.AreEqual("inner-selected", bms.Subtitle);
+            AssertSelectedBranch(bms, "outer-restored", 0);
+            AssertCollectedBranchResources(bms, ["outer-restored", "outer-lost"]);
+            (int Range, int Value, bool Used)[] expected = [(2, 1, true), (3, 2, true)];
+            CollectionAssert.AreEqual(expected, observed.ToArray());
+            CollectionAssert.AreEqual(expected, bms.RandomPattern.Select(value => (value.Range, value.Value, value.Used)).ToArray());
+        }, options: options, choices: new Queue<int>([1, 2]));
+    }
+
+    /// <summary>
+    /// ELSEIFと同一RANDOMの二重IFを再生境界へ投影し、曲名・音源名・二つの発音時刻の欠落・混入・重複を検出する。
+    /// 二重IFは単一IFとの等価性だけでなく、選択音0秒・共通音2秒と一件の乱数履歴を独立した期待値でも確認する。
     /// </summary>
     [TestMethod]
     public void PlaybackProjectionUsesOnlySelectedBranchMetadataResourcesAndEventTimes()
@@ -582,6 +617,35 @@ public sealed class RibbitBmsFileTimingTests
             CollectionAssert.AreEquivalent(new[] { (1, 20000000L), (2, 80000000L) },
                 chart.AudioEvents.Select(value => (value.ResourceIndex, value.Start.ToTimeSpan().Ticks)).ToArray());
         }, options: new BmsParseOptions(), choices: new Queue<int>([2]));
+
+        string prefix = "#BPM 120\n#TITLE baseline\n#WAV02 common.wav\n#RANDOM 1\n#IF 1\n";
+        string selected = "#TITLE selected\n#WAV01 inner.wav\n#BMP01 inner.bmp\n#00011:01\n#00004:01\n";
+        string suffix = "#ENDIF\n#ENDRANDOM\n#00101:02\n";
+        var observed = new List<(int Range, int Value, bool Used)>();
+        var options = new BmsParseOptions { RandomChoice = value => observed.Add((value.Range, value.Value, value.Used)) };
+        WithChart(prefix + "#IF 1\n" + selected + "#ENDIF\n" + suffix, nested =>
+        {
+            var chart = PlaybackChart.FromBms(nested);
+            Assert.AreEqual("selected", chart.Title);
+            CollectionAssert.AreEqual(new[] { (1, "inner.wav"), (2, "common.wav") },
+                chart.ResourceNames.Select((path, index) => (index, path)).Where(value => !string.IsNullOrEmpty(value.path)).ToArray());
+            CollectionAssert.AreEquivalent(new[] { (1, 0L), (2, 20000000L) },
+                chart.AudioEvents.Select(value => (value.ResourceIndex, value.Start.ToTimeSpan().Ticks)).ToArray());
+            CollectionAssert.AreEqual(new[] { (0, Fraction.Zero, 1) },
+                nested.Measures.BgaBaseNotes.Select(note => (note.Measure.Index, note.Position, note.Index)).ToArray());
+            (int Range, int Value, bool Used)[] expected = [(1, 1, true)];
+            CollectionAssert.AreEqual(expected, observed.ToArray());
+            CollectionAssert.AreEqual(expected, nested.RandomPattern.Select(value => (value.Range, value.Value, value.Used)).ToArray());
+
+            WithChart(prefix + selected + suffix, single =>
+            {
+                var singleChart = PlaybackChart.FromBms(single);
+                Assert.AreEqual(singleChart.Title, chart.Title);
+                CollectionAssert.AreEqual(single.WavArray, nested.WavArray);
+                CollectionAssert.AreEqual(single.BmpArray, nested.BmpArray);
+                CollectionAssert.AreEquivalent(singleChart.AudioEvents.ToArray(), chart.AudioEvents.ToArray());
+            });
+        }, options: options, choices: new Queue<int>([1]));
     }
 
     /// <summary>

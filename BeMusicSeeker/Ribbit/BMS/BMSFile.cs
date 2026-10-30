@@ -1666,9 +1666,9 @@ public partial class BMSFile
                 }
                 return true;
             }
-            bool parseLines(Func<string, bool> stopCond)
+            // 同じRANDOMの値を入れ子へ引き継ぎ、枝内の再選択を呼出し元へ漏らさないよう値で受け取ります。
+            bool parseLines(Func<string, bool> stopCond, int? num)
             {
-                int? num = null;
                 while (enumerator.MoveNext())
                 {
                     cur = enumerator.Current;
@@ -1749,7 +1749,7 @@ public partial class BMSFile
                                         int num6 = parameter.TryParseOrDefault(0);
                                         if (num.HasValue && num6 != 0 && num == num6)
                                         {
-                                            if (!parseLines(l => ifDepth == curIfDepth && (l == "#ELSEIF" || l == "#ELSE" || l == "#ENDIF")))
+                                            if (!parseLines(l => ifDepth == curIfDepth && (l == "#ELSEIF" || l == "#ELSE" || l == "#ENDIF"), num))
                                             {
                                                 switch (command.ToUpperInvariant())
                                                 {
@@ -1772,7 +1772,7 @@ public partial class BMSFile
                                                 case "#ELSEIF":
                                                     continue;
                                                 case "#ELSE":
-                                                    if (parseLines(l => ifDepth == curIfDepth && l == "#ENDIF"))
+                                                    if (parseLines(l => ifDepth == curIfDepth && l == "#ENDIF", num))
                                                     {
                                                         return true;
                                                     }
@@ -2402,7 +2402,7 @@ public partial class BMSFile
                 return true;
             }
 
-            parseLines(cmd => false);
+            parseLines(cmd => false, null);
             NLogWrapper.DebuggerLogger?.Trace("BMS Parser: RANDOM pattern: " + string.Join(", ", [.. randomPattern.Select(i => i.ToString())]));
         }
         finally
