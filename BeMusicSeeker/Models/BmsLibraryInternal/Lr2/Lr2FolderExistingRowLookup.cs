@@ -95,6 +95,15 @@ internal static class Lr2FolderExistingRowLookup
             additionalFilter: " AND " + pathColumn + " LIKE '%.lr2folder' COLLATE NOCASE");
     }
 
+    /// <summary>削除候補の通常親を必要とするcustom候補のexact pathだけを、既存の索引付き範囲読取りで捕捉します。</summary>
+    internal static IReadOnlyList<string> QueryCustomFolderDependencyPaths(
+        LR2SongDBExtended songDb, IEnumerable<string> folderPathPrefixes)
+    {
+        string pathColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.path);
+        return [.. QueryPathPrefixScopes(songDb, folderPathPrefixes, [], pathColumn,
+            " AND " + pathColumn + " LIKE '%.lr2folder' COLLATE NOCASE").Select(row => row.path)];
+    }
+
     internal static IReadOnlyList<LR2SongDB.folder> QueryNormalFolderMtimePathPrefixScopes(
         LR2SongDBExtended songDb,
         IEnumerable<string> folderPathPrefixes)

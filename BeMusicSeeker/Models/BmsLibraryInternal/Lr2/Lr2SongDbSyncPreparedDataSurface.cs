@@ -6,6 +6,7 @@ using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>一操作で生成・検証した物理面と、管理分だけの不変な型定義を保持します。各層で別の定義snapshotを作りません。</summary>
 internal sealed class Lr2SongDbSyncPreparedDataSurface
 {
     public static Lr2SongDbSyncPreparedDataSurface Empty { get; } = new(
@@ -35,6 +36,7 @@ internal sealed class Lr2SongDbSyncPreparedDataSurface
     {
     }
 
+    /// <summary>物理面を捕捉し、管理定義の未提供と完全0件を区別して保持します。型定義の辞書はここで一回だけ変更不能にし、後段へ同じ値を渡します。</summary>
     public Lr2SongDbSyncPreparedDataSurface(
         IEnumerable<string> lr2FolderScopeDirectories,
         IEnumerable<string> lr2FolderFilePaths,
@@ -43,8 +45,12 @@ internal sealed class Lr2SongDbSyncPreparedDataSurface
         IEnumerable<string> folderInfoFilePaths,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries,
         IEnumerable<string> textFileDirectories,
-        bool discoveryComplete)
+        bool discoveryComplete,
+        IReadOnlyDictionary<string, Lr2FolderFileDefinition> managedFolderDefinitions = null)
     {
+        ManagedFolderDefinitions = managedFolderDefinitions == null ? null
+            : new System.Collections.ObjectModel.ReadOnlyDictionary<string, Lr2FolderFileDefinition>(
+                managedFolderDefinitions.ToDictionary(pair => NormalizeFilePath(pair.Key), pair => pair.Value ?? throw new InvalidOperationException("Managed folder definition is missing."), StringComparer.OrdinalIgnoreCase));
         Lr2FolderScopeDirectories = NormalizeDirectories(lr2FolderScopeDirectories);
         Lr2FolderFileEntries = NormalizeEntries(lr2FolderFilePaths, lr2FolderFileEntries);
         Lr2FolderFilePaths = [.. Lr2FolderFileEntries.Keys.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
@@ -54,6 +60,9 @@ internal sealed class Lr2SongDbSyncPreparedDataSurface
         TextFileDirectories = NormalizeDirectories(textFileDirectories);
         Lr2FolderFileDiscoveryComplete = discoveryComplete;
     }
+
+    /// <summary>管理定義の完全な面。nullは未提供、空辞書は管理出力0件です。組込みの物理メタデータとは区別します。</summary>
+    public IReadOnlyDictionary<string, Lr2FolderFileDefinition> ManagedFolderDefinitions { get; }
 
     public IReadOnlyList<string> Lr2FolderScopeDirectories { get; }
 
@@ -82,6 +91,7 @@ internal sealed class Lr2SongDbSyncPreparedDataSurface
         || FolderInfoFilePaths.Count > 0
         || TextFileDirectories.Count > 0;
 
+    /// <summary>管理出力の確定項目から物理時刻と型定義を一緒に渡します。相対組込み項目を管理定義へ読み替えません。</summary>
     public static Lr2SongDbSyncPreparedDataSurface FromSyncItems(
         IEnumerable<string> lr2FolderScopeDirectories,
         IEnumerable<Lr2FolderFileSyncItem> items,
@@ -92,6 +102,7 @@ internal sealed class Lr2SongDbSyncPreparedDataSurface
         bool discoveryComplete = true)
     {
         var entriesByPath = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        var definitions = new Dictionary<string, Lr2FolderFileDefinition>(StringComparer.OrdinalIgnoreCase);
         foreach (Lr2FolderFileSyncItem item in items ?? [])
         {
             string path = NormalizeFilePath(item?.FilePath);
@@ -100,6 +111,10 @@ internal sealed class Lr2SongDbSyncPreparedDataSurface
                 continue;
             }
             entriesByPath[path] = new RootFileEnumerationEntry(path, item.LastWriteTimeUtc);
+            if (Lr2FolderFileProjection.NormalizeKnownRelativeLr2FolderPath(item.DatabasePath) == null)
+            {
+                definitions[path] = item.Definition ?? throw new InvalidOperationException("Managed folder definition is missing.");
+            }
         }
 
         return new Lr2SongDbSyncPreparedDataSurface(
@@ -110,9 +125,11 @@ internal sealed class Lr2SongDbSyncPreparedDataSurface
             folderInfoFilePaths,
             folderInfoFileEntries,
             textFileDirectories,
-            discoveryComplete);
+            discoveryComplete,
+            definitions);
     }
 
+    /// <summary>準備面を合流し、管理定義の未提供/完全0件と組込みの物理metadataを保ちます。</summary>
     public static Lr2SongDbSyncPreparedDataSurface Merge(params Lr2SongDbSyncPreparedDataSurface[] surfaces)
     {
         var scopeDirectories = new List<string>();
@@ -121,6 +138,7 @@ internal sealed class Lr2SongDbSyncPreparedDataSurface
         var folderInfoEntriesByPath = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
         var textFileDirectories = new List<string>();
         bool discoveryComplete = true;
+        Dictionary<string, Lr2FolderFileDefinition> definitions = null;
         foreach (Lr2SongDbSyncPreparedDataSurface surface in surfaces ?? [])
         {
             if (surface == null)
@@ -128,6 +146,14 @@ internal sealed class Lr2SongDbSyncPreparedDataSurface
                 continue;
             }
 
+            if (surface.ManagedFolderDefinitions != null)
+            {
+                definitions ??= new(StringComparer.OrdinalIgnoreCase);
+                foreach (KeyValuePair<string, Lr2FolderFileDefinition> pair in surface.ManagedFolderDefinitions)
+                {
+                    definitions[pair.Key] = pair.Value;
+                }
+            }
             scopeDirectories.AddRange(surface.Lr2FolderScopeDirectories);
             discoveryComplete = discoveryComplete && surface.Lr2FolderFileDiscoveryComplete;
             foreach (string path in surface.Lr2FolderFilePaths)
@@ -155,7 +181,8 @@ internal sealed class Lr2SongDbSyncPreparedDataSurface
             folderInfoEntriesByPath.Keys,
             folderInfoEntriesByPath,
             textFileDirectories,
-            discoveryComplete);
+            discoveryComplete,
+            definitions);
     }
 
     private static IReadOnlyList<string> NormalizeDirectories(IEnumerable<string> directories)

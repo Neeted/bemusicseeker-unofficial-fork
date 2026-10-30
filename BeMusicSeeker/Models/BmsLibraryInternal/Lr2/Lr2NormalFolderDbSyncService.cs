@@ -15,6 +15,9 @@ internal sealed class Lr2NormalFolderDbSyncRequest
 
     public IReadOnlyCollection<string> DirectoryPaths { get; set; } = [];
 
+    /// <summary>所有者が今回の物理残存を確定したcustomの親。DB行だけを残存根拠にしません。</summary>
+    public IReadOnlyCollection<string> RequiredCustomParentDirectories { get; set; } = [];
+
     public IReadOnlyCollection<string> FolderInfoFilePaths { get; set; } = [];
 
     public IReadOnlyDictionary<string, RootFileEnumerationEntry> FolderInfoFileEntries { get; set; } =
@@ -115,6 +118,9 @@ internal static class Lr2NormalFolderDbSyncService
             rootDirectories,
             request.DirectoryPaths,
             request.ChartPaths);
+        directoryMetadataTargets = [.. directoryMetadataTargets.Concat(
+            CreateDirectoryMetadataTargetsFromDirectories(rootDirectories, request.RequiredCustomParentDirectories))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
         long targetBuildMs = RestartElapsed(stepStopwatch);
         Lr2FolderDirectoryMetadataSnapshot metadataSnapshot = Lr2FolderDirectoryMetadataBuilder.Build(new Lr2FolderDirectoryMetadataBuildRequest
         {
@@ -187,6 +193,24 @@ internal static class Lr2NormalFolderDbSyncService
             planMs,
             writeMs,
             stopwatch.ElapsedMilliseconds);
+    }
+
+    /// <summary>prune subtreeと削除候補祖先の子階層だけからcustom候補を取得します。旧exact削除キー自体は変更しません。</summary>
+    internal static IReadOnlyList<string> CaptureCustomDependencyCandidates(
+        LR2SongDBExtended songDb, IEnumerable<string> roots,
+        IEnumerable<string> pruneScopes, IEnumerable<string> pruneExactDirectories)
+    {
+        var prefixes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string directory in (pruneScopes ?? []).Concat(pruneExactDirectories ?? []))
+        {
+            string normalized = Lr2FolderPath.NormalizeDirectoryPath(directory);
+            if (!string.IsNullOrWhiteSpace(normalized)
+                && (roots ?? []).Any(root => Lr2FolderPath.IsSameOrDescendant(normalized, root)))
+            {
+                prefixes.Add(Lr2FolderPath.ToFolderPath(normalized));
+            }
+        }
+        return Lr2FolderExistingRowLookup.QueryCustomFolderDependencyPaths(songDb, prefixes);
     }
 
     internal static IReadOnlyCollection<string> CreateDirectoryMetadataTargets(

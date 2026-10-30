@@ -14,6 +14,46 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2FolderFileDbSyncServiceTests
 {
+    /// <summary>登録実ルートと停止境界を分け、通常差分と未変更custom再利用の両方で実ルートを生成し子の親CRCを修復します。字句上のdrive・UNC条件も実SQLiteで保存します。</summary>
+    [DataTestMethod]
+    // 物理列挙は不要な保存境界です。未変更再利用でも親生成を省略しないことと、custom既存列の保持を確認します。
+    [DataRow(@"D:\BMS", false)]
+    [DataRow(@"D:\BMS", true)]
+    [DataRow(@"D:\", false)]
+    [DataRow(@"D:\", true)]
+    [DataRow(@"\\server\share", false)]
+    [DataRow(@"\\server\share", true)]
+    public void Sync_RegisteredRootChildrenUseRootCrcForChangedAndPreservedCustom(string root, bool preserve)
+    {
+        WithTemporarySongDb(songPath =>
+        {
+            using var db = new LR2SongDBExtended(songPath);
+            db.CreateTable<LR2SongDB.folder>();
+            string child = Path.Combine(root, "Child"), file = Path.Combine(child, "external.lr2folder");
+            DateTime timestamp = new(2026, 6, 10, 0, 0, 0, DateTimeKind.Utc);
+            if (preserve)
+            {
+                db.Insert(new LR2SongDB.folder { path = file, title = "Existing", command = "original", type = 4, parent = "original-parent", date = 123, adddate = 456 });
+                db.Insert(new LR2SongDB.folder { path = Lr2FolderPath.ToFolderPath(child), type = 1, parent = Lr2SongFolderParentNormalizer.RootParentHash });
+            }
+            Lr2FolderFileDbSyncService.Sync(db, new Lr2FolderFileDbSyncRequest
+            {
+                Items = [new Lr2FolderFileSyncItem { FilePath = file, Definition = new Lr2FolderFileDefinition { Title = "New" }, LastWriteTimeUtc = timestamp, PreserveExistingRowOnly = preserve }],
+                DirectoryRowGenerationScopeDirectories = Lr2FolderPhysicalParentDirectoryTargetHelper.CreateBoundaries([root], null, []),
+                DirectoryRowRootDirectories = [root],
+                DirectoryMetadataResolver = _ => new Lr2FolderDirectoryMetadata(timestamp)
+            });
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, db.Find<LR2SongDB.folder>(Lr2FolderPath.ToFolderPath(root)).parent);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.GetDirectoryName(child)), db.Find<LR2SongDB.folder>(Lr2FolderPath.ToFolderPath(child)).parent);
+            if (preserve)
+            {
+                LR2SongDB.folder row = db.Find<LR2SongDB.folder>(file);
+                Assert.AreEqual(("Existing", "original", (int?)4, "original-parent", (int?)123, (int?)456),
+                    (row.title, row.command, row.type, row.parent, row.date, row.adddate));
+            }
+        });
+    }
+
     /// <summary>
     /// 現在の定義を保存し既存追加時刻を保持して、範囲内の旧定義だけを削除し通常行と別範囲行を残す。
     /// </summary>
@@ -1325,6 +1365,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                 ScopeDirectories = [tableDirectory],
                 DirectoryRowScopeDirectories = [tableDirectory],
                 DirectoryRowGenerationScopeDirectories = [baseDirectory],
+                DirectoryRowRootDirectories = [tableDirectory],
                 DirectoryMetadataResolver = CreateDirectoryMetadataResolver(timestamp, tableDirectory),
                 AllowPrune = true
             });
@@ -1373,6 +1414,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                 ScopeDirectories = [tableDirectory],
                 DirectoryRowScopeDirectories = [tableDirectory],
                 DirectoryRowGenerationScopeDirectories = [bmsRoot],
+                DirectoryRowRootDirectories = [outputBase],
                 DirectoryMetadataResolver = CreateDirectoryMetadataResolver(timestamp, outputBase, tableDirectory),
                 AllowPrune = true
             });
@@ -1431,6 +1473,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                 ScopePaths = [filePath],
                 DirectoryRowScopeDirectories = [tableDirectory],
                 DirectoryRowGenerationScopeDirectories = [baseDirectory],
+                DirectoryRowRootDirectories = [tableDirectory],
                 DirectoryMetadataResolver = CreateDirectoryMetadataResolver(timestamp, tableDirectory),
                 AllowPrune = true
             });
@@ -1483,6 +1526,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                 ScopePaths = [filePath],
                 DirectoryRowScopeDirectories = [tableDirectory],
                 DirectoryRowGenerationScopeDirectories = [baseDirectory],
+                DirectoryRowRootDirectories = [tableDirectory],
                 DirectoryMetadataResolver = CreateDirectoryMetadataResolver(timestamp, tableDirectory),
                 AllowPrune = true,
                 UpdateParentDirectoryRowsForPreservedItems = false
@@ -1526,6 +1570,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                 ScopeDirectories = [tableDirectory],
                 DirectoryRowScopeDirectories = [tableDirectory],
                 DirectoryRowGenerationScopeDirectories = [baseDirectory],
+                DirectoryRowRootDirectories = [tableDirectory],
                 AllowPrune = true
             });
 

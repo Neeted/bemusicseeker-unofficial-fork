@@ -45,19 +45,21 @@ internal static class Lr2FolderInfoCandidateEnumerationService
     }
 
     /// <summary>
-    /// Creates folder-info and text-directory candidates from one grouped text enumeration.
+    /// 一回のテキスト列挙からfolderinfoとテキストディレクトリ候補を作ります。全体入力では通常候補にないfolderinfoも採用し、後段で必要祖先へ広げます。
     /// </summary>
     /// <param name="rootFileEnumerator">Optional internal grouped enumerator; null preserves the production fallback.</param>
+    /// <param name="includeAllFolderInfo">全体入力だけでtrueとし、局所処理の対象ディレクトリ制約を維持します。</param>
     internal static Lr2TextMetadataCandidateSnapshot CreateTextMetadataSnapshot(
         IEnumerable<string> rootDirectories,
         IEnumerable<string> targetDirectories,
         EverythingNative everythingNative,
-        IRootFileEnumerator rootFileEnumerator = null)
+        IRootFileEnumerator rootFileEnumerator = null,
+        bool includeAllFolderInfo = false)
     {
         HashSet<string> targetSet = new((targetDirectories ?? [])
             .Select(Lr2FolderPath.NormalizeDirectoryPath)
             .Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
-        if (targetSet.Count == 0)
+        if (targetSet.Count == 0 && !includeAllFolderInfo)
         {
             return CreateEmptyTextMetadataSnapshot();
         }
@@ -93,7 +95,7 @@ internal static class Lr2FolderInfoCandidateEnumerationService
             }
 
             string directoryPath = Lr2FolderPath.NormalizeDirectoryPath(Path.GetDirectoryName(path));
-            if (string.IsNullOrWhiteSpace(directoryPath) || !targetSet.Contains(directoryPath))
+            if (string.IsNullOrWhiteSpace(directoryPath) || !targetSet.Contains(directoryPath) && !(includeAllFolderInfo && IsFolderInfoPath(path)))
             {
                 continue;
             }
@@ -108,6 +110,29 @@ internal static class Lr2FolderInfoCandidateEnumerationService
         return new Lr2TextMetadataCandidateSnapshot(
             CreateFolderInfoSnapshot(entriesByPath, discoveryComplete: true),
             [.. textFileDirectories.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)]);
+    }
+
+    /// <summary>所有操作の有限な必要親だけからfolderinfoを捕捉します。全探索を追加せず、正常な消失だけを候補なしとし、その他の取得失敗は呼出元へ返します。</summary>
+    internal static Lr2FolderInfoCandidateSnapshot CreateSnapshotFromOwnedDirectories(IEnumerable<string> directories)
+    {
+        string[] targets = [.. (directories ?? []).Select(Lr2FolderPath.NormalizeDirectoryPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase)];
+        var entries = new List<RootFileEnumerationEntry>();
+        foreach (string directory in targets)
+        {
+            string path = Path.Combine(directory, "folderinfo.txt");
+            try
+            {
+                if ((LongPathFileSystem.GetAttributes(path) & FileAttributes.Directory) != 0) { continue; }
+                LongPathFileSystem.FileMetadata metadata = LongPathFileSystem.GetFileMetadata(path);
+                entries.Add(new RootFileEnumerationEntry(path, metadata.LastWriteTimeUtc, metadata.Length));
+            }
+            catch (Exception ex) when (ex is FileNotFoundException || ex is DirectoryNotFoundException)
+            {
+                // 消失したfolderinfoは現在のタイトル入力ではありません。
+            }
+        }
+        return CreateSnapshotFromEntries(entries, targets);
     }
 
     internal static Lr2FolderInfoCandidateSnapshot CreateSnapshotFromEntries(

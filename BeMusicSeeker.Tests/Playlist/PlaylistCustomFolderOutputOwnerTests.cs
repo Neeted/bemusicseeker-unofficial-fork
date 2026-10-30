@@ -36,7 +36,7 @@ public sealed class PlaylistCustomFolderOutputOwnerTests
                 .Select(index => new PlaylistCustomFolderOutputOwner.CustomFolderDefinition
                 {
                     RelativeDirectory = string.Empty,
-                    Text = "#TITLE Fixed " + table.playlist_id + "-" + index + "\r\n"
+                    Definition = new Lr2FolderFileDefinition { Title = "Fixed " + table.playlist_id + "-" + index }
                 }).ToArray(),
             (table, _) => Path.Combine(root, table.Output_dir),
             (_, _) => CustomFolderOutputPhysicalSurface.Empty,
@@ -59,7 +59,7 @@ public sealed class PlaylistCustomFolderOutputOwnerTests
             });
             Directory.CreateDirectory(first.OutputDirectory);
             string unchangedPath = first.Files[0].FilePath;
-            string unchangedText = "#TITLE Fixed 1-0\r\n";
+            string unchangedText = "#COMMAND \r\n#MAXTRACKS 0\r\n#CATEGORY \r\n#TITLE Fixed 1-0\r\n#INFORMATION_A \r\n#INFORMATION_B \r\n\r\n";
             File.WriteAllText(unchangedPath, unchangedText, Encoding.GetEncoding("shift_jis"));
             DateTime unchangedAt = new(2001, 2, 3, 4, 5, 6, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(unchangedPath, unchangedAt);
@@ -182,7 +182,7 @@ public sealed class PlaylistCustomFolderOutputOwnerTests
                 new PlaylistCustomFolderOutputOwner.CustomFolderDefinition
                 {
                     RelativeDirectory = "nested",
-                    Text = "#COMMAND song.hash = 'abc'\r\n#TITLE Owner test\r\n",
+                    Definition = new Lr2FolderFileDefinition { Command = "song.hash = 'abc'", Title = "Owner test" },
                     IsRandomVariant = false
                 }
             ],
@@ -235,7 +235,7 @@ public sealed class PlaylistCustomFolderOutputOwnerTests
                 new PlaylistCustomFolderOutputOwner.CustomFolderDefinition
                 {
                     RelativeDirectory = string.Empty,
-                    Text = "#COMMAND song.hash = 'def'\r\n#TITLE Owner idempotence test\r\n",
+                    Definition = new Lr2FolderFileDefinition { Command = "song.hash = 'def'", Title = "Owner idempotence test" },
                     IsRandomVariant = false
                 }
             ],
@@ -264,7 +264,7 @@ public sealed class PlaylistCustomFolderOutputOwnerTests
             Assert.AreEqual(1, second.UnchangedFileCount);
             Assert.AreEqual(expectedTimestamp, File.GetLastWriteTimeUtc(filePath));
             CollectionAssert.AreEqual(
-                System.Text.Encoding.GetEncoding("shift_jis").GetBytes("#COMMAND song.hash = 'def'\r\n#TITLE Owner idempotence test\r\n"),
+                System.Text.Encoding.GetEncoding("shift_jis").GetBytes("#COMMAND song.hash = 'def'\r\n#MAXTRACKS 0\r\n#CATEGORY \r\n#TITLE Owner idempotence test\r\n#INFORMATION_A \r\n#INFORMATION_B \r\n\r\n"),
                 File.ReadAllBytes(filePath));
         }
         finally
@@ -301,7 +301,7 @@ public sealed class PlaylistCustomFolderOutputOwnerTests
                 new PlaylistCustomFolderOutputOwner.CustomFolderDefinition
                 {
                     RelativeDirectory = string.Empty,
-                    Text = "#COMMAND song.hash = 'ghi'\r\n#TITLE Owner locked file test\r\n",
+                    Definition = new Lr2FolderFileDefinition { Command = "song.hash = 'ghi'", Title = "Owner locked file test" },
                     IsRandomVariant = false
                 }
             ],

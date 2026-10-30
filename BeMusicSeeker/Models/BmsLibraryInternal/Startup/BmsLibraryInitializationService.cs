@@ -1239,7 +1239,7 @@ internal sealed class BmsLibraryInitializationService
             result,
             logInstallPerformance,
             logInstallPerformanceWarn,
-            bmsFileScanSucceeded, enterNormalFolderMutation);
+            bmsFileScanSucceeded, enterNormalFolderMutation, result.Lr2ScanLr2FolderFilePaths);
 
         logInstallPerformance?.Invoke("song_tbl_file_check_result result=applied"
             + " checkedCharts=" + (result.BmsPathCount + result.BmsonPathCount)
@@ -1470,7 +1470,8 @@ internal sealed class BmsLibraryInitializationService
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
         bool scanCompletedSuccessfully,
-        Func<Lr2NormalFolderSyncScope, IReadOnlyCollection<string>, IDisposable> enterNormalFolderMutation)
+        Func<Lr2NormalFolderSyncScope, IReadOnlyCollection<string>, IDisposable> enterNormalFolderMutation,
+        IEnumerable<string> scannedCustomPaths)
     {
         if (dbGateway == null
             || result == null
@@ -1509,8 +1510,20 @@ internal sealed class BmsLibraryInitializationService
         result.Lr2NormalFolderSyncExecuted = true;
         try
         {
+            IReadOnlyList<string> candidateCustomPaths;
+            using (LR2SongDBExtended dependencyDb = dbGateway.OpenSongDb())
+            {
+                candidateCustomPaths = Lr2NormalFolderDbSyncService.CaptureCustomDependencyCandidates(
+                    dependencyDb, roots, syncInput.PruneScopeDirectories, syncInput.PruneExactDirectories);
+            }
+            if (candidateCustomPaths.Count > 0 && !result.Lr2ScanLr2FolderFileDiscoveryComplete)
+            { throw new Lr2FolderTableProjectionIncompleteException("LR2 folder file discovery did not produce a complete surface."); }
+            var scannedCustomSet = new HashSet<string>(scannedCustomPaths ?? [], StringComparer.OrdinalIgnoreCase);
+            IReadOnlyCollection<string> remainingCustomParents = [.. candidateCustomPaths.Where(scannedCustomSet.Contains)
+                .Select(Lr2FolderPath.SafeGetDirectoryName).Distinct(StringComparer.OrdinalIgnoreCase)];
             IReadOnlyCollection<string> directoryMetadataTargets = [.. Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, syncInput.ChartPaths)
                 .Concat(Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargetsFromDirectories(roots, syncInput.DirectoryPaths))
+                .Concat(Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargetsFromDirectories(roots, remainingCustomParents))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
             using IDisposable mutation = enterNormalFolderMutation?.Invoke(syncInput, directoryMetadataTargets);
@@ -1522,6 +1535,7 @@ internal sealed class BmsLibraryInitializationService
             {
                 RootDirectories = roots,
                 ChartPaths = syncInput.ChartPaths,
+                RequiredCustomParentDirectories = remainingCustomParents,
                 DirectoryPaths = directoryMetadataTargets,
                 FolderInfoFilePaths = [.. (folderInfoFilePaths ?? [])],
                 FolderInfoFileEntries = folderInfoFileEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),

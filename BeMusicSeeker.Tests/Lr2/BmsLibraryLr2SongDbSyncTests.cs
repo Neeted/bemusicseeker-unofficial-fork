@@ -310,8 +310,12 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     /// 実取込み後の譜面削除で該当songと通常フォルダを消し、残存譜面のフォルダ・祖先を保持して削除範囲の誤りを検出する。
     /// </summary>
     /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
-    [TestMethod]
-    public void RemoveLibraryCharts_PrunesNormalFolderRowsForRemovedBmsWhenLr2SongDbSyncEnabled()
+    [DataTestMethod]
+    // 依存なし、譜面だけ削除してcustomが残る、フォルダごとcustomも消える条件を同じ実入口で比較します。
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void RemoveLibraryCharts_PrunesNormalFolderRowsForRemovedBmsWhenLr2SongDbSyncEnabled(bool customPresent, bool wholeFolder)
     {
         using var scope = TestDatabaseScope.Create();
         try
@@ -328,6 +332,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             string removePath = Path.Combine(removeDirectory, "remove.bms");
             File.WriteAllText(keepPath, "#TITLE Keep\r\n#00111:01\r\n", Encoding.ASCII);
             File.WriteAllText(removePath, "#TITLE Remove\r\n#00111:01\r\n", Encoding.ASCII);
+            string customPath = Path.Combine(removeDirectory, "external.lr2folder");
+            if (customPresent) { File.WriteAllText(customPath, "#TITLE External", Encoding.ASCII); }
             ChartFile keepFile = CreateSyncTestFile(keepPath, ChartFileContentReader.ReadSnapshot(keepPath));
             ChartFile removeFile = CreateSyncTestFile(removePath, ChartFileContentReader.ReadSnapshot(removePath));
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
@@ -375,12 +381,18 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             {
                 // 先に通常のファイル走査を通して、削除対象を含む実在カタログを構築する。
                 library.ReloadFileDiff();
+                if (customPresent)
+                {
+                    using var setupCustom = new LR2SongDBExtended(scope.SongDbPath);
+                    setupCustom.InsertOrReplace(new LR2SongDB.folder { path = customPath, type = 2, title = "External", command = "song.hash = 'keep'", parent = "keep-exact-parent", date = 321, adddate = 123 });
+                    Assert.IsNotNull(setupCustom.Find<LR2SongDB.folder>(customPath), "全物理削除でも直前にcustomのDB行が存在する条件を固定します。");
+                }
                 ChartFile currentRemoveFile = library.BmsCharts.Single(file =>
                     string.Equals(file.Path, removePath, StringComparison.OrdinalIgnoreCase));
                 LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
                     library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((currentRemoveFile))]),
                     sendToRecycleBin: false,
-                    approvedWholeFolderDeletePaths: []);
+                    approvedWholeFolderDeletePaths: wholeFolder ? [removeDirectory] : []);
                 Assert.IsFalse(removal.HasError);
 
                 using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
@@ -388,7 +400,16 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(rootDirectory)));
                 Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(packDirectory)));
                 Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(keepDirectory)));
-                Assert.IsFalse(folders.Any(folder => folder.path == ToFolderPath(removeDirectory)));
+                Assert.AreEqual(customPresent && !wholeFolder, folders.Any(folder => folder.path == ToFolderPath(removeDirectory)));
+                if (customPresent && !wholeFolder)
+                {
+                    Assert.IsTrue(File.Exists(customPath));
+                    Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(packDirectory), folders.Single(folder => folder.path == ToFolderPath(removeDirectory)).parent);
+                    LR2SongDB.folder custom = verify.Find<LR2SongDB.folder>(customPath);
+                    Assert.AreEqual("External", custom.title); Assert.AreEqual("keep-exact-parent", custom.parent);
+                    Assert.AreEqual(123, custom.adddate); Assert.AreEqual(321, custom.date);
+                }
+                if (wholeFolder) { Assert.IsFalse(Directory.Exists(removeDirectory)); }
                 Assert.IsNotNull(verify.Find<LR2SongDB.song>(keepPath));
                 Assert.IsNull(verify.Find<LR2SongDB.song>(removePath));
             }
@@ -755,8 +776,21 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true };
         string signature = Lr2SongDbSyncSignatureBuilder.Build(options);
         DateTime completedAt = new(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+        string root = Path.Combine(scope.DirectoryPath, "Root"), child = Path.Combine(root, "Child");
+        Directory.CreateDirectory(child);
         using (var setup = new LR2SongDBExtended(scope.SongDbPath))
-        { Lr2SongDbSyncStatusService.MarkCompleted(setup, signature, "previous-completed-run", 7, completedAt); }
+        {
+            setup.CreateTable<LR2SongDB.folder>();
+            Lr2FolderFileDbSyncService.Sync(setup, new Lr2FolderFileDbSyncRequest
+            {
+                Items = [new Lr2FolderFileSyncItem { FilePath = Path.Combine(child, "external.lr2folder"), Definition = new Lr2FolderFileDefinition { Title = "External" }, LastWriteTimeUtc = completedAt }],
+                DirectoryRowRootDirectories = [root],
+                DirectoryRowGenerationScopeDirectories = [Path.GetDirectoryName(root) ?? throw new AssertFailedException("Missing boundary.")],
+                DirectoryMetadataResolver = _ => new Lr2FolderDirectoryMetadata(completedAt)
+            });
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(root), setup.Find<LR2SongDB.folder>(ToFolderPath(child)).parent);
+            Lr2SongDbSyncStatusService.MarkCompleted(setup, signature, "previous-completed-run", 7, completedAt);
+        }
         var library = new TestBmsLibrary(scope.SongDbPath, null, null, null,
             () => options, TestBmsFactory.MissingEverythingBridge, settings: testSettings);
         byte[] before = File.ReadAllBytes(scope.SongDbPath);
@@ -3962,7 +3996,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             preparedInput = CreatePreparedLr2FolderSurface(
                     outputDirectory,
                     managedPath,
-                    CreateDirectoryEntryMap(rootDirectory, outputBase, outputDirectory));
+                    CreateDirectoryEntryMap(rootDirectory, outputBase, outputDirectory),
+                    managedDefinition: new Lr2FolderFileDefinition { Title = "Managed" });
 
             Lr2SongDbSyncInput input = InvokeCreateLr2SongDbSyncInput(library, initializationInput, preparedInput);
             var lr2FolderFilePaths = input.Lr2FolderFilePaths.ToList();
@@ -4368,7 +4403,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     /// 捕捉面では管理出力ディレクトリ内の定義を除き、外部の兄弟ディレクトリを残す。
     /// </summary>
     [TestMethod]
-    public void CreateLr2SongDbSyncInputFromCapturedSurface_ExcludesManagedOutputDirectoryFiles()
+    public void CreateLr2SongDbSyncInputFromCapturedSurface_RejectsMissingManagedDefinitionsAfterExcludingManagedScope()
     {
         LibraryFileInitializationResult? initializationInput = null;
         Lr2SongDbSyncPreparedDataSurface? preparedInput = null;
@@ -4433,14 +4468,15 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     [rootDirectory, outputBase, outputDirectory, unmanagedSiblingDirectory])));
 
             Lr2SongDbSyncInput input = InvokeCreateLr2SongDbSyncInput(library, initializationInput, preparedInput);
-            var lr2FolderFilePaths = input.Lr2FolderFilePaths.ToList();
+            var lr2FolderFilePaths = (initializationInput.ScanSurface ?? throw new AssertFailedException("Missing captured surface.")).Lr2FolderFilePaths.ToList();
             var pruneDirectories = input.Lr2FolderPruneDirectories.ToList();
 
             CollectionAssert.DoesNotContain(lr2FolderFilePaths, managedPath);
             CollectionAssert.DoesNotContain(lr2FolderFilePaths, externalPath);
             CollectionAssert.Contains(lr2FolderFilePaths, unmanagedSiblingPath);
             CollectionAssert.Contains(pruneDirectories, outputBase);
-            Assert.IsTrue(input.Lr2FolderFileDiscoveryComplete);
+            Assert.IsFalse(input.Lr2FolderFileDiscoveryComplete, "管理定義未提供を外部兄弟だけの完全入力へ読み替えません。");
+            CollectionAssert.AreEqual(new[] { unmanagedSiblingPath }, input.Lr2FolderFilePaths.ToArray());
         }
         finally
         {
@@ -4513,7 +4549,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             preparedInput = CreatePreparedLr2FolderSurface(
                     outputDirectory,
                     managedPath,
-                    CreateDirectoryEntryMap(rootDirectory, outputBase, outputDirectory));
+                    CreateDirectoryEntryMap(rootDirectory, outputBase, outputDirectory),
+                    managedDefinition: new Lr2FolderFileDefinition { Title = "Managed" });
 
             Lr2SongDbSyncInput input = InvokeCreateLr2SongDbSyncInput(library, initializationInput, preparedInput);
             var lr2FolderFilePaths = input.Lr2FolderFilePaths.ToList();
@@ -6475,6 +6512,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         Lr2SongDbSyncPreparedDataSurface? preparedInput = null;
         using var scope = TestDatabaseScope.Create();
         Task? scheduledSync = null;
+        TestBmsLibrary? directLibrary = null;
+        TestBmsPlaylist? directPlaylist = null;
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(scope.SongDbPath);
@@ -6487,7 +6526,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             string unmanagedSiblingPath = Path.Combine(unmanagedSiblingDirectory, "external.lr2folder");
             Directory.CreateDirectory(managedDirectory);
             Directory.CreateDirectory(unmanagedSiblingDirectory);
-            File.WriteAllText(managedPath, "#TITLE Managed", Encoding.GetEncoding("shift_jis"));
             File.WriteAllText(unmanagedSiblingPath, "#TITLE External Sibling", Encoding.GetEncoding("shift_jis"));
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs =
                 CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalBase]);
@@ -6496,7 +6534,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 setup.InsertOrReplace(new BMSTable
                 {
                     playlist_id = 9401,
-                    name = "ManagedTable",
+                    name = "Managed",
                     symbol = "MT",
                     Output_dir = "ManagedTable",
                     custom_folder_output_base_name = "Additional",
@@ -6510,7 +6548,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 OperationModeLR2DB = true,
                 LR2CustomFolderAdditionalOutputBaseDirs = [additionalBase]
             };
-            var library = new TestBmsLibrary(
+            TestBmsLibrary library = directLibrary = new TestBmsLibrary(
                 scope.SongDbPath,
                 getLR2Config: null,
                 _lr2ScoreDB: null,
@@ -6535,15 +6573,25 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     [rootDirectory, additionalBase],
                     [managedPath, unmanagedSiblingPath],
                     [rootDirectory, additionalBase, managedDirectory, unmanagedSiblingDirectory])));
-            preparedInput = new Lr2SongDbSyncPreparedDataSurface(
-                    [additionalBase],
-                    [managedPath, unmanagedSiblingPath],
-                    CreateFileEntryMap(managedPath, unmanagedSiblingPath),
-                    CreateDirectoryEntryMap(rootDirectory, additionalBase, managedDirectory, unmanagedSiblingDirectory),
-                    [],
-                    new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
-                    [],
-                    discoveryComplete: true);
+            var outputSettings = new CustomFolderOutputSettingsSnapshot
+            {
+                OperationModeLR2DB = true,
+                LR2CustomFolderAdditionalOutputBaseDirs = testSettings.LR2CustomFolderAdditionalOutputBaseDirs
+            };
+            TestBmsPlaylist playlist = directPlaylist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), scope.SongDbPath,
+                () => outputSettings, null, settings: testSettings)
+            { BMSTables = new ObservableCollection<BMSTable>(new PlaylistPersistenceRepository(scope.SongDbPath).LoadPlaylistHeaders()) };
+            var runtime = new BmsLr2SongDbSyncWorkflowRuntime(() => library, () => playlist, () => true);
+            using (LibraryFileMutationLease lease = library.Lr2Synchronization.TryBeginMutation("test_direct_prepared", showMessage: false))
+            {
+                Assert.IsNotNull(lease);
+                Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable playlistLease));
+                using IDisposable playlistOperation = playlistLease;
+                using LibraryFileMutationCapability playlistCapability = playlist.CreatePlaylistMutationCapability(playlistLease);
+                preparedInput = runtime.PrepareGeneratedDataUnderLease(library, "test_direct_prepared", lease, false, playlistCapability: playlistCapability);
+            }
+            Assert.IsNotNull(preparedInput.ManagedFolderDefinitions);
+            Assert.IsTrue(preparedInput.ManagedFolderDefinitions.ContainsKey(managedPath));
 
             await library.QueueLr2SongDbSyncAsync("test_additional_output_base_external_sync", force: true,
                 initializationResult: initializationInput, preparedSurface: preparedInput);
@@ -6573,7 +6621,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Assert.IsNotNull(managedRow, rowSummary);
             LR2SongDB.folder managedFile = managedRow!;
             Assert.AreEqual(2, managedFile.type);
-            Assert.AreEqual("Managed", managedFile.title);
+            Assert.AreEqual("Managed ALL", managedFile.title);
             Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(managedDirectory), managedFile.parent);
             LR2SongDBExtended.lr2_song_db_sync_status status = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(status);
@@ -6587,6 +6635,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             }
             finally
             {
+                directPlaylist?.RequestShutdown("direct-prepared-fixture");
+                directLibrary?.RequestShutdown("direct-prepared-fixture");
                 ResetTouchedSettings();
             }
         }
@@ -7488,7 +7538,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         IReadOnlyDictionary<string, RootFileEnumerationEntry>? directoryEntries = null,
         IEnumerable<string>? folderInfoFilePaths = null,
         IReadOnlyDictionary<string, RootFileEnumerationEntry>? folderInfoFileEntries = null,
-        IEnumerable<string>? textFileDirectories = null)
+        IEnumerable<string>? textFileDirectories = null,
+        Lr2FolderFileDefinition? managedDefinition = null)
     {
         return new Lr2SongDbSyncPreparedDataSurface(
             [scopeDirectory],
@@ -7501,7 +7552,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             folderInfoFilePaths,
             folderInfoFileEntries,
             textFileDirectories,
-            discoveryComplete: true);
+            discoveryComplete: true,
+            managedFolderDefinitions: managedDefinition == null ? null : new Dictionary<string, Lr2FolderFileDefinition>(StringComparer.OrdinalIgnoreCase)
+            { [filePath] = managedDefinition });
     }
 
     private static SongTableFileCheckResult CreateCompleteLr2ScanSurface(

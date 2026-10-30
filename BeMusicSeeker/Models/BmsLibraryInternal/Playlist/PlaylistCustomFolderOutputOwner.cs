@@ -30,13 +30,18 @@ internal sealed class PlaylistCustomFolderOutputOwner
 
     private readonly Action<string> logPerformance;
 
+    private readonly Func<IReadOnlyCollection<string>> registeredRootsProvider;
+
+    /// <summary>確定プレイリストの定義と物理出力を接続します。公開登録はmaterialization開始で一回捕捉し、必要親のmetadata取得と同じDB同期入力へ渡します。</summary>
+    /// <param name="registeredRootsProvider">構成所有者が公開する登録値。未提供の独立構成には登録ルートを追加せず、管理基点だけを使います。</param>
     internal PlaylistCustomFolderOutputOwner(
         Func<CustomFolderOutputSettingsSnapshot> settingsProvider,
         Func<BMSTable, CustomFolderOutputSettingsSnapshot, IReadOnlyList<CustomFolderDefinition>> definitionsProvider,
         Func<BMSTable, CustomFolderOutputSettingsSnapshot, string> outputDirectoryResolver,
         Func<IEnumerable<string>, string, CustomFolderOutputPhysicalSurface> physicalSurfaceResolver,
         Func<string, BMSTable, CustomFolderOutputSettingsSnapshot, IReadOnlyCollection<string>> directoryRowGenerationScopesProvider,
-        Action<string> logPerformance)
+        Action<string> logPerformance,
+        Func<IReadOnlyCollection<string>> registeredRootsProvider = null)
     {
         this.settingsProvider = settingsProvider ?? throw new ArgumentNullException(nameof(settingsProvider));
         this.definitionsProvider = definitionsProvider ?? throw new ArgumentNullException(nameof(definitionsProvider));
@@ -44,6 +49,7 @@ internal sealed class PlaylistCustomFolderOutputOwner
         this.physicalSurfaceResolver = physicalSurfaceResolver ?? throw new ArgumentNullException(nameof(physicalSurfaceResolver));
         this.directoryRowGenerationScopesProvider = directoryRowGenerationScopesProvider ?? throw new ArgumentNullException(nameof(directoryRowGenerationScopesProvider));
         this.logPerformance = logPerformance;
+        this.registeredRootsProvider = registeredRootsProvider ?? (() => []);
     }
 
     internal CustomFolderOutputProjection CreateLayoutProjection(
@@ -89,9 +95,9 @@ internal sealed class PlaylistCustomFolderOutputOwner
         };
     }
 
+    /// <summary>確定した型定義から変更不能なファイル項目を作ります。物理本文は定義から派生させ、別の正本や再解析を持ちません。</summary>
     internal CustomFolderOutputProjection CreateProjection(
         BMSTable table,
-        bool includeText = true,
         string outputDirectoryOverride = null,
         CustomFolderOutputSettingsSnapshot settings = null)
     {
@@ -112,8 +118,7 @@ internal sealed class PlaylistCustomFolderOutputOwner
             {
                 Index = index,
                 RelativeDirectory = relativeDirectory,
-                Text = includeText ? definition.Text ?? string.Empty : null,
-                Definition = definition.ParsedDefinition,
+                Definition = definition.Definition,
                 FilePath = filePath,
                 DatabasePath = ResolveDatabasePath(table, filePath, settings)
             });
@@ -151,6 +156,8 @@ internal sealed class PlaylistCustomFolderOutputOwner
             ?? projectionList.Select(projection => projection.Settings).FirstOrDefault(snapshot => snapshot != null)
             ?? GetSettings();
         result.Settings = settings;
+        // 同じ公開登録を物理親の捕捉とDB生成へ渡し、Sync直前に別の登録を読み直しません。
+        result.DirectoryRowRootDirectories.UnionWith(registeredRootsProvider());
         if (projectionList.Any(projection => projection.PhysicalSurface == null))
         {
             CustomFolderOutputPhysicalSurface physicalSurface = physicalSurfaceResolver(
@@ -190,6 +197,11 @@ internal sealed class PlaylistCustomFolderOutputOwner
             try
             {
                 result.OutputDirectories.Add(projection.OutputDirectory);
+                CustomFolderOutputSettingsSnapshot projectionSettings = projection.Settings ?? settings;
+                result.DirectoryRowRootDirectories.UnionWith(projection.Table?.is_root_folder == true
+                    ? [projection.OutputDirectory]
+                    : Lr2FolderPhysicalParentDirectoryTargetHelper.CreateRoots([], projectionSettings.LR2CustomFolderOutputBaseDir,
+                        CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(projectionSettings.LR2CustomFolderAdditionalOutputBaseDirs)));
                 result.OutputRowScopeDirectories.AddRange(projection.OutputRowScopePaths ?? []);
                 result.DirectoryRowGenerationScopeDirectories.AddRange(
                     directoryRowGenerationScopesProvider(
@@ -251,7 +263,7 @@ internal sealed class PlaylistCustomFolderOutputOwner
                     {
                         FilePath = file.FilePath,
                         DatabasePath = file.DatabasePath,
-                        Definition = file.Definition ?? Lr2FolderFileProjection.ParseDefinition(ReadLines(text)),
+                        Definition = file.Definition ?? throw new InvalidOperationException("Managed folder definition is missing."),
                         LastWriteTimeUtc = physicalEntry?.LastWriteTimeUtc ?? LongPathFileSystem.GetLastWriteTimeUtc(file.FilePath, isDirectory: false)
                     };
                     ApplySourceClassification(syncItem, projection.Table, projection.Settings ?? settings);
@@ -309,7 +321,7 @@ internal sealed class PlaylistCustomFolderOutputOwner
 
         progress.Begin("playlist_directory_metadata");
         result.OutputDirectories.RemoveAll(string.IsNullOrWhiteSpace);
-        AddOwnedDirectoryEntries(result.DirectoryEntries, result.SyncItems, result.DirectoryRowGenerationScopeDirectories);
+        AddOwnedDirectoryEntries(result.DirectoryEntries, result.SyncItems, result.DirectoryRowGenerationScopeDirectories, result.DirectoryRowRootDirectories);
         return result;
     }
 
@@ -652,24 +664,15 @@ internal sealed class PlaylistCustomFolderOutputOwner
         }
     }
 
-    private static IEnumerable<string> ReadLines(string text)
-    {
-        using var reader = new StringReader(text ?? string.Empty);
-        string line;
-        while ((line = reader.ReadLine()) != null)
-        {
-            yield return line;
-        }
-    }
-
     private static void AddOwnedDirectoryEntries(
         IDictionary<string, RootFileEnumerationEntry> result,
         IReadOnlyCollection<Lr2FolderFileSyncItem> items,
-        IReadOnlyCollection<string> directoryRowGenerationScopeDirectories)
+        IReadOnlyCollection<string> directoryRowGenerationScopeDirectories,
+        IReadOnlyCollection<string> directoryRowRootDirectories)
     {
         IReadOnlyCollection<string> metadataTargets = Lr2FolderFileDbSyncService.CreateParentDirectoryMetadataTargets(
             items,
-            directoryRowGenerationScopeDirectories);
+            directoryRowGenerationScopeDirectories, directoryRowRootDirectories);
         foreach (string target in metadataTargets ?? [])
         {
             var entry = RootFileEnumerationEntry.FromDirectoryInfo(target);
@@ -702,13 +705,11 @@ internal sealed class PlaylistCustomFolderOutputOwner
 
     internal sealed class CustomFolderDefinition
     {
-        internal string RelativeDirectory { get; set; }
+        internal string RelativeDirectory { get; init; }
 
-        internal string Text { get; set; }
+        internal Lr2FolderFileDefinition Definition { get; init; }
 
-        internal Lr2FolderFileDefinition ParsedDefinition { get; set; }
-
-        internal bool IsRandomVariant { get; set; }
+        internal bool IsRandomVariant { get; init; }
     }
 
     internal sealed class CustomFolderOutputProjection
@@ -730,17 +731,17 @@ internal sealed class PlaylistCustomFolderOutputOwner
 
     internal sealed class CustomFolderOutputFileProjection
     {
-        internal int Index { get; set; }
+        internal int Index { get; init; }
 
-        internal string RelativeDirectory { get; set; }
+        internal string RelativeDirectory { get; init; }
 
-        internal string Text { get; set; }
+        internal string Text => Definition == null ? null : Lr2FolderFileProjection.CreateManagedText(Definition);
 
-        internal Lr2FolderFileDefinition Definition { get; set; }
+        internal Lr2FolderFileDefinition Definition { get; init; }
 
-        internal string FilePath { get; set; }
+        internal string FilePath { get; init; }
 
-        internal string DatabasePath { get; set; }
+        internal string DatabasePath { get; init; }
     }
 
     internal sealed class CustomFolderBatchMaterializationResult
@@ -752,6 +753,8 @@ internal sealed class PlaylistCustomFolderOutputOwner
         internal List<string> OutputRowScopeDirectories { get; } = [];
 
         internal List<string> DirectoryRowGenerationScopeDirectories { get; } = [];
+
+        internal HashSet<string> DirectoryRowRootDirectories { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         internal List<string> Lr2FolderSurfaceScopeDirectories { get; } = [];
 

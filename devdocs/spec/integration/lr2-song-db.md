@@ -64,7 +64,7 @@ LR2に見せるjukeboxルートと、本アプリが譜面・リソースを走�
 
 `folder.path` が行のキーです。通常ディレクトリは `type=1` とし、親のCRC32を `parent` に設定します。LR2ルート直下として扱う行は `ROOT` とNULのCRC32を親にします。自身のCRC32を保存する専用列はありません。`date` はディレクトリまたは `.lr2folder` の更新時刻であり、ルート行も実際の時刻と一致させます。
 
-期待する集合は検索ルート、BMSのあるディレクトリとルートまでの祖先、`folderinfo.txt` のある場所、テキストグループ、`.lr2folder` に必要な親階層から作ります。同一パスの優先度は、組込みカスタムフォルダ、`.lr2folder`、`folderinfo.txt` のあるディレクトリ、通常ディレクトリの順です。同順位で同内容なら順序に依存せず一つにまとめ、異なる内容なら衝突です。
+期待する集合は検索ルート、BMSのあるディレクトリとルートまでの祖先、`folderinfo.txt` のあるディレクトリと登録ルートまでの祖先、テキストグループ、`.lr2folder` に必要な親階層から作ります。譜面もcustomもない深い `folderinfo.txt` も、既存folder行の有無にかかわらず列挙済み入力から必要集合へ含めます。候補を絞る前に祖先まで拡張し、追加の全走査は行いません。同一パスの優先度は、組込みカスタムフォルダ、`.lr2folder`、`folderinfo.txt` のあるディレクトリ、通常ディレクトリの順です。同順位で同内容なら順序に依存せず一つにまとめ、異なる内容なら衝突です。
 
 正常に読み取れたBMSや `.lr2folder` でも、パスをCP932で表現できない場合は該当する通常folder行・`.lr2folder` 行・親行だけを投影から省き、他の行の同期を続けます。BMSのsong行は保持し、`folder` と `parent` を `NULL` にしてLR2互換性警告を残します。folder投影の既存事前検査で探索未完了、`.lr2folder` または `folderinfo.txt` の読込み失敗、必要なディレクトリメタデータ不足を検出した場合は、従来どおり全体同期を失敗させます。この規則はBMS譜面本体の読取り失敗へ広げません。実装は `Lr2FolderTableReconciliationService.BuildProjection`、回帰テストは [`BmsLibraryLr2SongDbSyncTests`](../../../BeMusicSeeker.Tests/Lr2/BmsLibraryLr2SongDbSyncTests.cs) の `QueueLr2SongDbSync_CompletesWhenChartDirectoryPathIsUnsupported`、`QueueLr2SongDbSync_SkipsUnsupportedLr2FolderFileNameAndContinues`、`QueueLr2SongDbSync_SkipsUnsupportedLr2FolderParentAndContinues` です。
 
@@ -100,9 +100,11 @@ LR2に見せるjukeboxルートと、本アプリが譜面・リソースを走�
 
 通常の `.lr2folder` は `type=2` です。特殊な種別は組込みフォルダだけに付け、`newsong.lr2folder` は3、`course1.lr2folder` から `course3.lr2folder` は6です。それ以外は本文に `#COMMAND` や `#TAG` があっても2です。
 
+実ルート集合と生成停止境界は区別します。登録ルートの子は、その登録ルートのCRCをparentに持ちます。ドライブ・UNC共有ルート自身の行も含め、通常・追加の基点が登録ルートと重なっても実ルート集合を祖先包含で縮約しません。ROOT型の各表ディレクトリと既知相対 `LR2files\CustomFolder` の扱いも、局所・全体で同じ純粋な階層判定を使います。
+
 管理外ファイルは実際の探索ルート配下の階層を維持します。ルート自身だけを `ROOT` の直下とし、子ディレクトリやファイルを平坦化しません。アプリの通常出力先は出力基点をルートとして扱い、ルート出力先では各プレイリストのディレクトリをルートとして扱います。連番ファイルはそのプレイリストディレクトリを親とし、ルート出力基点の直下に置く単独ファイルだけを `ROOT` の直下にします。
 
-保存時は `0000.lr2folder` からの連番をShift_JISで出力し、同じ生成内容からDB行を同期します。ルート出力の設定変更はLR2設定の検索ルートにも反映します。全体同期では更新時刻が一致しても本文を再解析します。全体同期の事前準備中に行うファイル作成・検証と、フォルダ表の確定を分けます。
+保存時は `0000.lr2folder` からの連番をShift_JISで出力し、同じ生成内容からDB行を同期します。ルート出力の設定変更はLR2設定の検索ルートにも反映します。管理外・組込みは全体同期で更新時刻が一致しても物理本文を再解析します。管理出力は確定プレイリスト由来の変更不能な型定義を準備面から実入力へ渡し、物理本文を再解析せずDB行を生成します。管理未提供と完全な管理0件を区別し、期待管理パスの定義不足は入力不完全として止めます。組込みのメタデータだけの準備面を管理定義として扱いません。全体同期の事前準備中に行うファイル作成・検証と、フォルダ表の確定を分けます。
 
 組込みフォルダの場所はLR2実行ファイル配下の `LR2files/CustomFolder` です。`<customfolder>` のビットマスクが `RANDOM`、`favorite.lr2folder`、`TOP10.lr2folder`、`PLAYLEVEL`、`CLEAR`、`RANK`、`ignore.lr2folder`、`INSANE01`、`INSANE02` の有効化を制御します。コースは常に扱い、新曲フォルダは `titleflash` と `song.adddate` から生成対象を決めます。DBにはLR2ルートからの相対パスで保存します。
 
@@ -185,6 +187,10 @@ DB確定後の必須反映失敗・未回復の物理失敗など、既存の整
 
 導入・削除・移動・リネーム・統合では、確定結果から追加・削除・旧新BMSパスを捕捉します。追加だけなら現在BMSの再検索は不要です。削除・移動では変更ディレクトリ内と、登録ルートまでの祖先のBMS件数だけを既存索引から取得します。BMSONを残存BMSに数えず、削除範囲をルート全体へ広げません。
 
+譜面だけを削除して物理customが残るときは、その直接親と登録ルートまでの通常祖先を生成・保持します。削除候補祖先の別子階層にあるcustomも依存に含めます。候補はprune subtreeと削除候補祖先の必要範囲から索引付きDB読取りでexact pathだけを取得し、ファイル差分では完全な今回走査候補との交差、カタログ変更では候補だけの物理確認で残存を確定します。消失と取得失敗を区別し、DB残存だけを保持根拠にしません。所有者が必要メタデータを捕捉して生成器へ渡し、plannerは生成結果との差分だけを扱います。
+
+customも物理消失した場合は不要な通常親をpruneします。旧custom行自身の即時削除は追加保証に含めません。custom全列・完全一致pathキー・無関係ルートは維持し、全folder表走査・常駐台帳・削除画面からの直接補修・強制全同期は追加しません。OpenLR2のsong検索が先に成功した場合のfolder同時表示は要求せず、folder検索へ進む配置のCRC階層からcustomへ辿れることを保証します。
+
 値は所持集合のロックと対応する版の下で固定し、確定結果に可変な検索関数を持たせません。自動リネームも共通の変更セッション内で局所値を取得し、LR2同期を一回終えます。取得・同期の失敗は失敗として返し、既に確定したファイル・DB処理を再実行・巻き戻ししません。
 
 ディレクトリ比較とDBの完全一致キーを区別します。通常の局所変更で全BMSの列挙・整列・全祖先索引の再構築を行いません。全体同期では一回の完全なフォルダ生成と確定を行い、楽曲行の所属は変更しません。探索が不完全なら広範囲の不要行削除を行いません。
@@ -197,6 +203,9 @@ DB確定後の必須反映失敗・未回復の物理失敗など、既存の整
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 残存customの必要親と不要通常親のprune | `Lr2NormalFolderDbSyncService`、`Lr2SynchronizationOwner` | `Lr2NormalFolderDbSyncServiceTests.Sync_ConfirmedCustomDependenciesKeepOnlyRequiredAncestors` が直接親・別子階層・欠落親・依存なしとcustom全列・無関係ルートを実SQLiteで比較する。`BmsLibraryLr2SongDbSyncTests.RemoveLibraryCharts_PrunesNormalFolderRowsForRemovedBmsWhenLr2SongDbSyncEnabled` は実削除入口の残存と全物理消失を接続する。候補読取りと走査交差の限定性は生産経路の静的確認へ分担する。 |
+| folderinfoだけの深い階層 | `Lr2SongDbSyncInputBuilder`、`Lr2FolderTableReconciliationService` | `Lr2FolderTableReconciliationServiceTests.Reconcile_FolderInfoOnlyDeepHierarchyCreatesMissingAncestorsAndPreservesAddDate` が新規・既存行の実DB・時刻・タイトル・親・adddateを確認する。`Lr2SongDbSyncInputBuilderTests.CreateInput_FolderInfoOnlyHierarchyReachesWholeTableProjection` は走査面あり/なしの実入力構築から最終DBへの接続と列挙回数を確認する。scanなしでは、列挙だけの外部InfoOnlyと組込み準備面だけの深いcustom・folderinfo・metadataを混在させ、合流後の候補・祖先・異なるタイトル・CRC・組込み相対DBpathを保持することも確認する。 |
+| 実ROOTと停止境界の分離 | `Lr2FolderPhysicalParentDirectoryTargetHelper` | `Lr2FolderRowGeneratorTests.FolderHierarchy_RealRootsRemainIncludedAndChildrenUseRootCrc` が通常・drive・UNCと重なりを字句条件で確認する。`Lr2FolderFileDbSyncServiceTests.Sync_RegisteredRootChildrenUseRootCrcForChangedAndPreservedCustom` は実SQLiteの通常・未変更再利用を確認する。同署名Completed省略の代表では、先に局所生成した正しい階層とDB全体の不変を確認する。`BmsPlaylistCustomFolderOutputTests.ReOutputCustomFolderAndCommitToDB_SyncsLr2FolderRowsFromConfirmedPlaylist` は有限な必要親から登録rootのfolderinfoを捕捉し、局所出力・全体同期の後もタイトルとCRCを保持する。 |
 | 保存同期署名の構成・順序・版と通常mode | [`Lr2SongDbSyncSignatureBuilder`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncSignatureBuilder.cs) | [`Lr2SongDbSyncSignatureBuilderTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncSignatureBuilderTests.cs) はfalse・trueそれぞれの独立literalと全文一致を確認する。builderの参照定数と必須承認規則との整合は静的確認へ分担する。 |
 | 全体同期への確定文字コードの接続・内容変更時の指定失効 | [`Lr2SongDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs)、`CatalogMutationOwner.CaptureLr2SynchronizationInputRowSnapshot` | [`BmsLibraryLr2SongDbSyncTests.QueueLr2SongDbSync_PreservesFixedEncodingAndExpiresOnlyChangedContent`](../../../BeMusicSeeker.Tests/Lr2/BmsLibraryLr2SongDbSyncTests.cs) は通常DB読込み・実Catalog捕捉から明示同期へ進み、Big5・UTF-8のDB生5項目と現在一覧、指定・固定印・利用者列・健康・無視を確認する。同path別内容は指定失効と、通常DB再読込み後の次の同期での非復活を確認する。最初の旧指定非採用の識別を含む採否条件・実採用通常資源と独立したCP932保存画像／診断・単回読取りは[譜面読取りのservice系列](../library/chart-file-reading.md#実装とテストの対応)が分担し、MD5大小差保持もそこで確認する。`SyncService_RollsBackEncodingExpiryWhenChunkCommitFails` は失効後のcursor保存失敗で旧hash・指定・健康を保つこと、既存の読取不能時の生成列保持ケースは指定の非失効も確認する。確定パス投入前除外・署名・BMSON・所持保守は既存各系列へ分担する。 |
 | 利用者登録分類とLR2走査集合の分離 | [`Lr2SearchRootSnapshotOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SynchronizationPorts.cs) | `BmsRootRegistrationTests.Lr2Registration_ClassifiesPublishedPlacementWithoutChangingScanRoots` が利用者登録を、`BmsLibraryLr2SongDbSyncTests.CaptureBmsDirectories_*` / `Lr2SynchronizationArchitectureTests.SearchRootSnapshot*` が実XMLの登録保持・走査正規化・通常出力包含/追加ROOT除外を分担する。 |

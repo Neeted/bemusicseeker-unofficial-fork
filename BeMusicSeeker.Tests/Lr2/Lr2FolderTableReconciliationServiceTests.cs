@@ -14,6 +14,40 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2FolderTableReconciliationServiceTests
 {
+    /// <summary>譜面とcustomが0件で通常候補にない深いfolderinfoだけから全階層を実DBへ生成し、既存追加時刻・実更新時刻・タイトル・親を守ります。</summary>
+    [DataTestMethod]
+    // 新規行と既存行の両方で、folderinfo入力を候補絞込み前に必要集合へ加えることを保証します。
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Reconcile_FolderInfoOnlyDeepHierarchyCreatesMissingAncestorsAndPreservesAddDate(bool existing)
+    {
+        using var scope = TestDatabaseScope.Create();
+        string root = Path.Combine(scope.DirectoryPath, "Root"), first = Path.Combine(root, "A"), deep = Path.Combine(first, "B");
+        Directory.CreateDirectory(deep);
+        string infoPath = Path.Combine(deep, "folderinfo.txt");
+        File.WriteAllText(infoPath, "#TITLE Info only", Encoding.ASCII);
+        DateTime timestamp = new(2026, 6, 8, 0, 0, 0, DateTimeKind.Utc);
+        using var db = new LR2SongDBExtended(scope.SongDbPath);
+        db.CreateTable<LR2SongDB.folder>();
+        if (existing) { db.Insert(new LR2SongDB.folder { path = ToFolderPath(deep), title = "Old", type = 1, adddate = 123 }); }
+        Lr2FolderTableReconciliationService.Reconcile(db, new Lr2SongDbSyncRequest
+        {
+            RootDirectories = [root],
+            NormalFolderDirectoryPaths = [root],
+            FolderInfoFilePaths = [infoPath],
+            DirectoryLastWriteTimeUtcResolver = path => path == deep ? timestamp.AddMinutes(1) : timestamp,
+            StartedAtUtc = timestamp.AddDays(1)
+        });
+        CollectionAssert.AreEquivalent(new[] { ToFolderPath(root), ToFolderPath(first), ToFolderPath(deep) }, db.Table<LR2SongDB.folder>().Select(row => row.path).ToArray());
+        LR2SongDB.folder row = db.Find<LR2SongDB.folder>(ToFolderPath(deep));
+        Assert.AreEqual("Info only", row.title);
+        Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp.AddMinutes(1)), row.date);
+        Assert.AreEqual(existing ? 123 : Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp.AddDays(1)), row.adddate);
+        Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(first), row.parent);
+        Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(root), db.Find<LR2SongDB.folder>(ToFolderPath(first)).parent);
+        Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, db.Find<LR2SongDB.folder>(ToFolderPath(root)).parent);
+    }
+
     /// <summary>
     /// 通常譜面・folderinfo・生成フォルダを混在させ、必要な親行と各入力のタイトル・時刻・親識別子が揃い、出所の取り違えや親欠落を検出する。
     /// </summary>

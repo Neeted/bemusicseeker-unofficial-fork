@@ -118,19 +118,140 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>実保存したFile/Folder方式の所属を局所出力と全体同期の実SQLで選曲し、Shift_JISで同化する한글/??と日本語・単引用符・接頭辞を区別します。準備後に本文だけを同mtimeの旧条件・別条件・空へ変えても、DBが確定定義を使い物理bytesを修復しないことを保証します。</summary>
+    [DataTestMethod]
+    // Fileは指定hashだけ、Folderは同じsong.folderの兄弟も選曲します。各本文改変は生成本文の再parseへの退行を識別します。
+    [DataRow(LR2SongDBExtended.playlist.EntryUnitType.File, 0)]
+    [DataRow(LR2SongDBExtended.playlist.EntryUnitType.File, 1)]
+    [DataRow(LR2SongDBExtended.playlist.EntryUnitType.File, 2)]
+    [DataRow(LR2SongDBExtended.playlist.EntryUnitType.Folder, 0)]
+    [DataRow(LR2SongDBExtended.playlist.EntryUnitType.Folder, 1)]
+    [DataRow(LR2SongDBExtended.playlist.EntryUnitType.Folder, 2)]
+    public void ManagedDefinitions_PreserveConfirmedSelectionsWhenPhysicalTextChangesAtSameMtime(
+        LR2SongDBExtended.playlist.EntryUnitType entryType, int replacement)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistCustomFolderOutputTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        TestBmsPlaylist? playlist = null;
+        try
+        {
+            string songPath = CreateTempSongDbPath(directory), output = Path.Combine(directory, "Output");
+            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            var settings = new CustomFolderOutputSettingsSnapshot
+            {
+                OperationModeLR2DB = true,
+                LR2CustomFolderOutputBaseDir = output,
+                LR2CustomFolderOutputBaseDirRootType = Path.Combine(directory, "RootOutput"),
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            string[] names = ["★한글", "★??", "★日本語' 内部  空白"];
+            var table = new BMSTable
+            {
+                playlist_id = 7981,
+                name = "日本語' Table",
+                symbol = "T",
+                Output_dir = "Table",
+                compat_prefix = "★",
+                entry_type = entryType,
+                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                entries = names.Select((name, index) => CreateEntry((index + 1).ToString("x32"), name)).ToList(),
+                Folder_order = names.ToList()
+            };
+            playlist = new TestBmsPlaylist(songPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => settings,
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+            { BMSTables = new ObservableCollection<BMSTable>([table]) };
+            playlist.CommitBMSTablesWithEntriesToDB([table]);
+            using (var seed = new LR2SongDBExtended(songPath))
+            {
+                seed.CreateTable<LR2SongDB.folder>();
+                seed.CreateTable<LR2ScoreDB.score>();
+                for (int number = 1; number <= 4; number++)
+                {
+                    seed.Execute("INSERT INTO song (hash, title, folder, path) VALUES (?, ?, ?, ?);",
+                        number.ToString("x32"), "Song " + number, number == 4 ? "Package1" : "Package" + number, "song" + number + ".bms");
+                }
+            }
+            playlist.BMSTables = new ObservableCollection<BMSTable>(new PlaylistPersistenceRepository(songPath).LoadPlaylistHeaders());
+            table = playlist.BMSTables.Single();
+            playlist.ReOutputCustomFolder(table);
+            void AssertSelections()
+            {
+                using var verify = new LR2SongDBExtended(songPath);
+                foreach ((string name, int index) in names.Select((name, index) => (name, index)))
+                {
+                    LR2SongDB.folder row = verify.Table<LR2SongDB.folder>().Single(folder => folder.type == 2 && folder.title == name);
+                    int[] expected = entryType == LR2SongDBExtended.playlist.EntryUnitType.Folder && index == 0 ? [1, 4] : [index + 1];
+                    AssertCustomFolderCommandMatches(verify, row.command, expected);
+                    Assert.AreEqual("日本語' Table", row.category);
+                }
+                Assert.AreEqual(4, verify.Table<LR2SongDB.song>().Count(), "folder全体同期はsong所属を変更しません。");
+            }
+            AssertSelections();
+            Lr2SongDbSyncPreparedDataSurface surface;
+            Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable lease));
+            using (lease)
+            using (LibraryFileMutationCapability capability = playlist.CreatePlaylistMutationCapability(lease))
+            {
+                surface = playlist.ReOutputAllCustomFoldersForLr2SongDbSyncUnderExistingReservation("test_confirmed_definitions", capability, settings: settings);
+            }
+            Assert.IsNotNull(surface.ManagedFolderDefinitions);
+            Assert.AreEqual(3, surface.ManagedFolderDefinitions.Count);
+            byte[] changedBytes = Encoding.GetEncoding("shift_jis").GetBytes(replacement switch
+            {
+                0 => "#TITLE Old\r\n#COMMAND song.hash = '00000000000000000000000000000002'\r\n",
+                1 => "#TITLE Different\r\n#COMMAND 0\r\n",
+                _ => string.Empty
+            });
+            foreach (string path in surface.Lr2FolderFilePaths)
+            {
+                File.WriteAllBytes(path, changedBytes);
+                File.SetLastWriteTimeUtc(path, surface.Lr2FolderFileEntries[path].LastWriteTimeUtc ?? throw new AssertFailedException("Missing mtime."));
+            }
+            using (var db = new LR2SongDBExtended(songPath))
+            {
+                Lr2FolderTableReconciliationService.Reconcile(db, new Lr2SongDbSyncRequest
+                {
+                    Lr2NormalCustomFolderOutputBaseDir = output,
+                    Lr2RootCustomFolderOutputBaseDir = settings.LR2CustomFolderOutputBaseDirRootType,
+                    Lr2FolderFilePaths = surface.Lr2FolderFilePaths,
+                    Lr2FolderFileEntries = surface.Lr2FolderFileEntries,
+                    DirectoryEntries = surface.DirectoryEntries,
+                    ManagedFolderDefinitions = surface.ManagedFolderDefinitions
+                });
+            }
+            AssertSelections();
+            foreach (string path in surface.Lr2FolderFilePaths)
+            {
+                CollectionAssert.AreEqual(changedBytes, File.ReadAllBytes(path), "本文の物理修復後を読む方法でparse依存を隠しません。");
+                Assert.AreEqual(surface.Lr2FolderFileEntries[path].LastWriteTimeUtc, File.GetLastWriteTimeUtc(path));
+            }
+        }
+        finally
+        {
+            playlist?.RequestShutdown("confirmed-definition-fixture");
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
-    /// <summary>利用者フォルダを実出力し、Shift_JIS本文と対応するLR2の種別・カテゴリ・SQL・日時を同じ生成結果から保存します。ファイルだけ更新してDB行を残す誤りを検出します。</summary>
+    /// <summary>利用者フォルダを実出力し、Shift_JIS本文と対応するLR2の種別・カテゴリ・SQL・日時を確定定義から保存します。登録rootのfolderinfoタイトルとCRCを局所出力・全体同期の後も保持し、追加親生成による表示退行を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void ReOutputCustomFolderAndCommitToDB_SyncsLr2FolderRowsFromGeneratedText()
+    public void ReOutputCustomFolderAndCommitToDB_SyncsLr2FolderRowsFromConfirmedPlaylist()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
+        TestBmsPlaylist? playlist = null;
         try
         {
             string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
             testSettings.OperationModeLR2DB = true;
+            testSettings.LR2RootPath = tempDirectory;
+            string rootFolderInfo = Path.Combine(tempDirectory, "folderinfo.txt");
+            File.WriteAllText(rootFolderInfo, "#TITLE Library root title", Encoding.ASCII);
             testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
@@ -152,13 +273,14 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             using (var db = new LR2SongDBExtended(songDbPath))
             {
                 db.CreateTable<LR2SongDB.folder>();
+                db.InsertOrReplace(new LR2SongDB.folder { path = Lr2FolderPath.ToFolderPath(tempDirectory), title = "Library root title", type = 1, parent = Lr2SongFolderParentNormalizer.RootParentHash, adddate = 123 });
             }
             string outputPath = Path.Combine(outputBaseDir, "FolderTable", "0001.lr2folder");
             var physicalSurface = CustomFolderOutputPhysicalSurface.FromEntries(
                 [new RootFileEnumerationEntry(outputPath, DateTime.UtcNow)],
                 discoveryComplete: true);
             TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, physicalSurface);
-            var playlist = new TestBmsPlaylist(songDbPath, synchronization, settings: testSettings)
+            playlist = new TestBmsPlaylist(songDbPath, new Lr2ConfigOwner(CreateLr2Config(tempDirectory, tempDirectory)), synchronization, settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -171,18 +293,49 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             StringAssert.Contains(text, "#CATEGORY FolderTable");
             StringAssert.Contains(text, "#COMMAND song.hash");
 
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
-            LR2SongDB.folder folder = verify.Table<LR2SongDB.folder>().Single(row => row.path == outputPath);
-            Assert.AreEqual(2, folder.type);
-            Assert.AreEqual("Folder A", folder.title);
-            Assert.AreEqual("FolderTable", folder.category);
-            StringAssert.Contains(folder.command, "playlist_entry");
-            Assert.AreEqual(0, folder.max);
-            Assert.IsTrue(folder.date.HasValue);
-            Assert.IsTrue(folder.adddate.HasValue);
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            {
+                LR2SongDB.folder folder = verify.Table<LR2SongDB.folder>().Single(row => row.path == outputPath);
+                Assert.AreEqual(2, folder.type);
+                Assert.AreEqual("Folder A", folder.title);
+                Assert.AreEqual("FolderTable", folder.category);
+                StringAssert.Contains(folder.command, "playlist_entry");
+                Assert.AreEqual(0, folder.max);
+                Assert.IsTrue(folder.date.HasValue);
+                Assert.IsTrue(folder.adddate.HasValue);
+                LR2SongDB.folder root = verify.Find<LR2SongDB.folder>(Lr2FolderPath.ToFolderPath(tempDirectory));
+                Assert.AreEqual("Library root title", root.title);
+                Assert.AreEqual(123, root.adddate);
+                Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, root.parent);
+                Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(outputBaseDir), verify.Find<LR2SongDB.folder>(Lr2FolderPath.ToFolderPath(Path.Combine(outputBaseDir, "FolderTable"))).parent);
+            }
+            Lr2SongDbSyncPreparedDataSurface surface;
+            Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable lease));
+            using (lease)
+            using (LibraryFileMutationCapability capability = playlist.CreatePlaylistMutationCapability(lease))
+            {
+                surface = playlist.ReOutputAllCustomFoldersForLr2SongDbSyncUnderExistingReservation("test_root_folderinfo", capability);
+            }
+            using var whole = new LR2SongDBExtended(songDbPath);
+            Lr2FolderTableReconciliationService.Reconcile(whole, new Lr2SongDbSyncRequest
+            {
+                RootDirectories = [tempDirectory],
+                Lr2NormalCustomFolderOutputBaseDir = outputBaseDir,
+                FolderInfoFilePaths = [rootFolderInfo],
+                Lr2FolderFilePaths = surface.Lr2FolderFilePaths,
+                Lr2FolderFileEntries = surface.Lr2FolderFileEntries,
+                DirectoryEntries = surface.DirectoryEntries,
+                ManagedFolderDefinitions = surface.ManagedFolderDefinitions
+            });
+            Assert.AreEqual("Library root title", whole.Find<LR2SongDB.folder>(Lr2FolderPath.ToFolderPath(tempDirectory)).title);
+            Assert.AreEqual(123, whole.Find<LR2SongDB.folder>(Lr2FolderPath.ToFolderPath(tempDirectory)).adddate);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, whole.Find<LR2SongDB.folder>(Lr2FolderPath.ToFolderPath(tempDirectory)).parent);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(outputBaseDir), whole.Find<LR2SongDB.folder>(Lr2FolderPath.ToFolderPath(Path.Combine(outputBaseDir, "FolderTable"))).parent);
+
         }
         finally
         {
+            playlist?.RequestShutdown("root-folderinfo-fixture");
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);

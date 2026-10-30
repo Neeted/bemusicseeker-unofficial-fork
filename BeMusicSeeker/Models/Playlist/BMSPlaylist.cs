@@ -913,7 +913,8 @@ public partial class BMSPlaylist : ObservableObject
             ResolveCustomFolderOutputDirectory,
             CreateCustomFolderOutputPhysicalSurfaceFromGroupedEnumeration,
             CreateCustomFolderDirectoryRowGenerationScopes,
-            LogPlaylistPerformance);
+            LogPlaylistPerformance,
+            () => lr2config?.Capture().RegisteredRoots ?? []);
         customFolderOutputStatusOwner = new PlaylistCustomFolderOutputStatusOwner(
             playlistPersistenceRepository,
             customFolderOutputOwner,
@@ -1441,7 +1442,7 @@ public partial class BMSPlaylist : ObservableObject
         { PublishReferenceTables([table]); }
     }
 
-    private List<string> makeCustomFolderTextsOtherFolder(
+    private List<CustomFolderDefinition> makeCustomFolderDefinitionsOtherFolder(
         BMSTable bmsTable,
         CustomFolderOutputSettingsSnapshot settings = null)
     {
@@ -1463,7 +1464,7 @@ public partial class BMSPlaylist : ObservableObject
         string tblNameEntry = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
         string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id);
         string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed);
-        List<string> list = [.. source.Select(f => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND ifnull(" + columnNameIsRemoved + ", 0) = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + "ORDER BY " + makeCustomFolderCmdSort(f.Value, asc: false, bmsTable.playlist_id), bmsTable.name, f.Key, 40))];
+        List<CustomFolderDefinition> list = [.. source.Select(f => CreateFlatCustomFolderDefinition(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND ifnull(" + columnNameIsRemoved + ", 0) = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + "ORDER BY " + makeCustomFolderCmdSort(f.Value, asc: false, bmsTable.playlist_id), bmsTable.name, f.Key, 40))];
         if (settings.EnableDownloadLr2IrScoreAndDetectUnsent)
         {
             string tableName = SQLiteTable<LR2SongDBExtended.ir_score>.GetTableName();
@@ -1476,20 +1477,20 @@ public partial class BMSPlaylist : ObservableObject
             string columnName7 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.bd);
             string columnName8 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.pr);
             string columnName9 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.minbp);
-            string customFolderText = getCustomFolderText("song.hash in (SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND ifnull(" + columnNameIsRemoved + ", 0) = 0) AND NOT EXISTS (SELECT " + columnName + " FROM " + tableName + " WHERE song.hash = " + tableName + "." + columnName + " AND score.clear = " + tableName + "." + columnName2 + " AND maxcombo = " + columnName3 + " AND perfect = " + columnName4 + " AND great = " + columnName5 + " AND good = " + columnName6 + " AND bad = " + columnName7 + " AND poor = " + columnName8 + " AND score.minbp = " + tableName + "." + columnName9 + ") AND score.clear IS NOT NULL ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.TITLE, asc: true), bmsTable.name, "UNSENT SONGS");
+            CustomFolderDefinition customFolderText = CreateFlatCustomFolderDefinition("song.hash in (SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND ifnull(" + columnNameIsRemoved + ", 0) = 0) AND NOT EXISTS (SELECT " + columnName + " FROM " + tableName + " WHERE song.hash = " + tableName + "." + columnName + " AND score.clear = " + tableName + "." + columnName2 + " AND maxcombo = " + columnName3 + " AND perfect = " + columnName4 + " AND great = " + columnName5 + " AND good = " + columnName6 + " AND bad = " + columnName7 + " AND poor = " + columnName8 + " AND score.minbp = " + tableName + "." + columnName9 + ") AND score.clear IS NOT NULL ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.TITLE, asc: true), bmsTable.name, "UNSENT SONGS");
             list.Add(customFolderText);
         }
-        string customFolderText2 = getCustomFolderText("song.hash in (SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 1) ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.TITLE, asc: true), bmsTable.name, "REMOVED SONGS");
+        CustomFolderDefinition customFolderText2 = CreateFlatCustomFolderDefinition("song.hash in (SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 1) ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.TITLE, asc: true), bmsTable.name, "REMOVED SONGS");
         list.Add(customFolderText2);
         return list;
     }
 
     /// <summary>
-    /// 「ALL LONG NOTES」などカテゴリ全体フォルダの LR2 定義文字列を生成します。
+    /// 「ALL LONG NOTES」などカテゴリ全体フォルダの LR2 型定義を生成します。
     /// </summary>
     /// <param name="bmsTable">対象プレイリスト。</param>
     /// <returns>カテゴリ全体フォルダ定義の一覧。</returns>
-    private List<string> makeCustomFolderTextsCategoryAllFolder(BMSTable bmsTable)
+    private List<CustomFolderDefinition> makeCustomFolderDefinitionsCategoryAllFolder(BMSTable bmsTable)
     {
         string columnName = SQLiteTable<LR2SongDB.song>.GetColumnName(e => e.longnote);
         string columnName2 = SQLiteTable<LR2SongDB.song>.GetColumnName(e => e.judge);
@@ -1521,15 +1522,15 @@ public partial class BMSPlaylist : ObservableObject
         string tblNameEntry = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
         string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id);
         string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed);
-        return [.. source.Select(a => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND ifnull(" + columnNameIsRemoved + ", 0) = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + "AND (" + a[1] + ")", bmsTable.name, a[0]))];
+        return [.. source.Select(a => CreateFlatCustomFolderDefinition(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND ifnull(" + columnNameIsRemoved + ", 0) = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + "AND (" + a[1] + ")", bmsTable.name, a[0]))];
     }
 
     /// <summary>
-    /// タイトル頭文字別カスタムフォルダの LR2 定義文字列を生成します。
+    /// タイトル頭文字別カスタムフォルダの LR2 型定義を生成します。
     /// </summary>
     /// <param name="bmsTable">対象プレイリスト。</param>
     /// <returns>アルファベット別フォルダ定義の一覧。</returns>
-    private List<string> makeCustomFolderTextsAlphabetFolder(BMSTable bmsTable)
+    private List<CustomFolderDefinition> makeCustomFolderDefinitionsAlphabetFolder(BMSTable bmsTable)
     {
         var dict = new Dictionary<string, char[]>
         {
@@ -1565,11 +1566,11 @@ public partial class BMSPlaylist : ObservableObject
         string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id);
         string columnNameTitle = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.title);
         string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed);
-        List<string> list = [.. (from t in dict.Keys
+        List<CustomFolderDefinition> list = [.. (from t in dict.Keys
                              orderby t
-                             select getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND ifnull(" + columnNameIsRemoved + ", 0) = 0" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")) " : " ") + "AND UPPER(" + columnNameTitle + ") BETWEEN " + sqlQuote(dict[t][0].ToString()) + " AND " + sqlQuote(dict[t][1].ToString()) + " AND UPPER(" + columnNameTitle + ") != " + sqlQuote(dict[t][1].ToString()) + ((bmsTable.entry_type != LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ") " : " ") + "ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.TITLE, asc: true), bmsTable.name, t))];
+                             select CreateFlatCustomFolderDefinition(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND ifnull(" + columnNameIsRemoved + ", 0) = 0" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")) " : " ") + "AND UPPER(" + columnNameTitle + ") BETWEEN " + sqlQuote(dict[t][0].ToString()) + " AND " + sqlQuote(dict[t][1].ToString()) + " AND UPPER(" + columnNameTitle + ") != " + sqlQuote(dict[t][1].ToString()) + ((bmsTable.entry_type != LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ") " : " ") + "ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.TITLE, asc: true), bmsTable.name, t))];
         string command = ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND ifnull(" + columnNameIsRemoved + ", 0) = 0" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")) " : " ") + "AND (UPPER(" + columnNameTitle + ") NOT BETWEEN " + sqlQuote(array[0].ToString()) + " AND " + sqlQuote(array[1].ToString()) + " OR UPPER(" + columnNameTitle + ") = " + sqlQuote(array[1].ToString()) + ")" + ((bmsTable.entry_type != LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ") " : " ") + "ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.TITLE, asc: true);
-        list.Add(getCustomFolderText(command, bmsTable.name, title));
+        list.Add(CreateFlatCustomFolderDefinition(command, bmsTable.name, title));
         return list;
     }
 
@@ -1876,12 +1877,10 @@ public partial class BMSPlaylist : ObservableObject
         {
             return;
         }
-        string text = getCustomFolderText(command, category, title, maxTracks, informationA, informationB);
         definitions.Add(new CustomFolderDefinition
         {
             RelativeDirectory = NormalizeCustomFolderRelativeDirectory(relativeDirectory),
-            Text = text,
-            ParsedDefinition = Lr2FolderFileProjection.ParseDefinition(ReadLinesFromText(text)),
+            Definition = CreateManagedFolderDefinition(command, category, title, maxTracks, informationA, informationB),
             IsRandomVariant = isRandomVariant
         });
     }
@@ -2712,7 +2711,7 @@ public partial class BMSPlaylist : ObservableObject
             {
                 using (projection.Table.ReaderWriterLock.GetReaderGuard())
                 {
-                    fullProjection = customFolderOutputOwner.CreateProjection(projection.Table, includeText: true, settings: settings);
+                    fullProjection = customFolderOutputOwner.CreateProjection(projection.Table, settings: settings);
                 }
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is SQLiteException)
@@ -3493,11 +3492,11 @@ public partial class BMSPlaylist : ObservableObject
         foreach (Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<CustomFolderDefinition>>> item in new List<Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<CustomFolderDefinition>>>>
         {
             new(LR2SongDBExtended.playlist.CustomFolderType.LevelFolder, makeCustomFolderDefinitionsLevelFolder),
-            new(LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder, table => WrapFlatCustomFolderDefinitions(makeCustomFolderTextsAlphabetFolder(table))),
+            new(LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder, table => makeCustomFolderDefinitionsAlphabetFolder(table)),
             new(LR2SongDBExtended.playlist.CustomFolderType.ClearFolder, makeCustomFolderDefinitionsClearFolder),
             new(LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder, makeCustomFolderDefinitionsDJLevelFolder),
-            new(LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder, table => WrapFlatCustomFolderDefinitions(makeCustomFolderTextsCategoryAllFolder(table))),
-            new(LR2SongDBExtended.playlist.CustomFolderType.OtherFolder, table => WrapFlatCustomFolderDefinitions(makeCustomFolderTextsOtherFolder(table, settings))),
+            new(LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder, table => makeCustomFolderDefinitionsCategoryAllFolder(table)),
+            new(LR2SongDBExtended.playlist.CustomFolderType.OtherFolder, table => makeCustomFolderDefinitionsOtherFolder(table, settings)),
             new(LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder, makeCustomFolderDefinitionsBpmSortFolder),
             new(LR2SongDBExtended.playlist.CustomFolderType.BpSortFolder, makeCustomFolderDefinitionsBpSortFolder),
             new(LR2SongDBExtended.playlist.CustomFolderType.PlayCountSortFolder, makeCustomFolderDefinitionsPlayCountSortFolder),
@@ -3510,16 +3509,6 @@ public partial class BMSPlaylist : ObservableObject
             }
         }
         return definitions;
-    }
-
-    private static List<CustomFolderDefinition> WrapFlatCustomFolderDefinitions(IEnumerable<string> texts)
-    {
-        return [.. (texts ?? []).Select(text => new CustomFolderDefinition
-        {
-            RelativeDirectory = string.Empty,
-            Text = text ?? string.Empty,
-            ParsedDefinition = Lr2FolderFileProjection.ParseDefinition(ReadLinesFromText(text))
-        })];
     }
 
     private static bool IsSameCustomFolderDirectory(string left, string right)
@@ -3652,7 +3641,7 @@ public partial class BMSPlaylist : ObservableObject
             request.PruneExcludedDirectories,
             request.PruneExcludedPaths,
             request.EmptyOutputDirectories,
-            request.SuppressLog);
+            request.SuppressLog, request.DirectoryRowRootDirectories);
     }
 
     private Lr2FolderFileDbSyncResult SyncCustomFolderRowsBatch(
@@ -3666,7 +3655,8 @@ public partial class BMSPlaylist : ObservableObject
         IReadOnlyCollection<string> pruneExcludedDirectories = null,
         IReadOnlyCollection<string> pruneExcludedPaths = null,
         IReadOnlyCollection<string> emptyOutputDirectories = null,
-        bool suppressLog = false)
+        bool suppressLog = false,
+        IReadOnlyCollection<string> directoryRowRootDirectories = null)
     {
         if (mutationCapability == null)
         {
@@ -3693,7 +3683,7 @@ public partial class BMSPlaylist : ObservableObject
             items,
             directoryRowGenerationScopes,
             outputDirs,
-            ownedDirectoryEntries);
+            ownedDirectoryEntries, directoryRowRootDirectories);
         IReadOnlyCollection<string> exactScopePaths = CreateCustomFolderExactScopePaths(items, pruneScopePaths);
         IReadOnlyCollection<string> emptyDirectoryRowScopeDirectories = [.. (emptyOutputDirectories ?? [])
             .Where(directory => !string.IsNullOrWhiteSpace(directory))
@@ -3710,6 +3700,7 @@ public partial class BMSPlaylist : ObservableObject
             ScopePaths = exactScopePaths,
             DirectoryRowScopeDirectories = directoryRowScopeDirectories,
             DirectoryRowGenerationScopeDirectories = directoryRowGenerationScopes,
+            DirectoryRowRootDirectories = directoryRowRootDirectories ?? [],
             PruneExcludedDirectories = pruneExcludedDirectories ?? [],
             PruneExcludedPaths = pruneExcludedPaths ?? [],
             DirectoryMetadataResolver = directoryMetadata.Resolve,
@@ -3796,25 +3787,17 @@ public partial class BMSPlaylist : ObservableObject
         return [.. result];
     }
 
-    private static IEnumerable<string> ReadLinesFromText(string text)
-    {
-        using var reader = new StringReader(text ?? string.Empty);
-        string line;
-        while ((line = reader.ReadLine()) != null)
-        {
-            yield return line;
-        }
-    }
 
     private Lr2FolderDirectoryMetadataSnapshot CreateCustomFolderParentDirectoryMetadataSnapshot(
         IReadOnlyCollection<Lr2FolderFileSyncItem> items,
         IReadOnlyCollection<string> directoryRowGenerationScopeDirectories,
         IReadOnlyCollection<string> metadataSourceDirectories,
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> ownedDirectoryEntries)
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> ownedDirectoryEntries,
+        IReadOnlyCollection<string> directoryRowRootDirectories = null)
     {
         IReadOnlyCollection<string> metadataTargets = Lr2FolderFileDbSyncService.CreateParentDirectoryMetadataTargets(
             items,
-            directoryRowGenerationScopeDirectories);
+            directoryRowGenerationScopeDirectories, directoryRowRootDirectories);
         HashSet<string> targetSet = CreateDirectoryTargetSet(metadataTargets);
         var directoryEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
         AddDirectoryEntries(directoryEntries, ownedDirectoryEntries, targetSet);
@@ -3832,11 +3815,17 @@ public partial class BMSPlaylist : ObservableObject
             AddDirectoryEntries(directoryEntries, groupedDirectoryEntries, targetSet);
         }
 
-        return Lr2FolderDirectoryMetadataBuilder.Build(new Lr2FolderDirectoryMetadataBuildRequest
+        Lr2FolderInfoCandidateSnapshot folderInfo = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromOwnedDirectories(metadataTargets);
+        Lr2FolderDirectoryMetadataSnapshot metadata = Lr2FolderDirectoryMetadataBuilder.Build(new Lr2FolderDirectoryMetadataBuildRequest
         {
             DirectoryPaths = metadataTargets,
+            FolderInfoFilePaths = folderInfo.Paths,
+            FolderInfoFileEntries = folderInfo.EntriesByPath,
             DirectoryLastWriteTimeUtcResolver = CreateDirectoryLastWriteTimeResolver(directoryEntries)
         });
+        if (metadata.FolderInfoReadFailureCount > 0)
+        { throw new Lr2FolderTableProjectionIncompleteException("One or more folderinfo files could not be read during folder preflight."); }
+        return metadata;
     }
 
     private static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateOwnedCustomFolderDirectoryEntries(
@@ -3958,35 +3947,15 @@ public partial class BMSPlaylist : ObservableObject
                     .FirstOrDefault(baseDir => Lr2FolderPath.IsSameOrDescendant(normalizedOutputDir, baseDir));
                 if (!string.IsNullOrWhiteSpace(normalOutputBase))
                 {
-                    return [CreateDirectoryRowGenerationBoundary(normalOutputBase)];
+                    return [Lr2FolderPhysicalParentDirectoryTargetHelper.CreateBoundary(normalOutputBase)];
                 }
             }
 
-            return [CreateDirectoryRowGenerationBoundary(normalizedOutputDir)];
+            return [Lr2FolderPhysicalParentDirectoryTargetHelper.CreateBoundary(normalizedOutputDir)];
         }
         catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
         {
             return [outputDir];
-        }
-    }
-
-    private static string CreateDirectoryRowGenerationBoundary(string rootEquivalentDirectory)
-    {
-        if (string.IsNullOrWhiteSpace(rootEquivalentDirectory))
-        {
-            return null;
-        }
-        try
-        {
-            string normalizedRoot = Lr2FolderPath.NormalizeDirectoryPath(rootEquivalentDirectory);
-            string parentDirectory = Path.GetDirectoryName(normalizedRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-            return string.IsNullOrWhiteSpace(parentDirectory)
-                ? normalizedRoot
-                : Lr2FolderPath.NormalizeDirectoryPath(parentDirectory);
-        }
-        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-        {
-            return rootEquivalentDirectory;
         }
     }
 
@@ -4917,16 +4886,38 @@ public partial class BMSPlaylist : ObservableObject
     }
 
     /// <summary>
-    /// LR2 の <c>.lr2folder</c> 1 件分のテキストを組み立てます。
+    /// LR2 の <c>.lr2folder</c> 1 件分の型定義を平面の出力先へ割り当てます。
     /// </summary>
     /// <param name="command">抽出条件コマンド。</param>
     /// <param name="category">カテゴリ名。</param>
     /// <param name="title">表示タイトル。</param>
     /// <param name="maxtracks">最大曲数制限。</param>
-    /// <returns>LR2 が解釈するフォルダ定義テキスト。</returns>
-    private static string getCustomFolderText(string command, string category, string title, int maxtracks = 0, string informationA = "", string informationB = "")
+    /// <returns>確定後に本文とDB行を派生させるフォルダ定義。</returns>
+    private static CustomFolderDefinition CreateFlatCustomFolderDefinition(
+        string command, string category, string title, int maxtracks = 0,
+        string informationA = "", string informationB = "")
     {
-        return "#COMMAND " + command + Environment.NewLine + "#MAXTRACKS " + maxtracks + Environment.NewLine + "#CATEGORY " + category + Environment.NewLine + "#TITLE " + title + Environment.NewLine + "#INFORMATION_A " + (informationA ?? string.Empty) + Environment.NewLine + "#INFORMATION_B " + (informationB ?? string.Empty) + Environment.NewLine + Environment.NewLine;
+        return new CustomFolderDefinition
+        {
+            RelativeDirectory = string.Empty,
+            Definition = CreateManagedFolderDefinition(command, category, title, maxtracks, informationA, informationB)
+        };
+    }
+
+    /// <summary>確定プレイリストの値を物理文字コードへ変換せず、出現する項目のnullだけを空文字へ揃えます。</summary>
+    private static Lr2FolderFileDefinition CreateManagedFolderDefinition(
+        string command, string category, string title, int maxtracks,
+        string informationA, string informationB)
+    {
+        return new Lr2FolderFileDefinition
+        {
+            Command = command ?? string.Empty,
+            MaxTracks = maxtracks,
+            Category = category ?? string.Empty,
+            Title = title ?? string.Empty,
+            InformationA = informationA ?? string.Empty,
+            InformationB = informationB ?? string.Empty
+        };
     }
 
     /// <summary>一つの受理操作で固定して使う小さい設定snapshotを捕捉します。共有Valuesへ状態を追加しません。</summary>

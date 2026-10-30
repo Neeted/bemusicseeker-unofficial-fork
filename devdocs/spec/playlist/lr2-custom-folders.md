@@ -101,11 +101,13 @@ BP順と `CLEAR FOLDER` の通常版は、0を含む非負のBPを昇順に並�
 
 各相対ディレクトリで `0000.lr2folder` から採番し、Shift_JISで出力します。通常版を先に、ランダム版をその後に並べます。本文は `#COMMAND`、`#MAXTRACKS`、`#CATEGORY`、`#TITLE`、`#INFORMATION_A`、`#INFORMATION_B` を持ちます。カテゴリは表名、タイトルは表示フォルダ名です。
 
+確定プレイリストと `Lr2FolderFileDefinition` を正本とし、同じ型定義から本文と内部folder行を派生させます。本文の項目順・改行・Shift_JISを維持し、DB行はディレクティブ値の端だけを従来のTrim相当で整えます。SQL内部の空白は変更しません。常に出す項目のnullは空文字、未出現のSubtitle・Banner等はnullです。生成本文の再parseや別編集できるText正本は保持しません。管理外と組込みの物理parse・特殊type・相対pathは維持します。
+
 コマンドはLR2/OpenLR2が `song LEFT JOIN score ON song.hash=score.hash` に適用できるWHERE句断片です。ファイル単位の表は所属MD5へ絞り、フォルダ単位の表は所属MD5から得た `song.folder` へ広げます。`playlist_entry`、`chart_info`、必要な `ir_score` と履歴表も参照します。
 
 所属範囲の指定は `null` だけを全所属（ALL）とし、非nullは空文字・受理済み空白名を含む実所属として扱います。LEVEL/ADDDATEのソート値も抽出と同じ所属範囲から参照し、同じhashの別所属にあるlevel/adddateを混ぜません。空文字・空白名の保存値は保持し、表示上の表名への置換とは区別します。ALLで同じhashが複数所属にある場合の代表値、スキーマ・索引・ランダムの規則は変更しません。
 
-この所属内ソートは新規生成、および既存表の内容・設定を変更保存する等の明示再出力で反映します。通常起動や手動の全体同期だけで、既存ファイルの旧COMMANDが自動更新されることは保証しません。
+この所属内ソートは新規生成、および既存表の内容・設定を変更保存する等の明示再出力で反映します。通常起動や手動の全体同期だけで、既存ファイルの旧COMMANDが自動更新されることは保証しません。 全体同期のDB投影は今回の確定型定義を使い、準備後の同mtime本文変更をDBへ混入させません。OpenLR2自身が物理Shift_JIS本文を再parseする場合の文字置換は保証外です。同期署名・参照版は変えず、一斉強制再生成や通常起動の毎回全COMMAND生成・本文比較は追加しません。
 
 最終プレイ順は次の固定SQLを使います。
 
@@ -114,7 +116,7 @@ ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) IS 
          (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) DESC
 ```
 
-同じ生成内容から `folder` 行を同期します。`date` は実際の更新時刻、既存 `adddate` は保持し、新規だけ生成時刻を使います。通常先→表ディレクトリ→連番ファイルという階層を保ち、ルート型は各表ディレクトリだけをLR2ルート直下へ置きます。階層を平坦化しません。CRC32や表の列は[楽曲DB同期](../integration/lr2-song-db.md)を参照します。
+管理・管理外双方の必要祖先を含め、全準備と事前検査が成功してから `folder` 行を一括反映します。`date` は実際の更新時刻、既存 `adddate` は保持し、新規だけ生成時刻を使います。通常先→表ディレクトリ→連番ファイルという階層を保ち、ルート型は各表ディレクトリだけをLR2ルート直下へ置きます。階層を平坦化しません。CRC32や表の列は[楽曲DB同期](../integration/lr2-song-db.md)を参照します。
 
 ### 管理領域の整理
 
@@ -168,6 +170,7 @@ ROOT登録の補完・同期、表削除、プロパティ、一括編集は同�
 | 未登録追加名の保持・停止、ROOT継続と明示再選択 | `CustomFolderOutputBaseRegistry`、`PlaylistPropertyDialogViewModel`、既存出力管理主体 | `CustomFolderOutputBaseRegistryTests` が純粋な解決条件を、`BmsPlaylistCustomFolderOutputTests.UnregisteredOutputBase_PreservesNameAndStopsOnlyNormalOutputUntilReselected` が既存DBの名前、正常な兄弟表、サマリー表示、プロパティ保存・ROOT切替・通常先再選択と実出力を確認する。`PlaylistSummaryBulkEditTests.BulkOutputChange_UnregisteredOldBasePreservesUnrelatedNormalOutput` が一覧の通常・追加先への再選択による実DB・必要生成と通常先の保全、外部名初期化時の停止継続を確認する。`BmsPlaylistMigrationAndRegistrationTests.ExternalTableRegistration_UnregisteredOutputBasePreservesHeaderAndCompletesBmt` は単一表の移行入口でもLR2出力だけを停止し、正本保存・BMT出力を完了することを確認する。 |
 | 旧先削除失敗と新先状態、次通常処理で旧残余不変 | `BMSPlaylist` | [`RegenerateCustomFolderOutputs_UsesInjectedSettingsAndPreservesCommittedDestinationAfterOldCleanupFailure`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |
 | 同一編集セッションの未完了移行・config原子的保存とC保存前の完了 | `PlaylistPropertySaveService`、`BMSPlaylist.MigrateCustomFolderOutputDirectoryWithSettings` | [`BmsPlaylistCustomFolderOutputTests.PlaylistPropertyDialog_UnfinishedOutputsCompleteBeforeSavingFurtherEdits`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs)。DB=B、旧A/新B、ディスクから再読込みしたconfig、BMT、他表と管理外データを確認する。通常型・ルート型・追加先の正常移行は既存保存・移行テストと分担する。 |
+| 確定所属からの管理DB生成と物理本文の独立性 | `BMSPlaylist`、`Lr2SongDbSyncPreparedDataSurface`、`Lr2FolderTableReconciliationService` | `BmsPlaylistCustomFolderOutputTests.ManagedDefinitions_PreserveConfirmedSelectionsWhenPhysicalTextChangesAtSameMtime` が実保存のFile/Folder、한글/??別所属、日本語・単引用符・compat_prefixを実SQLiteの独立hash集合で比較する。実準備後に同mtimeの旧条件・別条件・空本文へ変えたbytesを残し、局所と全体同期の選曲が一致することを確認する。型定義の生成文字列再parse撤去は生産経路の静的確認へ分担する。 |
 | 種類・SQL・階層と保存設定 | [`BMSTable`](../../../BeMusicSeeker/Models/Playlist/BMSTable.cs) | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) |
 | BP順・クリア通常版の負値・NULL・スコアなしの末尾配置と新規生成・明示再出力 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) の `MakeBpNullLastOrder` とBP・クリア出力 | [`BmsPlaylistCustomFolderOutputTests.CustomFolderOutput_BpMissingValuesFollowNonnegativeValuesOnCreationAndExplicitReoutput`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) が実ファイルのCOMMANDを実DBへ適用し、0→20→欠損集合、ASSIST・NO PLAYの分類、対象所属・削除除外、rate・playcountの負値を含む降順と保存済みscore不変を確認する。階層・ランダム・ASSIST/EASY分類は同クラスの `ReOutputCustomFolderAndCommitToDB_WritesHierarchicalRandomAndSortFolders`、詳細未保存ASSISTの履歴投影は `PlayHistoryReadModelTests.RowProjectionTreatsInitialLr2ForceEasySentinelsAsClearOnly` が分担する。署名・参照定数・パーサー版の維持と自動一斉更新を加えないことは差分検査で確認する。 |
 | 名前なし・空白名の所属保持とLEVEL/ADDDATEの所属内ソート、変更保存時の再出力 | [`BMSPlaylist.makeCustomFolderCmdSort`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`BmsPlaylistCustomFolderOutputTests.ReOutputCustomFolderAndCommitToDB_UserFolderSortUsesOwnMembershipValues`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) が実保存値、生成COMMANDのSQLite上の順序と別所属専用曲の除外を確認する。名前なしはLEVEL/ADDDATE両方向、空白名はLEVEL昇順を扱い、名前なしLEVEL昇順だけは方向変更保存後に同じファイルを再読込みして降順を確認する。同じ代表の初回COMMANDは、ケース所有の読取り接続で未指定走査順を反転しても所属内のhash順が不変であることを確認する。ALL/通常名・旧NULL生存行・File/Folderは既存の `ReOutputCustomFolder_RawNullLiveEntriesRemainIncludedAndUsePersistedSortValues`、種類の独立有効化・ランダム・スキーマは既存ケースと分担する。 |

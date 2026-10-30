@@ -1536,6 +1536,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             OutputRowScopeDirectories = result?.OutputRowScopeDirectories ?? [];
             Items = result?.SyncItems ?? [];
             DirectoryRowGenerationScopeDirectories = result?.DirectoryRowGenerationScopeDirectories ?? [];
+            DirectoryRowRootDirectories = result?.DirectoryRowRootDirectories ?? [];
             DirectoryEntries = result?.DirectoryEntries;
             PruneScopePaths = result?.PruneScopePaths ?? [];
             EmptyOutputDirectories = result?.EmptyOutputDirectories ?? [];
@@ -1549,6 +1550,8 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         internal IReadOnlyCollection<Lr2FolderFileSyncItem> Items { get; init; } = [];
 
         internal IReadOnlyCollection<string> DirectoryRowGenerationScopeDirectories { get; init; } = [];
+
+        internal IReadOnlyCollection<string> DirectoryRowRootDirectories { get; init; } = [];
 
         internal IReadOnlyDictionary<string, RootFileEnumerationEntry> DirectoryEntries { get; init; }
 

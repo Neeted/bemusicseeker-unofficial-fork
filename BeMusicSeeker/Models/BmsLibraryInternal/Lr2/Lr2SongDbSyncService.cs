@@ -65,6 +65,9 @@ internal sealed class Lr2SongDbSyncRequest
 
     public IReadOnlyCollection<string> Lr2BuiltinFolderSourceDirectories { get; set; } = [];
 
+    /// <summary>今回生成した管理出力の型定義。未提供の管理外ファイルは従来どおり物理本文を解析します。</summary>
+    public IReadOnlyDictionary<string, Lr2FolderFileDefinition> ManagedFolderDefinitions { get; set; }
+
     public bool Lr2FolderFileDiscoveryComplete { get; set; } = true;
 
     public IReadOnlyCollection<ChartFile> SongRows { get; set; } = [];
@@ -531,7 +534,8 @@ internal static class Lr2SongDbSyncService
     {
         IReadOnlyCollection<string> directoryTargets = Lr2FolderFileDbSyncService.CreateParentDirectoryMetadataTargets(
             items,
-            CreateLr2FolderDirectoryRowGenerationScopeDirectories(request));
+            CreateLr2FolderDirectoryRowGenerationScopeDirectories(request),
+            Lr2FolderPhysicalParentDirectoryTargetHelper.CreateRoots(request.RootDirectories, request.Lr2NormalCustomFolderOutputBaseDir, request.Lr2AdditionalNormalCustomFolderOutputBaseDirs));
         Lr2FolderInfoCandidateSnapshot surfaceCandidates = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromSurface(
             request?.FolderInfoFilePaths,
             request?.FolderInfoFileEntries?.Values,
@@ -782,64 +786,14 @@ internal static class Lr2SongDbSyncService
             .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
+    /// <summary>登録実ルートと通常・追加・ROOT配置から、純粋helperで生成停止境界を求めます。ROOT判定へ境界を流用しません。</summary>
     internal static IReadOnlyCollection<string> CreateLr2FolderDirectoryRowGenerationScopeDirectories(Lr2SongDbSyncRequest request)
     {
-        var candidates = new List<string>();
-        foreach (string rootDirectory in request?.RootDirectories ?? [])
-        {
-            candidates.Add(CreateDirectoryRowGenerationBoundary(rootDirectory));
-        }
-
-        string normalOutputBase = NormalizeDirectoryPathOrNull(request?.Lr2NormalCustomFolderOutputBaseDir);
-        if (!string.IsNullOrWhiteSpace(normalOutputBase))
-        {
-            candidates.Add(CreateDirectoryRowGenerationBoundary(normalOutputBase));
-        }
-        foreach (string additionalNormalOutputBase in request?.Lr2AdditionalNormalCustomFolderOutputBaseDirs ?? [])
-        {
-            string normalizedAdditionalNormalOutputBase = NormalizeDirectoryPathOrNull(additionalNormalOutputBase);
-            if (!string.IsNullOrWhiteSpace(normalizedAdditionalNormalOutputBase))
-            {
-                candidates.Add(CreateDirectoryRowGenerationBoundary(normalizedAdditionalNormalOutputBase));
-            }
-        }
-
-        string rootOutputBase = NormalizeDirectoryPathOrNull(request?.Lr2RootCustomFolderOutputBaseDir);
-        if (!string.IsNullOrWhiteSpace(rootOutputBase))
-        {
-            candidates.Add(rootOutputBase);
-        }
-
-        if (request?.Lr2BuiltinFolderSourceDirectories?.Count > 0
-            || (request?.Lr2FolderPruneDirectories ?? []).Any(directory =>
-                string.Equals(directory, @"LR2files\CustomFolder", StringComparison.OrdinalIgnoreCase)))
-        {
-            candidates.Add(@"LR2files\CustomFolder");
-        }
-
-        return [.. candidates
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
-    }
-
-    private static string CreateDirectoryRowGenerationBoundary(string rootEquivalentDirectory)
-    {
-        if (string.IsNullOrWhiteSpace(rootEquivalentDirectory))
-        {
-            return null;
-        }
-        try
-        {
-            string normalizedRoot = NormalizeDirectoryPathOrNull(rootEquivalentDirectory);
-            string parentDirectory = Path.GetDirectoryName(normalizedRoot?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) ?? string.Empty);
-            return string.IsNullOrWhiteSpace(parentDirectory)
-                ? normalizedRoot
-                : NormalizeDirectoryPathOrNull(parentDirectory);
-        }
-        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-        {
-            return rootEquivalentDirectory;
-        }
+        return Lr2FolderPhysicalParentDirectoryTargetHelper.CreateBoundaries(
+            Lr2FolderPhysicalParentDirectoryTargetHelper.CreateRoots(request?.RootDirectories,
+                request?.Lr2NormalCustomFolderOutputBaseDir, request?.Lr2AdditionalNormalCustomFolderOutputBaseDirs),
+            request?.Lr2RootCustomFolderOutputBaseDir,
+            (request?.Lr2BuiltinFolderSourceDirectories ?? []).Concat([@"LR2files\CustomFolder"]));
     }
 
     private static Lr2FolderFileSyncItem CreateLr2FolderFileSyncItem(
@@ -857,6 +811,18 @@ internal static class Lr2SongDbSyncService
         });
         DateTime? lastWriteTimeUtc = ResolveLastWriteTimeUtc(filePath, enumerationEntry);
         string databasePath = classification.DatabasePath;
+        if (request.ManagedFolderDefinitions?.TryGetValue(filePath, out Lr2FolderFileDefinition managedDefinition) == true)
+        {
+            return new Lr2FolderFileSyncItem
+            {
+                FilePath = filePath,
+                DatabasePath = databasePath,
+                LastWriteTimeUtc = lastWriteTimeUtc,
+                Definition = managedDefinition,
+                FolderType = classification.FolderType,
+                ParentHash = classification.ParentHash
+            };
+        }
         if (lastWriteTimeUtc.HasValue
             && existingRowResolver != null
             && CanPreserveExistingLr2FolderRow(databasePath, classification, lastWriteTimeUtc.Value, existingRowResolver(databasePath)))

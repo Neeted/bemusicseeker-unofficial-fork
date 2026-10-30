@@ -351,6 +351,15 @@ internal sealed class CatalogMutationOwner
         }
     }
 
+    /// <summary>通常親の局所pruneに必要なcustom候補のexact pathを、専用接続の限定読取りで捕捉します。</summary>
+    internal IReadOnlyList<string> CaptureLr2NormalFolderCustomDependencyCandidates(
+        IEnumerable<string> roots, IEnumerable<string> pruneScopes, IEnumerable<string> pruneExactDirectories)
+    {
+        using LR2SongDBExtended songDb = dbGateway?.OpenSongDb()
+            ?? throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
+        return Lr2NormalFolderDbSyncService.CaptureCustomDependencyCandidates(songDb, roots, pruneScopes, pruneExactDirectories);
+    }
+
     internal Lr2NormalFolderDbSyncResult ApplyLr2NormalFolderSync(Lr2NormalFolderDbSyncRequest request)
     {
         if (request == null)

@@ -1,13 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using BeMusicSeeker.Models.Utils;
 using static BeMusicSeeker.Models.BmsLibraryInternal.Lr2SongDbSyncInputSurfaceHelper;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
-/// Builds one LR2 synchronization input from captured, prepared, and current scope surfaces.
+/// 捕捉した走査面・準備面・管理範囲を一操作の入力へまとめ、管理定義不足を不完全な入力として止めます。
 /// </summary>
 /// <param name="rootFileEnumerator">Optional internal grouped enumerator; null preserves the production fallback.</param>
 internal sealed class Lr2SongDbSyncInputBuilder(
@@ -20,6 +21,7 @@ internal sealed class Lr2SongDbSyncInputBuilder(
         ?? throw new ArgumentNullException(nameof(everythingNative));
 
     private readonly IRootFileEnumerator groupedEnumerator = rootFileEnumerator;
+    /// <summary>列挙済みfolderinfoを候補絞込み前に祖先へ広げ、同じ準備面の管理定義を再解析せず引き渡します。局所列挙の範囲は変更しません。</summary>
     public Lr2SongDbSyncInput Create(
         Lr2SongDbSyncInputRowSnapshot rowSnapshot,
         Lr2SongDbSyncInputRootSnapshot rootSnapshot,
@@ -56,6 +58,14 @@ internal sealed class Lr2SongDbSyncInputBuilder(
                 lr2FolderFileCandidates,
                 rootSnapshot,
                 settingsSnapshot);
+        IReadOnlyCollection<string> enumeratedFolderInfoDirectories = Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargetsFromDirectories(
+            rootSnapshot.RootDirectories,
+            (scanSurface?.FolderInfoFilePaths ?? []).Concat(preparedSurfaceSelection.Surface?.FolderInfoFilePaths ?? [])
+                .Select(Lr2FolderPath.SafeGetDirectoryName));
+        directoryTargetSelection = new Lr2SongDbSyncDirectoryTargetSelection(
+            [.. directoryTargetSelection.DirectoryMetadataTargets.Concat(enumeratedFolderInfoDirectories).Distinct(StringComparer.OrdinalIgnoreCase)],
+            directoryTargetSelection.Lr2FolderParentDirectoryTargets,
+            [.. directoryTargetSelection.DirectoryEntryTargets.Concat(enumeratedFolderInfoDirectories).Distinct(StringComparer.OrdinalIgnoreCase)]);
         IReadOnlyCollection<string> directoryEntryTargets = directoryTargetSelection.DirectoryEntryTargets;
         var folderInfoCandidatesStopwatch = Stopwatch.StartNew();
         Lr2SongDbSyncFolderInfoCandidateSelection folderInfoCandidateSelection =
@@ -68,6 +78,16 @@ internal sealed class Lr2SongDbSyncInputBuilder(
                 groupedEnumerator);
         Lr2FolderInfoCandidateSnapshot folderInfoCandidates = folderInfoCandidateSelection.Candidates;
         Lr2TextMetadataCandidateSnapshot textMetadataCandidates = folderInfoCandidateSelection.TextMetadataCandidates;
+        if (scanSurface == null)
+        {
+            IReadOnlyCollection<string> folderInfoHierarchy = Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargetsFromDirectories(
+                rootSnapshot.RootDirectories, folderInfoCandidates.Paths.Select(Lr2FolderPath.SafeGetDirectoryName));
+            directoryTargetSelection = new Lr2SongDbSyncDirectoryTargetSelection(
+                [.. directoryTargetSelection.DirectoryMetadataTargets.Concat(folderInfoHierarchy).Distinct(StringComparer.OrdinalIgnoreCase)],
+                directoryTargetSelection.Lr2FolderParentDirectoryTargets,
+                [.. directoryEntryTargets.Concat(folderInfoHierarchy).Distinct(StringComparer.OrdinalIgnoreCase)]);
+            directoryEntryTargets = directoryTargetSelection.DirectoryEntryTargets;
+        }
         folderInfoCandidatesStopwatch.Stop();
         var directoryEntriesStopwatch = Stopwatch.StartNew();
         Lr2SongDbSyncDirectoryEntrySelection directoryEntrySelection =
@@ -126,7 +146,8 @@ internal sealed class Lr2SongDbSyncInputBuilder(
             appManagedOutputScope,
             lr2FolderFileCandidates,
             textFileDirectories,
-            scanSurfaceSelection);
+            scanSurfaceSelection,
+            preparedSurfaceSelection.Surface?.ManagedFolderDefinitions);
     }
 
     private static IReadOnlyCollection<string> CreateDirectoryMetadataTargets(
@@ -153,6 +174,12 @@ internal sealed class Lr2SongDbSyncInputBuilder(
         Lr2FolderFileCandidateSnapshot candidates;
         int enumeratedAppManagedCandidateCount = 0;
         int enumeratedAppManagedExactFileCount = appManagedOutputScope.FilePaths.Count;
+        var managedDirectories = Lr2DirectoryScopeMatcher.Create(appManagedOutputScope.Directories);
+        bool managedDefinitionsMissing = appManagedOutputScope.Directories.Count > 0
+                && preparedSurface?.ManagedFolderDefinitions == null
+            || appManagedOutputScope.FilePaths.Any(path => preparedSurface?.ManagedFolderDefinitions?.ContainsKey(path) != true)
+            || (preparedSurface?.Lr2FolderFilePaths ?? []).Any(path => managedDirectories.ContainsFilePath(path)
+                && preparedSurface.ManagedFolderDefinitions?.ContainsKey(path) != true);
         if (!appManagedOutputScope.IsComplete)
         {
             source = scanSurface != null
@@ -197,22 +224,24 @@ internal sealed class Lr2SongDbSyncInputBuilder(
                 groupedEnumerator);
         }
 
-        return ComposeCompleteFolderCandidateSelection(
+        return ComposeFolderCandidateSelection(
             candidates,
             source,
             preparedSurface,
             appManagedOutputScope,
             enumeratedAppManagedExactFileCount,
-            out enumeratedAppManagedCandidateCount);
+            out enumeratedAppManagedCandidateCount,
+            managedDefinitionsMissing);
     }
 
-    private static Lr2SongDbSyncFolderCandidateSelection ComposeCompleteFolderCandidateSelection(
+    private static Lr2SongDbSyncFolderCandidateSelection ComposeFolderCandidateSelection(
         Lr2FolderFileCandidateSnapshot baseCandidates,
         string source,
         Lr2SongDbSyncPreparedDataSurface preparedSurface,
         Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope,
         int enumeratedAppManagedExactFileCount,
-        out int enumeratedAppManagedCandidateCount)
+        out int enumeratedAppManagedCandidateCount,
+        bool managedDefinitionsMissing)
     {
         Lr2FolderFileCandidateSnapshot candidates =
             Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
@@ -231,6 +260,12 @@ internal sealed class Lr2SongDbSyncInputBuilder(
             candidates = MergeLr2FolderFileCandidateSurface(candidates, preparedSurface);
         }
 
+        if (managedDefinitionsMissing)
+        {
+            // 取得済みの外部候補は保持し、管理定義不足だけで完全性を落として全体置換を止めます。
+            candidates = new Lr2FolderFileCandidateSnapshot(candidates.Paths, candidates.EntriesByPath, discoveryComplete: false);
+            source += "_managed_definitions_incomplete";
+        }
         return new Lr2SongDbSyncFolderCandidateSelection(
             candidates,
             source,
@@ -297,11 +332,8 @@ internal sealed class Lr2SongDbSyncInputBuilder(
         }
         else
         {
-            textMetadataCandidates = CreateLr2SongDbSyncTextMetadataCandidates(
-                lr2FolderDiscoveryDirectories,
-                directoryEntryTargets,
-                everythingNative,
-                rootFileEnumerator);
+            textMetadataCandidates = Lr2FolderInfoCandidateEnumerationService.CreateTextMetadataSnapshot(
+                lr2FolderDiscoveryDirectories, directoryEntryTargets, everythingNative, rootFileEnumerator, includeAllFolderInfo: true);
             folderInfoCandidates = textMetadataCandidates.FolderInfoCandidates;
         }
         if (hasPreparedSurface && preparedSurface.FolderInfoFilePaths.Count > 0)
@@ -313,10 +345,15 @@ internal sealed class Lr2SongDbSyncInputBuilder(
                 preparedSurface.FolderInfoFileEntries,
                 preparedSurface.Lr2FolderScopeDirectories,
                 out IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoEntries);
+            // scanなしの全件列挙で得たfolderinfo-only候補は、準備面との合流後も残します。
+            // 必要祖先はこの返却後に拡張するため、合流前の親targetだけで再度絞りません。
+            IEnumerable<string> mergedTargets = scanSurface == null
+                ? directoryEntryTargets.Concat(folderInfoPaths.Select(Lr2FolderPath.SafeGetDirectoryName))
+                : directoryEntryTargets;
             folderInfoCandidates = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromSurface(
                 folderInfoPaths,
                 folderInfoEntries.Values,
-                directoryEntryTargets);
+                mergedTargets);
         }
 
         return new Lr2SongDbSyncFolderInfoCandidateSelection(

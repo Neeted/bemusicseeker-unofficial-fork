@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Security;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -560,6 +559,7 @@ public partial class BMSLibrary
                         ScopeDirectories = request.Lr2FolderPruneDirectories,
                         DirectoryRowScopeDirectories = Lr2SongDbSyncService.CreateLr2FolderDirectoryRowScopeDirectories(request),
                         DirectoryRowGenerationScopeDirectories = Lr2SongDbSyncService.CreateLr2FolderDirectoryRowGenerationScopeDirectories(request),
+                        DirectoryRowRootDirectories = Lr2FolderPhysicalParentDirectoryTargetHelper.CreateRoots(request.RootDirectories, request.Lr2NormalCustomFolderOutputBaseDir, request.Lr2AdditionalNormalCustomFolderOutputBaseDirs),
                         ScopePaths = request.Lr2FolderFilePaths,
                         PruneExcludedDirectories = pruneExcludedDirectories ?? [],
                         PruneExcludedPaths = pruneExcludedPaths ?? [],
@@ -882,8 +882,25 @@ public partial class BMSLibrary
                             || syncInput.PruneScopeDirectories.Count > 0
                             || syncInput.PruneExactDirectories.Count > 0)
                         {
-                            IReadOnlyCollection<string> directoryMetadataTargets =
-                                Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, syncInput.ChartPaths);
+                            IReadOnlyList<string> candidateCustomPaths = data.CaptureLr2NormalFolderCustomDependencyCandidates(
+                                roots, syncInput.PruneScopeDirectories, syncInput.PruneExactDirectories);
+                            var remainingCustomParents = new List<string>();
+                            foreach (string path in candidateCustomPaths)
+                            {
+                                try
+                                {
+                                    if ((LongPathFileSystem.GetAttributes(path) & FileAttributes.Directory) == 0)
+                                    { remainingCustomParents.Add(Lr2FolderPath.SafeGetDirectoryName(path)); }
+                                }
+                                catch (Exception ex) when (ex is FileNotFoundException || ex is DirectoryNotFoundException)
+                                {
+                                    // 物理削除済みcustomは通常親の保持根拠にしません。その他の取得失敗は操作失敗へ返します。
+                                }
+                            }
+                            IReadOnlyCollection<string> directoryMetadataTargets = [..
+                                Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, syncInput.ChartPaths)
+                                .Concat(Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargetsFromDirectories(roots, remainingCustomParents))
+                                .Distinct(StringComparer.OrdinalIgnoreCase)];
                             if (!TryEnterManagedOutputMutation(directoryMetadataTargets.Concat(syncInput.PruneExactDirectories),
                                 recursive: false, out LibraryFileMutationLease playlistLease, capability: mutationCapability,
                                 recursivePaths: syncInput.PruneScopeDirectories))
@@ -896,6 +913,7 @@ public partial class BMSLibrary
                                 {
                                     RootDirectories = roots,
                                     ChartPaths = syncInput.ChartPaths,
+                                    RequiredCustomParentDirectories = remainingCustomParents,
                                     DirectoryPaths = directoryMetadataTargets,
                                     FolderInfoFilePaths = metadataSurface.FolderInfoCandidates.Paths,
                                     FolderInfoFileEntries = metadataSurface.FolderInfoCandidates.EntriesByPath,
@@ -969,50 +987,12 @@ public partial class BMSLibrary
             System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
         }
 
-        private static Lr2FolderInfoCandidateSnapshot CreateLr2OwnedMutationFolderInfoCandidates(
-            IEnumerable<string> targetDirectories)
-        {
-            IReadOnlyList<string> targets = NormalizeLr2DirectoryMetadataTargets(targetDirectories);
-            var entries = new List<RootFileEnumerationEntry>();
-            foreach (string targetDirectory in targets)
-            {
-                RootFileEnumerationEntry entry = CreateLr2OwnedMutationFolderInfoEntry(targetDirectory);
-                if (entry != null)
-                {
-                    entries.Add(entry);
-                }
-            }
-
-            return Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromEntries(entries, targets);
-        }
-
         private static Lr2OwnedMutationDirectoryMetadataSurface CreateLr2OwnedMutationDirectoryMetadataSurface(
             IEnumerable<string> targetDirectories)
         {
             return new Lr2OwnedMutationDirectoryMetadataSurface(
-                CreateLr2OwnedMutationFolderInfoCandidates(targetDirectories),
+                Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromOwnedDirectories(targetDirectories),
                 CreateLr2OwnedMutationDirectoryEntries(targetDirectories));
-        }
-
-        private static RootFileEnumerationEntry CreateLr2OwnedMutationFolderInfoEntry(string directoryPath)
-        {
-            try
-            {
-                string folderInfoPath = Path.Combine(directoryPath, "folderinfo.txt");
-                if (!LongPathFileSystem.FileExists(folderInfoPath))
-                {
-                    return null;
-                }
-                string normalizedPath = LongPathFileSystem.NormalizePathForStorage(folderInfoPath);
-                LongPathFileSystem.FileMetadata metadata = LongPathFileSystem.GetFileMetadata(normalizedPath);
-                return LongPathFileSystem.FileExists(normalizedPath)
-                    ? new RootFileEnumerationEntry(normalizedPath, metadata.LastWriteTimeUtc, metadata.Length)
-                    : null;
-            }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is SecurityException)
-            {
-                return null;
-            }
         }
 
         private static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateLr2OwnedMutationDirectoryEntries(

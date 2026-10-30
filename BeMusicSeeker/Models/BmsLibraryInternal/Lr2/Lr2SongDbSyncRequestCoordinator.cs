@@ -200,6 +200,7 @@ internal static class Lr2SongDbSyncRequestCoordinator
                 DirectoryEntries = input.DirectoryEntries,
                 Lr2FolderFilePaths = input.Lr2FolderFilePaths,
                 Lr2FolderFileEntries = input.Lr2FolderFileEntries,
+                ManagedFolderDefinitions = input.ManagedFolderDefinitions,
                 Lr2FolderDiscoveryDirectories = input.Lr2FolderDiscoveryDirectories,
                 Lr2FolderPruneDirectories = input.Lr2FolderPruneDirectories,
                 Lr2RootPath = input.Lr2RootPath,

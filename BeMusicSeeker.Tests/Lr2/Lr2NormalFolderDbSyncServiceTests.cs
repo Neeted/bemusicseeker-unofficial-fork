@@ -13,6 +13,78 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2NormalFolderDbSyncServiceTests
 {
+    /// <summary>削除候補の直接custom・別子custom・親欠落・customなしを限定読取りと生成へ接続し、必要親だけを生成保持します。custom全列と無関係ルートの不変性も観測します。</summary>
+    [DataTestMethod]
+    // 直接親の保持、祖先の別子による保持、欠落親の補完、依存なしのpruneをそれぞれ識別します。
+    [DataRow(true, false, true)]
+    [DataRow(true, true, true)]
+    [DataRow(true, false, false)]
+    [DataRow(false, false, true)]
+    public void Sync_ConfirmedCustomDependenciesKeepOnlyRequiredAncestors(bool hasCustom, bool sibling, bool parentsExist)
+    {
+        using var scope = Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
+        using var db = new LR2SongDBExtended(scope.SongDbPath);
+        db.CreateTable<LR2SongDB.folder>();
+        string root = @"D:\BMS", parent = @"D:\BMS\Pack", removed = @"D:\BMS\Pack\Removed";
+        string customParent = sibling ? @"D:\BMS\Pack\Sibling\Deep" : removed;
+        var custom = new LR2SongDB.folder
+        {
+            path = Path.Combine(customParent, "external.lr2folder"),
+            title = "Title",
+            subtitle = "Subtitle",
+            category = "Category",
+            info_a = "A",
+            info_b = "B",
+            command = "song.hash = 'keep'",
+            banner = "banner.png",
+            type = 4,
+            parent = "custom-parent",
+            date = 12,
+            max = 13,
+            adddate = 14
+        };
+        var unrelated = new LR2SongDB.folder { path = FolderPath(@"E:\Other\Untouched"), type = 1, title = "Unrelated", date = 41, adddate = 42 };
+        db.Insert(unrelated);
+        if (hasCustom) { db.Insert(custom); }
+        if (parentsExist)
+        {
+            foreach (string directory in new[] { parent, removed })
+            { db.Insert(new LR2SongDB.folder { path = FolderPath(directory), type = 1, title = "Old", adddate = 77 }); }
+        }
+        IReadOnlyList<string> candidates = Lr2NormalFolderDbSyncService.CaptureCustomDependencyCandidates(db, [root], [removed], [parent]);
+        CollectionAssert.AreEquivalent(hasCustom ? new[] { custom.path } : Array.Empty<string>(), candidates.ToArray());
+        Lr2NormalFolderDbSyncService.Sync(db, new Lr2NormalFolderDbSyncRequest
+        {
+            RootDirectories = [root],
+            PruneScopeDirectories = [removed],
+            PruneExactDirectories = [parent],
+            RequiredCustomParentDirectories = candidates.Select(path => Path.GetDirectoryName(path) ?? throw new AssertFailedException("Missing parent.")).ToArray(),
+            DirectoryLastWriteTimeUtcResolver = _ => new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc),
+            AllowPrune = true,
+            UseScopedExistingRows = true
+        });
+        Assert.AreEqual(hasCustom, db.Find<LR2SongDB.folder>(FolderPath(parent)) != null);
+        Assert.AreEqual(hasCustom && !sibling, db.Find<LR2SongDB.folder>(FolderPath(removed)) != null);
+        if (hasCustom)
+        {
+            LR2SongDB.folder required = db.Find<LR2SongDB.folder>(FolderPath(customParent));
+            Assert.IsNotNull(required);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.GetDirectoryName(customParent)), required.parent);
+            if (parentsExist) { Assert.AreEqual(77, db.Find<LR2SongDB.folder>(FolderPath(parent)).adddate); }
+            AssertFolderValues(custom, db.Find<LR2SongDB.folder>(custom.path));
+        }
+        AssertFolderValues(unrelated, db.Find<LR2SongDB.folder>(unrelated.path));
+    }
+
+    private static void AssertFolderValues(LR2SongDB.folder expected, LR2SongDB.folder actual)
+    {
+        Assert.IsNotNull(actual);
+        Assert.AreEqual((expected.path, expected.title, expected.subtitle, expected.category, expected.info_a, expected.info_b,
+            expected.command, expected.banner, expected.type, expected.parent, expected.date, expected.max, expected.adddate),
+            (actual.path, actual.title, actual.subtitle, actual.category, actual.info_a, actual.info_b,
+            actual.command, actual.banner, actual.type, actual.parent, actual.date, actual.max, actual.adddate));
+    }
+
     /// <summary>
     /// 譜面階層とfolderinfoを通常行へ反映し、古い通常行だけを削除してカスタム行・既存追加時刻を保持する。
     /// </summary>

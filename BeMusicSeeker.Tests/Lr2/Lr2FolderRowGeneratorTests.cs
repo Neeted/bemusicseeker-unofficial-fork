@@ -14,6 +14,26 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2FolderRowGeneratorTests
 {
+    /// <summary>通常・ドライブ・UNCの実ルートを停止境界と区別し、直下の子のparentをルートCRCへ揃えます。重なる実ルートも祖先包含で落としません。</summary>
+    [DataTestMethod]
+    // 字句上の階層判定だけを使い、実ドライブの割当や共有サーバーへ依存しません。
+    [DataRow(@"D:\BMS")]
+    [DataRow(@"D:\")]
+    [DataRow(@"\\server\share\")]
+    public void FolderHierarchy_RealRootsRemainIncludedAndChildrenUseRootCrc(string root)
+    {
+        string child = Path.Combine(root, "Child"), file = Path.Combine(child, "custom.lr2folder");
+        IReadOnlySet<string> roots = Lr2FolderPhysicalParentDirectoryTargetHelper.CreateRoots([root, child], root, []);
+        IReadOnlySet<string> boundaries = Lr2FolderPhysicalParentDirectoryTargetHelper.CreateBoundaries(roots, null, []);
+        (string DatabaseDirectory, string PhysicalDirectory)[] parents = Lr2FolderPhysicalParentDirectoryTargetHelper.EnumerateNormalizedParents(file, file, boundaries, roots).ToArray();
+        CollectionAssert.AreEquivalent(new[] { Normalize(root), Normalize(child) }, parents.Select(target => target.DatabaseDirectory).ToArray());
+        Assert.AreEqual(2, roots.Count);
+        Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, Lr2FolderPhysicalParentDirectoryTargetHelper.ComputeNormalizedParentHash(Normalize(root), roots));
+        // 既存song正規化器はPath.GetDirectoryNameの親表記へ区切りとNULを加えます。UNC共有名には余分な末尾区切りを加えません。
+        Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.GetDirectoryName(child)), Lr2FolderPhysicalParentDirectoryTargetHelper.ComputeNormalizedParentHash(Normalize(child), Lr2FolderPhysicalParentDirectoryTargetHelper.CreateRoots([root], null, [])));
+        Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, Lr2FolderPhysicalParentDirectoryTargetHelper.ComputeNormalizedParentHash(Normalize(child), roots));
+    }
+
     /// <summary>
     /// 譜面階層からルート・祖先・直近フォルダの行を作り、親CRC・保存種別・入力時刻が揃うことで階層欠落や時刻混同を検出する。
     /// </summary>
