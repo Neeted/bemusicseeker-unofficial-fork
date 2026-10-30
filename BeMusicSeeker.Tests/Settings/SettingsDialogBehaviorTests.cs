@@ -1744,15 +1744,7 @@ public sealed class SettingsDialogBehaviorTests
     private sealed class RecordingPlayHistoryPort : ISettingsDialogPlayHistoryPort
     {
 
-        public void InvalidateReadCache(string reason)
-        {
-        }
-
-        public void RefreshDisplayTargetCatalog(bool queueRefreshWhenSelectionChanges = true)
-        {
-        }
-
-        public void RefreshDisplayTargetSetsFromSettings(string serializedDisplayTargetSets, bool queueRefreshWhenSelectionChanges)
+        public void RefreshDisplayTargetSetsFromSettings(string serializedDisplayTargetSets, bool queueRefreshWhenSelectionChanges, string? previousName = null, string? confirmedName = null)
         {
         }
     }

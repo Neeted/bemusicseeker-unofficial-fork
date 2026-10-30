@@ -23,6 +23,190 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class MainWindowPlayHistoryWpfTests
 {
+    /// <summary>playlistとpresetの同対象更新を実queueと項目完了接続からcompiled表へ届け、同譜面の別プレイを区別して選択を保つ。明示切替とその直後の依存更新は旧対象の選択を運ばない。一般表の選択組合せはCustomTable系列へ分担する。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PlayHistoryDependencyRefresh_PreservesSelectedRawRecordThroughCompiledTable(bool usePreset)
+    {
+        CultureInfo? previousCulture = Resources.Culture;
+        try
+        {
+            RegularChartListOwnerTestSupport.WithTemporarySongDb(songDb =>
+            {
+                using (var db = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDb)) { BmsLibraryDbGateway.EnsureChartInfoSchema(db); }
+                var library = new TestBmsLibrary(songDb);
+                MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(MainWindowViewModelTestFactory.CreateIsolatedSettings(), (scope, vm, window) =>
+            {
+                MainWindowPresentationTestHarness.ShowCompiledContent(scope, vm, window);
+                Lr2PlayHistoryRecord first = CreateResolvedPlayHistoryRow(playedAt: 1000).Raw;
+                Lr2PlayHistoryRecord second = CreateResolvedPlayHistoryRow(playedAt: 1001).Raw;
+                second.history_id = first.history_id + 1;
+                var raw = new Lr2PlayHistoryReadResult(PlayHistorySourceProfile.Lr2("score.db"), [first, second], [], Lr2PlayHistorySchemaStatus.Installed);
+                var snapshot = new BMSLibrary.ScoreSnapshot
+                { PlayHistorySnapshot = new ScorePlayHistorySnapshot(ActiveScoreSource.Lr2, "score.db", raw), SourceGeneration = 1 };
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDb, MainWindowViewModelTestFactory.CreateIsolatedSettings(), library: library);
+                BMSTable targetTable = CreateTargetTable("Before");
+                playlist.BMSTables = [targetTable];
+                vm.PlayHistory.ConfigureDisplayTargetCatalogRefresh(() => false, () => playlist.BMSTables.ToArray(), action => action());
+                vm.PlayHistory.ReplaceDisplayTargetSets(
+                    [new PlayHistoryDisplayTargetSet { Name = "Saved", Targets = [new PlayHistoryDisplayTargetReference { PlaylistId = 42 }] }],
+                    playlist.BMSTables, false);
+                vm.PlayHistory.SelectedDisplayTargetIdentity = usePreset ? "set:SAVED" : "playlist:42";
+                vm.PlayHistory.ConfigureViewExecution(new PlayHistoryViewExecutionDependencies(() => library, () => playlist,
+                    () => PlayHistoryReadSourceContext.FromSnapshot(snapshot), action => { TestUiDispatcherHost.Dispatcher.Invoke(action); return true; },
+                    (_, _) => { }, () => MainViewUpdateMode.PlayHistorySelected, vm.MainChartList, vm.PlaylistWorkspace));
+                TaskCompletionSource<PlayHistoryViewExecutionResult>? refreshCompletion = null;
+                vm.PlayHistory.ConfigureViewRefreshScheduler(() => false, _ =>
+                {
+                    try { refreshCompletion?.TrySetResult(ExecuteCurrent()); }
+                    catch (Exception ex) { refreshCompletion?.TrySetException(ex); throw; }
+                });
+                vm.PlayHistory.BeginRequest(PlayHistoryPeriodRequest.All(), string.Empty,
+                    vm.PlayHistory.SelectedDisplayTargetIdentity, vm.PlayHistory.DisplayTargetRevision,
+                    vm.PlaylistWorkspace.PrepareDetailSourceRetirementWithoutPublishing());
+                Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, ExecuteCurrent().Status);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var table = (CustomTableView)window.FindName("customTableView");
+                table.SelectRowsByPredicate(row => row is PlayHistoryRow history && ReferenceEquals(history.Raw, first));
+                Assert.AreEqual(1, table.GetSelectedRowsSnapshot().Count);
+                object previousRow = table.GetSelectedRowsSnapshot().Single();
+                Assert.IsTrue(vm.PlayHistory.ApplyLibraryChanges(new NormalLibraryRefreshNotificationBatch(2, 1,
+                    LibraryChartRefreshEffects.None, [], false, referenceCommits: [new PlaylistReferenceCommitReceipt(1, 2, [])])));
+                Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, ExecuteCurrent().Status);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var selected = (PlayHistoryRow)table.GetSelectedRowsSnapshot().Single();
+                Assert.AreSame(first, selected.Raw);
+                Assert.AreNotSame(previousRow, selected);
+                Assert.AreEqual(2, vm.MainChartList.Rows.Count);
+
+                // MainWindowの実項目完了購読が、同対象の依存更新として既存queueを起動する。
+                Refresh(() => Assert.IsTrue(vm.PlaylistWorkspace.PublishPlaylistEntriesHydrationCompleted(1)));
+                AssertSelected("Before");
+
+                // 同IDの表参照交換は、presetも現在参照先を解決して再投影する。
+                targetTable = CreateTargetTable("After");
+                playlist.BMSTables = [targetTable];
+                Refresh(() => vm.PlayHistory.QueueDisplayTargetCatalogRefresh());
+                AssertSelected("After");
+                if (usePreset)
+                {
+                    // 同じpresetの確定参照先を変更しても、残る履歴identityは保持する。
+                    playlist.BMSTables.Add(CreateTargetTable("Confirmed", playlistId: 43));
+                    Refresh(() => vm.PlayHistory.RefreshDisplayTargetSetsFromSettings(
+                        PlayHistoryDisplayTargetSetStore.Serialize(
+                            [new PlayHistoryDisplayTargetSet { Name = "Saved", Targets = [new PlayHistoryDisplayTargetReference { PlaylistId = 43 }] }]),
+                        queueRefreshWhenSelectionChanges: true));
+                    AssertSelected("Confirmed");
+                }
+
+                Refresh(() => vm.PlayHistory.SelectedDisplayTargetIdentity = "all");
+                Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count, "別対象への明示切替はResetする。");
+                table.SelectRowsByPredicate(row => row is PlayHistoryRow history && ReferenceEquals(history.Raw, first));
+                // 切替要求の実行前に同対象の項目完了を受けても、採用viewの対象scopeで旧選択を除外する。
+                using (var started = new System.Threading.ManualResetEventSlim())
+                using (var release = new System.Threading.ManualResetEventSlim())
+                {
+                    vm.PlayHistory.ConfigureViewRefreshScheduler(() => false, _ =>
+                    {
+                        started.Set();
+                        release.Wait();
+                        try { refreshCompletion?.TrySetResult(ExecuteCurrent()); }
+                        catch (Exception ex) { refreshCompletion?.TrySetException(ex); throw; }
+                    });
+                    refreshCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                    try
+                    {
+                        vm.PlayHistory.SelectedDisplayTargetIdentity = usePreset ? "set:SAVED" : "playlist:42";
+                        Assert.IsTrue(started.Wait(TimeSpan.FromSeconds(10)), "対象切替workerが開始する。");
+                        Assert.IsFalse(vm.PlayHistory.SnapshotActiveRequest().PreserveSelection);
+                        Assert.IsTrue(vm.PlaylistWorkspace.PublishPlaylistEntriesHydrationCompleted(2));
+                    }
+                    finally
+                    {
+                        release.Set();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(vm.PlayHistory.WaitForRefreshQueuesIdleAsync(), "history-target.switch-idle");
+                    }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(refreshCompletion.Task, "history-target.switch-adopted");
+                    Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, refreshCompletion.Task.GetAwaiter().GetResult().Status);
+                }
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count, "後続の同対象更新でも旧対象の選択は運ばない。");
+                table.SelectRowsByPredicate(row => row is PlayHistoryRow history && ReferenceEquals(history.Raw, first));
+                object rows = vm.MainChartList.Rows;
+                PlayHistoryViewRequest adoptedRequest = vm.PlayHistory.SnapshotActiveRequest();
+                foreach (string language in new[] { "en-US", "ja-JP" })
+                {
+                    ResourceService.Current.ChangeCulture(language);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual("2", vm.PlayHistory.SummaryCards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
+                    StringAssert.Contains(vm.MainChartList.SummaryText, Resources.Play_history_period_all);
+                    Assert.AreSame(rows, vm.MainChartList.Rows);
+                    Assert.AreSame(adoptedRequest, vm.PlayHistory.SnapshotActiveRequest());
+                    Assert.AreSame(first, ((PlayHistoryRow)table.GetSelectedRowsSnapshot().Single()).Raw);
+                }
+                var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                EventHandler onClosed = (_, _) => closed.TrySetResult();
+                window.Closed += onClosed;
+                try
+                {
+                    window.Close();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(window.CloseCompletion, "history-language.close-completion");
+                    if (!closed.Task.IsCompleted) { window.Close(); }
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "history-language.closed");
+                }
+                finally { window.Closed -= onClosed; }
+                int notifications = 0;
+                vm.PlayHistory.PropertyChanged += (_, _) => notifications++;
+                vm.MainChartList.PropertyChanged += (_, _) => notifications++;
+                ResourceService.Current.ChangeCulture("en-US");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(0, notifications);
+
+                PlayHistoryViewExecutionResult ExecuteCurrent()
+                {
+                    return vm.PlayHistory.ExecuteView(new PlayHistoryViewExecutionRequest(
+                        MainViewUpdateMode.PlayHistorySelected, MainViewUpdateMode.TreeViewFilterNotChanged, null,
+                        System.Diagnostics.Stopwatch.StartNew(), vm.PlayHistory.SnapshotActiveRequest(), string.Empty,
+                        vm.PlayHistory.SelectedDisplayTarget));
+                }
+
+                void Refresh(Action change)
+                {
+                    refreshCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                    try { change(); }
+                    finally { TestUiDispatcherHost.AwaitTaskOnDispatcher(vm.PlayHistory.WaitForRefreshQueuesIdleAsync(), "history-target.refresh-idle"); }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(refreshCompletion.Task, "history-target.refresh-adopted");
+                    Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, refreshCompletion.Task.GetAwaiter().GetResult().Status);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                }
+
+                void AssertSelected(string folder)
+                {
+                    Assert.AreEqual(2, vm.MainChartList.Rows.Count);
+                    var current = (PlayHistoryRow)table.GetSelectedRowsSnapshot().Single();
+                    Assert.AreSame(first, current.Raw);
+                    StringAssert.Contains(current.FolderLabels, folder);
+                }
+
+                BMSTable CreateTargetTable(string folder, int playlistId = 42) => new()
+                {
+                    playlist_id = playlistId,
+                    name = "Selected",
+                    symbol = "S",
+                    entries =
+                    [new BMSTableEntry { playlist_id = playlistId, md5 = first.hash, folder = folder }]
+                };
+            });
+            });
+        }
+        finally
+        {
+            ResourceService.Current.ChangeCulture(previousCulture?.Name ?? "en-US");
+            Resources.Culture = previousCulture;
+        }
+    }
+
     /// <summary>実compiled履歴列メニューのMD5チェックが同じ設定の可視性と表の実列へ双方向反映されることを確認します。初期化と保存主体は既存列設定系列へ分担します。</summary>
     [TestMethod]
     public void PlayHistoryColumnMenu_TogglesMd5ColumnThroughCompiledBinding()
@@ -73,6 +257,8 @@ public sealed class MainWindowPlayHistoryWpfTests
                     var toolbar = (Border)window.FindName("mainTableToolbar");
                     ComboBox combo = FindVisualChildren<ComboBox>(toolbar).Single();
                     ComboBox dropdownContainer = combo;
+                    var keyFilter = (DropDownMenuButton)window.FindName("KeyCountFilterButton");
+                    ChartModeFilter savedKeys = viewModel.ChartFilters.ModeFilter;
                     Assert.AreEqual(new Thickness(1), combo.BorderThickness);
                     Assert.AreSame(window.FindResource("App.Canonical.ComboBoxTemplate"), combo.Template);
 
@@ -90,6 +276,7 @@ public sealed class MainWindowPlayHistoryWpfTests
 
                         Assert.IsFalse(viewModel.PlayHistory.IsViewActive);
                         Assert.AreEqual(Visibility.Collapsed, dropdownContainer.Visibility);
+                        Assert.AreEqual(Visibility.Visible, keyFilter.Visibility);
                     }
                     finally
                     {
@@ -117,6 +304,9 @@ public sealed class MainWindowPlayHistoryWpfTests
                         Assert.AreEqual(viewModel.PlayHistory.DisplayTargets.Count, combo.Items.Count);
                         Assert.AreEqual(viewModel.PlayHistory.SelectedDisplayTargetIdentity, combo.SelectedValue);
                         Assert.AreEqual(Visibility.Visible, dropdownContainer.Visibility);
+                        Assert.AreEqual(Visibility.Collapsed, keyFilter.Visibility);
+                        Assert.AreEqual(Visibility.Collapsed, keyFilter.DropDownContextMenu.Visibility);
+                        Assert.AreEqual(savedKeys, viewModel.ChartFilters.ModeFilter);
 
                         combo.SelectedValue = selected.Identity;
                         combo.GetBindingExpression(Selector.SelectedValueProperty)?.UpdateSource();
@@ -136,6 +326,8 @@ public sealed class MainWindowPlayHistoryWpfTests
 
                             Assert.IsFalse(viewModel.PlayHistory.IsViewActive);
                             Assert.AreEqual(Visibility.Collapsed, dropdownContainer.Visibility);
+                            Assert.AreEqual(Visibility.Visible, keyFilter.Visibility);
+                            Assert.AreEqual(savedKeys, viewModel.ChartFilters.ModeFilter);
                         }
                         finally
                         {

@@ -61,6 +61,8 @@ BMSの部分保存後も候補を修正できます。次の明示確定は、�
 
 全般ではLR2の場所、状態、手動同期、履歴DBの状態を区別します。音声設定は出力設定、音量、専用テスト、詳細な音声設定を別々のセクションにします。プレイリストのURL対応表とプリセット、バックアップ、危険な削除操作はそれぞれの目的が分かる見出しで示します。「このソフトについて」はバージョン、ライセンス、リンク、読み取り専用のリリースノートを扱います。リリースノート画面は設定画面を所有者とし、設定編集の状態を持ちません。文化圏変更の購読は表示中だけ保持します。
 
+設定画面の言語変更は他画面のカードや件数表示を直接更新しません。履歴・通常一覧の表示主体がMainWindowのUI接続寿命で購読し、採用済みの小集計と数値だけを再整形します。履歴プリセットの保存成功は旧名・確定名を選択主体へ渡し、対応する希望識別だけを同じモードの新名へ移します。取消・保存失敗・検証拒否では選択を変更しません。詳細は[プレイ履歴](../playlist/play-history.md)に従います。
+
 一般ページは言語、環境、BMSディレクトリ、LR2の手動同期、LR2プレイログ、beatoraja連携の順に配置します。LR2の個別パスとbeatorajaの派生パスは初期状態で閉じた詳細欄に置き、操作グループ間に余白を設けます。変更・確定は適用可能な局所差分がある場合に強調表示し、不要なときは無効・グレーにします。取消は無効な入力を含む取消可能な編集があるときだけ有効です。recordは選択中の一項目で判断し、他項目の変更では有効化しません。BMSの明示再保存、出力先の明示再選択、BMTの同値全表再更新は、差分がない場合も最新入力で実行できます。
 
 環境選択はスタンドアローンとLR2連携を等幅二列・同高のRadioButtonカードにし、名称一回と折り返す説明を表示します。通常設定と初期環境設定に共通で適用し、カード全表面・標準キー入力から既存の確認経路へ渡します。`IsEnvironmentSelectionEnabled` と一方向の選択表示、確認一回を保持します。設定実操作中の入口拒否では、両Radio・ViewModel選択を保存済みモードへ再通知し、確認・保存・再起動を開始しません。実保存開始後の失敗では従来どおり今回入力を保持して明示再操作を可能にし、選択表示を設定値への単純な双方向Bindingに置き換えません。
@@ -221,7 +223,7 @@ LR2連携でバックアップを有効化した場合は、当該項目の保�
 
 ### beatorajaの局所反映
 
-beatorajaのroot、スコア、BMTは独立した確定操作です。スコアON/OFFとplayerの変更は確定rootの `playerpath` からscore.dbを解決し、使用方針・player・score.dbだけを保存します。有効な組は入力イベントで自動確定し、必要なスコア再読込み・履歴キャッシュ失効・必須表示まで待ちます。別root候補・BMT候補は確定も破棄も要求しません。外部configの `tablepath` が変わっていても、スコア操作ではBMT先の再解決・保存・出力・旧先整理・管理URL同期を行いません。共通ScoreOnly完了もプレイリストURL補完を予約しません。
+beatorajaのroot、スコア、BMTは独立した確定操作です。スコアON/OFFとplayerの変更は確定rootの `playerpath` からscore.dbを解決し、使用方針・player・score.dbだけを保存します。有効な組は入力イベントで自動確定し、必要なスコアと全履歴の再取得・現在要求の置換・必須表示まで待ちます。別root候補・BMT候補は確定も破棄も要求しません。外部configの `tablepath` が変わっていても、スコア操作ではBMT先の再解決・保存・出力・旧先整理・管理URL同期を行いません。共通ScoreOnly完了もプレイリストURL補完を予約しません。
 
 root pickerは新rootの有効性を検証し、確定済みスコア使用がONなら必要なplayerとscore.dbも検証します。構成のplayer名が一覧にあれば採用し、なければ名前順の先頭、一覧が空なら空値に揃えます。旧root前提の未確定score・BMT候補は破棄を確認し、採用時だけ関係候補を確定値へ戻します。取消・同値・検証失敗・受付拒否では元候補を保持します。別候補を便乗保存せず、確定済みスコア使用とBMT方針で処理します。異なる物理BMT先は新先準備後に設定を採用し、採用後の必要score処理・履歴cache失効・必須表示はBMTのURL・旧先整理失敗でも同じ受理Taskで回収し、二次score/UI失敗でBMT元原因を置き換えません。再起動は要求しません。
 
@@ -366,6 +368,7 @@ BMSディレクトリの追加・削除・複数選択・D&Dは設定画面内�
 | 補助操作の確定対象・一回の確認・実受付後の候補破棄 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`SettingsWindow`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs)、既存LR2/履歴/Playlist owner | `Lr2PlayHistorySchemaUiTests.SettingDialogViewModel_InstallUsesConfirmedPlayerAndPreservesCandidatesUntilAccepted` と既存撤去系列は実SQLite・別XMLのplayer・取消/拒否・無関係候補を、`SettingsWindowPresentationTests.SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow` は実button・受理前非閉鎖と実Task所有を確認する。実同期のL/P・準備0、モード無効の最終検査によるfalse通知と両受付解放は `BmsLibraryLr2SongDbSyncTests` が分担する。 |
 | Table URL取込みの確定root・実Task・同再操作拒否 | [`PlaylistWorkspaceViewModel.BeatorajaTableUrlImport`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.BeatorajaTableUrlImport.cs)、[`SettingsWindow`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs) | `SettingDialogEditCompletionTests.BeatorajaTableUrlButton_DeliversConfirmedRootToWorkspace` は既存URLと別候補rootを実buttonへ入力し、確認取消・実P拒否・受理後の関係候補破棄と通知終端gate中の通常Close許可と再操作拒否を確認する。取得・DB・BMTの内容は `PlaylistWorkspaceExternalSourceTests` へ分担する。 |
 | 終了操作の案内統合・候補保持・受理済みTask回収 | `SettingsWindow`、既存復元・撤去・Shell終了担当 | `BackupPage_RestoreRefusalOrRequiredFailureNeverRequestsExit`の取消・受付拒否・必須失敗での非終了、既存復元成功/撤去のShell終端、`SettingDialogOperationShutdownTests`の手動同期先行閉鎖と直接joinを維持する。score失敗後の復元確認・通常再表示・次のcompiled入力は `SettingsWindowPresentationTests.ScoreProcessingFailure_AllowsNextSelectionAndRestoreAfterReopen` が確認する。BMT失敗後の復元確認は `SettingsWindowPresentationTests.BmtProcessingFailure_AllowsExplicitCurrentUpdateAndRestoreAfterReopen`、LR2再起動の許可と確認中の競合拒否は `SettingsDialogBehaviorTests.EnvironmentRestart_AllowsPreviousBeatorajaFailureAndRejectsConcurrentSettings` が確認する。 |
+| 履歴プリセット改名の選択追従と画面別の言語購読 | `SettingsDialogViewModel`、`ISettingsDialogPlayHistoryPort`、履歴・通常一覧主体 | 実providerのrecord保存は `SettingsDialogBehaviorTests.PlayHistoryPreset_ConfirmedNameKeepsSavedRecordAcrossEditsAndRemoval`、両履歴モードの希望識別は `PlayHistoryReadModelTests.WorkflowOwner_ConfirmedPresetRenameKeepsLogicalSelection`、採用済み集計・通常件数・解除は履歴仕様の対応表へ分担する。 |
 
 ## 関連資料
 

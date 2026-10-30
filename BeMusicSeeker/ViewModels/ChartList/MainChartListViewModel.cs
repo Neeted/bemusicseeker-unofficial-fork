@@ -18,6 +18,34 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 public sealed class MainChartListViewModel : ViewModel
 {
+    private MainChartListSummaryUpdate adoptedSummary = MainChartListSummaryUpdate.Explicit(string.Empty);
+
+    /// <summary>画面の寿命内だけ、採用済み件数の言語変更を購読します。</summary>
+    internal void AttachLanguagePresentation()
+    {
+        DetachLanguagePresentation();
+        ResourceService.Current.PropertyChanged += LanguageResourcesChanged;
+        RefreshSummaryLanguage();
+    }
+
+    /// <summary>画面の退役に合わせて件数表示の購読を解除します。</summary>
+    internal void DetachLanguagePresentation()
+        => ResourceService.Current.PropertyChanged -= LanguageResourcesChanged;
+
+    private void LanguageResourcesChanged(object sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName == nameof(ResourceService.Resources)) { RefreshSummaryLanguage(); }
+    }
+
+    /// <summary>採用時に正規化した数値だけを使い、一覧の再列挙・再検索をせず翻訳します。</summary>
+    internal void RefreshSummaryLanguage()
+    {
+        if (adoptedSummary.Kind != MainChartListSummaryKind.NormalCounts) { return; }
+        string next = FormatSummaryText(adoptedSummary.RowCount, adoptedSummary.DistinctFolderCount);
+        if (summaryText == next) { return; }
+        summaryText = next;
+        RaisePropertyChanged(nameof(SummaryText));
+    }
     private const long ColumnSettingSlowLogThresholdMs = 100L;
 
     private readonly Action<Action> dispatchPresentationAction;
@@ -404,7 +432,7 @@ public sealed class MainChartListViewModel : ViewModel
     public CustomTableRowDragKind RowDragKind => ResolveRowDragKind(ColumnsSettings);
 
     /// <summary>
-    /// Gets or sets the summary text displayed below the main chart table.
+    /// 主一覧の集計文言を取得または明示設定します。直接の設定は通常件数の再整形入力を解除します。
     /// </summary>
     public string SummaryText
     {
@@ -412,6 +440,7 @@ public sealed class MainChartListViewModel : ViewModel
         set
         {
             string next = value ?? string.Empty;
+            adoptedSummary = MainChartListSummaryUpdate.Explicit(next);
             if (summaryText != next)
             {
                 summaryText = next;
@@ -592,9 +621,9 @@ public sealed class MainChartListViewModel : ViewModel
     }
 
     /// <summary>
-    /// Updates the normal chart-list summary from the supplied row collection.
+    /// 通常一覧の行から件数を捕捉し、行集合を保持せず言語再整形できる数値へ正規化します。
     /// </summary>
-    /// <param name="rowsForSummary">Rows used to calculate visible chart and folder counts.</param>
+    /// <param name="rowsForSummary">表示件数とフォルダ数の入力です。nullは明示的に集計を解除します。</param>
     public void UpdateSummaryText(IList rowsForSummary)
     {
         if (rowsForSummary == null)
@@ -613,13 +642,14 @@ public sealed class MainChartListViewModel : ViewModel
     }
 
     /// <summary>
-    /// Updates the normal chart-list summary from known chart and folder counts.
+    /// 採用する通常一覧の件数を保持して表示し、以後の言語変更で同じ数値を再整形します。
     /// </summary>
-    /// <param name="rowCount">Visible chart count.</param>
-    /// <param name="distinctFolderCount">Visible distinct-folder count.</param>
+    /// <param name="rowCount">表示する譜面件数。</param>
+    /// <param name="distinctFolderCount">表示するフォルダ数。不明値の扱いは既存の書式に従います。</param>
     public void UpdateSummaryText(int rowCount, int distinctFolderCount)
     {
         SummaryText = FormatSummaryText(rowCount, distinctFolderCount);
+        adoptedSummary = MainChartListSummaryUpdate.NormalCounts(rowCount, distinctFolderCount);
     }
 
     /// <summary>
@@ -756,7 +786,8 @@ public sealed class MainChartListViewModel : ViewModel
             throw new ArgumentNullException(nameof(request.ColumnsSettings));
         }
 
-        string nextSummaryText = ResolveSummaryText(request.Summary);
+        MainChartListSummaryUpdate nextSummary = NormalizeSummary(request.Summary);
+        string nextSummaryText = ResolveSummaryText(nextSummary);
         int nextSelectedIndex = request.SelectionPolicy == MainChartListSelectionPolicy.Reset
             ? -1
             : selectedIndex;
@@ -799,7 +830,8 @@ public sealed class MainChartListViewModel : ViewModel
             summaryChanged,
             selectionChanged,
             rowsReplacementPrepared,
-            prepareSwapMs);
+            prepareSwapMs)
+        { NextSummary = nextSummary };
     }
 
     private MainChartListRowsCommit CommitPreparedRows(MainChartListPreparedRowsApply prepared)
@@ -846,6 +878,7 @@ public sealed class MainChartListViewModel : ViewModel
         columnsSettings = request.ColumnsSettings;
         selectedIndex = prepared.NextSelectedIndex;
         summaryText = prepared.NextSummaryText;
+        adoptedSummary = prepared.NextSummary;
         bool operationContextChanged = request.OperationContextMode.HasValue
             && CommitOperationContextWithoutNotification(request.OperationContextMode.Value);
         prepared.Committed = true;
@@ -1045,6 +1078,16 @@ public sealed class MainChartListViewModel : ViewModel
             _ => throw new ArgumentOutOfRangeException(nameof(summary)),
         };
     }
+
+    private MainChartListSummaryUpdate NormalizeSummary(MainChartListSummaryUpdate summary)
+        => summary.Kind switch
+        {
+            MainChartListSummaryKind.Preserve => adoptedSummary,
+            MainChartListSummaryKind.NormalRows => MainChartListSummaryUpdate.NormalCounts(summary.Rows.Count,
+                summary.Rows is IChartListViewMetadata metadata ? metadata.DistinctFolderCount
+                    : CountDistinctFoldersForRows(summary.Rows)),
+            _ => summary
+        };
 
     private static string FormatSummaryText(int rowCount, int distinctFolderCount)
     {
@@ -1344,6 +1387,8 @@ internal sealed class MainChartListRowsApplyRequest
 
 internal sealed class MainChartListPreparedRowsApply
 {
+    /// <summary>採用後に行集合を保持しない、数値または明示文言へ正規化した集計です。</summary>
+    internal MainChartListSummaryUpdate NextSummary { get; init; }
     internal MainChartListPreparedRowsApply(
         MainChartListRowsApplyRequest request,
         string nextSummaryText,

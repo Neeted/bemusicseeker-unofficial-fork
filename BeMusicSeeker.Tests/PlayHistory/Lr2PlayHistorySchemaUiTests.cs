@@ -290,12 +290,11 @@ public sealed class Lr2PlayHistorySchemaUiTests
                 if (outcome == "accepted")
                 {
                     Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, new Lr2PlayHistorySchemaService().Check(score, true).Status);
-                    Assert.AreEqual(1, history.InvalidationCount);
                 }
-                else { CollectionAssert.AreEqual(sourceBefore, File.ReadAllBytes(score)); Assert.AreEqual(0, history.InvalidationCount); }
+                else { CollectionAssert.AreEqual(sourceBefore, File.ReadAllBytes(score)); }
                 held?.Dispose(); held = null;
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreEqual(outcome == "accepted" ? 1 : 0, history.InvalidationCount, "受付解放だけで自動再操作しません。");
+                Assert.AreEqual(outcome is "accepted" or "cancel" ? 1 : 0, dialogs.ConfirmationCount, "受付解放だけで自動再操作しません。");
             }
             finally { held?.Dispose(); dialog?.Dispose(); owner?.SettingDialog.Dispose(); Directory.Delete(root, recursive: true); }
         });
@@ -398,8 +397,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
             Assert.AreEqual(installing ? 0 : 1, dialogs.WindowCount);
             Assert.AreEqual(1, dialogs.MessageCount);
             Assert.AreEqual(installing ? Resources.Msg_success_lr2_play_history_schema_install_or_repair : Resources.Msg_success_lr2_play_history_schema_uninstall, dialogs.LastMessage);
-            Assert.AreEqual(installing ? "lr2_play_history_schema_install_or_repair" : "lr2_play_history_schema_uninstall", playHistory.LastInvalidationReason);
-            Assert.AreEqual(1, playHistory.InvalidationCount);
             Assert.AreEqual(1, reloadCount);
             Assert.AreEqual(expectedStatus, settingDialog.Lr2PlayHistorySchemaStatusSnapshot.Status);
             using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
@@ -486,8 +483,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
             Assert.AreEqual(1, dialogs.WindowCount);
             Assert.AreEqual(1, dialogs.MessageCount);
             Assert.AreEqual(Resources.Msg_success_lr2_play_history_schema_uninstall, dialogs.LastMessage);
-            Assert.AreEqual("lr2_play_history_schema_uninstall", playHistory.LastInvalidationReason);
-            Assert.AreEqual(1, playHistory.InvalidationCount);
             Assert.AreEqual(0, reloadCount);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, settingDialog.Lr2PlayHistorySchemaStatusSnapshot.Status);
             using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
@@ -568,7 +563,6 @@ public sealed class Lr2PlayHistorySchemaUiTests
             Assert.AreEqual(1, dialogs.WindowCount);
             Assert.AreEqual(0, dialogs.MessageCount);
             Assert.AreEqual(0, reloadCount);
-            Assert.AreEqual(0, playHistory.InvalidationCount);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, settingDialog.Lr2PlayHistorySchemaStatusSnapshot.Status);
             using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(1, verify.ExecuteScalar<int>(
@@ -721,23 +715,10 @@ public sealed class Lr2PlayHistorySchemaUiTests
 
     private sealed class RecordingPlayHistoryPort : ISettingsDialogPlayHistoryPort
     {
-        internal int InvalidationCount { get; private set; }
-
-        internal string? LastInvalidationReason { get; private set; }
-
-        public void InvalidateReadCache(string reason)
-        {
-            InvalidationCount++;
-            LastInvalidationReason = reason;
-        }
-
-        public void RefreshDisplayTargetCatalog(bool queueRefreshWhenSelectionChanges = true)
-        {
-        }
 
         public void RefreshDisplayTargetSetsFromSettings(
             string serializedDisplayTargetSets,
-            bool queueRefreshWhenSelectionChanges)
+            bool queueRefreshWhenSelectionChanges, string? previousName = null, string? confirmedName = null)
         {
         }
     }

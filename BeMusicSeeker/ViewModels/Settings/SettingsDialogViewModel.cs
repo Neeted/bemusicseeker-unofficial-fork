@@ -928,7 +928,6 @@ public partial class SettingsDialogViewModel : ViewModel
             ApplyLr2PlayHistorySchemaCheckResult(result);
             if (result.Status == Lr2PlayHistorySchemaStatus.Installed)
             {
-                playHistoryPort.InvalidateReadCache("lr2_play_history_schema_install_or_repair");
                 await ShowLr2PlayHistorySchemaMessageAsync(
                     BeMusicSeeker.Properties.Resources.Msg_success_lr2_play_history_schema_install_or_repair,
                     BeMusicSeeker.Properties.Resources.Success,
@@ -1081,7 +1080,6 @@ public partial class SettingsDialogViewModel : ViewModel
             ApplyLr2PlayHistorySchemaCheckResult(result);
             if (IsExpectedLr2PlayHistorySchemaUninstallResult(uninstallMode, result.Status))
             {
-                playHistoryPort.InvalidateReadCache("lr2_play_history_schema_uninstall");
                 await ShowLr2PlayHistorySchemaMessageAsync(
                     BeMusicSeeker.Properties.Resources.Msg_success_lr2_play_history_schema_uninstall,
                     BeMusicSeeker.Properties.Resources.Success,
@@ -3835,7 +3833,6 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 option.RefreshDisplayName();
             }
-            playHistoryPort.RefreshDisplayTargetCatalog(queueRefreshWhenSelectionChanges: false);
         });
         // 起動構成が捕捉する値は保存済み設定の読込み後に揃えます。画面の再表示では再読込みしません。
         this.settingsEditSession.Reload();
@@ -4229,7 +4226,8 @@ public partial class SettingsDialogViewModel : ViewModel
         string json = PlayHistoryDisplayTargetSetStore.Serialize(confirmed);
         if (!TryCommitSetting(nameof(PlayHistoryFolderDisplayPresets), (nameof(Settings.PlayHistoryDisplayTargetSetsJson), json)))
         { errMsg = Resources.Msg_error_unexpected; return false; }
-        playHistoryPort.RefreshDisplayTargetSetsFromSettings(json, queueRefreshWhenSelectionChanges: true);
+        playHistoryPort.RefreshDisplayTargetSetsFromSettings(json, queueRefreshWhenSelectionChanges: true,
+            previousName: confirmedIndex < 0 ? null : preset?.Name, confirmedName: saved.Name);
 
         if (preset == null)
         {

@@ -396,7 +396,8 @@ internal sealed class PlayHistoryDisplayTargetIndex
             : (string.IsNullOrWhiteSpace(level) ? symbol : symbol + level);
     }
 
-    private static IEnumerable<BMSTable> ResolveTargetSetTables(
+    /// <summary>プリセットが参照する現在の表を解決し、行投影と候補更新の依存判定で同じ参照規則を使います。</summary>
+    internal static IEnumerable<BMSTable> ResolveTargetSetTables(
         IEnumerable<BMSTable> tables,
         PlayHistoryDisplayTargetSet targetSet)
     {

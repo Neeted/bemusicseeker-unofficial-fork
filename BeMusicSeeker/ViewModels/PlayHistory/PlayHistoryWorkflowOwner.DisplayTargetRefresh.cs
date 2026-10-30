@@ -24,9 +24,6 @@ public sealed partial class PlayHistoryWorkflowOwner
 
     private Action<Action> scheduleDisplayTargetCatalogRefresh;
 
-    void ISettingsDialogPlayHistoryPort.InvalidateReadCache(string reason)
-        => InvalidateReadCache(reason);
-
     internal void ConfigureDisplayTargetCatalogRefresh(
         Func<bool> isShutdownRequested,
         Func<IReadOnlyList<BMSTable>> snapshotTables,
@@ -40,13 +37,11 @@ public sealed partial class PlayHistoryWorkflowOwner
             ?? throw new ArgumentNullException(nameof(scheduleRefresh));
     }
 
-    void ISettingsDialogPlayHistoryPort.RefreshDisplayTargetCatalog(bool queueRefreshWhenSelectionChanges)
-        => RefreshDisplayTargetCatalog(queueRefreshWhenSelectionChanges);
-
     void ISettingsDialogPlayHistoryPort.RefreshDisplayTargetSetsFromSettings(
         string serializedDisplayTargetSets,
-        bool queueRefreshWhenSelectionChanges)
-        => RefreshDisplayTargetSetsFromSettings(serializedDisplayTargetSets, queueRefreshWhenSelectionChanges);
+        bool queueRefreshWhenSelectionChanges, string previousName, string confirmedName)
+        => RefreshDisplayTargetSetsFromSettings(serializedDisplayTargetSets, queueRefreshWhenSelectionChanges,
+            previousName, confirmedName);
 
     internal void RefreshDisplayTargetCatalog(bool queueRefreshWhenSelectionChanges = true)
     {
@@ -55,9 +50,12 @@ public sealed partial class PlayHistoryWorkflowOwner
         ReplaceDisplayTargetCatalog(tables, queueRefreshWhenSelectionChanges);
     }
 
+    /// <summary>保存成功のプリセット定義を採用し、旧名に対応する希望識別だけを同じモードの確定名へ移します。</summary>
     internal void RefreshDisplayTargetSetsFromSettings(
         string serializedDisplayTargetSets,
-        bool queueRefreshWhenSelectionChanges)
+        bool queueRefreshWhenSelectionChanges,
+        string previousName = null,
+        string confirmedName = null)
     {
         EnsureDisplayTargetCatalogRefreshConfigured();
         IReadOnlyList<BMSTable> tables = snapshotDisplayTargetCatalogTables();
@@ -66,6 +64,20 @@ public sealed partial class PlayHistoryWorkflowOwner
             out IReadOnlyList<PlayHistoryDisplayTargetSet> targetSets))
         {
             throw new InvalidOperationException("Play-history display target settings JSON is invalid.");
+        }
+        if (previousName != null && confirmedName != null)
+        {
+            string oldKey = previousName.Trim().ToUpperInvariant();
+            string newKey = confirmedName.Trim().ToUpperInvariant();
+            foreach (string prefix in new[] { "set:", "set-folder:" })
+            {
+                if (string.Equals(preferredDisplayTargetIdentity, prefix + oldKey, StringComparison.Ordinal))
+                {
+                    preferredDisplayTargetIdentity = prefix + newKey;
+                    persistDisplayTargetIdentity?.Invoke(preferredDisplayTargetIdentity);
+                    break;
+                }
+            }
         }
         ReplaceDisplayTargetSets(targetSets, tables, queueRefreshWhenSelectionChanges);
     }

@@ -28,7 +28,7 @@ internal sealed class PlayHistoryPeriodRequest
         Lr2PlayHistoryFinalizationFilter finalizationFilter)
     {
         Kind = kind;
-        Label = label ?? string.Empty;
+        this.label = label ?? string.Empty;
         PlayedAtFromInclusive = playedAtFromInclusive;
         PlayedAtToExclusive = playedAtToExclusive;
         FinalizationFilter = finalizationFilter;
@@ -36,7 +36,11 @@ internal sealed class PlayHistoryPeriodRequest
 
     internal PlayHistoryPeriodKind Kind { get; }
 
-    internal string Label { get; }
+    private readonly string label;
+
+    /// <summary>確定した日時境界を保ち、相対期間のラベルだけを現在言語で取得します。</summary>
+    internal string Label => Kind is PlayHistoryPeriodKind.Year or PlayHistoryPeriodKind.Month or PlayHistoryPeriodKind.Day
+        ? label : ResolveLabel(Kind);
 
     internal long? PlayedAtFromInclusive { get; }
 

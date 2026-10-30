@@ -1469,6 +1469,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     /// <summary>バックアップ項目の保存通知故障は保存済み値を保ち、有効な実beatoraja DBへの使用切替で起こるScore確定の必須UI失敗後は次の有効入力を確定できます。Score成功・必須UI失敗・次入力確定はURL補完を登録せず、通常の共通score入口でも同じ契約を保ちます。</summary>
+    /// <remarks>履歴要求は取得前に消さず、新取得の実batch配送で置き換わります。必須UI gateでは取得組の公開と意味上の選択を、配送後にはUI成否によらない旧要求の取消・拒否と新要求の条件維持を確認します。</remarks>
     [DataTestMethod]
     [DataRow(true)] // 必須UI失敗後も次の入力を確定し、URL workを開始しません。
     [DataRow(false)] // 別項目の保存通知故障はScore成功を変えず、起動・全再初期化のURL補完契機は保ちます。
@@ -1532,9 +1533,34 @@ public sealed class MainWindowViewModelStartupProgressTests
             Assert.AreEqual(1, notices.Count, "バックアップ案内はその項目の保存直後に通知します。");
             fixture.Ui.IsCompletionBoundary = () => !fixture.Composition.OperationAdmission.IsActive
                 && !fixture.Composition.PlaylistOperationAdmission.IsActive && fixture.Owner.IsLibraryOperationInProgress;
-            fixture.Ui.Arm();
-            PlayHistoryViewRequest historyRequest = fixture.Owner.PlayHistory.BeginRequest(PlayHistoryPeriodRequest.All(), string.Empty, string.Empty, 0);
+            var historyPeriod = PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, TimeZoneInfo.Utc);
+            const string historyKeyword = "title:history-score";
+            fixture.Owner.ChartFilters.KeywordFilter = historyKeyword;
+            var initialHistoryAdopted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void InitialHistoryRows(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == nameof(MainChartListViewModel.Rows)
+                    && fixture.Owner.MainChartList.LastAppliedColumnMode == MainViewUpdateMode.PlayHistorySelected)
+                { initialHistoryAdopted.TrySetResult(); }
+            }
+            PlayHistoryViewRequest historyRequest;
+            fixture.Owner.MainChartList.PropertyChanged += InitialHistoryRows;
+            try
+            {
+                historyRequest = fixture.Owner.PlayHistory.ActivatePeriod(historyPeriod, historyKeyword);
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(initialHistoryAdopted.Task, "settings-score-initial-history-adopted");
+            }
+            finally { fixture.Owner.MainChartList.PropertyChanged -= InitialHistoryRows; }
+            BMSLibrary.ScoreSnapshot previousScore = fixture.Library.CaptureScoreSnapshotForView();
+            Assert.IsNotNull(previousScore.PlayHistorySnapshot);
             CancellationToken historyCancellation = fixture.Owner.PlayHistory.GetCancellationToken(historyRequest.RequestId);
+            var historyBatchDelivered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void ScoreBatchDelivered(object? sender, NormalLibraryRefreshAppliedEventArgs args)
+            {
+                if (args.NotificationBatch.ScoreChanges.Count > 0) { historyBatchDelivered.TrySetResult(); }
+            }
+            fixture.Owner.RegularChartList.NormalLibraryRefreshApplied += ScoreBatchDelivered;
+            fixture.Ui.Arm();
             Task apply = dialog.CommitScoreSettingsAsync();
             fixture.Track(apply);
             Task ownedOperation = dialog.SettingsOperationCompletionTask;
@@ -1546,8 +1572,13 @@ public sealed class MainWindowViewModelStartupProgressTests
                 Assert.AreSame(ownedOperation, dialog.SettingsOperationCompletionTask);
                 Assert.IsFalse(ownedOperation.IsCompleted);
                 Assert.IsFalse(dialog.IsSettingsOperationAvailable, "親L/P解放後も必須UIまで設定Taskを所有します。");
-                Assert.IsTrue(historyCancellation.IsCancellationRequested);
-                Assert.IsNull(fixture.Owner.PlayHistory.SnapshotActiveRequest());
+                BMSLibrary.ScoreSnapshot acquiredScore = fixture.Library.CaptureScoreSnapshotForView();
+                Assert.AreEqual(ActiveScoreSource.Beatoraja, acquiredScore.ActiveScoreSource);
+                Assert.AreEqual(scorePath, acquiredScore.ScoreDbPath);
+                Assert.IsNotNull(acquiredScore.PlayHistorySnapshot);
+                Assert.AreNotSame(previousScore.PlayHistorySnapshot, acquiredScore.PlayHistorySnapshot);
+                Assert.IsTrue(acquiredScore.SourceGeneration > previousScore.SourceGeneration);
+                AssertHistorySelection();
                 Assert.AreEqual(0, registrations);
                 Assert.AreEqual("saved-score-player", fixture.Settings.BeatorajaPlayerId);
                 Assert.IsTrue(fixture.Settings.UseBeatorajaScoreDb);
@@ -1564,6 +1595,13 @@ public sealed class MainWindowViewModelStartupProgressTests
                 Assert.AreEqual(System.Windows.MessageBoxImage.Asterisk, notices.Single().Icon);
                 Assert.IsTrue(ownedOperation.IsCompleted);
                 Assert.IsTrue(dialog.IsScoreSelectionEnabled);
+                // ScoreNotificationは必須UIより先に発火する。gateの前後どちらにdrainされても、実配送の後でだけ要求置換を判定する。
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(historyBatchDelivered.Task, "settings-score-history-batch-delivered");
+                Assert.IsTrue(historyCancellation.IsCancellationRequested);
+                Assert.IsFalse(fixture.Owner.PlayHistory.IsCurrentRequest(historyRequest.RequestId), "旧結果は配送後の現在要求として採用しません。");
+                PlayHistoryViewRequest currentHistory = AssertHistorySelection();
+                Assert.AreNotEqual(historyRequest.RequestId, currentHistory.RequestId);
+                Assert.AreSame(acquiredScore.PlayHistorySnapshot, currentHistory.SourceSnapshot);
                 if (uiFails)
                 {
                     Assert.AreEqual(0, registrations, "保存済みURL変更でも必須UI失敗時は新規登録しません。");
@@ -1592,7 +1630,27 @@ public sealed class MainWindowViewModelStartupProgressTests
             }
             finally
             {
+                fixture.Owner.RegularChartList.NormalLibraryRefreshApplied -= ScoreBatchDelivered;
                 fixture.Ui.Release.TrySetResult();
+            }
+
+            PlayHistoryViewRequest AssertHistorySelection()
+            {
+                PlayHistoryViewRequest current = fixture.Owner.PlayHistory.SnapshotActiveRequest();
+                Assert.IsNotNull(current);
+                Assert.IsTrue(fixture.Owner.PlayHistory.IsViewActive);
+                Assert.IsTrue(fixture.Owner.PlayHistory.IsCurrentRequest(current.RequestId));
+                Assert.AreEqual(historyPeriod.Kind, current.PeriodRequest.Kind);
+                Assert.AreEqual(historyPeriod.PlayedAtFromInclusive, current.PeriodRequest.PlayedAtFromInclusive);
+                Assert.AreEqual(historyPeriod.PlayedAtToExclusive, current.PeriodRequest.PlayedAtToExclusive);
+                Assert.AreEqual(historyPeriod.FinalizationFilter, current.PeriodRequest.FinalizationFilter);
+                Assert.AreEqual(historyKeyword, fixture.Owner.ChartFilters.KeywordFilter);
+                Assert.AreEqual(historyKeyword, fixture.Owner.PlayHistory.CurrentKeywordIdentity);
+                Assert.AreEqual("all", fixture.Owner.PlayHistory.SelectedDisplayTargetIdentity);
+                Assert.AreEqual("all", fixture.Owner.PlayHistory.CurrentDisplayTargetIdentity);
+                Assert.AreEqual(fixture.Owner.PlayHistory.KeywordRevision, current.KeywordFilterRevision);
+                Assert.AreEqual(fixture.Owner.PlayHistory.DisplayTargetRevision, current.DisplayTargetRevision);
+                return current;
             }
         });
     }

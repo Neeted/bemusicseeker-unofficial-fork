@@ -693,9 +693,9 @@
                     <ColumnDefinition Width="20" />
                     <ColumnDefinition Width="20" />
                   </Grid.ColumnDefinitions>
-                  <v:DropDownMenuButton Grid.Column="0" Width="20" Height="20" Template="{DynamicResource templateDropmenuButtonFilter}" Margin="2,0,0,0">
+                  <v:DropDownMenuButton x:Name="KeyCountFilterButton" Grid.Column="0" Width="20" Height="20" Template="{DynamicResource templateDropmenuButtonFilter}" Margin="2,0,0,0" Visibility="{Binding PlayHistory.IsViewActive, Converter={StaticResource notBooleanToVisibilityCollapsedConverter}}">
                     <v:DropDownMenuButton.DropDownContextMenu>
-                      <ContextMenu>
+                      <ContextMenu Visibility="{Binding PlayHistory.IsViewActive, Source={StaticResource vm}, Converter={StaticResource notBooleanToVisibilityCollapsedConverter}}">
                         <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header=" 5KEYS" IsChecked="{Binding ChartFilters.ModeFilter, Source={StaticResource vm}, ConverterParameter=_5KEYS, Converter={StaticResource modeFilterConverter}}" />
                         <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header=" 7KEYS" IsChecked="{Binding ChartFilters.ModeFilter, Source={StaticResource vm}, ConverterParameter=_7KEYS, Converter={StaticResource modeFilterConverter}}" />
                         <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header=" 9KEYS" IsChecked="{Binding ChartFilters.ModeFilter, Source={StaticResource vm}, ConverterParameter=_9KEYS, Converter={StaticResource modeFilterConverter}}" />

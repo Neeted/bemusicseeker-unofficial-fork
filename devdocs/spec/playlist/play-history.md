@@ -40,6 +40,10 @@ LR2要求はDBパス、連携プロファイルかどうか、開始を含み終
 
 `PlayHistoryProjectionIndex` が生の記録を現在の所持譜面とプレイリストへ解決します。候補索引から表示用ChartFileを取得せず、MD5/SHA-256の候補解決と現在値を共通カタログ読取り区間で一括捕捉します。履歴自体の値と取得元別のスコアは独立した記録として維持します。古い要求・取消で構築が中断したら表示を更新しません。譜面を解決できない行は生のハッシュと診断を持つ未解決行として残せます。これはスキーマ不備や取得失敗を成功へ変える意味ではありません。
 
+通常一覧がdrainした同じ `NormalLibraryRefreshNotificationBatch` を履歴主体へ渡します。新しい取得組の公開と、カタログ・参照索引の有効な確定は、現在の期間・キーワード・カード・表示対象・整列を保つ新しい表示要求へ置き換え、旧要求を取消します。参照の表示差分が空でも確定版が進めば投影依存の更新として扱います。警告・保守表示だけの通知では全件を再投影しません。要求の正本は `ActiveRequest` とし、更新callbackは実行時の現在要求を使います。期間選択用の通知は実際の期間選択に限ります。
+
+同じ取得組・期間・論理表示対象の投影依存更新は、raw record参照を履歴行の識別として既存の選択復元へ渡します。同じ譜面の別プレイを区別し、消失した行を旧添字の別行へ移しません。同対象の項目読込み完了、候補再構築による表参照の交換、同プリセットの確定参照先変更も既存の対象更新queueから選択維持へ接続します。明示的な別対象への切替は選択を解除し、その直後に項目完了が来ても採用済み一覧の対象識別を使って旧対象の選択を運びません。取得組・期間の実変更にも選択を持ち越しません。非表示化・要求置換では派生表示を失効させ、退役した一覧の取得組参照も解放します。
+
 読取り・表示生成が失敗した場合は、現在要求の結果領域を取得失敗へ更新します。旧行・選択・集計カードを外し、行・カードに依存する操作だけを止めます。失敗表示に空の表示コレクションを使っても、正常0件の取得成功とは区別します。旧表示の保存・条件照合・復元は行わず、期間・表示対象の変更や他画面は利用できます。取消し・旧世代の拒否と取得失敗を区別し、古い成功・失敗結果は新しい要求へ適用しません。日付別の旧結果保存や自動再試行は行いません。
 
 ### 行の意味
@@ -60,6 +64,8 @@ LR2のクリア2はEASYビットありをEASY、なしをASSISTとし、ASSIST�
 
 一覧の日時はGregorianの `yyyy-MM-dd HH:mm:ss`、率は小数2桁で小数点を `.` として表示します。集計カードの件数は桁区切りなしの整数です。これらは表示書式の規則であり、演奏時間などの集計範囲は以下の取得元別の規則に従います。書式変更で元の成績値やカード検索集合は変えません。`PlayHistoryReadModelTests` は異文化の件数・率と既存カード条件を、`GridKeywordSearchQueryTests` はコピーした表示日時の検索を分担します。
 
+表示言語の変更では採用済み終端の小集計だけを保持して、カード・集計文言・相対期間ラベル・表示対象ラベルを再整形します。未採用候補を含む `CurrentView` は再整形の入力にしません。行、日時境界、キーワード、カード選択、表示対象、一覧選択と要求の版は保ち、DB取得・検索を実行しません。正常0件・失敗・クリアも採用状態に反映します。通常一覧の件数は採用時の数値へ正規化し、`Preserve` で保持、明示文言で解除します。言語購読はMainWindowのUI接続・解除の寿命に従います。
+
 一覧とは別の集計帯に判定数、プレイ数、演奏時間、スコア/BP/COMBO/CLEAR更新数とクリア更新内訳を表示します。beatorajaだけEXH内訳を加えます。更新カードの複数選択はOR、キーワードとはANDで絞ります。カード選択を検索文字列や履歴へ書き込みません。
 
 FC内訳と既存FCカードは、FC・PERFECT・beatorajaのMAXへのクリア更新を同じ対象集合で数え、絞り込みます。MAXのままSCOREだけを更新した行はSCORE更新へ含め、CLEAR更新やFC内訳へ加えません。MAX専用カードは追加せず、`newclear:PF` と `newclear:MAX` の個別検索、元のランプ値と取得元別の変換を維持します。
@@ -68,7 +74,7 @@ FC内訳と既存FCカードは、FC・PERFECT・beatorajaのMAXへのクリア�
 
 beatorajaの判定数・プレイ数・演奏時間は選択期間全体の実績で、検索・カード・表示対象による行数変化に追従しません。`score.db.player` の累計から、終了境界前の最新値－開始境界前の最新値で求めます。すべてでは最新累計を使います。単曲の実績を補ってLR2の集計範囲へ揃えず、未確定診断・未対応・読取不能は `-` で、別の値へ代用しません。
 
-`score.db.player` だけが読めない場合は、この3実績を利用不可にし、正常に読めた更新履歴と更新数の表示は維持します。履歴全体の読取り失敗へ広げず、履歴行数から実績を作りません。期間実績も同じ取得時点のキャッシュを使い、期間変更だけでは再照会しません。既存のスコア再読込みなどでキャッシュを破棄した次の取得で、実績の取得もやり直します。
+`score.db.player` だけが読めない場合は、この3実績を利用不可にし、正常に読めた更新履歴と更新数の表示は維持します。履歴全体の読取り失敗へ広げず、履歴行数から実績を作りません。期間実績も同じ取得時点のキャッシュを使い、期間変更だけでは再照会しません。次の許可されたスコア再取得では、実績も同じ取得操作で更新します。
 
 ### 検索と整列
 
@@ -95,6 +101,8 @@ beatorajaの判定数・プレイ数・演奏時間は選択期間全体の実�
 
 日付・年・月は部分一致でなく完全一致です。日時と範囲はローカル壁時計の秒で比較し、オフセットへ変換しません。日付範囲の両端は含みます。不正、逆順、空、片側なし、複数区切り、小数秒、オフセット、比較演算形式は警告して不一致とし、否定でも全件一致に変えません。有効なOR候補は通常どおり評価します。フィールドなしの貼付け日時を日付条件へ昇格しません。正規表現を指定した場合だけ表示文字列へ適用します。
 
+`date:re:` はDATE列と共通の `yyyy-MM-dd HH:mm:ss` と、互換の `yyyy-MM-dd`・`yyyy/MM/dd` を候補にします。フィールド無指定の候補は日付だけを維持します。
+
 2行以上の選択でメニューを開くと、その時点の表示時刻の最小・最大を固定し、`date:"start..end"` を検索末尾へ追加できます。クリック前の選択・整列変更では値を変えず、同秒でも範囲で表します。
 
 ### 表示対象とプリセット
@@ -106,6 +114,10 @@ beatorajaの判定数・プレイ数・演奏時間は選択期間全体の実�
 プリセットJSONは名前と `PlaylistId` への参照だけを保存します。存在しないIDは一致せず、次の編集保存で除かれます。表の正本・譜面・更新日時は変更しません。選択は項目オブジェクトではなく表示対象の識別値を保存し、空と `all` はすべてです。まだ候補がなければ画面だけすべてにし、希望する識別値を保って候補出現時に復元します。一時的な未選択通知で保存した識別値を消しません。
 
 名前の入力中は文字列を保持し、確定時に一件の名前だけを `Trim` して対象参照とともに保存します。保存成功後、同じ確定値を設定画面の編集用プリセットへ反映します。前後空白を含む名前で保存しても、再表示せずに行う対象変更・改名・削除は同じ一件に作用します。名前の比較は従来どおり大小文字を無視します。取消、空名・重複名・対象未選択による拒否、保存失敗では確定済みの内容を変えず、他のプリセットや設定の未確定候補を保存・破棄しません。
+
+保存成功の旧名・新名を選択主体へ渡し、希望識別が旧名に対応するときだけ `set:` / `set-folder:` のモードを保って新名へ移します。候補・保存識別・実行集合は同じ論理選択へ揃え、大小文字だけの変更や連続改名にも適用します。別プリセットの改名は現在の希望識別を変更しません。選択識別の保存寿命を変えず、新しい永続IDや改名専用の即時保存を加えません。
+
+キー数フィルタのボタンとメニューは履歴表示中だけ非表示にします。保存済みのキー数条件を変更せず、通常表示へ戻ると再表示します。履歴行・コース・未解決行・カードの対象集合にはキー数条件を適用しません。
 
 表の変更通知中に読込みロックを同期取得し直しません。候補再構築はUIへ遅延し、通知が重なれば最新の版まで再構築します。必要な譜面の遅延読込みは使えますが、表全体の再読込み・外部同期・出力を起動しません。
 
@@ -146,6 +158,12 @@ DB読取り、LR2スキーマ検査、期間実績の取得で例外を結果へ
 | 終端適用・データ源退役診断・行所有権 | [`PlayHistoryWorkflowOwner.TerminalShell`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryWorkflowOwner.TerminalShell.cs)、[`PlaylistWorkspaceViewModel.DetailTerminal`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.DetailTerminal.cs) | [`ChartListVirtualViewTests.PlayHistoryWorkflowOwner_ApplySortedRowsKeepsCommittedRowsAfterPublishFailure`](../../../BeMusicSeeker.Tests/ChartList/ChartListVirtualViewTests.cs)で実履歴行、旧行の一回の回収、データ源解除、後続公開とログ故障時の成功を確認する。必須公開の失敗・取消・旧世代の拒否は同テスト群の既存終端ケースで確認する。 |
 | プリセットの確定名・継続編集・削除と候補分離 | [`SettingsDialogViewModel.TryApplyPlayHistoryFolderDisplayPresetEditSession`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、`RemoveSelectedPlayHistoryFolderDisplayPreset` | [`SettingsDialogBehaviorTests.PlayHistoryPreset_ConfirmedNameKeepsSavedRecordAcrossEditsAndRemoval`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) は ` 練習 ` の確定から対象変更・` 集中 ` への改名・削除を再表示せずに行い、新しいproviderの生JSONと同じ編集用プリセットの名前・対象・件数を確認する。別recordの取消候補とBMT候補の非混入・保持も同ケースが確認する。既存の `SettingDialogCustomFolderOutputBaseTests.PlayHistoryFolderDisplayPresetEditor_DraftsSaveValidationAndIdMatching` は空名・重複名・対象未選択の拒否、ID照合と実履歴への両表示モードの配送を分担する。 |
 | プリセットの検索・選択保持・有界表示 | [`PlayHistoryFolderDisplayPresetEditor`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryFolderDisplayPresetEditor.cs) | [`DialogPresentationTests`](../../../BeMusicSeeker.Tests/Dialogs/DialogPresentationTests.cs)、[`SettingDialogCustomFolderOutputBaseTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCustomFolderOutputBaseTests.cs)。同一識別値で対象参照が変わる場合の再要求は `PlayHistoryDisplayTargetSelection_RequeuesWhenSameIdentityTargetSetChanges` が確認する。 |
+| 新取得・投影依存の現在要求置換と旧結果拒否 | `PlayHistoryWorkflowOwner.ApplyLibraryChanges`、`MainWindowViewModel.RegularChartListOwnerNormalLibraryRefreshApplied` | `PlayHistoryReadModelTests.WorkflowOwner_DependencyBatchReplacesCurrentRequestAndPreservesRawIdentity` は空差分の有効参照確定・無関係な通知・取消・後着拒否・同rawを確認する。`MainWindowCatalogProjectionTests.ManualReload_StandardCompositionConvergesNormalDetailAndSummary` は実設定保存→取得→batch→履歴終端と、実ファイルの削除・復帰と実参照headerの保存による所属・playlist/ref/table検索の再投影を確認する。 |
+| 同じ取得組・期間・論理対象の履歴選択維持 | `PlayHistoryVirtualView`、`PlayHistoryWorkflowOwner.ApplySortedRows`、対象更新queue、MainWindowの項目完了接続、既存CustomTable選択境界 | `MainWindowPlayHistoryWpfTests.PlayHistoryDependencyRefresh_PreservesSelectedRawRecordThroughCompiledTable` がplaylist/presetを実対象にし、同譜面の別履歴を区別する実Bindingと、項目完了・同ID表参照交換・プリセット参照先確定更新のPreserve接続を確認する。明示切替と直後の項目完了では旧選択を運ばず、ownerの再queue方針は `WorkflowOwner_OwnsRefreshRevisionCoalescingAndActivity` が分担する。一般の消失行・主行・基点の条件はCustomTable系列へ分担する。 |
+| 採用済み集計の言語再整形・購読解除・通常件数 | `PlayHistoryWorkflowOwner.Language`、`PlayHistoryPresentationState.TryCommitTerminal`、`MainChartListViewModel`、MainWindowのUI購読 | `PlayHistoryReadModelTests.WorkflowOwner_LanguageUsesAdoptedSummaryAndKeepsRequestAndRows`、`ChartListVirtualViewTests.MainChartSummaryLanguageUsesAdoptedCountsAndPreserveUntilExplicit`。実Windowの言語往復とClose解除は `MainWindowPlayHistoryWpfTests.PlayHistoryDependencyRefresh_PreservesSelectedRawRecordThroughCompiledTable` が確認する。設定画面の自己通知の解除は `SettingDialogEditCompletionTests` へ分担する。 |
+| 保存成功のプリセット改名と希望識別の追従 | `SettingsDialogViewModel.TryApplyPlayHistoryFolderDisplayPresetEditSession`、`PlayHistoryWorkflowOwner.RefreshDisplayTargetSetsFromSettings` | `PlayHistoryReadModelTests.WorkflowOwner_ConfirmedPresetRenameKeepsLogicalSelection` が両モード・空白・大小文字・連続改名・別プリセットの選択不変を確認する。実providerの保存成功・失敗・取消は既存Settings系列へ分担する。 |
+| 履歴中だけキー数UIを隠す | MainWindowのキー数ボタン・メニューBinding | `MainWindowPlayHistoryWpfTests.PlayHistoryDisplayTargetDropdown_BindsToPlayHistoryViewState` が履歴への遷移と通常復帰、保存条件の不変を確認する。 |
+| DATE表示と正規表現の秒・互換候補 | 共通DATE表示、履歴のdate検索候補 | `GridKeywordSearchQueryTests.MatchesPlayHistoryRow_DateRegexIncludesDisplayedTimestamp` がLR2/beatorajaの実DATE GetText、秒・否定・旧日付候補を確認する。 |
 
 ## 関連資料
 

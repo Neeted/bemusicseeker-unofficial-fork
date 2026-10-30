@@ -41,6 +41,23 @@ public sealed class MainWindowCatalogProjectionTests
             File.WriteAllText(keep, "#PLAYER 1\n#TITLE Keep\n#ARTIST Fixture\n#BPM 120\n#00111:0101\n");
             var scanner = new ReloadScanner(music);
             scanner.Capture(first, second, keep);
+            string beatoraja = Directory.CreateDirectory(Path.Combine(root, "beatoraja")).FullName;
+            File.WriteAllText(Path.Combine(beatoraja, "beatoraja.jar"), string.Empty);
+            File.WriteAllText(Path.Combine(beatoraja, BeatorajaConfigService.ConfigFileName), "{}");
+            string player = Directory.CreateDirectory(Path.Combine(beatoraja, "player", "fixture")).FullName;
+            string scorePath = Path.Combine(player, "score.db");
+            string historyHash = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(first)));
+            using (var score = new SQLiteConnection(scorePath))
+            {
+                score.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
+                score.Execute("CREATE TABLE player (date INTEGER PRIMARY KEY, playcount INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, egd INTEGER, lgd INTEGER, ebd INTEGER, lbd INTEGER, epr INTEGER, lpr INTEGER, ems INTEGER, lms INTEGER, playtime INTEGER)");
+                score.Execute("INSERT INTO player VALUES (1000, 1, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 60)");
+            }
+            using (var log = new SQLiteConnection(Path.Combine(player, "scorelog.db")))
+            {
+                log.Execute("CREATE TABLE scorelog (sha256 TEXT, mode INTEGER, clear INTEGER, oldclear INTEGER, score INTEGER, oldscore INTEGER, combo INTEGER, oldcombo INTEGER, minbp INTEGER, oldminbp INTEGER, date INTEGER)");
+                log.Execute("INSERT INTO scorelog VALUES (?, 0, 4, 0, 100, 0, 50, 0, 10, 20, 1000)", historyHash);
+            }
             Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
@@ -52,6 +69,9 @@ public sealed class MainWindowCatalogProjectionTests
                 values.EnablePlaylistUrlCompletion = false;
                 values.EnableBeatorajaBmtOutput = false;
                 values.UseBeatorajaScoreDb = false;
+                values.BeatorajaRootPath = beatoraja;
+                values.BeatorajaPlayerId = "fixture";
+                values.BeatorajaScoreDbPath = scorePath;
                 values.UsePlayeruBMplay = false;
                 values.UsePlayerLR2body = false;
                 values.UsePlayerBMIIDXView = false;
@@ -156,6 +176,76 @@ public sealed class MainWindowCatalogProjectionTests
                 Assert.AreEqual(added, Detail().path);
                 AssertSummary(1);
                 CollectionAssert.AreEqual(saved, ReadSavedEntries());
+
+                // 実設定の保存→通常成績とraw取得→同じdrain→現在要求の置換→履歴終端を通す。
+                // 明示的なBeginRequestで、製品の取得後接続をテスト側から補わない。
+                var historySelected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                void HistorySelectionAdopted(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+                {
+                    if (args.PropertyName == nameof(MainChartListViewModel.Rows)) { historySelected.TrySetResult(); }
+                }
+                owner.MainChartList.PropertyChanged += HistorySelectionAdopted;
+                try
+                {
+                    owner.PlayHistory.ActivatePeriod(PlayHistoryPeriodRequest.All(), string.Empty);
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(historySelected.Task, "catalog-projection-history-selection-adopted");
+                }
+                finally { owner.MainChartList.PropertyChanged -= HistorySelectionAdopted; }
+                PlayHistoryViewRequest beforeScore = owner.PlayHistory.SnapshotActiveRequest();
+                owner.SettingDialog.SetPresentationActive(true);
+                owner.SettingDialog.UseBeatorajaScoreDb = true;
+                Await(owner.SettingDialog.CommitScoreSettingsAsync(), "catalog-projection-history-source-settings");
+                Assert.IsTrue(settings.UseBeatorajaScoreDb);
+                Assert.IsTrue(owner.PlayHistory.IsViewActive);
+                Assert.AreNotEqual(beforeScore.RequestId, owner.PlayHistory.SnapshotActiveRequest().RequestId);
+                PlayHistoryRow history = owner.MainChartList.Rows.Cast<PlayHistoryRow>().Single();
+                Assert.IsNotNull(history.ResolvedChart);
+                Assert.AreEqual(added, history.Path);
+                BMSLibrary library = Field<BMSLibrary>(owner, "files");
+                ScorePlayHistorySnapshot acquisition = library.CaptureScoreSnapshotForView().PlayHistorySnapshot;
+                File.Delete(added);
+                scanner.Capture(keep);
+                Reload();
+                PlayHistoryRow missingHistory = owner.MainChartList.Rows.Cast<PlayHistoryRow>().Single();
+                Assert.IsNull(missingHistory.ResolvedChart);
+                Assert.AreSame(history.BeatorajaRaw, missingHistory.BeatorajaRaw);
+                Assert.AreSame(acquisition, library.CaptureScoreSnapshotForView().PlayHistorySnapshot);
+
+                File.WriteAllText(added, ownedContents);
+                scanner.Capture(keep, added);
+                Reload();
+                PlayHistoryRow restoredHistory = owner.MainChartList.Rows.Cast<PlayHistoryRow>().Single();
+                Assert.IsNotNull(restoredHistory.ResolvedChart);
+                Assert.AreSame(history.BeatorajaRaw, restoredHistory.BeatorajaRaw);
+                Assert.AreSame(acquisition, library.CaptureScoreSnapshotForView().PlayHistorySnapshot);
+
+                // 実header保存が確定した参照を同じdrainから再投影し、検索も現在の所属表示へ追従する。
+                // 再初期化後は、初期表示で捕捉した旧tableではなく現在の正本の同じIDへ保存する。
+                BMSPlaylist currentStore = Field<BMSPlaylist>(owner, "tables");
+                BMSTable currentTable = currentStore.BMSTables.Single(item => item.playlist_id == savedTable.playlist_id);
+                var historyAdopted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                void HistoryRowsAdopted(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+                {
+                    if (args.PropertyName == nameof(MainChartListViewModel.Rows)) { historyAdopted.TrySetResult(); }
+                }
+                owner.MainChartList.PropertyChanged += HistoryRowsAdopted;
+                try
+                {
+                    currentTable.name = "Renamed table";
+                    currentTable.symbol = "N";
+                    currentStore.CommitBMSTableWithEntriesToDB(currentTable);
+                    Await(regular.DeliverPendingLibraryChangesAsync(library, CancellationToken.None), "catalog-projection-history-reference-header");
+                    // drainとは別に配送された既存の表示workerによる実採用まで待つ。
+                    // worker自体の寿命・失敗と回収は通常一覧のviewPreparationTasksとfinallyの実shutdownが担う。
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(historyAdopted.Task, "catalog-projection-history-reference-adopted");
+                }
+                finally { owner.MainChartList.PropertyChanged -= HistoryRowsAdopted; }
+                PlayHistoryRow renamedHistory = owner.MainChartList.Rows.Cast<PlayHistoryRow>().Single();
+                StringAssert.Contains(renamedHistory.PlaylistNames, "Renamed table");
+                Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:Renamed ref:Renamed table:Renamed folder:N").MatchesPlayHistoryRow(renamedHistory));
+                Assert.IsFalse(GridKeywordSearchQuery.Parse("playlist:\"Local table\"").MatchesPlayHistoryRow(renamedHistory));
+                Assert.AreSame(history.BeatorajaRaw, renamedHistory.BeatorajaRaw);
+                Assert.AreSame(acquisition, library.CaptureScoreSnapshotForView().PlayHistorySnapshot);
 
                 void Reload() => Await(owner.ReloadFileDiffAsync(), "catalog-projection-manual-reload");
                 void ShowNormal()

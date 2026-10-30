@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -1287,7 +1288,6 @@ public sealed class PlayHistoryReadModelTests
                 InsertHistory(db, historyId: 4, hash: HashA, playedAt: playedAt + 172800, finalized: true, newExscore: 350);
             }
             historySource = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(scoreDbPath));
-            owner.InvalidateReadCache("accepted_history_update");
             PlayHistoryViewRequest updatedRequest = owner.BeginRequest(PlayHistoryPeriodRequest.All(), string.Empty,
                 PlayHistoryDisplayTargetItem.All.Identity, owner.DisplayTargetRevision);
             PlayHistoryReadWorkflowResult updated = owner.BuildReadView(new PlayHistoryReadWorkflowRequest(updatedRequest,
@@ -3189,7 +3189,6 @@ public sealed class PlayHistoryReadModelTests
             }
 
             historySource = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(scoreDbPath, beatoraja: true));
-            owner.InvalidateReadCache("score_reload");
             PlayHistoryViewExecutionResult recovered = ExecuteHistoryRead(owner, dependencies);
             Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, recovered.Status);
             Assert.IsTrue(recovered.ReadResult.Read.CacheHit);
@@ -4033,6 +4032,195 @@ public sealed class PlayHistoryReadModelTests
 
     private const string HashA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
+    /// <summary>実警告無視のcatalog確定では要求・採用済み投影・行を保持し、同じdrainの参照確定は差分キーが空でも再投影する。旧要求は取消して後着結果を拒否する。</summary>
+    /// <remarks>通常のraw取得を準備した実ownerへ、警告無視の実保存・publisher分類を経たbatchを渡す。基本値・所属の実変更からの再投影は標準構成のCatalogProjection系列、外部DBの取得条件とreaderの網羅は取得主体の系列へ分担する。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void WorkflowOwner_DependencyBatchReplacesCurrentRequestAndPreservesRawIdentity()
+    {
+        WithScoreDb(path =>
+        {
+            CreateInstalledScoreDb(path);
+            using (var db = new SQLiteConnection(path))
+            {
+                InsertHistory(db, 1, HashA, UtcEpoch(2026, 1, 2), true, 200);
+                InsertHistory(db, 2, HashA, UtcEpoch(2026, 1, 2) + 1, true, 250);
+            }
+            var source = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(path));
+            TestBmsLibrary library = CreateHistoryLibrary(path);
+            string directory = Path.GetDirectoryName(path) ?? throw new InvalidOperationException("履歴fixtureの親ディレクトリがありません。");
+            var gateway = new BmsLibraryDbGateway(Path.Combine(directory, "song.db"));
+            gateway.EnsureAppOwnedSchema();
+            ChartFile chart = ChartTestValues.Empty() with
+            { Token = new OwnedChartToken(), Path = Path.Combine(directory, "warning.bms"), Md5 = HashA, Title = "warning chart" };
+            chart = ChartFileProjection.WithMaintenance(chart, new ResourceHealthMaintenanceSnapshot
+            { Origin = MaintenanceInfoOrigin.Calculated, Path = chart.Path, Hash = chart.Md5, WavFilesDefined = 2, WavFilesExisting = 1, FilesWarningIgnored = false });
+            gateway.UpsertSongs([chart]);
+            library.BmsCharts = [chart];
+            var owner = new PlayHistoryWorkflowOwner();
+            PlayHistoryViewExecutionDependencies dependencies = CreateViewExecutionDependencies(() => source, library: library);
+            owner.ConfigureViewExecution(dependencies);
+            Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, ExecuteHistoryRead(owner, dependencies).Status);
+            PlayHistoryViewRequest previous = owner.SnapshotActiveRequest();
+            PlayHistoryViewState acceptedView = owner.PresentationState.CurrentView;
+            // 行交換で退役する旧viewは比較元にせず、実採用した取得組・期間・論理対象だけを捕捉する。
+            var scope = new PlayHistoryVirtualView([], 0, previous.SourceSnapshot, acceptedView.PeriodRequest,
+                acceptedView.DisplayTargetIdentity);
+            IList acceptedRows = dependencies.MainChartList.Rows;
+            var previousView = (BeMusicSeeker.Views.ICustomTableSelectionIdentitySource)acceptedRows;
+            object firstIdentity = previousView.GetSelectionIdentity(0);
+            object secondIdentity = previousView.GetSelectionIdentity(1);
+            Assert.AreNotSame(firstIdentity, secondIdentity, "同じ譜面の異なるプレイは別の識別です。");
+            CancellationToken token = owner.GetCancellationToken(previous.RequestId);
+            long keywordRevision = owner.KeywordRevision;
+            long targetRevision = owner.DisplayTargetRevision;
+            int handled = library.NormalLibraryRefreshNotificationVersion;
+            library.SetChartResourceWarningsIgnored([chart]);
+            NormalLibraryRefreshNotificationBatch warning = library.GetNormalLibraryRefreshNotificationsAfter(handled);
+            Assert.IsTrue(warning.CatalogCommits.Any(commit => commit.HasChanges));
+            Assert.IsTrue(warning.ChangedCharts.Count > 0);
+            Assert.IsTrue(warning.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+            Assert.IsFalse(warning.HasEffect(LibraryChartRefreshEffects.SourceChanged));
+            Assert.IsFalse(warning.ResetsPriorNotifications);
+            Assert.IsTrue(library.BmsCharts.Single().ResourceHealthMaintenanceSnapshot.FilesWarningIgnored);
+            Assert.IsFalse(owner.ApplyLibraryChanges(warning));
+            Assert.AreSame(previous, owner.SnapshotActiveRequest());
+            Assert.AreSame(acceptedView, owner.PresentationState.CurrentView);
+            Assert.AreSame(acceptedRows, dependencies.MainChartList.Rows);
+            Assert.IsFalse(token.IsCancellationRequested);
+            var reference = new NormalLibraryRefreshNotificationBatch(2, 1, LibraryChartRefreshEffects.None, [], false,
+                referenceCommits: [new PlaylistReferenceCommitReceipt(1, 2, [])]);
+            Assert.IsTrue(owner.ApplyLibraryChanges(reference));
+            PlayHistoryViewRequest current = owner.SnapshotActiveRequest();
+            Assert.IsTrue(token.IsCancellationRequested);
+            Assert.IsTrue(owner.IsViewActive);
+            Assert.AreSame(previous.PeriodRequest, current.PeriodRequest);
+            Assert.AreEqual(keywordRevision, owner.KeywordRevision);
+            Assert.AreEqual(targetRevision, owner.DisplayTargetRevision);
+            Assert.IsNull(owner.PresentationState.CurrentView);
+            Assert.AreEqual(PlayHistoryViewExecutionStatus.Stale, Execute(previous).Status);
+            // 表示操作は取得済みrawだけで完結するため、外部DBの消失後にも同じプレイを投影する。
+            File.Delete(path);
+            Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, Execute(current).Status);
+            var currentView = (BeMusicSeeker.Views.ICustomTableSelectionIdentitySource)dependencies.MainChartList.Rows;
+            Assert.IsTrue(currentView.SharesSelectionIdentityScope(scope));
+            Assert.AreSame(firstIdentity, currentView.GetSelectionIdentity(0));
+            Assert.AreEqual(1, currentView.IndexOfSelectionIdentity(secondIdentity));
+            source = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(path));
+            Assert.IsTrue(owner.ApplyLibraryChanges(new NormalLibraryRefreshNotificationBatch(3, 1,
+                LibraryChartRefreshEffects.None, [], false, scoreChanges: [new ScoreSnapshotChange(1, 2, [], [])])));
+            Assert.AreEqual(PlayHistoryViewExecutionStatus.Stale, Execute(current).Status);
+            Assert.AreEqual(PlayHistoryViewExecutionStatus.ReadFailed, Execute(owner.SnapshotActiveRequest()).Status);
+            Assert.AreEqual(0, dependencies.MainChartList.Rows.Count);
+            Assert.AreEqual(0, owner.SummaryCards.Count);
+            Assert.IsTrue(owner.IsViewActive);
+
+            PlayHistoryViewExecutionResult Execute(PlayHistoryViewRequest request) => owner.ExecuteView(
+                new PlayHistoryViewExecutionRequest(MainViewUpdateMode.TreeViewFilterNotChanged,
+                    MainViewUpdateMode.TreeViewFilterNotChanged, null, Stopwatch.StartNew(), request,
+                    string.Empty, PlayHistoryDisplayTargetItem.All));
+        });
+    }
+
+    /// <summary>翻訳は採用済み集計だけから再整形し、未採用CurrentView・行・期間境界・条件版を採用し直さない。解除後には通知が残らない。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void WorkflowOwner_LanguageUsesAdoptedSummaryAndKeepsRequestAndRows()
+    {
+        string culture = Resources.Culture?.Name ?? CultureInfo.CurrentUICulture.Name;
+        try
+        {
+            ResourceService.Current.ChangeCulture("ja-JP");
+            WithScoreDb(path =>
+            {
+                CreateInstalledScoreDb(path);
+                using (var db = new SQLiteConnection(path))
+                { InsertHistory(db, 1, HashA, UtcEpoch(2026, 1, 2), true, 200); }
+                var source = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(path));
+                var owner = new PlayHistoryWorkflowOwner();
+                PlayHistoryViewExecutionDependencies dependencies = CreateViewExecutionDependencies(() => source, library: CreateHistoryLibrary(path));
+                owner.ConfigureViewExecution(dependencies);
+                owner.ConfigureDisplayTargetPersistence(_ => { });
+                owner.ReplaceDisplayTargetSets([], [], false);
+                Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, ExecuteHistoryRead(owner, dependencies).Status);
+                owner.AttachLanguagePresentation(dependencies.MainChartList);
+                try
+                {
+                    PlayHistoryViewRequest request = owner.SnapshotActiveRequest();
+                    object rows = dependencies.MainChartList.Rows;
+                    long targetRevision = owner.DisplayTargetRevision;
+                    long keywordRevision = owner.KeywordRevision;
+                    PlayHistoryViewState adopted = owner.PresentationState.CurrentView;
+                    var candidate = new PlayHistoryViewState(request.RequestId, request.PeriodRequest,
+                        [], [], [], [], adopted.Provider, adopted.SchemaStatus, 0, adopted.SortSnapshot,
+                        adopted.KeywordFilter, adopted.KeywordFilterRevision, adopted.DisplayTarget,
+                        adopted.DisplayTargetRevision);
+                    owner.PresentationState.CurrentView = candidate;
+                    foreach (string language in new[] { "en-US", "ja-JP" })
+                    {
+                        ResourceService.Current.ChangeCulture(language);
+                        Assert.AreEqual("1", owner.SummaryCards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
+                        StringAssert.Contains(dependencies.MainChartList.SummaryText, Resources.Play_history_period_all);
+                        Assert.AreEqual(Resources.Play_history_period_all, owner.SelectedDisplayTarget.DisplayName);
+                        Assert.AreSame(rows, dependencies.MainChartList.Rows);
+                        Assert.AreSame(request, owner.SnapshotActiveRequest());
+                        Assert.AreEqual(targetRevision, owner.DisplayTargetRevision);
+                        Assert.AreEqual(keywordRevision, owner.KeywordRevision);
+                    }
+                    // 待機候補の採用はその時点のResourcesで整形し、空の終端にも入力を更新する。
+                    ResourceService.Current.ChangeCulture("en-US");
+                    Assert.AreEqual(PlayHistorySortedRowsApplyStatus.Applied, owner.ApplySortedRows(
+                        new PlayHistorySortedRowsApplyRequest(MainViewUpdateMode.PlayHistorySelected,
+                            MainViewUpdateMode.PlayHistorySelected, candidate, [], true, "default", string.Empty,
+                            owner.SelectedDisplayTarget, null, request.DetailSourceRetirement), Stopwatch.StartNew(),
+                        dependencies.MainChartList, dependencies.PlaylistWorkspace).Status);
+                    Assert.AreEqual("0", owner.SummaryCards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
+                    ResourceService.Current.ChangeCulture("ja-JP");
+                    Assert.AreEqual("0", owner.SummaryCards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
+                    owner.ClearSummaryPresentation();
+                    ResourceService.Current.ChangeCulture("en-US");
+                    Assert.AreEqual(0, owner.SummaryCards.Count);
+                    owner.DetachLanguagePresentation();
+                    int notifications = 0;
+                    owner.PropertyChanged += (_, _) => notifications++;
+                    ResourceService.Current.ChangeCulture("ja-JP");
+                    Assert.AreEqual(0, notifications);
+                }
+                finally { owner.DetachLanguagePresentation(); }
+            });
+        }
+        finally { ResourceService.Current.ChangeCulture(culture); }
+    }
+
+    /// <summary>選択したpresetの保存成功だけが希望識別を新名へ移し、filter/FOLDERのモードと実行集合を保つ。別preset改名は現在選択を変えず、空白・大小文字・連続改名も同じ論理選択になる。</summary>
+    [DataTestMethod]
+    [DataRow("set:")]
+    [DataRow("set-folder:")]
+    public void WorkflowOwner_ConfirmedPresetRenameKeepsLogicalSelection(string prefix)
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        List<string> persisted = [];
+        owner.ConfigureDisplayTargetPersistence(persisted.Add);
+        owner.ConfigureDisplayTargetCatalogRefresh(() => false, () => [], action => action());
+        string Json(string name) => PlayHistoryDisplayTargetSetStore.Serialize(
+            [new PlayHistoryDisplayTargetSet { Name = name, Targets = [new PlayHistoryDisplayTargetReference { PlaylistId = 42 }] },
+             new PlayHistoryDisplayTargetSet { Name = "Other", Targets = [] }]);
+        owner.RefreshDisplayTargetSetsFromSettings(Json("Old"), false);
+        owner.SelectedDisplayTargetIdentity = prefix + "OLD";
+        foreach ((string oldName, string newName) in new[] { (" Old ", "new"), ("new", "NEW"), ("NEW", " Final ") })
+        {
+            owner.RefreshDisplayTargetSetsFromSettings(Json(newName.Trim()), false, oldName, newName.Trim());
+            Assert.AreEqual(prefix + newName.Trim().ToUpperInvariant(), owner.SelectedDisplayTargetIdentity);
+            Assert.AreEqual(owner.SelectedDisplayTargetIdentity, persisted.Last());
+            Assert.AreEqual<int?>(42, owner.SelectedDisplayTarget.TargetSet.Targets.Single().PlaylistId);
+        }
+        long revision = owner.DisplayTargetRevision;
+        string identity = owner.SelectedDisplayTargetIdentity;
+        owner.RefreshDisplayTargetSetsFromSettings(Json("Final"), false, "Other", "Other");
+        Assert.AreEqual(identity, owner.SelectedDisplayTargetIdentity);
+        Assert.AreEqual(revision, owner.DisplayTargetRevision);
+    }
+
     private const string HashB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
     private const string HashC = "cccccccccccccccccccccccccccccccc";
@@ -4078,31 +4266,6 @@ public sealed class PlayHistoryReadModelTests
     }
 
     /// <summary>
-    /// cache失効は要求を取消して理由を診断へ出し、履歴画面の選択中状態は維持する。
-    /// </summary>
-    [TestMethod]
-    public void WorkflowOwner_InvalidateReadCache_CancelsRequestPreservesActivityAndLogsReason()
-    {
-        var logMessages = new List<string>();
-        var owner = new PlayHistoryWorkflowOwner(logMessages.Add);
-        PlayHistoryViewRequest request = owner.BeginRequest(
-            PlayHistoryPeriodRequest.All(),
-            string.Empty,
-            string.Empty,
-            displayTargetRevision: 0);
-        System.Threading.CancellationToken token = owner.GetCancellationToken(request.RequestId);
-
-        owner.InvalidateReadCache("score_reload");
-
-        Assert.IsTrue(token.IsCancellationRequested);
-        Assert.IsNull(owner.SnapshotActiveRequest());
-        Assert.IsTrue(owner.IsViewActive);
-        CollectionAssert.AreEqual(
-            new[] { "play_history_read_cache_invalidated reason=score_reload" },
-            logMessages);
-    }
-
-    /// <summary>
     /// 最初の選択と最後の非選択化だけactivityを通知し、再読込みや要求置換で余分な切替通知を出さない。
     /// </summary>
     [TestMethod]
@@ -4129,10 +4292,6 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsTrue(owner.IsCurrentRequest(first.RequestId));
         Assert.AreEqual(1, activeNotifications.Count);
         Assert.IsTrue(activeNotifications[0]);
-
-        owner.Deactivate(clearViewActivity: false);
-        Assert.IsTrue(owner.IsViewActive, "A data refresh may cancel the request while keeping the play-history shell selected.");
-        Assert.AreEqual(1, activeNotifications.Count);
 
         owner.BeginRequest(
             PlayHistoryPeriodRequest.All(),
@@ -4282,7 +4441,7 @@ public sealed class PlayHistoryReadModelTests
     }
 
     /// <summary>
-    /// keyword/対象refreshは同版重複を拒否し、双方の完了までidleを保留する。32並列受付は一件だけ取り、旧完了で最新要求を失わない。
+    /// keyword/対象refreshは同版重複を拒否し、双方の完了までidleを保留する。依存更新の選択方針は再queueへ継承し、明示切替は解除する。32並列受付は一件だけ取り、旧完了で最新要求を失わない。
     /// </summary>
     [TestMethod]
     public async Task WorkflowOwner_OwnsRefreshRevisionCoalescingAndActivity()
@@ -4312,6 +4471,7 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreSame(keywordIdle, displayIdle);
         Assert.AreSame(detailSourceRetirement, keywordRequest.DetailSourceRetirement);
         Assert.AreSame(detailSourceRetirement, displayRequest.DetailSourceRetirement);
+        Assert.IsFalse(displayRequest.PreserveSelection);
         Assert.IsFalse(owner.TryBeginDisplayTargetRefresh("target", advanceRevision: false, out _));
         Assert.IsFalse(owner.AreRefreshQueuesIdle);
 
@@ -4327,6 +4487,20 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(keywordRequest.KeywordFilterRevision, owner.KeywordRevision);
         Assert.AreEqual(displayRequest.DisplayTargetRevision, owner.DisplayTargetRevision);
         Assert.AreEqual("target", owner.PresentationState.CurrentDisplayTargetIdentity);
+
+        Assert.IsTrue(owner.TryBeginDisplayTargetRefresh("target", advanceRevision: true,
+            out PlayHistoryViewRequest dependencyRequest, preserveSelection: true));
+        Assert.IsTrue(dependencyRequest.PreserveSelection);
+        owner.CompleteDisplayTargetRefresh(dependencyRequest.DisplayTargetRevision);
+        Assert.IsTrue(owner.TryBeginDisplayTargetRefresh("target", advanceRevision: false,
+            out PlayHistoryViewRequest retryRequest));
+        Assert.IsTrue(retryRequest.PreserveSelection);
+        owner.CompleteDisplayTargetRefresh(retryRequest.DisplayTargetRevision);
+        Assert.IsTrue(owner.TryBeginDisplayTargetRefresh("other-target", advanceRevision: true,
+            out PlayHistoryViewRequest switchedRequest, preserveSelection: false));
+        Assert.IsFalse(switchedRequest.PreserveSelection);
+        owner.CompleteDisplayTargetRefresh(switchedRequest.DisplayTargetRevision);
+        await owner.WaitForRefreshQueuesIdleAsync();
 
         owner.UpdateKeywordIdentity("latest", advanceRevision: true);
         long latestKeywordRevision = owner.KeywordRevision;
@@ -4792,7 +4966,6 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(1, dependencies.MainChartList.Rows.Count);
             Assert.AreEqual("1", owner.SummaryCards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
             dependencies.MainChartList.SelectedIndex = 0;
-            owner.InvalidateReadCache("test_source_update");
             using (var db = new SQLiteConnection(scoreDbPath))
             {
                 // schemaはInstalledのまま、実SELECTだけが失敗するDBへ変える。
@@ -4811,6 +4984,7 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(Resources.Play_history_read_failed, dependencies.MainChartList.SummaryText);
             Assert.AreEqual(Resources.Play_history_read_failed, owner.SummaryDiagnosticText);
             Assert.IsTrue(owner.IsViewActive);
+            AssertAdoptedHistoryLanguage(owner, dependencies.MainChartList, failed: true);
 
             File.Delete(scoreDbPath);
             CreateInstalledScoreDb(scoreDbPath);
@@ -4823,6 +4997,7 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual("0", owner.SummaryCards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
             Assert.AreNotEqual(Resources.Play_history_read_failed, dependencies.MainChartList.SummaryText);
             Assert.AreNotEqual(Resources.Play_history_read_failed, owner.SummaryDiagnosticText);
+            AssertAdoptedHistoryLanguage(owner, dependencies.MainChartList, failed: false);
         });
     }
 
@@ -4940,7 +5115,6 @@ public sealed class PlayHistoryReadModelTests
             var period = PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, TimeZoneInfo.Utc);
             Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, ExecuteHistoryRead(owner, dependencies, period).Status);
             Assert.AreNotEqual(0, owner.ArchivePeriodTree.Count);
-            owner.InvalidateReadCache("test_history_changed");
             using (var db = new SQLiteConnection(scoreDbPath))
             {
                 InsertHistory(db, 2, HashA, playedAt + 1, true, 250);
@@ -5101,6 +5275,35 @@ public sealed class PlayHistoryReadModelTests
             BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
         }
         return new TestBmsLibrary(songDbPath);
+    }
+
+    /// <summary>失敗・正常空の採用済み終端を翻訳し、要求と行を変更しないことを確認して購読・文化圏を必ず復元します。</summary>
+    private static void AssertAdoptedHistoryLanguage(PlayHistoryWorkflowOwner owner, MainChartListViewModel chartList, bool failed)
+    {
+        string culture = Resources.Culture?.Name ?? CultureInfo.CurrentUICulture.Name;
+        PlayHistoryViewRequest request = owner.SnapshotActiveRequest();
+        object rows = chartList.Rows;
+        owner.AttachLanguagePresentation(chartList);
+        try
+        {
+            foreach (string language in new[] { "en-US", "ja-JP" })
+            {
+                ResourceService.Current.ChangeCulture(language);
+                if (failed)
+                {
+                    Assert.AreEqual(Resources.Play_history_read_failed, chartList.SummaryText);
+                    Assert.AreEqual(0, owner.SummaryCards.Count);
+                }
+                else
+                {
+                    Assert.AreEqual("0", owner.SummaryCards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
+                    StringAssert.Contains(chartList.SummaryText, Resources.Play_history_period_all);
+                }
+                Assert.AreSame(request, owner.SnapshotActiveRequest());
+                Assert.AreSame(rows, chartList.Rows);
+            }
+        }
+        finally { owner.DetachLanguagePresentation(); ResourceService.Current.ChangeCulture(culture); }
     }
 
     private static PlayHistoryViewExecutionResult ExecuteHistoryRead(PlayHistoryWorkflowOwner owner,

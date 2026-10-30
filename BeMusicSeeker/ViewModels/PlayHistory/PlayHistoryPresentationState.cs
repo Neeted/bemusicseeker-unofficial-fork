@@ -25,6 +25,8 @@ internal sealed class PlayHistoryPresentationState
     internal IReadOnlyList<PlayHistoryPeriodTreeItem> ArchivePeriodTree = [];
     internal IReadOnlyList<PlayHistorySummaryCard> SummaryCards = [];
     internal string DiagnosticText = string.Empty;
+    /// <summary>採用済み終端の再整形に必要な小集計だけです。rawや行集合は保持しません。</summary>
+    internal PlayHistoryAdoptedSummary AdoptedSummary;
 
     internal bool IsFresh(PlayHistoryViewState state)
     {
@@ -71,6 +73,7 @@ internal sealed class PlayHistoryPresentationState
         return true;
     }
 
+    /// <summary>現在要求の行・関連表示の採用が成功したときだけ、言語再整形用の小集計を更新します。未採用候補の行は追加保持しません。</summary>
     internal bool TryCommitTerminal(
         PlayHistoryTerminalRequest request,
         PlayHistoryTerminalCommitResult result,
@@ -127,6 +130,12 @@ internal sealed class PlayHistoryPresentationState
             }
 
             CurrentView = request.ViewState;
+            AdoptedSummary = request.ViewState == null
+                ? new PlayHistoryAdoptedSummary(null, null, default, [], true)
+                : new PlayHistoryAdoptedSummary(request.ViewState.PeriodRequest,
+                    request.PeriodSummary ?? PlayHistoryPeriodSummary.FromRows(request.ViewState.PeriodRequest.Label,
+                        request.ViewState.ProjectedRows, request.ViewState.SummaryOverride),
+                    request.ViewState.Provider, request.SummaryDiagnostics ?? request.ViewState.Diagnostics, false);
             result.Applied = true;
             return true;
         }
@@ -387,6 +396,10 @@ internal sealed class PlayHistoryPresentationState
 
 internal sealed class PlayHistoryTerminalRequest
 {
+    /// <summary>採用時の言語再整形に渡す、行を保持しない集計入力です。</summary>
+    internal PlayHistoryPeriodSummary PeriodSummary { get; set; }
+    /// <summary>採用時の整列診断を含む、小集計の再整形入力です。</summary>
+    internal IReadOnlyList<PlayHistoryDiagnostic> SummaryDiagnostics { get; set; }
     internal PlayHistoryViewState ViewState { get; set; }
     /// <summary>失敗表示終端の要求IDと表示条件の版を捕捉し、同じ条件へ戻った後も古い失敗を確定しません。</summary>
     internal PlayHistoryViewRequest FailedViewRequest { get; set; }
@@ -398,6 +411,11 @@ internal sealed class PlayHistoryTerminalRequest
     internal IReadOnlyList<PlayHistorySummaryCard> SummaryCards { get; set; }
     internal string DiagnosticText { get; set; }
 }
+
+/// <summary>採用成功後だけ保持する表示集計です。未採用CurrentViewからの整形を防ぎます。</summary>
+internal sealed record PlayHistoryAdoptedSummary(PlayHistoryPeriodRequest Period,
+    PlayHistoryPeriodSummary Summary, PlayHistoryProvider Provider,
+    IReadOnlyList<PlayHistoryDiagnostic> Diagnostics, bool Failed);
 
 internal sealed class PlayHistoryTerminalCommitResult
 {

@@ -666,6 +666,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         UnsubscribeViewModelUiInteractions();
         subscribedViewModel = viewModel;
+        viewModel.PlayHistory.AttachLanguagePresentation(viewModel.MainChartList);
+        viewModel.MainChartList.AttachLanguagePresentation();
         viewModel.ChartFilters.AttachKeywordSearchPresentation();
         viewModel.PlaylistWorkspace.AttachPlaylistSummaryKeywordSearchPresentation();
         viewModel.RequiredStartupUiApplying += ApplyRequiredStartupPlayerHost;
@@ -701,6 +703,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         subscribedViewModel.ChartFilters.DetachKeywordSearchPresentation();
+        subscribedViewModel.PlayHistory.DetachLanguagePresentation();
+        subscribedViewModel.MainChartList.DetachLanguagePresentation();
         subscribedViewModel.PlaylistWorkspace.DetachPlaylistSummaryKeywordSearchPresentation();
         subscribedViewModel.RequiredStartupUiApplying -= ApplyRequiredStartupPlayerHost;
         subscribedViewModel.SettingDialog.DetachPresentationPort(this);

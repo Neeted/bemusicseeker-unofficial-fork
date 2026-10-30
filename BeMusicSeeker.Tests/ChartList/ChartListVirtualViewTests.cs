@@ -22,6 +22,58 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartListVirtualViewTests
 {
+    /// <summary>通常一覧は採用時の数値を保持して言語変更に追従し、Preserveで保持、明示文言で解除する。未採用候補や元行の後続変更を集計へ混ぜない。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void MainChartSummaryLanguageUsesAdoptedCountsAndPreserveUntilExplicit()
+    {
+        string culture = BeMusicSeeker.Properties.Resources.Culture?.Name ?? System.Globalization.CultureInfo.CurrentUICulture.Name;
+        var owner = new MainChartListViewModel(action => action());
+        try
+        {
+            ResourceService.Current.ChangeCulture("ja-JP");
+            owner.AttachLanguagePresentation();
+            var sourceRows = Enumerable.Range(0, 12).Select(_ => new object()).ToList();
+            Apply(MainChartListSummaryUpdate.NormalRows(sourceRows));
+            sourceRows.Add(new object());
+            ResourceService.Current.ChangeCulture("en-US");
+            Assert.AreEqual("[12" + BeMusicSeeker.Properties.Resources.Num_songs + "]", owner.SummaryText);
+            Apply(MainChartListSummaryUpdate.NormalCounts(12, 3));
+            object rows = owner.Rows;
+            foreach (string language in new[] { "en-US", "ja-JP" })
+            {
+                ResourceService.Current.ChangeCulture(language);
+                Assert.AreEqual("[12" + BeMusicSeeker.Properties.Resources.Num_songs + " / 3"
+                    + BeMusicSeeker.Properties.Resources.Num_folders + "]", owner.SummaryText);
+                Assert.AreSame(rows, owner.Rows);
+                Apply(MainChartListSummaryUpdate.Preserve());
+                rows = owner.Rows;
+            }
+            Apply(MainChartListSummaryUpdate.Explicit("fixed"));
+            ResourceService.Current.ChangeCulture("en-US");
+            Assert.AreEqual("fixed", owner.SummaryText);
+            owner.DetachLanguagePresentation();
+            int notifications = 0;
+            owner.PropertyChanged += (_, _) => notifications++;
+            ResourceService.Current.ChangeCulture("ja-JP");
+            Assert.AreEqual(0, notifications);
+        }
+        finally
+        {
+            owner.DetachLanguagePresentation();
+            ResourceService.Current.ChangeCulture(culture);
+        }
+
+        void Apply(MainChartListSummaryUpdate summary) => owner.ApplyRows(new MainChartListRowsApplyRequest
+        {
+            Rows = Array.Empty<object>(),
+            ColumnsSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD),
+            SelectionPolicy = MainChartListSelectionPolicy.Preserve,
+            Summary = summary,
+            Stopwatch = Stopwatch.StartNew()
+        });
+    }
+
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
     /// <summary>件数照会では三行とも未生成とし、先頭アクセスだけが整列済みのAlpha一行を生成することで、件数取得時の全件生成を検出します。</summary>
     [TestMethod]

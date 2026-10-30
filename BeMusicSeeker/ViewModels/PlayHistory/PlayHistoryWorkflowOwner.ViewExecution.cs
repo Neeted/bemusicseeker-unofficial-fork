@@ -139,6 +139,12 @@ public sealed partial class PlayHistoryWorkflowOwner
         {
             throw new InvalidOperationException("The play-history source resolver returned no source context.");
         }
+        lock (PresentationState.SyncRoot)
+        {
+            if (!IsCurrentRequestUnsafe(request.ViewRequest.RequestId))
+            { return PlayHistoryViewExecutionResult.Stale(request); }
+            ActiveRequest.SourceSnapshot = source.PlayHistorySnapshot;
+        }
         PlayHistoryViewRequest activeViewRequest = new(
             request.ViewRequest.PeriodRequest,
             request.ViewRequest.RequestId,

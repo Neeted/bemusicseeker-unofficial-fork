@@ -26,10 +26,8 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
     private Action<PlayHistoryViewRequest> refreshView;
     private Func<PlaylistSourceRetirementRequest> prepareDetailSourceRetirement;
     private bool isViewActive;
-    private readonly Action<string> mainViewLog;
-    internal PlayHistoryWorkflowOwner(Action<string> mainViewLog = null)
+    internal PlayHistoryWorkflowOwner()
     {
-        this.mainViewLog = mainViewLog ?? (_ => { });
         PresentationState.CurrentSortSnapshot = new SortSnapshot(null, null, revision: 0L);
     }
 
@@ -77,14 +75,15 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             "playHistoryKeywordFilterUpdated");
     }
 
-    internal void QueueDisplayTargetRefresh(string identity, bool advanceRevision = true)
+    /// <summary>対象更新を既存queueへ渡します。同じ論理対象の依存更新は選択を保ち、版を進めない再queueでは現在要求の採用方針を継承します。</summary>
+    internal void QueueDisplayTargetRefresh(string identity, bool advanceRevision = true, bool? preserveSelection = null)
     {
         EnsureViewRefreshSchedulerConfigured();
         if (isViewRefreshShutdownRequested())
         {
             return;
         }
-        if (!TryBeginDisplayTargetRefresh(identity, advanceRevision, out PlayHistoryViewRequest request))
+        if (!TryBeginDisplayTargetRefresh(identity, advanceRevision, out PlayHistoryViewRequest request, preserveSelection))
         {
             return;
         }
@@ -303,11 +302,36 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
 
     internal PlayHistoryViewRequest ActiveRequest { get; private set; }
 
-    /// <summary>旧表示要求を取消します。rawはモデル取得組が所有し、この操作では破棄・再取得しません。</summary>
-    internal void InvalidateReadCache(string reason)
+    /// <summary>同じ確定batchの新取得・投影依存だけで現在条件の要求を置き換えます。catalogの版進行だけでは更新せず、既存publisherのSourceChanged分類を使って警告・保守だけの確定を除外します。外部DBは読みません。</summary>
+    internal bool ApplyLibraryChanges(NormalLibraryRefreshNotificationBatch batch)
     {
-        Deactivate(clearViewActivity: false);
-        mainViewLog("play_history_read_cache_invalidated reason=" + (reason ?? string.Empty));
+        if (batch == null) { return false; }
+        ScorePlayHistorySnapshot sourceSnapshot = batch.ScoreChanges.Count > 0
+            ? viewExecutionDependencies?.SourceResolver()?.PlayHistorySnapshot : null;
+        PlayHistoryViewRequest previous;
+        string keyword;
+        string target;
+        long targetRevision;
+        bool acquisitionChanged;
+        lock (PresentationState.SyncRoot)
+        {
+            acquisitionChanged = batch.ScoreChanges.Count > 0
+                && !ReferenceEquals(ActiveRequest?.SourceSnapshot, sourceSnapshot);
+            bool projectionChanged = batch.HasEffect(LibraryChartRefreshEffects.SourceChanged)
+                || batch.ReferenceCommits.Any(commit => commit.Revision != commit.BaseRevision)
+                || batch.ResetsPriorNotifications || batch.DeletedTokens.Count > 0;
+            if (!acquisitionChanged && !projectionChanged) { return false; }
+            PresentationState.CurrentView = null;
+            previous = ActiveRequest;
+            keyword = PresentationState.CurrentKeywordIdentity;
+            target = PresentationState.CurrentDisplayTargetIdentity;
+            targetRevision = PresentationState.DisplayTargetRevision;
+        }
+        if (acquisitionChanged) { readCache.ClearPeriodIndex(); }
+        if (previous == null) { return false; }
+        return BeginRequest(previous.PeriodRequest, keyword, target, targetRevision,
+            previous.DetailSourceRetirement, previous, preserveSelection: !acquisitionChanged,
+            sourceSnapshot: acquisitionChanged ? sourceSnapshot : previous.SourceSnapshot) != null;
     }
 
     private void ToggleSummaryFilterCard(PlayHistorySummaryCard card)
@@ -383,6 +407,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         lock (PresentationState.SyncRoot)
         {
             selectedSummaryFilterKeys.Clear();
+            PresentationState.AdoptedSummary = null;
         }
     }
 
@@ -393,6 +418,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         lock (PresentationState.SyncRoot)
         {
             selectedSummaryFilterKeys.Clear();
+            PresentationState.AdoptedSummary = null;
             cardsChanged = PresentationState.SetSummaryCards([]);
             diagnosticChanged = PresentationState.SetDiagnosticText(string.Empty);
         }
@@ -915,11 +941,9 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             state.PeriodRequest.Label,
             sortedRows,
             state.SummaryOverride);
-        System.Collections.IList nextRowsView = sortedRows.Count == 0
-            && mainChartList.Rows is PlayHistoryVirtualView currentPlayHistoryView
-            && currentPlayHistoryView.Count == 0
-                ? mainChartList.Rows
-                : new PlayHistoryVirtualView(sortedRows, CountDistinctFolderLabels(sortedRows));
+        PlayHistoryViewRequest activeRequest = SnapshotActiveRequest();
+        System.Collections.IList nextRowsView = new PlayHistoryVirtualView(sortedRows,
+            CountDistinctFolderLabels(sortedRows), activeRequest?.SourceSnapshot, state.PeriodRequest, state.DisplayTargetIdentity);
         long columnSettingStartMs = stopwatch.ElapsedMilliseconds;
         bool ownsCandidateRows = !ReferenceEquals(mainChartList.Rows, nextRowsView);
         try
@@ -941,6 +965,8 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 new PlayHistoryTerminalRequest
                 {
                     ViewState = state,
+                    PeriodSummary = summary,
+                    SummaryDiagnostics = diagnostics,
                     ColumnSelection = columnSelection,
                     ArchivePeriodTree = request.ArchivePeriodTree,
                     SummaryCards = summaryCards,
@@ -950,7 +976,8 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                     {
                         Rows = nextRowsView,
                         ColumnsSettings = columnSelection.ColumnsSettings,
-                        SelectionPolicy = MainChartListSelectionPolicy.Reset,
+                        SelectionPolicy = activeRequest?.PreserveSelection == true
+                            ? MainChartListSelectionPolicy.Preserve : MainChartListSelectionPolicy.Reset,
                         Summary = MainChartListSummaryUpdate.Explicit(gridSummaryText),
                         ColumnSettingReuse = columnSelection.Reused,
                         ColumnPreparationMs = columnSelection.ElapsedMs,
@@ -1581,20 +1608,26 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         }
     }
 
+    /// <summary>現在条件の要求を一度置き換えて旧workerを取消します。依存更新は期待する旧要求を照合し、後発の実選択を上書きしません。</summary>
     internal PlayHistoryViewRequest BeginRequest(
         PlayHistoryPeriodRequest periodRequest,
         string keywordIdentity,
         string displayTargetIdentity,
         long displayTargetRevision,
-        PlaylistSourceRetirementRequest detailSourceRetirement = null)
+        PlaylistSourceRetirementRequest detailSourceRetirement = null,
+        PlayHistoryViewRequest expectedRequest = null,
+        bool preserveSelection = false,
+        ScorePlayHistorySnapshot sourceSnapshot = null)
     {
         CancellationTokenSource previousCancellation;
         PlayHistoryViewRequest request;
         bool wasViewActive;
         lock (PresentationState.SyncRoot)
         {
+            if (expectedRequest != null && !ReferenceEquals(ActiveRequest, expectedRequest)) { return null; }
             wasViewActive = isViewActive;
             previousCancellation = InvalidateRequestUnsafe();
+            PresentationState.CurrentView = null;
             isViewActive = true;
             PresentationState.RequestCancellation = new CancellationTokenSource();
             PresentationState.CurrentKeywordIdentity = keywordIdentity ?? string.Empty;
@@ -1606,7 +1639,9 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 PresentationState.KeywordRevision,
                 displayTargetRevision)
             {
-                DetailSourceRetirement = detailSourceRetirement
+                DetailSourceRetirement = detailSourceRetirement,
+                SourceSnapshot = sourceSnapshot,
+                PreserveSelection = preserveSelection
             };
             ActiveRequest = request;
         }
@@ -1779,14 +1814,19 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 revision,
                 DisplayTargetRevision)
             {
-                DetailSourceRetirement = ActiveRequest.DetailSourceRetirement
+                DetailSourceRetirement = ActiveRequest.DetailSourceRetirement,
+                SourceSnapshot = ActiveRequest.SourceSnapshot,
+                PreserveSelection = false
             };
+            ActiveRequest = request;
             keywordActiveCount++;
             return true;
         }
     }
 
-    internal bool TryBeginDisplayTargetRefresh(string identity, bool advanceRevision, out PlayHistoryViewRequest request)
+    /// <summary>対象版を予約し、明示切替または同対象の依存更新に応じた選択方針を現在要求へ引き継ぎます。</summary>
+    internal bool TryBeginDisplayTargetRefresh(string identity, bool advanceRevision, out PlayHistoryViewRequest request,
+        bool? preserveSelection = null)
     {
         lock (PresentationState.SyncRoot)
         {
@@ -1823,8 +1863,11 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 KeywordRevision,
                 revision)
             {
-                DetailSourceRetirement = ActiveRequest.DetailSourceRetirement
+                DetailSourceRetirement = ActiveRequest.DetailSourceRetirement,
+                SourceSnapshot = ActiveRequest.SourceSnapshot,
+                PreserveSelection = preserveSelection ?? (!advanceRevision && ActiveRequest.PreserveSelection)
             };
+            ActiveRequest = request;
             displayTargetActiveCount++;
             return true;
         }
@@ -2252,19 +2295,18 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         }
     }
 
-    internal void Deactivate(Action deactivateSelection = null, bool clearViewActivity = true)
+    /// <summary>画面の退役として現在要求と派生表示を失効させ、選択の解除と旧日索引の解放を行います。</summary>
+    internal void Deactivate(Action deactivateSelection = null)
     {
         CancellationTokenSource cancellation;
         ExceptionDispatchInfo deactivationException = null;
         bool wasViewActive;
         lock (PresentationState.SyncRoot)
         {
-            wasViewActive = isViewActive && clearViewActivity;
+            wasViewActive = isViewActive;
             cancellation = InvalidateRequestUnsafe();
-            if (clearViewActivity)
-            {
-                isViewActive = false;
-            }
+            PresentationState.CurrentView = null;
+            isViewActive = false;
         }
         try
         {
@@ -2275,6 +2317,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             deactivationException = ExceptionDispatchInfo.Capture(ex);
         }
         Cancel(cancellation);
+        readCache.ClearPeriodIndex();
         if (wasViewActive)
         {
             RaisePropertyChanged(nameof(IsViewActive));
@@ -2322,6 +2365,7 @@ internal sealed class PlayHistoryViewRequestActivatedEventArgs : EventArgs
     }
 
     internal PlayHistoryViewRequest Request { get; }
+
 }
 
 internal sealed class PlayHistoryViewRequest
@@ -2347,4 +2391,10 @@ internal sealed class PlayHistoryViewRequest
     internal long DisplayTargetRevision { get; }
 
     internal PlaylistSourceRetirementRequest DetailSourceRetirement { get; set; }
+
+    /// <summary>この要求で読んだ取得組です。旧要求の退役とともに参照を解放します。</summary>
+    internal ScorePlayHistorySnapshot SourceSnapshot { get; set; }
+
+    /// <summary>同じ取得組・期間の投影依存更新でだけ、履歴行識別による選択復元を許可します。</summary>
+    internal bool PreserveSelection { get; set; }
 }

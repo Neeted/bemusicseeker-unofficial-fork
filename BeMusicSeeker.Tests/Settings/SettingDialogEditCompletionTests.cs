@@ -244,7 +244,6 @@ public sealed partial class SettingDialogEditCompletionTests
                 dialog.PropertyChanged += (_, args) => viewModelNotifications.Add(args.PropertyName);
 
                 ResourceService.Current.ChangeCulture("en-US");
-                Assert.AreEqual(1, playHistoryPort.RefreshDisplayTargetCatalogCount);
                 foreach (string name in new[] { nameof(SettingsDialogViewModel.PlayerResamplingQualityNames), nameof(SettingsDialogViewModel.PlayerMixerThreadCountNames) })
                 {
                     CollectionAssert.Contains(ownerNotifications, name);
@@ -257,7 +256,6 @@ public sealed partial class SettingDialogEditCompletionTests
                 viewModelNotifications.Clear();
 
                 ResourceService.Current.ChangeCulture("ja-JP");
-                Assert.AreEqual(1, playHistoryPort.RefreshDisplayTargetCatalogCount);
                 Assert.AreEqual(0, ownerNotifications.Count);
                 Assert.AreEqual(0, viewModelNotifications.Count);
             }
@@ -4983,20 +4981,10 @@ public sealed partial class SettingDialogEditCompletionTests
 
     private sealed class RecordingResourceRefreshPlayHistoryPort : ISettingsDialogPlayHistoryPort
     {
-        internal int RefreshDisplayTargetCatalogCount { get; private set; }
-
-        public void InvalidateReadCache(string reason)
-        {
-        }
-
-        public void RefreshDisplayTargetCatalog(bool queueRefreshWhenSelectionChanges = true)
-        {
-            RefreshDisplayTargetCatalogCount++;
-        }
 
         public void RefreshDisplayTargetSetsFromSettings(
             string serializedDisplayTargetSets,
-            bool queueRefreshWhenSelectionChanges)
+            bool queueRefreshWhenSelectionChanges, string? previousName = null, string? confirmedName = null)
         {
         }
     }

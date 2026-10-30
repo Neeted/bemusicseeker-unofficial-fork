@@ -145,13 +145,12 @@ internal interface ISettingsDialogCustomFolderOutputPort
 
 internal interface ISettingsDialogPlayHistoryPort
 {
-    void InvalidateReadCache(string reason);
-
-    void RefreshDisplayTargetCatalog(bool queueRefreshWhenSelectionChanges = true);
-
+    /// <summary>保存したプリセットと成功した旧名・新名だけを履歴選択主体へ渡します。</summary>
     void RefreshDisplayTargetSetsFromSettings(
         string serializedDisplayTargetSets,
-        bool queueRefreshWhenSelectionChanges);
+        bool queueRefreshWhenSelectionChanges,
+        string previousName = null,
+        string confirmedName = null);
 }
 
 internal interface ISettingsDialogSearchRootRuntimePort

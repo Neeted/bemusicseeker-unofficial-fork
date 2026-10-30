@@ -348,14 +348,12 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(draftValue, context.Settings.ShowRecommUpdatedMsg);
                 if (success)
                 {
-                    Assert.AreEqual(1, context.PlayHistory.InvalidationCount);
                     Assert.AreEqual(1, context.ReloadCount());
                     AssertInstalledSchema(scoreDbPath, expectedInstalled: false);
                     Assert.AreEqual(Resources.Msg_success_lr2_play_history_schema_uninstall, dialogs.Messages.Single().MessageBoxText);
                 }
                 else
                 {
-                    Assert.AreEqual(0, context.PlayHistory.InvalidationCount);
                     Assert.AreEqual(0, context.ReloadCount());
                     AssertInstalledSchema(scoreDbPath, expectedInstalled: true);
                     StringAssert.Contains(dialogs.Messages.Single().MessageBoxText, Resources.Msg_error_unexpected);
@@ -420,7 +418,6 @@ public sealed class SettingsWindowPresentationTests
                 Assert.IsTrue(schemaButton.IsEnabled);
                 Assert.IsTrue(uninstallButton.IsEnabled);
                 Assert.AreEqual(draftValue, context.Settings.ShowRecommUpdatedMsg);
-                Assert.AreEqual(0, context.PlayHistory.InvalidationCount);
                 Assert.AreEqual(0, context.ReloadCount());
                 AssertInstalledSchema(scoreDbPath, expectedInstalled: true);
             }
@@ -511,8 +508,6 @@ public sealed class SettingsWindowPresentationTests
                     Assert.IsFalse(context.Settings.CanInstallOrRepairLr2PlayHistorySchema);
                     Assert.IsFalse(installOrRepairButton.IsEnabled);
                     AssertSchemaBannerState(schemaBanner, "i", "Information");
-                    Assert.AreEqual(1, context.PlayHistory.InvalidationCount);
-                    Assert.AreEqual("lr2_play_history_schema_install_or_repair", context.PlayHistory.LastInvalidationReason);
                     Assert.AreEqual(1, context.ReloadCount());
                     Assert.AreEqual(1, dialogs.Messages.Count);
                     Assert.AreEqual(Resources.Msg_success_lr2_play_history_schema_install_or_repair, dialogs.Messages.Single().MessageBoxText);
@@ -524,8 +519,6 @@ public sealed class SettingsWindowPresentationTests
                     Assert.IsTrue(context.Settings.CanInstallOrRepairLr2PlayHistorySchema);
                     Assert.IsTrue(installOrRepairButton.IsEnabled);
                     AssertSchemaBannerState(schemaBanner, "!", "Warning");
-                    Assert.AreEqual(0, context.PlayHistory.InvalidationCount);
-                    Assert.IsNull(context.PlayHistory.LastInvalidationReason);
                     Assert.AreEqual(0, context.ReloadCount());
                     Assert.AreEqual(0, dialogs.Messages.Count);
                 }
@@ -5792,23 +5785,10 @@ public sealed class SettingsWindowPresentationTests
 
     private sealed class DangerPlayHistoryPort : ISettingsDialogPlayHistoryPort
     {
-        internal int InvalidationCount { get; private set; }
-
-        internal string? LastInvalidationReason { get; private set; }
-
-        public void InvalidateReadCache(string reason)
-        {
-            InvalidationCount++;
-            LastInvalidationReason = reason;
-        }
-
-        public void RefreshDisplayTargetCatalog(bool queueRefreshWhenSelectionChanges = true)
-        {
-        }
 
         public void RefreshDisplayTargetSetsFromSettings(
             string serializedDisplayTargetSets,
-            bool queueRefreshWhenSelectionChanges)
+            bool queueRefreshWhenSelectionChanges, string? previousName = null, string? confirmedName = null)
         {
         }
     }

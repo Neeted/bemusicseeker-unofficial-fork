@@ -520,6 +520,7 @@ public sealed class RegularChartNavigationTests
     }
 
     /// <summary>初回解析のロック解放後の通知を保留し、通常、保守、導入、履歴、プレイリストへの後発移動を行います。解析完了後も後発画面の対象行、表示モード、サマリーを保ち、明示した重複画面への再訪では最新結果を表示することを確認します。</summary>
+    /// <remarks>履歴は確定batchで要求が置き換わるため、要求参照ではなく、非既定の期間境界・検索・表示対象と現在要求の有効性を確認します。このconstructor-only fixtureは成績取得組を公開しないため、履歴は規定の取得失敗表示を維持します。正常0件の期間集計を作らず、0件や最終モードだけでも意味上の選択維持を判定しません。</remarks>
     [DataTestMethod]
     [DataRow("directory")]
     [DataRow("artist")]
@@ -537,7 +538,9 @@ public sealed class RegularChartNavigationTests
             fixture.AwaitGate();
             MainWindowViewModel vm = fixture.ViewModel;
             Task? later = null;
-            PlayHistoryViewRequest? history = null;
+            var historyPeriod = PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, TimeZoneInfo.Utc);
+            const string historyKeyword = "title:target";
+            const string historyTargetIdentity = "playlist:701";
             switch (destination)
             {
                 case "directory":
@@ -556,7 +559,10 @@ public sealed class RegularChartNavigationTests
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(later, "later package rows");
                     break;
                 case "history":
-                    AwaitRows(() => history = vm.PlayHistory.ActivatePeriod(PlayHistoryPeriodRequest.All(), string.Empty));
+                    vm.ChartFilters.KeywordFilter = historyKeyword;
+                    vm.PlayHistory.RefreshDisplayTargetCatalog(queueRefreshWhenSelectionChanges: false);
+                    vm.PlayHistory.SelectedDisplayTargetIdentity = historyTargetIdentity;
+                    AwaitRows(() => vm.PlayHistory.ActivatePeriod(historyPeriod, historyKeyword));
                     break;
                 case "summary":
                     vm.PlaylistWorkspace.RequestSummarySelection();
@@ -605,6 +611,8 @@ public sealed class RegularChartNavigationTests
                     .CatalogCommits.Any(commit => commit.Changes.Count > 0), "stale表示でも重複警告の確定通知を生産します。");
                 // 重複ルートを明示的に選び直すと、完成済みキャッシュから全重複対象を表示する。
                 observe = false;
+                // 履歴の意味対象を確認し終えた後の別操作として、全重複集合の再訪前に検索を解除する。
+                if (destination == "history") { vm.ChartFilters.KeywordFilter = string.Empty; }
                 int revision = fixture.Library.CatalogRevision;
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(vm.RegularChartList.NavigateMaintenanceAsync(
                     MainViewUpdateMode.DuplicateFilterSelected), "explicit duplicate after later navigation");
@@ -640,8 +648,23 @@ public sealed class RegularChartNavigationTests
                 if (destination == "history")
                 {
                     Assert.AreEqual(MainViewUpdateMode.PlayHistorySelected, vm.MainChartList.LastAppliedColumnMode);
-                    Assert.AreSame(history, vm.PlayHistory.ActiveRequest);
-                    Assert.AreEqual(PlayHistoryPeriodKind.All, history?.PeriodRequest.Kind);
+                    PlayHistoryViewRequest current = vm.PlayHistory.ActiveRequest;
+                    Assert.IsNotNull(current);
+                    Assert.IsTrue(vm.PlayHistory.IsViewActive);
+                    Assert.IsTrue(vm.PlayHistory.IsCurrentRequest(current.RequestId));
+                    Assert.AreEqual(PlayHistoryPeriodKind.Day, current.PeriodRequest.Kind);
+                    Assert.AreEqual(historyPeriod.PlayedAtFromInclusive, current.PeriodRequest.PlayedAtFromInclusive);
+                    Assert.AreEqual(historyPeriod.PlayedAtToExclusive, current.PeriodRequest.PlayedAtToExclusive);
+                    Assert.AreEqual(historyPeriod.FinalizationFilter, current.PeriodRequest.FinalizationFilter);
+                    Assert.AreEqual(historyKeyword, vm.ChartFilters.KeywordFilter);
+                    Assert.AreEqual(historyKeyword, vm.PlayHistory.CurrentKeywordIdentity);
+                    Assert.AreEqual(vm.PlayHistory.KeywordRevision, current.KeywordFilterRevision);
+                    Assert.AreEqual(historyTargetIdentity, vm.PlayHistory.SelectedDisplayTargetIdentity);
+                    Assert.AreEqual(historyTargetIdentity, vm.PlayHistory.CurrentDisplayTargetIdentity);
+                    Assert.AreEqual(vm.PlayHistory.DisplayTargetRevision, current.DisplayTargetRevision);
+                    Assert.AreEqual(Resources.Play_history_read_failed, vm.MainChartList.SummaryText);
+                    Assert.AreEqual(Resources.Play_history_read_failed, vm.PlayHistory.SummaryDiagnosticText);
+                    Assert.AreEqual(0, vm.PlayHistory.SummaryCards.Count);
                     Assert.AreEqual(0, vm.MainChartList.Rows.Count);
                 }
                 else if (destination == "detail")

@@ -95,10 +95,13 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             PlayHistoryFolderDisplayPresetEditSession duplicateSession =
                 dialog.CreatePlayHistoryFolderDisplayPresetEditSession(dialog.SelectedPlayHistoryFolderDisplayPreset);
             PlayHistoryFolderDisplayPresetEditor secondPreset = dialog.SelectedPlayHistoryFolderDisplayPreset;
+            viewModel.PlayHistory.SelectedDisplayTargetIdentity = PlayHistoryDisplayTargetItem.FromTargetSetProjectionOnly(secondPreset.ToTargetSet()).Identity;
+            string selectedIdentityBeforeRename = viewModel.PlayHistory.SelectedDisplayTargetIdentity;
             string secondPresetNameBeforeDuplicateValidation = secondPreset.Name;
             PlayHistoryDisplayTargetSet secondPresetTargetSetBeforeDuplicateValidation = secondPreset.ToTargetSet();
             duplicateSession.Name = preset.Name;
             Assert.IsFalse(dialog.TryApplyPlayHistoryFolderDisplayPresetEditSession(duplicateSession, out string duplicateNameError));
+            Assert.AreEqual(selectedIdentityBeforeRename, viewModel.PlayHistory.SelectedDisplayTargetIdentity);
             StringAssert.Contains(duplicateNameError, Resources.Error_PlayHistoryFolderPresetDuplicateName.Split(':')[0]);
             Assert.AreEqual(secondPresetNameBeforeDuplicateValidation, secondPreset.Name);
             AssertTargetSetEquals(secondPresetTargetSetBeforeDuplicateValidation, secondPreset.ToTargetSet());
@@ -109,6 +112,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             editSession.PlaylistOptions.ToList().ForEach(option => option.IsSelected = false);
             SetViewModelField(viewModel, "hasActiveLibraryProfile", true);
             Assert.IsFalse(dialog.TryApplyPlayHistoryFolderDisplayPresetEditSession(editSession, out string noPlaylistError));
+            Assert.AreEqual(selectedIdentityBeforeRename, viewModel.PlayHistory.SelectedDisplayTargetIdentity);
             StringAssert.Contains(noPlaylistError, Resources.Error_PlayHistoryFolderPresetNoPlaylist.Split(':')[0]);
             Assert.AreEqual(secondPresetNameBeforeDuplicateValidation, secondPreset.Name);
             AssertTargetSetEquals(secondPresetTargetSetBeforeDuplicateValidation, secondPreset.ToTargetSet());
@@ -116,6 +120,9 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             editSession.SearchText = "definitely-no-match";
             Assert.AreEqual(0, editSession.FilteredPlaylistOptions.Count);
             Assert.IsTrue(dialog.TryApplyPlayHistoryFolderDisplayPresetEditSession(editSession, out string applyPresetError), applyPresetError);
+            Assert.AreEqual("set-folder:SECOND", viewModel.PlayHistory.SelectedDisplayTargetIdentity);
+            Assert.AreEqual("set-folder:SECOND", testSettings.PlayHistorySelectedDisplayTargetIdentity);
+            Assert.AreEqual<int?>(202, viewModel.PlayHistory.SelectedDisplayTarget.TargetSet.Targets.Single().PlaylistId);
 
             PlayHistoryFolderDisplayPresetEditSession canceledEditSession =
                 dialog.CreatePlayHistoryFolderDisplayPresetEditSession(secondPreset);

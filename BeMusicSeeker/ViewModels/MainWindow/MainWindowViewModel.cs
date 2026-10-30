@@ -2293,9 +2293,6 @@ public partial class MainWindowViewModel : ViewModel,
             },
             MainChartList,
             PlaylistWorkspace));
-        PlayHistory.DisplayTargetRefreshRequested += (_, _) => PlayHistory.QueueDisplayTargetRefresh(
-            PlayHistory.SelectedDisplayTarget?.Identity ?? string.Empty,
-            advanceRevision: false);
         PlayHistory.SummaryFilterRefreshRequested += (_, _) => PlayHistory.QueueKeywordFilterRefresh(
             NormalizePlaylistKeywordFilter(ChartFilters.KeywordFilter));
         startupProgressWorkflowOwner.PropertyChanged += StartupProgressWorkflowOwnerPropertyChanged;
@@ -2493,13 +2490,16 @@ public partial class MainWindowViewModel : ViewModel,
 
 
         PlaylistWorkspace.ApplyLibraryChanges(files, request.NotificationBatch);
-        MainViewRefreshAction action = regularChartListOwner.ApplyNotificationPresentation(
-            files, request.NotificationBatch, treeViewFilterTypeSelected,
-            treeViewFilterParameterSelected as ChartPackage, ChartFilters.CaptureSnapshot(), PlaylistWorkspace.IsPlaylistDetailViewActive);
-        if (action == MainViewRefreshAction.Refresh)
+        bool refreshPlayHistory = PlayHistory.ApplyLibraryChanges(request.NotificationBatch);
+        MainViewRefreshAction action = PlayHistory.IsViewActive
+            ? (refreshPlayHistory ? MainViewRefreshAction.Refresh : MainViewRefreshAction.RefreshDisplay)
+            : regularChartListOwner.ApplyNotificationPresentation(
+                files, request.NotificationBatch, treeViewFilterTypeSelected,
+                treeViewFilterParameterSelected as ChartPackage, ChartFilters.CaptureSnapshot(), PlaylistWorkspace.IsPlaylistDetailViewActive);
+        if (refreshPlayHistory || action == MainViewRefreshAction.Refresh)
         {
             if (TrySuppress(UiRefreshChannel.LibraryMainView)) { return; }
-            if (request.NotificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
+            if (!refreshPlayHistory && request.NotificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
             {
                 RefreshNormalLibraryAfterSourceChanged(request.Reason);
             }
@@ -2654,7 +2654,7 @@ public partial class MainWindowViewModel : ViewModel,
         lock (playHistoryViewRequestLock)
         {
             treeViewFilterTypeSelected = MainViewUpdateMode.PlayHistorySelected;
-            treeViewFilterParameterSelected = request;
+            treeViewFilterParameterSelected = null;
             appliedNavigation = navigation;
         }
 
@@ -2898,7 +2898,6 @@ public partial class MainWindowViewModel : ViewModel,
         Action scoreNotification = null;
         try
         {
-            playHistoryWorkflowOwner.InvalidateReadCache("score_reload");
             LibraryFileInitializationResult result = await Task.Run(() => files.InitializeScoresOnlyUnderAdmission(capability,
                 new(startupBackgroundTaskScheduler.CurrentGeneration, operationToken, "score_only", operationToken), notification => scoreNotification = notification));
             PublishLatestLr2PlayHistorySchemaStatusSnapshotFromLibrary();
@@ -3012,7 +3011,6 @@ public partial class MainWindowViewModel : ViewModel,
         StartupInitializationResult operationResult;
         try
         {
-            playHistoryWorkflowOwner.InvalidateReadCache("full_reinitialize");
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree
                 | UiRefreshChannel.PlaylistTree | UiRefreshChannel.DuplicateTree);
             StartupRequiredInitializationResult required = await startupLibraryInitializationWorkflowOwner.ReinitializeAsync(files, tables, Lr2SongDbSyncWorkflow, capability, FileDbMutationDialogs,
@@ -3530,7 +3528,6 @@ public partial class MainWindowViewModel : ViewModel,
         capability = requiredOperation.Capability;
         try
         {
-            playHistoryWorkflowOwner.InvalidateReadCache("initialize");
             if (schemaApproval != null) { await startupLibraryInitializationWorkflowOwner.ApplyPreparedSchemaAsync(startupSettings, schemaApproval); }
             StartupLibraryConstructionOwner.RepairCustomFolderSearchRoots(startupSettings, startupLr2Config);
             LibraryProfile libraryProfile = StartupLibraryConstructionOwner.CreateProfile(startupSettings, startupLr2Config, applicationComposition.ApplicationPathSnapshot);
@@ -3803,7 +3800,8 @@ public partial class MainWindowViewModel : ViewModel,
             if (PlayHistory.SelectedDisplayTarget.UsesProjection)
             {
                 playHistoryWorkflowOwner.QueueDisplayTargetRefresh(
-                    PlayHistory.SelectedDisplayTarget?.Identity ?? string.Empty);
+                    PlayHistory.SelectedDisplayTarget?.Identity ?? string.Empty,
+                    preserveSelection: true);
             }
         }
         if (e?.CompletionReceipt != null)
@@ -4012,8 +4010,7 @@ public partial class MainWindowViewModel : ViewModel,
         }
         if (route.Kind == ChartListRefreshRouteKind.ApplyPlayHistoryView)
         {
-            PlayHistoryViewRequest activeRequest = parameter as PlayHistoryViewRequest
-                ?? playHistoryWorkflowOwner.SnapshotActiveRequest();
+            PlayHistoryViewRequest activeRequest = playHistoryWorkflowOwner.SnapshotActiveRequest();
             if (activeRequest == null || !playHistoryWorkflowOwner.IsCurrentRequest(activeRequest.RequestId))
             {
                 playHistoryRuntimeEventReporter.ReportStaleViewRequest(

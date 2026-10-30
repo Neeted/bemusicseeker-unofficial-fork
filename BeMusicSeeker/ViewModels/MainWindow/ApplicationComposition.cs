@@ -787,7 +787,7 @@ internal sealed class MainWindowChildComposition
             libraryFolderTreeLogWarning);
         InstallTree = new InstallTreeViewModel();
         MaintenanceTree = new MaintenanceTreeViewModel();
-        PlayHistory = new PlayHistoryWorkflowOwner(mainViewLog);
+        PlayHistory = new PlayHistoryWorkflowOwner();
         // 当該操作の所有権解放後にだけ呼び、通常Shell終端の保存・一時領域回収へは進めません。
         Task ExitForUnrestoredDestinationAsync(Exception failure) => uiScheduler.InvokeAsync(() =>
         {

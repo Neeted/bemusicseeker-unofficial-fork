@@ -64,12 +64,6 @@ public sealed partial class PlayHistoryWorkflowOwner
         }
     }
 
-    /// <summary>
-    /// Requests the root composition layer to queue a display-target read refresh.
-    /// The owner has already advanced its display-target revision before raising this event.
-    /// </summary>
-    internal event EventHandler DisplayTargetRefreshRequested;
-
     internal void ConfigureDisplayTargetPersistence(Action<string> persistIdentity)
     {
         persistDisplayTargetIdentity = persistIdentity ?? throw new ArgumentNullException(nameof(persistIdentity));
@@ -105,6 +99,9 @@ public sealed partial class PlayHistoryWorkflowOwner
             .OrderBy(table => table.name ?? string.Empty, StringComparer.OrdinalIgnoreCase)
             .ThenBy(table => table.symbol ?? string.Empty, StringComparer.OrdinalIgnoreCase)
             .Select(PlayHistoryDisplayTargetItem.FromPlaylist));
+        bool referencedTablesChanged = previousSelected.Kind == PlayHistoryDisplayTargetKind.TargetSet
+            && !PlayHistoryDisplayTargetIndex.ResolveTargetSetTables(displayTargets.Select(item => item.Table), previousSelected.TargetSet)
+                .SequenceEqual(PlayHistoryDisplayTargetIndex.ResolveTargetSetTables(nextItems.Select(item => item.Table), previousSelected.TargetSet));
 
         isRefreshingDisplayTargets = true;
         try
@@ -122,7 +119,8 @@ public sealed partial class PlayHistoryWorkflowOwner
                 selected,
                 persistIdentity: false,
                 queueRefreshWhenSelectionChanges
-                    && (previousSelected.UsesProjection || selected.UsesProjection));
+                    && (previousSelected.UsesProjection || selected.UsesProjection),
+                referencedTablesChanged);
             RaisePropertyChanged(nameof(DisplayTargets));
             RaisePropertyChanged(nameof(SelectedDisplayTarget));
             RaisePropertyChanged(nameof(SelectedDisplayTargetIdentity));
@@ -150,13 +148,18 @@ public sealed partial class PlayHistoryWorkflowOwner
     private void ApplyDisplayTargetSelection(
         PlayHistoryDisplayTargetItem selected,
         bool persistIdentity,
-        bool queueRefreshWhenSelectionChanges)
+        bool queueRefreshWhenSelectionChanges,
+        bool referencedTablesChanged = false)
     {
         PlayHistoryDisplayTargetItem previousSelected = SelectedDisplayTarget;
         PlayHistoryDisplayTargetItem next = selected ?? PlayHistoryDisplayTargetItem.All;
         string nextIdentity = NormalizeDisplayTargetIdentity(next.Identity);
         bool identityChanged = !string.Equals(previousSelected.Identity, nextIdentity, StringComparison.Ordinal);
         bool selectedItemChanged = !ReferenceEquals(selectedDisplayTarget, next);
+        bool definitionChanged = referencedTablesChanged || identityChanged || previousSelected.Kind != next.Kind
+            || !ReferenceEquals(previousSelected.Table, next.Table)
+            || !(previousSelected.TargetSet?.Targets ?? []).Select(item => item.PlaylistId)
+                .SequenceEqual((next.TargetSet?.Targets ?? []).Select(item => item.PlaylistId));
         if (persistIdentity)
         {
             if (persistDisplayTargetIdentity == null)
@@ -175,7 +178,7 @@ public sealed partial class PlayHistoryWorkflowOwner
                 {
                     selectedDisplayTarget = next;
                 }
-                AdvanceDisplayTargetRevision(nextIdentity);
+                if (definitionChanged) { AdvanceDisplayTargetRevision(nextIdentity); }
             }
         }
 
@@ -189,11 +192,12 @@ public sealed partial class PlayHistoryWorkflowOwner
             RaisePropertyChanged(nameof(SelectedDisplayTargetIdentity));
         }
 
-        if ((identityChanged || selectedItemChanged)
+        if (definitionChanged
             && queueRefreshWhenSelectionChanges
+            && IsViewActive
             && (previousSelected.UsesProjection || next.UsesProjection))
         {
-            DisplayTargetRefreshRequested?.Invoke(this, EventArgs.Empty);
+            QueueDisplayTargetRefresh(nextIdentity, advanceRevision: false, preserveSelection: !identityChanged);
         }
     }
 }

@@ -12,6 +12,12 @@ internal sealed class PlayHistoryReadCache
     private readonly object periodIndexGate = new();
     private PeriodIndexProjection periodIndex;
 
+    /// <summary>新取得組の公開・画面退役時に、旧取得組から派生した日索引を解放します。</summary>
+    internal void ClearPeriodIndex()
+    {
+        lock (periodIndexGate) { periodIndex = null; }
+    }
+
     /// <summary>最新一組の純派生索引です。rawの複製や取得世代の台帳は持ちません。</summary>
     private sealed record PeriodIndexProjection(WeakReference<ScorePlayHistorySnapshot> Source, Lr2PlayHistoryPeriodIndexResult Lr2 = null, BeatorajaPlayHistoryPeriodIndexResult Beatoraja = null)
     {
