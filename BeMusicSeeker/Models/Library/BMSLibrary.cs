@@ -319,8 +319,11 @@ public partial class BMSLibrary : ObservableObject
         /// <summary>score table のロード失敗理由です。</summary>
         internal string LoadFailureMessage { get; set; } = string.Empty;
 
-        /// <summary>score source の切り替え世代です。</summary>
+        /// <summary>通常成績と履歴を一組として取得した世代です。表示版だけの更新では進めません。</summary>
         internal long SourceGeneration { get; set; }
+
+        /// <summary>同じ成績取得操作の全履歴。表示版の更新では同じ参照を引き継ぎます。</summary>
+        internal ScorePlayHistorySnapshot PlayHistorySnapshot { get; set; }
     }
 
     private sealed class RankingDownloadContext
@@ -424,7 +427,7 @@ public partial class BMSLibrary : ObservableObject
         /// <summary>score table のロード失敗理由です。</summary>
         internal string LoadFailureMessage;
 
-        /// <summary>score source の切り替え世代です。</summary>
+        /// <summary>通常成績と履歴を一組として取得した世代です。表示版だけの更新では進めません。</summary>
         internal long SourceGeneration;
 
         internal bool HydrationRunning;
@@ -4410,7 +4413,8 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="reason">ログ出力用の更新理由。</param>
     /// <returns>採用済みsnapshotの純通知。通常の通知故障は確定状態と元の操作結果を変更しません。</returns>
     /// <param name="scoreDbPath">今回採用する読取りDBパス。未指定なら既存snapshotから引き継ぎます。</param>
-    private Action RefreshScoreSnapshotFromCurrentScores(string reason, string scoreDbPath = null)
+    /// <param name="playHistorySnapshot">今回の取得組。表示値だけの更新では未指定として既存の同じ参照を引き継ぎます。</param>
+    private Action RefreshScoreSnapshotFromCurrentScores(string reason, string scoreDbPath = null, ScorePlayHistorySnapshot playHistorySnapshot = null)
     {
         List<BMSScore> scoresSnapshot;
         Dictionary<string, BMSScore> beatorajaScoresSnapshot;
@@ -4473,6 +4477,7 @@ public partial class BMSLibrary : ObservableObject
                     ScoreDbPath = scoreDbPath ?? previous?.ScoreDbPath ?? string.Empty,
                     LoadStatus = loadStatusSnapshot,
                     LoadFailureMessage = loadFailureMessageSnapshot,
+                    PlayHistorySnapshot = playHistorySnapshot ?? previous?.PlayHistorySnapshot,
                     SourceGeneration = sourceGenerationSnapshot
                 };
                 // 公開前に購読を接続します。局所setterも同じgate順で版とqueue登録を確定します。
@@ -5025,6 +5030,9 @@ public partial class BMSLibrary : ObservableObject
                     directoryPreflightRequest, warningObserver);
                 fileScanLifecycleStarted = true;
             }
+            // 外部DBの取得を局所結果へ集めてから、既存の確定区間で一組を採用します。
+            ScoreTableLoadResult scoreAttempt = isStartup || isScoreOnly
+                ? initializationService.LoadScoreTable(dbGateway, options) : null;
             {
                 NLogWrapper.DebuggerLogger?.Trace("hazimari: " + GC.GetTotalMemory(forceFullCollection: false));
                 LogInstallPerformance("init_library_enter mode=" + mode + " songTblLoad=" + songTblLoad.ToString().ToLowerInvariant() + " songTblFileCheck=" + songTblFileCheck.ToString().ToLowerInvariant() + " installTblCheck=" + flag.ToString().ToLowerInvariant() + " rwlockInitAll currentRead=" + rwlockBMSFilesInitializedAll.CurrentReadCount + " lockingRead=" + rwlockBMSFilesInitializedAll.LockingReadCount + " lockingWrite=" + rwlockBMSFilesInitializedAll.LockingWriteCount + " waitingWrite=" + rwlockBMSFilesInitializedAll.WaitingWriteCount);
@@ -5045,7 +5053,7 @@ public partial class BMSLibrary : ObservableObject
                             using (rwlockBMSFilesInitializedMin.GetWriterGuard())
                             {
                                 if (songTblLoad) { LoadSavedCatalog(options, leapYearRepairApproval, result => initialSongTableLoadResult = result, initializationPostLeaseEffects.Add); }
-                                scoreNotification = LoadSavedScores(options);
+                                if (scoreAttempt != null) { scoreNotification = AdoptSavedScores(options, scoreAttempt); }
                                 if (songTblLoad)
                                 {
                                     packageLifecycleOwner.StartupReadiness.MarkCatalogLoaded();
@@ -5435,14 +5443,18 @@ public partial class BMSLibrary : ObservableObject
         CompleteLibraryDatabaseLoadProgress();
     }
 
-    /// <summary>保存済み設定のスコアを一度読み、失敗も今回の結果として公開します。旧結果へ戻さず、IRは後続の明示要求とします。</summary>
+    /// <summary>
+    /// 同じ取得操作で用意した通常成績とraw全履歴・player時系列を一組として採用し、取得世代を進めます。
+    /// 通常成績と履歴の失敗は独立に公開し、一方が失敗しても他方の取得結果を破棄しません。
+    /// 旧結果へ戻さず、IRは後続の明示要求とします。この確定区間では外部DBを読みません。
+    /// </summary>
+    /// <param name="options">今回の取得と共通の確定設定。</param>
+    /// <param name="attempt">外部DBの接続を解放済みの通常成績・全履歴の局所取得結果。</param>
     /// <returns>実親解放後に実行するスコアの純通知と、今回の取得が失敗した場合の案内。</returns>
-    private Action LoadSavedScores(BmsLibraryOptionsSnapshot options)
+    private Action AdoptSavedScores(BmsLibraryOptionsSnapshot options, ScoreTableLoadResult attempt)
     {
-        ScoreTableLoadResult attempt;
         using (rwlockBMSScores.GetWriterGuard())
         {
-            attempt = initializationService.LoadScoreTable(dbGateway, options);
             LogInstallPerformance("score_tbl_load readOnly=" + attempt.ReadOnly.ToString().ToLowerInvariant()
                 + " dbLockWaitMs=" + attempt.DbLockWaitMs
                 + " source=" + attempt.ActiveScoreSource
@@ -5478,7 +5490,7 @@ public partial class BMSLibrary : ObservableObject
             scoreSourceGeneration++;
         }
         if (!options.EnableDownloadLr2IrScoreAndDetectUnsent) { ClearScoreUnsentStatus(); }
-        Action notification = RefreshScoreSnapshotFromCurrentScores("score_tbl_load", attempt.ScoreDbPath);
+        Action notification = RefreshScoreSnapshotFromCurrentScores("score_tbl_load", attempt.ScoreDbPath, attempt.PlayHistorySnapshot);
         if (attempt.Status != ScoreTableLoadStatus.Failed) { return notification; }
         return () =>
         {
@@ -6287,7 +6299,7 @@ public partial class BMSLibrary : ObservableObject
         return Task.Run(() =>
         {
             cancellationToken.ThrowIfCancellationRequested();
-            ScoreTableLoadResult loaded = initializationService.LoadScoreTable(dbGateway, options);
+            ScoreTableLoadResult loaded = BmsLibraryInitializationService.LoadCurrentScoreTable(dbGateway, options);
             cancellationToken.ThrowIfCancellationRequested();
             ImmutableDictionary<string, WalkureLamp>.Builder scores = ImmutableDictionary.CreateBuilder<string, WalkureLamp>(StringComparer.OrdinalIgnoreCase);
             WalkureRecommendationModel model = WalkureRecommendationModel.Bundled;
@@ -7901,7 +7913,7 @@ public partial class BMSLibrary : ObservableObject
         return () => RefreshScoreSnapshotFromCurrentScores("update_ir_score_table")();
     }
 
-    /// <summary>未送信状態だけを解除し、実変更の有無を返します。LoadSavedScoresの最終snapshotへまとめて公開します。</summary>
+    /// <summary>未送信状態だけを解除し、実変更の有無を返します。AdoptSavedScoresの最終snapshotへまとめて公開します。</summary>
     private bool ClearScoreUnsentStatus()
     {
         bool changed = false;

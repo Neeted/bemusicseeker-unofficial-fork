@@ -306,6 +306,10 @@ public sealed class SettingsDialogBehaviorTests
             Assert.AreEqual(root, fresh.BeatorajaRootPath);
             Assert.IsTrue(harness.Dialog.CanCancelBmtSettings);
             Assert.AreEqual(2, harness.State.ScoreReloadCount);
+            byte[] savedScoreSettings = File.ReadAllBytes(Path.Combine(directory.Path, "user.config"));
+            await harness.Dialog.CommitScoreSettingsAsync();
+            Assert.AreEqual(2, harness.State.ScoreReloadCount, "同値score確定では再取得しません。");
+            CollectionAssert.AreEqual(savedScoreSettings, File.ReadAllBytes(Path.Combine(directory.Path, "user.config")));
             Assert.AreEqual(1, harness.Workspace.BmtRequests.Count);
             harness.Workspace.ThrowOnBmt = false;
             harness.Dialog.UseBeatorajaScoreDb = true;

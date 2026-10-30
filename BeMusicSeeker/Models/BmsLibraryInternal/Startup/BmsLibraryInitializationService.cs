@@ -2183,11 +2183,54 @@ internal sealed class BmsLibraryInitializationService
         return result;
     }
 
-    /// <summary>選択したスコアDBを読み直し、接続を解放して読取り結果を返します。</summary>
+    /// <summary>
+    /// 選択した情報源の通常成績、raw全履歴、beatorajaのplayer時系列と取得時ノーツを同じ取得操作で用意します。
+    /// 通常成績と履歴は別々に成否を判定し、正常0件・利用不可・失敗も今回の一組へ保持します。
+    /// 複数DBをまたぐ原子的なsnapshotは保証せず、全接続を解放してから呼出元へ返します。
+    /// </summary>
     /// <param name="dbGateway">LR2スコアDBの読取り窓口。</param>
     /// <param name="options">選択したbeatoraja設定と既存読取り設定。未指定ならLR2を使います。</param>
-    /// <returns>未設定・正常読取り（空DBを含む）・失敗を区別した結果。別ソースへ代替しません。</returns>
+    /// <returns>通常成績の状態と、独立した履歴・playerの結果を持つ取得組。一方の失敗で他方を破棄せず、別情報源へ代替しません。</returns>
     public ScoreTableLoadResult LoadScoreTable(BmsLibraryDbGateway dbGateway, BmsLibraryOptionsSnapshot options = null)
+    {
+        ScoreTableLoadResult result = LoadCurrentScoreTable(dbGateway, options);
+        if (result.ActiveScoreSource == ActiveScoreSource.Beatoraja)
+        {
+            result.Lr2PlayHistorySchemaCheckResult = CheckLr2PlayHistorySchemaForScoreLoad(dbGateway, options);
+            BeatorajaPlayHistoryReadResult history = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+            {
+                ScoreDbPath = result.ScoreDbPath,
+                ScoresBySha256 = result.BeatorajaScoresBySha256,
+                FinalizationFilter = Lr2PlayHistoryFinalizationFilter.All,
+                DisableLimit = true
+            });
+            result.PlayHistorySnapshot = new(result.ActiveScoreSource, result.ScoreDbPath, beatoraja: history);
+        }
+        else
+        {
+            Lr2PlayHistoryReadResult history = new Lr2PlayHistoryReader().Read(new Lr2PlayHistoryReadRequest
+            {
+                ScoreDbPath = result.ScoreDbPath,
+                IsLr2LinkedProfile = options?.OperationModeLR2DB ?? true,
+                FinalizationFilter = Lr2PlayHistoryFinalizationFilter.All,
+                DisableLimit = true,
+                AllowRepairableIndexRead = true,
+                RequireCompleteHistoryTriggers = false
+            });
+            result.PlayHistorySnapshot = new(result.ActiveScoreSource, result.ScoreDbPath, lr2: history);
+            result.Lr2PlayHistorySchemaCheckResult = history.SchemaCheckResult;
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// 推薦の明示更新専用に通常成績だけを読みます。通常表示用の一括取得は <see cref="LoadScoreTable"/> を使います。
+    /// raw履歴・player時系列とPlayHistorySnapshotは生成せず、表示正本の取得組・履歴取得世代も更新しません。
+    /// </summary>
+    /// <param name="dbGateway">推薦が選んだLR2成績の読取り窓口。</param>
+    /// <param name="options">推薦更新の開始時に捕捉した成績取得元設定。</param>
+    /// <returns>通常成績だけの取得結果。未設定・正常0件・失敗を区別します。</returns>
+    internal static ScoreTableLoadResult LoadCurrentScoreTable(BmsLibraryDbGateway dbGateway, BmsLibraryOptionsSnapshot options)
     {
         if (dbGateway == null)
         {
@@ -2202,7 +2245,7 @@ internal sealed class BmsLibraryInitializationService
         {
             EnableDownloadLr2IrScoreAndDetectUnsent = options?.EnableDownloadLr2IrScoreAndDetectUnsent ?? false
         };
-        result.Lr2PlayHistorySchemaCheckResult = CheckLr2PlayHistorySchemaForScoreLoad(dbGateway, options);
+
         if (options?.UseBeatorajaScoreDb == true)
         {
             result.ActiveScoreSource = ActiveScoreSource.Beatoraja;

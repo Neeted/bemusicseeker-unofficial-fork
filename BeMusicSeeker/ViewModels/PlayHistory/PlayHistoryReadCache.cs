@@ -6,248 +6,89 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.ViewModels;
 
+/// <summary>取得済み全履歴の期間・確定状態・日索引を純投影します。raw配列やDB接続、取得元選択を所有せず、最新取得組の日索引だけを再利用します。</summary>
 internal sealed class PlayHistoryReadCache
 {
-    private readonly object syncRoot = new();
+    private readonly object periodIndexGate = new();
+    private PeriodIndexProjection periodIndex;
 
-    private long generation;
-
-    private Lr2CacheEntry lr2Entry;
-
-    private Lr2CacheKey lr2LoadingKey;
-
-    private long lr2LoadingGeneration;
-
-    private BeatorajaCacheEntry beatorajaEntry;
-
-    private BeatorajaCacheKey beatorajaLoadingKey;
-
-    private long beatorajaLoadingGeneration;
-
-    internal void Invalidate()
+    /// <summary>最新一組の純派生索引です。rawの複製や取得世代の台帳は持ちません。</summary>
+    private sealed record PeriodIndexProjection(WeakReference<ScorePlayHistorySnapshot> Source, Lr2PlayHistoryPeriodIndexResult Lr2 = null, BeatorajaPlayHistoryPeriodIndexResult Beatoraja = null)
     {
-        lock (syncRoot)
-        {
-            generation++;
-            lr2Entry = null;
-            lr2LoadingKey = null;
-            lr2LoadingGeneration = 0L;
-            beatorajaEntry = null;
-            beatorajaLoadingKey = null;
-            beatorajaLoadingGeneration = 0L;
-            Monitor.PulseAll(syncRoot);
-        }
+        /// <summary>キーのために旧rawを生存させず、現在の取得組とだけ参照照合します。</summary>
+        internal bool IsSameSource(ScorePlayHistorySnapshot snapshot)
+            => snapshot != null && Source.TryGetTarget(out ScorePlayHistorySnapshot captured) && ReferenceEquals(captured, snapshot);
     }
 
-    internal Lr2PlayHistoryReadResult ReadLr2(
-        Lr2PlayHistoryReadRequest request,
-        CancellationToken cancellationToken,
-        out bool cacheHit)
+    /// <summary>同じ取得組のLR2全行に通常一覧のスキーマ条件と期間条件を適用します。</summary>
+    internal Lr2PlayHistoryReadResult ReadLr2(ScorePlayHistorySnapshot snapshot, Lr2PlayHistoryReadRequest request, CancellationToken cancellationToken, out bool cacheHit)
     {
-        request ??= new Lr2PlayHistoryReadRequest();
-        var key = new Lr2CacheKey(request.ScoreDbPath, request.IsLr2LinkedProfile);
-        long loadGeneration;
-        while (true)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            lock (syncRoot)
-            {
-                if (lr2Entry != null && lr2Entry.Key.IsSameSource(key))
-                {
-                    cacheHit = true;
-                    return FilterLr2(lr2Entry.Result, request);
-                }
-                if (lr2LoadingKey == null)
-                {
-                    lr2LoadingKey = key;
-                    loadGeneration = generation;
-                    lr2LoadingGeneration = loadGeneration;
-                    break;
-                }
-                Monitor.Wait(syncRoot, TimeSpan.FromMilliseconds(100));
-            }
-        }
-
-        cacheHit = false;
-        var cacheRequest = new Lr2PlayHistoryReadRequest
-        {
-            ScoreDbPath = key.ScoreDbPath,
-            IsLr2LinkedProfile = key.IsLr2LinkedProfile,
-            FinalizationFilter = Lr2PlayHistoryFinalizationFilter.All,
-            DisableLimit = true
-        };
-        try
-        {
-            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader().Read(cacheRequest, CancellationToken.None);
-            if (!result.HasErrors && ShouldCache(result.SchemaStatus))
-            {
-                lock (syncRoot)
-                {
-                    if (generation == loadGeneration)
-                    {
-                        lr2Entry = new Lr2CacheEntry(key, result);
-                    }
-                }
-            }
-            cancellationToken.ThrowIfCancellationRequested();
-            return FilterLr2(result, request);
-        }
-        finally
-        {
-            lock (syncRoot)
-            {
-                if (lr2LoadingGeneration == loadGeneration
-                    && lr2LoadingKey != null
-                    && lr2LoadingKey.IsSameSource(key))
-                {
-                    lr2LoadingKey = null;
-                    lr2LoadingGeneration = 0L;
-                }
-                Monitor.PulseAll(syncRoot);
-            }
-        }
+        cancellationToken.ThrowIfCancellationRequested();
+        cacheHit = true;
+        Lr2PlayHistoryReadResult raw = snapshot?.Lr2;
+        return FilterLr2(raw == null ? null : Lr2PlayHistoryReader.ForPurpose(raw, false, false), request);
     }
 
-    internal BeatorajaPlayHistoryReadResult ReadBeatoraja(
-        BeatorajaPlayHistoryReadRequest request,
-        CancellationToken cancellationToken,
-        out bool cacheHit)
+    /// <summary>取得時点のノーツ・player時系列を保持したbeatoraja全行を期間投影します。</summary>
+    internal BeatorajaPlayHistoryReadResult ReadBeatoraja(ScorePlayHistorySnapshot snapshot, BeatorajaPlayHistoryReadRequest request, CancellationToken cancellationToken, out bool cacheHit)
     {
-        BeatorajaPlayHistoryReadRequest resolved = BeatorajaPlayHistoryReader.ResolveRequestPaths(CopyBeatorajaRequest(request));
-        var key = new BeatorajaCacheKey(resolved.ScoreDbPath, resolved.ScoreLogDbPath, resolved.ScoreSnapshotVersion);
-        long loadGeneration;
-        while (true)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            lock (syncRoot)
-            {
-                if (beatorajaEntry != null && beatorajaEntry.Key.IsSameSource(key))
-                {
-                    cacheHit = true;
-                    return FilterBeatoraja(beatorajaEntry.Result, resolved);
-                }
-                if (beatorajaLoadingKey == null)
-                {
-                    beatorajaLoadingKey = key;
-                    loadGeneration = generation;
-                    beatorajaLoadingGeneration = loadGeneration;
-                    break;
-                }
-                Monitor.Wait(syncRoot, TimeSpan.FromMilliseconds(100));
-            }
-        }
-
-        cacheHit = false;
-        var cacheRequest = new BeatorajaPlayHistoryReadRequest
-        {
-            ScoreDbPath = key.ScoreDbPath,
-            ScoreLogDbPath = key.ScoreLogDbPath,
-            ScoresBySha256 = resolved.ScoresBySha256,
-            ScoreSnapshotVersion = key.ScoreSnapshotVersion,
-            FinalizationFilter = Lr2PlayHistoryFinalizationFilter.All,
-            DisableLimit = true
-        };
-        try
-        {
-            BeatorajaPlayHistoryReadResult result = new BeatorajaPlayHistoryReader().Read(cacheRequest, CancellationToken.None);
-            if (!result.HasErrors && ShouldCache(result.SchemaStatus))
-            {
-                lock (syncRoot)
-                {
-                    if (generation == loadGeneration)
-                    {
-                        beatorajaEntry = new BeatorajaCacheEntry(key, result);
-                    }
-                }
-            }
-            cancellationToken.ThrowIfCancellationRequested();
-            return FilterBeatoraja(result, resolved);
-        }
-        finally
-        {
-            lock (syncRoot)
-            {
-                if (beatorajaLoadingGeneration == loadGeneration
-                    && beatorajaLoadingKey != null
-                    && beatorajaLoadingKey.IsSameSource(key))
-                {
-                    beatorajaLoadingKey = null;
-                    beatorajaLoadingGeneration = 0L;
-                }
-                Monitor.PulseAll(syncRoot);
-            }
-        }
+        cancellationToken.ThrowIfCancellationRequested();
+        cacheHit = true;
+        return FilterBeatoraja(snapshot?.Beatoraja, request);
     }
 
-    internal Lr2PlayHistoryPeriodIndexResult ReadLr2PeriodIndex(
-        Lr2PlayHistoryPeriodIndexRequest request,
-        CancellationToken cancellationToken,
-        out bool cacheHit)
+    /// <summary>一覧の件数上限によらず、取得済み確定行から日索引を作ります。</summary>
+    internal Lr2PlayHistoryPeriodIndexResult ReadLr2PeriodIndex(ScorePlayHistorySnapshot snapshot, Lr2PlayHistoryPeriodIndexRequest request, CancellationToken cancellationToken, out bool cacheHit)
     {
-        Lr2PlayHistoryReadResult read = ReadLr2(
-            new Lr2PlayHistoryReadRequest
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (periodIndexGate)
+        {
+            cacheHit = true;
+            if (periodIndex?.IsSameSource(snapshot) == true && periodIndex.Lr2 != null)
+            {
+                return periodIndex.Lr2;
+            }
+            Lr2PlayHistoryReadResult read = ReadLr2(snapshot, new Lr2PlayHistoryReadRequest
             {
                 ScoreDbPath = request?.ScoreDbPath,
                 IsLr2LinkedProfile = request?.IsLr2LinkedProfile ?? true,
-                FinalizationFilter = Lr2PlayHistoryFinalizationFilter.FinalizedOnly,
                 DisableLimit = true
-            },
-            cancellationToken,
-            out cacheHit);
-        try
-        {
-            return new Lr2PlayHistoryPeriodIndexResult(read.SourceProfile,
-                BuildPeriodIndex(read.Rows.Select(row => row.played_at)), read.Diagnostics, read.SchemaStatus);
-        }
-        catch (Exception failure) when (failure is not OutOfMemoryException)
-        {
-            return new Lr2PlayHistoryPeriodIndexResult(read.SourceProfile, [],
-                [CreatePeriodIndexFailure(read.SourceProfile, failure)], Lr2PlayHistorySchemaStatus.Unreadable);
+            }, cancellationToken, out _);
+            Lr2PlayHistoryPeriodIndexResult result;
+            try
+            {
+                result = new(read.SourceProfile, BuildPeriodIndex(read.Rows.Select(row => row.played_at)), read.Diagnostics, read.SchemaStatus);
+            }
+            catch (Exception failure) when (failure is not OutOfMemoryException)
+            {
+                result = new(read.SourceProfile, [], [CreatePeriodIndexFailure(read.SourceProfile, failure)], Lr2PlayHistorySchemaStatus.Unreadable);
+            }
+            periodIndex = new(new(snapshot), Lr2: result);
+            return result;
         }
     }
 
-    internal BeatorajaPlayHistoryPeriodIndexResult ReadBeatorajaPeriodIndex(
-        BeatorajaPlayHistoryPeriodIndexRequest request,
-        CancellationToken cancellationToken,
-        out bool cacheHit)
+    /// <summary>同じ取得組のbeatoraja全行から、件数上限と独立した日索引を作ります。</summary>
+    internal BeatorajaPlayHistoryPeriodIndexResult ReadBeatorajaPeriodIndex(ScorePlayHistorySnapshot snapshot, BeatorajaPlayHistoryPeriodIndexRequest request, CancellationToken cancellationToken, out bool cacheHit)
     {
-        BeatorajaPlayHistoryReadRequest resolved = BeatorajaPlayHistoryReader.ResolveRequestPaths(new BeatorajaPlayHistoryReadRequest
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (periodIndexGate)
         {
-            ScoreDbPath = request?.ScoreDbPath,
-            ScoreLogDbPath = request?.ScoreLogDbPath,
-            ScoresBySha256 = request?.ScoresBySha256,
-            ScoreSnapshotVersion = request?.ScoreSnapshotVersion ?? 0
-        });
-        var key = new BeatorajaCacheKey(resolved.ScoreDbPath, resolved.ScoreLogDbPath, resolved.ScoreSnapshotVersion);
-        lock (syncRoot)
-        {
-            if (beatorajaEntry != null && beatorajaEntry.Key.IsSameSource(key))
+            cacheHit = true;
+            if (periodIndex?.IsSameSource(snapshot) == true && periodIndex.Beatoraja != null)
             {
-                cacheHit = true;
-                return beatorajaEntry.PeriodIndex;
+                return periodIndex.Beatoraja;
             }
-        }
-
-        BeatorajaPlayHistoryReadResult read = ReadBeatoraja(
-            new BeatorajaPlayHistoryReadRequest
+            BeatorajaPlayHistoryReadResult read = ReadBeatoraja(snapshot, new BeatorajaPlayHistoryReadRequest
             {
-                ScoreDbPath = resolved.ScoreDbPath,
-                ScoreLogDbPath = resolved.ScoreLogDbPath,
-                ScoresBySha256 = resolved.ScoresBySha256,
-                ScoreSnapshotVersion = resolved.ScoreSnapshotVersion,
-                FinalizationFilter = Lr2PlayHistoryFinalizationFilter.FinalizedOnly,
+                ScoreDbPath = request?.ScoreDbPath,
+                ScoreLogDbPath = request?.ScoreLogDbPath,
                 DisableLimit = true
-            },
-            cancellationToken,
-            out cacheHit);
-        lock (syncRoot)
-        {
-            if (beatorajaEntry != null && beatorajaEntry.Key.IsSameSource(key))
-            {
-                return beatorajaEntry.PeriodIndex;
-            }
+            }, cancellationToken, out _);
+            BeatorajaPlayHistoryPeriodIndexResult result = BuildBeatorajaPeriodIndex(read);
+            periodIndex = new(new(snapshot), Beatoraja: result);
+            return result;
         }
-        return BuildBeatorajaPeriodIndex(read);
     }
 
     private static Lr2PlayHistoryReadResult FilterLr2(Lr2PlayHistoryReadResult source, Lr2PlayHistoryReadRequest request)
@@ -262,7 +103,7 @@ internal sealed class PlayHistoryReadCache
         }
         return new Lr2PlayHistoryReadResult(
             source?.SourceProfile ?? PlayHistorySourceProfile.Lr2(request.ScoreDbPath),
-            [.. rows],
+            IsUnfiltered(request.FinalizationFilter, request.PlayedAtFromInclusive, request.PlayedAtToExclusive, request.DisableLimit) ? source?.Rows ?? [] : [.. rows],
             source?.Diagnostics ?? [],
             source?.SchemaStatus ?? Lr2PlayHistorySchemaStatus.Unreadable,
             source?.SchemaCheckResult);
@@ -283,7 +124,7 @@ internal sealed class PlayHistoryReadCache
         }
         return new BeatorajaPlayHistoryReadResult(
             source?.SourceProfile ?? PlayHistorySourceProfile.Beatoraja(request?.ScoreLogDbPath),
-            [.. rows],
+            IsUnfiltered(request.FinalizationFilter, request.PlayedAtFromInclusive, request.PlayedAtToExclusive, request.DisableLimit) ? source?.Rows ?? [] : [.. rows],
             source?.Diagnostics ?? [],
             source?.SchemaStatus ?? Lr2PlayHistorySchemaStatus.Unreadable,
             source?.PlayerSnapshots ?? [],
@@ -359,101 +200,6 @@ internal sealed class PlayHistoryReadCache
         };
     }
 
-    private static bool ShouldCache(Lr2PlayHistorySchemaStatus status)
-    {
-        return status != Lr2PlayHistorySchemaStatus.Unreadable;
-    }
-
-    private static BeatorajaPlayHistoryReadRequest CopyBeatorajaRequest(BeatorajaPlayHistoryReadRequest request)
-    {
-        request ??= new BeatorajaPlayHistoryReadRequest();
-        return new BeatorajaPlayHistoryReadRequest
-        {
-            ScoreDbPath = request.ScoreDbPath,
-            ScoreLogDbPath = request.ScoreLogDbPath,
-            ScoresBySha256 = request.ScoresBySha256,
-            ScoreSnapshotVersion = request.ScoreSnapshotVersion,
-            PlayedAtFromInclusive = request.PlayedAtFromInclusive,
-            PlayedAtToExclusive = request.PlayedAtToExclusive,
-            Limit = request.Limit,
-            DisableLimit = request.DisableLimit,
-            FinalizationFilter = request.FinalizationFilter
-        };
-    }
-
-    private sealed class Lr2CacheKey
-    {
-        internal Lr2CacheKey(string scoreDbPath, bool isLr2LinkedProfile)
-        {
-            ScoreDbPath = scoreDbPath ?? string.Empty;
-            IsLr2LinkedProfile = isLr2LinkedProfile;
-        }
-
-        internal string ScoreDbPath { get; }
-
-        internal bool IsLr2LinkedProfile { get; }
-
-        internal bool IsSameSource(Lr2CacheKey other)
-        {
-            return other != null
-                && IsLr2LinkedProfile == other.IsLr2LinkedProfile
-                && string.Equals(ScoreDbPath, other.ScoreDbPath, StringComparison.OrdinalIgnoreCase);
-        }
-    }
-
-    private sealed class Lr2CacheEntry
-    {
-        internal Lr2CacheEntry(Lr2CacheKey key, Lr2PlayHistoryReadResult result)
-        {
-            Key = key;
-            Result = result;
-        }
-
-        internal Lr2CacheKey Key { get; }
-
-        internal Lr2PlayHistoryReadResult Result { get; }
-    }
-
-    private sealed class BeatorajaCacheKey
-    {
-        internal BeatorajaCacheKey(
-            string scoreDbPath,
-            string scoreLogDbPath,
-            int scoreSnapshotVersion)
-        {
-            ScoreDbPath = scoreDbPath ?? string.Empty;
-            ScoreLogDbPath = scoreLogDbPath ?? string.Empty;
-            ScoreSnapshotVersion = Math.Max(0, scoreSnapshotVersion);
-        }
-
-        internal string ScoreDbPath { get; }
-
-        internal string ScoreLogDbPath { get; }
-
-        internal int ScoreSnapshotVersion { get; }
-
-        internal bool IsSameSource(BeatorajaCacheKey other)
-        {
-            return other != null
-                && ScoreSnapshotVersion == other.ScoreSnapshotVersion
-                && string.Equals(ScoreDbPath, other.ScoreDbPath, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(ScoreLogDbPath, other.ScoreLogDbPath, StringComparison.OrdinalIgnoreCase);
-        }
-    }
-
-    private sealed class BeatorajaCacheEntry
-    {
-        internal BeatorajaCacheEntry(BeatorajaCacheKey key, BeatorajaPlayHistoryReadResult result)
-        {
-            Key = key;
-            Result = result;
-            PeriodIndex = BuildBeatorajaPeriodIndex(result);
-        }
-
-        internal BeatorajaCacheKey Key { get; }
-
-        internal BeatorajaPlayHistoryReadResult Result { get; }
-
-        internal BeatorajaPlayHistoryPeriodIndexResult PeriodIndex { get; }
-    }
+    private static bool IsUnfiltered(Lr2PlayHistoryFinalizationFilter finalization, long? from, long? to, bool disableLimit)
+        => finalization == Lr2PlayHistoryFinalizationFilter.All && !from.HasValue && !to.HasValue && disableLimit;
 }

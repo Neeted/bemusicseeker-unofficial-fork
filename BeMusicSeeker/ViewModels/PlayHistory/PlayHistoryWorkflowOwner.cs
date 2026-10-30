@@ -303,10 +303,10 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
 
     internal PlayHistoryViewRequest ActiveRequest { get; private set; }
 
+    /// <summary>旧表示要求を取消します。rawはモデル取得組が所有し、この操作では破棄・再取得しません。</summary>
     internal void InvalidateReadCache(string reason)
     {
         Deactivate(clearViewActivity: false);
-        readCache.Invalidate();
         mainViewLog("play_history_read_cache_invalidated reason=" + (reason ?? string.Empty));
     }
 
@@ -470,9 +470,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             if (request.Source.Provider == PlayHistoryProvider.Beatoraja)
             {
                 BeatorajaPlayHistoryReadRequest readRequest = periodRequest.ToBeatorajaReadRequest(request.Source.ScoreDbPath);
-                readRequest.ScoresBySha256 = request.Source.BeatorajaScoreContext.ScoresBySha256;
-                readRequest.ScoreSnapshotVersion = request.Source.BeatorajaScoreContext.ScoreSnapshotVersion;
-                beatorajaReadResult = readCache.ReadBeatoraja(readRequest, cancellationToken, out readCacheHit);
+                beatorajaReadResult = readCache.ReadBeatoraja(request.Source.PlayHistorySnapshot, readRequest, cancellationToken, out readCacheHit);
                 schemaStatus = beatorajaReadResult.SchemaStatus;
                 rawReadCount = beatorajaReadResult.Rows.Count;
                 readDiagnostics = beatorajaReadResult.Diagnostics;
@@ -480,6 +478,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             else
             {
                 lr2ReadResult = readCache.ReadLr2(
+                    request.Source.PlayHistorySnapshot,
                     periodRequest.ToLr2ReadRequest(request.Source.ScoreDbPath, request.Source.IsLr2LinkedProfile),
                     cancellationToken,
                     out readCacheHit);
@@ -546,11 +545,10 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 if (request.Source.Provider == PlayHistoryProvider.Beatoraja)
                 {
                     BeatorajaPlayHistoryPeriodIndexResult periodResult = readCache.ReadBeatorajaPeriodIndex(
+                        request.Source.PlayHistorySnapshot,
                         new BeatorajaPlayHistoryPeriodIndexRequest
                         {
-                            ScoreDbPath = request.Source.ScoreDbPath,
-                            ScoresBySha256 = request.Source.BeatorajaScoreContext.ScoresBySha256,
-                            ScoreSnapshotVersion = request.Source.BeatorajaScoreContext.ScoreSnapshotVersion
+                            ScoreDbPath = request.Source.ScoreDbPath
                         },
                         cancellationToken,
                         out periodCacheHit);
@@ -560,6 +558,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 else
                 {
                     Lr2PlayHistoryPeriodIndexResult periodResult = readCache.ReadLr2PeriodIndex(
+                        request.Source.PlayHistorySnapshot,
                         new Lr2PlayHistoryPeriodIndexRequest
                         {
                             ScoreDbPath = request.Source.ScoreDbPath,

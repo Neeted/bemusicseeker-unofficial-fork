@@ -1,8 +1,9 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Windows.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -169,6 +170,80 @@ public sealed class BmsLibrarySavedScoreAvailabilityTests
         finally { fixture.Library.PropertyChanged -= record; }
     }
 
+    /// <summary>通常成績の失敗と履歴の利用可否を独立して採用し、失敗も次の許可取得まで固定します。</summary>
+    [TestMethod]
+    public void InitializeScoresOnly_BeatorajaScoreFailureKeepsHistoryAndHistoryFailureKeepsScore()
+    {
+        using var fixture = new ScoreFixture(beatoraja: true, empty: false);
+        fixture.CreateHistory();
+        fixture.BreakScoreSelect();
+        fixture.Library.InitializeScoresOnly(null);
+        BMSLibrary.ScoreSnapshot scoreFailed = fixture.Library.CaptureScoreSnapshotForView();
+        Assert.AreEqual(ScoreTableLoadStatus.Failed, scoreFailed.LoadStatus);
+        Assert.IsFalse(scoreFailed.PlayHistorySnapshot.Beatoraja.HasErrors);
+        Assert.AreEqual(1, scoreFailed.PlayHistorySnapshot.Beatoraja.Rows.Count);
+        Assert.IsFalse(scoreFailed.PlayHistorySnapshot.Beatoraja.PlayerSnapshotsAvailable);
+
+        fixture.RestoreEmptyScoreTable();
+        fixture.BreakHistory();
+        fixture.Library.InitializeScoresOnly(null);
+        BMSLibrary.ScoreSnapshot historyFailed = fixture.Library.CaptureScoreSnapshotForView();
+        Assert.AreEqual(ScoreTableLoadStatus.Loaded, historyFailed.LoadStatus);
+        Assert.IsTrue(historyFailed.PlayHistorySnapshot.Beatoraja.Diagnostics.Any(diagnostic => diagnostic.Code == "play_history_beatoraja_scorelog_missing"));
+        Assert.AreEqual(Lr2PlayHistorySchemaStatus.Unreadable, historyFailed.PlayHistorySnapshot.Beatoraja.SchemaStatus);
+        Assert.AreEqual(1, fixture.Dialogs.Messages.Count);
+        fixture.CreateHistory();
+        Assert.AreSame(historyFailed.PlayHistorySnapshot, fixture.Library.CaptureScoreSnapshotForView().PlayHistorySnapshot);
+        fixture.Library.InitializeScoresOnly(null);
+        Assert.AreEqual(1, fixture.Library.CaptureScoreSnapshotForView().PlayHistorySnapshot.Beatoraja.Rows.Count);
+        Assert.IsFalse(fixture.Library.CaptureScoreSnapshotForView().PlayHistorySnapshot.Beatoraja.HasErrors);
+    }
+
+    /// <summary>IR・順位後続を無効にした条件で、起動が通常成績・全履歴を先行取得し、全再初期化本体はカタログ更新後も外部DBを再取得せず取得組・版を保持します。</summary>
+    [TestMethod]
+    public async Task InitializeStartup_AcquiresHistoryBeforeViewAndFullReinitializeKeepsCapturedBatch()
+    {
+        using var fixture = new ScoreFixture(beatoraja: true, empty: false);
+        fixture.CreateHistory();
+        fixture.Library.InitializeStartup(null);
+        BMSLibrary.ScoreSnapshot startup = fixture.Library.CaptureScoreSnapshotForView();
+        Assert.IsNotNull(startup);
+        Assert.AreEqual(ScoreTableLoadStatus.Loaded, startup.LoadStatus);
+        Assert.AreEqual(1, startup.PlayHistorySnapshot.Beatoraja.Rows.Count);
+        Assert.AreEqual(100, startup.PlayHistorySnapshot.Beatoraja.Rows.Single().notes);
+        await fixture.CompleteBackgroundWorkAsync();
+        fixture.Library.BmsCharts = [ChartTestValues.Empty() with { Path = "different.bms", Md5 = new string('a', 32) }];
+        Assert.AreEqual("different.bms", fixture.Library.BmsCharts.Single().Path);
+        Assert.AreSame(startup.PlayHistorySnapshot, fixture.Library.CaptureScoreSnapshotForView().PlayHistorySnapshot);
+        File.Move(fixture.ScorePath, fixture.ScorePath + ".moved");
+        fixture.BreakHistory();
+        int beforeFullNotification = fixture.Library.NormalLibraryRefreshNotificationVersion;
+        int scoreNotifications = 0;
+        System.ComponentModel.PropertyChangedEventHandler scoreNotification = (_, args) =>
+        {
+            if (args.PropertyName is nameof(BMSLibrary.ScoreSnapshotVersion) or nameof(BMSLibrary.ScoreSnapshotReady)) { scoreNotifications++; }
+        };
+        fixture.Library.PropertyChanged += scoreNotification;
+        try
+        {
+            fixture.Library.Reinitialize();
+            await fixture.CompleteBackgroundWorkAsync();
+        }
+        finally { fixture.Library.PropertyChanged -= scoreNotification; }
+        // 仮のカタログ行は保存済みの空目録と走査結果で置き換わり、再初期化そのものの省略と区別します。
+        Assert.AreEqual(0, fixture.Library.BmsCharts.Count);
+        Assert.AreEqual(0, fixture.Library.GetNormalLibraryRefreshNotificationsAfter(beforeFullNotification).ScoreChanges.Count);
+        Assert.AreEqual(0, scoreNotifications);
+        BMSLibrary.ScoreSnapshot reinitialized = fixture.Library.CaptureScoreSnapshotForView();
+        Assert.AreEqual(startup.Version, fixture.Library.ScoreSnapshotVersion);
+        Assert.AreEqual(startup.Version, reinitialized.Version);
+        Assert.AreSame(startup.PlayHistorySnapshot, reinitialized.PlayHistorySnapshot);
+        Assert.AreEqual(startup.SourceGeneration, reinitialized.SourceGeneration);
+        Assert.AreEqual(20, fixture.Lookup().Score);
+        Assert.AreEqual(100, reinitialized.PlayHistorySnapshot.Beatoraja.Rows.Single().notes);
+        Assert.AreEqual(0, fixture.Dialogs.Messages.Count);
+    }
+
     private sealed class ScoreFixture : IDisposable
     {
         private const string Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -176,6 +251,7 @@ public sealed class BmsLibrarySavedScoreAvailabilityTests
         private readonly string root = Path.Combine(Path.GetTempPath(), "BmsSavedScoreAvailability", Guid.NewGuid().ToString("N"));
         private string scorePath;
         private readonly bool beatoraja;
+        private readonly ConcurrentQueue<Func<Task>> backgroundWork = new();
         private BmsLibraryOptionsSnapshot options;
         internal TestBmsLibrary Library { get; }
         internal string ScorePath => scorePath;
@@ -205,8 +281,19 @@ public sealed class BmsLibrarySavedScoreAvailabilityTests
             options = new BmsLibraryOptionsSnapshot { UseBeatorajaScoreDb = beatoraja, BeatorajaScoreDbPath = configured ? scorePath : string.Empty };
             Library = new TestBmsLibrary(songPath, null, beatoraja || !configured ? null : scorePath,
                 fileMutationService: null, dialogService: Dialogs,
-                uiScheduler: new TestUiScheduler(() => Dispatcher.CurrentDispatcher), optionsSnapshotProvider: () => options)
+                uiScheduler: new TestUiScheduler(() => null), optionsSnapshotProvider: () => options)
             { BmsCharts = [] };
+            Library.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                backgroundWork.Enqueue(work);
+                return true;
+            };
+        }
+
+        /// <summary>起動の後続workerを順に実行し、終端後に次の明示操作へ進めます。Taskを捨てて受付拒否を避けません。</summary>
+        internal async Task CompleteBackgroundWorkAsync()
+        {
+            while (backgroundWork.TryDequeue(out Func<Task>? work)) { await work(); }
         }
 
         internal ChartScoreSnapshot Lookup() => Library.ResolveChartScoreSnapshot(ChartFileKind.Bms, "retained.bms", Md5, Sha256);
@@ -222,6 +309,15 @@ public sealed class BmsLibrarySavedScoreAvailabilityTests
             Assert.IsNull(row.Chart.Score.Score);
             Assert.IsNull(Lookup().Score);
         }
+
+        internal void CreateHistory()
+        {
+            using var db = new SQLiteConnection(Path.Combine(root, "scorelog.db"));
+            db.Execute("CREATE TABLE scorelog (sha256 TEXT, mode INTEGER, clear INTEGER, oldclear INTEGER, score INTEGER, oldscore INTEGER, combo INTEGER, oldcombo INTEGER, minbp INTEGER, oldminbp INTEGER, date INTEGER)");
+            db.Execute("INSERT INTO scorelog VALUES (?, 0, 5, 4, 20, 10, 0, 0, 0, 1, 1000)", Sha256);
+        }
+
+        internal void BreakHistory() => File.Delete(Path.Combine(root, "scorelog.db"));
 
         internal void SelectBrokenBeatorajaDatabase()
         {

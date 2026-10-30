@@ -16,6 +16,19 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistLampHistoricalScoreSnapshotTests
 {
+    /// <summary>復元consumerへ渡す取得済み入力を、通常成績と同じ実モデル取得で準備します。UI接続の代替ではありません。</summary>
+    private static PlaylistLampHistoricalScoreSourceContext AcquireLr2HistoryContext(string scoreDbPath)
+    {
+        ScoreTableLoadResult acquired = new BmsLibraryInitializationService().LoadScoreTable(
+            new BmsLibraryDbGateway(Path.Combine(Path.GetDirectoryName(scoreDbPath) ?? string.Empty, "song.db"), scoreDbPath), new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true });
+        return PlaylistLampHistoricalScoreSourceContext.FromSnapshot(new BMSLibrary.ScoreSnapshot
+        {
+            ActiveScoreSource = acquired.ActiveScoreSource,
+            SourceGeneration = 1,
+            PlayHistorySnapshot = acquired.PlayHistorySnapshot
+        });
+    }
+
     private static readonly DateTime TestToday = new(2026, 8, 29);
 
     /// <summary>基準日翌日の午前0時を含めて巻き戻し、同時刻は行ID降順で旧値を復元する。境界行の除外や同時刻の逆処理で別スコアへ戻る誤りを検出する。</summary>
@@ -76,7 +89,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             TimeZoneInfo zone = LocalDateBoundaryTestTimeZones.Create(4);
             var reader = new PlaylistLampHistoricalScoreSnapshotReader();
             PlaylistLampScoreSnapshot current = CurrentLr2(hash, ClearType.CLEAR, 180, 100);
-            var context = PlaylistLampHistoricalScoreSourceContext.Lr2(scoreDbPath);
+            PlaylistLampHistoricalScoreSourceContext context = AcquireLr2HistoryContext(scoreDbPath);
 
             // 5/31の翌日6/1は丸日欠落し、6/1の翌日6/2と同じ境界になる。
             foreach (DateTime selected in new[] { new DateTime(2024, 5, 31), new DateTime(2024, 6, 1) })
@@ -373,47 +386,103 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         }
     }
 
-    /// <summary>beatoraja履歴からモード0だけを新しい順に読み、score・scorelog双方を書き換えない。別モードの混入と読取り時の修復を検出する。</summary>
-    [TestMethod]
-    public void Beatoraja_reader_reads_only_mode_zero_without_writing_score_databases()
+    /// <summary>実モデル取得で履歴欠落・正常0件・playerだけ利用不可を区別し、ランプの最新/過去でも取得時診断を維持します。正常履歴はmode0だけを使い元DBを書き換えません。</summary>
+    [DataTestMethod]
+    [DataRow("missing")]
+    [DataRow("empty")]
+    [DataRow("rows-without-player")]
+    public void Beatoraja_acquired_history_distinguishes_missing_empty_and_player_only_failure_without_writing(string history)
     {
         string directory = CreateTemporaryDirectory();
         string scoreDbPath = Path.Combine(directory, "score.db");
         string scoreLogDbPath = Path.Combine(directory, "scorelog.db");
+        string late = new('a', 64), early = new('b', 64), course = new('c', 64);
         try
         {
-            CreateEmptySqliteDatabase(scoreDbPath);
-            CreateBeatorajaScoreLogDb(scoreLogDbPath);
-            using (SQLiteConnection db = new(scoreLogDbPath))
+            // 通常scoreは正常です。playerを用意しない条件は、scorelogの成否から独立します。
+            using (SQLiteConnection db = new(scoreDbPath))
             {
-                InsertBeatorajaScoreLog(db, "mode-zero-late", 0, 1_700_000_002L);
-                InsertBeatorajaScoreLog(db, "mode-one", 1, 1_700_000_003L);
-                InsertBeatorajaScoreLog(db, "mode-zero-early", 0, 1_700_000_001L);
+                db.RunInTransaction(() =>
+                {
+                    db.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
+                    foreach (string hash in new[] { late, early })
+                    {
+                        db.Execute("INSERT INTO score VALUES (?, 0, 6, 50, 0, 0, 0, 100, 10, 1, 1, 1)", hash);
+                    }
+                });
+            }
+            if (history != "missing") { CreateBeatorajaScoreLogDb(scoreLogDbPath); }
+            if (history == "rows-without-player")
+            {
+                using SQLiteConnection db = new(scoreLogDbPath);
+                db.RunInTransaction(() =>
+                {
+                    InsertBeatorajaScoreLog(db, late, 0, 1_700_000_002L);
+                    InsertBeatorajaScoreLog(db, course, 1, 1_700_000_003L);
+                    InsertBeatorajaScoreLog(db, early, 0, 1_700_000_001L);
+                });
             }
             byte[] scoreBefore = File.ReadAllBytes(scoreDbPath);
-            byte[] scoreLogBefore = File.ReadAllBytes(scoreLogDbPath);
-
-            BeatorajaPlayHistoryReadResult result = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+            byte[]? scoreLogBefore = File.Exists(scoreLogDbPath) ? File.ReadAllBytes(scoreLogDbPath) : null;
+            ScoreTableLoadResult acquired = new BmsLibraryInitializationService().LoadScoreTable(
+                new BmsLibraryDbGateway(Path.Combine(directory, "song.db"), scoreDbPath),
+                new BmsLibraryOptionsSnapshot { UseBeatorajaScoreDb = true, BeatorajaScoreDbPath = scoreDbPath });
+            Assert.AreEqual(ScoreTableLoadStatus.Loaded, acquired.Status);
+            Assert.AreEqual(2, acquired.BeatorajaScoresBySha256.Count);
+            BeatorajaPlayHistoryReadResult raw = acquired.PlayHistorySnapshot.Beatoraja;
+            Assert.IsFalse(raw.HasErrors);
+            Assert.IsFalse(raw.PlayerSnapshotsAvailable);
+            Assert.IsTrue(raw.Diagnostics.Any(diagnostic => diagnostic.Code == "play_history_beatoraja_player_aggregate_unreadable"));
+            Assert.AreEqual(history == "missing" ? Lr2PlayHistorySchemaStatus.Unreadable : Lr2PlayHistorySchemaStatus.Installed, raw.SchemaStatus);
+            Assert.AreEqual(history == "rows-without-player" ? 2 : 0, raw.Rows.Count);
+            if (history == "rows-without-player")
             {
-                ScoreDbPath = scoreDbPath,
-                ScoreLogDbPath = scoreLogDbPath,
-                ScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase),
-                FinalizationFilter = Lr2PlayHistoryFinalizationFilter.FinalizedOnly,
-                DisableLimit = true
-            });
-
-            Assert.IsFalse(result.HasErrors);
-            Assert.AreEqual(2, result.Rows.Count);
-            Assert.IsTrue(result.Rows.All(row => row.mode == 0));
-            Assert.AreEqual("mode-zero-late", result.Rows[0].sha256);
-            Assert.AreEqual("mode-zero-early", result.Rows[1].sha256);
+                Assert.IsTrue(raw.Rows.All(row => row.mode == 0));
+                CollectionAssert.AreEqual(new[] { late, early }, raw.Rows.Select(row => row.sha256).ToArray());
+            }
+            var batch = new BMSLibrary.ScoreSnapshot
+            {
+                ActiveScoreSource = acquired.ActiveScoreSource,
+                LoadStatus = acquired.Status,
+                SourceGeneration = 1,
+                ScoresBySha256 = acquired.BeatorajaScoresBySha256,
+                PlayHistorySnapshot = acquired.PlayHistorySnapshot
+            };
+            var context = PlaylistLampHistoricalScoreSourceContext.FromSnapshot(batch);
+            var current = PlaylistLampScoreSnapshot.FromBmsLibrarySnapshot(batch);
+            var reader = new PlaylistLampHistoricalScoreSnapshotReader();
+            PlaylistLampHistoricalScoreSnapshotResult latest = reader.Read(context, current, null, timeZone: TimeZoneInfo.Utc);
+            PlaylistLampHistoricalScoreSnapshotResult past = reader.Read(context, current, new DateTime(2023, 11, 14), timeZone: TimeZoneInfo.Utc);
+            Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Latest, latest.Status);
+            Assert.IsTrue(latest.ScoreSnapshot.IsScoreDataAvailable);
+            Assert.AreEqual(100, latest.ScoreSnapshot.ScoresBySha256[late].ExScore);
+            if (history == "missing")
+            {
+                string missingDiagnostic = raw.Diagnostics.Single(diagnostic => diagnostic.Code == "play_history_beatoraja_scorelog_missing").Message;
+                Assert.AreEqual(missingDiagnostic, latest.FailureMessage);
+                Assert.AreEqual(missingDiagnostic, past.FailureMessage);
+                Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Unavailable, past.Status);
+                Assert.IsFalse(past.ScoreSnapshot.IsScoreDataAvailable);
+                Assert.IsFalse(latest.DateRange.HasHistoricalDates);
+                Assert.IsFalse(File.Exists(scoreLogDbPath));
+            }
+            else
+            {
+                Assert.AreEqual(string.Empty, latest.FailureMessage);
+                Assert.AreEqual(history == "rows-without-player", latest.DateRange.HasHistoricalDates);
+                Assert.AreEqual(history == "rows-without-player" ? PlaylistLampHistoricalSnapshotStatus.Available : PlaylistLampHistoricalSnapshotStatus.Unavailable, past.Status);
+                if (history == "rows-without-player")
+                {
+                    Assert.IsTrue(past.ScoreSnapshot.IsScoreDataAvailable);
+                    Assert.AreEqual(string.Empty, past.FailureMessage);
+                    Assert.AreEqual(100, past.ScoreSnapshot.ScoresBySha256[late].ExScore);
+                }
+                Assert.IsNotNull(scoreLogBefore);
+                CollectionAssert.AreEqual(scoreLogBefore, File.ReadAllBytes(scoreLogDbPath));
+            }
             CollectionAssert.AreEqual(scoreBefore, File.ReadAllBytes(scoreDbPath));
-            CollectionAssert.AreEqual(scoreLogBefore, File.ReadAllBytes(scoreLogDbPath));
         }
-        finally
-        {
-            DeleteTemporaryDirectory(directory);
-        }
+        finally { DeleteTemporaryDirectory(directory); }
     }
 
     /// <summary>LR2の旧ランプ操作履歴だけが欠けた場合は復元不能として診断を返す。部分的旧値の暗黙補完を検出する。</summary>
@@ -569,8 +638,12 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             }
             byte[] before = File.ReadAllBytes(scoreDbPath);
 
+            PlaylistLampHistoricalScoreSourceContext captured = AcquireLr2HistoryContext(scoreDbPath);
+            Lr2PlayHistoryReadResult ordinary = Lr2PlayHistoryReader.ForPurpose(captured.PlayHistorySnapshot.Lr2, false, false);
+            Assert.IsFalse(ordinary.HasErrors, "通常履歴はトリガー不備を警告として保持します。");
+            Assert.AreEqual(1, ordinary.Rows.Count);
             PlaylistLampHistoricalScoreSnapshotResult result = new PlaylistLampHistoricalScoreSnapshotReader().Read(
-                PlaylistLampHistoricalScoreSourceContext.Lr2(scoreDbPath),
+                captured,
                 CurrentLr2("schema-chart", ClearType.CLEAR, 180, 100),
                 selectedDate);
 
@@ -624,8 +697,12 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             }
             byte[] before = File.ReadAllBytes(scoreDbPath);
 
+            PlaylistLampHistoricalScoreSourceContext captured = AcquireLr2HistoryContext(scoreDbPath);
+            Lr2PlayHistoryReadResult ordinary = Lr2PlayHistoryReader.ForPurpose(captured.PlayHistorySnapshot.Lr2, false, false);
+            Assert.IsTrue(ordinary.HasErrors, "通常履歴は索引不備で停止し、ランプだけが同じrawを利用します。");
+            Assert.AreEqual(0, ordinary.Rows.Count);
             PlaylistLampHistoricalScoreSnapshotResult result = new PlaylistLampHistoricalScoreSnapshotReader().Read(
-                PlaylistLampHistoricalScoreSourceContext.Lr2(scoreDbPath),
+                captured,
                 CurrentLr2("index-only-chart", ClearType.CLEAR, 180, 100),
                 selectedDate);
 
@@ -689,11 +766,6 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         {
             Directory.Delete(path, recursive: true);
         }
-    }
-
-    private static void CreateEmptySqliteDatabase(string path)
-    {
-        using SQLiteConnection db = new(path);
     }
 
     private static void CreateLr2ScoreDb(string path)

@@ -144,7 +144,11 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
             }
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed,
                 new Lr2PlayHistorySchemaService().InstallOrRepair(scorePath, isLr2LinkedProfile: true).Status);
-            var library = new TestBmsLibrary(songDbPath, null, scorePath, new TestFileMutationService(), new PlaylistSummaryAggregationTestSupport.RecordingDialogService()) { BmsCharts = [] };
+            // 日付選択は取得済み履歴の範囲内でだけ可能です。外部更新より前の取得組へ既存の履歴を含めます。
+            using (var db = new LR2ScoreDBExtended(scorePath)) { InsertLr2SourceHistory(db, hash, DateTime.Today.AddDays(-1), 10); }
+            Settings sourceSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = true);
+            var sourceOwner = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(Path.GetDirectoryName(songDbPath) ?? throw new AssertFailedException()));
+            var library = new TestBmsLibrary(songDbPath, sourceOwner, scorePath, new TestFileMutationService(), new PlaylistSummaryAggregationTestSupport.RecordingDialogService(), settings: sourceSettings) { BmsCharts = [] };
             try
             {
                 library.InitializeScoresOnly(null);
@@ -152,7 +156,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
                 entry.folder = "first";
                 var table = new BMSTable { playlist_id = 21, Folder_order = ["first"], entries = [entry] };
                 var playlist = new TestBmsPlaylist(songDbPath) { BMSTables = new ObservableCollection<BMSTable>([table]) };
-                var source = new BmsLibraryPlaylistLampDataSource(playlist, library, _ => PlaylistLampHistoricalScoreSourceContext.Lr2(scorePath));
+                var source = new BmsLibraryPlaylistLampDataSource(playlist, library, PlaylistLampHistoricalScoreSourceContext.FromSnapshot);
                 PlaylistLampAggregationRequest first = await source.CaptureAsync(PlaylistLampViewerQuery.Latest("21"), default);
                 Assert.AreEqual(ScoreTableLoadStatus.Loaded, first.ScoreSnapshot.LoadStatus);
                 Assert.AreEqual(20, first.ScoreSnapshot.Resolve(first.Entries.Single()).ExScore);
@@ -160,6 +164,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
                 using (var db = new LR2ScoreDBExtended(scorePath)) { db.Execute("UPDATE score SET perfect = 30, playcount = playcount + 1 WHERE hash = ?", hash); }
                 // DB更新だけではアプリの保持scoreを変更せず、明示捕捉でもその保持値を使う。
                 PlaylistLampAggregationRequest beforeReload = await source.CaptureAsync(new PlaylistLampViewerQuery("21", DateTime.Today), default);
+                Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Available, beforeReload.HistoricalStatus);
                 Assert.AreEqual(20, beforeReload.ScoreSnapshot.Resolve(beforeReload.Entries.Single()).ExScore);
                 using (var db = new LR2ScoreDBExtended(scorePath))
                 {
@@ -228,9 +233,11 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
                 AssertHistoricalScore(first, h2, ClearType.CLEAR, 80, 100);
                 Assert.AreEqual(new DateTime(2026, 8, 1), first.HistoricalDateRange.EarliestLocalDate);
                 Assert.IsNotNull(capturedA);
-                Assert.AreEqual(pathA, capturedA.ScoreDbPath);
-                Assert.AreEqual(100, capturedA.BeatorajaNotesBySha256[h1]);
+                Assert.AreEqual(pathA, capturedA.PlayHistorySnapshot.ScoreDbPath);
+                Assert.AreEqual(100, capturedA.PlayHistorySnapshot.Beatoraja.Rows.Single(row => row.sha256 == h1).notes);
 
+                File.Move(pathB, pathB + ".moved");
+                File.Move(Path.Combine(Path.GetDirectoryName(pathB) ?? throw new AssertFailedException(), "scorelog.db"), pathB + ".history-moved");
                 PlaylistLampAggregationRequest next = CaptureOnDispatcher(source, new DateTime(2026, 8, 19));
                 AssertHistoricalScore(next, h1, ClearType.HARD, 100, 200);
                 AssertHistoricalScore(next, h2, ClearType.HARD, 240, 200);
@@ -238,7 +245,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
                 AssertHistoricalScore(first, h1, ClearType.CLEAR, 150, 100);
                 AssertHistoricalScore(first, h2, ClearType.CLEAR, 80, 100);
                 Assert.AreEqual(new DateTime(2026, 8, 1), first.HistoricalDateRange.EarliestLocalDate);
-                Assert.AreEqual(100, capturedA.BeatorajaNotesBySha256[h1]);
+                Assert.AreEqual(100, capturedA.PlayHistorySnapshot.Beatoraja.Rows.Single(row => row.sha256 == h1).notes);
             }
             finally { library.RequestShutdown("lamp-source-switch-cleanup"); }
         });
@@ -330,8 +337,8 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
                     PlaylistLampHistoricalScoreSourceContext context = viewModel.ResolvePlaylistLampHistoricalScoreSourceContext(snapshot);
                     Assert.IsNotNull(context);
                     Assert.AreEqual(ActiveScoreSource.Lr2, context.ActiveScoreSource);
-                    Assert.AreEqual(pathA, context.ScoreDbPath);
-                    Assert.IsTrue(context.IsLr2LinkedProfile);
+                    Assert.AreEqual(pathA, context.PlayHistorySnapshot.ScoreDbPath);
+                    Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, context.PlayHistorySnapshot.Lr2.SchemaStatus);
                     return context;
                 });
                 PlaylistLampAggregationRequest request = CaptureOnDispatcher(source, new DateTime(2026, 8, 20));

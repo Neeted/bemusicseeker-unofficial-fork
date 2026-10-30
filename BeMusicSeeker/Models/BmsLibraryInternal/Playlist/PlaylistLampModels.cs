@@ -688,46 +688,21 @@ internal sealed class PlaylistLampHistoricalScoreSnapshotResult
 /// </summary>
 internal sealed class PlaylistLampHistoricalScoreSourceContext
 {
-    private PlaylistLampHistoricalScoreSourceContext(
-        ActiveScoreSource source,
-        string scoreDbPath,
-        bool isLr2LinkedProfile,
-        IReadOnlyDictionary<string, int> beatorajaNotesBySha256)
+    private PlaylistLampHistoricalScoreSourceContext(BMSLibrary.ScoreSnapshot snapshot)
     {
-        ActiveScoreSource = source;
-        ScoreDbPath = scoreDbPath ?? string.Empty;
-        IsLr2LinkedProfile = isLr2LinkedProfile;
-        BeatorajaNotesBySha256 = new ReadOnlyDictionary<string, int>(
-            new Dictionary<string, int>(beatorajaNotesBySha256 ?? new Dictionary<string, int>(), StringComparer.OrdinalIgnoreCase));
+        ActiveScoreSource = snapshot.ActiveScoreSource;
+        SourceGeneration = snapshot.SourceGeneration;
+        PlayHistorySnapshot = snapshot.PlayHistorySnapshot;
     }
-
-    /// <summary>active provider。</summary>
-    public ActiveScoreSource ActiveScoreSource { get; }
-
-    /// <summary>LR2 score.db または beatoraja score.db path。</summary>
-    public string ScoreDbPath { get; }
-
-    /// <summary>LR2 linked profile かどうか。</summary>
-    public bool IsLr2LinkedProfile { get; }
-
-    /// <summary>beatoraja mode=0 score の notes index。</summary>
-    public IReadOnlyDictionary<string, int> BeatorajaNotesBySha256 { get; }
-
-    /// <summary>LR2 context を生成します。</summary>
-    /// <param name="scoreDbPath">LR2 score.db path。</param>
-    /// <param name="isLr2LinkedProfile">LR2 profile が linked かどうか。</param>
-    /// <returns>LR2 source context。</returns>
-    public static PlaylistLampHistoricalScoreSourceContext Lr2(string scoreDbPath, bool isLr2LinkedProfile = true)
-        => new(ActiveScoreSource.Lr2, scoreDbPath, isLr2LinkedProfile, null);
-
-    /// <summary>beatoraja context を生成します。</summary>
-    /// <param name="scoreDbPath">beatoraja score.db path。</param>
-    /// <param name="notesBySha256">mode=0 chart notes。</param>
-    /// <returns>beatoraja source context。</returns>
-    public static PlaylistLampHistoricalScoreSourceContext Beatoraja(
-        string scoreDbPath,
-        IReadOnlyDictionary<string, int> notesBySha256)
-        => new(ActiveScoreSource.Beatoraja, scoreDbPath, false, notesBySha256);
+    /// <summary>現在成績と共通の取得元です。</summary>
+    internal ActiveScoreSource ActiveScoreSource { get; }
+    /// <summary>現在成績と共通の取得世代です。</summary>
+    internal long SourceGeneration { get; }
+    /// <summary>読取り済み履歴です。ランプの日付変更ではDBへ接続しません。</summary>
+    internal ScorePlayHistorySnapshot PlayHistorySnapshot { get; }
+    /// <summary>同じ捕捉済み成績から履歴入力を作ります。未公開なら利用不可です。</summary>
+    internal static PlaylistLampHistoricalScoreSourceContext FromSnapshot(BMSLibrary.ScoreSnapshot snapshot)
+        => snapshot == null ? null : new(snapshot);
 }
 
 /// <summary>

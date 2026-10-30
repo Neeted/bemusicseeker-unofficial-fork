@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
@@ -4184,101 +4183,13 @@ public partial class MainWindowViewModel : ViewModel,
         playHistoryWorkflowOwner.ClearSummaryFilters();
     }
 
-    private string ResolveMainViewLr2PlayHistoryScoreDbPath()
-    {
-        StartupSettingsSnapshot settings = GetStartupSettingsSnapshot();
-        if (!settings.OperationModeLR2DB)
-        {
-            return null;
-        }
-        if (lr2config == null
-            && !string.IsNullOrWhiteSpace(settings.LR2ConfigXmlPath))
-        {
-            lr2config = applicationComposition.ResolveLr2Config(settings.LR2ConfigXmlPath);
-        }
-        return Lr2ScoreDbPathResolver.BuildPlayerScoreDbPath(settings.LR2RootPath, () => lr2config?.Capture().PlayerId);
-    }
-
-    private string ResolveMainViewBeatorajaPlayHistoryScoreDbPath()
-    {
-        StartupSettingsSnapshot settings = GetStartupSettingsSnapshot();
-        if (BeatorajaConfigService.IsBeatorajaRootPathValid(settings.BeatorajaRootPath))
-        {
-            return BeatorajaConfigService.GetScoreDbPath(settings.BeatorajaRootPath, settings.BeatorajaPlayerId);
-        }
-        return settings.BeatorajaScoreDbPath;
-    }
-
-    private BeatorajaPlayHistoryScoreContext ResolveBeatorajaPlayHistoryScoreContext()
-    {
-        BeMusicSeeker.Models.BMSLibrary.ScoreSnapshot scoreSnapshot = files?.GetScoreSnapshotForDiagnostics();
-        if (scoreSnapshot?.ActiveScoreSource != ActiveScoreSource.Beatoraja)
-        {
-            return BeatorajaPlayHistoryScoreContext.Empty;
-        }
-
-        return new BeatorajaPlayHistoryScoreContext(scoreSnapshot.Version, scoreSnapshot.ScoresBySha256);
-    }
-
+    /// <summary>公開済み成績と同じ取得組を捕捉します。表示時に設定・ファイル状態で取得元を変更しません。</summary>
     private PlayHistoryReadSourceContext ResolvePlayHistoryReadSourceContext()
-    {
-        StartupSettingsSnapshot settings = GetStartupSettingsSnapshot();
-        string beatorajaScoreDbPath = settings.UseBeatorajaScoreDb
-            ? ResolveMainViewBeatorajaPlayHistoryScoreDbPath()
-            : string.Empty;
-        ActiveScoreSource activeScoreSource = settings.UseBeatorajaScoreDb
-            ? files?.GetActiveScoreSourceForDiagnostics() ?? ActiveScoreSource.None
-            : ActiveScoreSource.None;
-        bool beatorajaScoreDbFileExists = settings.UseBeatorajaScoreDb
-            && !string.IsNullOrWhiteSpace(beatorajaScoreDbPath)
-            && File.Exists(beatorajaScoreDbPath);
-        BeatorajaPlayHistoryScoreContext beatorajaScoreContext =
-            settings.UseBeatorajaScoreDb
-            && activeScoreSource == ActiveScoreSource.Beatoraja
-            && beatorajaScoreDbFileExists
-                ? ResolveBeatorajaPlayHistoryScoreContext()
-                : BeatorajaPlayHistoryScoreContext.Empty;
-        return PlayHistoryReadSourceSelector.Select(
-            new PlayHistoryReadSourceSelectionInput(
-                ResolveMainViewLr2PlayHistoryScoreDbPath(),
-                settings.OperationModeLR2DB,
-                settings.UseBeatorajaScoreDb,
-                beatorajaScoreDbPath,
-                activeScoreSource,
-                beatorajaScoreDbFileExists,
-                beatorajaScoreContext));
-    }
+        => PlayHistoryReadSourceContext.FromSnapshot(files?.CaptureScoreSnapshotForView());
 
-    /// <summary>
-    /// 捕捉済みの現在成績と同じ取得元・DBパス・ノーツで、ランプの履歴読取りを構成します。
-    /// 未準備の入力では利用不可とし、最新設定や別の情報源から補いません。
-    /// </summary>
-    /// <param name="snapshot">現在成績の投影にも使う公開済みスナップショット。未準備ならnullです。</param>
-    /// <returns>同じ取得元の履歴コンテキスト。取得元がなければnullです。</returns>
+    /// <summary>ランプの現在成績と同時に捕捉した履歴取得組を渡します。未準備では読取りを開始しません。</summary>
     internal PlaylistLampHistoricalScoreSourceContext ResolvePlaylistLampHistoricalScoreSourceContext(BMSLibrary.ScoreSnapshot snapshot)
-    {
-        if (snapshot?.ActiveScoreSource == ActiveScoreSource.Lr2)
-        {
-            return PlaylistLampHistoricalScoreSourceContext.Lr2(
-                snapshot.ScoreDbPath,
-                isLr2LinkedProfile: true);
-        }
-        if (snapshot?.ActiveScoreSource == ActiveScoreSource.Beatoraja)
-        {
-            var notesBySha256 = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            foreach (KeyValuePair<string, BMSScore> pair in snapshot.ScoresBySha256)
-            {
-                if (!string.IsNullOrWhiteSpace(pair.Key) && pair.Value?.totalnotes > 0)
-                {
-                    notesBySha256[pair.Key] = pair.Value.totalnotes;
-                }
-            }
-            return PlaylistLampHistoricalScoreSourceContext.Beatoraja(
-                snapshot.ScoreDbPath,
-                notesBySha256);
-        }
-        return null;
-    }
+        => PlaylistLampHistoricalScoreSourceContext.FromSnapshot(snapshot);
 
     private static PlayHistoryDiagnostic CreatePlayHistoryDiagnostic(
         PlayHistoryDiagnosticSeverity severity,

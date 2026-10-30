@@ -75,8 +75,6 @@ internal sealed class BeatorajaPlayHistoryReadRequest
 
     internal IReadOnlyDictionary<string, BMSScore> ScoresBySha256 { get; set; }
 
-    internal int ScoreSnapshotVersion { get; set; }
-
     internal long? PlayedAtFromInclusive { get; set; }
 
     internal long? PlayedAtToExclusive { get; set; }
@@ -93,8 +91,6 @@ internal sealed class BeatorajaPlayHistoryPeriodIndexRequest
     internal string ScoreDbPath { get; set; }
 
     internal string ScoreLogDbPath { get; set; }
-
-    internal IReadOnlyDictionary<string, BMSScore> ScoresBySha256 { get; set; }
 
     internal int ScoreSnapshotVersion { get; set; }
 }

@@ -1,4 +1,5 @@
 using System;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models;
@@ -78,6 +79,10 @@ internal sealed class ChartScoreSnapshot
             : new ChartScoreSnapshot(ClearType.NO_PLAY);
     }
 
+    /// <summary>
+    /// 保存成績を表示・検索共通の値へ投影し、未記録BPはnull、LR2のBP -1は従来どおり総ノーツ数とします。
+    /// 元の成績は変更しません。
+    /// </summary>
     internal static ChartScoreSnapshot FromBmsScore(BMSScore score, string chartPath)
     {
         if (score == null)
@@ -96,7 +101,7 @@ internal sealed class ChartScoreSnapshot
             score.rate,
             score.totalnotes > 0 ? (double)score.score / 2.0 / score.totalnotes : null,
             score.totalnotes,
-            score.minbp == -1 ? score.totalnotes : score.minbp,
+            score.minbp == -1 ? score.totalnotes : ScoreValueCalculator.NormalizeMinBp(score.minbp),
             score.maxcombo,
             ranking,
             rankingNum,

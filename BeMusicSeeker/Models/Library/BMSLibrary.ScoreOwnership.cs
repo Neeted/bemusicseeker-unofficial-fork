@@ -117,6 +117,7 @@ public partial class BMSLibrary
                     ScoreDbPath = current.ScoreDbPath,
                     LoadStatus = current.LoadStatus,
                     LoadFailureMessage = current.LoadFailureMessage,
+                    PlayHistorySnapshot = current.PlayHistorySnapshot,
                     SourceGeneration = current.SourceGeneration
                 };
                 normalLibraryRefreshPublisher.Register(new ScoreSnapshotChange(baseVersion, version, subscription.Md5Keys, subscription.Sha256Keys));

@@ -11,6 +11,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Tests.Helpers;
+using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
 using SQLite;
@@ -387,7 +388,7 @@ public sealed class BmsLibraryIrServiceTests
     }
 
     /// <summary>
-    /// local scoreだけがある所持譜面は未送信として判定し、更新後snapshotの譜面statusへ未送信を渡す。
+    /// local scoreだけがある所持譜面は未送信として判定し、更新後snapshotへ未送信とLR2のBP -1に対応する総ノーツ数を渡す。
     /// </summary>
     [TestMethod]
     public void UpdateBmsScores_ProjectsMissingIrScoreAsUnsentChartStatus()
@@ -395,7 +396,8 @@ public sealed class BmsLibraryIrServiceTests
         var service = new BmsLibraryIrService();
         string hash = "13131313131313131313131313131313";
         ChartFile file = CreateFile(hash);
-        BMSScore score = CreateScore(hash, ClearType.HARD, pg: 300, gr: 50, minbp: 12);
+        BMSScore score = CreateScore(hash, ClearType.HARD, pg: 300, gr: 50, minbp: -1);
+        score.totalnotes = 200;
         file = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(score, file.Path));
 
         service.UpdateBmsScores([], [score], candidate => string.Equals(candidate, hash, StringComparison.OrdinalIgnoreCase));
@@ -403,6 +405,8 @@ public sealed class BmsLibraryIrServiceTests
         Assert.IsTrue(score.IsLr2IrScoreUnsent);
         ChartFile chart = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(score, file.Path));
         Assert.IsTrue(chart.Status.HasFlag(ChartFileStatus.SCORE_UNSENT));
+        Assert.AreEqual(200, chart.Score.MinBp);
+        Assert.AreEqual(-1, score.minbp);
     }
 
     /// <summary>
@@ -496,7 +500,8 @@ public sealed class BmsLibraryIrServiceTests
     }
 
     /// <summary>
-    /// 実beatoraja DBから通常mode0だけを読み、SHA256正規化・判定合計・得点/割合/ランク・clearを変換する。コースを混ぜない。
+    /// 実beatoraja DBのmode0だけを読み、成績変換と未記録BP・実績0・正数の両一覧への共通投影を確認する。
+    /// 投影は元DBと成績を変えず、外部DB更新後の再読込みでは実績BPへ戻ることを確認する。
     /// </summary>
     [TestMethod]
     public void BeatorajaScoreDbLoader_ReadsModeZeroScoresOnly()
@@ -510,23 +515,33 @@ public sealed class BmsLibraryIrServiceTests
             {
                 connection.Execute(
                     "CREATE TABLE score (sha256 TEXT NOT NULL, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER, PRIMARY KEY(sha256, mode));");
-                connection.Execute(
-                    "INSERT INTO score (sha256, mode, clear, epg, lpg, egr, lgr, notes, combo, minbp, playcount, clearcount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
-                    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", 0, 2, 100, 20, 30, 10, 200, 180, 5, 7, 3);
-                connection.Execute(
-                    "INSERT INTO score (sha256, mode, clear, epg, lpg, egr, lgr, notes, combo, minbp, playcount, clearcount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
-                    "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC", 0, 4, 150, 25, 40, 15, 300, 240, 6, 8, 4);
-                connection.Execute(
-                    "INSERT INTO score (sha256, mode, clear, epg, lpg, egr, lgr, notes, combo, minbp, playcount, clearcount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
-                    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 10000, 7, 500, 0, 0, 0, 500, 500, 0, 1, 1);
+                connection.RunInTransaction(() =>
+                {
+                    connection.Execute(
+                        "INSERT INTO score (sha256, mode, clear, epg, lpg, egr, lgr, notes, combo, minbp, playcount, clearcount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", 0, 2, 100, 20, 30, 10, 200, 180, 5, 7, 3);
+                    connection.Execute(
+                        "INSERT INTO score (sha256, mode, clear, epg, lpg, egr, lgr, notes, combo, minbp, playcount, clearcount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                        "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC", 0, 4, 150, 25, 40, 15, 300, 240, 6, 8, 4);
+                    connection.Execute(
+                        "INSERT INTO score (sha256, mode, clear, epg, lpg, egr, lgr, notes, combo, minbp, playcount, clearcount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 10000, 7, 500, 0, 0, 0, 500, 500, 0, 1, 1);
+                    connection.Execute(
+                        "INSERT INTO score (sha256, mode, clear, epg, lpg, egr, lgr, notes, combo, minbp, playcount, clearcount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                        new string('d', 64), 0, 5, 0, 0, 0, 0, 0, 0, int.MaxValue, 9, 2);
+                    connection.Execute(
+                        "INSERT INTO score (sha256, mode, clear, epg, lpg, egr, lgr, notes, combo, minbp, playcount, clearcount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                        new string('e', 64), 0, 8, 100, 20, 30, 10, 200, 180, 0, 4, 1);
+                });
             }
 
             var loader = new BeatorajaScoreDbLoader();
             Dictionary<string, BMSScore> scores = loader.LoadModeZeroScores(scoreDbPath);
 
-            Assert.AreEqual(2, scores.Count);
+            Assert.AreEqual(4, scores.Count);
             Assert.IsTrue(scores.TryGetValue("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", out BMSScore? score));
-            BMSScore loadedScore = score!;
+            Assert.IsNotNull(score);
+            BMSScore loadedScore = score;
             Assert.AreEqual(ClearType.INVALID, loadedScore.clear);
             Assert.AreEqual(120, loadedScore.perfect);
             Assert.AreEqual(40, loadedScore.great);
@@ -536,9 +551,43 @@ public sealed class BmsLibraryIrServiceTests
             Assert.AreEqual(280, loadedScore.score);
             Assert.AreEqual(70, loadedScore.rate);
             Assert.AreEqual(RankType.A, loadedScore.rank);
+            Assert.AreEqual(7, loadedScore.playcount);
+            Assert.AreEqual(3, loadedScore.clearcount);
+            AssertProjectedBp(loadedScore, expectedBp: 5, ClearType.INVALID);
             Assert.IsTrue(scores.TryGetValue("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", out BMSScore? easyScore));
-            BMSScore loadedEasyScore = easyScore!;
+            Assert.IsNotNull(easyScore);
+            BMSScore loadedEasyScore = easyScore;
             Assert.AreEqual(ClearType.EASY, loadedEasyScore.clear);
+
+            BMSScore unrecordedScore = scores[new string('d', 64)];
+            AssertProjectedBp(unrecordedScore, expectedBp: null, ClearType.CLEAR);
+            Assert.AreEqual(int.MaxValue, unrecordedScore.minbp);
+            Assert.AreEqual(0, unrecordedScore.totalnotes);
+            Assert.AreEqual(9, unrecordedScore.playcount);
+            Assert.AreEqual(2, unrecordedScore.clearcount);
+            BMSScore zeroBpScore = scores[new string('e', 64)];
+            AssertProjectedBp(zeroBpScore, expectedBp: 0, ClearType.FC);
+            Assert.AreEqual(0, zeroBpScore.minbp);
+            Assert.AreEqual(4, zeroBpScore.playcount);
+            Assert.AreEqual(1, zeroBpScore.clearcount);
+
+            using (var observation = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex))
+            {
+                Assert.AreEqual(int.MaxValue, observation.ExecuteScalar<int>("SELECT minbp FROM score WHERE sha256 = ? AND mode = 0;", unrecordedScore.hash));
+                Assert.AreEqual(0, observation.ExecuteScalar<int>("SELECT minbp FROM score WHERE sha256 = ? AND mode = 0;", zeroBpScore.hash));
+            }
+            using (var externalPlayer = new SQLiteConnection(scoreDbPath))
+            {
+                externalPlayer.Execute("UPDATE score SET epg = ?, lpg = ?, egr = ?, lgr = ?, notes = ?, combo = ?, minbp = ?, playcount = ?, clearcount = ? WHERE sha256 = ? AND mode = 0;", 100, 20, 30, 10, 200, 180, 12, 10, 3, unrecordedScore.hash);
+            }
+
+            BMSScore replayedScore = loader.LoadModeZeroScores(scoreDbPath)[unrecordedScore.hash];
+            AssertProjectedBp(replayedScore, expectedBp: 12, ClearType.CLEAR);
+            Assert.AreEqual(12, replayedScore.minbp);
+            Assert.AreEqual(200, replayedScore.totalnotes);
+            Assert.AreEqual(10, replayedScore.playcount);
+            Assert.AreEqual(3, replayedScore.clearcount);
+            Assert.AreEqual(int.MaxValue, unrecordedScore.minbp);
         }
         finally
         {
@@ -546,6 +595,32 @@ public sealed class BmsLibraryIrServiceTests
             {
                 Directory.Delete(rootDirectoryPath, recursive: true);
             }
+        }
+
+        static void AssertProjectedBp(BMSScore score, int? expectedBp, ClearType expectedClear)
+        {
+            ChartFile file = ChartTestValues.Empty() with
+            {
+                Md5 = new string('1', 32),
+                Sha256 = score.hash,
+                Path = score.hash + ".bms"
+            };
+            ChartFile chart = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(score, file.Path));
+            var libraryRow = LibraryChartRow.FromChartFile(chart);
+            var librarySource = ChartListSourceRow.FromChartFile(chart);
+            var playlistSource = new PlaylistDetailSourceRow(new BMSTableEntry(file), file, scoreSnapshot: score);
+            PlaylistDetailRow playlistRow = playlistSource.CreateViewRow();
+
+            Assert.AreEqual(expectedBp, chart.Score.MinBp);
+            Assert.AreEqual(expectedBp, libraryRow.minbp);
+            Assert.AreEqual(expectedBp, librarySource.MinBp);
+            Assert.AreEqual(expectedBp, playlistSource.minbp);
+            Assert.AreEqual(expectedBp, playlistRow.minbp);
+            Assert.AreEqual(score.hash, playlistSource.sha256);
+            Assert.AreEqual(expectedClear, libraryRow.clear);
+            Assert.AreEqual(expectedClear, librarySource.Clear);
+            Assert.AreEqual(expectedClear, playlistSource.clear);
+            Assert.AreEqual(expectedClear, playlistRow.clear);
         }
     }
 

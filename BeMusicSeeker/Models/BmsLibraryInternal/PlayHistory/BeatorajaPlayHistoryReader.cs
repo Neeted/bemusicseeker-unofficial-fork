@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Threading;
 using SQLite;
 
@@ -79,43 +78,6 @@ internal sealed class BeatorajaPlayHistoryReader
             PlayHistoryReadDiagnostics.Report(ex, "beatoraja", "read", request.ScoreLogDbPath);
             diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_beatoraja_read_failed", ex.Message, request.ScoreLogDbPath));
             return new BeatorajaPlayHistoryReadResult(sourceProfile, [], diagnostics, Lr2PlayHistorySchemaStatus.Unreadable, playerSnapshots, playerSnapshotsAvailable);
-        }
-    }
-
-    internal BeatorajaPlayHistoryPeriodIndexResult ReadPeriodIndex(BeatorajaPlayHistoryPeriodIndexRequest request, CancellationToken cancellationToken)
-    {
-        BeatorajaPlayHistoryReadRequest resolved = ResolveRequestPaths(new BeatorajaPlayHistoryReadRequest
-        {
-            ScoreDbPath = request?.ScoreDbPath,
-            ScoreLogDbPath = request?.ScoreLogDbPath
-        });
-        cancellationToken.ThrowIfCancellationRequested();
-        var sourceProfile = PlayHistorySourceProfile.Beatoraja(resolved.ScoreLogDbPath);
-        var diagnostics = new List<PlayHistoryDiagnostic>();
-        if (!EnsureScoreLogExists(resolved.ScoreLogDbPath, diagnostics))
-        {
-            return new BeatorajaPlayHistoryPeriodIndexResult(sourceProfile, [], diagnostics, Lr2PlayHistorySchemaStatus.Unreadable);
-        }
-
-        try
-        {
-            using var connection = new SQLiteConnection(resolved.ScoreLogDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex);
-            cancellationToken.ThrowIfCancellationRequested();
-            List<PeriodIndexRow> rows = connection.Query<PeriodIndexRow>(
-                "SELECT MAX(date) AS played_at FROM scorelog WHERE mode = ? GROUP BY strftime('%Y-%m-%d', date, 'unixepoch', 'localtime') ORDER BY played_at DESC;",
-                NormalScoreMode);
-            cancellationToken.ThrowIfCancellationRequested();
-            return new BeatorajaPlayHistoryPeriodIndexResult(sourceProfile, [.. rows.Select(row => row.played_at)], diagnostics, Lr2PlayHistorySchemaStatus.Installed);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            PlayHistoryReadDiagnostics.Report(ex, "beatoraja", "period_index", resolved.ScoreLogDbPath);
-            diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_beatoraja_period_index_failed", ex.Message, resolved.ScoreLogDbPath));
-            return new BeatorajaPlayHistoryPeriodIndexResult(sourceProfile, [], diagnostics, Lr2PlayHistorySchemaStatus.Unreadable);
         }
     }
 
@@ -299,15 +261,10 @@ internal sealed class BeatorajaPlayHistoryReader
             notes = notes,
             old_maxcombo = row.oldcombo,
             new_maxcombo = row.combo,
-            old_minbp = NormalizeBeatorajaMinBp(row.oldminbp),
-            new_minbp = NormalizeBeatorajaMinBp(row.minbp)
+            old_minbp = ScoreValueCalculator.NormalizeMinBp(row.oldminbp),
+            new_minbp = ScoreValueCalculator.NormalizeMinBp(row.minbp)
         };
         return record;
-    }
-
-    private static int? NormalizeBeatorajaMinBp(int? value)
-    {
-        return !value.HasValue || value.Value == int.MaxValue ? null : value;
     }
 
     private static PlayHistoryDiagnostic CreateDiagnostic(PlayHistoryDiagnosticSeverity severity, string code, string message, string sourcePath)
@@ -388,8 +345,4 @@ internal sealed class BeatorajaPlayHistoryReader
         public long playtime { get; set; }
     }
 
-    private sealed class PeriodIndexRow
-    {
-        public long played_at { get; set; }
-    }
 }

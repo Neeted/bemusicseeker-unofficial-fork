@@ -46,6 +46,8 @@ public sealed class ScoreSnapshotPublicationTests
         Assert.AreSame(before.Scores, after.Scores);
         Assert.AreSame(before.ScoresByHash, after.ScoresByHash);
         Assert.AreSame(before.ScoresBySha256, after.ScoresBySha256);
+        Assert.AreEqual(before.SourceGeneration, after.SourceGeneration);
+        Assert.AreSame(before.PlayHistorySnapshot, after.PlayHistorySnapshot);
         Assert.AreEqual(2, work.Count(value => value == "score_subscription_lookup"));
         Assert.AreEqual(2, work.Count(value => value == "score_projection_lookup"));
         Assert.AreEqual(2, work.Count(value => value == "score_projection_value_copied"));
@@ -63,6 +65,9 @@ public sealed class ScoreSnapshotPublicationTests
         fixture.ReplaceLr2Keys([2, 3]);
         int handled = fixture.Library.NormalLibraryRefreshNotificationVersion;
         fixture.Library.InitializeScoresOnly(null);
+        BMSLibrary.ScoreSnapshot reacquired = fixture.Library.GetScoreSnapshotForDiagnostics();
+        Assert.AreEqual(before.SourceGeneration + 1, reacquired.SourceGeneration);
+        Assert.AreNotSame(before.PlayHistorySnapshot, reacquired.PlayHistorySnapshot);
         ScoreSnapshotChange replacement = fixture.Library.GetNormalLibraryRefreshNotificationsAfter(handled).ScoreChanges.Single();
         Assert.AreEqual(before.Version, replacement.BaseVersion);
         CollectionAssert.AreEquivalent(new[] { Fixture.Hash(1), Fixture.Hash(2), Fixture.Hash(3) }, replacement.Md5Keys.ToArray());

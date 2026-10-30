@@ -302,12 +302,16 @@ public sealed class Lr2PlayHistorySchemaUiTests
     }
 
     /// <summary>
-    /// trigger解除を設定画面から実DBへ反映し、成功通知・履歴cache失効・score再読込み・Repairable表示を一度接続する。
+    /// 稼働profileの導入・修復・両削除は実DB操作後に成績と履歴を再取得し、取得Taskの終端まで設定操作を完了しない。
     /// </summary>
     /// <remarks>実設定画面VMと構成を使い、受付/状態購読と機能窓口の接続を確認する。共有設定のedit sessionを使うため並列実行しない。</remarks>
     [DoNotParallelize]
-    [TestMethod]
-    public async Task SettingDialogViewModel_Uninstall_TriggersOnlyPublishesStateAndReloads()
+    [DataTestMethod]
+    [DataRow("install")]
+    [DataRow("repair")]
+    [DataRow("triggers")]
+    [DataRow("tables")]
+    public async Task SettingDialogViewModel_SchemaChangeReloadsCapturedBatchAndWaitsForTerminal(string operation)
     {
         string directoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_Lr2SchemaUi_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directoryPath);
@@ -316,22 +320,38 @@ public sealed class Lr2PlayHistorySchemaUiTests
             Settings values = CreateConfirmedSchemaSettings(directoryPath);
             string scoreDbPath = Path.Combine(directoryPath, "LR2files", "Database", "Score", "player1.db");
             CreateInstalledScoreDb(scoreDbPath);
+            bool installing = operation is "install" or "repair";
+            if (operation == "install") { new Lr2PlayHistorySchemaService().Uninstall(scoreDbPath, true, Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers); }
+            if (operation == "repair")
+            {
+                using var db = new SQLiteConnection(scoreDbPath);
+                db.Execute("DROP TRIGGER " + Lr2PlayHistorySchemaService.ScoreInsertTriggerName);
+            }
+            Lr2PlayHistorySchemaStatus expectedStatus = installing ? Lr2PlayHistorySchemaStatus.Installed
+                : operation == "tables" ? Lr2PlayHistorySchemaStatus.NotInstalled : Lr2PlayHistorySchemaStatus.Repairable;
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             using SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
             SetPrivateField(owner, "hasActiveLibraryProfile", true);
             var dialogs = new RecordingUiDialogService
             {
+                AcceptConfirmation = true,
                 AcceptUninstall = true,
-                SelectedUninstallMode = Lr2PlayHistorySchemaUninstallMode.TriggersOnly
+                SelectedUninstallMode = operation == "tables" ? Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers : Lr2PlayHistorySchemaUninstallMode.TriggersOnly
             };
             int reloadCount = 0;
+            ScorePlayHistorySnapshot? acquired = null;
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var statePort = new TestSettingsDialogStatePort(
                 owner,
                 () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded)),
-                reloadScoresOnly: _ =>
+                reloadScoresOnly: async _ =>
                 {
                     reloadCount++;
-                    return Task.CompletedTask;
+                    entered.TrySetResult();
+                    await release.Task;
+                    acquired = new BmsLibraryInitializationService().LoadScoreTable(
+                        new BmsLibraryDbGateway(values.LR2SongDBPath, scoreDbPath), new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true }).PlayHistorySnapshot;
                 });
             var playHistory = new RecordingPlayHistoryPort();
             using var settingDialog = new SettingsDialogViewModel(
@@ -359,25 +379,34 @@ public sealed class Lr2PlayHistorySchemaUiTests
             string candidateDb = Path.Combine(directoryPath, "LR2files", "Database", "Score", "player2.db");
             byte[] candidateBefore = File.ReadAllBytes(candidateDb);
             byte[] saved = File.ReadAllBytes(Path.Combine(directoryPath, "user.config"));
-            await settingDialog.UninstallLr2PlayHistorySchemaAsync();
+            Task operationTask = installing ? settingDialog.InstallOrRepairLr2PlayHistorySchemaAsync() : settingDialog.UninstallLr2PlayHistorySchemaAsync();
+            try
+            {
+                await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, operationTask, "schema reload entered");
+                Assert.IsFalse(operationTask.IsCompleted);
+                Assert.IsNull(acquired);
+            }
+            finally { release.TrySetResult(); await operationTask; }
+            Assert.IsNotNull(acquired);
+            Assert.AreEqual(expectedStatus, acquired.Lr2.SchemaStatus);
             Assert.AreEqual(dialogs.AcceptUninstall ? values.LR2ConfigXmlPath : candidate, settingDialog.LR2ConfigXmlPath);
             Assert.IsTrue(settingDialog.EnableBeatorajaBmtOutput);
-            StringAssert.Contains(dialogs.LastCandidateDiscardNotice, Resources.Settings_lr2_detailed_paths);
+            StringAssert.Contains(installing ? dialogs.LastConfirmation : dialogs.LastCandidateDiscardNotice, Resources.Settings_lr2_detailed_paths);
             CollectionAssert.AreEqual(candidateBefore, File.ReadAllBytes(candidateDb));
             CollectionAssert.AreEqual(saved, File.ReadAllBytes(Path.Combine(directoryPath, "user.config")));
 
-            Assert.AreEqual(1, dialogs.WindowCount);
+            Assert.AreEqual(installing ? 0 : 1, dialogs.WindowCount);
             Assert.AreEqual(1, dialogs.MessageCount);
-            Assert.AreEqual(Resources.Msg_success_lr2_play_history_schema_uninstall, dialogs.LastMessage);
-            Assert.AreEqual("lr2_play_history_schema_uninstall", playHistory.LastInvalidationReason);
+            Assert.AreEqual(installing ? Resources.Msg_success_lr2_play_history_schema_install_or_repair : Resources.Msg_success_lr2_play_history_schema_uninstall, dialogs.LastMessage);
+            Assert.AreEqual(installing ? "lr2_play_history_schema_install_or_repair" : "lr2_play_history_schema_uninstall", playHistory.LastInvalidationReason);
             Assert.AreEqual(1, playHistory.InvalidationCount);
             Assert.AreEqual(1, reloadCount);
-            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Repairable, settingDialog.Lr2PlayHistorySchemaStatusSnapshot.Status);
+            Assert.AreEqual(expectedStatus, settingDialog.Lr2PlayHistorySchemaStatusSnapshot.Status);
             using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
-            Assert.AreEqual(1, verify.ExecuteScalar<int>(
+            Assert.AreEqual(operation == "tables" ? 0 : 1, verify.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = ?;",
                 Lr2PlayHistorySchemaService.PlayHistoryTableName));
-            Assert.AreEqual(0, verify.ExecuteScalar<int>(
+            Assert.AreEqual(installing ? 1 : 0, verify.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM sqlite_master WHERE type = 'trigger' AND name = ?;",
                 Lr2PlayHistorySchemaService.ScoreInsertTriggerName));
         }

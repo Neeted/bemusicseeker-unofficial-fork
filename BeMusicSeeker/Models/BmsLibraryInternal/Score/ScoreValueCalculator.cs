@@ -5,6 +5,16 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal static class ScoreValueCalculator
 {
+    /// <summary>
+    /// 未記録BPの特殊値を表示・検索共通の欠損値へ変換し、実績値と既存の欠損値は保持します。
+    /// </summary>
+    /// <param name="minBp">保存成績または履歴のBP。LR2の-1は呼出元で総ノーツ数へ変換します。</param>
+    /// <returns>int.MaxValueならnull、それ以外は入力値。</returns>
+    internal static int? NormalizeMinBp(int? minBp)
+    {
+        return minBp == int.MaxValue ? null : minBp;
+    }
+
     internal static int CalculateExScore(int perfect, int great)
     {
         return Math.Max(0, perfect) * 2 + Math.Max(0, great);

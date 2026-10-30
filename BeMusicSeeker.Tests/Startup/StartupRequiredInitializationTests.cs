@@ -499,11 +499,11 @@ public sealed class StartupRequiredInitializationTests
             .Any(path => ReadBmtText(path).Contains(fixture.Sha256, StringComparison.Ordinal)));
     }
 
-    /// <summary>公開初期化の採用を本体で完了し、純通知の故障と採用後の継続失敗でも、解放・元原因・次の明示要求を保持します。</summary>
+    /// <summary>起動と許可されたScoreOnlyの採用を本体で完了し、純通知の故障と採用後の継続失敗でも、解放・元原因・次の明示要求を保持します。</summary>
     /// <remarks>保存済み実scoreを使い、補完しない診断とlookupで採用を観測します。通知先は状態を記録して失敗し、表明は処理後に行います。</remarks>
     [DataTestMethod]
     [DataRow(BMSLibrary.LibraryInitializeMode.Startup, "Ready")]
-    [DataRow(BMSLibrary.LibraryInitializeMode.FullReinitialize, "Version")]
+    [DataRow(BMSLibrary.LibraryInitializeMode.ScoreOnly, "Version")]
     [DataRow(BMSLibrary.LibraryInitializeMode.ScoreOnly, "Changed")]
     [DataRow(BMSLibrary.LibraryInitializeMode.ScoreOnly, "Continuation")]
     public async Task Initialize_PublicScoreNotificationFailurePreservesAdoptionReleaseAndNextRequest(BMSLibrary.LibraryInitializeMode mode, string fault)
