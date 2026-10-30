@@ -478,7 +478,8 @@ internal sealed class GridKeywordSearchQuery
             {
                 try
                 {
-                    if (!string.IsNullOrEmpty(value) && alternative.Regex.IsMatch(value))
+                    // 列挙された表示候補のnullは空欄です。候補自体がない場合は空文字を追加しません。
+                    if (alternative.Regex.IsMatch(value ?? string.Empty))
                     {
                         return true;
                     }
@@ -1326,6 +1327,7 @@ internal sealed class GridKeywordSearchQuery
                 yield return row.Sha256;
                 break;
             case "date":
+                yield return DateTimeDisplayFormatter.FormatTimestamp(row.PlayedAt);
                 yield return FormatPlayHistoryDate(row.PlayedAt);
                 yield return row.PlayedAt.ToString("yyyy/MM/dd", CultureInfo.InvariantCulture);
                 break;

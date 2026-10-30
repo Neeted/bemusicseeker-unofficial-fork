@@ -685,6 +685,32 @@ public sealed class PlaylistCatalogViewChangeTests
         Assert.AreEqual(2.5, db.ExecuteScalar<double>("SELECT level FROM playlist_entry WHERE title = 'entry 0';"));
     }
 
+    /// <summary>MEMO空欄とその否定の初回集合を、実MEMO保存後の局所更新でも維持します。空欄への戻しで再加入・離脱することとDB確定を確認します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task MemoBlankRegex_InitialAndCommittedUpdatesUseSamePredicate(bool negated)
+    {
+        await using var fixture = new Fixture(2, prepareTable: (_, entries) => entries[0].memo = string.Empty);
+        fixture.Workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot((negated ? "-" : string.Empty) + "memo:re:^$", ChartModeFilter.All));
+        await fixture.Refresh();
+        var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
+        BMSTableEntry[] entries = fixture.Playlist.BMSTables.Single().entries.ToArray();
+        Assert.AreEqual(1, rows.Count);
+        Assert.AreSame(entries[negated ? 1 : 0], ((PlaylistDetailRow)rows[0]).Entry);
+        fixture.Playlist.CommitBMSTableEntry(entries[0], nameof(PlaylistDetailRow.memo), "saved memo", null);
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreEqual(negated ? 2 : 0, rows.Count);
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+        { Assert.AreEqual("saved memo", db.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE title = 'entry 0';")); }
+        fixture.Playlist.CommitBMSTableEntry(entries[0], nameof(PlaylistDetailRow.memo), string.Empty, null);
+        Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+        Assert.AreEqual(1, rows.Count);
+        Assert.AreSame(entries[negated ? 1 : 0], ((PlaylistDetailRow)rows[0]).Entry);
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+        { Assert.AreEqual(string.Empty, db.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE title = 'entry 0';")); }
+    }
+
     /// <summary>TITLE正規表現の実表示後にMEMOをDB確定しても集合を変えず、実題名確定では同じ要求式から離脱・再加入します。MEMOだけ一致する非表示行の混入と局所更新時の式変質を検出します。</summary>
     [DataTestMethod]
     [DataRow(@"title:re:^\d$", "1", "A")]

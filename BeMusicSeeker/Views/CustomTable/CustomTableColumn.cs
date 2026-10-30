@@ -895,7 +895,7 @@ internal static class CustomTableColumnFactory
 
     private static string FormatDateTime(object value)
     {
-        return value is DateTime dateTime ? dateTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) : string.Empty;
+        return value is DateTime dateTime ? DateTimeDisplayFormatter.FormatTimestamp(dateTime) : string.Empty;
     }
 
     private static string FormatPercentOne(object value)

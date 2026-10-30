@@ -357,6 +357,78 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(GridKeywordSearchQuery.Parse("title:re:[").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
+    /// <summary>各検索入口で実在する表示候補の空文字とnullを空欄として評価し、空白・文字ありと区別します。候補を除外したり、nullをそのままRegexへ渡す誤りを検出します。</summary>
+    [DataTestMethod]
+    [DataRow(null, true)]
+    [DataRow("", true)]
+    [DataRow(" ", false)]
+    [DataRow("text", false)]
+    public void MatchesRegex_DisplayBlankCandidatesAreEvaluated(string? value, bool blank)
+    {
+        ChartFile file = CreateFile() with { Tag = value };
+        var libraryRow = LibraryChartRow.FromChartFile(file);
+        ChartListSourceRow sourceRow = CreateSourceRow(file);
+        var detailRow = new PlaylistDetailSourceRow(new BMSTableEntry(file) { memo = value, comment = value }, file);
+        var summaryRow = new PlaylistSummaryRow { Name = value };
+        (string Field, Func<GridKeywordSearchQuery, bool> Matches)[] targets =
+        [
+            ("tag", query => query.MatchesLibraryChartRow(libraryRow)),
+            ("tag", query => query.MatchesChartListSourceRow(sourceRow)),
+            ("memo", query => query.MatchesPlaylistDetail(detailRow)),
+            ("comment", query => query.MatchesPlaylistDetail(detailRow)),
+            ("name", query => query.MatchesPlaylistSummary(summaryRow))
+        ];
+        foreach ((string field, Func<GridKeywordSearchQuery, bool> matches) in targets)
+        {
+            foreach ((string pattern, bool expected) in new[] { ("^$", blank), (".*", true), (".+", !blank) })
+            {
+                Assert.AreEqual(expected, matches(GridKeywordSearchQuery.Parse(field + ":re:" + pattern)), field + ":" + pattern);
+                Assert.AreEqual(!expected, matches(GridKeywordSearchQuery.Parse("-" + field + ":re:" + pattern)), "-" + field + ":" + pattern);
+            }
+        }
+    }
+
+    /// <summary>全体検索の既存候補にも空欄を評価し、参照名の0候補や非対応項目には空文字を捏造しません。履歴の未解決MD5空欄も同じ規則へ渡します。</summary>
+    [TestMethod]
+    public void MatchesRegex_BlankCandidateDiffersFromAbsentCandidates()
+    {
+        ChartFile file = CreateFile();
+        var display = new PlaylistReferenceDisplay([new PlaylistReferenceTableDisplaySnapshot("SL", "Satellite")]);
+        var libraryRow = LibraryChartRow.FromChartFile(file);
+        libraryRow.SetPlaylistReferenceDisplayProvider(_ => display);
+        ChartListSourceRow sourceRow = CreateSourceRow(file, _ => display);
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("re:^$").MatchesLibraryChartRow(libraryRow));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("re:^$").MatchesChartListSourceRow(sourceRow));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("re:^$").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file with { Sha256 = string.Empty })));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("re:^$").MatchesChartListSourceRow(CreateSourceRow(file with { Sha256 = string.Empty })));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("sha256:re:^$").MatchesChartListSourceRow(CreateSourceRow(file with { Sha256 = null })));
+
+        var detailRow = new PlaylistDetailSourceRow(new BMSTableEntry(file), file);
+        PlayHistoryRow historyRow = CreateRegexHistoryRow(beatoraja: true, new DateTime(2026, 8, 27, 12, 34, 56, DateTimeKind.Local));
+        foreach (string pattern in new[] { "^$", ".*", ".+" })
+        {
+            var query = GridKeywordSearchQuery.Parse("playlist:re:" + pattern);
+            var negated = GridKeywordSearchQuery.Parse("-playlist:re:" + pattern);
+            Assert.IsFalse(query.MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+            Assert.IsFalse(query.MatchesChartListSourceRow(CreateSourceRow(file)));
+            Assert.IsFalse(query.MatchesPlaylistDetail(detailRow));
+            Assert.IsFalse(query.MatchesPlayHistoryRow(historyRow));
+            Assert.IsTrue(negated.MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
+            Assert.IsTrue(negated.MatchesChartListSourceRow(CreateSourceRow(file)));
+            Assert.IsTrue(negated.MatchesPlaylistDetail(detailRow));
+            Assert.IsTrue(negated.MatchesPlayHistoryRow(historyRow));
+            Assert.AreEqual(pattern != ".+", GridKeywordSearchQuery.Parse("md5:re:" + pattern).MatchesPlayHistoryRow(historyRow));
+            Assert.AreEqual(pattern == ".+", GridKeywordSearchQuery.Parse("-md5:re:" + pattern).MatchesPlayHistoryRow(historyRow));
+        }
+        foreach (string expression in new[] { "unknown:re:.*", "-unknown:re:.*", "memo:re:^$", "-memo:re:^$" })
+        {
+            var query = GridKeywordSearchQuery.Parse(expression);
+            Assert.IsFalse(query.MatchesLibraryChartRow(libraryRow));
+            Assert.IsFalse(query.MatchesChartListSourceRow(sourceRow));
+            Assert.IsTrue(query.GetDiagnostics(GridKeywordSearchContext.ChartList).Any(diagnostic => diagnostic.Kind == GridKeywordSearchDiagnosticKind.UnknownField));
+        }
+    }
+
     /// <summary>単一バックスラッシュの文字クラスと補集合を通常一覧の表示行・source行で評価し、式全体の大小文字変換や二重escapeを検出します。</summary>
     [DataTestMethod]
     [DataRow(@"title:re:^\d$", "1", "A")]
@@ -522,6 +594,33 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(GridKeywordSearchQuery.Parse("score:defined").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
+    /// <summary>共通スコアのBP欠損と実績0・正数を3検索入口で同じように判定し、欠損の0扱いや特定の行投影だけ古い値を読む誤りを検出します。</summary>
+    [DataTestMethod]
+    [DataRow(null)]
+    [DataRow(0)]
+    [DataRow(7)]
+    public void MatchesScore_MinBpProjectionPreservesMissingAndRecordedValues(int? minBp)
+    {
+        ChartFile file = ChartFileProjection.WithScore(CreateFile(), new ChartScoreSnapshot(ClearType.HARD, minBp: minBp));
+        var libraryRow = LibraryChartRow.FromChartFile(file);
+        ChartListSourceRow sourceRow = CreateSourceRow(file);
+        var detailRow = new PlaylistDetailSourceRow(new BMSTableEntry(file), file);
+        Func<GridKeywordSearchQuery, bool>[] targets =
+        [
+            query => query.MatchesLibraryChartRow(libraryRow),
+            query => query.MatchesChartListSourceRow(sourceRow),
+            query => query.MatchesPlaylistDetail(detailRow)
+        ];
+        foreach (Func<GridKeywordSearchQuery, bool> matches in targets)
+        {
+            Assert.AreEqual(!minBp.HasValue, matches(GridKeywordSearchQuery.Parse("bp:undefined")));
+            Assert.AreEqual(minBp.HasValue, matches(GridKeywordSearchQuery.Parse("bp:defined")));
+            Assert.AreEqual(minBp.HasValue, matches(GridKeywordSearchQuery.Parse("bp:>=0")));
+            Assert.AreEqual(minBp == 0, matches(GridKeywordSearchQuery.Parse("bp:0")));
+            Assert.AreEqual(minBp > 0, matches(GridKeywordSearchQuery.Parse("bp:>0")));
+        }
+    }
+
     /// <summary>bmsonの詳細提供元からレベル・ノート数を表示し通常語と詳細検索が通ることを確認し、SHA256参照の詳細を表示や検索へ渡さない誤りを検出します。</summary>
     [TestMethod]
     public void LibraryChartRow_FromBmsonChart_ExposesChartInfoForDisplayAndSearch()
@@ -679,6 +778,43 @@ public sealed class GridKeywordSearchQueryTests
         {
             CultureInfo.CurrentCulture = previousCulture;
             CultureInfo.CurrentUICulture = previousUiCulture;
+        }
+    }
+
+    /// <summary>両取得元のDATE正規表現を実列表示の秒まで評価し、同日内の時刻・秒差と否定を区別します。旧ハイフン・スラッシュ日付候補も維持します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void MatchesPlayHistoryRow_DateRegexIncludesDisplayedTimestamp(bool beatoraja)
+    {
+        DateTime[] dates =
+        [
+            new(2026, 8, 27, 12, 34, 56, DateTimeKind.Local),
+            new(2026, 8, 27, 13, 34, 56, DateTimeKind.Local),
+            new(2026, 8, 27, 12, 34, 57, DateTimeKind.Local),
+            new(2026, 8, 28, 12, 34, 56, DateTimeKind.Local)
+        ];
+        PlayHistoryRow[] rows = dates.Select(date => CreateRegexHistoryRow(beatoraja, date)).ToArray();
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+        settings.PlayHistoryPlayedAt.Visibility = System.Windows.Visibility.Visible;
+        CustomTableColumn dateColumn = CustomTableColumnFactory.CreateMainColumns(settings).Single(column => column.Id == "PlayedAt");
+        Assert.AreEqual("2026-08-27 12:34:56", dateColumn.GetText(rows[0]));
+        (string Expression, bool[] Expected)[] cases =
+        [
+            ("date:re:\"^2026-08-27 12:\"", [true, false, true, false]),
+            ("date:re:\"^2026-08-27 12:34:56$\"", [true, false, false, false]),
+            ("date:re:^2026-08-27$", [true, true, true, false]),
+            ("date:re:^2026/08/27$", [true, true, true, false])
+        ];
+        foreach ((string expression, bool[] expected) in cases)
+        {
+            var query = GridKeywordSearchQuery.Parse(expression);
+            var negated = GridKeywordSearchQuery.Parse("-" + expression);
+            for (int index = 0; index < rows.Length; index++)
+            {
+                Assert.AreEqual(expected[index], query.MatchesPlayHistoryRow(rows[index]), expression + ":" + index);
+                Assert.AreEqual(!expected[index], negated.MatchesPlayHistoryRow(rows[index]), "-" + expression + ":" + index);
+            }
         }
     }
 
@@ -1109,6 +1245,16 @@ public sealed class GridKeywordSearchQueryTests
             index.ReplaceTables([new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries)]);
         }
         return index;
+    }
+
+    private static PlayHistoryRow CreateRegexHistoryRow(bool beatoraja, DateTime playedAt)
+    {
+        long timestamp = new DateTimeOffset(playedAt).ToUnixTimeSeconds();
+        return beatoraja
+            ? PlayHistoryRow.ProjectBeatorajaRows(new BeatorajaPlayHistoryReadResult(PlayHistorySourceProfile.Beatoraja("score.db"),
+                [new BeatorajaPlayHistoryRecord { history_id = 1, sha256 = new string('a', 64), played_at = timestamp }], [], Lr2PlayHistorySchemaStatus.Installed), PlayHistoryProjectionIndex.Empty).Rows.Single()
+            : PlayHistoryRow.ProjectLr2Rows(new Lr2PlayHistoryReadResult(PlayHistorySourceProfile.Lr2("score.db"),
+                [new Lr2PlayHistoryRecord { history_id = 1, hash = new string('b', 32), played_at = timestamp }], [], Lr2PlayHistorySchemaStatus.Installed), PlayHistoryProjectionIndex.Empty).Rows.Single();
     }
 
     private static PlayHistoryRow CreatePlayHistoryRow(bool finalized, DateTimeOffset? playedAt = null)
