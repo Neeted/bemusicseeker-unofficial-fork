@@ -204,7 +204,8 @@ title:alpha|beta
 | `maxbpm` | 最大BPM |
 | `minbpm` | 最小BPM |
 | `duration` / `length` | 演奏時間（秒） |
-| `judge` / `judge%` / `judgepct` | 判定幅。`veryhard`、`hard`、`normal`、`easy`、`veryeasy` も利用できます |
+| `judge` | 判定幅。数値条件と `defined` / `undefined` のほか、`veryhard`、`hard`、`normal`、`easy`、`veryeasy` も利用できます |
+| `judge%` / `judgepct` | 判定幅の数値条件と `defined` / `undefined` を利用できます |
 | `feature` | 譜面の特徴。`ln`、`mine`、`random`、`lnmode`、`cn`、`hcn`、`stop`、`scroll` |
 | `notes` | 総ノーツ数 |
 | `long` / `ln` | ロングノーツ数 |

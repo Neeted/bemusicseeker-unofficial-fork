@@ -666,7 +666,7 @@ For more precise searching, use field specifiers.
 title:Satellite
 artist:xi
 level:12
-rate:>=80
+rate:>=0.8
 playlist:"Satellite Sub"
 ```
 

@@ -129,6 +129,44 @@ LR2Configの共通整数読取りはcustomfolder/titleflash/autoreloadから表�
 
 本人IRを存続する場合は、クリアとその達成optionを得点・判定数等の採用から分ける案を検討する。プレイヤー復帰とは別原因だが、存廃前に別の保存機構や修正を先行しない。ローカル/IRのクリア優劣と得点優劣、同点、IRだけの成績についてランプ・option・派生得点・未送信を確認する。手動ランキング取得の廃止を本人IRの存廃・本修正の採用と読み替えず、順位cacheへ便乗変更しない。
 
+## ランキング情報だけがある未プレイ曲の個人成績
+
+本人のローカル成績がなく、他者だけを含む正常な順位XMLがある所持譜面では、起動時の順位キャッシュ反映によって個人成績が空欄からDJ LEVEL F・SCORE 0・RATE 0・BP 0・COMBO 0へ変わる。CLEARのNO PLAYとランキング統計は保持されるが、個人成績の `undefined` 検索に一致しなくなる。新規通信は不要で、LR2のローカル成績DBを書き換える問題ではない。
+
+[順位解析](../../BeMusicSeeker/Models/Ir/Lr2IrRankingCacheParser.cs)は本人不在でも他者由来のノーツ数と順位-1を返し、[順位の適用](../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrService.cs)がローカル成績のない場合に [BMSScore](../../BeMusicSeeker/Models/Chart/BMSScore.cs)を作る。[共通投影](../../BeMusicSeeker/Models/Chart/ChartScoreSnapshot.cs)まで個人成績の既定値0が伝わる。
+
+将来採用時は、本人の実績がなくランキング情報だけを持つ場合に、個人のDJをINVALID、SCORE・RATE・BP・COMBOをnullとして投影する案を検討する。順位人数・更新日時等は保持し、キャッシュ削除や `NoScore` 全体への置換はしない。得点0・BP 0だけを欠損判定の根拠にせず、本人不在と実際の0点成績を区別する。
+
+`BmsLibraryIrServiceTests` と `BmsLibraryIrStartupTests` を起点に、本人不在＋ローカル成績なしの空欄と統計保持、ローカル成績ありの保全、本人あり・FAILED 0点・有効なBP/COMBO 0を対照にする。初回XML解析と保存済み行の再適用から、共通snapshot・通常/プレイリスト一覧・検索までを確認する。
+
+## 本人の0点成績に対する同点順位の採用
+
+本人とローカルの成績がともに0点、他者が100点の正常な順位XMLを起動時に反映すると、オフライン順位推定が既定のOFFでは、本人の2人中2位を解析してもRANKINGが空欄に残る。RANKINGは更新されず、人数と更新日時は反映される。
+
+[順位解析](../../BeMusicSeeker/Models/Ir/Lr2IrRankingCacheParser.cs)は0点も有効な本人行として順位を返すが、[適用処理](../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrService.cs)の同点順位採用が `data.score > 0` の内側にある。[順位仕様](../spec/integration/lr2-ranking.md)の同点採用を0点にも揃える案を、将来採用時に検討する。
+
+本人の有効な正の順位がありローカルと同点なら、得点が0でも順位を採用する。本人不在の順位-1は別扱いとし、ローカル高得点時の推定ON/OFFや、他の成績項目の採用条件は維持する。`BmsLibraryIrServiceTests` の実解析から共通snapshotの `RankingString` が `2/2` になることを確認し、保存済み行の再適用、正数同点、本人不在、ローカル高得点・推定OFFを対照にする。不要なXML再読込みは増やさない。
+
+## 正常に空のLR2スコアとプレイヤーID
+
+LR2のscore表が正常に空でplayer行に非ゼロのiridがある場合、[DB読取り](../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs)はIDを返すが、[スコア採用](../../BeMusicSeeker/Models/Library/BMSLibrary.cs)が成績0件を理由にLR2IDを0へ変える。起動時の順位更新がID 0で終了し、既存の正常な順位XMLも反映されない。本人IR通信を有効にした場合はその取得も行われない。
+
+将来採用時は、選択したLR2スコアDBを正常に読めた場合に、行数によらず取得したIDを採用する案を検討する。正常空・未設定・読取り失敗を既存結果型で区別し、実値0の補完、旧取得元のID再利用、ダミー成績の生成はしない。
+
+空score表＋player.irid 123の実DBからLoaded・空成績・ID 123を公開し、本人IR通信OFF・順位キャッシュONの実起動を通して同IDのXMLと通常snapshotへ接続することを確認する。`BmsLibraryIrServiceTests.LoadScoreTable_EmptySelectedDatabaseIsLoaded` と `BmsLibraryIrStartupTests` を起点に、保存済み順位行の利用と、実値ID 0・未設定・読取り失敗も確認する。
+
+## オフライン順位推定のXML先読み範囲
+
+オフライン順位推定を有効にすると、[更新準備](../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrService.cs)は保存済み順位行の全ハッシュについて不足するXMLを先読みする。XMLが未更新でローカル成績がIR以下の場合や、ローカル成績がない場合にも読込みが起こる。推定は既定で無効であり、利用者のキャッシュ規模での処理時間・一時保持量は未計測である。
+
+将来の改善に必要な条件は次のとおり。
+
+- 同じ入力でXML読込み件数・処理時間・一時保持量を測り、通常更新と推定が必要な更新を区別する。
+- 捕捉済みのスコアから必要なハッシュを絞り、今回取得済みのlookupを再利用する。永続キャッシュを追加しない。
+- 準備後にスコアが変わっても、現在の要求・スコア文脈に対する結果を欠落させない。
+- 適用側の共有ロック内へXML I/Oを戻さず、取消・停止・鮮度・保存の既存責務を保つ。
+- スコアなし・同点/低得点・高得点と、更新済み/更新不要XMLを使い、必要な読込みだけで順位結果を維持する。
+
 ## BMT混在フォルダ名と通常外部表の出力名
 
 BMT cache復元では、全folderが同じtagで始まらない場合に空prefixを保存する。`BeatorajaBmtTableImportService` から通常表へ登録した後、`BmtTableExportService.ResolveFolderName` が外部表のtagを付け直すため、tag=st、元folder=st0/sl1ならstst0/stsl1となり得る。数字付き所属でも成立し、必須の非数値所属保持とは別の原因である。

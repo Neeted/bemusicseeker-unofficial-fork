@@ -204,7 +204,8 @@ title:alpha|beta
 | `maxbpm` | Maximum BPM |
 | `minbpm` | Minimum BPM |
 | `duration` / `length` | Play duration in seconds |
-| `judge` / `judge%` / `judgepct` | Judge width. Also accepts `veryhard`, `hard`, `normal`, `easy`, and `veryeasy` |
+| `judge` | Judge width. Accepts numeric conditions, `defined` / `undefined`, and the names `veryhard`, `hard`, `normal`, `easy`, and `veryeasy` |
+| `judge%` / `judgepct` | Judge width. Accepts numeric conditions and `defined` / `undefined` |
 | `feature` | Chart features: `ln`, `mine`, `random`, `lnmode`, `cn`, `hcn`, `stop`, `scroll` |
 | `notes` | Total notes |
 | `long` / `ln` | Long-note count |
