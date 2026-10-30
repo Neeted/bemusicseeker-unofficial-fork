@@ -336,9 +336,20 @@ internal sealed class LibraryFileScanPipelineOwner
                 {
                     bmsRootRegistrations?.SaveRootChanges(scan.RegistrationInput, confirmedOptions);
                     registrationAdopted = true;
-                }, generatedAtUtc);
-            return registrationAdopted ? result : result.WithFileCheckResult(result.FileCheckResult,
-                new LibraryFileInitializationResult(options: scan.RegistrationInput));
+                }, generatedAtUtc, scan.RegistrationInput.Lr2Input?.RegisteredRoots);
+            if (!registrationAdopted)
+            {
+                return result.WithFileCheckResult(result.FileCheckResult,
+                    new LibraryFileInitializationResult(options: scan.RegistrationInput));
+            }
+            string previousBase = scan.RegistrationInput.LR2CustomFolderOutputBaseDir;
+            string confirmedBase = confirmedOptions.LR2CustomFolderOutputBaseDir;
+            return confirmedOptions.OperationModeLR2DB
+                && !string.Equals(previousBase, confirmedBase, StringComparison.Ordinal)
+                && CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(previousBase, confirmedBase)
+                ? result.WithFileCheckResult(result.FileCheckResult, result.SynchronizationInput with
+                { NormalOutputBasePathChange = (previousBase, confirmedBase) })
+                : result;
         }
         finally
         {
@@ -597,6 +608,7 @@ internal sealed class LibraryFileScanPipelineOwner
     /// 開始済みLR2準備Taskは全終端で回収し、失敗した差分へ準備結果を遅れて適用しません。
     /// 公開効果は任意observerへ渡し、準備の二次失敗で元の保存・解析・公開失敗を隠しません。
     /// </summary>
+    /// <param name="previousRootDirectories">先行補正前の登録root。同所の旧表記だけを外部folderの追加読取りへ渡し、変更対象は現在rootのままにします。</param>
     internal Lr2FolderFileDiffPreparationResult ApplyFileScanDiff(
         BmsLibraryOptionsSnapshot options,
         List<string> bmsDirectories,
@@ -605,7 +617,8 @@ internal sealed class LibraryFileScanPipelineOwner
         bool trackLibraryFileCheckProgress,
         string reason,
         InstallDestinationCleanupSnapshot installDestinationCleanupSnapshot,
-        Action<Action> postLeaseEffectObserver = null, LibraryFileMutationCapability capability = null, Action<LibraryScanWarning> warningObserver = null, Action saveConfirmedRoots = null, DateTime? generatedAtUtc = null)
+        Action<Action> postLeaseEffectObserver = null, LibraryFileMutationCapability capability = null, Action<LibraryScanWarning> warningObserver = null, Action saveConfirmedRoots = null, DateTime? generatedAtUtc = null,
+        IReadOnlyList<string> previousRootDirectories = null)
     {
         if (installDestinationCleanupSnapshot == null)
         {
@@ -732,6 +745,10 @@ internal sealed class LibraryFileScanPipelineOwner
         List<BeMusicSeeker.Models.ChartDetails> committedInlineChartInfoRows = [];
         IReadOnlyList<ChartFile> currentInstallDestinationCharts = installDestinationCleanupSnapshot.Charts;
         Lr2SongDbSyncAppManagedOutputScope initialAppManagedOutputScope = lr2Synchronization.CreateLr2SongDbSyncAppManagedOutputScope(options);
+        if (options.OperationModeLR2DB && !initialAppManagedOutputScope.IsComplete)
+        {
+            throw new Lr2FolderTableProjectionIncompleteException("LR2 managed output scope could not be captured before file synchronization.");
+        }
         Task<Lr2FolderFileDiffPreparationResult> lr2FolderFileDiffPreparationTask = null;
         try
         {
@@ -746,7 +763,7 @@ internal sealed class LibraryFileScanPipelineOwner
                 }
 
                 lr2FolderFileDiffPreparationTask = Task.Run(() =>
-                    lr2FolderFileDiffOwner.Prepare(options, bmsDirectories, partialResult, reason))
+                    lr2FolderFileDiffOwner.Prepare(options, bmsDirectories, partialResult, reason, previousRootDirectories))
                     .LoggingAndPropagate("Lr2FolderFileDiffPrepare");
             }
 
@@ -801,9 +818,7 @@ internal sealed class LibraryFileScanPipelineOwner
                 folderTableSnapshot,
                 SaveRegistrationAndStartLr2Preparation,
                 protectExistingBmsRowsFromLr2SongDbSyncMigration: protectExistingBmsRowsFromLr2SongDbSyncMigration,
-                lr2FolderExcludedDirectories: initialAppManagedOutputScope.IsComplete
-                    ? initialAppManagedOutputScope.Directories
-                    : [],
+                lr2FolderExcludedDirectories: initialAppManagedOutputScope.Directories,
                 catalogProjectionApplied: null,
                 enterNormalFolderMutation: (scope, targets) =>
                 {
@@ -847,7 +862,7 @@ internal sealed class LibraryFileScanPipelineOwner
                     options,
                     bmsDirectories,
                     fileCheckResult,
-                    reason);
+                    reason, previousRootDirectories);
                 lr2FolderFileDiffOwner.ApplyPreparedSurface(
                     fileCheckResult,
                     lr2FolderFileDiffPreparation,

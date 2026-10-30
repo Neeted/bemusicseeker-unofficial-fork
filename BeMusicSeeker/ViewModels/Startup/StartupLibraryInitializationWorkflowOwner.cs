@@ -402,9 +402,15 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
         BmsLibraryOptionsSnapshot options = fileResult.Options ?? library.Lr2Synchronization.CurrentOptionsSnapshot;
         bool syncNeeded = options.OperationModeLR2DB && library.Lr2Synchronization.EvaluateLr2SongDbSyncStatus(
             true, Lr2SongDbSyncSignatureBuilder.Build(options), DateTime.UtcNow).IsNeeded;
+        if (fileResult.NormalOutputBasePathChange is { } pathChange)
+        {
+            customFolderSettings = (customFolderSettings ?? playlist.GetCustomFolderOutputSettings()).WithDirectoryPaths(
+                path => BmsLibraryOptionsSnapshot.ApplyConfirmedRootPrefixes(path, [pathChange.Previous], [pathChange.Current]));
+        }
         RequiredChartInfoHydrationResult chartInfo = await Task.Run(() => library.EnsureRequiredStartupData(capability, originatingRequest)).ConfigureAwait(false);
         Lr2SongDbSyncPreparedDataSurface prepared = await playlist.CompleteStartupOutputsAsync(verifyRows, syncNeeded,
-            capability.PlaylistCapability, originatingRequest, customFolderSettings, forceBeatorajaBmtProjection).ConfigureAwait(false);
+            capability.PlaylistCapability, originatingRequest, customFolderSettings, forceBeatorajaBmtProjection,
+            fileResult.NormalOutputBasePathChange).ConfigureAwait(false);
         Exception lr2Failure = null;
         try
         {

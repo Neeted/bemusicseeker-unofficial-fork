@@ -107,11 +107,36 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
         }
     }
 
-    private void SetPropertyValuesCore(SettingsContext context, SettingsPropertyValueCollection collection)
+    /// <summary>媒体の現在値へ指定したpath変換だけを適用します。別wrapperの未公開保存を保持し、読取り失敗を公開値で補いません。</summary>
+    internal void TransformPropertyValues(SettingsContext context, SettingsPropertyCollection properties,
+        Func<string, string, string> transform)
+    {
+        ArgumentNullException.ThrowIfNull(transform);
+        lock (persistenceGate)
+        {
+            XDocument document = ReadDocument(settingsPath) ?? CreateEmptyDocument();
+            XElement section = GetRequiredSettingsSection(document);
+            SettingsPropertyValueCollection changes = [];
+            foreach (SettingsProperty property in properties)
+            {
+                XElement stored = section.Elements("setting").FirstOrDefault(element =>
+                    string.Equals((string)element.Attribute("name"), property.Name, StringComparison.Ordinal));
+                var current = new SettingsPropertyValue(property)
+                { SerializedValue = stored == null ? property.DefaultValue : stored.Element("value")?.Value ?? string.Empty };
+                string before = (string)current.PropertyValue;
+                string after = transform(property.Name, before);
+                if (!string.Equals(before, after, StringComparison.Ordinal))
+                { changes.Add(new SettingsPropertyValue(property) { PropertyValue = after }); }
+            }
+            if (changes.Count > 0) { SetPropertyValuesCore(context, changes, document); }
+        }
+    }
+
+    private void SetPropertyValuesCore(SettingsContext context, SettingsPropertyValueCollection collection, XDocument document = null)
     {
         try
         {
-            XDocument document = ReadDocument(settingsPath) ?? CreateEmptyDocument();
+            document ??= ReadDocument(settingsPath) ?? CreateEmptyDocument();
             XElement settingsSection = GetRequiredSettingsSection(document);
             NormalizeSettingsSection(settingsSection);
             foreach (SettingsPropertyValue item in collection)

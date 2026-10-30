@@ -56,20 +56,21 @@ internal sealed class Lr2FolderFileDiffOwner
     }
 
     /// <summary>
-    /// Resolves the optional prefetch result, recomputing preparation when the
-    /// prefetch task failed.  This method only returns preparation data; the
-    /// scan pipeline owns when its surfaces become visible to the file diff.
+    /// 先行準備を回収し、失敗時は同じ入力で既存の再準備を行います。
+    /// 差分へ準備面を適用する時機は走査主体が所有します。
     /// </summary>
+    /// <param name="previousRootDirectories">追加読取りに使う補正前root。再準備でも同じ表記を保持します。</param>
     internal Lr2FolderFileDiffPreparationResult WaitForPreparation(
         Task<Lr2FolderFileDiffPreparationResult> preparationTask,
         BmsLibraryOptionsSnapshot options,
         IReadOnlyList<string> rootDirectories,
         SongTableFileCheckResult fileCheckResult,
-        string reason)
+        string reason,
+        IReadOnlyList<string> previousRootDirectories = null)
     {
         if (preparationTask == null)
         {
-            return Prepare(options, rootDirectories, fileCheckResult, reason);
+            return Prepare(options, rootDirectories, fileCheckResult, reason, previousRootDirectories);
         }
 
         var stopwatchWait = Stopwatch.StartNew();
@@ -91,7 +92,7 @@ internal sealed class Lr2FolderFileDiffOwner
                 + " reason=" + (reason ?? "unknown")
                 + " waitMs=" + stopwatchWait.ElapsedMilliseconds
                 + " message=" + getDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
-            return Prepare(options, rootDirectories, fileCheckResult, reason);
+            return Prepare(options, rootDirectories, fileCheckResult, reason, previousRootDirectories);
         }
     }
 
@@ -220,11 +221,14 @@ internal sealed class Lr2FolderFileDiffOwner
         }
     }
 
+    /// <summary>現在rootの物理対象を準備し、同所にある旧root表記を既存行の読取り範囲だけへ追加します。</summary>
+    /// <param name="previousRootDirectories">走査開始前の登録root。未知の別場所や過去履歴は取得対象にしません。</param>
     internal Lr2FolderFileDiffPreparationResult Prepare(
         BmsLibraryOptionsSnapshot options,
         IReadOnlyList<string> rootDirectories,
         SongTableFileCheckResult fileCheckResult,
-        string reason)
+        string reason,
+        IReadOnlyList<string> previousRootDirectories = null)
     {
         if (!CanPrepare(options, fileCheckResult))
         {
@@ -312,6 +316,10 @@ internal sealed class Lr2FolderFileDiffOwner
         var request = new Lr2SongDbSyncRequest
         {
             RootDirectories = roots,
+            Lr2FolderAdditionalReadDirectories = [.. (previousRootDirectories ?? [])
+                .Where(previous => !roots.Contains(previous, StringComparer.Ordinal)
+                    && roots.Any(current => CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(current, previous)))
+                .Distinct(StringComparer.Ordinal)],
             Lr2FolderDiscoveryDirectories = fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories,
             Lr2FolderPruneDirectories = lr2Synchronization.CreateLr2SongDbSyncLr2FolderPruneDirectories(
                 roots,

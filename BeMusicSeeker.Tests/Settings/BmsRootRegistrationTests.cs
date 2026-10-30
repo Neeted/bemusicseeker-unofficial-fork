@@ -233,9 +233,11 @@ public sealed class BmsRootRegistrationTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
-    /// <summary>保存済みB/公開済みAの分離後も、確認済みAのprefixだけを現在の公開値へ適用し、XMLのBを再追加や便乗公開で壊さない。</summary>
-    [TestMethod]
-    public void RootSpellingChange_DoesNotReAddReplacedSavedRootOrPublishUnrelatedPlacement()
+    /// <summary>保存だけ成功したBと公開Aを分離し、同所補正A′は公開側だけへ反映します。実providerの読取失敗は公開・通知を止めます。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void RootSpellingChange_DoesNotReAddReplacedSavedRootOrPublishUnrelatedPlacement(bool readFailure)
     {
         string directory = NewDirectory();
         try
@@ -243,7 +245,8 @@ public sealed class BmsRootRegistrationTests
             string before = Path.Combine(directory, "songs");
             string confirmedRoot = Path.Combine(directory, "Songs");
             string other = Path.Combine(directory, "Other");
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory, "user.config"));
+            string settingsPath = Path.Combine(directory, "user.config");
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
             settings.OperationModeLR2DB = true;
             settings.LR2RootPath = directory;
             settings.LR2CustomFolderOutputBaseDir = Path.Combine(before, "Managed");
@@ -255,17 +258,24 @@ public sealed class BmsRootRegistrationTests
             BmsLibraryOptionsSnapshot input = BmsLibraryOptionsSnapshot.CreateCurrent(settings, applied).WithLr2Input(owner.Capture());
             BmsLibraryOptionsSnapshot confirmed = input.WithConfirmedRootPrefixes([before], [confirmedRoot]);
             owner.SaveRoots(new Lr2RootChange(owner.CaptureSaved().RegisteredRoots, [other]), publish: false);
-            settings.Commit((nameof(Settings.LR2CustomFolderOutputBaseDir), Path.Combine(other, "Managed")));
+            settings.Persist((nameof(Settings.LR2CustomFolderOutputBaseDir), Path.Combine(other, "Managed")));
             int notices = 0;
             store.Published += (_, _) => notices++;
-            store.SaveRootChanges(input, confirmed);
+            if (readFailure)
+            {
+                using (File.Open(settingsPath, FileMode.Open, FileAccess.Read, FileShare.None))
+                { Assert.ThrowsException<PortableSettingsException>(() => store.SaveRootChanges(input, confirmed)); }
+            }
+            else { store.SaveRootChanges(input, confirmed); }
             CollectionAssert.AreEqual(new[] { other }, owner.CaptureSaved().RegisteredRoots.ToArray());
             CollectionAssert.AreEqual(new[] { other }, ReadRoots(owner.ConfigFilePath));
-            CollectionAssert.AreEqual(new[] { confirmedRoot, Path.Combine(confirmedRoot, "Managed") }, owner.Capture().RegisteredRoots.ToArray());
-            Assert.AreEqual(Path.Combine(other, "Managed"), settings.LR2CustomFolderOutputBaseDir);
-            Assert.AreEqual(Path.Combine(confirmedRoot, "Managed"), applied.LR2CustomFolderOutputBaseDir);
+            string publishedRoot = readFailure ? before : confirmedRoot;
+            CollectionAssert.AreEqual(new[] { publishedRoot, Path.Combine(publishedRoot, "Managed") }, owner.Capture().RegisteredRoots.ToArray());
+            Assert.AreEqual(Path.Combine(publishedRoot, "Managed"), settings.LR2CustomFolderOutputBaseDir);
+            Assert.AreEqual(Path.Combine(publishedRoot, "Managed"), applied.LR2CustomFolderOutputBaseDir);
+            Assert.AreEqual(Path.Combine(other, "Managed"), PortableSettingsPersistenceTests.OpenSettings(settingsPath).LR2CustomFolderOutputBaseDir);
             Assert.AreSame(applied, owner.Capture().Placement);
-            Assert.AreEqual(1, notices);
+            Assert.AreEqual(readFailure ? 0 : 1, notices);
         }
         finally { Directory.Delete(directory, true); }
     }

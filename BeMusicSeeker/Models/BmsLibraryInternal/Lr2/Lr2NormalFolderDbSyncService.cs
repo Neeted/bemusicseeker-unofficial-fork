@@ -26,6 +26,9 @@ internal sealed class Lr2NormalFolderDbSyncRequest
 
     public IReadOnlyCollection<string> PruneScopeDirectories { get; set; } = [];
 
+    /// <summary>今回の確定表一覧と配置が所有する表ディレクトリです。通常行の生成は保ち、内部行の削除だけを管理出力側へ委ねます。</summary>
+    public IReadOnlyCollection<string> PruneExcludedDirectories { get; set; } = [];
+
     /// <summary>局所mutationで子孫を含めず整理する物理directoryです。保存済みrawキーは混ぜません。</summary>
     public IReadOnlyCollection<string> PruneExactDirectories { get; set; } = [];
 
@@ -165,7 +168,8 @@ internal static class Lr2NormalFolderDbSyncService
             existingRows,
             rootDirectories,
             pruneScopeDirectories,
-            pruneExactDirectories);
+            pruneExactDirectories,
+            request.PruneExcludedDirectories);
         bool canPrune = request.AllowPrune;
         if (!canPrune && plan.DeletePaths.Count > 0)
         {

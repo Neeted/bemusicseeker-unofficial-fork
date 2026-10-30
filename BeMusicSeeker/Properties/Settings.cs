@@ -47,6 +47,16 @@ internal sealed class Settings : ApplicationSettingsBase
         Properties[changes[0].Name].Provider.SetPropertyValues(Context, selected);
     }
 
+    /// <summary>指定したpath項目の現在の保存値だけをproviderの保存区間内で変換します。公開readerの値は保存の代用にしません。</summary>
+    internal void PersistTransformedPaths(Func<string, string, string> transform, params string[] names)
+    {
+        if (names.Length == 0) { return; }
+        SettingsPropertyCollection selected = new();
+        foreach (string name in names) { selected.Add(Properties[name]); }
+        var provider = (PortableSettingsProvider)Properties[names[0]].Provider;
+        provider.TransformPropertyValues(Context, selected, transform);
+    }
+
     /// <summary>必要な媒体が全部保存された後、対象だけを確定readerへ公開します。媒体の再読込みは行いません。</summary>
     internal void Publish(params (string Name, object Value)[] changes)
     {

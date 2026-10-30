@@ -35,7 +35,11 @@ internal sealed class BmsRootRegistrationStore
     {
         IReadOnlyList<string> before = input.OperationModeLR2DB ? input.Lr2Input.RegisteredRoots : input.StandaloneBmsRootPaths;
         IReadOnlyList<string> after = confirmed.OperationModeLR2DB ? confirmed.Lr2Input.RegisteredRoots : confirmed.StandaloneBmsRootPaths;
+        if (before.SequenceEqual(after, StringComparer.Ordinal)) { return; }
         string Replace(string path) => BmsLibraryOptionsSnapshot.ApplyConfirmedRootPrefixes(path, before, after);
+        IReadOnlyList<string> userRoots = CaptureUserRoots(input);
+        string ReplaceInstall(string path) => userRoots.Any(root =>
+            CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(root, path)) ? Replace(path) : path;
         var values = new List<(string Name, object Value)>();
         void AddChanged(string name, string current, string next)
         { if (!string.Equals(current, next, StringComparison.Ordinal)) { values.Add((name, next)); } }
@@ -53,13 +57,12 @@ internal sealed class BmsRootRegistrationStore
             values.Add((nameof(Settings.BMSRootPath), nextSavedRoots.FirstOrDefault() ?? string.Empty));
         }
         AddChanged(nameof(Settings.BMSInstallDir), settings.BMSInstallDir,
-            CaptureUserRoots(input).Any(root => CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(root, settings.BMSInstallDir))
-                ? Replace(settings.BMSInstallDir) : settings.BMSInstallDir);
+            ReplaceInstall(settings.BMSInstallDir));
         var currentSettings = CustomFolderOutputSettingsSnapshot.CreateCurrent(settings);
-        CustomFolderOutputSettingsSnapshot savedPlacement = currentSettings.WithDirectoryPaths(Replace);
-        AddChanged(nameof(Settings.LR2CustomFolderOutputBaseDir), currentSettings.LR2CustomFolderOutputBaseDir, savedPlacement.LR2CustomFolderOutputBaseDir);
-        AddChanged(nameof(Settings.LR2CustomFolderOutputBaseDirRootType), currentSettings.LR2CustomFolderOutputBaseDirRootType, savedPlacement.LR2CustomFolderOutputBaseDirRootType);
-        AddChanged(nameof(Settings.LR2CustomFolderAdditionalOutputBaseDirs), currentSettings.LR2CustomFolderAdditionalOutputBaseDirs, savedPlacement.LR2CustomFolderAdditionalOutputBaseDirs);
+        CustomFolderOutputSettingsSnapshot nextSettings = currentSettings.WithDirectoryPaths(Replace);
+        AddChanged(nameof(Settings.LR2CustomFolderOutputBaseDir), currentSettings.LR2CustomFolderOutputBaseDir, nextSettings.LR2CustomFolderOutputBaseDir);
+        AddChanged(nameof(Settings.LR2CustomFolderOutputBaseDirRootType), currentSettings.LR2CustomFolderOutputBaseDirRootType, nextSettings.LR2CustomFolderOutputBaseDirRootType);
+        AddChanged(nameof(Settings.LR2CustomFolderAdditionalOutputBaseDirs), currentSettings.LR2CustomFolderAdditionalOutputBaseDirs, nextSettings.LR2CustomFolderAdditionalOutputBaseDirs);
         // 現在のapplied配置だけを変換します。別操作の保存済み未公開配置をSettingsから再捕捉しません。
         CustomFolderOutputSettingsSnapshot currentPlacement = placementProvider?.Invoke() ?? owner?.Capture().Placement ?? currentSettings;
         CustomFolderOutputSettingsSnapshot publishedPlacement = currentPlacement.WithDirectoryPaths(Replace);
@@ -68,11 +71,29 @@ internal sealed class BmsRootRegistrationStore
             || !string.Equals(currentPlacement.LR2CustomFolderAdditionalOutputBaseDirs, publishedPlacement.LR2CustomFolderAdditionalOutputBaseDirs, StringComparison.Ordinal);
         if (!rootsChanged && values.Count == 0 && !placementChanged) { return; }
         if (owner != null) { owner.SaveRoots(new(savedRoots, nextSavedRoots), publish: false); }
-        CompleteSave(values, () =>
+        string[] pathNames = [nameof(Settings.BMSInstallDir), nameof(Settings.LR2CustomFolderOutputBaseDir),
+            nameof(Settings.LR2CustomFolderOutputBaseDirRootType), nameof(Settings.LR2CustomFolderAdditionalOutputBaseDirs)];
+        if (owner == null) { pathNames = [.. pathNames, nameof(Settings.StandaloneBmsRootPaths), nameof(Settings.BMSRootPath)]; }
+        settings.PersistTransformedPaths((name, path) => name switch
+        {
+            nameof(Settings.BMSInstallDir) => ReplaceInstall(path),
+            nameof(Settings.StandaloneBmsRootPaths) => ReplaceList(path,
+                StandaloneBmsRootPathSettings.Deserialize(path, string.Empty), StandaloneBmsRootPathSettings.Serialize),
+            nameof(Settings.LR2CustomFolderAdditionalOutputBaseDirs) => ReplaceList(path,
+                CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(path), CustomFolderOutputBaseRegistry.SerializeBaseDirectories),
+            _ => Replace(path)
+        }, pathNames);
+        PublishSavedValues(values, () =>
         {
             owner?.Publish(publicationChange, publishedPlacement);
             publishPlacement?.Invoke(publishedPlacement);
         });
+
+        string ReplaceList(string original, IReadOnlyList<string> paths, Func<IEnumerable<string>, string> serialize)
+        {
+            string[] next = paths.Select(Replace).ToArray();
+            return paths.SequenceEqual(next, StringComparer.Ordinal) ? original : serialize(next);
+        }
     }
 
     /// <summary>欠落・親子・保存順を保つstandaloneの確定登録を読み取ります。</summary>
@@ -131,6 +152,11 @@ internal sealed class BmsRootRegistrationStore
     private void CompleteSave(List<(string Name, object Value)> values, Action publishRoots)
     {
         settings.Persist(values.ToArray());
+        PublishSavedValues(values, publishRoots);
+    }
+
+    private void PublishSavedValues(List<(string Name, object Value)> values, Action publishRoots)
+    {
         settings.Publish(values.ToArray());
         publishRoots();
         foreach (EventHandler observer in Published?.GetInvocationList() ?? [])

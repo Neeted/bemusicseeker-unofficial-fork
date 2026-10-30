@@ -1005,15 +1005,18 @@ public partial class BMSPlaylist : ObservableObject
 
     /// <summary>ローカルライブラリ準備後に項目・必要修復・BMTを確定し、全体同期に必要な完全な生成面を返します。</summary>
     /// <param name="forceBeatorajaBmtProjection">今回の必要BMT出力で署名一致による生成省略を迂回するか。</param>
+    /// <param name="normalOutputBasePathChange">全体生成が不要な場合に、hydration後の必須出力へ渡す今回確認済みの旧・新基点。</param>
     internal async Task<Lr2SongDbSyncPreparedDataSurface> CompleteStartupOutputsAsync(bool verifyRows, bool prepareAllCustomFolders,
-        LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null, CustomFolderOutputSettingsSnapshot settings = null, bool forceBeatorajaBmtProjection = false)
+        LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null, CustomFolderOutputSettingsSnapshot settings = null, bool forceBeatorajaBmtProjection = false,
+        (string Previous, string Current)? normalOutputBasePathChange = null)
     {
         capability.Validate(playlistMutationAdmission);
         settings ??= GetCustomFolderOutputSettings();
         // 読取りと独立走査の合流後に設定正本を更新し、並列の見出し読取りへ書込みを混ぜない。
         bool rootsChanged = await Task.Run(() => SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
             settings.LR2CustomFolderOutputBaseDirRootType, settings)).ConfigureAwait(false);
-        return await HydrateRequiredAsync("Initialize", true, verifyRows || rootsChanged, capability, prepareAllCustomFolders, originatingRequest, settings, forceBeatorajaBmtProjection).ConfigureAwait(false);
+        return await HydrateRequiredAsync("Initialize", true, verifyRows || rootsChanged, capability, prepareAllCustomFolders, originatingRequest, settings, forceBeatorajaBmtProjection,
+            normalOutputBasePathChange: normalOutputBasePathChange).ConfigureAwait(false);
     }
 
     private bool InitializeHeaders(bool synchronizeOutputRoots = true, bool scheduleUrlCompletion = true)
@@ -1291,7 +1294,8 @@ public partial class BMSPlaylist : ObservableObject
     }
 
     private async Task<Lr2SongDbSyncPreparedDataSurface> HydrateRequiredAsync(string reason, bool exportBeatorajaBmt, bool verifyRootOutputDirectoryRows, LibraryFileMutationCapability capability, bool prepareAllCustomFolders = false, OperationProgressRequest originatingRequest = null, CustomFolderOutputSettingsSnapshot settings = null, bool forceBeatorajaBmtProjection = false, bool forceCustomFolderOutput = false,
-        IReadOnlyList<PlaylistCustomFolderOutputMaintenanceOwner.PreviousOutputLocation> previousOutputLocations = null)
+        IReadOnlyList<PlaylistCustomFolderOutputMaintenanceOwner.PreviousOutputLocation> previousOutputLocations = null,
+        (string Previous, string Current)? normalOutputBasePathChange = null)
     {
         OperationProgressRequest progressRequest = null;
         ExceptionDispatchInfo referenceFailure = null;
@@ -1321,6 +1325,10 @@ public partial class BMSPlaylist : ObservableObject
             }
             else
             {
+                if (normalOutputBasePathChange is { } pathChange)
+                {
+                    await SynchronizeNormalOutputBasePathChangeAsync(pathChange, reason, capability, settings).ConfigureAwait(false);
+                }
                 await Task.Run(() => RepairMissingCustomFolderOutputsAfterHydrationCore(
                     reason, verifyRootOutputDirectoryRows, settings,
                     (processed, total, name) => PublishCustomFolderOutputRepairProgress(CustomFolderOutputRepairProgressReporter,
@@ -2242,6 +2250,44 @@ public partial class BMSPlaylist : ObservableObject
         }
         customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback: null, propagatePrimaryFailure: false);
         return result;
+    }
+
+    /// <summary>走査で確認した通常基点の表記変更を、受理済みPで表内部のpath・親CRCまで反映します。全体生成を行う操作ではそちらへ委ねます。</summary>
+    internal async Task SynchronizeNormalOutputBasePathChangeAsync((string Previous, string Current) pathChange,
+        string reason, LibraryFileMutationCapability capability, CustomFolderOutputSettingsSnapshot settings = null)
+    {
+        ArgumentNullException.ThrowIfNull(capability);
+        using LibraryFileMutationLease lease = AcquirePlaylistMutationLease("NormalOutputBasePathChange", capability: capability);
+        using LibraryFileMutationCapability authority = lease.CreateMutationCapability();
+        settings ??= GetCustomFolderOutputSettings();
+        settings = settings.WithDirectoryPaths(path => BmsLibraryOptionsSnapshot.ApplyConfirmedRootPrefixes(
+            path, [pathChange.Previous], [pathChange.Current]));
+        List<BMSTable> tables;
+        using (rwlockBMSTables.GetReaderGuard())
+        {
+            tables = [.. BMSTables.Where(table => table != null && !table.is_root_folder
+                && string.IsNullOrWhiteSpace(table.custom_folder_output_base_name)
+                && !string.IsNullOrWhiteSpace(table.Output_dir))];
+        }
+        if (tables.Count == 0) { return; }
+        string[] previousDirectories = [.. tables.Select(table => Path.Combine(pathChange.Previous, table.Output_dir))];
+        PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderOutputPreparation preparation =
+            customFolderOutputMaintenanceOwner.PrepareTables(tables, "normal_output_base_path_change",
+                forceWriteAllFiles: false, throwOnProjectionFailure: true, settings: settings);
+        if (preparation.TableCount != tables.Count)
+        {
+            throw new Lr2FolderTableProjectionIncompleteException("Normal output path correction could not prepare every affected table.");
+        }
+        CustomFolderBatchOutputResult result = await customFolderOutputMaintenanceOwner.ReOutputPreparedTablesAsync(
+            preparation, reason, "normal_output_base_path_change", buildPreparedDataSurface: false,
+            yieldBetweenTables: false,
+            syncMaterialization: request => SyncCustomFolderRowsBatch(request, authority, previousDirectories)).ConfigureAwait(false);
+        customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback: null);
+        if (result.HasUnverifiedFiles || result.SyncResult?.SkippedMissingMetadataCount > 0
+            || result.SyncResult?.SkippedUnsupportedPathCount > 0)
+        {
+            throw new Lr2FolderTableProjectionIncompleteException("Normal output path correction could not verify every affected file.");
+        }
     }
 
     /// <summary>
@@ -3625,14 +3671,17 @@ public partial class BMSPlaylist : ObservableObject
     }
 
 
+    /// <summary>物理出力が確定した同じ一括要求へ、今回退役する旧表ディレクトリの読取り・削除範囲だけを追加します。</summary>
     private Lr2FolderFileDbSyncResult SyncCustomFolderRowsBatch(
         PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderBatchMaterializationRequest request,
-        LibraryFileMutationCapability mutationCapability)
+        LibraryFileMutationCapability mutationCapability,
+        IReadOnlyCollection<string> previousTableDirectories = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         return SyncCustomFolderRowsBatch(
             request.OutputDirectories,
-            request.OutputRowScopeDirectories,
+            previousTableDirectories == null ? request.OutputRowScopeDirectories
+                : [.. request.OutputRowScopeDirectories.Concat(previousTableDirectories)],
             request.Items,
             mutationCapability,
             request.DirectoryRowGenerationScopeDirectories,
@@ -3667,7 +3716,7 @@ public partial class BMSPlaylist : ObservableObject
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         IReadOnlyCollection<string> rowScopeDirectories = [.. (outputRowScopeDirectories ?? [])
             .Where(directory => !string.IsNullOrWhiteSpace(directory))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
+            .Distinct(StringComparer.Ordinal)];
         if (outputDirs.Count == 0 && rowScopeDirectories.Count == 0)
         {
             return null;
@@ -3675,7 +3724,7 @@ public partial class BMSPlaylist : ObservableObject
         IReadOnlyCollection<string> pruneScopeDirectories = [.. outputDirs
             .Concat(rowScopeDirectories)
             .Where(directory => !string.IsNullOrWhiteSpace(directory))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
+            .Distinct(StringComparer.Ordinal)];
         IReadOnlyCollection<string> directoryRowGenerationScopes = [.. (directoryRowGenerationScopeDirectories ?? [])
             .Where(directory => !string.IsNullOrWhiteSpace(directory))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
@@ -3691,7 +3740,7 @@ public partial class BMSPlaylist : ObservableObject
         IReadOnlyCollection<string> directoryRowScopeDirectories = [.. pruneScopeDirectories
             .Concat(emptyDirectoryRowScopeDirectories)
             .Where(directory => !string.IsNullOrWhiteSpace(directory))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
+            .Distinct(StringComparer.Ordinal)];
         ILr2PlaylistFolderSynchronizationPort synchronization = GetLr2PlaylistFolderSynchronization();
         Lr2FolderFileDbSyncRequest request = new()
         {

@@ -127,6 +127,23 @@ internal sealed class BmsLr2SongDbSyncWorkflowRuntime : ILr2SongDbSyncWorkflowRu
             return false;
         }
 
+        // 同署名Completedの省略より前に、今回確認した表記差だけを同じL/Pで完了します。
+        // 起動から完全な準備面が来る場合と、自然に全体同期が必要な場合は既存の全体生成へ委ねます。
+        if (initializationResult?.NormalOutputBasePathChange is { } pathChange
+            && preparedSurface == null && !force)
+        {
+            BmsLibraryOptionsSnapshot operationOptions = optionsSnapshot ?? initializationResult.Options
+                ?? library.Lr2Synchronization.CurrentOptionsSnapshot;
+            if (!library.Lr2Synchronization.EvaluateLr2SongDbSyncStatus(
+                true, Lr2SongDbSyncSignatureBuilder.Build(operationOptions), DateTime.UtcNow).IsNeeded)
+            {
+                BMSPlaylist playlists = playlistProvider()
+                    ?? throw new InvalidOperationException("LR2 playlist preparation is unavailable.");
+                await Task.Run(() => playlists.SynchronizeNormalOutputBasePathChangeAsync(pathChange, reason,
+                    playlistCapability ?? capability?.PlaylistCapability, playlists.GetCustomFolderOutputSettings())).ConfigureAwait(false);
+            }
+        }
+
         Func<LibraryFileMutationLease, BmsLibraryOptionsSnapshot, Lr2SongDbSyncPreparedDataSurface> prepareWithLease = null;
         CustomFolderOutputSettingsSnapshot outputSettings = null;
         Action<LibraryFileMutationCapability> capturePreparationInputs = null;

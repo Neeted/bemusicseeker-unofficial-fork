@@ -18,6 +18,9 @@ internal sealed record LibraryFileInitializationResult
     /// <summary>ファイル確定と同じ操作で捕捉した設定。後段の署名・探索へ再読なしで渡します。</summary>
     internal BmsLibraryOptionsSnapshot Options { get; }
 
+    /// <summary>今回の走査が確認した通常出力基点の旧・新表記です。同じ受理済み操作の管理出力反映だけに渡し、無変更なら保持しません。</summary>
+    internal (string Previous, string Current)? NormalOutputBasePathChange { get; init; }
+
     /// <summary>今回取得した走査面。走査しなかった操作ではnullです。</summary>
     internal Lr2SongDbSyncScanSurfaceSnapshot ScanSurface { get; }
 

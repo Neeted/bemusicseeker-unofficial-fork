@@ -166,6 +166,9 @@ internal static class StartupLibraryConstructionTestSupport
         /// <summary>通信などの狭い制御境界を接続した実Libraryを同じprofileで構築します。省略時は標準構成を使います。</summary>
         internal Func<LibraryProfile, BMSLibrary>? LibraryCreator { get; init; }
 
+        /// <summary>既存の出力境界をfixtureの実物理面へ差し替えたPlaylistを同じprofileとLibraryで構築します。省略時は標準構成を使います。</summary>
+        internal Func<LibraryProfile, BMSLibrary, BMSPlaylist>? PlaylistCreator { get; init; }
+
         public BMSLibrary CreateBmsLibrary(LibraryProfile libraryProfile)
         {
             Calls.Add("factory-library");
@@ -192,7 +195,7 @@ internal static class StartupLibraryConstructionTestSupport
                 return null!;
             }
 
-            CreatedPlaylist = inner.CreateBmsPlaylist(libraryProfile, library);
+            CreatedPlaylist = PlaylistCreator?.Invoke(libraryProfile, library) ?? inner.CreateBmsPlaylist(libraryProfile, library);
             return CreatedPlaylist;
         }
 

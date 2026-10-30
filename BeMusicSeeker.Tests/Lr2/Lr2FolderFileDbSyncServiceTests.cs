@@ -689,17 +689,19 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     /// <summary>
     /// 大文字小文字がずれた実保存キーを削除し、現在キーを通常の新規追加日時で保存して別名行の残留を防ぐ。
     /// </summary>
-    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
-    [TestMethod]
-    public void Sync_ReplacesCaseDriftedExistingPath()
+    /// <remarks>ASCII/CP932 Greekの旧表記を追加読取りだけへ渡し、現在の物理scopeを広げず実SQLiteの旧キーを退役させる。</remarks>
+    [DataTestMethod]
+    [DataRow("Output", "OUTPUT")]
+    [DataRow("αOutput", "ΑOutput")]
+    public void Sync_ReplacesCaseDriftedExistingPath(string currentName, string previousName)
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
-            string outputDirectory = Path.GetFullPath(@"D:\BMS\#BeMusicSeeker");
+            string outputDirectory = Path.Combine(@"D:\BMS", currentName);
             string currentPath = Path.Combine(outputDirectory, "0000.lr2folder");
-            string driftPath = Path.Combine(outputDirectory.ToUpperInvariant(), "0000.lr2folder");
+            string driftPath = Path.Combine(@"D:\BMS", previousName, "0000.lr2folder");
             songDb.InsertOrReplace(new LR2SongDB.folder
             {
                 path = driftPath,
@@ -721,6 +723,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                     }
                 ],
                 ScopeDirectories = [outputDirectory],
+                AdditionalReadDirectories = [Path.GetDirectoryName(driftPath)],
                 AllowPrune = true,
                 GeneratedAtUtc = generatedAt
             });

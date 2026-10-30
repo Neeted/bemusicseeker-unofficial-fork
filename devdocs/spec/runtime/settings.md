@@ -333,10 +333,14 @@ BMSディレクトリの追加・削除・複数選択・D&Dは設定画面内�
 
 保存済みの整合した出力配置を構成から公開し、通常出力はその配置を使います。一回の操作に必要な旧新入力は同じTaskの終端まで保持し、終了後へ過去の要求・成功段階を持ち越しません。必要な実処理・公開・cleanup・通知を操作Taskで回収し、最新入力の次操作へ進めます。
 
+走査で確認した同所prefixの訂正は、保存側ではproviderの短い保存区間内にある現在の対象キーへ、公開側では現在のreaderと適用済み配置へ別々に適用します。別操作で保存だけ成功した別場所の出力先を、旧公開値で上書きしたり便乗公開したりしません。読取り失敗は既存の保存失敗として終え、全設定のReloadや保存済みコピーの常駐は行いません。XMLは自身の保存済み登録へ今回の差分だけを適用し、必要媒体の成功後だけ対象値を公開します。
+
 ## 実装とテストの対応
 
 | 保証 | 実装 | 検証 |
 | --- | --- | --- |
+| 表記訂正時の保存済み・公開済み配置の分離 | `BmsRootRegistrationStore.SaveRootChanges`、`PortableSettingsProvider.TransformPropertyValues` | `BmsRootRegistrationTests.RootSpellingChange_DoesNotReAddReplacedSavedRootOrPublishUnrelatedPlacement` はPersist-only後のfresh provider、公開配置・XML別場所の保持、実読取失敗時の非公開・非通知を確認する。二媒体の部分失敗への到達は既存 `OutputConfirmation_LatestSelectionResavesBothMediaAfterPartialFailure` が分担する。 |
+| 通常出力の管理階層と走査表記の収束 | `LibraryFileScanPipelineOwner`、`BMSPlaylist.SynchronizeNormalOutputBasePathChangeAsync`、起動・LR2 workflow | [`SettingDialogEditCompletionTests.NormalOutputScan_PreservesManagedHierarchyAndConvergesConfirmedPaths`](../../../BeMusicSeeker.Tests/Settings/SettingDialogLr2OwnerTests.cs) は無変更・CP932 Greekの二回差分と候補・score保持、ASCIIの次回起動での初検出を分担する。旧設定・XML・DBから新実在表記へ登録・fresh provider・runtime/applied値・ownerが揃い、全管理行・親CRC・通常BMSの利用者列を保持する。起動直後にCompleted run維持・修復対象0とファイル日時不変も確認する。 |
 | 走査後の確定一覧・同所導入先の表示 | `SettingsDialogViewModel`、`BmsRootRegistrationStore.Published` | `SettingDialogEditCompletionTests.BmsConfirmation_CompletesRealFileDiffBeforeClosing` が標準composition・実DB・確定一覧/導入先と未確定候補の保持、実score取得後も譜面差分を伴わない登録公開でcache世代・通知が進む接続を確認する。 |
 | 録音形式の表示・明示保存と利用不能形式の拒否 | [`SettingsDialogViewModel.EncoderIndex`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、`RecordingSettingsPage` | [`SettingsDialogBehaviorTests.RecordingEncoderSelection_PreservesUnavailableSavedFormatAndCommitsExplicitWaveOnly`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) は利用不能な保存済みMP3、別形式の警告・保存拒否、明示WAVEの実保存・新provider読戻し・変換前snapshotと別候補保持を確認する。[`SettingsWindowCompiledBehaviorTests.RecordingPage_PreservesUnavailableSavedEncoderAndPersistsExplicitWaveAcrossReopen`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs) は実録音ページのBinding・選択・閉鎖後の再表示と保存要求数を確認する。実encoder探索・実変換後の代替はこの保証に含めない。 |
 | 独立導入先の実L保存区間と候補保持 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) | `SettingDialogEditCompletionTests.IndependentInstallSelection_*` が実VM/provider・実Library受付を、`CompiledInstallSelection_*` がBinding・実選択・拒否後表示・次の明示操作を分担する。 |

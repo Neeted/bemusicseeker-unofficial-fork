@@ -21,13 +21,14 @@ internal static class Lr2FolderGenerationScopePlanner
 {
     private const int NormalFolderType = 1;
 
-    /// <summary>生成集合と保存済みrawキーを完全一致で比較します。物理root包含は大小文字を区別せず、局所exact整理指定はOrdinalを保ちます。</summary>
+    /// <summary>生成集合と保存済みrawキーを完全一致で比較します。管理表配下の削除を所有者へ委ね、物理root包含は大小文字を区別せず、局所exact整理指定はOrdinalを保ちます。</summary>
     internal static Lr2FolderGenerationSyncPlan PlanNormalDirectorySync(
         Lr2FolderGenerationResult generation,
         IEnumerable<LR2SongDB.folder> existingRows,
         IEnumerable<string> rootDirectories,
         IEnumerable<string> pruneScopeDirectories = null,
-        IEnumerable<string> pruneExactDirectories = null)
+        IEnumerable<string> pruneExactDirectories = null,
+        IEnumerable<string> pruneExcludedDirectories = null)
     {
         if (generation == null)
         {
@@ -60,6 +61,7 @@ internal static class Lr2FolderGenerationScopePlanner
         List<string> pruneScopes = pruneScopeDirectories == null
             ? roots
             : NormalizeRoots(pruneScopeDirectories);
+        var pruneExclusions = Lr2DirectoryScopeMatcher.Create(pruneExcludedDirectories);
         var pruneExactPaths = new HashSet<string>(
             (pruneExactDirectories ?? []).Select(Lr2FolderPath.ToFolderPath)
                 .Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.Ordinal);
@@ -72,6 +74,7 @@ internal static class Lr2FolderGenerationScopePlanner
             if (string.IsNullOrWhiteSpace(directory)
                 || !IsNormalDirectoryRow(row)
                 || generatedKeys.Contains(row.path)
+                || pruneExclusions.ContainsNormalizedDirectory(directory)
                 || (!IsInScope(directory, pruneScopes) && !pruneExactPaths.Contains(row.path)))
             {
                 continue;

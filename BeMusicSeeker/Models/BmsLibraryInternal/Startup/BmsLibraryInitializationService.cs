@@ -1212,7 +1212,7 @@ internal sealed class BmsLibraryInitializationService
             logInstallPerformance,
             logInstallPerformanceWarn,
             bmsFileScanSucceeded, enterNormalFolderMutation, result.Lr2ScanLr2FolderFilePaths,
-            folderTableSnapshot, generatedAtUtc ?? DateTime.UtcNow);
+            folderTableSnapshot, generatedAtUtc ?? DateTime.UtcNow, lr2FolderExcludedDirectories);
 
         logInstallPerformance?.Invoke("song_tbl_file_check_result result=applied"
             + " checkedCharts=" + (result.BmsPathCount + result.BmsonPathCount)
@@ -1446,7 +1446,8 @@ internal sealed class BmsLibraryInitializationService
         Func<Lr2NormalFolderSyncScope, IReadOnlyCollection<string>, IDisposable> enterNormalFolderMutation,
         IEnumerable<string> scannedCustomPaths,
         Lr2FolderTableSnapshot folderTableSnapshot,
-        DateTime generatedAtUtc)
+        DateTime generatedAtUtc,
+        IEnumerable<string> managedOutputDirectories)
     {
         if (dbGateway == null
             || result == null
@@ -1501,6 +1502,7 @@ internal sealed class BmsLibraryInitializationService
                 DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(directoryEntries),
                 PruneScopeDirectories = syncInput.PruneScopeDirectories,
                 PruneExactDirectories = syncInput.PruneExactDirectories,
+                PruneExcludedDirectories = [.. managedOutputDirectories ?? []],
                 AllowPrune = syncInput.PruneScopeDirectories.Count > 0 || syncInput.PruneExactDirectories.Count > 0,
                 FolderTableSnapshot = folderTableSnapshot,
                 GeneratedAtUtc = generatedAtUtc

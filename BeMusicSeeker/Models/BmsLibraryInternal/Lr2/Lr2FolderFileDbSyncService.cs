@@ -31,6 +31,9 @@ internal sealed class Lr2FolderFileDbSyncRequest
 
     public IReadOnlyCollection<string> ScopeDirectories { get; set; } = [];
 
+    /// <summary>同じ物理対象の旧表記を取得する追加prefix。生成・削除判定には使わず、既存のScopeDirectoriesと管理除外を維持します。</summary>
+    public IReadOnlyCollection<string> AdditionalReadDirectories { get; set; } = [];
+
     public IReadOnlyCollection<string> DirectoryRowScopeDirectories { get; set; } = [];
 
     public IReadOnlyCollection<string> DirectoryRowGenerationScopeDirectories { get; set; } = [];
@@ -125,7 +128,7 @@ internal static class Lr2FolderFileDbSyncService
         Lr2FolderExistingRowsReadResult existingRows = ReadExistingRows(songDb, request);
         List<LR2SongDB.folder> existingRowList = existingRows.Rows;
         Dictionary<string, LR2SongDB.folder> existingRowsByPath = CreateExistingRowMap(existingRowList);
-        var generatedPathsByKey = new Dictionary<string, string>(StringComparer.Ordinal);
+        var generatedPaths = new HashSet<string>(StringComparer.Ordinal);
         var generatedParentDirectoryKeys = new HashSet<string>(StringComparer.Ordinal);
         var upsertRows = new List<LR2SongDB.folder>();
         var replaceDeletePaths = new List<string>();
@@ -170,7 +173,7 @@ internal static class Lr2FolderFileDbSyncService
             if (item.PreserveExistingRowOnly && existingRow != null)
             {
                 preservedCount++;
-                generatedPathsByKey[databasePath] = databasePath;
+                generatedPaths.Add(databasePath);
                 if (replaceDeletePath != null) { replaceDeletePaths.Add(replaceDeletePath); }
                 if (request.UpdateParentDirectoryRowsForPreservedItems)
                 {
@@ -181,7 +184,7 @@ internal static class Lr2FolderFileDbSyncService
                         existingRowsByPath,
                         request.GeneratedAtUtc,
                         request.DirectoryMetadataResolver,
-                        generatedPathsByKey,
+                        generatedPaths,
                         generatedParentDirectoryKeys,
                         upsertRows);
                 }
@@ -213,7 +216,7 @@ internal static class Lr2FolderFileDbSyncService
             }
 
             generatedCount++;
-            generatedPathsByKey[databasePath] = databasePath;
+            generatedPaths.Add(databasePath);
             if (!string.IsNullOrWhiteSpace(replaceDeletePath)
                 && !string.Equals(replaceDeletePath, row.path, StringComparison.Ordinal))
             {
@@ -231,7 +234,7 @@ internal static class Lr2FolderFileDbSyncService
                 existingRowsByPath,
                 request.GeneratedAtUtc,
                 request.DirectoryMetadataResolver,
-                generatedPathsByKey,
+                generatedPaths,
                 generatedParentDirectoryKeys,
                 upsertRows);
         }
@@ -241,7 +244,7 @@ internal static class Lr2FolderFileDbSyncService
         {
             deletePaths.AddRange(CreateDeletePaths(
                 existingRowList,
-                generatedPathsByKey,
+                generatedPaths,
                 request.ScopeDirectories,
                 request.DirectoryRowScopeDirectories,
                 request.ScopePaths,
@@ -354,12 +357,17 @@ internal static class Lr2FolderFileDbSyncService
 
     private static IReadOnlyCollection<string> CreateExistingRowScopeDirectories(Lr2FolderFileDbSyncRequest request)
     {
-        var result = new HashSet<string>(PathComparer);
+        // SQLのprefix検索へ旧・新の非ASCII表記を両方渡します。物理包含の比較とは分けます。
+        var result = new HashSet<string>(StringComparer.Ordinal);
         foreach (string directory in request?.ScopeDirectories ?? [])
         {
             AddScopeDirectory(result, directory);
         }
         foreach (string directory in request?.DirectoryRowScopeDirectories ?? [])
+        {
+            AddScopeDirectory(result, directory);
+        }
+        foreach (string directory in request?.AdditionalReadDirectories ?? [])
         {
             AddScopeDirectory(result, directory);
         }
@@ -391,7 +399,7 @@ internal static class Lr2FolderFileDbSyncService
         IReadOnlyDictionary<string, LR2SongDB.folder> existingRowsByPath,
         DateTime generatedAtUtc,
         Func<string, Lr2FolderDirectoryMetadata> directoryMetadataResolver,
-        IDictionary<string, string> generatedPathsByKey,
+        ISet<string> generatedPaths,
         ISet<string> generatedParentDirectoryKeys,
         IList<LR2SongDB.folder> upsertRows)
     {
@@ -413,7 +421,7 @@ internal static class Lr2FolderFileDbSyncService
                 continue;
             }
 
-            generatedPathsByKey[parentRow.path] = parentRow.path;
+            generatedPaths.Add(parentRow.path);
             LR2SongDB.folder existingParentRow = existingRowsByPath.TryGetValue(parentRow.path, out LR2SongDB.folder existingParent)
                 ? existingParent
                 : null;
@@ -495,7 +503,7 @@ internal static class Lr2FolderFileDbSyncService
 
     private static List<string> CreateDeletePaths(
         IEnumerable<LR2SongDB.folder> existingRows,
-        IReadOnlyDictionary<string, string> generatedPathsByKey,
+        IReadOnlySet<string> generatedPaths,
         IEnumerable<string> scopeDirectories,
         IEnumerable<string> directoryRowScopeDirectories,
         IEnumerable<string> scopePaths,
@@ -539,16 +547,12 @@ internal static class Lr2FolderFileDbSyncService
                 continue;
             }
 
-            if (generatedPathsByKey != null
-                && generatedPathsByKey.TryGetValue(path, out string generatedPath)
-                && string.Equals(path, generatedPath, StringComparison.Ordinal))
+            if (generatedPaths?.Contains(path) == true)
             {
                 continue;
             }
 
-            if ((generatedPathsByKey != null
-                    && generatedPathsByKey.ContainsKey(path))
-                || explicitPaths.Contains(path)
+            if (explicitPaths.Contains(path)
                 || scopeMatcher.Contains(path)
                 || isDirectoryRowScopePath)
             {

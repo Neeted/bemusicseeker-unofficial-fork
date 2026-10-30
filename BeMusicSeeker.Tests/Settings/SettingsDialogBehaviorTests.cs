@@ -1332,12 +1332,10 @@ public sealed class SettingsDialogBehaviorTests
         }, nameof(ClosingDiscardsCandidatesAndKeepsConfirmedOrdinaryItems));
     }
 
-    /// <summary>標準compositionの既定providerで実file diffを行い、登録・applied配置・次の再出力が観測表記へ収束する。候補は保持し、score取得世代と履歴は進めない。</summary>
-    [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
+    /// <summary>standaloneの実file diffで登録・配置を観測表記へ揃え、候補とscoreを保持します。LR2の管理階層と同じ公開保証は実Shellの通常出力代表へ分担します。</summary>
+    [TestMethod]
     [DoNotParallelize]
-    public void FileDiffRootSpelling_PublishesConfirmedSettingsAndKeepsNextOutputPlacement(bool linked)
+    public void FileDiffRootSpelling_PublishesConfirmedSettingsAndKeepsNextOutputPlacement()
     {
         RunOnUiDispatcher(async () =>
         {
@@ -1349,7 +1347,7 @@ public sealed class SettingsDialogBehaviorTests
             string observedRoot = char.ToLowerInvariant(root[0]) + root[1..];
             string observedChart = Path.Combine(observedRoot, "chart.bms");
             (string SongDbPath, string ConfigPath, string BmsRoot) layout = CreateValidLr2Layout(directory.Path, [root]);
-            values.OperationModeLR2DB = linked;
+            values.OperationModeLR2DB = false;
             values.LR2RootPath = directory.Path;
             values.LR2SongDBPath = layout.SongDbPath;
             values.LR2ConfigXmlPath = layout.ConfigPath;
@@ -1368,13 +1366,11 @@ public sealed class SettingsDialogBehaviorTests
                 applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe")),
                 rootFileEnumerator: new FastRootFileEnumerator(), chartFileScanner: scanner);
-            Lr2ConfigOwner? config = linked ? composition.ResolveLr2Config(values.LR2ConfigXmlPath) : null;
-            string database = linked ? values.LR2SongDBPath : composition.ApplicationPathSnapshot.StandaloneSongDbPath;
+            string database = composition.ApplicationPathSnapshot.StandaloneSongDbPath;
             Directory.CreateDirectory(Path.GetDirectoryName(database) ?? throw new InvalidOperationException());
             if (!File.Exists(database)) { File.WriteAllBytes(database, []); }
-            var profile = new LibraryProfile(linked, database, [root], config, null, linked, linked, false, false);
+            var profile = new LibraryProfile(false, database, [root], null, null, false, false, false, false);
             BMSLibrary library = composition.CreateBmsLibrary(profile);
-            BMSPlaylist playlist = composition.CreateBmsPlaylist(profile, library);
             using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, composition: composition);
             string candidate = Path.Combine(directory.Path, "Unconfirmed");
             harness.Dialog.BmsRootPathList.Add(candidate);
@@ -1409,12 +1405,6 @@ public sealed class SettingsDialogBehaviorTests
                 Assert.AreEqual(Path.Combine(observedRoot, "RootOutput"), composition.BmsLibraryOptionsProvider().LR2CustomFolderOutputBaseDirRootType, false);
                 Assert.AreEqual(Path.Combine(observedRoot, "Additional"), composition.BmsLibraryOptionsProvider().LR2CustomFolderAdditionalOutputBaseDirs.Single(), false);
                 Assert.AreEqual(observedRoot, result.Options.BMSInstallDir, false);
-                if (linked)
-                {
-                    CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), observedRoot);
-                    Assert.AreEqual(Path.Combine(observedRoot, "Output"), config?.Capture().Placement.LR2CustomFolderOutputBaseDir, false);
-                    await Task.Run(() => playlist.ReOutputCustomFoldersAndCommitHeadersToDB([], "confirmed-prefix-follow-up"));
-                }
                 LibraryFileInitializationResult next = await Task.Run(() => library.ReloadFileDiff(null));
                 Assert.AreEqual(observedRoot, next.Options.BMSInstallDir, false);
                 Assert.AreEqual(Path.Combine(observedRoot, "Output"), composition.CustomFolderOutputSettingsProvider().LR2CustomFolderOutputBaseDir, false);

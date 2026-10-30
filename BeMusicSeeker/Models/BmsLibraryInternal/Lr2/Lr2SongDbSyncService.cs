@@ -55,6 +55,9 @@ internal sealed class Lr2SongDbSyncRequest
 
     public IReadOnlyCollection<string> Lr2FolderPruneDirectories { get; set; } = [];
 
+    /// <summary>現在の物理rootに同所一致する旧表記。既存folderの対象限定読取りだけへ渡し、生成・削除範囲を広げません。</summary>
+    public IReadOnlyCollection<string> Lr2FolderAdditionalReadDirectories { get; set; } = [];
+
     public string Lr2RootPath { get; set; }
 
     public string Lr2NormalCustomFolderOutputBaseDir { get; set; }

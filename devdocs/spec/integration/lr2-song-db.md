@@ -76,6 +76,10 @@ LR2の相対・絶対登録はいずれも受理し、保存時にはLR2root基�
 
 全登録rootの完全走査は、空・不完全走査の既存保護を通過した後、全current走査と通常folder・祖先・folderinfo・物理残存customの必要親から必要集合を確定します。受理済み登録root内の全旧raw行とのexact差分を一つの共通計画で作り、song差分やmtimeの有無で全同期を省略しません。保存行と生成行の識別、別キーの新規追加時刻、exact存続のNULL保持は[folderの追加時刻](../core/path-identity.md#folderの追加時刻)に従います。二回目も必要集合を生成し、exact同値の保存を省略します。
 
+全登録root完全走査の通常同期では、今回の確定表一覧と配置が所有する各表ディレクトリと配下だけを削除から除外します。通常基点自身・通常祖先・BMSの探索と生成は維持し、表内部の縮小・削除は管理出力主体が行います。管理範囲を取得できなければ空の成功として削除を進めません。局所catalog mutationは従来の対象限定取得・残存customの必要親生成・明示pruneを維持し、不要になったBMSだけの親は削除します。管理外customの消失は従来どおり整理し、rootの同所表記訂正時は走査開始前の旧表記も外部同期の既存行読取りへ渡します。追加読取りは現在の物理対象に限り、生成・削除の包含や管理除外を広げません。
+
+走査が通常基点の同所表記差を確認した場合は、旧・新基点をファイル結果から既存の出力境界へ渡します。差分では同署名Completedによる省略前、起動ではhydration後に、受理済みL/Pを保持して必要な表の再出力とDB同期を待ち、登録・通常親・customのpathと親CRCを同じ操作で揃えます。自然に全体同期が必要なら既存の完全生成へ委ね、再出力を重ねません。必要反映の未検証・失敗は伝播し、先行確定した媒体を独自に巻き戻しません。
+
 Full・全再初期化は既存のfolder全件取得を一回だけ使います。相対path・親・日時補正とraw完全一致の削除→upsertをcommitしてから、未変更・通常以外の行も含む全列の有効集合を `SongTableLoadResult`、既存observer、`ApplyActiveFileScan`、`Lr2NormalFolderDbSyncRequest` へ渡します。相対folderを絶対化するとき、補正前の元集合にtarget exactがあればsourceだけを削除し、target自身の日時補正・読取不能削除を優先します。元集合にないtargetだけを通常新規値で作り、同じ初期化のUTC時刻を共通生成まで使います。
 
 ReloadFileDiffはL受理・preflight・走査開始後に全folderの全列を一括取得します。Full/Reloadとも同じraw Ordinal面をnormal生成・custom依存・差分計画へ共有し、比較後の旧行再検索、mtime用先行Task/provider、文字種による代替取得や常駐cacheを持ちません。必要な操作snapshotが欠けた場合は空集合で成功させません。個別song.dbでLR2rootが推定できない場合も全raw行を保持し、未補正のplain-relative・drive-relative・root-relativeは絶対物理scopeへCWD/drive-currentで補完して採用・削除しません。
@@ -215,6 +219,7 @@ customも物理消失した場合は不要な通常親をpruneします。旧cus
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 管理表配下の通常prune保護と基点表記の必須反映 | `Lr2FolderGenerationScopePlanner`、`BMSPlaylist.SynchronizeNormalOutputBasePathChangeAsync`、起動・LR2 workflow | [`SettingDialogEditCompletionTests.NormalOutputScan_PreservesManagedHierarchyAndConvergesConfirmedPaths`](../../../BeMusicSeeker.Tests/Settings/SettingDialogLr2OwnerTests.cs) は無変更の二周期とfresh起動、CP932 Greekの稼働中訂正・消失外部親、ASCIIの次回起動での初検出を分担する。全管理行とCRC連鎖・通常BMSの利用者列を保持し、起動直後のCompleted run維持・修復対象0・ファイル日時不変から全体同期や任意修復による救済を区別する。表の削除・縮小・ROOT/追加先移行は既存 `BmsPlaylistCustomFolderOutputTests`、`BmsPlaylistMigrationAndRegistrationTests` が分担する。 |
 | 残存customの必要親と不要通常親のprune | `Lr2NormalFolderDbSyncService`、`Lr2SynchronizationOwner` | `Lr2NormalFolderDbSyncServiceTests.Sync_ConfirmedCustomDependenciesKeepOnlyRequiredAncestors` が直接親・別子階層・欠落親・依存なしとcustom全列・無関係ルートを実SQLiteで比較する。`BmsLibraryLr2SongDbSyncTests.RemoveLibraryCharts_PrunesNormalFolderRowsForRemovedBmsWhenLr2SongDbSyncEnabled` は実削除入口の残存と全物理消失を接続する。候補読取りと走査交差の限定性は生産経路の静的確認へ分担する。 |
 | folderinfoだけの深い階層 | `Lr2SongDbSyncInputBuilder`、`Lr2FolderTableReconciliationService` | `Lr2FolderTableReconciliationServiceTests.Reconcile_FolderInfoOnlyDeepHierarchyCreatesMissingAncestorsAndPreservesAddDate` が新規・既存行の実DB・時刻・タイトル・親・adddateを確認する。`Lr2SongDbSyncInputBuilderTests.CreateInput_FolderInfoOnlyHierarchyReachesWholeTableProjection` は走査面あり/なしの実入力構築から最終DBへの接続と列挙回数を確認する。scanなしでは、列挙だけの外部InfoOnlyと組込み準備面だけの深いcustom・folderinfo・metadataを混在させ、合流後の候補・祖先・異なるタイトル・CRC・組込み相対DBpathを保持することも確認する。 |
 | 実ROOTと停止境界の分離 | `Lr2FolderPhysicalParentDirectoryTargetHelper` | `Lr2FolderRowGeneratorTests.FolderHierarchy_RealRootsRemainIncludedAndChildrenUseRootCrc` が通常・drive・UNCと重なりを字句条件で確認する。`Lr2FolderFileDbSyncServiceTests.Sync_RegisteredRootChildrenUseRootCrcForChangedAndPreservedCustom` は実SQLiteの通常・未変更再利用を確認する。同署名Completed省略の代表では、先に局所生成した正しい階層とDB全体の不変を確認する。`BmsPlaylistCustomFolderOutputTests.ReOutputCustomFolderAndCommitToDB_SyncsLr2FolderRowsFromConfirmedPlaylist` は有限な必要親から登録rootのfolderinfoを捕捉し、局所出力・全体同期の後もタイトルとCRCを保持する。 |

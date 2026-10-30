@@ -557,6 +557,7 @@ public partial class BMSLibrary
                     {
                         Items = syncItems.Items,
                         ScopeDirectories = request.Lr2FolderPruneDirectories,
+                        AdditionalReadDirectories = request.Lr2FolderAdditionalReadDirectories,
                         DirectoryRowScopeDirectories = Lr2SongDbSyncService.CreateLr2FolderDirectoryRowScopeDirectories(request),
                         DirectoryRowGenerationScopeDirectories = Lr2SongDbSyncService.CreateLr2FolderDirectoryRowGenerationScopeDirectories(request),
                         DirectoryRowRootDirectories = Lr2FolderPhysicalParentDirectoryTargetHelper.CreateRoots(request.RootDirectories, request.Lr2NormalCustomFolderOutputBaseDir, request.Lr2AdditionalNormalCustomFolderOutputBaseDirs),
