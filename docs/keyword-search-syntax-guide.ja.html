@@ -944,6 +944,7 @@ title:alpha|beta
 </tbody>
 </table></div>
 <p>検索対象を指定しない場合は、TITLE、ARTIST、PATH、FOLDER欄、参照プレイリスト名、各ハッシュ値、TYPE、クリア状態、取得元、プレイ日付などを検索します。</p>
+<p><code>date:re:"^2026-06-19 12:"</code> のように、DATE 列の <code>yyyy-MM-dd HH:mm:ss</code> を正規表現で検索できます。日付だけの <code>yyyy-MM-dd</code> と <code>yyyy/MM/dd</code> も引き続き検索候補になります。</p>
 <p>プレイログでは、<code>level</code>、<code>difficulty</code>、<code>notes</code>、<code>rank</code>、<code>rate</code>、<code>score</code>、<code>bp</code> など、譜面一覧用の検索対象は利用できません。</p>
 <p>上部のサマリーカードと検索欄は組み合わせて利用できます。たとえば SCORE 更新カードを選んだ状態は <code>type:score</code>、EASY カードは <code>type:clear newclear:EC</code> に相当します。検索欄の条件とは AND、複数のカード同士は OR で絞り込まれます。</p>
 <hr/>
@@ -1091,6 +1092,7 @@ title:re:^alpha
 path:re:\\BMS\\.*\.bms$
 </code></pre></div>
 <p>正規表現は大文字・小文字を区別しません。処理に時間がかかりすぎる式は途中で停止し、その条件には一致しなかったものとして扱われます。</p>
+<p>表示上の空欄も検索対象です。<code>memo:re:^$</code> は MEMO が空欄の行、<code>-memo:re:^$</code> は空欄でない行に一致します。空白文字だけの値は空欄に含めません。参照プレイリスト名など複数の値を探す項目では、値がない場合を空文字として検索しません。</p>
 <h3 id="ダブルクォート内で--や--を検索する">ダブルクォート内で <code>"</code> や <code>\</code> を検索する</h3>
 <p>ダブルクォート内では、<code>\"</code> で <code>"</code>、<code>\\</code> で <code>\</code> を表します。</p>
 <div class="highlight"><pre><span></span><code>title:"alpha \"quoted\""

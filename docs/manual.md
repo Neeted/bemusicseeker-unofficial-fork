@@ -176,7 +176,7 @@ Ordinary settings save when you select or check a value. Text fields save on Ent
 
 Valid combinations of beatoraja directory and score source, audio output, player selection, and external image settings save automatically. Output locations save after folder selection and migration confirmation; additional locations save when added, removed, or renamed. Use each section’s confirmation button for BMS directories, BMT output, individual LR2 paths, and record editing. Switching categories keeps your input. `Discard these changes` resets that section’s unconfirmed input. `Close` discards remaining unconfirmed input and keeps saved settings.
 
-Changing the score source reloads scores only. Changing the beatoraja directory updates the required scores and table output. The same window waits for processing to finish. Change and confirmation buttons are highlighted when there is an applicable change and disabled in gray when unnecessary. Right-click actions and play-log presets are confirmed one record at a time and apply from the next display or execution.
+Changing the score source reloads scores and play history together. Changing the beatoraja directory updates the required scores, history, and table output. The same window waits for processing to finish. Change and confirmation buttons are highlighted when there is an applicable change and disabled in gray when unnecessary. Right-click actions and play-log presets are confirmed one record at a time and apply from the next display or execution.
 
 If BMS, score, or BMT processing fails, its section shows that the settings are saved but processing is incomplete. Use the retry or confirmation button in that section. Saving another setting does not start a retry. During processing, you can still save unrelated ordinary settings and change audio output, images, and player selection or confirm right-click records. Audio tests and environment startup or restart retain their operation restrictions.
 
@@ -189,6 +189,12 @@ Configure the language, operating mode, BMS directories, LR2 directory, beatoraj
 #### Registering BMS Directories
 
 In either mode, edit the search-root list with `Add`, drag and drop, and removal, then press `Change BMS directories`. Multiple edits apply once using the final list. If you remove the current install destination, explicitly choose its replacement in the same section.
+
+Registered paths adopt the actual folder-name casing confirmed during scanning.
+
+In LR2 linked mode, registrations are saved as absolute paths, including paths entered in relative form. If you move the LR2 installation to another location, register the BMS directories at their new locations.
+
+When an LR2 directory is configured, its built-in `LR2files\CustomFolder` and subfolders cannot be explicitly registered as BMS directories in either mode. Its parent folders and drive root remain available for registration.
 
 #### Linked with LR2
 
@@ -904,6 +910,8 @@ Turn on `Show Recommend update messages` to see the new skill and signed change 
 
 Right-click a playlist and open `Properties` to view and edit the playlist name, display symbol, external sync settings, page URI, header URI, and data URI.
 
+For an externally synced playlist, changing and saving its page URI (or header URI when no page URI is set) reloads it from the new source. Saving a change from external sync OFF to ON also reloads the playlist. Saving the same source again or changing only the data URI does not trigger a reload unless you also turn external sync ON.
+
 Properties such as the playlist name and folder settings are saved in the in-app DB even in standalone mode. Only in LR2 linked mode is LR2 custom folder output also updated after saving.
 
 > [!NOTE]
@@ -916,6 +924,8 @@ In the `Folder` category, you can set the sort key and ascending / descending or
 ![Playlist properties folder](img/プレイリストプロパティ_フォルダ.PNG)
 
 In the `Custom folder` category, you can set the output folder types, `OUTPUT`, and output names. Save changes with `OK`.
+
+Enter a single folder name without a path. Names containing `\` or `/`, absolute paths, `.` and `..` are not accepted. Leave the name blank to use the default derived from the playlist name. The same input rules apply in standalone mode.
 
 When the entry unit is folder, level-folder output and sorting by level or added date are unavailable.
 
@@ -930,6 +940,9 @@ BeMusicSeeker outputs difficulty tables and local playlists in this format. It i
 > [!CAUTION]
 > Use dedicated folders for custom output and keep important data elsewhere. Output updates remove obsolete files; changing destinations or deleting playlists removes the old playlist output folder entirely. Do not place manually managed custom folders or other files inside it.
 
+> [!CAUTION]
+> Output files use Shift_JIS. Conditions containing characters that this encoding cannot represent may fail to match charts when LR2 itself rereads the files.
+
 #### Setup Flow
 
 1. In the `Playlist` category in the settings dialog, select the `Normal output destination` and `Root folder output destination` separately and accept any migration confirmation shown to save each selection. Add `Additional normal output destinations` if needed. If processing remains incomplete, use the retry button in that section. To change the initial state for new playlists and tables added from external URLs, also configure `Output folder defaults`.
@@ -938,7 +951,9 @@ BeMusicSeeker outputs difficulty tables and local playlists in this format. It i
 
 `OUTPUT` selects the `Normal output destination` or one of the `Additional normal output destinations` from settings. While `Make root folder` is enabled, the saved `OUTPUT` value is kept, but the actual output destination is the `Root folder output destination`. When root folder output is turned off, the playlist returns to the saved `OUTPUT` destination.
 
-Choose playlist output folders that are neither identical nor nested. `Parent` and `Parent\Child` under the same output base cannot be used together. `Parent` and `Parent2`, or non-overlapping folders under separate bases, are allowed. This is checked before saving changes to names, output destinations, root folder mode, bulk edits, or removal of an additional output base.
+Choose playlist output folders that are neither identical nor nested. Use different output names under the same base. This is checked before saving changes to names, output destinations, root folder mode, bulk edits, or removal of an additional output base.
+
+Previously saved names such as `TableName\sub` or `TableName/sub` are displayed and used for output as `TableNamesub`, with the separators removed. If the resulting name overlaps another output folder, change the name or destination. Files in the old hierarchy are not automatically moved or deleted.
 
 > [!IMPORTANT]
 > LR2 custom folder output is an LR2 linked mode feature. Even in standalone mode, playlist names and folder settings are saved in the in-app DB, but LR2 `.lr2folder` output is not updated.
@@ -954,6 +969,8 @@ Choose these locations in the `Playlist` settings category.
 | Root-folder output | Display playlists with the root-folder option ON at the root of LR2 song selection. | An existing BMS root or a parent containing existing registrations can be adopted after confirmation. A child cannot be used. |
 
 Output destinations cannot be identical or nested. Previously used output folders can be configured again while still registered in LR2, subject to these conditions. Confirmation also identifies locations removed from song search.
+
+Normal, additional, and root output bases cannot be LR2's built-in `LR2files\CustomFolder`, its subfolders, or any parent folder containing it. If an existing setting overlaps it, startup returns to settings so you can choose a safe destination. Old files in the built-in area are not moved or deleted.
 
 Normal output remains part of song search; additional and root output do not. None appears in BMS directory settings, new-install destination choices, or the library folder tree. Changing normal output removes the old location from search and from LR2 registration unless it remains another output destination. Removing an additional destination returns its playlists to normal output.
 
@@ -1246,6 +1263,8 @@ The `Play Log` tree shows LR2 or beatoraja play history in the main list.
 In LR2 linked mode, the view shows play logs recorded in LR2's score DB. To use LR2 play logs, install them first from [LR2 Play Log in the settings dialog](#lr2-play-log). **For LR2, only plays made after installation are shown. Past plays made before installation cannot be restored as play-log rows.**
 
 When beatoraja integration is loading scores, the view shows update history from the beatoraja player data used for score loading. LR2 and beatoraja history are not merged into one list.
+
+Scores and play history are loaded together at startup and when the score source, player, or DB path changes. Installing, repairing, or deleting LR2 play logs also reloads them. Play Log and the lamp viewer use these loaded results. Changing periods, search conditions or display targets, or reinitializing the library does not reload external scores; new plays appear at the next load. Playlist membership and ownership continue to follow current library information.
 
 ### Periods and Unfinalized / Diagnostics
 

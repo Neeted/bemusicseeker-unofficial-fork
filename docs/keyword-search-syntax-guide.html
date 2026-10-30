@@ -943,6 +943,7 @@ title:alpha|beta
 </tbody>
 </table></div>
 <p>Without a field, Play Log searches TITLE, ARTIST, PATH, the FOLDER display name, referenced playlist names, hashes, TYPE, clear status, source, and play date.</p>
+<p>Use a regular expression such as <code>date:re:"^2026-06-19 12:"</code> to search the DATE column's <code>yyyy-MM-dd HH:mm:ss</code> value. The date-only forms <code>yyyy-MM-dd</code> and <code>yyyy/MM/dd</code> remain search candidates.</p>
 <p>Play Log does not support chart-list fields such as <code>level</code>, <code>difficulty</code>, <code>notes</code>, <code>rank</code>, <code>rate</code>, <code>score</code>, or <code>bp</code>.</p>
 <p>Summary cards above the list can be combined with the search box. For example, the SCORE update card is equivalent to <code>type:score</code>, and the EASY card is equivalent to <code>type:clear newclear:EC</code>. Card filters are combined with the search box using AND; multiple selected cards are combined with OR.</p>
 <hr/>
@@ -1090,6 +1091,7 @@ title:re:^alpha
 path:re:\\BMS\\.*\.bms$
 </code></pre></div>
 <p>Regular-expression matching is case-insensitive. An expression that takes too long is stopped and treated as not matching that condition.</p>
+<p>Blank displayed values are also searched. <code>memo:re:^$</code> matches rows with a blank MEMO, and <code>-memo:re:^$</code> matches rows with a nonblank MEMO. Whitespace-only values are not blank. A field that searches multiple values, such as referenced playlist names, is not treated as an empty string when it has no values.</p>
 <h3 id="search-for--or--inside-double-quotes">Search for <code>"</code> or <code>\</code> Inside Double Quotes</h3>
 <p>Inside double quotes, use <code>\"</code> for <code>"</code> and <code>\\</code> for <code>\</code>.</p>
 <div class="highlight"><pre><span></span><code>title:"alpha \"quoted\""

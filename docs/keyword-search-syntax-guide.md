@@ -268,6 +268,8 @@ While you type, this screen suggests Search fields but not Search values.
 
 Without a field, Play Log searches TITLE, ARTIST, PATH, the FOLDER display name, referenced playlist names, hashes, TYPE, clear status, source, and play date.
 
+Use a regular expression such as `date:re:"^2026-06-19 12:"` to search the DATE column's `yyyy-MM-dd HH:mm:ss` value. The date-only forms `yyyy-MM-dd` and `yyyy/MM/dd` remain search candidates.
+
 Play Log does not support chart-list fields such as `level`, `difficulty`, `notes`, `rank`, `rate`, `score`, or `bp`.
 
 Summary cards above the list can be combined with the search box. For example, the SCORE update card is equivalent to `type:score`, and the EASY card is equivalent to `type:clear newclear:EC`. Card filters are combined with the search box using AND; multiple selected cards are combined with OR.
@@ -378,6 +380,8 @@ path:re:\\BMS\\.*\.bms$
 ```
 
 Regular-expression matching is case-insensitive. An expression that takes too long is stopped and treated as not matching that condition.
+
+Blank displayed values are also searched. `memo:re:^$` matches rows with a blank MEMO, and `-memo:re:^$` matches rows with a nonblank MEMO. Whitespace-only values are not blank. A field that searches multiple values, such as referenced playlist names, is not treated as an empty string when it has no values.
 
 ### Search for `"` or `\` Inside Double Quotes
 
