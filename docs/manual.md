@@ -970,7 +970,7 @@ Choose these locations in the `Playlist` settings category.
 
 Output destinations cannot be identical or nested. Previously used output folders can be configured again while still registered in LR2, subject to these conditions. Confirmation also identifies locations removed from song search.
 
-Normal, additional, and root output bases cannot be LR2's built-in `LR2files\CustomFolder`, its subfolders, or any parent folder containing it. If an existing setting overlaps it, startup returns to settings so you can choose a safe destination. Old files in the built-in area are not moved or deleted.
+Normal, additional, and root output bases cannot be LR2's built-in `LR2files\CustomFolder`, its subfolders, or its immediate parent `LR2files`. Higher parent folders are allowed. If an existing setting is in the prohibited range, startup returns to settings so you can correct the destination. This correction does not move or delete old files in the built-in area.
 
 Normal output remains part of song search; additional and root output do not. None appears in BMS directory settings, new-install destination choices, or the library folder tree. Changing normal output removes the old location from search and from LR2 registration unless it remains another output destination. Removing an additional destination returns its playlists to normal output.
 

@@ -1723,7 +1723,7 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 </tbody>
 </table></div>
 <p>Output destinations cannot be identical or nested. Previously used output folders can be configured again while still registered in LR2, subject to these conditions. Confirmation also identifies locations removed from song search.</p>
-<p>Normal, additional, and root output bases cannot be LR2's built-in <code>LR2files\CustomFolder</code>, its subfolders, or any parent folder containing it. If an existing setting overlaps it, startup returns to settings so you can choose a safe destination. Old files in the built-in area are not moved or deleted.</p>
+<p>Normal, additional, and root output bases cannot be LR2's built-in <code>LR2files\CustomFolder</code>, its subfolders, or its immediate parent <code>LR2files</code>. Higher parent folders are allowed. If an existing setting is in the prohibited range, startup returns to settings so you can correct the destination. This correction does not move or delete old files in the built-in area.</p>
 <p>Normal output remains part of song search; additional and root output do not. None appears in BMS directory settings, new-install destination choices, or the library folder tree. Changing normal output removes the old location from search and from LR2 registration unless it remains another output destination. Removing an additional destination returns its playlists to normal output.</p>
 <p><code>Output folder defaults</code> applies to newly created or imported playlists. Use properties or <a href="#bulk-edit">Bulk edit</a> for existing tables.</p>
 <h4 id="folder-types-to-output">Folder Types To Output</h4>
