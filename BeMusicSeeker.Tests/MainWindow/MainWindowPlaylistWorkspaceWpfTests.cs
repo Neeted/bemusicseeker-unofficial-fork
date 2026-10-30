@@ -2557,6 +2557,101 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         });
     }
 
+    /// <summary>実出力名Bindingの未反映パス入力をOKで拒否し、専用理由・候補保持・DB不変を確認して、同画面の訂正保存または不正入力のまま取消できることを確認します。</summary>
+    /// <remarks>raw条件網羅はモデルへ分担し、実control・確定ゲート・所有モーダルと閉鎖の接続だけを確認します。</remarks>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PlaylistPropertyOutputName_InvalidBindingKeepsDraftAndAllowsCorrectionOrCancel(bool cancel)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            var notifications = new List<UiMessageRequest>();
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope,
+                messagePresenter: (_, request) =>
+                {
+                    notifications.Add(request);
+                    return new ThemedMessageBoxResponse(MessageBoxResult.OK, closedWithoutSelection: false);
+                }, configureSettings: values =>
+                {
+                    string root = values.BMSRootPath;
+                    values.OperationModeLR2DB = true;
+                    values.LR2RootPath = root;
+                    values.LR2SongDBPath = Path.Combine(root, "data", "song.db");
+                    values.LR2ConfigXmlPath = Path.Combine(root, "LR2files", "Config", "config.xml");
+                    Directory.CreateDirectory(Path.GetDirectoryName(values.LR2ConfigXmlPath) ?? throw new AssertFailedException());
+                    File.WriteAllText(values.LR2ConfigXmlPath, "<config><system /><jukebox /></config>");
+                    string songs = Path.Combine(root, "Songs");
+                    Directory.CreateDirectory(songs);
+                    values.BMSRootPath = values.BMSInstallDir = songs;
+                    var config = new LR2Config(values.LR2ConfigXmlPath);
+                    config.AddBMSSearchDirectories([songs]);
+                    config.Save(config.ConfigFilePath);
+                    File.WriteAllBytes(Path.Combine(root, "LR2body.exe"), []);
+                    values.LR2CustomFolderOutputBaseDir = Path.Combine(root, "custom");
+                    values.LR2CustomFolderOutputBaseDirRootType = Path.Combine(root, "root-custom");
+                    values.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+                    Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDir);
+                    Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDirRootType);
+                });
+            Exception? primaryFailure = null;
+            try
+            {
+                BMSTable table = fixture.Table;
+                table.Output_dir = "Alpha";
+                table.is_external_sync = false;
+                fixture.Playlist.CommitBMSTableHeaderToDB(table);
+                string previousSymbol = table.symbol;
+                string dbPath = Path.Combine(fixture.Root, "data", "song.db");
+                var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                PlaylistSummaryRow row = CreatePlaylistSummaryRow(table);
+                summary.ItemsSource = new[] { row };
+                summary.SelectRowsByPredicate(_ => true);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                OpenPropertyDialog(fixture.Window, summary, row, "property-output-name", (dialog, _) =>
+                {
+                    var draft = (PlaylistPropertyDialogViewModel)dialog.DataContext;
+                    var navigation = (ListBox)dialog.FindName("propertyNavigation");
+                    navigation.SelectedIndex = 2;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    TextBox output = FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, nameof(PlaylistPropertyDialogViewModel.output_dir)));
+                    TextBox symbol = FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, nameof(PlaylistPropertyDialogViewModel.symbol)));
+                    output.Text = "./Alpha";
+                    symbol.Text = "Candidate";
+                    symbol.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+                    RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyAccept"));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.WaitForOperationCompletionAsync(), "property-output-invalid");
+                    Assert.IsTrue(notifications.Any(request => request.MessageBoxText == Resources.Error_OutputFolderNameMustBeSingleName));
+                    Assert.IsTrue(dialog.IsVisible);
+                    Assert.IsTrue(dialog.IsEnabled);
+                    Assert.IsFalse(dialog.HasTerminalOutcome);
+                    Assert.AreEqual("./Alpha", output.Text);
+                    Assert.AreEqual("Candidate", draft.symbol);
+                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly())
+                    {
+                        BMSTable unchanged = db.Table<BMSTable>().Single(item => item.playlist_id == table.playlist_id);
+                        Assert.AreEqual("Alpha", unchanged.Output_dir);
+                        Assert.AreEqual(previousSymbol, unchanged.symbol);
+                    }
+                    if (!cancel) { output.Text = "Corrected"; }
+                    RaiseButtonClick(FindAutomationButton(dialog, cancel ? "PlaylistPropertyCancel" : "PlaylistPropertyAccept"));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.WaitForOperationCompletionAsync(), "property-output-terminal");
+                    Assert.IsTrue(dialog.HasTerminalOutcome);
+                });
+                using LR2SongDBExtended verify = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+                BMSTable saved = verify.Table<BMSTable>().Single(item => item.playlist_id == table.playlist_id);
+                Assert.AreEqual(cancel ? "Alpha" : "Corrected", saved.Output_dir);
+                Assert.AreEqual(cancel ? previousSymbol : "Candidate", saved.symbol);
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                try { fixture.Close(); }
+                catch (Exception cleanupFailure) when (primaryFailure != null) { primaryFailure.Data["OutputNameCleanupFailure"] = cleanupFailure.ToString(); }
+            }
+        });
+    }
+
     /// <summary>実property画面のUp・Down・自然順を独立順と比較し、DB由来の自然順からの新編集、LR2の完全一致タイトルとfolder行まで接続します。保存前の正本と出力bytes、別表の出力・DBを保ちます。</summary>
     /// <remarks>実controlの選択とイベント接続、所有モーダル・保存Task・native閉鎖をこの代表で確認し、LR2全出力種別の条件はcustom-folder系列へ分担します。</remarks>
     [TestMethod]

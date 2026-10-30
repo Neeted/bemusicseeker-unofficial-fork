@@ -1,4 +1,5 @@
 {
+  "Error_OutputFolderNameMustBeSingleName": "请输入不含路径的单个输出文件夹名称。",
   "DialogButtonOk": "确定",
   "DialogButtonYes": "是",
   "DialogButtonNo": "否",

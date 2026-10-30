@@ -400,6 +400,7 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         }
     }
 
+    /// <summary>既存値の単一名表示と、新しい明示出力名の検査・候補更新を行います。</summary>
     public string output_dir
     {
         get
@@ -408,6 +409,11 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         }
         set
         {
+            if (!BMSTable.IsOutputDirectoryNameInputValid(value))
+            {
+                saveService.NotifyValidationError(PlaylistPropertyValidationError.OutputDirectoryNameMustBeSingleName);
+                return;
+            }
             value = BMSTable.NormalizeOutputDirectoryName(value);
             string defaultOutputDirectoryName = BMSTable.CreateDefaultOutputDirectoryName(name);
             if (!string.IsNullOrWhiteSpace(value)
@@ -632,8 +638,13 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         try
         {
             PlaylistPropertyValues values = CreatePropertyValues();
-            commit = await saveService.TrySaveAsync(editSession, values, capability);
-            if (commit == null) { return PlaylistPropertyDialogOperationResult.ValidationFailed; }
+            (commit, PlaylistPropertyValidationError? validationError) = await saveService.TrySaveAsync(editSession, values, capability);
+            if (commit == null)
+            {
+                return validationError == PlaylistPropertyValidationError.OutputDirectoryNameMustBeSingleName
+                    ? PlaylistPropertyDialogOperationResult.OutputDirectoryNameMustBeSingleName
+                    : PlaylistPropertyDialogOperationResult.ValidationFailed;
+            }
             editSession.Adopt(commit);
             bmsTable = editSession.Table;
             if (commit.RequestedValuesSaved) { loadTableProperties(editSession.Values); }
@@ -664,7 +675,8 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
             HeaderUrl = Header_url,
             DataUrl = Data_url,
             IsExternalSync = is_external_sync,
-            OutputDirectory = output_dir,
+            // 表示用getterの整形で、無変更の旧保存値を新規入力へ変えない。
+            OutputDirectory = _output_dir,
             CustomFolderOutputBaseName = custom_folder_output_base_option?.BaseName,
             IsRootFolder = is_root_folder,
             CompatPrefix = compat_prefix
@@ -721,9 +733,11 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
     }
 }
 
+/// <summary>画面を閉じられる終端か、入力訂正または受付の再操作が必要かを返します。</summary>
 internal enum PlaylistPropertyDialogOperationResult
 {
     Completed,
     ValidationFailed,
+    OutputDirectoryNameMustBeSingleName,
     Busy
 }

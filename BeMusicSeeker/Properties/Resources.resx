@@ -2869,6 +2869,9 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
     <value>同期モードを解除するとリモートの変更が反映されなくなります。
 よろしいですか？</value>
   </data>
+  <data name="Error_OutputFolderNameMustBeSingleName" xml:space="preserve">
+    <value>出力フォルダ名には、パスを含まない1つのフォルダ名を入力してください。</value>
+  </data>
   <data name="Error_OutputFolderNameEmptyOrDuplicateCheckInput" xml:space="preserve">
     <value>出力先フォルダ名が空か、別の管理プレイリストの出力先と同一または親子になっています。
 入力した値を確認してください。</value>

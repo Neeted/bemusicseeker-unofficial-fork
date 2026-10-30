@@ -53,12 +53,12 @@ public sealed class ManagedPlaylistOutputPlacementTests
                 values.LR2CustomFolderOutputBaseDirRootType = Path.Combine(root, "Root");
                 values.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([Path.Combine(root, "Extra")]);
             });
-            var first = new BMSTable { playlist_id = 801, name = "Parent", Output_dir = edit is "name" or "draft" ? @"Parent\Child" : "Parent", is_root_folder = edit == "root" };
+            var first = new BMSTable { playlist_id = 801, name = "Parent", Output_dir = edit is "name" or "draft" ? "Parent" : "Parent", is_root_folder = edit == "root" };
             var edited = new BMSTable
             {
                 playlist_id = edit == "draft" ? null : 802,
                 name = "Other",
-                Output_dir = edit is "base" or "root" ? @"Parent\Child" : "Other",
+                Output_dir = edit is "base" or "root" ? "Parent" : "Other",
                 custom_folder_output_base_name = edit == "base" ? "Extra" : null
             };
             string songDb = CreateTempSongDbPath(root);
@@ -73,13 +73,13 @@ public sealed class ManagedPlaylistOutputPlacementTests
             switch (edit)
             {
                 case "name": case "draft": session.Values.Name = "Parent"; break;
-                case "directory": session.Values.OutputDirectory = @"Parent\Child"; break;
+                case "directory": session.Values.OutputDirectory = "Parent"; break;
                 case "base": session.Values.CustomFolderOutputBaseName = null; break;
                 case "root": session.Values.IsRootFolder = true; break;
             }
             int notices = 0;
             edited.PropertyChanged += (_, _) => notices++;
-            Assert.IsNull(await service.TrySaveAsync(session, session.Values));
+            Assert.IsNull((await service.TrySaveAsync(session, session.Values)).Commit);
             Assert.AreEqual(0, notices);
             Assert.AreEqual("Other", edited.name);
             Assert.AreEqual(edit == "base" ? "Extra" : null, edited.custom_folder_output_base_name);
@@ -114,7 +114,7 @@ public sealed class ManagedPlaylistOutputPlacementTests
             string songDb = CreateTempSongDbPath(root);
             PlaylistPersistenceRepository.EnsureSchema(songDb);
             var first = new BMSTable { playlist_id = 811, name = "Parent" };
-            var second = new BMSTable { playlist_id = 812, name = "Child", Output_dir = @"Parent\Child", custom_folder_output_base_name = "Extra" };
+            var second = new BMSTable { playlist_id = 812, name = "Child", Output_dir = "Parent", custom_folder_output_base_name = "Extra" };
             var playlist = new TestBmsPlaylist(songDb, settings: settings)
             { BMSTables = new ObservableCollection<BMSTable>([first, second]) };
             playlist.CommitBMSTableHeadersToDB(playlist.BMSTables);

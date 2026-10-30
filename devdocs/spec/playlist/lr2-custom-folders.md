@@ -24,7 +24,9 @@
 
 表の `custom_folder_output_base_name` がNULLなら既定先、登録済み名なら追加先を選びます。通常型で使う保存名が設定にない場合は、通常先へ読み替えず該当表の出力を止めて知らせます。既存データも対象とし、元の保存名を保持・表示し、表の保存先再選択で解消します。未登録名からの再選択では旧先を推測せず、新先だけを生成し、通常先にある無関係なファイル・管理行を保ちます。設定画面で追加先を削除した場合は参照をNULLへ、改名した場合は新名へ更新します。ルート型の間も通常先の選択値は保持し、実効出力先だけルート型を優先します。追加先名が未登録でもROOT出力は続け、通常型へ戻した時にその名前を使う場合は出力を止めます。
 
-`output_dir` は入力をtrimしてShift_JIS互換にしたフォルダ名です。空または同じ規則で変換した表名と同じならDBではNULLとし、表名由来の実効値を使います。通常型は選択先の下、ルート型はルート型基点の下へこの名前のディレクトリを作ります。
+`output_dir` はパスを含まない単一のフォルダ名です。新しい明示入力では、相対・絶対パス、ドライブ付き指定、区切り、`.`・`..` をサニタイズや同値判定より前に拒否します。通常・追加・ROOT・スタンドアロンで入力条件は共通です。空欄・空白・NULLは既定名指定とし、trim・Shift_JIS互換化・無効名文字除去後の名前が表名由来の既定名と同じならDBではNULLとします。通常型は選択先の下、ルート型はルート型基点の下へこの名前のディレクトリを作ります。
+
+既存保存値は文字列全体を一つの名前として整形し、`TableName\sub`・`TableName/sub` は `TableNamesub` として表示・配置・出力します。`.`・`..` をディレクトリ移動として解釈せず、整形結果が空なら既定名を使います。読取りや表示だけでは保存原値を書き換えません。別列編集で既存値を無変更で引き継ぐ保存と、DB読取り・SQL復元は拒否しません。出力名を手入力する入口では、元値と同じパス文字列の再入力も拒否します。旧階層の物理ファイルを自動移動・削除しません。アプリ生成の内部階層やBMS検索ルートはこの名前入力と区別します。
 
 外部表の単表・一括登録では、実効出力名が空なら捕捉済みLR2連携モードでだけ拒否します。Unicode実名に由来する空の出力名を許可するスタンドアロンの保存・取込みは[プレイリスト保存](storage-and-export.md#外部取得と公開の境界)に従います。
 
@@ -36,9 +38,9 @@
 
 基点同士の同一・親子配置は拒否します。通常・追加先は既存BMS登録と同一か、重ならない場所だけを許可し、ルート型先は既存登録の親も許可します。既存登録を管理領域として採用する場合の保存時確認、旧管理領域の保護、検索対象の区別は[設定](../runtime/settings.md#カスタムフォルダと検索対象)を正本とします。
 
-管理表同士の実効絶対パスは、同一・親子のどちらも許可しません。大文字小文字、区切り、`.`・`..` を正規化して、名前・出力名・基点選択・ルート型・基点設定の変更後集合を副作用前に検査します。一括変更は対象同士と未選択表を含めます。外部表の新規登録も既存表と全候補の変更後集合を検査し、一括登録に衝突があれば全件を登録前に拒否します。`Parent` と `Parent2`、兄弟、重ならない別基点は許可します。スタンドアロンにはこのLR2配置検査を適用しません。
+管理表同士の実効絶対パスは、同一・親子のどちらも許可しません。単一名化後の実効絶対パスを、大文字小文字・区切り・相対要素の表記差を正規化して比較し、名前・出力名・基点選択・ルート型・基点設定の変更後集合を副作用前に検査します。一括変更は対象同士と未選択表を含めます。外部表の新規登録も既存表と全候補の変更後集合を検査し、一括登録に衝突があれば全件を登録前に拒否します。`Parent` と `Parent2`、兄弟、重ならない別基点は許可します。スタンドアロンにはこのLR2配置検査を適用しません。
 
-保存済み値が包含する場合も出力・移行・出力削除・表削除・検索ルート同期を拒否し、DB・正本・ファイル・検索ルートを変更しません。自動改名・設定修復・包含を保護しながらの出力は行いません。外部情報初期化の対象別除外は[プロパティ編集](../ui/playlist-properties.md#サマリーからの一括編集)に従います。
+保存済み値の単一名化後に衝突・包含する場合も出力・移行・出力削除・表削除・検索ルート同期を拒否し、DB・正本・ファイル・検索ルートを変更しません。自動改名・設定修復・包含を保護しながらの出力は行いません。外部情報初期化の対象別除外は[プロパティ編集](../ui/playlist-properties.md#サマリーからの一括編集)に従います。
 
 ### jukeboxとの同期
 
@@ -155,7 +157,7 @@ ROOT登録の補完・同期、表削除、プロパティ、一括編集は同�
 | ドライブルート配下の実ROOT表削除と管理外楽曲の保持 | `PlaylistRemovalWorkflowOwner`、`PlaylistCustomFolderOutputMaintenanceOwner` | [`SettingDialogLr2OwnerTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogLr2OwnerTests.cs) の `Lr2DriveRootOutput_PreservesConfirmedInstallThroughGenerationInstallationAndTableRemoval` は設定で保存した管理外導入先への実導入後、同じ表の物理ディレクトリ・folder行・表登録・jukebox登録の削除と、楽曲の実体・DB行・表外ファイルの保持を確認します。別名は全owner終端後に解除し、清掃は所有した一時実パスだけへ行います。 |
 | 同じLR2正本へのROOT登録保存と限定公開 | [`PlaylistCustomFolderOutputMaintenanceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistCustomFolderOutputMaintenanceOwner.cs)、[`Lr2ConfigOwner`](../../../BeMusicSeeker/Models/LR2/Lr2ConfigOwner.cs) | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs)、[`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs)、[`PlaylistSummaryBulkEditTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryBulkEditTests.cs) が各入口の保存・出力を、[`部分保存と実表削除`](../../../BeMusicSeeker.Tests/Settings/SettingDialogLr2OwnerTests.cs) が別操作の未公開値を巻き込まないことを確認します。 |
 | 同一・包含の両方向拒否、名前表記と区切り境界 | `ManagedPlaylistOutputPlacement` | `ManagedPlaylistOutputPlacementTests.FinalDirectories_RejectOnlyIdenticalOrNestedPaths` は条件表を共通判定へ集約する。 |
-| 保存済み不正配置の出力・削除・移行・root準備拒否 | `PlaylistCustomFolderOutputMaintenanceOwner` | `BmsPlaylistCustomFolderOutputTests.SavedNestedOutput_RejectsOutputAndRemovalBeforeMutation`、`BmsPlaylistMigrationAndRegistrationTests.MigrateCustomFolderOutputDirectory_RejectsSavedNestedLayout` は旧保存値から実経路を通し、DB・ファイルを保全する。 |
+| 保存済み不正配置の出力・削除・移行・root準備拒否 | `PlaylistCustomFolderOutputMaintenanceOwner` | `BmsPlaylistCustomFolderOutputTests.SavedCollidingOutput_RejectsOutputAndRemovalBeforeMutation`、`BmsPlaylistMigrationAndRegistrationTests.MigrateCustomFolderOutputDirectory_RejectsSavedCollidingLayout` は旧保存値から実経路を通し、DB・ファイルを保全する。 |
 | 同一表の旧新、旧path再利用、管理基点外 | 移行の旧先整理 | `BmsPlaylistMigrationAndRegistrationTests.MigrateCustomFolderOutputDirectory_PreservesSameTableDestination` と既存の管理基点外・`Folder`/`Folder2`・今回旧新配置の整理ケースで維持する。 |
 | 外部新規登録の配置拒否と受付解放 | `PlaylistAggregatePersistenceOwner.PrepareExternalRegistration` | `BmsPlaylistMigrationAndRegistrationTests.ExternalTableRegistration_RejectsOverlappingCandidateBeforeMutation` は単一と安全候補を先頭に含む一括でDB・正本・ファイル・XMLの未変更と次の安全登録を確認する。 |
 | 通信・必要公開までの受付と次明示要求 | `PlaylistExternalSyncOwner`、`PlaylistWorkspaceViewModel` | [`BmsPlaylistExternalReloadTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalReloadTests.cs)、[`PlaylistWorkspaceExternalSourceTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceExternalSourceTests.cs): 実通信前から同側Busy、未受理の削除・登録が自動再実行されないこと、実DB/出力と解放後の新明示要求を確認する。 |
@@ -176,7 +178,7 @@ ROOT登録の補完・同期、表削除、プロパティ、一括編集は同�
 | 注入設定による出力先移行 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) の `RegenerateCustomFolderOutputs` | [`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs): 同じ実library bindingsで旧ディレクトリの移行、注入先への実生成、共有設定へのfallback不在を確認する。小さい設定providerの総呼出し回数を上位の保証にはしない。 |
 | 準備中のフォルダ非保存・空入力・外部行の保存列 | [`BmsLr2SongDbSyncWorkflowRuntime`](../../../BeMusicSeeker/ViewModels/Lr2/Lr2SongDbSyncWorkflowOwner.cs) | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) の実準備case群: 所有libraryの生存権限をtyped bindingsへ接続し、実生成面・件数、空入力の正常終端と解放、外部フォルダ行の保存列を確認する。保存後の結果は実Queueの代表接続に分担する。 |
 | スキーマの互換性・既定値 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`PlaylistSchemaMigrationTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSchemaMigrationTests.cs) |
-
+| 単一名入力、旧保存値の利用、raw入力拒否の順序 | `BMSTable`、`PlaylistPropertySaveService`、プロパティ・サマリー編集 | `BMSTableLoadTests.OutputDirectoryInput_RejectsPathsBeforeSanitizing` と `OutputDirectoryName_SanitizesLegacyValueWithoutChangingStoredText` が条件を集約する。`PlaylistWorkspaceActionWorkflowTests` の出力名系列が実保存・旧値継承・未完了出力より先の拒否・サマリー通知を確認する。ROOT実出力と旧ファイル保持は `ReOutputCustomFolderAndCommitToDB_SyncsRootOutputRowsUnderTableDirectory`、Bindingはプロパティ仕様へ分担する。 |
 
 ## 関連資料
 

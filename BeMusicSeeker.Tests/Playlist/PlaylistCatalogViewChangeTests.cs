@@ -321,7 +321,7 @@ public sealed class PlaylistCatalogViewChangeTests
             ?? throw new AssertFailedException("Property session was not created."))
         {
             session.Values.Name = "Reference after"; session.Values.Symbol = "NEW";
-            PlaylistPropertySaveCommit commit = await service.TrySaveAsync(session, session.Values)
+            PlaylistPropertySaveCommit commit = (await service.TrySaveAsync(session, session.Values)).Commit
                 ?? throw new AssertFailedException("Property save was not accepted.");
             Assert.IsNotNull(commit); Assert.IsNull(commit.Exception);
         }

@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Markup;
 using BeMusicSeeker.ViewModels;
@@ -188,13 +189,15 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
         Exception failure = null;
         try
         {
-            bool urlInputsValid = !save || UpdateAndValidateUrlInputs();
+            PlaylistPropertyDialogOperationResult inputResult = save
+                ? UpdateAndValidateInputs()
+                : PlaylistPropertyDialogOperationResult.Completed;
             IsEnabled = false;
             PlaylistPropertyDialogOperationResult result;
             try
             {
-                result = !urlInputsValid
-                    ? PlaylistPropertyDialogOperationResult.ValidationFailed
+                result = inputResult != PlaylistPropertyDialogOperationResult.Completed
+                    ? inputResult
                     : save
                         ? await viewModel.SaveAndApplyAsync()
                         : await viewModel.ResetPropertiesAsync();
@@ -212,9 +215,10 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
                 await CloseWithResultAsync(save);
                 terminalOutcome = true;
             }
-            else if (result == PlaylistPropertyDialogOperationResult.ValidationFailed)
+            else if (result is PlaylistPropertyDialogOperationResult.ValidationFailed
+                or PlaylistPropertyDialogOperationResult.OutputDirectoryNameMustBeSingleName)
             {
-                await NotifyBestEffortAsync(ShowValidationErrorAsync);
+                await NotifyBestEffortAsync(() => ShowValidationErrorAsync(result));
             }
         }
         catch (Exception terminalFailure)
@@ -239,15 +243,24 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
     }
 
     // 型変換・画面検証でsetterへ届かなかった入力を、旧値の保存へ読み替えない。
-    private bool UpdateAndValidateUrlInputs()
+    private PlaylistPropertyDialogOperationResult UpdateAndValidateInputs()
     {
         pageUrlTextBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
         headerUrlTextBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
         dataUrlTextBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+        // 無編集の表示値を再入力せず、保存済みrawはそのまま継承する。
+        BindingExpression outputBinding = outputDirectoryNameTextBox.GetBindingExpression(TextBox.TextProperty);
+        if (outputBinding?.IsDirty == true) { outputBinding.UpdateSource(); }
         bool pageHasError = Validation.GetHasError(pageUrlTextBox);
         bool headerHasError = Validation.GetHasError(headerUrlTextBox);
         bool dataHasError = Validation.GetHasError(dataUrlTextBox);
-        return !pageHasError && !headerHasError && !dataHasError;
+        if (Validation.GetHasError(outputDirectoryNameTextBox))
+        {
+            return PlaylistPropertyDialogOperationResult.OutputDirectoryNameMustBeSingleName;
+        }
+        return pageHasError || headerHasError || dataHasError
+            ? PlaylistPropertyDialogOperationResult.ValidationFailed
+            : PlaylistPropertyDialogOperationResult.Completed;
     }
 
     private async Task CloseWithResultAsync(bool result)
@@ -287,10 +300,12 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
         catch { /* 任意診断を保存結果や次の操作へ持ち越さない。 */ }
     }
 
-    private async Task ShowValidationErrorAsync()
+    private async Task ShowValidationErrorAsync(PlaylistPropertyDialogOperationResult result)
     {
         UiDialogResult notification = await dialogService.ShowMessageAsync(new UiMessageRequest(
-            BeMusicSeeker.Properties.Resources.Error_PlaylistPropertiesInvalid,
+            result == PlaylistPropertyDialogOperationResult.OutputDirectoryNameMustBeSingleName
+                ? BeMusicSeeker.Properties.Resources.Error_OutputFolderNameMustBeSingleName
+                : BeMusicSeeker.Properties.Resources.Error_PlaylistPropertiesInvalid,
             BeMusicSeeker.Properties.Resources.Error,
             MessageBoxButton.OK,
             MessageBoxImage.Hand,
@@ -381,4 +396,14 @@ internal sealed class PlaylistPageUrlValidationRule : ValidationRule
             ? ValidationResult.ValidResult
             : new ValidationResult(false, BeMusicSeeker.Properties.Resources.Error_InvalidPageUriAbsoluteRequired);
     }
+}
+
+/// <summary>新しい出力名の生入力をsetter前に検査し、パス指定を訂正まで画面に保持します。</summary>
+internal sealed class PlaylistOutputDirectoryNameValidationRule : ValidationRule
+{
+    /// <summary>単一名と空欄による既定名指定を受理し、パス指定を拒否します。</summary>
+    public override ValidationResult Validate(object value, CultureInfo cultureInfo)
+        => BeMusicSeeker.Models.BMSTable.IsOutputDirectoryNameInputValid(value as string)
+            ? ValidationResult.ValidResult
+            : new ValidationResult(false, BeMusicSeeker.Properties.Resources.Error_OutputFolderNameMustBeSingleName);
 }

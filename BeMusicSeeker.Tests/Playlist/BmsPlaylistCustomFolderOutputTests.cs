@@ -1365,7 +1365,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
 
 
     /// <summary>
-    /// 単表保存の未分類取得失敗でも属性DB保存と必要BMT出力を終え、保存済み値をdialogVMへ採用してから同期未完了を返します。
+    /// 同期ON・PageなしでHeaderを変更した単表保存の未分類取得失敗でも属性DB保存と必要BMT出力を終え、保存済み値をdialogVMへ採用してから同期未完了を返します。
     /// Resetと次の明示保存は保存済み基準を使い、一般同期から取得失敗を外す変更でこの失敗を成功へ消す誤りを検出します。
     /// 実Windowのfalse結果と寿命は既存terminal操作の接続・回帰に分担し、ここでは実SQLite・出力・service・dialogVMを観測します。
     /// </summary>
@@ -1393,12 +1393,14 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             var library = new TestBmsLibrary(songPath, settings: settings);
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(new Uri(header).AbsoluteUri));
             table.playlist_id = 7316;
-            table.DisableExternalSync();
+            table.Page_url = null;
+            table.is_external_sync = true;
             table.is_bmt_output = true;
             playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
             playlist.CommitBMSTableWithEntriesToDB(table);
             string oldHash = table.data_sha256;
-            File.WriteAllText(header, "{\"name\":\"External\",\"symbol\":\"E\",\"data_url\":\"bad%00-data.json\"}");
+            string failedHeader = Path.Combine(directory, "failed-header.json");
+            File.WriteAllText(failedHeader, "{\"name\":\"External\",\"symbol\":\"E\",\"data_url\":\"bad%00-data.json\"}");
             var service = new PlaylistPropertySaveService(() => playlist, () => library, () => null, () => output);
             service.ExternalSyncConfirmationRequested += (_, request) => request.Confirmed = true;
             service.PlaylistPropertySyncStarted += (_, _) => { };
@@ -1415,11 +1417,14 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 reportedFailure = failure;
                 symbolAtFailure = dialog?.symbol;
                 enabledAtFailure = dialog?.is_external_sync == true;
+                Assert.AreEqual(new Uri(failedHeader), dialog?.Header_url);
             };
             PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
                 ?? throw new AssertFailedException("Playlist edit session was not created.");
             dialog = new PlaylistPropertyDialogViewModel(service, session);
             dialog.symbol = "Saved";
+            dialog.is_external_sync = false;
+            dialog.Header_url = new Uri(failedHeader);
             dialog.is_external_sync = true;
             await Assert.ThrowsExceptionAsync<ArgumentException>(() => dialog.SaveAndApplyAsync());
             Assert.IsNotNull(reportedFailure);
@@ -1435,6 +1440,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             {
                 BMSTable saved = db.Table<BMSTable>().Single();
                 Assert.AreEqual("Saved", saved.symbol);
+                Assert.AreEqual(new Uri(failedHeader), saved.Header_url);
                 Assert.IsTrue(saved.is_external_sync);
                 Assert.AreEqual(oldHash, saved.data_sha256);
                 Assert.AreEqual("Before", db.Table<LR2SongDBExtended.playlist_entry>().Single().title);
@@ -1449,6 +1455,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             dialog.symbol = "Unsaved";
             Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.ResetPropertiesAsync());
             Assert.AreEqual("Saved", dialog.symbol);
+            Assert.AreEqual(new Uri(failedHeader), dialog.Header_url);
             Assert.IsTrue(dialog.is_external_sync);
             // 次保存では保存済みの外部同期有効化を再実行せず、入力が壊れたままでも新しい属性を保存できる。
             dialog.symbol = "Next";
@@ -1465,7 +1472,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
-    /// <summary>ルート型の実出力ファイルを表ディレクトリの子として登録し、その表ディレクトリをLR2ルート直下へ置きます。通常型の基点階層を流用する誤りを検出します。</summary>
+    /// <summary>保存済み階層名の単一名化後にROOT実出力とDB親を揃え、保存原値と旧階層ファイルを維持します。通常型の基点階層を流用する誤りも検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_SyncsRootOutputRowsUnderTableDirectory()
@@ -1485,7 +1492,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 playlist_id = 7302,
                 name = "RootFolderTable",
                 symbol = "RFT",
-                Output_dir = "RootFolderTable",
+                output_dir = @"RootFolder\Table",
                 is_root_folder = true,
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
                     & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
@@ -1505,10 +1512,16 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
 
+            playlist.CommitBMSTableHeaderToDB(table);
+            string oldFile = Path.Combine(rootOutputBaseDir, "RootFolder", "Table", "sentinel.txt");
+            Directory.CreateDirectory(Path.GetDirectoryName(oldFile) ?? throw new AssertFailedException());
+            File.WriteAllText(oldFile, "legacy output");
             playlist.ReOutputCustomFolderAndCommitToDB(table);
+            Assert.AreEqual("legacy output", File.ReadAllText(oldFile));
 
             string outputPath = Path.Combine(rootOutputBaseDir, "RootFolderTable", "0001.lr2folder");
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            Assert.AreEqual(@"RootFolder\Table", verify.ExecuteScalar<string>("SELECT output_dir FROM playlist;"));
             LR2SongDB.folder folder = verify.Table<LR2SongDB.folder>().Single(row => row.path == outputPath);
             Assert.AreEqual(2, folder.type);
             Assert.AreEqual("Root Folder", folder.title);
@@ -3313,7 +3326,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
-    /// <summary>旧保存値に包含がある場合、単独・一括出力、出力削除、表削除、検索root準備を副作用前に拒否し、正本と旧ファイル・DB行を保ちます。</summary>
+    /// <summary>旧保存値の単一名化で衝突する場合、単独・一括出力、出力削除、表削除、検索root準備を副作用前に拒否し、正本と旧ファイル・DB行を保ちます。</summary>
     [DataTestMethod]
     [DataRow("single")]
     [DataRow("bulk")]
@@ -3321,7 +3334,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [DataRow("table")]
     [DataRow("roots")]
     [TestCategory("Playlist")]
-    public async Task SavedNestedOutput_RejectsOutputAndRemovalBeforeMutation(string operation)
+    public async Task SavedCollidingOutput_RejectsOutputAndRemovalBeforeMutation(string operation)
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -3360,7 +3373,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 playlist_id = 7608,
                 name = "NestedChild",
                 symbol = "NC",
-                Output_dir = Path.Combine("NestedParent", "NestedChild"),
+                output_dir = @"Nested\Parent",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
                     & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
                     & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,

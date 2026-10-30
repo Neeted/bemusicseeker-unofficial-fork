@@ -383,6 +383,7 @@ public partial class BMSTable : LR2SongDBExtended.playlist
         base.last_update = GetNextLastUpdate(base.last_update);
     }
 
+    /// <summary>保存済みの出力名を単一名へ整形して取得・設定します。未指定または既定名と同じ指定は表名へ追従します。</summary>
     public string Output_dir
     {
         get
@@ -406,52 +407,27 @@ public partial class BMSTable : LR2SongDBExtended.playlist
         }
     }
 
+    /// <summary>表名からShift_JIS互換の単一出力名を作ります。</summary>
     internal static string CreateDefaultOutputDirectoryName(string name)
     {
         return NormalizeOutputDirectorySegment(name);
     }
 
+    /// <summary>保存済み値全体を一つの出力名へ整形します。区切りは除去し、相対要素をディレクトリ移動として解釈しません。</summary>
     internal static string NormalizeOutputDirectoryName(string value)
     {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
+        string normalized = NormalizeOutputDirectorySegment(value);
+        return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
+    }
 
-        string[] segments = value.Trim()
-            .Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
-        if (segments.Length == 0)
-        {
-            return null;
-        }
-
-        var normalizedSegments = new List<string>(segments.Length);
-        foreach (string segment in segments)
-        {
-            string trimmedSegment = segment.Trim();
-            if (trimmedSegment == ".")
-            {
-                continue;
-            }
-            if (trimmedSegment == "..")
-            {
-                if (normalizedSegments.Count > 0)
-                {
-                    normalizedSegments.RemoveAt(normalizedSegments.Count - 1);
-                }
-                continue;
-            }
-
-            string normalizedSegment = NormalizeOutputDirectorySegment(trimmedSegment);
-            if (!string.IsNullOrWhiteSpace(normalizedSegment))
-            {
-                normalizedSegments.Add(normalizedSegment);
-            }
-        }
-
-        return normalizedSegments.Count == 0
-            ? null
-            : Path.Combine([.. normalizedSegments]);
+    /// <summary>新しい明示入力が単一名または既定名指定かを、サニタイズ前に検査します。保存済み値の読取りには適用しません。</summary>
+    internal static bool IsOutputDirectoryNameInputValid(string value)
+    {
+        string input = value?.Trim();
+        return string.IsNullOrEmpty(input)
+            || (input is not "." and not ".."
+                && input.IndexOfAny(['\\', '/']) < 0
+                && !Path.IsPathRooted(input));
     }
 
     private static string NormalizeOutputDirectorySegment(string value)
@@ -459,6 +435,7 @@ public partial class BMSTable : LR2SongDBExtended.playlist
         return (value ?? string.Empty).Trim().ToSjisSchemeString().RemoveInvalidFileNameChars();
     }
 
+    /// <summary>明示値を単一名へ整形し、未指定または既定名と同じ場合は表名由来の出力名を返します。</summary>
     internal static string ResolveOutputDirectoryName(string name, string outputDir)
     {
         string defaultOutputDirectoryName = CreateDefaultOutputDirectoryName(name);

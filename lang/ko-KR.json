@@ -1,4 +1,5 @@
 {
+  "Error_OutputFolderNameMustBeSingleName": "출력 폴더 이름에는 경로를 포함하지 않은 하나의 폴더 이름을 입력하세요.",
   "DialogButtonOk": "확인",
   "DialogButtonYes": "예",
   "DialogButtonNo": "아니요",

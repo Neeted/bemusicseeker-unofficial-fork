@@ -2160,6 +2160,9 @@ public class Resources
 
     public static string Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied => ResourceManager.GetString("Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied", resourceCulture);
 
+    /// <summary>出力名へパスを入力した場合の訂正理由を取得します。</summary>
+    public static string Error_OutputFolderNameMustBeSingleName => ResourceManager.GetString("Error_OutputFolderNameMustBeSingleName", resourceCulture);
+
     public static string Error_OutputFolderNameEmptyOrDuplicateCheckInput => ResourceManager.GetString("Error_OutputFolderNameEmptyOrDuplicateCheckInput", resourceCulture);
 
     public static string Statusbar_progress_phase_playlist_loading => ResourceManager.GetString("Statusbar_progress_phase_playlist_loading", resourceCulture);

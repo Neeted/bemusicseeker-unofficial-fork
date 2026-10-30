@@ -37,9 +37,13 @@
 
 Page・Header・DataのURL欄は、空欄をnullによる明示解除として扱います。Pageは従来の空白だけの入力も解除として扱い、それ以外の指定は絶対URIを要求します。Header・Dataは相対URIも受理します。外部同期の必須URLと解決基点は[保存時のURL条件](../playlist/storage-and-export.md#プロパティのurl)に従い、同期中の編集可否は維持します。
 
-OKでは画面を無効化する前にURL3欄すべてのBindingを反映します。変換失敗や解除でない相対Pageなど入力エラーが一つでもあれば、保存サービスを呼ばず、既存の入力不備通知を表示して画面を再び操作可能にします。入力文字列と他項目の編集候補を保持し、DB・正本を変更せず、同じ画面で訂正して再保存できます。不正な入力を空や旧値へ読み替えて成功保存しません。Pageの画面検証は型変換後・setter前で行い、Header・Dataへ別の文字列検証を追加しません。取消と通常閉鎖はURLの入力エラーで妨げず、従来の復元・閉鎖を行います。
+OKでは画面を無効化する前にURL3欄と出力フォルダ名のBindingを反映します。変換失敗や解除でない相対Pageなど入力エラーが一つでもあれば、保存サービスを呼ばず、既存の入力不備通知を表示して画面を再び操作可能にします。入力文字列と他項目の編集候補を保持し、DB・正本を変更せず、同じ画面で訂正して再保存できます。不正な入力を空や旧値へ読み替えて成功保存しません。Pageと出力フォルダ名の画面検証は型変換後・setter前で行い、Header・Dataへ別の文字列検証を追加しません。出力名は[単一名の入力条件](../playlist/lr2-custom-folders.md#出力先と事前検査)を満たさなければ専用理由を通知し、不正な文字列と別項目の候補を保持します。取消と通常閉鎖は出力名の入力エラーでも妨げません。取消と通常閉鎖はURLの入力エラーで妨げず、従来の復元・閉鎖を行います。
 
 画面右下の更新表示は `Update: yyyy/MM/dd` とします。通常の閉じる操作は一回の復元と完了通知を通し、閉じる要求を再発行しません。不正な入力や処理失敗がある場合は画面を閉じず、親画面と同じ調整処理で所有者を解決して通知します。保存操作のTaskは保存・復元、通知の試行、実閉鎖と再有効化まで待ちます。通知失敗はその場で診断し、保存結果へ合成したり、次の操作までTaskへ保持したりしません。実閉鎖や再有効化の失敗は画面寿命の失敗として返し、再有効化に失敗しても操作中の受付フラグは解除します。保存前の確認が失敗した場合は承認・利用者取消しに置き換えず、対象の変更を止めます。
+
+外部同期がONの状態へ保存するとき、OFFからONへの切替または保存前後の実効同期元 `PageUrl ?? HeaderUrl` の変更があれば、ヘッダー保存後に既存経路で再取得します。Pageの追加・解除、PageなしのHeader変更も含みます。Dataだけの変更、Pageが選ばれているときのHeaderだけの変更、同じ実効同期元の保存、同期OFFでは再取得を増やしません。取得失敗でも保存済み属性と既存項目を維持し、必要出力を終えてから同期未完了を通知します。同じURLの再保存だけで自動再取得せず、手動同期などの既存再操作を使います。
+
+保存サービスは新規表または出力名の生値を変更した要求だけ入力検査し、禁止入力は未完了出力の継続より前に理由付きで拒否します。既存値を無変更で引き継ぐ別列編集は許可します。
 
 保存サービスは一つの保存結果に確定参照、最新の保存値、未完了の必要出力と今回の実処理失敗を返します。画面はそれらを採用してから失敗を通知します。同時編集の判定は最新保存値、現行参照、項目の版に基づき、同じ保存の確定を古い編集スナップショットとの差として拒否しません。新規作成中の表は作成経路と実登録結果で判定し、旧参照が集合から外れたことを新規作成に読み替えません。
 
@@ -95,6 +99,8 @@ BMT、外部同期、ルート型、出力種別、出力先、外部属性初�
 | カテゴリ操作と所有者付き画面 | [プロパティ画面](../../../BeMusicSeeker/Views/Playlist/PlaylistPropertyDialog.xaml) | [`MainWindowPlaylistWorkspaceWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) |
 | 一括変更の実Task所有、Busy・DB失敗・BMT出力待ちと出力失敗 | [`PlaylistSummaryBulkEditDialog`](../../../BeMusicSeeker/Views/Playlist/PlaylistSummaryBulkEditDialog.cs) | [`MainWindowPlaylistWorkspaceWpfTests.MainWindowPlaylistDialogs_UseOwnedNativeModalLifetimeAndCleanup`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs)のcompiled反映入口・入力保持・終端後の再有効化 |
 | 一括変更の保存前復元と同じ入力の再保存 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistSummaryBulkEditTests.BulkHeaderSaveFailure_RestoresCurrentTableAndSameDraftCanSave`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryBulkEditTests.cs)の5入口・実DB失敗・同一正本保持と再保存 |
+| 出力名の実Binding入力・訂正・取消 | `PlaylistPropertyDialog` | `MainWindowPlaylistWorkspaceWpfTests.PlaylistPropertyOutputName_InvalidBindingKeepsDraftAndAllowsCorrectionOrCancel` が未反映rawの実OK、専用通知、DB不変、訂正保存または取消を確認する。 |
+| 実効同期元と再取得条件 | `PlaylistPropertySaveService` | `PlaylistWorkspaceActionWorkflowTests.PlaylistPropertySave_EffectiveSourceChangeReloadsOnlyWhenRequired` がPage追加・解除、Header変更、同一実効元と同期OFFを実sessionとSQLiteで確認する。保存後取得失敗と必要BMT・Reset基準は `BmsPlaylistCustomFolderOutputTests.PlaylistPropertyDialog_ExternalSourceFailureAdoptsSavedValuesAndCompletesRequiredOutput` が担う。 |
 
 ## 関連資料
 

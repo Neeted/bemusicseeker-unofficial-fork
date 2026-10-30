@@ -1029,10 +1029,10 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
-    /// <summary>外部初期化は同一・包含候補を表ごとに除外します。除外表の旧先との再衝突も拒否し、安全な表だけをDB・正本へ反映します。</summary>
+    /// <summary>外部初期化は明示名・旧名の単一名化後の衝突候補を表ごとに除外します。除外表の旧先との再衝突も拒否し、安全な表だけをDB・正本へ反映します。</summary>
     [DataTestMethod]
     [DataRow("duplicate")]
-    [DataRow("nested")]
+    [DataRow("legacy")]
     [DataRow("retained")]
     [TestCategory("Playlist")]
     public async Task ApplyPlaylistSummaryExternalPropertyInitializationAsync_DoesNotTakeAnotherPendingTableCurrentOutputDir(string conflict)
@@ -1071,7 +1071,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             tableB.playlist_id = 9503;
             tableB.name = conflict == "duplicate" ? "OutputB" : "LocalB";
             tableB.symbol = "B1";
-            tableB.Output_dir = conflict == "duplicate" ? "OutputB" : @"OutputB\Child";
+            tableB.output_dir = conflict == "duplicate" ? "OutputB" : @"Output\B";
             BMSTable tableC = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerCPath));
             tableC.playlist_id = 9504;
             tableC.symbol = "C1";
@@ -1131,7 +1131,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Assert.AreEqual("LocalA", tableA.Output_dir);
             Assert.AreEqual(conflict == "retained" ? "LocalB" : "OutputB", tableB.name);
             Assert.AreEqual(conflict == "retained" ? "B1" : "B2", tableB.symbol);
-            Assert.AreEqual(conflict == "retained" ? @"OutputB\Child" : "OutputB", tableB.Output_dir);
+            Assert.AreEqual("OutputB", tableB.Output_dir);
             Assert.AreEqual("C2", tableC.symbol);
             Assert.AreEqual(conflict == "retained" ? 2 : 1, warnings.Count);
             using LR2SongDBExtended reader = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();

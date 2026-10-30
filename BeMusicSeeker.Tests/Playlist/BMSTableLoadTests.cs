@@ -576,14 +576,47 @@ public sealed class BMSTableLoadTests
         Assert.IsNotNull(exception.InnerException);
     }
 
-    /// <summary>現在・親相対 segment を互換の出力名へ正規化し、名前が残らない親移動は null とすることを確認して、相対名の解釈変更を検出します。</summary>
+    /// <summary>新しい出力名は単一名だけを受理し、空欄を既定指定として保ちます。正規化でパス入力が同値になる場合も生入力で拒否します。</summary>
+    [DataTestMethod]
+    [DataRow(null, true)]
+    [DataRow("", true)]
+    [DataRow("   ", true)]
+    [DataRow("Alpha", true)]
+    [DataRow(" Alpha ", true)]
+    [DataRow(@"TableName\sub", false)]
+    [DataRow("TableName/sub", false)]
+    [DataRow("./Alpha", false)]
+    [DataRow("../Alpha", false)]
+    [DataRow(".", false)]
+    [DataRow("..", false)]
+    [DataRow("/", false)]
+    [DataRow(@"\Alpha", false)]
+    [DataRow("Alpha/", false)]
+    [DataRow(@"C:\Alpha", false)]
+    [DataRow("C:Alpha", false)]
+    [DataRow(@"\\server\share", false)]
+    public void OutputDirectoryInput_RejectsPathsBeforeSanitizing(string? value, bool accepted)
+        => Assert.AreEqual(accepted, BMSTable.IsOutputDirectoryNameInputValid(value));
+
+    /// <summary>保存済み値は全体を単一名へ整形し、相対移動と解釈せず原値を保持します。空の整形結果と既定名指定は表名へ追従します。</summary>
     [TestMethod]
-    public void NormalizeOutputDirectoryName_ResolvesRelativeSegmentsInsideManagedBase()
+    public void OutputDirectoryName_SanitizesLegacyValueWithoutChangingStoredText()
     {
-        Assert.AreEqual(Path.Combine("Parent", "Child"), BMSTable.NormalizeOutputDirectoryName("Parent/./Child"));
-        Assert.AreEqual("Child", BMSTable.NormalizeOutputDirectoryName("Parent/../Child"));
-        Assert.AreEqual("Sibling", BMSTable.NormalizeOutputDirectoryName("../Sibling"));
+        foreach (string legacy in new[] { @"TableName\sub", "TableName/sub" })
+        {
+            var table = new BMSTable { name = "Default", output_dir = legacy };
+            Assert.AreEqual("TableNamesub", table.Output_dir);
+            Assert.AreEqual(legacy, table.output_dir);
+        }
+        Assert.AreEqual("Parent.Child", BMSTable.NormalizeOutputDirectoryName("Parent/./Child"));
+        Assert.AreEqual("Parent.Child", BMSTable.NormalizeOutputDirectoryName("Parent/../Child"));
         Assert.IsNull(BMSTable.NormalizeOutputDirectoryName("../.."));
+        var defaultTable = new BMSTable { name = "Default", output_dir = "../.." };
+        Assert.AreEqual("Default", defaultTable.Output_dir);
+        defaultTable.Output_dir = "Default";
+        Assert.IsNull(defaultTable.output_dir);
+        defaultTable.name = "Renamed";
+        Assert.AreEqual("Renamed", defaultTable.Output_dir);
     }
 
     /// <summary>header の不正な data URL は URL 解決失敗として返し、通常の JSON 構文失敗と混同しないことを確認します。</summary>

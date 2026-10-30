@@ -1,4 +1,5 @@
 {
+  "Error_OutputFolderNameMustBeSingleName": "出力フォルダ名には、パスを含まない1つのフォルダ名を入力してください。",
   "DialogButtonOk": "OK",
   "DialogButtonYes": "はい",
   "DialogButtonNo": "いいえ",

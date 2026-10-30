@@ -7,6 +7,8 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Views.Dialogs;
 
+using PropertyValidationError = BeMusicSeeker.ViewModels.PlaylistPropertyValidationError;
+
 namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
@@ -353,9 +355,10 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         bool applied;
+        PropertyValidationError? validationError;
         try
         {
-            applied = await ApplySummaryPropertyEditCoreAsync(row, propertyName, text);
+            (applied, validationError) = await ApplySummaryPropertyEditCoreAsync(row, propertyName, text);
         }
         catch (Exception exception)
         {
@@ -374,7 +377,9 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         await ShowSummaryPropertyEditMessageAsync(
-            BeMusicSeeker.Properties.Resources.Msg_invalid_setting,
+            validationError == PropertyValidationError.OutputDirectoryNameMustBeSingleName
+                ? BeMusicSeeker.Properties.Resources.Error_OutputFolderNameMustBeSingleName
+                : BeMusicSeeker.Properties.Resources.Msg_invalid_setting,
             "Playlist summary property edit validation error");
         return PlaylistSummaryPropertyEditCompletion.RequiresRefresh;
     }
@@ -402,13 +407,13 @@ public sealed partial class PlaylistWorkspaceViewModel
                 routeName + " could not be displayed (" + result.Status + ").");
     }
 
-    private async Task<bool> ApplySummaryPropertyEditCoreAsync(
+    private async Task<(bool Applied, PropertyValidationError? ValidationError)> ApplySummaryPropertyEditCoreAsync(
         PlaylistSummaryRow row,
         string propertyName,
         string text)
     {
         BMSPlaylist store = GetPlaylistStore();
-        if (!TryBeginPlaylistMutation(store, PlaylistWorkspaceMutationKind.PropertySave, out IDisposable admission)) { return false; }
+        if (!TryBeginPlaylistMutation(store, PlaylistWorkspaceMutationKind.PropertySave, out IDisposable admission)) { return (false, null); }
         using IDisposable accepted = admission;
         using LibraryFileMutationCapability authority = store.CreatePlaylistMutationCapability(admission);
 
@@ -419,13 +424,13 @@ public sealed partial class PlaylistWorkspaceViewModel
             || !CanOpenPlaylistEditDialog
             || !IsSummaryPropertyEditable(propertyName))
         {
-            return false;
+            return (false, null);
         }
         PlaylistPropertyEditSession editSession =
             await service.CreateEditSessionAsync(table);
         if (editSession == null)
         {
-            return false;
+            return (false, null);
         }
         PlaylistPropertySaveCommit commit = null;
         try
@@ -440,13 +445,17 @@ public sealed partial class PlaylistWorkspaceViewModel
                         if (string.Equals(values.Name ?? string.Empty, name, StringComparison.Ordinal))
                         {
                             await ApplySummarySavedPropertiesAsync(table);
-                            return true;
+                            return (true, null);
                         }
                         values.Name = name;
                         break;
                     }
                 case nameof(PlaylistSummaryRow.FolderName):
                     {
+                        if (!BMSTable.IsOutputDirectoryNameInputValid(text))
+                        {
+                            return (false, PropertyValidationError.OutputDirectoryNameMustBeSingleName);
+                        }
                         string outputDirectory = PlaylistPropertySaveService.NormalizeSummaryOutputDirectory(
                             values.Name,
                             text);
@@ -456,7 +465,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                             StringComparison.Ordinal))
                         {
                             await ApplySummarySavedPropertiesAsync(table);
-                            return true;
+                            return (true, null);
                         }
                         values.OutputDirectory = outputDirectory;
                         break;
@@ -467,7 +476,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         if (string.Equals(values.CompatPrefix ?? string.Empty, compatPrefix, StringComparison.Ordinal))
                         {
                             await ApplySummarySavedPropertiesAsync(table);
-                            return true;
+                            return (true, null);
                         }
                         values.CompatPrefix = compatPrefix;
                         break;
@@ -478,18 +487,18 @@ public sealed partial class PlaylistWorkspaceViewModel
                         if (string.Equals(values.Symbol ?? string.Empty, symbol, StringComparison.Ordinal))
                         {
                             await ApplySummarySavedPropertiesAsync(table);
-                            return true;
+                            return (true, null);
                         }
                         values.Symbol = symbol;
                         break;
                     }
                 default:
-                    return false;
+                    return (false, null);
             }
-            commit = await service.TrySaveAsync(editSession, values, authority);
+            (commit, PropertyValidationError? validationError) = await service.TrySaveAsync(editSession, values, authority);
             if (commit == null)
             {
-                return false;
+                return (false, validationError);
             }
             editSession.Adopt(commit);
             try
@@ -502,7 +511,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 TryLogPlaylistDropSecondaryFailure(failure, "playlist_summary_edit_projection_failed");
             }
             service.PublishSaveFailure(commit);
-            return true;
+            return (true, null);
         }
         finally
         {

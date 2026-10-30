@@ -1,4 +1,5 @@
 {
+  "Error_OutputFolderNameMustBeSingleName": "Saisissez un seul nom de dossier de sortie, sans chemin.",
   "DialogButtonOk": "OK",
   "DialogButtonYes": "Oui",
   "DialogButtonNo": "Non",

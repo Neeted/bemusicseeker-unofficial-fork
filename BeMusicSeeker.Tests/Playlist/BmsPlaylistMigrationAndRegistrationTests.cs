@@ -526,10 +526,10 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
-    /// <summary>旧保存値の包含配置から移行を要求しても、DB・ファイル変更前に拒否します。新先だけを検査して旧親を整理する誤りを検出します。</summary>
+    /// <summary>旧保存値の単一名化後に同一配置となる状態から移行を要求しても、DB・ファイル変更前に拒否します。新先だけを検査して旧親を整理する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void MigrateCustomFolderOutputDirectory_RejectsSavedNestedLayout()
+    public void MigrateCustomFolderOutputDirectory_RejectsSavedCollidingLayout()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -557,7 +557,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 playlist_id = 7317,
                 name = "BulkMigrationChild",
                 symbol = "BMC",
-                Output_dir = Path.Combine("BulkMigrationParent", "BulkMigrationChild"),
+                output_dir = @"BulkMigration\Parent",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
                     & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
                     & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
@@ -944,7 +944,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 playlist_id = 7403,
                 name = "UnsafeDelete",
                 symbol = "UD",
-                Output_dir = ".." + Path.DirectorySeparatorChar + "Sibling"
+                output_dir = ".." + Path.DirectorySeparatorChar + "Sibling"
             };
             Directory.CreateDirectory(siblingDir);
             File.WriteAllText(siblingPath, "#TITLE sibling", Encoding.GetEncoding("shift_jis"));
@@ -1987,7 +1987,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             byte[] oldXml = File.ReadAllBytes(config.ConfigFilePath);
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var existing = new BMSTable { playlist_id = 7821, name = "Child", Output_dir = Path.Combine("Parent", "Child") };
+            var existing = new BMSTable { playlist_id = 7821, name = "Child", Output_dir = "Parent" };
             var playlist = new TestBmsPlaylist(songDbPath, configOwner,
                 CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {

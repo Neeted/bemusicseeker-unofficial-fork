@@ -1,4 +1,5 @@
 {
+  "Error_OutputFolderNameMustBeSingleName": "Enter a single output folder name without a path.",
   "DialogButtonOk": "OK",
   "DialogButtonYes": "Yes",
   "DialogButtonNo": "No",

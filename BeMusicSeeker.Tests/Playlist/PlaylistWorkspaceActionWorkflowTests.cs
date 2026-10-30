@@ -2240,7 +2240,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             session.Values.HeaderUrl = new Uri("header.json", UriKind.Relative);
             session.Values.DataUrl = new Uri("data.json", UriKind.Relative);
             session.Values.Symbol = "Must not save";
-            Assert.IsNull(await fixture.Service.TrySaveAsync(session, session.Values));
+            Assert.IsNull((await fixture.Service.TrySaveAsync(session, session.Values)).Commit);
             Assert.AreEqual("PF", fixture.Table.symbol);
             using LR2SongDBExtended unchanged = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
             BMSTable read = unchanged.Table<BMSTable>().Single(table => table.playlist_id == fixture.Table.playlist_id);
@@ -2259,7 +2259,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         using PlaylistPropertyEditSession validSession = await fixture.Service.CreateEditSessionAsync(fixture.Table)
             ?? throw new AssertFailedException("Pageなし同期設定の編集sessionを作成できません。");
         validSession.Values.Symbol = "Saved with header base";
-        PlaylistPropertySaveCommit commit = await fixture.Service.TrySaveAsync(validSession, validSession.Values)
+        PlaylistPropertySaveCommit commit = (await fixture.Service.TrySaveAsync(validSession, validSession.Values)).Commit
             ?? throw new AssertFailedException("有効なPageなし同期設定が拒否されました。");
         Assert.IsTrue(commit.RequestedValuesSaved);
         Assert.IsNull(commit.Exception);
@@ -2270,6 +2270,163 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.AreEqual(new Uri("data.json", UriKind.Relative), saved.Data_url);
         Assert.IsTrue(saved.is_external_sync);
         Assert.AreEqual("Saved with header base", saved.symbol);
+    }
+
+    /// <summary>実効同期元の変更とOFF→ONだけが再取得を行い、Pageなし・解除・Header変更を同じ保存境界で扱います。不要取得は元本文を変えて項目と開始通知で検出します。</summary>
+    [DataTestMethod]
+    [DataRow("page-add", true)]
+    [DataRow("header-change", true)]
+    [DataRow("page-remove", true)]
+    [DataRow("page-change", true)]
+    [DataRow("enable", true)]
+    [DataRow("same", false)]
+    [DataRow("same-source-switch", false)]
+    [DataRow("header-shadowed", false)]
+    [DataRow("data-only", false)]
+    [DataRow("disable", false)]
+    [DataRow("off", false)]
+    public async Task PlaylistPropertySave_EffectiveSourceChangeReloadsOnlyWhenRequired(string condition, bool reload)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
+        string directory = Path.GetDirectoryName(fixture.HeaderPath) ?? throw new AssertFailedException();
+        Uri previous = new(fixture.HeaderPath);
+        Uri next = new(Path.Combine(directory, "next-header.json"));
+        File.WriteAllText(Path.Combine(directory, "data.json"), "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Old source loaded\",\"level\":\"1\"}]");
+        File.WriteAllText(next.LocalPath, "{\"name\":\"Next\",\"symbol\":\"N\",\"data_url\":\"next-data.json\"}");
+        File.WriteAllText(Path.Combine(directory, "next-data.json"), "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"New source loaded\",\"level\":\"1\"}]");
+        fixture.Table.Page_url = condition is "page-add" or "header-change" ? null : previous;
+        fixture.Table.Header_url = previous;
+        fixture.Table.is_external_sync = condition is not "enable" and not "off";
+        fixture.Playlist.CommitBMSTableHeaderToDB(fixture.Table);
+        using PlaylistPropertyEditSession session = await fixture.Service.CreateEditSessionAsync(fixture.Table) ?? throw new AssertFailedException();
+        PlaylistPropertyValues values = session.Values;
+        values.IsExternalSync = condition is not "disable" and not "off";
+        if (condition is "page-add" or "page-change" or "disable" or "off") { values.PageUrl = next; }
+        if (condition is "header-change" or "page-remove" or "same-source-switch") { values.PageUrl = null; }
+        if (condition is "header-change" or "page-remove" or "header-shadowed") { values.HeaderUrl = next; }
+        if (condition == "data-only") { values.DataUrl = new Uri(Path.Combine(directory, "next-data.json")); }
+        Uri expectedSource = values.PageUrl ?? values.HeaderUrl;
+        values.Symbol = "Saved";
+        int starts = 0;
+        fixture.Service.PlaylistPropertySyncStarted += (_, _) => starts++;
+        (PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError) result = await fixture.Service.TrySaveAsync(session, values);
+        PlaylistPropertySaveCommit commit = result.Commit ?? throw new AssertFailedException("有効な保存が拒否されました。");
+        Assert.IsNull(result.ValidationError);
+        Assert.IsNull(commit.Exception);
+        BMSTable current = fixture.Playlist.BMSTables.Single();
+        Assert.AreEqual(reload ? 1 : 0, starts);
+        Assert.AreEqual(expectedSource, current.Page_url ?? current.Header_url);
+        string expectedTitle = condition == "enable" ? "Old source loaded" : "New source loaded";
+        if (reload) { Assert.AreEqual(expectedTitle, current.entries.Single(entry => !entry.is_removed).title); }
+        else { CollectionAssert.AreEqual(new[] { "entry 0", "entry 1", "entry 2", "entry 3" }, current.entries.Select(entry => entry.title).ToArray()); }
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        BMSTable saved = db.Table<BMSTable>().Single();
+        Assert.AreEqual(expectedSource, saved.Page_url ?? saved.Header_url);
+        Assert.AreEqual(values.IsExternalSync, saved.is_external_sync);
+        if (reload) { Assert.AreEqual(expectedTitle, db.Table<LR2SongDBExtended.playlist_entry>().Single(entry => !entry.is_removed).title); }
+        else { Assert.AreEqual("Saved", saved.symbol); }
+    }
+
+    /// <summary>共通保存は新規と変更したrawだけを副作用前に拒否し、旧rawの無変更継承と明示既定名のNULL保存を維持します。</summary>
+    [DataTestMethod]
+    [DataRow("draft")]
+    [DataRow("changed")]
+    [DataRow("legacy")]
+    [DataRow("default")]
+    public async Task PlaylistPropertySave_OutputNameGuardsOnlyNewInput(string condition)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
+        fixture.Execute(@"UPDATE playlist SET output_dir = 'Legacy\Name';");
+        fixture.Table.output_dir = @"Legacy\Name";
+        BMSTable table = condition == "draft" ? new BMSTable { name = "Draft", output_dir = @"Legacy\Name" } : fixture.Table;
+        using PlaylistPropertyEditSession session = await fixture.Service.CreateEditSessionAsync(table, condition == "draft") ?? throw new AssertFailedException();
+        session.Values.Symbol = "Saved";
+        if (condition == "changed") { session.Values.OutputDirectory = "./Alpha"; }
+        if (condition == "default") { session.Values.OutputDirectory = table.name; }
+        (PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError) result = await fixture.Service.TrySaveAsync(session, session.Values);
+        bool rejected = condition is "draft" or "changed";
+        Assert.AreEqual(rejected, result.Commit == null);
+        Assert.AreEqual(rejected ? PlaylistPropertyValidationError.OutputDirectoryNameMustBeSingleName : null, result.ValidationError);
+        if (result.Commit is PlaylistPropertySaveCommit commit) { Assert.IsNull(commit.Exception); }
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        BMSTable saved = db.Table<BMSTable>().Single();
+        Assert.AreEqual(rejected ? "PF" : "Saved", saved.symbol);
+        Assert.AreEqual(condition == "default" ? null : @"Legacy\Name", db.ExecuteScalar<string>("SELECT output_dir FROM playlist;"));
+        Assert.AreEqual(condition == "default" ? table.name : "LegacyName", saved.Output_dir);
+    }
+
+    /// <summary>プロパティsetterはサニタイズ後の同値判定に先立ってlegacy再入力を拒否し、別列保存では既存rawを維持します。</summary>
+    [TestMethod]
+    public async Task PlaylistPropertySetter_RejectsRawReentryAndPreservesLegacyOnOtherEdits()
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
+        fixture.Execute(@"UPDATE playlist SET output_dir = 'Legacy\Name';");
+        fixture.Table.output_dir = @"Legacy\Name";
+        PlaylistPropertyValidationError? reported = null;
+        fixture.Workspace.PlaylistPropertyValidationError += (_, request) => reported = request.Error;
+        using PlaylistPropertyEditSession session = await fixture.Service.CreateEditSessionAsync(fixture.Table) ?? throw new AssertFailedException();
+        using var dialog = new PlaylistPropertyDialogViewModel(fixture.Service, session);
+        dialog.output_dir = @"Legacy\Name";
+        Assert.AreEqual(PlaylistPropertyValidationError.OutputDirectoryNameMustBeSingleName, reported);
+        Assert.AreEqual("LegacyName", dialog.output_dir);
+        dialog.symbol = "Other edit";
+        Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        Assert.AreEqual(@"Legacy\Name", db.ExecuteScalar<string>("SELECT output_dir FROM playlist;"));
+        Assert.AreEqual("Other edit", db.Table<BMSTable>().Single().symbol);
+    }
+
+    /// <summary>サマリーではlegacyの同文字列や正規化後同値のパス入力を先に拒否し、専用理由を通知して正本再表示を要求します。</summary>
+    [DataTestMethod]
+    [DataRow(@"Legacy\Name")]
+    [DataRow("./LegacyName")]
+    public async Task SummaryOutputName_RejectsRawBeforeEquivalentValueCheck(string input)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
+        fixture.Execute(@"UPDATE playlist SET output_dir = 'Legacy\Name';");
+        fixture.Table.output_dir = @"Legacy\Name";
+        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
+            playlistLibraryProvider: () => fixture.Library, propertySaveService: fixture.Service, playlistWorkspaceDialogService: dialogs);
+        PlaylistSummaryPropertyEditCompletion result = await workspace.CompleteSummaryPropertyEditAsync(
+            new PlaylistSummaryRow { TableRef = fixture.Table }, nameof(PlaylistSummaryRow.FolderName), input, true);
+        Assert.IsFalse(result.IsApplied);
+        Assert.IsTrue(result.RefreshRequired);
+        Assert.AreEqual(Resources.Error_OutputFolderNameMustBeSingleName, dialogs.LastMessageRequest.MessageBoxText);
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        Assert.AreEqual(@"Legacy\Name", db.ExecuteScalar<string>("SELECT output_dir FROM playlist;"));
+    }
+
+    /// <summary>実BMT保存失敗から得た未完了出力があっても、禁止rawを先に拒否し、継続可能な状態でDB・出力を動かしません。</summary>
+    [TestMethod]
+    public async Task PlaylistPropertySave_InvalidOutputNamePrecedesPendingOutputContinuation()
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(enableBmtOutput: true);
+        using PlaylistPropertyEditSession session = await fixture.Service.CreateEditSessionAsync(fixture.Table) ?? throw new AssertFailedException();
+        session.Values.Symbol = "Saved";
+        using (var blocker = new FileStream(fixture.BmtManifestPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            (PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError) failed = await fixture.Service.TrySaveAsync(session, session.Values);
+            PlaylistPropertySaveCommit commit = failed.Commit ?? throw new AssertFailedException();
+            Assert.IsNotNull(commit.Exception);
+            session.Adopt(commit);
+        }
+        PlaylistPropertyPendingOutput pending = session.PendingOutput ?? throw new AssertFailedException("実失敗の未完了出力がありません。");
+        byte[] before = File.ReadAllBytes(fixture.BmtManifestPath);
+        PlaylistPropertyValues invalid = session.Values.Clone();
+        invalid.OutputDirectory = "../Rejected";
+        invalid.Symbol = "Must not save";
+        (PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError) rejected = await fixture.Service.TrySaveAsync(session, invalid);
+        Assert.IsNull(rejected.Commit);
+        Assert.AreEqual(PlaylistPropertyValidationError.OutputDirectoryNameMustBeSingleName, rejected.ValidationError);
+        Assert.AreSame(pending, session.PendingOutput);
+        Assert.IsTrue(pending.NeedsBmtExport);
+        CollectionAssert.AreEqual(before, File.ReadAllBytes(fixture.BmtManifestPath));
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+        { Assert.AreEqual("Saved", db.Table<BMSTable>().Single().symbol); }
+        (PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError) completed = await fixture.Service.TrySaveAsync(session, session.Values);
+        Assert.IsNotNull(completed.Commit);
+        Assert.IsNull(completed.Commit.Exception);
     }
 
     /// <summary>実表writerをworkerで保有したまま保存を開始し、呼出しが未完了Taskを返してwriter解放後に完了することを確認します。</summary>
@@ -2319,7 +2476,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                     playlist.FreeWriterLockBMSTables();
                 }
             });
-            Task<PlaylistPropertySaveCommit>? saveTask = null;
+            Task<(PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError)>? saveTask = null;
             try
             {
                 await TestUiDispatcherHost.AwaitNotificationAsync(writerAcquired.Task, writer, "playlist-property.writer");
@@ -2327,7 +2484,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 saveTask = service.TrySaveAsync(session, session.Values);
                 Assert.IsFalse(saveTask.IsCompleted);
                 releaseWriter.Set();
-                Assert.IsNotNull(await saveTask);
+                Assert.IsNotNull((await saveTask).Commit);
             }
             finally
             {
@@ -2408,7 +2565,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             }
 
             InvalidOperationException conflict = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-                async () => await service.TrySaveAsync(session, session.Values));
+                async () => { await service.TrySaveAsync(session, session.Values); });
 
             StringAssert.Contains(conflict.Message, "changed after editing began");
             Assert.AreEqual("Initial name", table.name);
@@ -2451,7 +2608,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         using PlaylistPropertyEditSession session = await fixture.Service.CreateEditSessionAsync(table)
             ?? throw new AssertFailedException("Property session was not created.");
         session.Values.Name = "Changed header"; session.Values.Symbol = "NEW"; session.Values.CompatPrefix = "Q";
-        PlaylistPropertySaveCommit commit = await fixture.Service.TrySaveAsync(session, session.Values)
+        PlaylistPropertySaveCommit commit = (await fixture.Service.TrySaveAsync(session, session.Values)).Commit
             ?? throw new AssertFailedException("Valid property save was not accepted.");
         Assert.IsNotNull(commit.Exception);
         Assert.AreEqual(afterCommit, commit.RequestedValuesSaved);

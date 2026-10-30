@@ -301,8 +301,15 @@
                                 DisplayMemberPath="Label" />
                     </settings:SettingsField>
                     <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_save_name, Mode=OneWay}">
-                      <TextBox Style="{StaticResource App.Canonical.TextBoxStyle}"
-                               Text="{Binding output_dir, Mode=TwoWay}" />
+                      <TextBox x:Name="outputDirectoryNameTextBox" Style="{StaticResource App.Canonical.TextBoxStyle}">
+                        <TextBox.Text>
+                          <Binding Path="output_dir" Mode="TwoWay">
+                            <Binding.ValidationRules>
+                              <v:PlaylistOutputDirectoryNameValidationRule ValidationStep="ConvertedProposedValue" />
+                            </Binding.ValidationRules>
+                          </Binding>
+                        </TextBox.Text>
+                      </TextBox>
                     </settings:SettingsField>
                     <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}"
                               Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_make_root, Mode=OneWay}"

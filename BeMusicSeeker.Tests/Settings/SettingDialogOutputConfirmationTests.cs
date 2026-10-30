@@ -147,7 +147,7 @@ public sealed partial class SettingDialogEditCompletionTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
-    /// <summary>追加基点の削除で既定先へ集まる表が包含する場合、設定・XML・DB・正本・ファイルを変更する前に拒否します。実設定portの接続と媒体保存順を確認します。</summary>
+    /// <summary>追加基点の削除で既定先へ集まる表が同一配置となる場合、設定・XML・DB・正本・ファイルを変更する前に拒否します。実設定portの接続と媒体保存順を確認します。</summary>
     [TestMethod]
     public void OutputConfirmation_RejectsOverlapAfterAdditionalBaseRemovalBeforeSaving()
     {
@@ -175,7 +175,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 SetPrivateField(owner, "lr2config", configOwner);
                 SetActiveLibraryProfile(owner, true);
                 var parent = new BMSTable { playlist_id = 7196, name = "Parent" };
-                var child = new BMSTable { playlist_id = 7197, name = "Child", Output_dir = @"Parent\Child", custom_folder_output_base_name = "Extra" };
+                var child = new BMSTable { playlist_id = 7197, name = "Child", Output_dir = "Parent", custom_folder_output_base_name = "Extra" };
                 var playlist = new TestBmsPlaylist(values.LR2SongDBPath, configOwner, null, null,
                     () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(values), () => BeatorajaBmtOptionsSnapshot.CreateCurrent(values),
                     composition.CustomFolderOutputSettingsProvider,
@@ -189,8 +189,8 @@ public sealed partial class SettingDialogEditCompletionTests
                     playlist.CommitBMSTableHeadersToDB([parent, child]);
                     byte[] oldSettings = File.ReadAllBytes(settingsPath);
                     byte[] oldXml = File.ReadAllBytes(values.LR2ConfigXmlPath);
-                    string oldFile = Path.Combine(extra, "Parent", "Child", "0000.lr2folder");
-                    Directory.CreateDirectory(Path.GetDirectoryName(oldFile)!);
+                    string oldFile = Path.Combine(extra, "Parent", "0000.lr2folder");
+                    Directory.CreateDirectory(Path.GetDirectoryName(oldFile) ?? throw new AssertFailedException());
                     File.WriteAllText(oldFile, "preserved output");
                     int notices = 0;
                     child.PropertyChanged += (_, _) => notices++;

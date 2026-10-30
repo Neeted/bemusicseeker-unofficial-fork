@@ -124,6 +124,7 @@ internal sealed class PlaylistPropertySaveService
             && GetPlaylistStore().BMSTables?.Cast<BMSTable>().Any(candidate => ReferenceEquals(candidate, table)) == true;
     }
 
+    /// <summary>表示用の配置・URL条件と、新規または変更した出力名の生入力条件を検査します。</summary>
     internal bool IsValid(PlaylistPropertyEditSession session, PlaylistPropertyValues values)
     {
         if (session == null)
@@ -135,7 +136,7 @@ internal sealed class PlaylistPropertySaveService
             throw new ArgumentNullException(nameof(values));
         }
         session.ThrowIfDisposed();
-        if (!IsValidForPresentation(session, values))
+        if (!IsOutputDirectoryInputValid(session, values) || !IsValidForPresentation(session, values))
         {
             return false;
         }
@@ -201,9 +202,10 @@ internal sealed class PlaylistPropertySaveService
         (handler ?? throw new InvalidOperationException(contractName + " is not configured."))(this, args);
     }
 
-    /// <summary>局所受付後に現参照・最新保存値を検査し、未完了出力を先に終えてから属性保存と必要出力を行います。確定結果と後続失敗を返し、入力不備はnullです。</summary>
+    /// <summary>局所受付後に現参照・最新保存値と新しい出力名を検査し、未完了出力を先に終えてから属性保存と必要出力を行います。入力不備は確定結果なしで理由を返します。</summary>
     /// <param name="capability">外側が公開・必須通知・cleanup実終端まで保持する生存局所権限。nullは新規非待機受付です。</param>
-    internal Task<PlaylistPropertySaveCommit> TrySaveAsync(
+    /// <returns>確定結果と後続失敗、または未保存を示すnullと特定できる入力不備の理由。汎用の入力不備は理由もnullです。</returns>
+    internal Task<(PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError)> TrySaveAsync(
         PlaylistPropertyEditSession session,
         PlaylistPropertyValues values, LibraryFileMutationCapability capability = null)
     {
@@ -216,11 +218,15 @@ internal sealed class PlaylistPropertySaveService
             throw new ArgumentNullException(nameof(values));
         }
         session.ThrowIfDisposed();
-        return Task.Run(async () =>
+        return Task.Run<(PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError)>(async () =>
         {
             using LibraryFileMutationLease accepted = session.Store.AcquirePlaylistMutationLease("playlist_property_save", capability: capability);
             using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
             ValidateCurrentSession(session);
+            if (!IsOutputDirectoryInputValid(session, values))
+            {
+                return (null, PlaylistPropertyValidationError.OutputDirectoryNameMustBeSingleName);
+            }
             if (session.PendingOutput != null)
             {
                 var continuation = new PlaylistPropertySaveCommit(null, session.Table, session.Settings, session.IsNewTable)
@@ -232,11 +238,11 @@ internal sealed class PlaylistPropertySaveService
                 CompleteReferencePublication(continuation.PendingOutput, continuationFailures);
                 await CompletePendingOutputsAsync(session.Store, continuation, authority, continuationFailures).ConfigureAwait(false);
                 continuation.Exception = CombineFailures(continuationFailures.Distinct());
-                if (continuation.Exception != null) { return continuation; }
+                if (continuation.Exception != null) { return (continuation, null); }
                 session.PendingOutput = null;
             }
             PlaylistPropertySaveCommit commit = TrySaveCore(session, values);
-            if (commit == null) { return null; }
+            if (commit == null) { return (null, null); }
             try
             {
                 if (!commit.IsNewDraft)
@@ -254,9 +260,14 @@ internal sealed class PlaylistPropertySaveService
             // baselineは初回の属性適用だけに使う。明示継続へ古い保存全体を持ち越さない。
             commit.Baseline = null;
             commit.RequestedValuesSaved = commit.SavedValues != null;
-            return commit;
+            return (commit, null);
         });
     }
+
+    // 別列編集による旧値の継承は拒否せず、新規入力だけを未完了出力の継続より前に検査します。
+    private static bool IsOutputDirectoryInputValid(PlaylistPropertyEditSession session, PlaylistPropertyValues values)
+        => (!session.IsNewTable && string.Equals(session.OriginalValues.OutputDirectory, values.OutputDirectory, StringComparison.Ordinal))
+            || BMSTable.IsOutputDirectoryNameInputValid(values.OutputDirectory);
 
     private void ValidateCurrentSession(PlaylistPropertyEditSession session)
     {
@@ -431,11 +442,9 @@ internal sealed class PlaylistPropertySaveService
         bool entryFolderProjectionChanged = commit.PrefixFolderSelectionMap?.Count > 0;
         IReadOnlyDictionary<string, string> prefixFolderSelectionMap = commit.PrefixFolderSelectionMap;
 
-        bool shouldReloadExternalPlaylist = (!baseline.IsExternalSync && table.is_external_sync)
-            || (table.is_external_sync
-                && table.Page_url != null
-                && baseline.PageUrl != null
-                && table.Page_url.ToString() != baseline.PageUrl.ToString());
+        bool shouldReloadExternalPlaylist = table.is_external_sync
+            && (!baseline.IsExternalSync
+                || !HasSameUri(baseline.PageUrl ?? baseline.HeaderUrl, table.Page_url ?? table.Header_url));
         if (shouldReloadExternalPlaylist)
         {
             Uri uri = table.Page_url ?? table.Header_url;
@@ -1237,10 +1246,12 @@ internal sealed class PlaylistPropertyPendingOutput
     internal bool HasPendingWork => NeedsLr2Output || NeedsSearchPathSave || NeedsBmtExport || ReferenceReceipt != null;
 }
 
+/// <summary>プロパティの入力不備を、保存結果または入力時の通知へ渡す理由です。</summary>
 internal enum PlaylistPropertyValidationError
 {
     OutputDirectoryChangedByPlaylistName,
     InvalidOutputDirectory,
+    OutputDirectoryNameMustBeSingleName,
     InvalidPageUri,
     InvalidHeaderUri,
     InvalidDataUri,
