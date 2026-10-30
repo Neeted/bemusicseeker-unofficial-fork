@@ -65,7 +65,7 @@ internal static class Lr2FolderRowGenerator
     private static readonly IEqualityComparer<string> PathComparer = StringComparer.OrdinalIgnoreCase;
 
     /// <summary>
-    /// 通常ディレクトリの行を生成します。対象が確定したルート・ディレクトリの各段階で確認済み件数を通知します。
+    /// 通常ディレクトリの行を生成し、raw完全一致で存続する行のadddateだけをNULLを含めて保持します。対象が確定した各段階で確認済み件数を通知します。
     /// 譜面から祖先を探索する経路は量不定とし、通知例外は生成結果へ影響させません。
     /// </summary>
     internal static Lr2FolderGenerationResult GenerateNormalDirectoryRows(
@@ -74,9 +74,9 @@ internal static class Lr2FolderRowGenerator
     {
         request ??= new Lr2FolderGenerationRequest();
         Dictionary<string, LR2SongDB.folder> existingRowsByPath = CreateExistingRowMap(request.ExistingRows);
-        var sourceKinds = new Dictionary<string, Lr2FolderRowSourceKind>(PathComparer);
-        var rowsByPath = new Dictionary<string, LR2SongDB.folder>(PathComparer);
-        var skippedPaths = new HashSet<string>(PathComparer);
+        var sourceKinds = new Dictionary<string, Lr2FolderRowSourceKind>(StringComparer.Ordinal);
+        var rowsByPath = new Dictionary<string, LR2SongDB.folder>(StringComparer.Ordinal);
+        var skippedPaths = new HashSet<string>(StringComparer.Ordinal);
         var orderedPaths = new List<string>();
         int skippedUnsupportedPathCount = 0;
         int skippedMissingMetadataCount = 0;
@@ -171,7 +171,7 @@ internal static class Lr2FolderRowGenerator
             }
         }
 
-        var scopePaths = new HashSet<string>(orderedPaths, PathComparer);
+        var scopePaths = new HashSet<string>(orderedPaths, StringComparer.Ordinal);
         return new Lr2FolderGenerationResult(
             [.. orderedPaths.Select(path => rowsByPath[path])],
             scopePaths,
@@ -279,17 +279,8 @@ internal static class Lr2FolderRowGenerator
 
     private static Dictionary<string, LR2SongDB.folder> CreateExistingRowMap(IEnumerable<LR2SongDB.folder> existingRows)
     {
-        var result = new Dictionary<string, LR2SongDB.folder>(PathComparer);
-        foreach (LR2SongDB.folder row in existingRows ?? [])
-        {
-            string path = Lr2FolderPath.ToFolderPath(row?.path);
-            if (string.IsNullOrWhiteSpace(path) || result.ContainsKey(path))
-            {
-                continue;
-            }
-            result.Add(path, row);
-        }
-        return result;
+        return (existingRows ?? []).Where(row => row?.path != null)
+            .ToDictionary(row => row.path, StringComparer.Ordinal);
     }
 
     private static List<string> NormalizeRootDirectories(IEnumerable<string> rootDirectories)
@@ -313,8 +304,8 @@ internal static class Lr2FolderRowGenerator
         return [.. (directoryPaths ?? [])
             .Select(Lr2FolderPath.NormalizeDirectoryPath)
             .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(path => path, StringComparer.Ordinal)];
     }
 
     private static IEnumerable<string> EnumerateDirectoriesFromRoot(string root, string targetDirectory)

@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -32,7 +31,7 @@ internal sealed class BmsLibraryParentFolderCacheService
             {
                 string normalizedDirectoryPath = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(directoryPath);
                 if (!string.IsNullOrWhiteSpace(normalizedDirectoryPath)
-                    && customFolderOutputBases.Any(outputBase => IsSameOrChildPath(normalizedDirectoryPath, outputBase)))
+                    && customFolderOutputBases.Any(outputBase => LongPathFileSystem.IsSameOrDescendantNormalizedDirectoryPath(normalizedDirectoryPath, outputBase)))
                 {
                     return false;
                 }
@@ -40,7 +39,7 @@ internal sealed class BmsLibraryParentFolderCacheService
             if ((installedChartPaths ?? []).Any(delegate (string chartPath)
             {
                 return !string.IsNullOrWhiteSpace(chartPath)
-                    && chartPath.StartsWith(directoryPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+                    && LongPathFileSystem.IsSameOrDescendantNormalizedDirectoryPath(chartPath, directoryPath);
             }))
             {
                 return true;
@@ -58,20 +57,6 @@ internal sealed class BmsLibraryParentFolderCacheService
             }
             return true;
         })];
-    }
-
-    private static bool IsSameOrChildPath(string candidate, string parent)
-    {
-        if (string.IsNullOrWhiteSpace(candidate) || string.IsNullOrWhiteSpace(parent))
-        {
-            return false;
-        }
-        if (string.Equals(candidate, parent, StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        return candidate.StartsWith(parent + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

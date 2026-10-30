@@ -5,6 +5,9 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class SongTableLoadResult
 {
+    /// <summary>同じFull読込みで補正・確定した全folderの全列を、当該操作の走査反映へだけ渡します。UIの常駐状態へ公開しません。</summary>
+    internal Lr2FolderTableSnapshot FolderTableSnapshot { get; set; }
+
     public List<string> Pragmas { get; } = [];
 
     public List<ChartFile> LoadedFiles { get; } = [];

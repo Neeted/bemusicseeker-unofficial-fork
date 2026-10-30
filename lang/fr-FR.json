@@ -1181,7 +1181,7 @@
   "LibraryDirectoryPreflightCauseAccessDenied": "Le dossier ne peut pas être lu : accès refusé.",
   "LibraryDirectoryPreflightCauseNotDirectory": "Le chemin indiqué n'est pas un dossier.",
   "LibraryDirectoryPreflightCauseInvalidPath": "Le chemin est invalide.",
-  "LibraryDirectoryPreflightCauseInvalidConfiguration": "La configuration du dossier de sortie supplémentaire est invalide.",
+  "LibraryDirectoryPreflightCauseInvalidConfiguration": "La configuration des dossiers de la bibliothèque est incorrecte.",
   "LibraryDirectoryPreflightCauseIo": "Le dossier ne peut pas être lu.",
   "LibraryDirectoryPreflightCauseWrite": "Impossible d’écrire un fichier temporaire de vérification dans le dossier de sortie.",
   "LibraryDirectoryPreflightCauseCleanup": "Le fichier temporaire de vérification n’a pas pu être supprimé.",
@@ -1387,5 +1387,6 @@
   "ChartPropertiesSatisfied": "Une ressource compatible existe",
   "ChartPropertiesCountedUnfulfilled": "Compté comme une ressource requise non satisfaite",
   "ChartPropertiesNotCounted": "Exclu des ressources requises",
-  "ChartPropertiesCp932AlternativeInterpretation": "Autre interprétation pour LR2 (CP932 ; peut figurer avec l’interprétation normale)"
+  "ChartPropertiesCp932AlternativeInterpretation": "Autre interprétation pour LR2 (CP932 ; peut figurer avec l’interprétation normale)",
+  "Validation_Lr2BuiltinCustomFolderReservedFormat": "{0} ne peut pas utiliser un emplacement réservé aux dossiers personnalisés intégrés de LR2.\nEmplacement choisi : {1}\nDossier intégré : {2}"
 }

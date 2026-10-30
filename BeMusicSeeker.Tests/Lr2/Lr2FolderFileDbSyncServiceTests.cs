@@ -597,41 +597,6 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     }
 
     /// <summary>
-    /// 通常行の時刻確認はパス・種別・時刻だけを取得し、タイトル・条件・最大数の不要な読取りを防ぐ。
-    /// </summary>
-    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
-    [TestMethod]
-    public void QueryExactPathsForNormalFolderMtime_ReturnsOnlyPathTypeAndDate()
-    {
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            using var songDb = new LR2SongDBExtended(songDbPath);
-            songDb.CreateTable<LR2SongDB.folder>();
-            BmsLibraryDbGateway.EnsureFolderLookupIndexes(songDb);
-            string folderPath = Path.GetFullPath(@"D:\BMS\Table") + Path.DirectorySeparatorChar;
-            int date = new DateTime(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc).ToUnixtime();
-            songDb.InsertOrReplace(new LR2SongDB.folder
-            {
-                path = folderPath,
-                title = "Heavy title",
-                command = "song.hash in ('abc')",
-                type = 1,
-                date = date,
-                max = 24
-            }, typeof(LR2SongDB.folder));
-
-            LR2SongDB.folder row = Lr2FolderExistingRowLookup.QueryExactPathsForNormalFolderMtime(songDb, [folderPath]).Single();
-
-            Assert.AreEqual(folderPath, row.path);
-            Assert.AreEqual(1, row.type);
-            Assert.AreEqual(date, row.date);
-            Assert.IsNull(row.title);
-            Assert.IsNull(row.command);
-            Assert.IsNull(row.max);
-        });
-    }
-
-    /// <summary>
     /// 定義再解析を要しない既存行はタイトル・追加時刻を保持して更新せず、別の旧行だけを削除する。
     /// </summary>
     /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
@@ -722,7 +687,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     }
 
     /// <summary>
-    /// 大文字小文字がずれた実保存キーを削除して現在キーへ置換し、追加時刻を保持して別名行の残留を防ぐ。
+    /// 大文字小文字がずれた実保存キーを削除し、現在キーを通常の新規追加日時で保存して別名行の残留を防ぐ。
     /// </summary>
     /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
@@ -743,6 +708,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                 adddate = 12345
             }, typeof(LR2SongDB.folder));
 
+            DateTime generatedAt = new(2026, 6, 11, 1, 2, 3, DateTimeKind.Utc);
             Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
             {
                 Items =
@@ -755,7 +721,8 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                     }
                 ],
                 ScopeDirectories = [outputDirectory],
-                AllowPrune = true
+                AllowPrune = true,
+                GeneratedAtUtc = generatedAt
             });
 
             Assert.AreEqual(1, result.UpsertedCount);
@@ -763,7 +730,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             Assert.AreEqual(1, result.ExistingReadCount);
             Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().Count(row => row.path == driftPath));
             Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().Count(row => row.path == currentPath));
-            Assert.AreEqual(12345, songDb.Table<LR2SongDB.folder>().Single(row => row.path == currentPath).adddate);
+            Assert.AreEqual(checked((int)new DateTimeOffset(generatedAt).ToUnixTimeSeconds()), songDb.Table<LR2SongDB.folder>().Single(row => row.path == currentPath).adddate);
         });
     }
 
@@ -946,8 +913,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     /// 組込み定義の相対保存キーへタイトルを更新して追加時刻・ROOT親を保持し、物理絶対パスの別行を作る誤りを防ぐ。
     /// </summary>
     /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
-    [TestMethod]
-    public void Sync_MatchesExistingKnownRelativeLr2FolderRow()
+    [DataTestMethod]
+    [DataRow(12345)]
+    [DataRow(null)]
+    public void Sync_MatchesExistingKnownRelativeLr2FolderRow(int? addDate)
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -961,7 +930,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                 title = "Old",
                 type = 2,
                 parent = Lr2SongFolderParentNormalizer.RootParentHash,
-                adddate = 12345
+                adddate = addDate
             }, typeof(LR2SongDB.folder));
 
             Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
@@ -983,17 +952,20 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             Assert.AreEqual(1, result.UpsertedCount);
             LR2SongDB.folder row = songDb.Table<LR2SongDB.folder>().Single(candidate => candidate.path == databasePath);
             Assert.AreEqual("Favorite", row.title);
-            Assert.AreEqual(12345, row.adddate);
+            Assert.AreEqual(addDate, row.adddate);
             Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, row.parent);
         });
     }
 
     /// <summary>
-    /// 旧絶対キーの組込み行を相対キーへ移し、追加時刻を保持して旧行を削除し、二重行や履歴消失を防ぐ。
+    /// 旧絶対キーは削除し、相対キーの新規行は通常adddateで作る。相対exact共存時はtarget値を保持し、preserve-onlyでも旧絶対キーを退役する。
     /// </summary>
     /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
-    [TestMethod]
-    public void Sync_MigratesExistingAbsoluteBuiltinRowToRelativePath()
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void Sync_MigratesExistingAbsoluteBuiltinRowToRelativePath(bool targetExists, bool preserveExistingOnly)
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -1010,8 +982,11 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                 adddate = 12345
             }, typeof(LR2SongDB.folder));
 
+            DateTime generatedAt = new(2026, 6, 20, 1, 2, 3, DateTimeKind.Utc);
+            if (targetExists) { songDb.Insert(new LR2SongDB.folder { path = databasePath, title = "Exact target", type = 2, parent = Lr2SongFolderParentNormalizer.RootParentHash, adddate = 67890 }); }
             Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
             {
+                GeneratedAtUtc = generatedAt,
                 Items =
                 [
                     new Lr2FolderFileSyncItem
@@ -1020,18 +995,19 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                         DatabasePath = databasePath,
                         LastWriteTimeUtc = new DateTime(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc),
                         ParentHash = Lr2SongFolderParentNormalizer.RootParentHash,
-                        Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Favorite"])
+                        PreserveExistingRowOnly = preserveExistingOnly,
+                        Definition = preserveExistingOnly ? null : Lr2FolderFileProjection.ParseDefinition(["#TITLE Favorite"])
                     }
                 ]
             });
 
-            Assert.AreEqual(1, result.GeneratedCount);
-            Assert.AreEqual(1, result.UpsertedCount);
+            Assert.AreEqual(preserveExistingOnly ? 0 : 1, result.GeneratedCount);
+            Assert.AreEqual(preserveExistingOnly ? 0 : 1, result.UpsertedCount);
             Assert.AreEqual(1, result.DeletedCount);
             Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().Count(candidate => candidate.path == filePath));
             LR2SongDB.folder row = songDb.Table<LR2SongDB.folder>().Single(candidate => candidate.path == databasePath);
-            Assert.AreEqual("Favorite", row.title);
-            Assert.AreEqual(12345, row.adddate);
+            Assert.AreEqual(preserveExistingOnly ? "Exact target" : "Favorite", row.title);
+            Assert.AreEqual(targetExists ? 67890 : generatedAt.ToUnixtime(), row.adddate);
             Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, row.parent);
         });
     }

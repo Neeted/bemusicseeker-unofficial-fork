@@ -17,10 +17,13 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryInitializationLoadTests
 {
     /// <summary>
-    /// LR2の相対譜面・folderパスを絶対化して旧song行の退役と親hashを保存し、起動時にmaintenanceを混ぜない。
+    /// LR2の相対譜面の三列と親hashを保ち、folderの新規targetだけ通常adddateで作る。共存target自身の保持・削除をDBと返却面で揃え、maintenanceを混ぜない。
     /// </summary>
-    [TestMethod]
-    public void LoadSongTable_FixesRelativePathsWithoutMaintenanceHydration()
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void LoadSongTable_FixesRelativePathsWithoutMaintenanceHydration(bool targetExists, bool targetUnreadable)
     {
 
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
@@ -29,6 +32,12 @@ public sealed class BmsLibraryInitializationLoadTests
             Directory.CreateDirectory(Path.GetDirectoryName(rootedChartPath)!);
             File.WriteAllText(rootedChartPath, "#PLAYER 1");
 
+            DateTime generatedAt = new(2026, 6, 20, 1, 2, 3, DateTimeKind.Utc);
+            var target = new LR2SongDB.folder { path = ToFolderPath(Path.Combine(lr2RootPath, "Songs")), title = "Exact target", parent = "target-parent", type = 1, date = targetUnreadable ? -1 : 77, adddate = 678 };
+            string untouched = ToFolderPath(Path.Combine(lr2RootPath, "Untouched"));
+            string fixedDate = ToFolderPath(Path.Combine(lr2RootPath, "DateCorrection"));
+            var unreadable = new LR2SongDB.folder { path = ToFolderPath(Path.Combine(lr2RootPath, "Unreadable")), title = "Unreadable", type = 1, date = -1, adddate = 123 };
+            var unreadableAlias = new LR2SongDB.folder { path = unreadable.path.ToUpperInvariant(), title = unreadable.title, type = unreadable.type, date = unreadable.date, adddate = unreadable.adddate };
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.RunInTransaction(() =>
@@ -40,7 +49,10 @@ public sealed class BmsLibraryInitializationLoadTests
                     ChartFile song = ChartTestValues.Empty() with
                     {
                         Path = Path.Combine("Songs", "chart.bms"),
-                        Folder = "folder"
+                        Folder = "folder",
+                        Favorite = 5,
+                        Tag = "relative-user",
+                        AddDate = 5432
                     };
                     song = song with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
                     songDb.InsertOrReplace(ChartTestValues.CreateBmsStorageRow(song, "parent"), typeof(LR2SongDB.song));
@@ -48,6 +60,7 @@ public sealed class BmsLibraryInitializationLoadTests
                     {
                         path = "Songs\\",
                         title = "Songs",
+                        adddate = 333,
                         parent = "e2977170",
                         type = 1
                     }, typeof(LR2SongDB.folder));
@@ -58,6 +71,11 @@ public sealed class BmsLibraryInitializationLoadTests
                         parent = "stale-parent",
                         type = 1
                     }, typeof(LR2SongDB.folder));
+                    if (targetExists) { songDb.Insert(target); }
+                    songDb.InsertOrReplace(new LR2SongDB.folder { path = untouched, title = "Keep unchanged", parent = "keep-parent", type = 1, date = 7, adddate = 456 }, typeof(LR2SongDB.folder));
+                    songDb.InsertOrReplace(new LR2SongDB.folder { path = fixedDate, title = "Fix date", type = 1, date = 9, adddate = -1 }, typeof(LR2SongDB.folder));
+                    songDb.InsertOrReplace(unreadable, typeof(LR2SongDB.folder));
+                    if (targetUnreadable) { songDb.Insert(unreadableAlias); }
                     songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = rootedChartPath, hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", encoding = "shift_jis" }, typeof(LR2SongDBExtended.maintenance));
                 });
             }
@@ -65,15 +83,20 @@ public sealed class BmsLibraryInitializationLoadTests
             var service = new BmsLibraryInitializationService();
             SongTableLoadResult result = service.LoadSongTable(
                 new BmsLibraryDbGateway(songDbPath),
-                new BmsLibraryOptionsSnapshot(),
+                new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true },
                 null,
                 new TestFileMutationService(),
                 null,
-                ex => ex.Message);
+                ex => ex.Message,
+                leapYearRepairApproval: new(songDbPath, unreadableFolders:
+                    new[] { new LeapYearFolderRepairCandidate(unreadable.path, unreadable.path, DateTime.MinValue, unreadable) }
+                    .Concat(targetUnreadable ? new[] { new LeapYearFolderRepairCandidate(target.path, target.path, DateTime.MinValue, target) } : []).ToArray()),
+                generatedAtUtc: generatedAt);
 
             Assert.AreEqual(1, result.LoadedFiles.Count);
             Assert.AreEqual(rootedChartPath, result.LoadedFiles[0].Path);
             Assert.IsNull(result.LoadedFiles[0].ResourceHealthMaintenanceSnapshot);
+            Assert.AreEqual(((int?)5, "relative-user", (int?)5432), (result.LoadedFiles[0].Favorite, result.LoadedFiles[0].Tag, result.LoadedFiles[0].AddDate));
             Assert.AreEqual(1, result.RelativePathFixedCount);
             Assert.IsTrue(result.DbWriteRequired);
             CollectionAssert.Contains(result.DeletedSongPaths, Path.Combine("Songs", "chart.bms"));
@@ -84,6 +107,36 @@ public sealed class BmsLibraryInitializationLoadTests
             Assert.AreEqual(
                 Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.Combine(lr2RootPath, "Songs")),
                 nested.parent);
+            Assert.IsNotNull(result.FolderTableSnapshot);
+            IReadOnlyDictionary<string, LR2SongDB.folder> reused = result.FolderTableSnapshot.ExistingRowsByPath;
+            CollectionAssert.AreEquivalent(verify.Table<LR2SongDB.folder>().Select(row => row.path).ToArray(), reused.Values.Select(row => row.path).ToArray());
+            Assert.AreEqual(nested.path, reused[rootedNestedFolderPath].path);
+            Assert.AreEqual(nested.parent, reused[rootedNestedFolderPath].parent);
+            if (targetUnreadable)
+            {
+                Assert.IsTrue(reused.ContainsKey(unreadableAlias.path), "片方の読取不能承認を同列の別raw keyへ適用しません。");
+                Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(unreadableAlias), System.Text.Json.JsonSerializer.Serialize(reused[unreadableAlias.path]));
+            }
+            Assert.AreEqual(!targetUnreadable, reused.ContainsKey(target.path), "既存target自身の削除結果をrelative sourceから復活させません。");
+            Assert.IsFalse(reused.ContainsKey("Songs\\"));
+            Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM folder WHERE path = ?;", "Songs\\"));
+            if (!targetUnreadable)
+            {
+                LR2SongDB.folder savedTarget = verify.Find<LR2SongDB.folder>(target.path);
+                Assert.AreEqual(targetExists ? 678 : ToUnixSeconds(generatedAt), savedTarget.adddate);
+                Assert.AreEqual(targetExists ? "Exact target" : "Songs", savedTarget.title);
+                Assert.AreEqual(savedTarget.adddate, reused[target.path].adddate);
+                Assert.AreEqual(savedTarget.title, reused[target.path].title);
+            }
+            else { Assert.IsNull(verify.Find<LR2SongDB.folder>(target.path)); }
+            LR2SongDB.song savedSong = verify.Find<LR2SongDB.song>(rootedChartPath);
+            Assert.AreEqual(((int?)5, "relative-user", (int?)5432), (savedSong.favorite, savedSong.tag, savedSong.adddate));
+            Assert.IsFalse(reused.ContainsKey(unreadable.path));
+            Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM folder WHERE path = ?;", unreadable.path));
+            Assert.AreEqual("Keep unchanged", reused[untouched].title); Assert.AreEqual(7, reused[untouched].date); Assert.AreEqual(456, reused[untouched].adddate);
+            Assert.IsNull(reused[fixedDate].date); Assert.IsNull(reused[fixedDate].adddate);
+            Assert.IsNull(verify.Table<LR2SongDB.folder>().Single(row => row.path == fixedDate).date);
+
         });
     }
 
@@ -707,6 +760,165 @@ public sealed class BmsLibraryInitializationLoadTests
 
             Assert.AreEqual(1, result.LoadedFiles.Count);
             Assert.AreEqual(sha256, result.LoadedFiles[0].Sha256);
+        });
+    }
+
+    /// <summary>現在ディレクトリ依存で実在の閏日フォルダへ解決できるdrive-relative行も修復候補へ採用せず、通常ロードの返却raw行・保存全列・物理日時を維持します。</summary>
+    [TestMethod]
+    public void LeapYearCandidateCapture_PreservesDriveRelativeRowWithoutPhysicalRepair()
+    {
+        WithTemporaryLr2SongDb((lr2RootPath, songDbPath) =>
+        {
+            string directory = Path.Combine(lr2RootPath, "Songs", "DriveRelativeCandidate");
+            Directory.CreateDirectory(directory);
+            DateTime timestamp = new(2024, 2, 29, 12, 0, 0);
+            Directory.SetLastWriteTime(directory, timestamp);
+            string drive = Path.GetPathRoot(directory)?.TrimEnd('\\') ?? throw new AssertFailedException();
+            string driveCurrentBase = Path.GetFullPath(drive);
+            string rawPath = drive + Path.GetRelativePath(driveCurrentBase, directory) + "\\";
+            Assert.IsTrue(Path.IsPathRooted(rawPath));
+            Assert.IsFalse(Path.IsPathFullyQualified(rawPath));
+            Assert.AreEqual(directory, Path.TrimEndingDirectorySeparator(Path.GetFullPath(rawPath)), "旧CWD依存の解決なら所有tempフォルダを指す入力です。");
+            var row = new LR2SongDB.folder
+            {
+                path = rawPath,
+                title = "Keep raw relative",
+                subtitle = "Keep subtitle",
+                parent = "keep-parent",
+                type = 1,
+                date = -1,
+                adddate = 123,
+                max = 17
+            };
+            ExecuteSongDbFixtureTransaction(songDbPath, db =>
+            {
+                Assert.AreEqual(lr2RootPath, db.LR2RootPath, "標準LR2 DBの候補判定まで到達させます。");
+                db.CreateTable<LR2SongDB.song>();
+                db.CreateTable<LR2SongDB.folder>();
+                db.CreateTable<LR2SongDBExtended.maintenance>();
+                db.Insert(row);
+            });
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var service = new BmsLibraryInitializationService();
+            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(gateway, out IReadOnlyList<LeapYearFolderRepairCandidate> unreadable);
+            Assert.AreEqual(0, candidates.Count);
+            Assert.AreEqual(0, unreadable.Count);
+            var mutation = new RecordingFileMutationService();
+            LeapYearFolderRepairResult repair = service.RepairLeapYearFolderTimestamps(gateway, candidates, mutation, null);
+            Assert.AreEqual(0, repair.Failures.Count);
+            SongTableLoadResult loaded = service.LoadSongTable(gateway,
+                new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2RootPath = lr2RootPath },
+                null, mutation, null, failure => failure.Message,
+                leapYearRepairApproval: new(songDbPath, approvedCandidates: candidates, unreadableFolders: unreadable));
+
+            Assert.AreEqual(0, mutation.TimestampCalls.Count);
+            Assert.AreEqual(timestamp, Directory.GetLastWriteTime(directory));
+            Assert.AreEqual(0, loaded.DeletedFolderPaths.Count);
+            Assert.AreEqual(0, loaded.UpdatedFolders.Count);
+            Assert.IsFalse(loaded.DbWriteRequired);
+            Assert.IsNotNull(loaded.FolderTableSnapshot);
+            Assert.AreEqual(rawPath, loaded.FolderTableSnapshot.ExistingRowsByPath.Single().Key);
+            string expected = System.Text.Json.JsonSerializer.Serialize(row);
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(loaded.FolderTableSnapshot.Rows.Single()));
+            using LR2SongDBExtended verify = gateway.OpenSongDbReadOnly();
+            Assert.AreEqual(expected, System.Text.Json.JsonSerializer.Serialize(verify.Table<LR2SongDB.folder>().Single()));
+        });
+    }
+
+    /// <summary>
+    /// 同所a/Aの承認をraw keyごとに照合し、両承認の保存行を物理日時変更一回で修復します。
+    /// 片方だけの承認・承認後の行変更や削除・物理変更失敗では対象を拡大せず、保存値を偽成功へ更新しません。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow("both-approved")]
+    [DataRow("primary-only")]
+    [DataRow("alias-changed")]
+    [DataRow("alias-removed")]
+    [DataRow("timestamp-failed")]
+    public void LeapYearFolderRepair_PreservesEachApprovedRawKeyWithOnePhysicalMutation(string condition)
+    {
+        WithTemporaryLr2SongDb((lr2RootPath, songDbPath) =>
+        {
+            string directory = Path.Combine(lr2RootPath, "Songs", "a");
+            Directory.CreateDirectory(directory);
+            DateTime originalTimestamp = new(2024, 2, 29, 12, 0, 0);
+            Directory.SetLastWriteTime(directory, originalTimestamp);
+            var primary = new LR2SongDB.folder
+            {
+                path = directory + "\\",
+                title = "Primary",
+                subtitle = "keep primary",
+                type = 1,
+                parent = "primary-parent",
+                date = -1,
+                adddate = 123
+            };
+            var alias = new LR2SongDB.folder
+            {
+                path = Path.Combine(lr2RootPath, "Songs", "A") + "\\",
+                title = "Alias",
+                subtitle = "keep alias",
+                type = 1,
+                parent = "alias-parent",
+                date = -2,
+                adddate = 456
+            };
+            ExecuteSongDbFixtureTransaction(songDbPath, db =>
+            {
+                db.CreateTable<LR2SongDB.folder>();
+                db.Insert(primary);
+                db.Insert(alias);
+            });
+
+            var service = new BmsLibraryInitializationService();
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            IReadOnlyList<LeapYearFolderRepairCandidate> captured = service.CaptureLeapYearFolderRepairCandidates(gateway, out _);
+            CollectionAssert.AreEquivalent(new[] { primary.path, alias.path }, captured.Select(candidate => candidate.OriginalFolderPath).ToArray());
+            IEnumerable<LeapYearFolderRepairCandidate> approved = condition == "primary-only"
+                ? captured.Where(candidate => string.Equals(candidate.OriginalFolderPath, primary.path, StringComparison.Ordinal))
+                : captured;
+            if (condition == "alias-changed")
+            {
+                alias.title = "Changed after approval";
+                ExecuteSongDbFixtureTransaction(songDbPath, db => db.InsertOrReplace(alias));
+            }
+            else if (condition == "alias-removed")
+            {
+                ExecuteSongDbFixtureTransaction(songDbPath, db => db.Execute("DELETE FROM folder WHERE path = ?;", alias.path));
+            }
+
+            var mutationFailure = new IOException("timestamp mutation failed");
+            var mutation = new RecordingFileMutationService
+            {
+                OnSetTimestamps = call =>
+                {
+                    if (condition == "timestamp-failed") { throw mutationFailure; }
+                    Directory.SetLastWriteTime(call.Path, call.LastWriteTime.GetValueOrDefault());
+                }
+            };
+            LeapYearFolderRepairResult result = service.RepairLeapYearFolderTimestamps(gateway, approved, mutation, null, failure => failure.Message);
+
+            Assert.AreEqual(1, mutation.TimestampCalls.Count, "同じ物理フォルダへの変更は一回に共有します。");
+            Assert.AreEqual(condition == "timestamp-failed" ? 1 : 0, result.Failures.Count);
+            if (condition == "timestamp-failed")
+            {
+                Assert.AreSame(mutationFailure, result.Failures.Single().Exception.InnerException);
+                Assert.AreEqual(originalTimestamp, Directory.GetLastWriteTime(directory));
+            }
+            else
+            {
+                Assert.AreEqual(mutation.TimestampCalls.Single().LastWriteTime, Directory.GetLastWriteTime(directory));
+                Assert.AreNotEqual(originalTimestamp, Directory.GetLastWriteTime(directory));
+                primary.date = null;
+                primary.adddate = null;
+                if (condition == "both-approved") { alias.date = null; alias.adddate = null; }
+            }
+            using LR2SongDBExtended verify = gateway.OpenSongDbReadOnly();
+            var rows = verify.Table<LR2SongDB.folder>().ToDictionary(row => row.path, StringComparer.Ordinal);
+            Assert.AreEqual(condition == "alias-removed" ? 1 : 2, rows.Count);
+            Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(primary), System.Text.Json.JsonSerializer.Serialize(rows[primary.path]));
+            if (condition == "alias-removed") { Assert.IsFalse(rows.ContainsKey(alias.path), "削除された承認行を復活させません。"); }
+            else { Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(alias), System.Text.Json.JsonSerializer.Serialize(rows[alias.path])); }
         });
     }
 

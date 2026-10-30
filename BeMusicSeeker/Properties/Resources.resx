@@ -3212,7 +3212,7 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="LibraryDirectoryPreflightCauseAccessDenied" xml:space="preserve"><value>フォルダを読み取る権限がありません。</value></data>
   <data name="LibraryDirectoryPreflightCauseNotDirectory" xml:space="preserve"><value>指定先がフォルダではありません。</value></data>
   <data name="LibraryDirectoryPreflightCauseInvalidPath" xml:space="preserve"><value>パスの形式が不正です。</value></data>
-  <data name="LibraryDirectoryPreflightCauseInvalidConfiguration" xml:space="preserve"><value>追加出力先の設定形式が不正です。</value></data>
+  <data name="LibraryDirectoryPreflightCauseInvalidConfiguration" xml:space="preserve"><value>ライブラリのディレクトリ設定が不正です。</value></data>
   <data name="LibraryDirectoryPreflightCauseIo" xml:space="preserve"><value>フォルダを読み取れません。</value></data>
   <data name="LibraryDirectoryPreflightCauseWrite" xml:space="preserve"><value>出力先へ一時確認ファイルを書き込めません。</value></data>
   <data name="LibraryDirectoryPreflightCauseCleanup" xml:space="preserve"><value>一時確認ファイルを削除できません。</value></data>
@@ -4102,4 +4102,7 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="ChartPropertiesCp932AlternativeInterpretation" xml:space="preserve">
     <value>LR2用の別解釈（CP932・通常の解釈と併記される場合があります）</value>
   </data>
+  <data name="Validation_Lr2BuiltinCustomFolderReservedFormat" xml:space="preserve"><value>{0}には、LR2組込みカスタムフォルダの予約領域を指定できません。
+指定先: {1}
+組込みフォルダ: {2}</value></data>
 </root>

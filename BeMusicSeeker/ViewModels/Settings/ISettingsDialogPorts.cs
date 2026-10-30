@@ -157,7 +157,6 @@ internal interface ISettingsDialogSearchRootRuntimePort
 {
     bool HasOwnedChartUnderRealPath(string directoryPath);
 
-    void InvalidateLibraryFolderCache();
 }
 
 internal interface ISettingsDialogPlayerFactoryPort

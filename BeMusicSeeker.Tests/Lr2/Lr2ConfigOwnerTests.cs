@@ -17,7 +17,7 @@ public sealed class Lr2ConfigOwnerTests
     [TestMethod]
     public void AdoptedDocumentIgnoresExternalChangesAndPreservesUnknownXmlOnSave()
     {
-        WithConfig("<config vendor='original'><system><customfolder>7</customfolder><titleflash>12</titleflash></system><player><id>original</id></player><jukebox vendor='jukebox'><unknown value='keep'/><path marker='retained'>A</path></jukebox><future>keep</future></config>", (path, owner) =>
+        WithConfig("<config vendor='original'><system><customfolder>7</customfolder><titleflash>12</titleflash></system><player><id>original</id></player><jukebox vendor='jukebox'><unknown value='keep'/><path marker='retained'>{ROOT}\\A\\</path></jukebox><future>keep</future></config>", (path, owner) =>
         {
             Lr2ConfigSnapshot first = owner.Capture();
             Assert.AreEqual("original", first.PlayerId);
@@ -83,7 +83,7 @@ public sealed class Lr2ConfigOwnerTests
             string finalRoot = reviseCandidate ? "C" : "B";
             if (reviseCandidate)
             {
-                bms = owner.SaveOutputRoots(oldInput.RegisteredRoots, ["C", g]);
+                bms = owner.SaveRoots(new Lr2RootChange(oldInput.RegisteredRoots.Concat(owner.CaptureSaved().RegisteredRoots), ["C", g]), publish: false, forceSave: true);
             }
             owner.SaveRoots(new Lr2RootChange([g], []));
             CollectionAssert.AreEqual(new[] { "A" }, owner.Capture().RegisteredRoots.Select(Path.GetFileName).ToArray());
@@ -174,6 +174,46 @@ public sealed class Lr2ConfigOwnerTests
         });
     }
 
+    /// <summary>dot・親要素の読取りは無保存で解決し、同drive相対の要求もLR2 root基準で保存・公開します。正規化後の空差分でも未知情報と順序を保ち絶対本文へ揃えます。</summary>
+    [TestMethod]
+    public void EmptyRootChange_NormalizesRelativeTextWithoutLosingXmlInformation()
+    {
+        WithConfig("<config><jukebox marker='keep'><path order='one'>.\\A</path><future/><path order='two'>.\\LR2files\\..\\B</path></jukebox></config>", (path, owner) =>
+        {
+            string before = File.ReadAllText(path);
+            string[] roots = owner.Capture().RegisteredRoots.ToArray();
+            string root = Directory.GetParent(path)?.Parent?.Parent?.FullName ?? throw new AssertFailedException();
+            CollectionAssert.AreEqual(new[] { Path.Combine(root, "A"), Path.Combine(root, "B") }, roots);
+            Assert.AreEqual(before, File.ReadAllText(path));
+            string drive = Path.GetPathRoot(root)?.TrimEnd('\\') ?? throw new AssertFailedException();
+            string[] requested = [drive + @".\A", drive + @".\LR2files\..\B"];
+            owner.SaveRoots(new Lr2RootChange(roots, requested));
+            XElement jukebox = XDocument.Load(path).Root?.Element("jukebox") ?? throw new AssertFailedException();
+            Assert.AreEqual("keep", jukebox.Attribute("marker")?.Value);
+            CollectionAssert.AreEqual(new[] { "path", "future", "path" }, jukebox.Elements().Select(element => element.Name.LocalName).ToArray());
+            CollectionAssert.AreEqual(roots.Select(root => root + "\\").ToArray(), jukebox.Elements("path").Select(element => element.Value).ToArray());
+            CollectionAssert.AreEqual(new[] { "one", "two" }, jukebox.Elements("path").Select(element => element.Attribute("order")?.Value).ToArray());
+            CollectionAssert.AreEqual(roots, owner.Capture().RegisteredRoots.ToArray());
+            CollectionAssert.AreEqual(roots, owner.CaptureSaved().RegisteredRoots.ToArray());
+            using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.None)) { owner.SaveRoots(new Lr2RootChange(roots, requested)); }
+        });
+    }
+
+    /// <summary>大小文字だけの登録変更を元位置に保存・限定公開し、別操作の保存済み未公開rootを公開しません。</summary>
+    [TestMethod]
+    public void CaseOnlyRootChange_ReplacesInPlaceAndPublishesOnlyItsDelta()
+    {
+        WithConfig("<config><jukebox><path>A</path><path>B</path><path>C</path></jukebox></config>", (_, owner) =>
+        {
+            string[] before = owner.Capture().RegisteredRoots.ToArray();
+            owner.SaveRoots(new Lr2RootChange([], ["Private"]), publish: false);
+            string changed = before[1].ToLowerInvariant();
+            owner.SaveRoots(new Lr2RootChange([before[1]], [changed]));
+            CollectionAssert.AreEqual(new[] { before[0], changed, before[2] }, owner.Capture().RegisteredRoots.ToArray());
+            Assert.AreEqual(4, owner.CaptureSaved().RegisteredRoots.Count);
+        });
+    }
+
     private static void WithConfig(string xml, Action<string, Lr2ConfigOwner> run)
     {
         string root = Path.Combine(Path.GetTempPath(), "BmsLr2Owner", Guid.NewGuid().ToString("N"));
@@ -182,7 +222,7 @@ public sealed class Lr2ConfigOwnerTests
         string path = Path.Combine(configDirectory, "config.xml");
         try
         {
-            File.WriteAllText(path, xml);
+            File.WriteAllText(path, xml.Replace("{ROOT}", root, StringComparison.Ordinal));
             run(path, new Lr2ConfigOwner(new LR2Config(path)));
         }
         finally { Directory.Delete(root, recursive: true); }

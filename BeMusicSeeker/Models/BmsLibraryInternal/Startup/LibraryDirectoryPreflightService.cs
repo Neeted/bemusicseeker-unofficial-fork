@@ -43,7 +43,7 @@ internal enum LibraryDirectoryPreflightFailureCause
     NotDirectory,
     /// <summary>設定されたパスを解釈できません。</summary>
     InvalidPath,
-    /// <summary>出力先一覧の設定形式を解釈できません。</summary>
+    /// <summary>出力先一覧の形式または受理する設定の配置条件が不正です。</summary>
     InvalidConfiguration,
     /// <summary>属性取得または列挙で入出力エラーが発生しました。</summary>
     Io,
@@ -220,6 +220,9 @@ internal interface ILibraryDirectoryPreflightFileSystem
 /// </summary>
 internal sealed class LibraryDirectoryPreflightService
 {
+    /// <summary>既知のリソース化済み予約領域理由だけを通知へ渡す診断識別子です。任意の内側例外の表示には使いません。</summary>
+    internal const string ReservedBuiltinCustomFolderReason = "reserved_builtin_custom_folder";
+
     private static readonly byte[] OutputProbeBytes = [0x42, 0x4D, 0x53];
 
     private readonly ILibraryDirectoryPreflightFileSystem fileSystem;
@@ -282,6 +285,30 @@ internal sealed class LibraryDirectoryPreflightService
         foreach (LibraryDirectoryPreflightOutputBase outputBase in request.OutputBaseTargets)
         {
             ProbeOutputBase(outputBase, probeOutputBases);
+        }
+    }
+
+    /// <summary>起動の設定受理時に、出力基点による利用可能性検査の除外前の登録全体と出力基点を一度だけ検査します。通常走査では呼びません。</summary>
+    internal static void ValidateSettingsAcceptance(IEnumerable<string> registeredRoots, LibraryDirectoryPreflightRequest request, BmsLibraryOptionsSnapshot options)
+    {
+        foreach (string root in NormalizeDirectories(registeredRoots, LibraryDirectoryPreflightUse.BmsRoot))
+        { ValidateReservedDirectory(root, options.LR2RootPath, LibraryDirectoryPreflightUse.BmsRoot, null); }
+        foreach (LibraryDirectoryPreflightOutputBase outputBase in request.OutputBaseTargets)
+        { ValidateReservedDirectory(outputBase.DirectoryPath, options.LR2RootPath, LibraryDirectoryPreflightUse.Lr2OutputBase, outputBase.Kind); }
+    }
+
+    private static void ValidateReservedDirectory(string path, string lr2Root, LibraryDirectoryPreflightUse use, LibraryDirectoryPreflightOutputBaseKind? kind)
+    {
+        try
+        {
+            CustomFolderOutputBaseSearchRootSyncService.ValidateOutsideBuiltinCustomFolder(path, lr2Root,
+                use == LibraryDirectoryPreflightUse.BmsRoot ? BeMusicSeeker.Properties.Resources.LibraryDirectoryPreflightBmsRootRole
+                    : BeMusicSeeker.Properties.Resources.Label_CustomFolderOutputBase,
+                isOutputBase: use == LibraryDirectoryPreflightUse.Lr2OutputBase);
+        }
+        catch (ArgumentException failure)
+        {
+            throw CreateFailure(use, path, LibraryDirectoryPreflightFailureCause.InvalidConfiguration, ReservedBuiltinCustomFolderReason, kind, innerException: failure);
         }
     }
 
@@ -453,7 +480,7 @@ internal sealed class LibraryDirectoryPreflightService
         return targets;
     }
 
-    private List<string> NormalizeDirectories(
+    private static List<string> NormalizeDirectories(
         IEnumerable<string> directories,
         LibraryDirectoryPreflightUse use)
     {

@@ -1181,7 +1181,7 @@
   "LibraryDirectoryPreflightCauseAccessDenied": "The folder could not be read because access was denied.",
   "LibraryDirectoryPreflightCauseNotDirectory": "The selected path is not a folder.",
   "LibraryDirectoryPreflightCauseInvalidPath": "The path is invalid.",
-  "LibraryDirectoryPreflightCauseInvalidConfiguration": "The additional output-folder configuration is invalid.",
+  "LibraryDirectoryPreflightCauseInvalidConfiguration": "The library directory configuration is invalid.",
   "LibraryDirectoryPreflightCauseIo": "The folder could not be read.",
   "LibraryDirectoryPreflightCauseWrite": "A temporary write probe could not be written to the output folder.",
   "LibraryDirectoryPreflightCauseCleanup": "The temporary write probe could not be removed.",
@@ -1387,5 +1387,6 @@
   "ChartPropertiesSatisfied": "A compatible resource exists",
   "ChartPropertiesCountedUnfulfilled": "Counted as an individual unfulfilled requirement",
   "ChartPropertiesNotCounted": "Excluded from required resources",
-  "ChartPropertiesCp932AlternativeInterpretation": "Alternative interpretation for LR2 (CP932; may appear alongside the normal interpretation)"
+  "ChartPropertiesCp932AlternativeInterpretation": "Alternative interpretation for LR2 (CP932; may appear alongside the normal interpretation)",
+  "Validation_Lr2BuiltinCustomFolderReservedFormat": "{0} cannot use a reserved location for LR2 built-in custom folders.\nSelected: {1}\nBuilt-in folder: {2}"
 }

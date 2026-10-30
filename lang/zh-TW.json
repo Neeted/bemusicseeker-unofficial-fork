@@ -1181,7 +1181,7 @@
   "LibraryDirectoryPreflightCauseAccessDenied": "沒有讀取資料夾的權限。",
   "LibraryDirectoryPreflightCauseNotDirectory": "指定路徑不是資料夾。",
   "LibraryDirectoryPreflightCauseInvalidPath": "路徑格式無效。",
-  "LibraryDirectoryPreflightCauseInvalidConfiguration": "追加輸出資料夾設定無效。",
+  "LibraryDirectoryPreflightCauseInvalidConfiguration": "曲庫目錄設定無效。",
   "LibraryDirectoryPreflightCauseIo": "無法讀取資料夾。",
   "LibraryDirectoryPreflightCauseWrite": "無法在輸出資料夾中寫入暫時檢查檔案。",
   "LibraryDirectoryPreflightCauseCleanup": "無法刪除暫時檢查檔案。",
@@ -1387,5 +1387,6 @@
   "ChartPropertiesSatisfied": "相容的資源存在",
   "ChartPropertiesCountedUnfulfilled": "個別計為未滿足的資源需求",
   "ChartPropertiesNotCounted": "不計入資源需求數",
-  "ChartPropertiesCp932AlternativeInterpretation": "LR2 的另一種解讀（CP932，可能與一般解讀同時顯示）"
+  "ChartPropertiesCp932AlternativeInterpretation": "LR2 的另一種解讀（CP932，可能與一般解讀同時顯示）",
+  "Validation_Lr2BuiltinCustomFolderReservedFormat": "{0}不能使用 LR2 內建自訂資料夾的保留區域。\n指定位置: {1}\n內建資料夾: {2}"
 }

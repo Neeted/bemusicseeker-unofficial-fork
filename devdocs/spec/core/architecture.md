@@ -136,12 +136,17 @@ BASS・7zは `libs/x64`、Everything連携は `native`、言語ファイルは `
 
 確定利用者BMS登録は、共有Settingsと採用済みLR2所有者へ接続した `BmsRootRegistrationStore` が読取り・関連保存・全必要保存後の限定公開を担当します。候補はSettings、削除scope・保護・物理成功からの解除判断はLibraryが所有します。standaloneの可変runtime登録一覧と手動配送は持たず、要求ごとの不変snapshotを同じ確定readerから作ります。
 
+組込みカスタムフォルダの予約領域は、起動・環境変更・出力区分・BMS登録の既存設定受理主体で検査します。通常の表編集・移行・出力・同期には再検査や検査済みstateを置きません。初期設定の逐次訂正は選択区分の保存と登録exact差分に限定し、全体受理前にprofile/backendを構築しません。予約範囲と旧物理配置の保全は[設定](../runtime/settings.md#カスタムフォルダと検索対象)を正本とします。
+
 LR2設定の全文正本は構成寿命の `Lr2ConfigOwner` が所有し、`Lr2ConfigSession` が採用先を保持します。LibraryProfile・設定画面・Playlist・LR2bodyはこの所有者を共用し、XML全文を個別に保持・再読込みするproviderは置きません。実処理は登録と配置を含む変更不能な小さい公開入力、保存計画は操作内の作業コピーを使います。
+
+登録表記の確定は既存の `BmsRootRegistrationStore`、走査入力の保持は既存の `ActiveFileScan` が担当します。保存成功通知はモデルの既存 `BMSParentFolderListCacheVersion` とSettingsの確定値通知へ接続し、別の永続map・cache世代・修復サービスを持ちません。保存と限定公開は[設定保存](../runtime/settings-persistence.md#項目保存と公開)、走査とDBの境界は[起動](../runtime/startup.md#登録rootの表記と走査入力)を正本とします。
 
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 登録保存・走査・確定表示の接続 | `BmsRootRegistrationStore`、`LibraryFileScanPipelineOwner`、`BMSLibrary`、`SettingsDialogViewModel` | 登録の実媒体保証は `BmsRootRegistrationTests`、同じ入力と失敗終端は `LibraryFileScanPipelineOwnerTests`、標準compositionの確定表示は `SettingDialogEditCompletionTests.BmsConfirmation_CompletesRealFileDiffBeforeClosing` が分担する。親候補のroot/要素境界は `LongPathFileSystemTests.NormalizedDirectoryContainment_RespectsRootAndElementBoundaries`、所持BMS/BMSONと管理外lr2folderの共存は `BmsLibraryParentFolderCacheServiceTests`、Tree/move共通接続は既存 `LibraryFolderTreeViewModelTests` が担う。 |
 | 共通確定登録readerと保存責務 | [`BmsRootRegistrationStore`](../../../BeMusicSeeker/Models/Settings/BmsRootRegistrationStore.cs) | `BmsRootRegistrationTests` が欠落・親子・順序・限定公開を、既存Settings実差分/起動/LR2系列が同readerとownerの接続を分担する。旧可変一覧の不在は差分レビューで確認する。 |
 | LR2全文所有と構成寿命 | [`Lr2ConfigOwner`](../../../BeMusicSeeker/Models/LR2/Lr2ConfigOwner.cs)、[`ApplicationComposition`](../../../BeMusicSeeker/ViewModels/MainWindow/ApplicationComposition.cs) | [`所有者の局所検証`](../../../BeMusicSeeker.Tests/Lr2/Lr2ConfigOwnerTests.cs) が全文と公開入力の区別を、[`構成寿命`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionLr2OwnerTests.cs) がスタンドアロンLR2プレイヤー再生成を確認します。 |
 | 再構築前後のプレイリスト受付と個別storeの分離 | `ApplicationComposition`、`BMSLibrary`、`BmsPlaylistLibraryBindings` | [`ApplicationCompositionTests`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionTests.cs) の `CompositionCreatesPlaylistWithTypedLibraryBindings`は同じ構成のP共有、Lとの分離、個別主体・DB・終了状態、旧終了後の生存権限借用と別構成の権限拒否を確認する。 |

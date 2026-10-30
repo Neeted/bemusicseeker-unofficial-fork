@@ -583,7 +583,6 @@ public partial class SettingsDialogViewModel
                 }
                 DiscardConflictingCandidates(ConflictingCandidates.Lr2Details);
                 bmsRootRegistrations.SaveUserRoots(roots, install);
-                RaiseConfirmedBmsSelectionChanged();
                 RefreshBmsRootCandidatesFromSettings();
                 ReplacementBmsInstallDir = null;
                 if (statePort.HasActiveLibraryProfile)
@@ -803,6 +802,29 @@ public partial class SettingsDialogViewModel
         if (change == EnvironmentSettingsChange.Capture(ApplicationSettings)) { SetOperationModeSelection(ApplicationSettings.OperationModeLR2DB); return; }
         if (!modeOnly && change.OperationModeLR2DB && (!IsLR2SongDBPathValid(change.LR2SongDBPath)
             || !lr2ConfigSession.TryResolve(change.LR2ConfigXmlPath, out candidateOwner, adoptInitial: false))) { return; }
+        if (!modeOnly)
+        {
+            try
+            {
+                IEnumerable<string> roots = change.OperationModeLR2DB
+                    ? (candidateOwner ?? GetConfirmedLr2Owner())?.Capture().RegisteredRoots ?? []
+                    : BmsRootRegistrationStore.CaptureStandaloneRoots(ApplicationSettings);
+                foreach (string path in roots)
+                {
+                    CustomFolderOutputBaseSearchRootSyncService.ValidateOutsideBuiltinCustomFolder(path, change.LR2RootPath, Resources.LibraryDirectoryPreflightBmsRootRole);
+                }
+                if (change.OperationModeLR2DB)
+                {
+                    foreach (string path in new[] { ApplicationSettings.LR2CustomFolderOutputBaseDir, ApplicationSettings.LR2CustomFolderOutputBaseDirRootType }
+                        .Concat(CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs)))
+                    {
+                        CustomFolderOutputBaseSearchRootSyncService.ValidateOutsideBuiltinCustomFolder(path, change.LR2RootPath, Resources.Label_CustomFolderOutputBase, isOutputBase: true);
+                    }
+                }
+            }
+            catch (ArgumentException failure) { ShowSettingValidationError(failure.Message); return; }
+        }
+
         if (!statePort.HasActiveLibraryProfile)
         {
             try
@@ -812,7 +834,7 @@ public partial class SettingsDialogViewModel
                 change.Commit(ApplicationSettings);
                 if (candidateOwner != null) { lr2ConfigSession.Adopt(candidateOwner); }
                 // 初回のモード・LR2 root保存も、次の初期化が捕捉する既存の確定配置へ同じ組を公開します。
-                publishOutputPlacement();
+                publishOutputPlacement(CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings));
 
                 CancelEnvironment();
                 RefreshParsedLr2ConfigState(showSelectionError: false, useLr2Mode: ApplicationSettings.OperationModeLR2DB);
@@ -938,11 +960,33 @@ public partial class SettingsDialogViewModel
 
 
 
+    /// <summary>初期設定の段階訂正では未設定・旧予約領域だけを他区分の衝突根拠から外し、有効な既存基点の一般検査を維持します。</summary>
+    private CustomFolderOutputSettingsSnapshot CaptureOutputValidationPlacement(CustomFolderOutputSettingsSnapshot target, string section)
+    {
+        if (statePort.HasActiveLibraryProfile || section == null) { return target; }
+        IReadOnlyList<string> previousAdditional = CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs);
+        IEnumerable<string> additional = GetOutputAdditionalPaths(target).Where(path => section == "additional"
+            ? !previousAdditional.Any(old => CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(old, path)
+                && IsUncorrectedOutputBase(old, target.LR2RootPath))
+            : !IsUncorrectedOutputBase(path, target.LR2RootPath));
+        return CopyOutputPlacement(target,
+            normal: section == "normal" || !IsUncorrectedOutputBase(target.LR2CustomFolderOutputBaseDir, target.LR2RootPath)
+                ? target.LR2CustomFolderOutputBaseDir : string.Empty,
+            root: section == "root" || !IsUncorrectedOutputBase(target.LR2CustomFolderOutputBaseDirRootType, target.LR2RootPath)
+                ? target.LR2CustomFolderOutputBaseDirRootType : string.Empty,
+            additional: CustomFolderOutputBaseRegistry.SerializeBaseDirectories(additional));
+    }
+
+    // profile未構築時だけ、未設定または旧予約領域の訂正を他の一般配置制約より先に進めます。
+    private bool IsUncorrectedOutputBase(string path, string lr2Root)
+        => !statePort.HasActiveLibraryProfile && (string.IsNullOrWhiteSpace(path)
+            || CustomFolderOutputBaseSearchRootSyncService.IsReservedBuiltinCustomFolderPath(path, lr2Root, true));
+
     private IEnumerable<string> GetOutputAdditionalPaths(CustomFolderOutputSettingsSnapshot target)
         => target == null ? CustomFolderAdditionalOutputBaseDirList
             : CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(target.LR2CustomFolderAdditionalOutputBaseDirs);
 
-    /// <summary>今回入力と他区分の最新確定値を保存し、必要header DBの成功後に公開して現在正本から生成します。過去要求は保持しません。</summary>
+    /// <summary>今回区分だけを保存し、他区分の確定値を含む受理targetを全必要保存後に公開します。未構築時は当該区分の訂正だけを行い、物理移行を開始しません。</summary>
     /// <param name="section">normal・root・additionalは当該区分だけを扱い、他区分は最新確定値を使います。</param>
     internal Task CommitOutputSettingsAsync(string section = null) => RunSettingsOperationAsync(() => CommitOutputSettingsCoreAsync(section));
 
@@ -969,23 +1013,16 @@ public partial class SettingsDialogViewModel
             };
             var requestedRenames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             if (customFolderAdditionalOutputBaseRename is { } rename) { requestedRenames.Add(rename.Key, rename.Value); }
+            CustomFolderOutputSettingsSnapshot validationTarget = CaptureOutputValidationPlacement(target, section);
             bool ValidateTarget()
             {
-                try
-                {
-                    ValidateOutputBasePreservesInstallDirectory(target.LR2CustomFolderOutputBaseDir);
-                    ValidateOutputBasePreservesInstallDirectory(target.LR2CustomFolderOutputBaseDirRootType);
-                    foreach (string path in GetOutputAdditionalPaths(target)) { ValidateOutputBasePreservesInstallDirectory(path); }
-                }
-                catch (Exception failure) when (failure is ArgumentException or InvalidOperationException or NotSupportedException or System.IO.PathTooLongException)
-                { ShowSettingValidationError(failure.Message); return false; }
-                // 初回は未設定の別区分を残して順に保存できます。選択対象と設定済みの配置は検証し、開始時は両必須値を別途検証します。
-                bool requireNormal = statePort.HasActiveLibraryProfile || section is null or "normal" || !string.IsNullOrWhiteSpace(target.LR2CustomFolderOutputBaseDir);
-                bool requireRoot = statePort.HasActiveLibraryProfile || section is null or "root" || !string.IsNullOrWhiteSpace(target.LR2CustomFolderOutputBaseDirRootType);
                 string error;
-                if ((requireNormal && !ValidateCustomFolderOutputBaseDir(target.LR2CustomFolderOutputBaseDir, out error, target: target))
-                    || (requireRoot && !ValidateCustomFolderAsRootOutputBaseDir(target.LR2CustomFolderOutputBaseDirRootType, out error, target: target))
-                    || !ValidateCustomFolderAdditionalOutputBaseDirs(out error, target)) { ShowSettingValidationError(error); return false; }
+                bool normal = statePort.HasActiveLibraryProfile || section is null or "normal";
+                bool root = statePort.HasActiveLibraryProfile || section is null or "root";
+                bool additional = statePort.HasActiveLibraryProfile || section is null or "additional";
+                if ((normal && !ValidateCustomFolderOutputBaseDir(validationTarget.LR2CustomFolderOutputBaseDir, out error, target: validationTarget))
+                    || (root && !ValidateCustomFolderAsRootOutputBaseDir(validationTarget.LR2CustomFolderOutputBaseDirRootType, out error, target: validationTarget))
+                    || (additional && !ValidateCustomFolderAdditionalOutputBaseDirs(out error, validationTarget))) { ShowSettingValidationError(error); return false; }
                 return true;
             }
             if (!ValidateTarget()) { return; }
@@ -1006,15 +1043,29 @@ public partial class SettingsDialogViewModel
                     using (LibraryFileMutationCapability capability = playlistLease.CreateMutationCapability())
                     {
                         if (!ValidateTarget()) { return; }
+                        try
+                        {
+                            if (target.OperationModeLR2DB)
+                            {
+                                foreach ((string path, string label) in new[]
+                                {
+                                    (validationTarget.LR2CustomFolderOutputBaseDir, Resources.Label_NormalOutputBase),
+                                    (validationTarget.LR2CustomFolderOutputBaseDirRootType, Resources.Label_RootOutputBase)
+                                }.Concat(GetOutputAdditionalPaths(validationTarget).Select(path => (path, Resources.Label_AdditionalOutputBaseFolder))))
+                                { CustomFolderOutputBaseSearchRootSyncService.ValidateOutsideBuiltinCustomFolder(path, target.LR2RootPath, label, isOutputBase: true); }
+                            }
+                        }
+                        catch (ArgumentException failure) { ShowSettingValidationError(failure.Message); return; }
                         IReadOnlyDictionary<string, string> renames = section is null or "additional"
                             ? requestedRenames : new Dictionary<string, string>();
-                        customFolderOutputPort.ValidateCustomFolderOutputRegistration(target, renames);
+                        if (statePort.HasActiveLibraryProfile) { customFolderOutputPort.ValidateCustomFolderOutputRegistration(target, renames); }
                         DiscardConflictingCandidates(ConflictingCandidates.Bms | ConflictingCandidates.Lr2Details);
                         accepted = true;
-                        (string Name, object Value)[] values = [
-                            (nameof(Settings.LR2CustomFolderOutputBaseDir), target.LR2CustomFolderOutputBaseDir),
-                            (nameof(Settings.LR2CustomFolderOutputBaseDirRootType), target.LR2CustomFolderOutputBaseDirRootType),
-                            (nameof(Settings.LR2CustomFolderAdditionalOutputBaseDirs), target.LR2CustomFolderAdditionalOutputBaseDirs)];
+                        var selectedValues = new List<(string Name, object Value)>();
+                        if (section is null or "normal") { selectedValues.Add((nameof(Settings.LR2CustomFolderOutputBaseDir), target.LR2CustomFolderOutputBaseDir)); }
+                        if (section is null or "root") { selectedValues.Add((nameof(Settings.LR2CustomFolderOutputBaseDirRootType), target.LR2CustomFolderOutputBaseDirRootType)); }
+                        if (section is null or "additional") { selectedValues.Add((nameof(Settings.LR2CustomFolderAdditionalOutputBaseDirs), target.LR2CustomFolderAdditionalOutputBaseDirs)); }
+                        (string Name, object Value)[] values = selectedValues.ToArray();
                         ApplicationSettings.Persist(values);
                         Lr2RootChange rootChange = null;
                         if (ApplicationSettings.OperationModeLR2DB)
@@ -1022,22 +1073,22 @@ public partial class SettingsDialogViewModel
                             try
                             {
                                 Lr2ConfigOwner owner = GetConfirmedLr2Owner() ?? throw new InvalidOperationException(Resources.Error_InvalidLR2SongDbOrConfigPath);
-                                IReadOnlyList<string> before = owner.Capture().RegisteredRoots;
-                                var latest = LR2Config.CreateRootPlanningDocument(owner.ConfigFilePath, before);
-                                if (statePort.HasActiveLibraryProfile)
+                                if (!statePort.HasActiveLibraryProfile)
                                 {
-                                    latest.SetBMSSearchDirectories(customFolderOutputPort.PrepareCustomFolderOutputSearchRoots(
-                                        previous.LR2CustomFolderOutputBaseDirRootType, target, before, renames));
+                                    rootChange = owner.SaveRoots(PrepareCorrectedOutputRootChange(owner, previous, target, section), publish: false, forceSave: true);
                                 }
-                                // 初回ROOT選択は未修復の通常先に触れず、関係する登録だけを準備してXML自体は必ず再保存します。
-                                if (statePort.HasActiveLibraryProfile || section is null or "normal" or "additional")
+                                else
                                 {
+                                    IReadOnlyList<string> before = owner.Capture().RegisteredRoots;
+                                    var latest = LR2Config.CreateRootPlanningDocument(owner.ConfigFilePath, before);
                                     CustomFolderOutputBaseSearchRootSyncPlan plan = CustomFolderOutputBaseSearchRootSyncService.PrepareNormalOutputBaseRoots(latest,
                                         previous.LR2CustomFolderOutputBaseDir, target.LR2CustomFolderOutputBaseDir,
                                         previous.LR2CustomFolderAdditionalOutputBaseDirs, target.LR2CustomFolderAdditionalOutputBaseDirs, []);
                                     CustomFolderOutputBaseSearchRootSyncService.CompleteAdditionalOutputBaseRootSync(latest, plan);
+                                    latest.SetBMSSearchDirectories(customFolderOutputPort.PrepareCustomFolderOutputSearchRoots(
+                                        previous.LR2CustomFolderOutputBaseDirRootType, target, latest.GetBMSSearchDirectoriesForChangeTracking(), renames));
+                                    rootChange = owner.SaveRoots(new Lr2RootChange(before, latest.GetBMSSearchDirectoriesForChangeTracking()), publish: false, forceSave: true);
                                 }
-                                rootChange = owner.SaveOutputRoots(before, latest.GetBMSSearchDirectoriesForChangeTracking());
                             }
                             catch (Exception failure) { throw new PartialSettingsSaveException(ApplicationSettings.LR2ConfigXmlPath, failure); }
                         }
@@ -1048,8 +1099,8 @@ public partial class SettingsDialogViewModel
                         }
                         ApplicationSettings.Publish(values);
                         AdoptPublishedOutputCandidates(section, target);
-                        publishOutputPlacement();
                         if (rootChange != null) { GetConfirmedLr2Owner().Publish(rootChange, target); }
+                        publishOutputPlacement(target);
                         CancelBmsRoots();
                         RaiseConfirmedBmsSelectionChanged();
                         if (statePort.HasActiveLibraryProfile)
@@ -1126,6 +1177,37 @@ public partial class SettingsDialogViewModel
             PlaylistDefaultIgnoreFolderOutput = source.PlaylistDefaultIgnoreFolderOutput,
             ShowRecommUpdatedMsg = source.ShowRecommUpdatedMsg
         };
+
+    /// <summary>初期設定の当該区分だけを訂正し、旧物理配置や未読込み表を移行へ渡さず、既知exact登録の差分だけを返します。</summary>
+    private Lr2RootChange PrepareCorrectedOutputRootChange(Lr2ConfigOwner owner,
+        CustomFolderOutputSettingsSnapshot previous, CustomFolderOutputSettingsSnapshot target, string section)
+    {
+        IReadOnlyList<string> published = owner.Capture().RegisteredRoots;
+        IReadOnlyList<string> saved = owner.CaptureSaved().RegisteredRoots;
+        IReadOnlyList<string> oldAdditional = CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(previous.LR2CustomFolderAdditionalOutputBaseDirs);
+        IReadOnlyList<string> nextAdditional = CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(target.LR2CustomFolderAdditionalOutputBaseDirs);
+        IEnumerable<string> oldSelected = (section is null or "normal" ? new[] { previous.LR2CustomFolderOutputBaseDir } : [])
+            .Concat(section is null or "additional" ? oldAdditional : []);
+        IEnumerable<string> nextSelected = (section is null or "normal" ? new[] { target.LR2CustomFolderOutputBaseDir } : [])
+            .Concat(section is null or "additional" ? nextAdditional : []);
+        string[] removable = published.Concat(saved).Distinct(StringComparer.OrdinalIgnoreCase).Where(path =>
+            (oldSelected.Any(old => CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(old, path))
+                && !nextSelected.Any(next => CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(next, path)))
+            || ((section is null or "root") && CustomFolderOutputBaseSearchRootSyncService.IsReservedBuiltinCustomFolderPath(path, target.LR2RootPath, false))).ToArray();
+        string[] added = (section is null or "normal" ? new[] { target.LR2CustomFolderOutputBaseDir } : [])
+            .Concat(section is null or "additional" ? nextAdditional.Where(path => !oldAdditional.Any(old =>
+                CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(old, path))) : [])
+            .Where(path => !string.IsNullOrWhiteSpace(path)).ToArray();
+        // 未修正の既知旧管理exactは設定訂正の衝突根拠にせず、実XMLからは今回のremovableだけを除きます。
+        string[] previousManaged = new[] { previous.LR2CustomFolderOutputBaseDir, previous.LR2CustomFolderOutputBaseDirRootType }.Concat(oldAdditional).ToArray();
+        var draft = LR2Config.CreateRootPlanningDocument(owner.ConfigFilePath, published.Where(path =>
+            !previousManaged.Any(old => CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(old, path))
+            && !removable.Contains(path, StringComparer.OrdinalIgnoreCase)).ToArray());
+        CustomFolderOutputBaseSearchRootSyncPlan plan = CustomFolderOutputBaseSearchRootSyncService.PrepareAdditionalOutputBaseRoots(draft,
+            "[]", CustomFolderOutputBaseRegistry.SerializeBaseDirectories(added), []);
+        CustomFolderOutputBaseSearchRootSyncService.CompleteAdditionalOutputBaseRootSync(draft, plan);
+        return new Lr2RootChange(removable, added);
+    }
 
     private static bool SameOutputPlacement(CustomFolderOutputSettingsSnapshot left, CustomFolderOutputSettingsSnapshot right)
         => string.Equals(left.LR2CustomFolderOutputBaseDir, right.LR2CustomFolderOutputBaseDir, StringComparison.OrdinalIgnoreCase)

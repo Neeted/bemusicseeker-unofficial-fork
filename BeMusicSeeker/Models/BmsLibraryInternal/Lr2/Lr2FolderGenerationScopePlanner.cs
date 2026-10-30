@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
 
@@ -20,8 +21,7 @@ internal static class Lr2FolderGenerationScopePlanner
 {
     private const int NormalFolderType = 1;
 
-    private static readonly IEqualityComparer<string> PathComparer = StringComparer.OrdinalIgnoreCase;
-
+    /// <summary>生成集合と保存済みrawキーを完全一致で比較します。物理root包含は大小文字を区別せず、局所exact整理指定はOrdinalを保ちます。</summary>
     internal static Lr2FolderGenerationSyncPlan PlanNormalDirectorySync(
         Lr2FolderGenerationResult generation,
         IEnumerable<LR2SongDB.folder> existingRows,
@@ -35,34 +35,22 @@ internal static class Lr2FolderGenerationScopePlanner
         }
 
         List<LR2SongDB.folder> existingRowList = [.. existingRows ?? []];
-        Dictionary<string, List<LR2SongDB.folder>> existingNormalRowsByKey = CreateExistingNormalRowMap(existingRowList);
-        HashSet<string> nonNormalKeys = CreateNonNormalKeySet(existingRowList);
-        var generatedKeys = new HashSet<string>(PathComparer);
-        var generatedExactPaths = new HashSet<string>(StringComparer.Ordinal);
+        var existingNormalRowsByKey = existingRowList
+            .Where(IsNormalDirectoryRow).ToDictionary(row => row.path, StringComparer.Ordinal);
+        var nonNormalKeys = new HashSet<string>(existingRowList
+            .Where(row => row != null && !IsNormalDirectoryRow(row)).Select(row => row.path), StringComparer.Ordinal);
+        var generatedKeys = new HashSet<string>(StringComparer.Ordinal);
         var upserts = new List<LR2SongDB.folder>();
         bool allowPrune = generation.SkippedMissingMetadataCount == 0;
         foreach (LR2SongDB.folder row in generation.Rows ?? [])
         {
-            string path = Lr2FolderPath.ToFolderPath(row?.path);
-            if (string.IsNullOrWhiteSpace(path) || generatedKeys.Contains(path) || nonNormalKeys.Contains(path))
+            string path = row?.path;
+            if (string.IsNullOrWhiteSpace(path) || !generatedKeys.Add(path) || nonNormalKeys.Contains(path))
             {
                 continue;
             }
-
-            generatedKeys.Add(path);
-            generatedExactPaths.Add(row.path);
-            LR2SongDB.folder exactExisting = null;
-            if (existingNormalRowsByKey.TryGetValue(path, out List<LR2SongDB.folder> existingCandidates))
-            {
-                exactExisting = existingCandidates.FirstOrDefault(candidate => string.Equals(candidate.path, row.path, StringComparison.Ordinal));
-            }
-
-            if (exactExisting == null && existingCandidates?.Count > 0 && !allowPrune)
-            {
-                continue;
-            }
-
-            if (exactExisting == null || !AreEquivalent(row, exactExisting))
+            if (!existingNormalRowsByKey.TryGetValue(path, out LR2SongDB.folder existing)
+                || !AreEquivalent(row, existing))
             {
                 upserts.Add(row);
             }
@@ -73,18 +61,18 @@ internal static class Lr2FolderGenerationScopePlanner
             ? roots
             : NormalizeRoots(pruneScopeDirectories);
         var pruneExactPaths = new HashSet<string>(
-            NormalizeExactDirectories(pruneExactDirectories)
-                .Select(Lr2FolderPath.ToFolderPath)
-                .Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.Ordinal);
+            (pruneExactDirectories ?? []).Select(Lr2FolderPath.ToFolderPath)
+                .Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.Ordinal);
         var deletes = new List<string>();
         foreach (LR2SongDB.folder row in existingRowList)
         {
-            string path = Lr2FolderPath.ToFolderPath(row?.path);
-            if (string.IsNullOrWhiteSpace(path)
+            // 未補正relativeをCWDやdrive-currentで補完して整理範囲へ取り込みません。
+            string directory = row?.path != null && Path.IsPathFullyQualified(row.path)
+                ? Lr2FolderPath.NormalizeDirectoryPath(row.path) : null;
+            if (string.IsNullOrWhiteSpace(directory)
                 || !IsNormalDirectoryRow(row)
-                || generatedExactPaths.Contains(row.path)
-                || (!IsInScope(path, pruneScopes) && !pruneExactPaths.Contains(path)))
+                || generatedKeys.Contains(row.path)
+                || (!IsInScope(directory, pruneScopes) && !pruneExactPaths.Contains(row.path)))
             {
                 continue;
             }
@@ -98,50 +86,6 @@ internal static class Lr2FolderGenerationScopePlanner
         return new Lr2FolderGenerationSyncPlan(upserts, deletes);
     }
 
-    private static Dictionary<string, List<LR2SongDB.folder>> CreateExistingNormalRowMap(IEnumerable<LR2SongDB.folder> existingRows)
-    {
-        var result = new Dictionary<string, List<LR2SongDB.folder>>(PathComparer);
-        foreach (LR2SongDB.folder row in existingRows ?? [])
-        {
-            if (!IsNormalDirectoryRow(row))
-            {
-                continue;
-            }
-
-            string path = Lr2FolderPath.ToFolderPath(row?.path);
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                continue;
-            }
-            if (!result.TryGetValue(path, out List<LR2SongDB.folder> rows))
-            {
-                rows = [];
-                result.Add(path, rows);
-            }
-            rows.Add(row);
-        }
-        return result;
-    }
-
-    private static HashSet<string> CreateNonNormalKeySet(IEnumerable<LR2SongDB.folder> existingRows)
-    {
-        var result = new HashSet<string>(PathComparer);
-        foreach (LR2SongDB.folder row in existingRows ?? [])
-        {
-            if (row == null || IsNormalDirectoryRow(row))
-            {
-                continue;
-            }
-
-            string path = Lr2FolderPath.ToFolderPath(row.path);
-            if (!string.IsNullOrWhiteSpace(path))
-            {
-                result.Add(path);
-            }
-        }
-        return result;
-    }
-
     private static List<string> NormalizeRoots(IEnumerable<string> rootDirectories)
     {
         return [.. (rootDirectories ?? [])
@@ -150,19 +94,11 @@ internal static class Lr2FolderGenerationScopePlanner
             .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
-    private static List<string> NormalizeExactDirectories(IEnumerable<string> directories)
-    {
-        return [.. (directories ?? [])
-            .Select(Lr2FolderPath.NormalizeDirectoryPath)
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.Ordinal)];
-    }
-
     private static bool IsInScope(string folderPath, IEnumerable<string> roots)
     {
         foreach (string root in roots)
         {
-            if (Lr2FolderPath.IsSameOrDescendant(folderPath, root))
+            if (Lr2FolderPath.IsSameOrDescendantNormalized(folderPath, root))
             {
                 return true;
             }

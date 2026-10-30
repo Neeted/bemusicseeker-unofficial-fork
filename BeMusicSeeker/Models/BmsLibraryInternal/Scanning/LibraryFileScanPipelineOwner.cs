@@ -27,6 +27,8 @@ internal sealed class LibraryFileScanPipelineOwner
 
         internal BmsLibraryOptionsSnapshot Options { get; init; }
 
+        internal BmsLibraryOptionsSnapshot RegistrationInput { get; init; }
+
         internal List<string> RootDirectories { get; init; }
 
         internal LibraryDirectoryPreflightRequest DirectoryPreflightRequest { get; init; }
@@ -36,8 +38,6 @@ internal sealed class LibraryFileScanPipelineOwner
         internal Action<LibraryScanWarning> WarningObserver { get; init; }
 
         internal Task<ChartScanPrefetchInfo> ChartScanPrefetchTask { get; set; }
-
-        internal Task<Lr2NormalFolderMtimeSnapshot> NormalFolderMtimeSnapshotTask { get; set; }
 
         internal bool Applying { get; set; }
     }
@@ -99,6 +99,8 @@ internal sealed class LibraryFileScanPipelineOwner
 
     private readonly LibraryDirectoryPreflightService directoryPreflightService;
 
+    private readonly BmsRootRegistrationStore bmsRootRegistrations;
+
     private readonly object fileScanGate = new();
 
     private ActiveFileScan activeFileScan;
@@ -140,7 +142,7 @@ internal sealed class LibraryFileScanPipelineOwner
         EverythingNative everythingNative,
         IChartFileScanner chartFileScanner = null,
         IRootFileEnumerator rootFileEnumerator = null,
-        LibraryDirectoryPreflightService directoryPreflightService = null)
+        LibraryDirectoryPreflightService directoryPreflightService = null, BmsRootRegistrationStore bmsRootRegistrations = null)
     {
         this.dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
         this.catalogOwnedCollectionOwner = catalogOwnedCollectionOwner ?? throw new ArgumentNullException(nameof(catalogOwnedCollectionOwner));
@@ -177,6 +179,7 @@ internal sealed class LibraryFileScanPipelineOwner
         this.chartFileScanner = chartFileScanner;
         this.rootFileEnumerator = rootFileEnumerator;
         this.directoryPreflightService = directoryPreflightService ?? new LibraryDirectoryPreflightService();
+        this.bmsRootRegistrations = bmsRootRegistrations;
     }
 
     /// <summary>
@@ -190,6 +193,17 @@ internal sealed class LibraryFileScanPipelineOwner
         Action<string> reportScanner = null,
         LibraryDirectoryPreflightRequest directoryPreflightRequest = null, Action<LibraryScanWarning> warningObserver = null)
     {
+        BmsLibraryOptionsSnapshot registrationInput = options;
+        rootDirectories ??= [];
+        var confirmedRoots = (rootDirectories ?? []).Select(LongPathFileSystem.ConfirmDirectoryPathSpelling).ToList();
+        IReadOnlyList<string> ReplaceRoots(IEnumerable<string> roots) => roots.Select(path =>
+            BmsLibraryOptionsSnapshot.ApplyConfirmedRootPrefixes(path, rootDirectories, confirmedRoots)).ToArray();
+        options = options.WithConfirmedRootPrefixes(rootDirectories, confirmedRoots);
+        if (directoryPreflightRequest != null)
+        {
+            directoryPreflightRequest = new LibraryDirectoryPreflightRequest(ReplaceRoots(directoryPreflightRequest.BmsRootDirectories),
+                ReplaceRoots(directoryPreflightRequest.ScanRootDirectories), directoryPreflightRequest.OutputBaseTargets);
+        }
         ActiveFileScan scan;
         lock (fileScanGate)
         {
@@ -203,7 +217,8 @@ internal sealed class LibraryFileScanPipelineOwner
             {
                 Generation = checked(++fileScanGeneration),
                 Options = options,
-                RootDirectories = [.. rootDirectories ?? []],
+                RegistrationInput = registrationInput,
+                RootDirectories = confirmedRoots,
                 Reason = reason ?? string.Empty,
                 DirectoryPreflightRequest = directoryPreflightRequest,
                 WarningObserver = warningObserver
@@ -250,40 +265,6 @@ internal sealed class LibraryFileScanPipelineOwner
         }
     }
 
-    /// <summary>先行mtime読取りを開始し、呼出元にも同じ実Taskを返します。不要なら完了Taskを返します。</summary>
-    internal Task StartActiveNormalFolderMtimeSnapshot(long generation)
-    {
-        ActiveFileScan scan = GetActiveFileScan(generation);
-        lock (fileScanGate)
-        {
-            if (!ReferenceEquals(activeFileScan, scan)
-                || scan.Applying)
-            {
-                throw new InvalidOperationException("The active library file scan is no longer available.");
-            }
-            if (scan.Options?.OperationModeLR2DB != true
-                || scan.RootDirectories.Count == 0
-                || scan.NormalFolderMtimeSnapshotTask != null)
-            {
-                return scan.NormalFolderMtimeSnapshotTask ?? Task.CompletedTask;
-            }
-
-            scan.NormalFolderMtimeSnapshotTask = Task.Run(() =>
-                initializationService.LoadNormalFolderMtimeSnapshot(
-                    dbGateway,
-                    scan.Options,
-                    scan.RootDirectories,
-                    message =>
-                    {
-                        if (IsActiveGeneration(scan.Generation))
-                        {
-                            logInstallPerformance(message);
-                        }
-                    })).LoggingAndPropagate("Lr2NormalFolderMtimeSnapshotPrefetch");
-            return scan.NormalFolderMtimeSnapshotTask;
-        }
-    }
-
     /// <summary>
     /// 準備済み走査の完全性を確認し、全開始子Taskとcleanupを回収して今回の変更不能LR2入力を返します。
     /// 通常の取得失敗とBMS root再検査失敗は警告して非反映にし、出力base・保存・必須反映の失敗は伝播します。
@@ -293,7 +274,8 @@ internal sealed class LibraryFileScanPipelineOwner
         long generation,
         bool trackLibraryFileCheckProgress,
         InstallDestinationCleanupSnapshot installDestinationCleanupSnapshot,
-        Action<Action> postLeaseEffectObserver = null, LibraryFileMutationCapability capability = null)
+        Action<Action> postLeaseEffectObserver = null, LibraryFileMutationCapability capability = null,
+        Lr2FolderTableSnapshot folderTableSnapshot = null, DateTime? generatedAtUtc = null)
     {
         if (installDestinationCleanupSnapshot == null)
         {
@@ -338,22 +320,55 @@ internal sealed class LibraryFileScanPipelineOwner
                     };
                 }
             }
+            List<string> confirmedRoots = ConfirmScanRootSpelling(scan.RootDirectories, chartScanPrefetchInfo?.ScanResult);
+            BmsLibraryOptionsSnapshot confirmedOptions = scan.Options.WithConfirmedRootPrefixes(scan.RootDirectories, confirmedRoots);
+            bool registrationAdopted = false;
             Lr2FolderFileDiffPreparationResult result = ApplyFileScanDiff(
-                scan.Options,
-                scan.RootDirectories,
+                confirmedOptions,
+                confirmedRoots,
                 chartScanPrefetchInfo,
-                scan.NormalFolderMtimeSnapshotTask,
+                folderTableSnapshot,
                 trackLibraryFileCheckProgress,
                 scan.Reason,
                 installDestinationCleanupSnapshot,
-                postLeaseEffectObserver, capability, scan.WarningObserver);
-            return result;
+                postLeaseEffectObserver, capability, scan.WarningObserver,
+                () =>
+                {
+                    bmsRootRegistrations?.SaveRootChanges(scan.RegistrationInput, confirmedOptions);
+                    registrationAdopted = true;
+                }, generatedAtUtc);
+            return registrationAdopted ? result : result.WithFileCheckResult(result.FileCheckResult,
+                new LibraryFileInitializationResult(options: scan.RegistrationInput));
         }
         finally
         {
-            JoinScanChildren(scan);
+            JoinChartScanPrefetch(scan);
             CompleteFileScan(scan);
         }
+    }
+
+    /// <summary>完全な今回の返却面が示す同所prefixを採用します。入力由来のFast root metadataと先行DB行は根拠にしません。</summary>
+    internal static List<string> ConfirmScanRootSpelling(IReadOnlyList<string> roots, ChartScanExecutionResult scan)
+    {
+        if (!IsAuthoritativeChartScan(scan)) { return roots.ToList(); }
+        ChartScanResult surface = scan.Result;
+        bool native = scan.ScanSource == ChartScanSource.Everything;
+        IEnumerable<string> observed = native ? surface.ChartDirectories : [];
+        // Fastのroot自身のEntryは入力から作られます。実際に列挙した子要素だけを補助の根拠にします。
+        observed = observed.Concat(surface.DirectoryEntriesByPath.Values.Select(entry => entry.Path)
+            .Where(path => (native && scan.DirectoryQueryHitCount > 0)
+                || !roots.Any(root => CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(path, root))))
+            .Concat(surface.ChartFilePaths).Concat(surface.TextFileEntriesByPath.Values.Select(entry => entry.Path));
+        var confirmed = new List<string>(roots.Count);
+        foreach (string root in roots)
+        {
+            int length = root.TrimEnd('\\', '/').Length;
+            string fact = observed.FirstOrDefault(path => path != null && path.Length >= length
+                && path.AsSpan(0, length).Equals(root.AsSpan(0, length), StringComparison.OrdinalIgnoreCase)
+                && (path.Length == length || path[length] == '\\' || path[length] == '/'));
+            confirmed.Add(fact == null ? root : string.Concat(fact.AsSpan(0, length), root.AsSpan(length)));
+        }
+        return confirmed;
     }
 
     internal void AbortActiveFileScan(long generation)
@@ -368,7 +383,7 @@ internal sealed class LibraryFileScanPipelineOwner
             }
             activeFileScan = null;
         }
-        JoinScanChildren(scan);
+        JoinChartScanPrefetch(scan);
     }
 
     /// <summary>
@@ -384,19 +399,18 @@ internal sealed class LibraryFileScanPipelineOwner
         Action<int, int, string> progressReporter = null)
     {
         lr2FolderFileDiffOwner.ApplyPrepared(
-            options,
+            preparation?.SynchronizationInput.Options ?? options,
             preparation,
             reason,
             mutationCapability,
             progressReporter);
     }
 
-    /// <summary>不成立・中断でも開始済み読取りを回収します。先行走査の既存非致命的扱いと元失敗を保持します。</summary>
-    private static void JoinScanChildren(ActiveFileScan scan)
+    /// <summary>不成立・中断でも開始済みchart走査Taskを回収し、既存の非致命的扱いと元失敗を保持します。</summary>
+    private static void JoinChartScanPrefetch(ActiveFileScan scan)
     {
-        Task[] children = [scan.ChartScanPrefetchTask, scan.NormalFolderMtimeSnapshotTask];
-        children = children.Where(task => task != null).ToArray();
-        try { Task.WhenAll(children).GetAwaiter().GetResult(); }
+        if (scan.ChartScanPrefetchTask == null) { return; }
+        try { scan.ChartScanPrefetchTask.GetAwaiter().GetResult(); }
         catch (Exception failure) { NLogWrapper.FileLogger?.Warn(failure, "library_scan_child_cleanup_failed"); }
     }
 
@@ -587,11 +601,11 @@ internal sealed class LibraryFileScanPipelineOwner
         BmsLibraryOptionsSnapshot options,
         List<string> bmsDirectories,
         ChartScanPrefetchInfo chartScanPrefetchInfo,
-        Task<Lr2NormalFolderMtimeSnapshot> normalFolderMtimeSnapshotTask,
+        Lr2FolderTableSnapshot folderTableSnapshot,
         bool trackLibraryFileCheckProgress,
         string reason,
         InstallDestinationCleanupSnapshot installDestinationCleanupSnapshot,
-        Action<Action> postLeaseEffectObserver = null, LibraryFileMutationCapability capability = null, Action<LibraryScanWarning> warningObserver = null)
+        Action<Action> postLeaseEffectObserver = null, LibraryFileMutationCapability capability = null, Action<LibraryScanWarning> warningObserver = null, Action saveConfirmedRoots = null, DateTime? generatedAtUtc = null)
     {
         if (installDestinationCleanupSnapshot == null)
         {
@@ -715,44 +729,16 @@ internal sealed class LibraryFileScanPipelineOwner
             }
             return Lr2FolderFileDiffPreparationResult.FromFileCheckResult(emptyResult, new LibraryFileInitializationResult(options: options));
         }
-        Lr2NormalFolderMtimeSnapshot resolveNormalFolderMtimeSnapshot()
-        {
-            if (normalFolderMtimeSnapshotTask == null)
-            {
-                return null;
-            }
-
-            var stopwatchSnapshotWait = Stopwatch.StartNew();
-            try
-            {
-                Lr2NormalFolderMtimeSnapshot snapshot = normalFolderMtimeSnapshotTask.GetAwaiter().GetResult();
-                stopwatchSnapshotWait.Stop();
-                logInstallPerformance("lr2_normal_folder_mtime_snapshot_prefetch_wait"
-                    + " status=completed"
-                    + " waitMs=" + stopwatchSnapshotWait.ElapsedMilliseconds
-                    + " rows=" + (snapshot?.ExistingRowCount ?? 0)
-                    + " elapsedMs=" + (snapshot?.ElapsedMs ?? 0L));
-                return snapshot;
-            }
-            catch (Exception ex)
-            {
-                stopwatchSnapshotWait.Stop();
-                logInstallPerformanceWarn("lr2_normal_folder_mtime_snapshot_prefetch failed"
-                    + " waitMs=" + stopwatchSnapshotWait.ElapsedMilliseconds
-                    + " message=" + getDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
-                return null;
-            }
-        }
-
         List<BeMusicSeeker.Models.ChartDetails> committedInlineChartInfoRows = [];
         IReadOnlyList<ChartFile> currentInstallDestinationCharts = installDestinationCleanupSnapshot.Charts;
-        Lr2SongDbSyncAppManagedOutputScope initialAppManagedOutputScope = lr2Synchronization.CreateLr2SongDbSyncAppManagedOutputScope();
+        Lr2SongDbSyncAppManagedOutputScope initialAppManagedOutputScope = lr2Synchronization.CreateLr2SongDbSyncAppManagedOutputScope(options);
         Task<Lr2FolderFileDiffPreparationResult> lr2FolderFileDiffPreparationTask = null;
         try
         {
             bool protectExistingBmsRowsFromLr2SongDbSyncMigration = lr2Synchronization.ShouldProtectExistingBmsRowsFromLr2SongDbSyncMigration(options);
-            void StartLr2FolderFileDiffPreparation(SongTableFileCheckResult partialResult)
+            void SaveRegistrationAndStartLr2Preparation(SongTableFileCheckResult partialResult)
             {
+                saveConfirmedRoots?.Invoke();
                 if (lr2FolderFileDiffPreparationTask != null
                     || !lr2FolderFileDiffOwner.CanPrepare(options, partialResult))
                 {
@@ -811,10 +797,9 @@ internal sealed class LibraryFileScanPipelineOwner
                 },
                 bmsDirectories,
                 bmsDirectories,
-                lr2Synchronization.CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
-                null,
-                resolveNormalFolderMtimeSnapshot,
-                StartLr2FolderFileDiffPreparation,
+                lr2Synchronization.CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow, options),
+                folderTableSnapshot,
+                SaveRegistrationAndStartLr2Preparation,
                 protectExistingBmsRowsFromLr2SongDbSyncMigration: protectExistingBmsRowsFromLr2SongDbSyncMigration,
                 lr2FolderExcludedDirectories: initialAppManagedOutputScope.IsComplete
                     ? initialAppManagedOutputScope.Directories
@@ -828,7 +813,7 @@ internal sealed class LibraryFileScanPipelineOwner
                     { throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy); }
                     return playlistLease;
                 },
-                rootFileEnumerator: rootFileEnumerator);
+                rootFileEnumerator: rootFileEnumerator, generatedAtUtc: generatedAtUtc);
             if (fileCheckResult.EmptyScanWithExistingDbSkipped)
             {
                 string skipReason = string.IsNullOrWhiteSpace(fileCheckResult.EmptyScanWithExistingDbSkipReason)

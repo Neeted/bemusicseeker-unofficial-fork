@@ -40,7 +40,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly ISettingsDialogCustomFolderOutputPort customFolderOutputPort;
 
-    private readonly Action publishOutputPlacement;
+    private readonly Action<CustomFolderOutputSettingsSnapshot> publishOutputPlacement;
 
     private readonly ISettingsDialogPlayHistoryPort playHistoryPort;
 
@@ -1962,7 +1962,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (value != null && !(outputLR2CustomFolderOutputBaseDir == value))
             {
-                if (ValidateCustomFolderOutputBaseDir(value, out string errMsg, target: CopyOutputPlacement(CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings), normal: value)))
+                if (ValidateCustomFolderOutputBaseDir(value, out string errMsg, target: CaptureOutputValidationPlacement(CopyOutputPlacement(CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings), normal: value), "normal")))
                 {
                     outputLR2CustomFolderOutputBaseDir = value;
                 }
@@ -2051,7 +2051,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (value != null && !(outputLR2CustomFolderOutputBaseDirRootType == value))
             {
-                if (ValidateCustomFolderAsRootOutputBaseDir(value, out string errMsg, target: CopyOutputPlacement(CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings), root: value)))
+                if (ValidateCustomFolderAsRootOutputBaseDir(value, out string errMsg, target: CaptureOutputValidationPlacement(CopyOutputPlacement(CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings), root: value), "root")))
                 {
                     outputLR2CustomFolderOutputBaseDirRootType = value;
                 }
@@ -3723,12 +3723,12 @@ public partial class SettingsDialogViewModel : ViewModel
         IAudioSettingsGateway audioSettingsGateway = null,
         Func<OperationModeRestartRequest, Task<bool>> requestOperationModeRestart = null,
         ChartFileOperationSynchronizer operationAdmission = null,
-        Action publishOutputPlacement = null, Lr2ConfigSession lr2ConfigSession = null, BmsRootRegistrationStore bmsRootRegistrations = null)
+        Action<CustomFolderOutputSettingsSnapshot> publishOutputPlacement = null, Lr2ConfigSession lr2ConfigSession = null, BmsRootRegistrationStore bmsRootRegistrations = null)
     {
         SettingsDialogViewModel settingDialogViewModel = this;
         this.lr2ConfigSession = lr2ConfigSession ?? new Lr2ConfigSession();
         this.operationAdmission = operationAdmission ?? new ChartFileOperationSynchronizer();
-        this.publishOutputPlacement = publishOutputPlacement ?? (() => { });
+        this.publishOutputPlacement = publishOutputPlacement ?? (_ => { });
         this.statePort = statePort ?? throw new ArgumentNullException(nameof(statePort));
         this.workspacePort = workspacePort ?? throw new ArgumentNullException(nameof(workspacePort));
         this.customFolderOutputPort = customFolderOutputPort
@@ -3850,6 +3850,8 @@ public partial class SettingsDialogViewModel : ViewModel
         ResetLr2PlayHistorySchemaStatus();
         this.operationAdmission.AvailabilityChanged += SettingsOperationAvailabilityChanged;
         this.customFolderOutputPort.OutputOperationAvailabilityChanged += SettingsOperationAvailabilityChanged;
+        // 候補と表示状態の構築成功後だけ接続し、未完成の画面を共有storeへ残しません。
+        this.bmsRootRegistrations.Published += BmsRootRegistrationsPublished;
     }
 
     private bool IsLR2RootPathValid()
@@ -4656,7 +4658,8 @@ public partial class SettingsDialogViewModel : ViewModel
             throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_CustomFolderOutputBaseNameEmpty);
         }
         string defaultName = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(ApplicationSettings.LR2CustomFolderOutputBaseDir);
-        if (!string.IsNullOrWhiteSpace(defaultName)
+        if (!IsUncorrectedOutputBase(ApplicationSettings.LR2CustomFolderOutputBaseDir, ApplicationSettings.LR2RootPath)
+            && !string.IsNullOrWhiteSpace(defaultName)
             && string.Equals(name, defaultName, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_AdditionalOutputBaseNameMatchesNormalOutput);
@@ -4668,7 +4671,7 @@ public partial class SettingsDialogViewModel : ViewModel
             throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_AdditionalOutputBaseNameDuplicate);
         }
         ValidateCustomFolderAdditionalOutputBaseSearchRootPath(path, oldPath,
-            CopyOutputPlacement(CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings), additional: outputLR2CustomFolderAdditionalOutputBaseDirs));
+            CaptureOutputValidationPlacement(CopyOutputPlacement(CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings), additional: outputLR2CustomFolderAdditionalOutputBaseDirs), "additional"));
     }
 
     private bool ValidateCustomFolderAdditionalOutputBaseDirs(out string errMsg, CustomFolderOutputSettingsSnapshot target = null)
@@ -4764,7 +4767,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 ValidatePreviousOutputBase(normalizedPath, label, previousAdditionalPath,
                     BeMusicSeeker.Properties.Resources.Label_PreviousAdditionalOutputBase, allowSameDirectory: false);
             }
-            ValidateOutputBaseAgainstBmsRoots(normalizedPath, label);
+            ValidateOutputBaseAgainstBmsRoots(normalizedPath, label, target: target);
             return true;
         }
         catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NotSupportedException || ex is PathTooLongException)
@@ -4798,9 +4801,10 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    private static void ValidatePreviousOutputBase(
+    private void ValidatePreviousOutputBase(
         string path, string label, string previousPath, string previousLabel, bool allowSameDirectory = true)
     {
+        if (IsUncorrectedOutputBase(previousPath, ApplicationSettings.LR2RootPath)) { return; }
         if (allowSameDirectory && CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(path, previousPath))
         {
             return;
@@ -4820,13 +4824,20 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    private void ValidateOutputBaseAgainstBmsRoots(string path, string label, bool allowRegisteredChildren = false)
+    private void ValidateOutputBaseAgainstBmsRoots(string path, string label, bool allowRegisteredChildren = false, CustomFolderOutputSettingsSnapshot target = null)
     {
         Lr2ConfigSnapshot config = GetCustomFolderValidationConfig();
         if (config != null)
         {
+            IReadOnlyList<string> previous = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(
+                new[] { ApplicationSettings.LR2CustomFolderOutputBaseDir, ApplicationSettings.LR2CustomFolderOutputBaseDirRootType }
+                    .Concat(CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs)));
+            IReadOnlyList<string> finalBases = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(
+                new[] { target?.LR2CustomFolderOutputBaseDir ?? LR2CustomFolderOutputDir, target?.LR2CustomFolderOutputBaseDirRootType ?? LR2CustomFolderAsRootOutputDir }
+                    .Concat(GetOutputAdditionalPaths(target)));
+            IEnumerable<string> removed = previous.Where(old => !finalBases.Contains(old, StringComparer.OrdinalIgnoreCase));
             CustomFolderOutputBaseSearchRootSyncService.ValidateOutputBaseAgainstSearchRoots(
-                path, config.RegisteredRoots, label, allowRegisteredChildren);
+                path, config.RegisteredRoots.Except(removed, StringComparer.OrdinalIgnoreCase), label, allowRegisteredChildren);
         }
     }
 
@@ -4857,7 +4868,7 @@ public partial class SettingsDialogViewModel : ViewModel
             }
             ValidatePreviousOutputBase(normalizedPath, label, ApplicationSettings.LR2CustomFolderOutputBaseDirRootType,
                 BeMusicSeeker.Properties.Resources.Label_PreviousRootOutputBase);
-            ValidateOutputBaseAgainstBmsRoots(normalizedPath, label, allowRegisteredChildren: true);
+            ValidateOutputBaseAgainstBmsRoots(normalizedPath, label, allowRegisteredChildren: true, target: target);
             return true;
         }
         catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NotSupportedException || ex is PathTooLongException)
@@ -4898,7 +4909,7 @@ public partial class SettingsDialogViewModel : ViewModel
             }
         }
         ValidatePreviousOutputBase(path, label, oldPath, BeMusicSeeker.Properties.Resources.Label_PreviousAdditionalOutputBase);
-        ValidateOutputBaseAgainstBmsRoots(path, label);
+        ValidateOutputBaseAgainstBmsRoots(path, label, target: target);
     }
 
     private int CountPlaylistCustomFolderOutputBaseReferences(string baseName)
@@ -5287,10 +5298,17 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
+    private void BmsRootRegistrationsPublished(object sender, EventArgs args)
+    {
+        RaisePropertyChanged(nameof(ConfirmedBMSDirectories));
+        RaisePropertyChanged(nameof(BMSInstallDir));
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
         {
+            bmsRootRegistrations.Published -= BmsRootRegistrationsPublished;
             operationAdmission.AvailabilityChanged -= SettingsOperationAvailabilityChanged;
             customFolderOutputPort.OutputOperationAvailabilityChanged -= SettingsOperationAvailabilityChanged;
             audioDeviceTestWorkflow.PropertyChanged -= AudioSettingsPropertyChanged;

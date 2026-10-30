@@ -173,7 +173,9 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         Settings registrationSettings = this.settingsEditSession.Values;
         Lr2ConfigSession registrationSession = Lr2ConfigSession;
         BmsRootRegistrations = new BmsRootRegistrationStore(registrationSettings,
-            () => registrationSession.TryResolve(registrationSettings.LR2ConfigXmlPath, out Lr2ConfigOwner owner) ? owner : null);
+            () => registrationSession.TryResolve(registrationSettings.LR2ConfigXmlPath, out Lr2ConfigOwner owner) ? owner : null,
+            () => Volatile.Read(ref appliedCustomFolderOutputPlacement),
+            placement => Volatile.Write(ref appliedCustomFolderOutputPlacement, placement));
         playbackSettingsStore = new SettingsPlaybackSettingsStore(() => this.settingsEditSession.Values);
         playerSettingsGateway = new SettingsPlayerSettingsGateway(() => this.settingsEditSession.Values);
         audioSettingsGateway = new SettingsAudioGateway(() => this.settingsEditSession.Values);
@@ -414,8 +416,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             operationAdmission: OperationAdmission,
             lr2ConfigSession: Lr2ConfigSession,
             bmsRootRegistrations: BmsRootRegistrations,
-            publishOutputPlacement: () => Volatile.Write(ref appliedCustomFolderOutputPlacement,
-                CustomFolderOutputSettingsSnapshot.CreateCurrent(settingsEditSession.Values)));
+            publishOutputPlacement: placement => Volatile.Write(ref appliedCustomFolderOutputPlacement, placement));
     }
 
     /// <summary>メイン画面の譜面操作・閲覧と起動処理の担当を、構成寿命で共有する依存へ接続します。</summary>

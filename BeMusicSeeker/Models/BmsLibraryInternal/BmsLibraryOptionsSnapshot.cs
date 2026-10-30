@@ -110,6 +110,40 @@ internal sealed record BmsLibraryOptionsSnapshot
         LR2CustomFolderAdditionalOutputBaseDirsSerialized = placement.LR2CustomFolderAdditionalOutputBaseDirs
     };
 
+    /// <summary>確認済みの同所prefixだけを登録・関連導入先・公開配置へ反映し、走査結果や元snapshotを変更しません。</summary>
+    internal BmsLibraryOptionsSnapshot WithConfirmedRootPrefixes(IReadOnlyList<string> beforeRoots, IReadOnlyList<string> confirmedRoots)
+    {
+        string Replace(string path) => ApplyConfirmedRootPrefixes(path, beforeRoots, confirmedRoots);
+        CustomFolderOutputSettingsSnapshot placement = (Lr2Input?.Placement ?? CaptureOutputPlacement()).WithDirectoryPaths(Replace);
+        BmsLibraryOptionsSnapshot result = WithLr2Placement(placement) with
+        {
+            StandaloneBmsRootPaths = StandaloneBmsRootPaths.Select(Replace).ToArray(),
+            BMSInstallDir = beforeRoots.Any(root => CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(root, BMSInstallDir))
+                ? Replace(BMSInstallDir) : BMSInstallDir
+        };
+        return Lr2Input == null ? result : result.WithLr2Input(Lr2Input.With(Lr2Input.RegisteredRoots.Select(Replace).ToArray(), placement));
+    }
+
+    /// <summary>最も具体的な確認済み同所prefixを設定pathへ適用します。登録順によらず子の確認要素を保ち、未確認suffix・末尾区切り・別場所の値は保持します。</summary>
+    internal static string ApplyConfirmedRootPrefixes(string path, IReadOnlyList<string> beforeRoots, IReadOnlyList<string> confirmedRoots)
+    {
+        if (string.IsNullOrEmpty(path)) { return path; }
+        int matchedLength = -1;
+        string confirmedPrefix = null;
+        for (int i = 0; i < beforeRoots.Count; i++)
+        {
+            string before = beforeRoots[i].TrimEnd('\\', '/');
+            string after = confirmedRoots[i].TrimEnd('\\', '/');
+            // 登録は入口で構文正規化済みです。確認元のOrdinalIgnoreCase同所照合は綴りだけを返し、文字数や場所は変えません。
+            if (string.Equals(before, after, StringComparison.Ordinal) || before.Length != after.Length
+                || before.Length <= matchedLength || !path.StartsWith(before, StringComparison.OrdinalIgnoreCase)
+                || (path.Length > before.Length && path[before.Length] != '\\' && path[before.Length] != '/')) { continue; }
+            matchedLength = before.Length;
+            confirmedPrefix = after;
+        }
+        return matchedLength < 0 ? path : string.Concat(confirmedPrefix, path.AsSpan(matchedLength));
+    }
+
     /// <summary>登録以外の設定入力を捕捉します。出力配置は保存段階の公開値へ揃え、登録はLibraryのsnapshot取得時に同じ確定readerから捕捉します。</summary>
     /// <param name="settings">非配置設定を読む共有設定。</param>
     /// <param name="placement">保存段階完了時に公開した配置。署名・出力・管理領域照合で同じ値を使い、非配置入力は現在設定から捕捉します。</param>

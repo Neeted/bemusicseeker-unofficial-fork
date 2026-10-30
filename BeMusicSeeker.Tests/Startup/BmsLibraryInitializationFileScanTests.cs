@@ -43,6 +43,22 @@ public sealed class BmsLibraryInitializationFileScanTests
             bmsDirectoryPath,
             "0011a110d2d54f455a1dbb9a03598aaa1cc092238800ca9b1c1260a8bb78db36.bms");
 
+        string oldNormalExact = ToFolderPath(bmsDirectoryPath.ToLowerInvariant());
+        string[] relativeSentinels = [@"Unresolved\Sentinel\", @"C:DriveRelative\", @"\RootRelative\"];
+        using (var seed = new LR2SongDBExtended(songDbPath))
+        {
+            // 実Initializeより先にFull読取りを観測するため、その必須2表をfixtureで準備します。
+            seed.CreateTable<LR2SongDB.song>();
+            seed.CreateTable<LR2SongDB.folder>();
+            seed.InsertOrReplace(new LR2SongDB.folder { path = oldNormalExact, type = 1, date = ToUnixSeconds(Directory.GetLastWriteTimeUtc(bmsDirectoryPath)), adddate = 321 }, typeof(LR2SongDB.folder));
+            foreach (string path in relativeSentinels)
+            { seed.InsertOrReplace(new LR2SongDB.folder { path = path, title = "Keep relative", parent = "keep-relative-parent", type = 1, date = 123, adddate = 456 }, typeof(LR2SongDB.folder)); }
+        }
+        SongTableLoadResult fullRead = new BmsLibraryInitializationService().LoadSongTable(new BmsLibraryDbGateway(songDbPath),
+            new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true }, null, new TestFileMutationService(), null, failure => failure.Message);
+        Assert.IsNotNull(fullRead.FolderTableSnapshot);
+        CollectionAssert.AreEquivalent(new[] { oldNormalExact }.Concat(relativeSentinels).ToArray(), fullRead.FolderTableSnapshot.ExistingRowsByPath.Values.Select(row => row.path).ToArray());
+
         string configDirectoryPath = Path.Combine(lr2RootPath, "LR2files", "Config");
         Directory.CreateDirectory(configDirectoryPath);
         string configPath = Path.Combine(configDirectoryPath, "config.xml");
@@ -130,6 +146,7 @@ public sealed class BmsLibraryInitializationFileScanTests
         var parent = new StartupLibraryInitializationWorkflowOwner(new SemaphoreSlim(1, 1));
         using StartupRequiredOperationLease accepted = parent.AcquireRequiredOperation(library.OperationAdmission, library.Lr2Synchronization.PlaylistOperationAdmission);
         library.PropertyChanged += scanNotificationSubscriber;
+        int generationStarted = ToUnixSeconds(DateTime.UtcNow);
         try
         {
             initializationInput = library.InitializeStartup([], null, PerformanceInteraction.Start("test_required_startup"), accepted.Capability, leapYearRepairApproval: new(songDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: notification => scoreNotification = notification);
@@ -153,6 +170,19 @@ public sealed class BmsLibraryInitializationFileScanTests
         using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
         Assert.IsTrue(verify.Table<LR2SongDB.song>().Any(row =>
             string.Equals(row?.path, chartPath, StringComparison.OrdinalIgnoreCase)));
+        LR2SongDB.folder normal = verify.Query<LR2SongDB.folder>("SELECT * FROM folder WHERE path = ? COLLATE BINARY;", ToFolderPath(bmsDirectoryPath)).Single();
+        Assert.IsTrue(normal.adddate >= generationStarted && normal.adddate <= ToUnixSeconds(DateTime.UtcNow), "別raw keyの新規folderは起動操作のUTC生成日時を使います。");
+        Assert.AreEqual("e2977170", normal.parent);
+        Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM folder WHERE path = ? COLLATE BINARY;", oldNormalExact));
+        foreach (string path in relativeSentinels)
+        {
+            Assert.IsFalse(Path.IsPathFullyQualified(path));
+            LR2SongDB.folder relative = verify.Query<LR2SongDB.folder>("SELECT * FROM folder WHERE path = ? COLLATE BINARY;", path).Single();
+            Assert.AreEqual("Keep relative", relative.title); Assert.AreEqual("keep-relative-parent", relative.parent);
+            Assert.AreEqual(123, relative.date); Assert.AreEqual(456, relative.adddate);
+            Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM folder WHERE path = ? COLLATE BINARY;", ToFolderPath(path)));
+        }
+
     }
 
     /// <summary>
@@ -2811,12 +2841,13 @@ public sealed class BmsLibraryInitializationFileScanTests
     }
 
     /// <summary>
-    /// 同MD5の一対一移動は通常path・caseだけの変更でも三つの利用者列をDB・memoryへ引き継ぎ、新生成値と再適用の収束を保つ。
+    /// 同MD5の一対一移動は通常path・caseだけの変更でも利用者列をDB・memoryへ引き継ぐ。mtime同一の旧folder表記と末尾区切り欠落も一回で退役し、新folderの通常adddateと二回目の収束を確認する。
     /// </summary>
     [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void ApplyFileScanDiff_MovedBmsWithSameMd5PreservesUserSongColumns(bool caseOnlyPathChange)
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void ApplyFileScanDiff_MovedBmsWithSameMd5PreservesUserSongColumns(bool caseOnlyPathChange, bool missingFolderSeparator)
     {
 
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
@@ -2856,9 +2887,19 @@ public sealed class BmsLibraryInitializationFileScanTests
             existingFile = existingFile with { Favorite = 3 };
             existingFile = existingFile with { Txt = 0 };
 
+            string oldFolderKey = ToFolderPath(Path.GetDirectoryName(oldPath)!);
+            if (missingFolderSeparator) { oldFolderKey = oldFolderKey.TrimEnd(Path.DirectorySeparatorChar); }
             ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = oldFolderKey,
+                    type = 1,
+                    date = ToUnixSeconds(Directory.GetLastWriteTimeUtc(Path.GetDirectoryName(newPath)!)),
+                    adddate = 1234
+                }, typeof(LR2SongDB.folder));
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existingFile), typeof(LR2SongDB.song));
@@ -2891,7 +2932,8 @@ public sealed class BmsLibraryInitializationFileScanTests
                 scanResult,
                 0L,
                 () => null,
-                null);
+                null, lr2NormalFolderSyncRootDirectories: [lr2RootPath],
+                folderTableSnapshot: service.LoadFolderTableSnapshot(new BmsLibraryDbGateway(songDbPath), options), generatedAtUtc: timestamp.AddDays(10));
             ProjectCatalogState(first, [existingFile]);
 
             Assert.AreEqual(1, first.BmsAddedTargetCount);
@@ -2931,6 +2973,10 @@ public sealed class BmsLibraryInitializationFileScanTests
 
             using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
+                Assert.IsFalse(first.Lr2NormalFolderSyncFailed);
+                LR2SongDB.folder folder = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(Path.GetDirectoryName(newPath)!));
+                Assert.AreEqual(ToUnixSeconds(timestamp.AddDays(10)), folder.adddate);
+                Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM folder WHERE path = ?;", oldFolderKey));
                 Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ?;", oldPath));
                 LR2SongDB.song row = verify.Find<LR2SongDB.song>(newPath);
                 Assert.IsNotNull(row);
@@ -2965,7 +3011,8 @@ public sealed class BmsLibraryInitializationFileScanTests
                 scanResult,
                 0L,
                 () => null,
-                null);
+                null, lr2NormalFolderSyncRootDirectories: [lr2RootPath],
+                folderTableSnapshot: service.LoadFolderTableSnapshot(new BmsLibraryDbGateway(songDbPath), options), generatedAtUtc: timestamp.AddDays(10));
             ProjectCatalogState(second, first.NextFiles);
 
             Assert.AreEqual(0, second.BmsAddedTargetCount);
@@ -2973,6 +3020,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(0, second.BmsMovedHashRelinkCount);
             Assert.AreEqual(0, second.BmsMovedHashRelinkAmbiguousCount);
             Assert.IsFalse(second.HasDbDiff);
+            Assert.AreEqual(0, second.Lr2NormalFolderUpsertedCount + second.Lr2NormalFolderDeletedCount);
             ChartFile reapplied = second.NextFiles.Single();
             Assert.AreEqual(newPath, reapplied.Path);
             Assert.AreEqual(ToUnixSeconds(timestamp), reapplied.Date);

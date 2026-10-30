@@ -198,9 +198,6 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
     bool ISettingsDialogSearchRootRuntimePort.HasOwnedChartUnderRealPath(string directoryPath)
         => HasOwnedChartUnderRealPath(directoryPath);
 
-    void ISettingsDialogSearchRootRuntimePort.InvalidateLibraryFolderCache()
-        => InvalidateLibraryFolderCache();
-
     /// <summary>
     /// Schedules one background cache preparation and one UI-thread apply.
     /// </summary>

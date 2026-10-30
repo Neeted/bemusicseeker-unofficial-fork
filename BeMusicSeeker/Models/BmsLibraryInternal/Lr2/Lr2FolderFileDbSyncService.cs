@@ -109,6 +109,7 @@ internal static class Lr2FolderFileDbSyncService
 {
     private static readonly IEqualityComparer<string> PathComparer = StringComparer.OrdinalIgnoreCase;
 
+    /// <summary>customと必要親のraw完全一致キーを同期します。別キーへの置換は削除・新規生成とし、adddateは完全一致の存続行だけ保持します。</summary>
     internal static Lr2FolderFileDbSyncResult Sync(
         LR2SongDBExtended songDb,
         Lr2FolderFileDbSyncRequest request,
@@ -124,8 +125,8 @@ internal static class Lr2FolderFileDbSyncService
         Lr2FolderExistingRowsReadResult existingRows = ReadExistingRows(songDb, request);
         List<LR2SongDB.folder> existingRowList = existingRows.Rows;
         Dictionary<string, LR2SongDB.folder> existingRowsByPath = CreateExistingRowMap(existingRowList);
-        var generatedPathsByKey = new Dictionary<string, string>(PathComparer);
-        var generatedParentDirectoryKeys = new HashSet<string>(PathComparer);
+        var generatedPathsByKey = new Dictionary<string, string>(StringComparer.Ordinal);
+        var generatedParentDirectoryKeys = new HashSet<string>(StringComparer.Ordinal);
         var upsertRows = new List<LR2SongDB.folder>();
         var replaceDeletePaths = new List<string>();
         int itemCount = 0;
@@ -154,8 +155,14 @@ internal static class Lr2FolderFileDbSyncService
                 skippedUnsupportedPathCount++;
                 continue;
             }
-            LR2SongDB.folder existingRow = ResolveExistingRow(item, existingRowsByPath, databasePath, out string replaceDeletePath);
-            if (item.FolderType == 1 || IsNormalDirectoryRow(existingRow))
+            existingRowsByPath.TryGetValue(databasePath, out LR2SongDB.folder existingRow);
+            string physicalPath = NormalizeFilePath(item.FilePath);
+            LR2SongDB.folder physicalRow = physicalPath != null && existingRowsByPath.TryGetValue(physicalPath, out LR2SongDB.folder found)
+                ? found : null;
+            // 旧absoluteは削除事実だけに使います。値は新databaseキーに一致する行だけから保持します。
+            string replaceDeletePath = !string.Equals(physicalPath, databasePath, StringComparison.Ordinal)
+                ? physicalRow?.path : null;
+            if (item.FolderType == 1 || IsNormalDirectoryRow(existingRow) || IsNormalDirectoryRow(physicalRow))
             {
                 skippedUnsupportedPathCount++;
                 continue;
@@ -164,6 +171,7 @@ internal static class Lr2FolderFileDbSyncService
             {
                 preservedCount++;
                 generatedPathsByKey[databasePath] = databasePath;
+                if (replaceDeletePath != null) { replaceDeletePaths.Add(replaceDeletePath); }
                 if (request.UpdateParentDirectoryRowsForPreservedItems)
                 {
                     UpsertParentDirectoryRows(
@@ -242,7 +250,7 @@ internal static class Lr2FolderFileDbSyncService
         }
         deletePaths = [.. deletePaths
             .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(PathComparer)];
+            .Distinct(StringComparer.Ordinal)];
 
         Lr2FolderGenerationWriteResult writeResult = Lr2FolderDbWriter.ApplySyncPlan(
             songDb,
@@ -338,7 +346,7 @@ internal static class Lr2FolderFileDbSyncService
 
         foreach (string path in request.ScopePaths ?? [])
         {
-            AddExactFilePath(result, path);
+            if (!string.IsNullOrWhiteSpace(path)) { result.Add(path); }
         }
 
         return result;
@@ -418,17 +426,8 @@ internal static class Lr2FolderFileDbSyncService
 
     private static Dictionary<string, LR2SongDB.folder> CreateExistingRowMap(IEnumerable<LR2SongDB.folder> existingRows)
     {
-        var result = new Dictionary<string, LR2SongDB.folder>(PathComparer);
-        foreach (LR2SongDB.folder row in existingRows ?? [])
-        {
-            string path = NormalizeFilePath(row?.path);
-            if (string.IsNullOrWhiteSpace(path) || result.ContainsKey(path))
-            {
-                continue;
-            }
-            result.Add(path, row);
-        }
-        return result;
+        return (existingRows ?? []).Where(row => row?.path != null)
+            .ToDictionary(row => row.path, StringComparer.Ordinal);
     }
 
     private static void AddExistingRow(IDictionary<string, LR2SongDB.folder> rowsByPath, LR2SongDB.folder row)
@@ -494,35 +493,6 @@ internal static class Lr2FolderFileDbSyncService
             : Lr2FolderExistingRowLookup.QueryPathPrefixScopes(songDb, scopePaths, excludedScopePaths);
     }
 
-    private static LR2SongDB.folder ResolveExistingRow(
-        Lr2FolderFileSyncItem item,
-        IReadOnlyDictionary<string, LR2SongDB.folder> existingRowsByPath,
-        string databasePath,
-        out string replaceDeletePath)
-    {
-        replaceDeletePath = null;
-        if (existingRowsByPath == null || string.IsNullOrWhiteSpace(databasePath))
-        {
-            return null;
-        }
-
-        if (existingRowsByPath.TryGetValue(databasePath, out LR2SongDB.folder row))
-        {
-            return row;
-        }
-
-        string physicalPath = NormalizeFilePath(item?.FilePath);
-        if (string.IsNullOrWhiteSpace(physicalPath)
-            || string.Equals(physicalPath, databasePath, StringComparison.OrdinalIgnoreCase)
-            || !existingRowsByPath.TryGetValue(physicalPath, out row))
-        {
-            return null;
-        }
-
-        replaceDeletePath = row.path;
-        return row;
-    }
-
     private static List<string> CreateDeletePaths(
         IEnumerable<LR2SongDB.folder> existingRows,
         IReadOnlyDictionary<string, string> generatedPathsByKey,
@@ -536,16 +506,15 @@ internal static class Lr2FolderFileDbSyncService
         var directoryRowScopeMatcher = DirectoryScopeMatcher.Create(directoryRowScopeDirectories);
         var pruneExcludeMatcher = DirectoryScopeMatcher.Create(pruneExcludedDirectories);
         HashSet<string> pruneExcludedPathSet = new((pruneExcludedPaths ?? [])
-            .Select(NormalizeFilePath)
-            .Where(path => !string.IsNullOrWhiteSpace(path)), PathComparer);
+            .Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.Ordinal);
         var explicitPaths = new HashSet<string>(
-            (scopePaths ?? []).Select(NormalizeFilePath).Where(path => !string.IsNullOrWhiteSpace(path)),
-            PathComparer);
+            (scopePaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.Ordinal);
         var deletePaths = new List<string>();
 
         foreach (LR2SongDB.folder row in existingRows ?? [])
         {
-            string path = NormalizeFilePath(row?.path);
+            string path = row?.path;
             if (string.IsNullOrWhiteSpace(path))
             {
                 continue;
@@ -684,7 +653,7 @@ internal static class Lr2FolderFileDbSyncService
             type = isKnownRelativeLr2Directory ? 2 : 1,
             parent = parentHash,
             date = lastWriteTimeUtc.Value.ToUnixtime(),
-            adddate = existingRow?.adddate ?? generatedAtUtc.ToUnixtime()
+            adddate = existingRow != null ? existingRow.adddate : generatedAtUtc.ToUnixtime()
         };
         return true;
     }
@@ -832,7 +801,7 @@ internal static class Lr2FolderFileDbSyncService
                 }
                 if (Path.IsPathRooted(path))
                 {
-                    return Lr2FolderPath.NormalizeDirectoryPath(path);
+                    return Path.IsPathFullyQualified(path) ? Lr2FolderPath.NormalizeDirectoryPath(path) : null;
                 }
                 return path.Trim()
                     .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)

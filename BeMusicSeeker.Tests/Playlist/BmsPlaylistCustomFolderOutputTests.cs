@@ -3034,7 +3034,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
-    /// <summary>ルート型の物理出力を先に失った状態から全種類を除外し、相対パスで残るDB階層を整理します。物理不在時の旧DB行放置を検出します。</summary>
+    /// <summary>ルート型の物理出力を先に失った状態から全種類を除外し、安全な管理先に残るDB階層を整理します。物理不在時の旧DB行放置を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFoldersAndCommitHeadersToDB_DisablingAllOutputPrunesDbOnlyRootRows()
@@ -3044,7 +3044,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         try
         {
             string lr2RootPath = Path.Combine(tempDirectory, "LR2");
-            string rootOutputBaseDir = Path.Combine(lr2RootPath, "LR2files", "CustomFolder");
+            string rootOutputBaseDir = Path.Combine(tempDirectory, "ManagedRootOutput");
             testSettings.OperationModeLR2DB = true;
             testSettings.LR2RootPath = lr2RootPath;
             testSettings.LR2CustomFolderOutputBaseDirRootType = rootOutputBaseDir;
@@ -3076,7 +3076,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             };
             playlist.ReOutputCustomFoldersAndCommitHeadersToDB([table], "test_seed_disable_all_root_output");
             string outputDir = Path.Combine(rootOutputBaseDir, "DisableAllRootOutput");
-            string relativeOutputDir = Path.Combine("LR2files", "CustomFolder", "DisableAllRootOutput");
+            string relativeOutputDir = outputDir;
             using (LR2SongDBExtended verifySeed = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.IsTrue(verifySeed.Table<LR2SongDB.folder>().ToList()

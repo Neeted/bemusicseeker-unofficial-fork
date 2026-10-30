@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -10,6 +11,73 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class RootFileEnumerationTests
 {
+    /// <summary>実返却面の同所prefixを採用し、drive/UNC/root自身・兄弟境界と、親子双方の確認表記が登録順によらず残ることを確認する。実共有やdrive列挙は行わない。</summary>
+    [DataTestMethod]
+    [DataRow(@"c:\Songs", @"C:\Songs\Pack", @"C:\Songs", false, false)]
+    [DataRow(@"c:\", @"C:\Song", @"C:\", false, false)]
+    [DataRow(@"\\host\share\songs", @"\\HOST\SHARE\Songs", @"\\HOST\SHARE\Songs", false, false)]
+    [DataRow(@"\\host\share\", @"\\HOST\SHARE\", @"\\HOST\SHARE\", false, false)]
+    [DataRow(@"C:\Songs", @"c:\SongsOther\Pack", @"C:\Songs", false, false)]
+    [DataRow(@"\\host\share", @"\\host\shareOther\Pack", @"\\host\share", false, false)]
+    [DataRow(@"C:\songs", @"C:\Songs\Child", @"C:\Songs", true, false)]
+    [DataRow(@"C:\songs", @"C:\Songs\Child", @"C:\Songs", true, true)]
+    public void ConfirmScanRoots_AdoptsOnlyObservedSameLocationPrefix(string root, string observed, string expected, bool nested, bool reverseOrder)
+    {
+        var raw = new ChartScanResult();
+        raw.ChartDirectories.Add(observed);
+        var scan = new ChartScanExecutionResult { Success = true, ScanSource = ChartScanSource.Everything, Result = raw };
+        string[] beforeRoots = nested ? [root, root + @"\child"] : [root];
+        string[] expectedRoots = nested ? [expected, observed] : [expected];
+        if (reverseOrder) { Array.Reverse(beforeRoots); Array.Reverse(expectedRoots); }
+        List<string> actualRoots = LibraryFileScanPipelineOwner.ConfirmScanRootSpelling(beforeRoots, scan);
+        CollectionAssert.AreEqual(expectedRoots, actualRoots);
+        Assert.AreEqual(observed, raw.ChartDirectories.Single(), false);
+        BmsLibraryOptionsSnapshot input = new() { StandaloneBmsRootPaths = beforeRoots };
+        BmsLibraryOptionsSnapshot confirmed = input.WithConfirmedRootPrefixes(beforeRoots, actualRoots);
+        CollectionAssert.AreEqual(expectedRoots, confirmed.StandaloneBmsRootPaths.ToArray());
+        if (!nested)
+        {
+            string missing = root.TrimEnd('\\') + @"\MissingChild";
+            Assert.AreEqual(expected.TrimEnd('\\') + @"\MissingChild",
+                BmsLibraryOptionsSnapshot.ApplyConfirmedRootPrefixes(missing, beforeRoots, actualRoots), false);
+        }
+    }
+
+    /// <summary>空のFast root Entryを実在表記の証拠にせず、完全なnative directory面だけを空成功の根拠にする。不完全面は採用しない。</summary>
+    [TestMethod]
+    public void ConfirmScanRoots_DistinguishesReturnedEmptyDirectoryFromSyntheticFastRoot()
+    {
+        const string root = @"c:\Songs";
+        var surface = new ChartScanResult();
+        surface.DirectoryEntriesByPath[@"C:\Songs"] = new RootFileEnumerationEntry(@"C:\Songs", DateTime.UtcNow);
+        var scan = new ChartScanExecutionResult { Success = true, Result = surface };
+        Assert.AreEqual(root, LibraryFileScanPipelineOwner.ConfirmScanRootSpelling([root], scan).Single(), false);
+        scan.ScanSource = ChartScanSource.Everything;
+        scan.DirectoryQueryHitCount = 1;
+        Assert.AreEqual(@"C:\Songs", LibraryFileScanPipelineOwner.ConfirmScanRootSpelling([root], scan).Single(), false);
+        scan.IsComplete = false;
+        Assert.AreEqual(root, LibraryFileScanPipelineOwner.ConfirmScanRootSpelling([root], scan).Single(), false);
+    }
+
+    /// <summary>空ディレクトリも各実在要素の綴りを取得し、未確認の欠落入力は元表記を保持します。全ディスク走査を使いません。</summary>
+    [TestMethod]
+    public void ConfirmRootSpelling_UsesExistingComponentsAndPreservesUnconfirmedInput()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(RootFileEnumerationTests), Guid.NewGuid().ToString("N"));
+        string actual = Directory.CreateDirectory(Path.Combine(root, "MixedParent", "EmptyChild")).FullName;
+        try
+        {
+            string requested = Path.Combine(root, "mixedparent", "EMPTYCHILD");
+            string confirmed = LongPathFileSystem.ConfirmDirectoryPathSpelling(requested);
+            Assert.AreEqual(actual, confirmed);
+            string missing = Path.Combine(root, "mixedparent", "MISSING");
+            Assert.AreEqual(missing, LongPathFileSystem.ConfirmDirectoryPathSpelling(missing));
+            string driveRoot = Path.GetPathRoot(actual) ?? throw new AssertFailedException();
+            Assert.AreEqual(driveRoot, LongPathFileSystem.ConfirmDirectoryPathSpelling(driveRoot));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     /// <summary>要求・復号と共通のsource-root正規化で照会し、絶対drive rootと通常/UNCの従来canonicalを保持する。</summary>
     [DataTestMethod]
     [DataRow(@"C:\", @"C:\")]

@@ -3262,4 +3262,6 @@ public class Resources
     public static string ChartPropertiesNotCounted => ResourceManager.GetString("ChartPropertiesNotCounted", resourceCulture);
     /// <summary>採用本文とは別のCP932問題原文と、その通常解釈との併記を明示します。</summary>
     public static string ChartPropertiesCp932AlternativeInterpretation => ResourceManager.GetString("ChartPropertiesCp932AlternativeInterpretation", resourceCulture);
+    /// <summary>設定受理時に組込み予約領域へのBMS登録・出力基点を拒否する理由の書式です。{0}は用途、{1}は指定先、{2}は組込みフォルダで、設定訂正を案内します。</summary>
+    public static string Validation_Lr2BuiltinCustomFolderReservedFormat => ResourceManager.GetString("Validation_Lr2BuiltinCustomFolderReservedFormat", resourceCulture);
 }

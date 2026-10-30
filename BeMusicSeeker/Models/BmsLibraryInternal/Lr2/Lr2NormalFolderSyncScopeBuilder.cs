@@ -252,41 +252,17 @@ internal sealed class Lr2NormalFolderBmsQueryScope(
 
 internal static class Lr2NormalFolderSyncScopeBuilder
 {
+    /// <summary>全登録rootの完全走査で確定した必要directory集合を共有し、全rootの整理範囲を作ります。局所mutationの範囲には流用しません。</summary>
+    /// <param name="rootDirectories">完全走査を受理した登録root。</param>
+    /// <param name="currentDirectoryPaths">登録root内のroot・祖先を含む確定済み集合。譜面単位の再探索や複製は行いません。</param>
     internal static Lr2NormalFolderSyncScope CreateForFileDiff(
         IEnumerable<string> rootDirectories,
-        IEnumerable<string> scannedBmsPaths,
-        IEnumerable<string> changedDirectoryPaths = null,
-        IEnumerable<string> pruneScopeDirectoryPaths = null)
+        IReadOnlyList<string> currentDirectoryPaths)
     {
         List<string> roots = NormalizeRoots(rootDirectories);
-        if (roots.Count == 0)
-        {
-            return Lr2NormalFolderSyncScope.Empty;
-        }
-
-        var chartPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var directoryPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var pruneScopeDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var pruneExactDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (string directoryPath in changedDirectoryPaths ?? [])
-        {
-            AddDirectoryIfUnderAnyRoot(directoryPaths, directoryPath, roots);
-        }
-        foreach (string directoryPath in pruneScopeDirectoryPaths ?? [])
-        {
-            AddDirectoryIfUnderAnyRoot(pruneScopeDirectories, directoryPath, roots);
-        }
-        HashSet<string> currentAncestorDirectories = pruneScopeDirectories.Count > 0
-            ? CreateCurrentAncestorDirectorySet(scannedBmsPaths, roots)
-            : [];
-        foreach (string pruneScopeDirectory in pruneScopeDirectories)
-        {
-            AddEmptyAncestorExactScopesForDirectoryIfUnderAnyRoot(pruneExactDirectories, pruneScopeDirectory, roots, currentAncestorDirectories);
-        }
-
-        AddCurrentPathsUnderPruneScopes(chartPaths, scannedBmsPaths, pruneScopeDirectories);
-        return CreateResult(chartPaths, directoryPaths, pruneScopeDirectories, pruneExactDirectories);
+        if (roots.Count == 0) { return Lr2NormalFolderSyncScope.Empty; }
+        roots.Sort(StringComparer.OrdinalIgnoreCase);
+        return new Lr2NormalFolderSyncScope([], currentDirectoryPaths, roots, []);
     }
 
     internal static Lr2NormalFolderSyncScope CreateForCatalogMutation(
@@ -476,23 +452,6 @@ internal static class Lr2NormalFolderSyncScopeBuilder
         }
     }
 
-    private static void AddCurrentPathsUnderPruneScopes(
-        HashSet<string> result,
-        IEnumerable<string> chartPaths,
-        IReadOnlyCollection<string> pruneScopeDirectories)
-    {
-        if (pruneScopeDirectories == null || pruneScopeDirectories.Count == 0)
-        {
-            return;
-        }
-
-        var pruneScopeSet = new HashSet<string>(pruneScopeDirectories, StringComparer.OrdinalIgnoreCase);
-        foreach (string path in chartPaths ?? [])
-        {
-            AddIfUnderAnyPruneScope(result, path, pruneScopeSet);
-        }
-    }
-
     private static void AddIfUnderAnyRoot(HashSet<string> result, string chartPath, IReadOnlyCollection<string> rootDirectories)
     {
         if (result == null || string.IsNullOrWhiteSpace(chartPath) || rootDirectories == null || rootDirectories.Count == 0)
@@ -511,29 +470,6 @@ internal static class Lr2NormalFolderSyncScopeBuilder
             if (Lr2FolderPath.IsSameOrDescendant(chartDirectory, root))
             {
                 result.Add(chartPath);
-                return;
-            }
-        }
-    }
-
-    private static void AddDirectoryIfUnderAnyRoot(HashSet<string> result, string directoryPath, IReadOnlyCollection<string> rootDirectories)
-    {
-        if (result == null || string.IsNullOrWhiteSpace(directoryPath) || rootDirectories == null || rootDirectories.Count == 0)
-        {
-            return;
-        }
-
-        string normalized = Lr2FolderPath.NormalizeDirectoryPath(directoryPath);
-        if (string.IsNullOrWhiteSpace(normalized))
-        {
-            return;
-        }
-
-        foreach (string root in rootDirectories)
-        {
-            if (Lr2FolderPath.IsSameOrDescendant(normalized, root))
-            {
-                result.Add(normalized);
                 return;
             }
         }
@@ -620,57 +556,6 @@ internal static class Lr2NormalFolderSyncScopeBuilder
             }
             current = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(current));
         }
-    }
-
-    private static void AddEmptyAncestorExactScopesForDirectoryIfUnderAnyRoot(
-        HashSet<string> result,
-        string directoryPath,
-        IReadOnlyCollection<string> rootDirectories,
-        ISet<string> currentAncestorDirectories)
-    {
-        Lr2NormalFolderCurrentBmsLookup lookup = currentAncestorDirectories == null
-            ? Lr2NormalFolderCurrentBmsLookup.Empty
-            : Lr2NormalFolderCurrentBmsLookup.CreateFromDirectorySet(currentAncestorDirectories);
-        AddEmptyAncestorExactScopesForDirectoryIfUnderAnyRoot(result, directoryPath, rootDirectories, lookup);
-    }
-
-    private static HashSet<string> CreateCurrentAncestorDirectorySet(IEnumerable<string> chartPaths, IReadOnlyCollection<string> rootDirectories)
-    {
-        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (rootDirectories == null || rootDirectories.Count == 0)
-        {
-            return result;
-        }
-
-        List<string> rootsForMatching = [.. rootDirectories.OrderByDescending(root => root.Length)];
-        foreach (string chartPath in chartPaths ?? [])
-        {
-            string chartDirectory = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(chartPath));
-            if (string.IsNullOrWhiteSpace(chartDirectory))
-            {
-                continue;
-            }
-
-            string rootDirectory = rootsForMatching.FirstOrDefault(root => Lr2FolderPath.IsSameOrDescendant(chartDirectory, root));
-            if (string.IsNullOrWhiteSpace(rootDirectory))
-            {
-                continue;
-            }
-
-            string current = chartDirectory;
-            while (!string.IsNullOrWhiteSpace(current)
-                && Lr2FolderPath.IsSameOrDescendant(current, rootDirectory))
-            {
-                result.Add(current);
-                if (string.Equals(current, rootDirectory, StringComparison.OrdinalIgnoreCase))
-                {
-                    break;
-                }
-                current = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(current));
-            }
-        }
-
-        return result;
     }
 
     private static void AddIfUnderAnyPruneScope(HashSet<string> result, string chartPath, ISet<string> pruneScopeDirectories)

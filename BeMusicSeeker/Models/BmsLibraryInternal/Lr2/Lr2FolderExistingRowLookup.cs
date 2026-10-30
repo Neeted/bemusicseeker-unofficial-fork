@@ -19,19 +19,6 @@ internal static class Lr2FolderExistingRowLookup
         return QueryExactPaths(songDb, exactPaths, "f.*");
     }
 
-    internal static IReadOnlyList<LR2SongDB.folder> QueryExactPathsForNormalFolderMtime(
-        LR2SongDBExtended songDb,
-        IEnumerable<string> exactPaths)
-    {
-        string pathColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.path);
-        string typeColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.type);
-        string dateColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.date);
-        return QueryExactPaths(
-            songDb,
-            exactPaths,
-            "f." + pathColumn + ", f." + typeColumn + ", f." + dateColumn);
-    }
-
     internal static IReadOnlyList<LR2SongDB.folder> QueryExactPathsForCustomFolderLayout(
         LR2SongDBExtended songDb,
         IEnumerable<string> exactPaths)
@@ -102,21 +89,6 @@ internal static class Lr2FolderExistingRowLookup
         string pathColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.path);
         return [.. QueryPathPrefixScopes(songDb, folderPathPrefixes, [], pathColumn,
             " AND " + pathColumn + " LIKE '%.lr2folder' COLLATE NOCASE").Select(row => row.path)];
-    }
-
-    internal static IReadOnlyList<LR2SongDB.folder> QueryNormalFolderMtimePathPrefixScopes(
-        LR2SongDBExtended songDb,
-        IEnumerable<string> folderPathPrefixes)
-    {
-        string pathColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.path);
-        string typeColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.type);
-        string dateColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.date);
-        return QueryPathPrefixScopes(
-            songDb,
-            folderPathPrefixes,
-            [],
-            pathColumn + ", " + typeColumn + ", " + dateColumn,
-            " AND " + typeColumn + " = 1");
     }
 
     internal static IReadOnlyList<LR2SongDB.folder> QueryPathPrefixScopes(

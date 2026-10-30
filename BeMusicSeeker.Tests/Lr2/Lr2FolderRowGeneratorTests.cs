@@ -77,10 +77,13 @@ public sealed class Lr2FolderRowGeneratorTests
     }
 
     /// <summary>
-    /// folderinfoのタイトルを採用しても既存追加時刻を保持し、更新時の履歴消失と出所誤認を検出する。
+    /// folderinfoのタイトルを採用し、exact存続だけ追加時刻を保持する。別case旧行からの値継承と共存時の上書きを防ぐ。
     /// </summary>
-    [TestMethod]
-    public void GenerateNormalDirectoryRows_UsesFolderInfoTitleAndPreservesExistingAddDate()
+    [DataTestMethod]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public void GenerateNormalDirectoryRows_UsesFolderInfoTitleAndPreservesExistingAddDate(bool exactExists, bool aliasExists)
     {
         DateTime generatedAt = new(2026, 6, 2, 1, 2, 3, DateTimeKind.Utc);
         string folderPath = FolderPath(@"D:\BMS\Pack");
@@ -89,14 +92,8 @@ public sealed class Lr2FolderRowGeneratorTests
         {
             RootDirectories = [@"D:\BMS"],
             ChartPaths = [@"D:\BMS\Pack\chart.bms"],
-            ExistingRows =
-            [
-                new LR2SongDB.folder
-                {
-                    path = folderPath,
-                    adddate = 12345
-                }
-            ],
+            ExistingRows = (exactExists ? new[] { new LR2SongDB.folder { path = folderPath, adddate = 12345 } } : [])
+                .Concat(aliasExists ? new[] { new LR2SongDB.folder { path = folderPath.ToLowerInvariant(), adddate = 98765 } } : []).ToArray(),
             DirectoryMetadataResolver = path => string.Equals(Normalize(path), Normalize(@"D:\BMS\Pack"), StringComparison.OrdinalIgnoreCase)
                 ? new Lr2FolderDirectoryMetadata(generatedAt, "Folder Info Title")
                 : new Lr2FolderDirectoryMetadata(generatedAt),
@@ -106,7 +103,7 @@ public sealed class Lr2FolderRowGeneratorTests
         LR2SongDB.folder row = result.Rows.Single(candidate => string.Equals(candidate.path, folderPath, StringComparison.Ordinal));
 
         Assert.AreEqual("Folder Info Title", row.title);
-        Assert.AreEqual(12345, row.adddate);
+        Assert.AreEqual(exactExists ? 12345 : generatedAt.ToUnixtime(), row.adddate);
         Assert.AreEqual(Lr2FolderRowSourceKind.FolderInfoDirectory, result.SourceKinds[folderPath]);
     }
 
@@ -396,8 +393,10 @@ public sealed class Lr2FolderRowGeneratorTests
     /// <summary>
     /// 末尾区切りが欠けた保存キーを削除して正規キーを更新し、正規化一致だけで不正な実キーが残る誤りを検出する。
     /// </summary>
-    [TestMethod]
-    public void PlanNormalDirectorySync_RepairsNormalRowExactKeyDriftWithDeleteAndUpsert()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PlanNormalDirectorySync_RepairsNormalRowExactKeyDriftWithDeleteAndUpsert(bool caseOnly)
     {
         Lr2FolderGenerationResult generation = Lr2FolderRowGenerator.GenerateNormalDirectoryRows(new Lr2FolderGenerationRequest
         {
@@ -408,7 +407,7 @@ public sealed class Lr2FolderRowGeneratorTests
         LR2SongDB.folder root = generation.Rows.Single(row => string.Equals(row.path, FolderPath(@"D:\BMS"), StringComparison.Ordinal));
         LR2SongDB.folder pack = generation.Rows.Single(row => string.Equals(row.path, FolderPath(@"D:\BMS\Pack"), StringComparison.Ordinal));
         LR2SongDB.folder driftedPack = Clone(pack);
-        driftedPack.path = Normalize(@"D:\BMS\Pack");
+        driftedPack.path = caseOnly ? pack.path.ToLowerInvariant() : Normalize(@"D:\BMS\Pack");
 
         Lr2FolderGenerationSyncPlan plan = Lr2FolderGenerationScopePlanner.PlanNormalDirectorySync(
             generation,
@@ -421,10 +420,10 @@ public sealed class Lr2FolderRowGeneratorTests
     }
 
     /// <summary>
-    /// 生成入力が欠ける場合は古い行削除と大文字小文字の実キー修復を抑止し、不完全入力から破壊的に反映する誤りを防ぐ。
+    /// 生成入力が欠ける場合は旧行削除を抑止し、metadataが確認済みの新exact行は通常追加する。別case旧行の存在を理由に追加だけを特別扱いしない。
     /// </summary>
     [TestMethod]
-    public void PlanNormalDirectorySync_SuppressesPruneAndExactKeyRepairWhenGenerationHasMissingMetadata()
+    public void PlanNormalDirectorySync_SuppressesPruneButUpsertsConfirmedNewExactRowWhenGenerationHasMissingMetadata()
     {
         Lr2FolderGenerationResult generation = Lr2FolderRowGenerator.GenerateNormalDirectoryRows(new Lr2FolderGenerationRequest
         {
@@ -448,7 +447,8 @@ public sealed class Lr2FolderRowGeneratorTests
             [caseDriftRoot, staleNormal],
             [@"D:\BMS"]);
 
-        Assert.AreEqual(0, plan.UpsertRows.Count);
+        Assert.AreEqual(1, plan.UpsertRows.Count);
+        Assert.AreEqual(root.path, plan.UpsertRows.Single().path);
         Assert.AreEqual(0, plan.DeletePaths.Count);
     }
 

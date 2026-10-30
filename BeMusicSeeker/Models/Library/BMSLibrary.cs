@@ -543,6 +543,7 @@ public partial class BMSLibrary : ObservableObject
         GetLr2SynchronizationRuntimeState().RequestShutdown();
         irScoreShutdownCancellation.Cancel();
         DetachScoreSubscriptions();
+        bmsRootRegistrations.Published -= BmsRootRegistrationsPublished;
         string shutdownReason = "shutdown:" + (reason ?? "unknown");
         try
         {
@@ -1301,6 +1302,16 @@ public partial class BMSLibrary : ObservableObject
     internal void NotifyBMSDirectoriesChanged()
     {
         InvalidateBMSParentFolderListCacheAndNotify();
+    }
+
+    private void BmsRootRegistrationsPublished(object sender, EventArgs args)
+    {
+        if (IsShutdownRequested) { return; }
+        InvalidateBMSParentFolderListCache();
+        uiScheduler.Schedule(() =>
+        {
+            if (!IsShutdownRequested) { NotifyBMSParentFolderListCacheChanged(); }
+        });
     }
 
     private void InvalidateBMSParentFolderListCacheAndNotify()
@@ -2821,7 +2832,7 @@ public partial class BMSLibrary : ObservableObject
             everythingNative,
             chartFileScanner,
             rootFileEnumerator,
-            directoryPreflightService);
+            directoryPreflightService, this.bmsRootRegistrations);
         catalogChartInfoOwner.ConfigureWorkflow(
             dbGateway,
             catalogMutationOwner,
@@ -2865,6 +2876,8 @@ public partial class BMSLibrary : ObservableObject
         {
             RaisePropertyChanged(() => IsWriteLockHeldInitializeBMSFiles);
         });
+        // 以後に構築処理を残さず、成功したモデルだけを共有storeの通知先へ接続します。
+        this.bmsRootRegistrations.Published += BmsRootRegistrationsPublished;
     }
 
     /// <summary>
@@ -5044,7 +5057,7 @@ public partial class BMSLibrary : ObservableObject
                 using (rwlockBMSFilesInitializedAll.GetWriterGuard())
                 {
                     LogInstallPerformance("init_library_lock_acquired rwlockInitAll currentRead=" + rwlockBMSFilesInitializedAll.CurrentReadCount + " lockingRead=" + rwlockBMSFilesInitializedAll.LockingReadCount + " lockingWrite=" + rwlockBMSFilesInitializedAll.LockingWriteCount + " waitingWrite=" + rwlockBMSFilesInitializedAll.WaitingWriteCount);
-                    now = DateTime.Now;
+                    now = DateTime.UtcNow;
                     initializeResult = initializationService.RunInitialization(
                         tasksContinuation,
                         semaphore,
@@ -5052,15 +5065,11 @@ public partial class BMSLibrary : ObservableObject
                         {
                             using (rwlockBMSFilesInitializedMin.GetWriterGuard())
                             {
-                                if (songTblLoad) { LoadSavedCatalog(options, leapYearRepairApproval, result => initialSongTableLoadResult = result, initializationPostLeaseEffects.Add); }
+                                if (songTblLoad) { LoadSavedCatalog(options, leapYearRepairApproval, result => initialSongTableLoadResult = result, initializationPostLeaseEffects.Add, now); }
                                 if (scoreAttempt != null) { scoreNotification = AdoptSavedScores(options, scoreAttempt); }
                                 if (songTblLoad)
                                 {
                                     packageLifecycleOwner.StartupReadiness.MarkCatalogLoaded();
-                                }
-                                if (songTblFileCheck)
-                                {
-                                    libraryFileScanPipelineOwner.StartActiveNormalFolderMtimeSnapshot(fileScanGeneration);
                                 }
                             }
                         },
@@ -5068,7 +5077,8 @@ public partial class BMSLibrary : ObservableObject
                         {
                             Lr2FolderFileDiffPreparationResult scanPreparation = ApplyInitializationFilesAndScores(
                                 songTblFileCheck, fileScanGeneration, isStartup ? "initialize" : "full_reinitialize",
-                                mutationCapability, originatingRequest, initializationPostLeaseEffects.Add);
+                                mutationCapability, originatingRequest, initializationPostLeaseEffects.Add,
+                                initialSongTableLoadResult?.FolderTableSnapshot, now);
                             synchronizationInput = scanPreparation?.SynchronizationInput ?? new(options: options);
                             if (scanPreparation?.Request != null)
                             {
@@ -5085,7 +5095,7 @@ public partial class BMSLibrary : ObservableObject
                                 packageLifecycleOwner.StartupReadiness.MarkDestinationResourceIndexReady();
                             }
                         });
-                    TimeSpan timeSpan = DateTime.Now - now;
+                    TimeSpan timeSpan = DateTime.UtcNow - now;
                     NLogWrapper.DebuggerLogger?.Trace(timeSpan.ToString());
 
                 }
@@ -5130,7 +5140,7 @@ public partial class BMSLibrary : ObservableObject
         if (pendingPublication != null)
         {
             uiScheduler.Invoke(pendingPublication);
-            CompletePendingRestorationReadiness(now.ToUniversalTime());
+            CompletePendingRestorationReadiness(now);
         }
         // 公開入口は既存の公開効果を排出してから通知し、後続の独立背景処理をまだ開始しない。
         try { FlushPostLeaseEffects(initializationPostLeaseEffects, diagnosticEffects: null); }
@@ -5138,8 +5148,8 @@ public partial class BMSLibrary : ObservableObject
         {
             if (repairNotificationObserver == null && repairNotification != null) { PresentLeapYearFolderRepair(repairNotification); }
         }
-        long installableElapsedMs = (long)(DateTime.Now - now).TotalMilliseconds;
-        TimeSpan timeSpan2 = DateTime.Now - now;
+        long installableElapsedMs = (long)(DateTime.UtcNow - now).TotalMilliseconds;
+        TimeSpan timeSpan2 = DateTime.UtcNow - now;
         NLogWrapper.DebuggerLogger?.Trace(timeSpan2.ToString());
         synchronizationInput = synchronizationInput with { FollowUp = new(deferredMaintenanceReason, !isScoreOnly, installableElapsedMs) };
         if (capability == null) { ScheduleInitializationFollowUp(synchronizationInput.FollowUp); }
@@ -5402,7 +5412,7 @@ public partial class BMSLibrary : ObservableObject
 
     /// <summary>保存目録を一度読込み、親操作の公開効果へ接続します。通信や補完は開始しません。</summary>
     private void LoadSavedCatalog(BmsLibraryOptionsSnapshot options, LeapYearFolderRepairApproval leapYearRepairApproval,
-        Action<SongTableLoadResult> songTableLoadResultObserver, Action<Action> postLeaseEffectObserver)
+        Action<SongTableLoadResult> songTableLoadResultObserver, Action<Action> postLeaseEffectObserver, DateTime generatedAtUtc)
     {
         ReportLibraryInitializationProgress(LibraryInitializationProgressStage.DatabaseLoad, force: true);
         SongTableLoadResult songTableLoadResult = initializationService.LoadSongTable(
@@ -5413,7 +5423,7 @@ public partial class BMSLibrary : ObservableObject
             targetOnlyFileMutationOptions,
             GetDisplayedExceptionMessage,
             LogInstallPerformance,
-            message => NLogWrapper.DebuggerLogger?.Trace(message), leapYearRepairApproval);
+            message => NLogWrapper.DebuggerLogger?.Trace(message), leapYearRepairApproval, generatedAtUtc);
         songTableLoadResultObserver?.Invoke(songTableLoadResult);
         var stopwatchBmsFilesAssign = Stopwatch.StartNew();
         ApplyCatalogStorageRows(
@@ -5502,13 +5512,14 @@ public partial class BMSLibrary : ObservableObject
 
     /// <summary>先行走査の実結果を確定し、保存済み譜面情報に必要なdigestとスコア投影を直接完了します。</summary>
     private Lr2FolderFileDiffPreparationResult ApplyInitializationFilesAndScores(bool scanRequired, long fileScanGeneration,
-        string reason, LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest, Action<Action> postLeaseEffectObserver)
+        string reason, LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest, Action<Action> postLeaseEffectObserver,
+        Lr2FolderTableSnapshot folderTableSnapshot, DateTime generatedAtUtc)
     {
         Lr2FolderFileDiffPreparationResult preparation = null;
         if (scanRequired)
         {
             preparation = libraryFileScanPipelineOwner.ApplyActiveFileScan(fileScanGeneration, true,
-                installDestinationStateOwner.CreateCleanupSnapshot(), postLeaseEffectObserver, capability);
+                installDestinationStateOwner.CreateCleanupSnapshot(), postLeaseEffectObserver, capability, folderTableSnapshot, generatedAtUtc);
         }
         else
         {
@@ -5594,12 +5605,14 @@ public partial class BMSLibrary : ObservableObject
                             scannerLabel,
                             force: true),
                         directoryPreflightRequest, warningObserver);
-                    libraryFileScanPipelineOwner.StartActiveNormalFolderMtimeSnapshot(fileScanGeneration);
+                    Lr2FolderTableSnapshot folderTableSnapshot = bmsDirectories.Count > 0
+                        ? initializationService.LoadFolderTableSnapshot(dbGateway, options) : null;
                     Lr2FolderFileDiffPreparationResult scanPreparation = libraryFileScanPipelineOwner.ApplyActiveFileScan(
                         fileScanGeneration,
                         trackLibraryFileCheckProgress: true,
                         installDestinationCleanupSnapshot: installDestinationStateOwner.CreateCleanupSnapshot(),
-                        postLeaseEffectObserver: action => postLeaseEffects.Add(action), capability: mutationCapability);
+                        postLeaseEffectObserver: action => postLeaseEffects.Add(action), capability: mutationCapability,
+                        folderTableSnapshot: folderTableSnapshot);
                     synchronizationInput = scanPreparation?.SynchronizationInput ?? new(options: options);
                     SongTableFileCheckResult result = scanPreparation?.FileCheckResult;
                     if (scanPreparation?.Request != null)

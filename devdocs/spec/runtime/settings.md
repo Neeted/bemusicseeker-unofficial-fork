@@ -221,6 +221,8 @@ LR2連携でバックアップを有効化した場合は、当該項目の保�
 
 正本はconfig・jukeboxの未知属性・未知子、継続するpathの未知属性を保持します。削除要求の対象path以外を一覧置換の都合で消しません。byte単位の書式保持は保証しません。
 
+走査が確認したroot表記の保存は[共通保存主体](settings-persistence.md#項目保存と公開)から確定一覧と導入先だけを通知します。表示中の未確定BMS候補を採用・破棄せず、Disposeで通知購読を解除します。検索rootの実在表記とDB直前の保存境界は[起動と走査](startup.md#登録rootの表記と走査入力)を正本とします。
+
 ### beatorajaの局所反映
 
 beatorajaのroot、スコア、BMTは独立した確定操作です。スコアON/OFFとplayerの変更は確定rootの `playerpath` からscore.dbを解決し、使用方針・player・score.dbだけを保存します。有効な組は入力イベントで自動確定し、必要なスコアと全履歴の再取得・現在要求の置換・必須表示まで待ちます。別root候補・BMT候補は確定も破棄も要求しません。外部configの `tablepath` が変わっていても、スコア操作ではBMT先の再解決・保存・出力・旧先整理・管理URL同期を行いません。共通ScoreOnly完了もプレイリストURL補完を予約しません。
@@ -292,6 +294,8 @@ LR2で変更前に有効な `BMSInstallDir` が、今回の通常・追加・ROO
 
 出力の未受理候補は確定配置へ戻し、通常の選択・追加・削除・改名から再操作できます。過去のTarget・改名・成功段階を復元せず、今回入力と他項目の最新確定値から検証します。通常型が使う追加先名が設定にない場合は通常先へ読み替えず、その表の出力を止めて保存先の再選択を案内します。ROOT型は追加先名を使わないためROOT出力を続け、通常型へ戻した時に未登録名の停止を適用します。既存データにも同じ扱いを適用し、正本名と表示を保ちます。
 
+確定LR2rootが分かる場合、両モードの明示BMS登録は組込み `LR2files/CustomFolder` の自身・配下を保存前に拒否し、親・driveを許可します。通常・追加・ROOT出力基点は組込み自身・配下・直上の `LR2files` だけを拒否し、LR2rootなど上位祖先を許可します。検査は起動共通受理、出力区分の受付後・最初の保存前、LR2root・詳細変更の確認後・保存前、明示BMS登録保存前に行います。setterや通常走査・表編集・出力・同期では組込みを再検査しません。mode選択は即時保存し、再起動後の共通起動検査で不備を訂正します。profile未構築時はnormal/ROOT pickerと追加先の追加・改名・削除を当該sectionだけで確定でき、未設定・旧予約領域の他区分は安全訂正を妨げず、有効な既存基点との一般配置衝突・旧配置警告は維持します。追加の旧禁止集合は一件ずつ縮小でき、禁止先の新規・改名は拒否します。全体受理まではprofile/backendを公開せず、旧builtin物理配置を移行・削除・pruneへ渡しません。standaloneの不使用出力残存値だけで起動を止めず、root不明時に名前から推測しません。詳細は[共通配置条件](../playlist/lr2-custom-folders.md#出力先と事前検査)に従います。
+
 カスタムフォルダ出力先は本アプリの管理領域です。通常出力先だけは従来互換のため楽曲検索に残し、追加通常出力先とルートフォルダ出力先は楽曲検索から除きます。いずれも一般ページのBMSディレクトリ一覧、導入候補、フォルダツリーには混ぜません。楽曲検索の対象とLR2の `jukebox` 登録は区別し、出力に必要な登録は維持します。
 
 一般BMS一覧と確定導入候補から除く範囲は、通常・追加・ROOTの各出力基点全体とその子孫です。ドライブルートやUNC共有ルートも同じ意味で扱い、大小文字・末尾区切りの差で除外が変わらないようにします。接頭辞だけが一致する兄弟、別ドライブ・別共有、無関係な欠落登録は保持します。実在する管理出力を導入先の保存入口へ渡した場合も拒否し、最新の確定導入先を保持します。表削除の対象範囲は基点全体ではなく[当該表ディレクトリ](../playlist/lr2-custom-folders.md#管理領域の整理)です。
@@ -333,6 +337,7 @@ BMSディレクトリの追加・削除・複数選択・D&Dは設定画面内�
 
 | 保証 | 実装 | 検証 |
 | --- | --- | --- |
+| 走査後の確定一覧・同所導入先の表示 | `SettingsDialogViewModel`、`BmsRootRegistrationStore.Published` | `SettingDialogEditCompletionTests.BmsConfirmation_CompletesRealFileDiffBeforeClosing` が標準composition・実DB・確定一覧/導入先と未確定候補の保持、実score取得後も譜面差分を伴わない登録公開でcache世代・通知が進む接続を確認する。 |
 | 録音形式の表示・明示保存と利用不能形式の拒否 | [`SettingsDialogViewModel.EncoderIndex`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、`RecordingSettingsPage` | [`SettingsDialogBehaviorTests.RecordingEncoderSelection_PreservesUnavailableSavedFormatAndCommitsExplicitWaveOnly`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) は利用不能な保存済みMP3、別形式の警告・保存拒否、明示WAVEの実保存・新provider読戻し・変換前snapshotと別候補保持を確認する。[`SettingsWindowCompiledBehaviorTests.RecordingPage_PreservesUnavailableSavedEncoderAndPersistsExplicitWaveAcrossReopen`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs) は実録音ページのBinding・選択・閉鎖後の再表示と保存要求数を確認する。実encoder探索・実変換後の代替はこの保証に含めない。 |
 | 独立導入先の実L保存区間と候補保持 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) | `SettingDialogEditCompletionTests.IndependentInstallSelection_*` が実VM/provider・実Library受付を、`CompiledInstallSelection_*` がBinding・実選択・拒否後表示・次の明示操作を分担する。 |
 | BMSルート確定後の生成済み導入設定ページ | [`SettingsDialogViewModel.Confirmation`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs) の確定候補・導入先通知 | [`SettingDialogEditCompletionTests.CompiledBmsRootConfirmation_UpdatesExistingInstallSelectionOrKeepsConfirmedState`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCandidateSwitchTests.cs) は非先頭の明示代替、局所取消、standaloneの実保存失敗、追加だけの既存非先頭導入先維持を、同じcompiledページの候補・実選択とfresh readerで確認する。保存要求の観測で候補編集・再表示の非保存と失敗後の自動再試行なしを確認し、最終バッチ・媒体部分成功・公開後再読込みは既存BMS確定系列へ分担する。 |

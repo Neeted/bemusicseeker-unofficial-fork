@@ -20,6 +20,96 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class SettingDialogCustomFolderOutputBaseTests
 {
+    /// <summary>設定受理の予約領域条件を集約する。出力基点三種は組込み自身・配下・直上を拒否し、LR2rootより上の祖先、BMS親・drive、兄弟と未知LR2rootを維持する。実drive/UNCへアクセスしない。</summary>
+    [DataTestMethod]
+    [DataRow("normal", "same", true)]
+    [DataRow("normal", "child", true)]
+    [DataRow("normal", "ancestor", true)]
+    [DataRow("additional", "same", true)]
+    [DataRow("additional", "child", true)]
+    [DataRow("additional", "ancestor", true)]
+    [DataRow("root", "same", true)]
+    [DataRow("root", "child", true)]
+    [DataRow("root", "ancestor", true)]
+    [DataRow("normal", "drive", false)]
+    [DataRow("normal", "lr2-root", false)]
+    [DataRow("additional", "lr2-root", false)]
+    [DataRow("root", "lr2-root", false)]
+    [DataRow("normal", "sibling", false)]
+    [DataRow("additional", "sibling", false)]
+    [DataRow("root", "sibling", false)]
+    [DataRow("normal", "boundary", false)]
+    [DataRow("normal", "unknown-root", false)]
+    [DataRow("bms", "same", true)]
+    [DataRow("bms-under-ancestor-output", "same", true)]
+    [DataRow("bms", "child", true)]
+    [DataRow("bms", "ancestor", false)]
+    [DataRow("bms", "drive", false)]
+    [DataRow("bms", "sibling", false)]
+    [DataRow("standalone-bms", "same", true)]
+    [DataRow("unused-output", "same", false)]
+    public async Task SettingsAcceptance_ReservesBuiltinOnlyAtConfigurationBoundary(string role, string position, bool reject)
+    {
+        if (role == "bms-under-ancestor-output")
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "bms-settings-acceptance-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                string reserved = Path.Combine(directory, "LR2files", "CustomFolder");
+                string configPath = Path.Combine(directory, "config.xml");
+                File.WriteAllText(configPath, "<config><system/><player/><jukebox/></config>");
+                var config = new LR2Config(configPath);
+                config.SetBMSSearchDirectories([reserved]); config.Save(configPath);
+                var startup = new StartupSettingsSnapshot
+                {
+                    OperationModeLR2DB = true,
+                    LR2RootPath = directory,
+                    LR2ConfigXmlPath = configPath,
+                    LR2CustomFolderOutputBaseDir = directory,
+                    LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+                };
+                LibraryDirectoryPreflightException failure = await Assert.ThrowsExceptionAsync<LibraryDirectoryPreflightException>(
+                    () => StartupLibraryConstructionOwner.PrepareDirectoriesAsync(startup, new CustomFolderOutputSettingsSnapshot(), new Lr2ConfigSession()));
+                Assert.AreEqual(LibraryDirectoryPreflightUse.BmsRoot, failure.Use);
+                Assert.AreEqual(LibraryDirectoryPreflightFailureCause.InvalidConfiguration, failure.Cause);
+                Assert.IsFalse(Directory.Exists(reserved), "出力基点に含まれる明示登録も、write probe前に受理検査します。");
+            }
+            finally { Directory.Delete(directory, recursive: true); }
+            return;
+        }
+        const string lr2 = @"C:\LR2-acceptance";
+        string builtin = Path.Combine(lr2, "LR2files", "CustomFolder");
+        string path = position switch
+        {
+            "child" => Path.Combine(builtin, "Child"),
+            "ancestor" => Path.Combine(lr2, "LR2files"),
+            "drive" => @"C:\",
+            "lr2-root" => lr2,
+            "sibling" => Path.Combine(lr2, "LR2files", "Safe"),
+            "boundary" => builtin + "Other",
+            _ => builtin
+        };
+        bool bms = role is "bms" or "standalone-bms" or "bms-under-ancestor-output";
+        var options = new BmsLibraryOptionsSnapshot
+        {
+            OperationModeLR2DB = role is not "standalone-bms" and not "unused-output",
+            LR2RootPath = position == "unknown-root" ? null : lr2,
+            LR2CustomFolderOutputBaseDir = role == "bms-under-ancestor-output" ? lr2 : role is "normal" or "unused-output" ? path : null,
+            LR2CustomFolderOutputBaseDirRootType = role == "root" ? path : null,
+            LR2CustomFolderAdditionalOutputBaseDirsSerialized = CustomFolderOutputBaseRegistry.SerializeBaseDirectories(role == "additional" ? [path] : [])
+        };
+        string[] registeredRoots = bms ? [path] : [];
+        LibraryDirectoryPreflightRequest request = new LibraryDirectoryPreflightService().CreateRequest(registeredRoots, registeredRoots, options);
+        if (reject)
+        {
+            LibraryDirectoryPreflightException error = Assert.ThrowsException<LibraryDirectoryPreflightException>(() => LibraryDirectoryPreflightService.ValidateSettingsAcceptance(registeredRoots, request, options));
+            Assert.AreEqual(LibraryDirectoryPreflightFailureCause.InvalidConfiguration, error.Cause);
+            Assert.IsNotNull(error.InnerException);
+        }
+        else { LibraryDirectoryPreflightService.ValidateSettingsAcceptance(registeredRoots, request, options); }
+    }
+
     /// <summary>実portの準備結果を同じ構成のXML所有者へ保存・公開します。設定本体の二媒体・一回保存は局所確定テストが分担します。</summary>
     private bool SavePreparedCustomFolderSearchRoots(MainWindowViewModel viewModel,
         string previousRoot, CustomFolderOutputSettingsSnapshot settings)

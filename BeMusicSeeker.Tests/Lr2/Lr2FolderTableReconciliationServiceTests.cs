@@ -292,11 +292,14 @@ public sealed class Lr2FolderTableReconciliationServiceTests
     }
 
     /// <summary>
-    /// 既存フォルダのタイトルと更新時刻を全置換しても追加時刻を保持し、既存行の履歴消失を検出する。
+    /// 全表再整合は最新DBのexact存続行だけ追加時刻を保持し、別case旧行からの継承と共存時の上書きを防ぐ。
     /// </summary>
     /// <remarks>実SQLiteの既存行と反映後の行を観測し、全置換時の保存保証を確認する。</remarks>
-    [TestMethod]
-    public void Reconcile_PreservesExistingFolderAddDateAcrossWholeTableApply()
+    [DataTestMethod]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public void Reconcile_PreservesExistingFolderAddDateAcrossWholeTableApply(bool exactExists, bool aliasExists)
     {
         using var scope = TestDatabaseScope.Create();
         string root = Path.Combine(scope.DirectoryPath, "AddDateRoot");
@@ -305,13 +308,17 @@ public sealed class Lr2FolderTableReconciliationServiceTests
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.folder>();
         string rootRowPath = ToFolderPath(root);
-        songDb.InsertOrReplace(new LR2SongDB.folder
+        if (exactExists)
         {
-            path = rootRowPath,
-            title = "Old title",
-            date = 1,
-            adddate = 1234
-        }, typeof(LR2SongDB.folder));
+            songDb.InsertOrReplace(new LR2SongDB.folder
+            {
+                path = rootRowPath,
+                title = "Old title",
+                date = 1,
+                adddate = 1234
+            }, typeof(LR2SongDB.folder));
+        }
+        if (aliasExists) { songDb.Insert(new LR2SongDB.folder { path = rootRowPath.ToLowerInvariant(), title = "Old alias", date = 2, adddate = 7890 }); }
 
         Lr2FolderTableReconciliationResult result = Lr2FolderTableReconciliationService.Reconcile(songDb, new Lr2SongDbSyncRequest
         {
@@ -324,8 +331,9 @@ public sealed class Lr2FolderTableReconciliationServiceTests
             StartedAtUtc = rootTime.AddHours(1)
         });
 
-        Assert.AreEqual(1, result.ExistingRowCount);
-        Assert.AreEqual(1234, songDb.ExecuteScalar<int>("SELECT adddate FROM folder WHERE path = ?;", rootRowPath));
+        Assert.AreEqual((exactExists ? 1 : 0) + (aliasExists ? 1 : 0), result.ExistingRowCount);
+        Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().Count());
+        Assert.AreEqual(exactExists ? 1234 : Lr2SongRowEnricher.ToLr2UnixSeconds(rootTime.AddHours(1)), songDb.ExecuteScalar<int>("SELECT adddate FROM folder WHERE path = ?;", rootRowPath));
         Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(rootTime), songDb.ExecuteScalar<int>("SELECT date FROM folder WHERE path = ?;", rootRowPath));
         Assert.AreEqual("AddDateRoot", songDb.ExecuteScalar<string>("SELECT title FROM folder WHERE path = ?;", rootRowPath));
     }

@@ -76,6 +76,54 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         AssertFolderValues(unrelated, db.Find<LR2SongDB.folder>(unrelated.path));
     }
 
+    /// <summary>対象共通親の実限定取得から保存まで、別rawキーは削除・新規、exact存続は値とNULLを保持します。ASCII・CP932 Greek・通常移動を同じ集合則で比較します。</summary>
+    [DataTestMethod]
+    [DataRow("a", "A", true, false, 987)]
+    [DataRow("a", "A", true, true, 987)]
+    [DataRow("a", "A", false, true, null)]
+    [DataRow("α", "Α", true, false, 987)]
+    [DataRow("α", "Α", true, true, null)]
+    [DataRow("α", "Α", false, true, 987)]
+    [DataRow("Old", "Moved", true, false, 987)]
+    public void Sync_UsesRawExactFolderSet(string oldName, string currentName, bool hasOld, bool hasCurrent, int? currentAddDate)
+    {
+        using var scope = Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
+        using var db = new LR2SongDBExtended(scope.SongDbPath);
+        db.CreateTable<LR2SongDB.folder>();
+        string root = @"D:\BMS", oldPath = FolderPath(Path.Combine(root, oldName)), currentDirectory = Path.Combine(root, currentName);
+        string currentPath = FolderPath(currentDirectory);
+        DateTime generatedAt = new(2026, 6, 20, 1, 2, 3, DateTimeKind.Utc);
+        if (hasOld) { db.Insert(new LR2SongDB.folder { path = oldPath, type = 1, title = "Old", date = 1, adddate = 123 }); }
+        if (hasCurrent) { db.Insert(new LR2SongDB.folder { path = currentPath, type = 1, title = "Current", date = 2, adddate = currentAddDate }); }
+        var outside = new LR2SongDB.folder { path = FolderPath(@"E:\Other"), type = 1, title = "Outside", adddate = 456 };
+        var custom = new LR2SongDB.folder { path = FolderPath(Path.Combine(root, "Custom")), type = 2, title = "Custom", command = "Keep", adddate = 789 };
+        db.Insert(outside); db.Insert(custom);
+        var request = new Lr2NormalFolderDbSyncRequest
+        {
+            RootDirectories = [root],
+            DirectoryPaths = [currentDirectory],
+            PruneScopeDirectories = [root],
+            DirectoryLastWriteTimeUtcResolver = _ => generatedAt.AddDays(-1),
+            GeneratedAtUtc = generatedAt,
+            UseScopedExistingRows = true,
+            AllowPrune = true
+        };
+        Lr2NormalFolderDbSyncResult first = Lr2NormalFolderDbSyncService.Sync(db, request);
+        Assert.AreEqual(hasOld ? 1 : 0, first.DeletedCount);
+        Assert.IsNull(db.Find<LR2SongDB.folder>(oldPath));
+        LR2SongDB.folder current = db.Find<LR2SongDB.folder>(currentPath);
+        Assert.IsNotNull(current);
+        Assert.AreEqual(hasCurrent ? currentAddDate : generatedAt.ToUnixtime(), current.adddate);
+        Assert.AreEqual(currentName, current.title);
+        Assert.AreEqual(generatedAt.AddDays(-1).ToUnixtime(), current.date);
+        AssertFolderValues(outside, db.Find<LR2SongDB.folder>(outside.path));
+        AssertFolderValues(custom, db.Find<LR2SongDB.folder>(custom.path));
+        request.GeneratedAtUtc = generatedAt.AddDays(1);
+        Lr2NormalFolderDbSyncResult second = Lr2NormalFolderDbSyncService.Sync(db, request);
+        Assert.AreEqual(0, second.UpsertedCount + second.DeletedCount);
+        AssertFolderValues(current, db.Find<LR2SongDB.folder>(currentPath));
+    }
+
     private static void AssertFolderValues(LR2SongDB.folder expected, LR2SongDB.folder actual)
     {
         Assert.IsNotNull(actual);
@@ -309,6 +357,10 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
             songDb.InsertOrReplace(new LR2SongDB.folder
             {
                 path = untouchedPath,
+                title = "Keep outside",
+                parent = "keep-parent",
+                date = 1234,
+                adddate = 5678,
                 type = 1
             }, typeof(LR2SongDB.folder));
 
@@ -325,7 +377,9 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
 
             Assert.AreEqual(1, result.DeletedCount);
             Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().Count(row => row.path == removedPath));
-            Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().Count(row => row.path == untouchedPath));
+            LR2SongDB.folder untouched = songDb.Table<LR2SongDB.folder>().Single(row => row.path == untouchedPath);
+            Assert.AreEqual("Keep outside", untouched.title); Assert.AreEqual("keep-parent", untouched.parent);
+            Assert.AreEqual(1234, untouched.date); Assert.AreEqual(5678, untouched.adddate);
             Assert.IsTrue(songDb.Table<LR2SongDB.folder>().Any(row => row.path == FolderPath(@"D:\BMS\Pack")));
         }
         finally

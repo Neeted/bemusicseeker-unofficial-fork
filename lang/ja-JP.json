@@ -1181,7 +1181,7 @@
   "LibraryDirectoryPreflightCauseAccessDenied": "フォルダを読み取る権限がありません。",
   "LibraryDirectoryPreflightCauseNotDirectory": "指定先がフォルダではありません。",
   "LibraryDirectoryPreflightCauseInvalidPath": "パスの形式が不正です。",
-  "LibraryDirectoryPreflightCauseInvalidConfiguration": "追加出力先の設定形式が不正です。",
+  "LibraryDirectoryPreflightCauseInvalidConfiguration": "ライブラリのディレクトリ設定が不正です。",
   "LibraryDirectoryPreflightCauseIo": "フォルダを読み取れません。",
   "LibraryDirectoryPreflightCauseWrite": "出力先へ一時確認ファイルを書き込めません。",
   "LibraryDirectoryPreflightCauseCleanup": "一時確認ファイルを削除できません。",
@@ -1387,5 +1387,6 @@
   "ChartPropertiesSatisfied": "対応する資源が存在します",
   "ChartPropertiesCountedUnfulfilled": "個別の未充足として計数します",
   "ChartPropertiesNotCounted": "要求数に含めません",
-  "ChartPropertiesCp932AlternativeInterpretation": "LR2用の別解釈（CP932・通常の解釈と併記される場合があります）"
+  "ChartPropertiesCp932AlternativeInterpretation": "LR2用の別解釈（CP932・通常の解釈と併記される場合があります）",
+  "Validation_Lr2BuiltinCustomFolderReservedFormat": "{0}には、LR2組込みカスタムフォルダの予約領域を指定できません。\n指定先: {1}\n組込みフォルダ: {2}"
 }

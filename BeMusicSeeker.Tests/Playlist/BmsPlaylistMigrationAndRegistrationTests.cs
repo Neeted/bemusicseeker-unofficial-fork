@@ -171,10 +171,10 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
-    /// <summary>ルート型から通常型へ移行し、旧物理出力とLR2相対パスのファイル・親DB行を除去します。絶対パスの整理だけで旧ルート行を残す誤りを検出します。</summary>
+    /// <summary>ルート型から通常型へ移行し、安全な旧管理出力と対応DB行を除去します。禁止された旧設定の保全は設定受理・訂正テストへ分担します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB_PrunesOldRootRelativeRowsWhenMovingToNormalOutput()
+    public void MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB_PrunesOldManagedRootRowsWhenMovingToNormalOutput()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -182,10 +182,10 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         {
             string lr2RootPath = Path.Combine(tempDirectory, "LR2");
             string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
-            string rootOutputBaseDir = Path.Combine(lr2RootPath, "LR2files", "CustomFolder");
+            string rootOutputBaseDir = Path.Combine(tempDirectory, "ManagedRootOutput");
             testSettings.OperationModeLR2DB = true;
             testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = rootOutputBaseDir;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "SafeRootOutput");
             testSettings.LR2RootPath = lr2RootPath;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
@@ -207,7 +207,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             };
             string oldOutputDir = Path.Combine(rootOutputBaseDir, "RootToNormal");
             string oldPhysicalPath = Path.Combine(oldOutputDir, "0000.lr2folder");
-            string oldRelativeOutputDir = Path.Combine("LR2files", "CustomFolder", "RootToNormal");
+            string oldRelativeOutputDir = oldOutputDir;
             string oldRelativePath = Path.Combine(oldRelativeOutputDir, "0000.lr2folder");
             string oldRelativeParentPath = oldRelativeOutputDir + Path.DirectorySeparatorChar;
             Directory.CreateDirectory(oldOutputDir);
@@ -862,17 +862,17 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
-    /// <summary>ルート型の物理ディレクトリと相対パスのファイル・親DB行を除去し、似た名前の兄弟行を保持します。相対形式の整理漏れと範囲の広がりを検出します。</summary>
+    /// <summary>安全なルート型の管理先と対応DB行だけを整理し、兄弟行を保持します。禁止された旧設定の保全はprofile構築前の設定訂正へ分担します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void RemoveCustomFolder_PrunesRootRelativeRows()
+    public void RemoveCustomFolder_PrunesManagedRootRows()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
             string lr2RootPath = Path.Combine(tempDirectory, "LR2");
-            string rootOutputBaseDir = Path.Combine(lr2RootPath, "LR2files", "CustomFolder");
+            string rootOutputBaseDir = Path.Combine(tempDirectory, "ManagedRootOutput");
             testSettings.OperationModeLR2DB = true;
             testSettings.LR2RootPath = lr2RootPath;
             testSettings.LR2CustomFolderOutputBaseDirRootType = rootOutputBaseDir;
@@ -888,10 +888,10 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             };
             string targetDir = Path.Combine(rootOutputBaseDir, "RootDelete");
             string targetPhysicalPath = Path.Combine(targetDir, "0000.lr2folder");
-            string targetRelativeDir = Path.Combine("LR2files", "CustomFolder", "RootDelete");
+            string targetRelativeDir = targetDir;
             string targetRelativePath = Path.Combine(targetRelativeDir, "0000.lr2folder");
             string targetRelativeParentPath = targetRelativeDir + Path.DirectorySeparatorChar;
-            string siblingRelativePath = Path.Combine("LR2files", "CustomFolder", "RootDeleteSibling", "0000.lr2folder");
+            string siblingRelativePath = Path.Combine(rootOutputBaseDir, "RootDeleteSibling", "0000.lr2folder");
             Directory.CreateDirectory(targetDir);
             File.WriteAllText(targetPhysicalPath, "#TITLE target", Encoding.GetEncoding("shift_jis"));
             using (var db = new LR2SongDBExtended(songDbPath))

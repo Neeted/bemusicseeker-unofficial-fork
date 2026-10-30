@@ -180,7 +180,7 @@ internal sealed class LR2Config : XDocument
 
     /// <summary>
     /// 設定 XML の登録 root を存在確認なしで取得します。
-    /// 相対 path は LR2 root 基準へ解決し、drive root の意味を保持します。
+    /// 相対 path は LR2 root 基準で絶対化してdot・親要素を解決し、drive rootの意味を保持します。読取りではXMLを保存しません。
     /// </summary>
     public List<string> GetBMSSearchDirectoriesForChangeTracking()
     {
@@ -221,23 +221,30 @@ internal sealed class LR2Config : XDocument
         return withoutTrailingSeparators;
     }
 
+    /// <summary>完全修飾でない登録は既知のLR2 root基準で構文解決し、現在ディレクトリに依存させません。実在確認・保存はせず、不能なら従来の結合結果を保持します。</summary>
     private string NormalizeBmsSearchDirectoryForChangeTracking(string path)
     {
-        if (string.IsNullOrWhiteSpace(path) || Path.IsPathRooted(path))
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(LR2RootPath))
         {
             return path;
         }
+        string resolved = path;
         try
         {
-            return Path.Combine(LR2RootPath, path);
+            if (!Path.IsPathFullyQualified(path))
+            {
+                if (!Path.IsPathRooted(path)) { resolved = Path.Combine(LR2RootPath, path); }
+                resolved = Path.GetFullPath(path, LR2RootPath);
+            }
+            return LongPathFileSystem.TrimTrailingDirectorySeparators(LongPathFileSystem.NormalizePathForStorage(resolved));
         }
-        catch
+        catch (Exception failure) when (failure is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            return path;
+            return resolved;
         }
     }
 
-    /// <summary>操作要求の登録を同じLR2ルート基準へ正規化します。存在確認・読込み・保存は行いません。</summary>
+    /// <summary>操作要求の登録を同じLR2 root基準で絶対化しdot・親要素を解決します。存在確認・読込み・保存は行いません。</summary>
     internal string NormalizeRequestedSearchDirectory(string path)
         => NormalizeBmsSearchDirectoryForChangeTracking(TrimConfiguredDirectorySeparators(path));
 
@@ -310,8 +317,12 @@ internal sealed class LR2Config : XDocument
                 if (!requested.Contains(normalized) || !retained.TryAdd(normalized, path)) { path.Remove(); }
             }
             // pathの位置だけを最終一覧に揃え、未知の兄弟・属性と継続pathの付随情報を保持します。
-            XElement[] desired = dirs.Select(directory => retained.TryGetValue(directory, out XElement path)
-                ? new XElement(path) : new XElement("path", directory.TrimEnd('\\') + "\\")).ToArray();
+            XElement[] desired = dirs.Select(directory =>
+            {
+                XElement element = retained.TryGetValue(directory, out XElement path) ? new XElement(path) : new XElement("path");
+                element.Value = directory.TrimEnd('\\') + "\\";
+                return element;
+            }).ToArray();
             XElement[] slots = jukebox.Elements("path").ToArray();
             XElement last = null;
             for (int index = 0; index < desired.Length; index++)

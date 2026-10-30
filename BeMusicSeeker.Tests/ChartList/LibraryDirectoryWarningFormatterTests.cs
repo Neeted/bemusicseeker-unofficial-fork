@@ -10,6 +10,41 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class LibraryDirectoryWarningFormatterTests
 {
+    /// <summary>設定受理時の予約領域だけは既知の具体理由を表示し、壊れた追加JSONは汎用理由を保つ。どちらも元例外と診断理由を失わない。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Format_InvalidConfigurationShowsOnlyKnownReservedDirectoryDetail(bool reserved)
+    {
+        const string root = @"C:\LR2-warning-test";
+        string builtin = Path.Combine(root, "LR2files", "CustomFolder");
+        var options = new BmsLibraryOptionsSnapshot
+        {
+            OperationModeLR2DB = true,
+            LR2RootPath = root,
+            LR2CustomFolderOutputBaseDir = reserved ? builtin : Path.Combine(root, "Safe"),
+            LR2CustomFolderAdditionalOutputBaseDirsSerialized = reserved ? "[]" : "{broken-json-private-diagnostic"
+        };
+        var service = new LibraryDirectoryPreflightService();
+        LibraryDirectoryPreflightException failure = Assert.ThrowsException<LibraryDirectoryPreflightException>(() => LibraryDirectoryPreflightService.ValidateSettingsAcceptance([], service.CreateRequest([], [], options), options));
+        Exception? original = failure.InnerException;
+        string reason = failure.Reason;
+        Assert.IsNotNull(original);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(reason));
+        Assert.AreEqual(LibraryDirectoryPreflightFailureCause.InvalidConfiguration, failure.Cause);
+        string message = LibraryDirectoryWarningFormatter.Format(failure, LibraryDirectoryWarningPhase.Early);
+        StringAssert.Contains(message, Resources.LibraryDirectoryPreflightCauseInvalidConfiguration);
+        if (reserved)
+        {
+            string expected = string.Format(Resources.Validation_Lr2BuiltinCustomFolderReservedFormat,
+                Resources.Label_CustomFolderOutputBase, builtin, builtin);
+            StringAssert.Contains(message, expected);
+        }
+        else { Assert.IsFalse(message.Contains(original.Message, StringComparison.Ordinal)); }
+        Assert.AreSame(original, failure.InnerException);
+        Assert.AreEqual(reason, failure.Reason);
+    }
+
     /// <summary>起動前のBMS root欠損は対象パス・欠損原因・BMS用の対処を示し、LR2出力用の対処へ誤分類しません。</summary>
     [TestMethod]
     public void Format_EarlyBmsFailureIncludesRolePathCauseAndBmsGuidance()

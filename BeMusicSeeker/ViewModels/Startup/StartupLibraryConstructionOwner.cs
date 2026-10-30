@@ -131,6 +131,10 @@ internal sealed class StartupLibraryConstructionOwner
                 startupSettings,
                 customFolderSettings,
                 config);
+            IReadOnlyList<string> registeredRoots = startupSettings.OperationModeLR2DB
+                ? config.Capture().RegisteredRoots : startupSettings.StandaloneBmsRootPaths;
+            LibraryDirectoryPreflightService.ValidateSettingsAcceptance(registeredRoots, request,
+                CreateStartupDirectoryPreflightOptions(startupSettings, customFolderSettings));
             new LibraryDirectoryPreflightService().EnsureAvailable(request, probeOutputBases: true);
             return (ConfigValid: true, Config: config);
         }).LoggingAndPropagate("StartupDirectoryPreflight");

@@ -29,6 +29,33 @@ internal static class LongPathFileSystem
     internal static bool IsNotFoundFailure(Exception failure)
         => failure is FileNotFoundException or DirectoryNotFoundException;
 
+    /// <summary>登録位置の各要素を親の直下列挙で確認し、実在する綴りを返します。drive・共有名とリンク先は置換しません。</summary>
+    /// <remarks>追加の表記確認だけが不能な場合は元入力を保持します。通常の利用可否検査は呼出元のpreflightが担当します。</remarks>
+    internal static string ConfirmDirectoryPathSpelling(string path)
+    {
+        try
+        {
+            string normalized = TrimTrailingDirectorySeparators(NormalizePathForStorage(path));
+            string root = Path.GetPathRoot(normalized);
+            if (string.IsNullOrEmpty(root)) { return path; }
+            string current = root;
+            foreach (string component in normalized[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string entry = EnumerateDirectories(current, component, SearchOption.TopDirectoryOnly)
+                    .FirstOrDefault(candidate => string.Equals(Path.GetFileName(TrimTrailingDirectorySeparators(candidate)), component, StringComparison.OrdinalIgnoreCase));
+                if (entry == null) { return path; }
+                current = Path.Combine(current, Path.GetFileName(TrimTrailingDirectorySeparators(entry)));
+            }
+            if ((GetAttributes(current) & FileAttributes.Directory) == 0) { return path; }
+            return TrimTrailingDirectorySeparators(current);
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or ArgumentException
+            or NotSupportedException or System.Security.SecurityException)
+        {
+            return path;
+        }
+    }
+
     public static string NormalizePathForStorage(string path)
     {
         if (string.IsNullOrWhiteSpace(path))

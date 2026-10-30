@@ -79,7 +79,9 @@ internal static class LibraryDirectoryWarningFormatter
             LibraryDirectoryPreflightFailureCause.InvalidPath =>
                 Resources.LibraryDirectoryPreflightCauseInvalidPath,
             LibraryDirectoryPreflightFailureCause.InvalidConfiguration =>
-                Resources.LibraryDirectoryPreflightCauseInvalidConfiguration,
+                failure.Reason == LibraryDirectoryPreflightService.ReservedBuiltinCustomFolderReason && failure.InnerException != null
+                    ? Resources.LibraryDirectoryPreflightCauseInvalidConfiguration + Environment.NewLine + failure.InnerException.Message
+                    : Resources.LibraryDirectoryPreflightCauseInvalidConfiguration,
             LibraryDirectoryPreflightFailureCause.Io =>
                 Resources.LibraryDirectoryPreflightCauseIo,
             LibraryDirectoryPreflightFailureCause.Write =>

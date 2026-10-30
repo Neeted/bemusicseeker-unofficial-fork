@@ -71,6 +71,8 @@ public sealed class BmsRootRegistrationTests
             settings.LR2CustomFolderOutputBaseDirRootType = root;
             LR2Config xml = BmsPlaylistTestSupport.CreateLr2Config(directory, user, missing, normal, normalChild, additional, root, sibling);
             settings.LR2ConfigXmlPath = xml.ConfigFilePath;
+            xml.Descendants("path").First().SetAttributeValue("future", "keep");
+            xml.Save(xml.ConfigFilePath);
             var owner = new Lr2ConfigOwner(xml);
             var store = new BmsRootRegistrationStore(settings, () => owner);
             CollectionAssert.AreEqual(new[] { user, missing, sibling }, store.CaptureUserRoots().ToArray());
@@ -154,6 +156,118 @@ public sealed class BmsRootRegistrationTests
             using (File.Open(configPath, FileMode.Open, FileAccess.Read, FileShare.Read)) { store.SaveUserRoots([target]); }
         }
         finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    /// <summary>確認済みprefixを元順序の登録・管理先・関連導入先へ限定適用し、未確認suffix・無関係な導入先・他操作の保存済み未公開rootを保持します。保存失敗では通知しません。</summary>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void RootSpellingChange_PreservesOtherRegistrationsAndPublishesAfterAllMedia(bool linked, bool relatedInstall)
+    {
+        string directory = NewDirectory();
+        try
+        {
+            string root = Directory.CreateDirectory(Path.Combine(directory, "MixedSongs")).FullName;
+            string before = Path.Combine(directory, "mixedsongs");
+            string nested = Path.Combine(before, "MissingChild");
+            string missing = Path.Combine(directory, "Missing");
+            string unrelated = Path.Combine(before, "UnrelatedInstall");
+            string configPath = Path.Combine(directory, "user.config");
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            settings.OperationModeLR2DB = linked;
+            settings.LR2RootPath = directory;
+            settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([before, nested, missing]);
+            settings.BMSRootPath = before;
+            settings.BMSInstallDir = relatedInstall ? before : unrelated;
+            settings.LR2CustomFolderOutputBaseDir = Path.Combine(before, "Managed");
+            settings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(before, "RootOutput");
+            settings.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([Path.Combine(before, "Additional")]);
+            settings.Save();
+            LR2Config xml = BmsPlaylistTestSupport.CreateLr2Config(directory, before, nested, missing,
+                settings.LR2CustomFolderOutputBaseDir, settings.LR2CustomFolderOutputBaseDirRootType, Path.Combine(before, "Additional"));
+            xml.Descendants("path").First().SetAttributeValue("future", "keep");
+            xml.Save(xml.ConfigFilePath);
+            var owner = new Lr2ConfigOwner(xml);
+            var store = new BmsRootRegistrationStore(settings, () => owner);
+            BmsLibraryOptionsSnapshot input = (BmsLibraryOptionsSnapshot.CreateCurrent(settings) with { StandaloneBmsRootPaths = store.CaptureStandaloneRoots() })
+                .WithLr2Input(linked ? owner.Capture() : null);
+            string privateRoot = Path.Combine(directory, "Private");
+            if (linked) { owner.SaveRoots(new Lr2RootChange([], [privateRoot]), publish: false); }
+            BmsLibraryOptionsSnapshot confirmed = input.WithConfirmedRootPrefixes([before], [root]);
+            int notices = 0;
+            store.Published += (_, _) => notices++;
+            if (linked)
+            {
+                using (File.Open(owner.ConfigFilePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                { Assert.ThrowsException<IOException>(() => store.SaveRootChanges(input, confirmed)); }
+                Assert.AreEqual(0, notices);
+                CollectionAssert.AreEqual(new[] { before, nested, missing }, store.CaptureUserRoots().ToArray());
+            }
+            {
+                using (File.Open(configPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                { Assert.ThrowsException<PortableSettingsException>(() => store.SaveRootChanges(input, confirmed)); }
+                Assert.AreEqual(0, notices);
+                CollectionAssert.AreEqual(new[] { before, nested, missing }, store.CaptureUserRoots().ToArray());
+            }
+            store.SaveRootChanges(input, confirmed);
+            Assert.AreEqual(1, notices);
+            CollectionAssert.AreEqual(new[] { root, Path.Combine(root, "MissingChild"), missing }, store.CaptureUserRoots().ToArray());
+            Assert.AreEqual(relatedInstall ? root : unrelated, settings.BMSInstallDir);
+            Settings fresh = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            Assert.AreEqual(Path.Combine(root, "Managed"), fresh.LR2CustomFolderOutputBaseDir);
+            Assert.AreEqual(Path.Combine(root, "RootOutput"), fresh.LR2CustomFolderOutputBaseDirRootType);
+            Assert.AreEqual(Path.Combine(root, "Additional"), CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(fresh.LR2CustomFolderAdditionalOutputBaseDirs).Single());
+            if (linked)
+            {
+                CollectionAssert.Contains(owner.CaptureSaved().RegisteredRoots.ToArray(), privateRoot);
+                Assert.IsFalse(owner.Capture().RegisteredRoots.Contains(privateRoot));
+                CollectionAssert.Contains(owner.Capture().RegisteredRoots.ToArray(), Path.Combine(root, "Managed"));
+                Assert.AreEqual("keep", (string?)XDocument.Load(owner.ConfigFilePath).Descendants("path").First().Attribute("future"));
+            }
+            store.Published += (_, _) => throw new InvalidOperationException("notification failure");
+            store.SaveUserRoots(store.CaptureUserRoots());
+            Assert.AreEqual(2, notices);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    /// <summary>保存済みB/公開済みAの分離後も、確認済みAのprefixだけを現在の公開値へ適用し、XMLのBを再追加や便乗公開で壊さない。</summary>
+    [TestMethod]
+    public void RootSpellingChange_DoesNotReAddReplacedSavedRootOrPublishUnrelatedPlacement()
+    {
+        string directory = NewDirectory();
+        try
+        {
+            string before = Path.Combine(directory, "songs");
+            string confirmedRoot = Path.Combine(directory, "Songs");
+            string other = Path.Combine(directory, "Other");
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory, "user.config"));
+            settings.OperationModeLR2DB = true;
+            settings.LR2RootPath = directory;
+            settings.LR2CustomFolderOutputBaseDir = Path.Combine(before, "Managed");
+            settings.Save();
+            var applied = CustomFolderOutputSettingsSnapshot.CreateCurrent(settings);
+            var owner = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(directory, before, settings.LR2CustomFolderOutputBaseDir));
+            owner.SetPlacement(applied);
+            var store = new BmsRootRegistrationStore(settings, () => owner, () => applied, placement => applied = placement);
+            BmsLibraryOptionsSnapshot input = BmsLibraryOptionsSnapshot.CreateCurrent(settings, applied).WithLr2Input(owner.Capture());
+            BmsLibraryOptionsSnapshot confirmed = input.WithConfirmedRootPrefixes([before], [confirmedRoot]);
+            owner.SaveRoots(new Lr2RootChange(owner.CaptureSaved().RegisteredRoots, [other]), publish: false);
+            settings.Commit((nameof(Settings.LR2CustomFolderOutputBaseDir), Path.Combine(other, "Managed")));
+            int notices = 0;
+            store.Published += (_, _) => notices++;
+            store.SaveRootChanges(input, confirmed);
+            CollectionAssert.AreEqual(new[] { other }, owner.CaptureSaved().RegisteredRoots.ToArray());
+            CollectionAssert.AreEqual(new[] { other }, ReadRoots(owner.ConfigFilePath));
+            CollectionAssert.AreEqual(new[] { confirmedRoot, Path.Combine(confirmedRoot, "Managed") }, owner.Capture().RegisteredRoots.ToArray());
+            Assert.AreEqual(Path.Combine(other, "Managed"), settings.LR2CustomFolderOutputBaseDir);
+            Assert.AreEqual(Path.Combine(confirmedRoot, "Managed"), applied.LR2CustomFolderOutputBaseDir);
+            Assert.AreSame(applied, owner.Capture().Placement);
+            Assert.AreEqual(1, notices);
+        }
+        finally { Directory.Delete(directory, true); }
     }
 
     private static string[] ReadRoots(string path) => new LR2Config(path).GetBMSSearchDirectoriesForChangeTracking().Select(Trim).ToArray();

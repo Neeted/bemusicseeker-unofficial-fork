@@ -79,6 +79,19 @@ DB行の識別、走査結果への収束、移転に伴う保存値の引継ぎ
 
 `song` の追加・削除はファイル差分または対象範囲の差分処理が担当します。LR2の全体再整合は既存 `song` の生成列を更新しますが、所属を変更しません。`folder` の全体再整合は別の完全な入力から期待集合を作ります。「LR2同期」という総称だけで全行の収束を保証しません。詳細は[LR2楽曲DB](../integration/lr2-song-db.md)を参照します。
 
+### folderの追加時刻
+
+`folder.path` の旧集合と必要集合はraw文字列のOrdinal完全一致で比較します。通常folder、全表再整合、customとその親の生成はいずれも、exact存続行の `adddate` をNULLも含めて保持します。新しいキーは通常生成時刻 `GeneratedAtUtc` のUnix秒で初期化し、別キーの値を検索・継承しません。
+
+| 旧folder集合 | 必要集合 | 追加時刻と退役 |
+| --- | --- | --- |
+| `{a}` | `{A}` | `a` を削除し、`A` は通常新規値。 |
+| `{a, A}` | `{A}` | `a` を削除し、exact `A` の値を保持。 |
+| `{A}` | `{A}` | 生成列を更新し、exact `A` の値を保持。 |
+| `{a}` | `{B}` | `a` を削除し、`B` は通常新規値。 |
+
+ASCII・非ASCIIの大小文字差、通常の別パスへの変更に同じ規則を使います。mtime同値は追加・削除を省く理由にせず、必要集合の生成後に同値の存続行の保存だけを省略します。物理root包含やmetadata位置の照合に使うOrdinalIgnoreCaseと、保存キーの識別を混同しません。全登録完全走査と局所mutationの範囲は[LR2楽曲DB](../integration/lr2-song-db.md#folderの全体生成)に従います。
+
 ### 同一内容の移転に伴う保存値の引継ぎ
 
 通常のBMSファイル差分では、**同一MD5の削除候補が一件、新規追加候補が一件の場合だけ**、旧行の `favorite`、`tag`、`adddate` を新行へ引き継ぎます。大文字小文字だけの差分も除外しません。これは内容ハッシュに基づく引継ぎであって、同じ物理ファイルや明示的な移動の証明ではありません。
@@ -97,6 +110,7 @@ DB行の識別、走査結果への収束、移転に伴う保存値の引継ぎ
 | 所持集合・参照解決・同一物理ファイルの結果共有 | [`OwnedChartCollectionState`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/OwnedChartCollectionState.cs)、[`LibraryMutationOwner`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.cs) | [`OwnedChartCollectionProjectionTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionProjectionTests.cs)、[`OwnedChartCollectionReferenceIndexTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionReferenceIndexTests.cs)、[`OwnedChartCollectionLibraryMutationTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionLibraryMutationTests.cs)、[`BmsLibraryDuplicateServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) |
 | 実導入の確定パスと未収束時の保留 | [`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs) | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) |
 | 走査の収束・再適用・個別解析失敗 | [`LibraryFileScanPipelineOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/LibraryFileScanPipelineOwner.cs)、[`FileScanParseCommitOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/FileScanParseCommitOwner.cs) | [`BmsLibraryInitializationFileScanTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationFileScanTests.cs)、[`BmsLibraryInitializationInlineChartInfoTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationInlineChartInfoTests.cs)、[`Lr2SongDbWriterTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbWriterTests.cs) |
+| folderのraw完全一致と追加時刻 | [`Lr2FolderRowGenerator`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2FolderRowGenerator.cs)、[`Lr2FolderGenerationScopePlanner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2FolderGenerationScopePlanner.cs) | [`Lr2NormalFolderDbSyncServiceTests.Sync_UsesRawExactFolderSet`](../../../BeMusicSeeker.Tests/Lr2/Lr2NormalFolderDbSyncServiceTests.cs) が実限定取得からDB保存までのASCII/CP932 Greek/通常移動、NULL保持・対象外保全・再適用を確認する。Full/Reloadの取得面と逆順は `BmsLibraryInitializationLr2NormalFolderTests.ApplyFileScanDiff_ReusesOperationFolderSnapshot` が分担する。 |
 | 一対一の保存値引継ぎ・既存移転先・曖昧な候補 | [`FileScanParseCommitOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/FileScanParseCommitOwner.cs) | [`BmsLibraryInitializationFileScanTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationFileScanTests.cs) の `ApplyFileScanDiff_MovedBmsWithSameMd5PreservesUserSongColumns`、`ApplyFileScanDiff_MovedBmsWithExistingDestinationPreservesDestinationUserColumns`、旧・新候補が複数の各テスト。通常表記と大文字小文字だけの差分、DB・メモリ・メンテナンス情報、二回目の走査を確認します。 |
 | 導入先の一時状態と表示行の完全一致 | [`InstallDestinationStateOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/InstallDestinationStateOwner.cs) | [`InstallDestinationStateOwnerTests`](../../../BeMusicSeeker.Tests/Install/InstallDestinationStateOwnerTests.cs)、[`ChartListVirtualViewTests`](../../../BeMusicSeeker.Tests/ChartList/ChartListVirtualViewTests.cs) |
 

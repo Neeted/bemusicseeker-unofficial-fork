@@ -75,20 +75,13 @@ internal sealed class Lr2ConfigOwner
     internal void EnsureDatabaseAutoReloadManualOnly() => Save(config => config.EnsureDatabaseAutoReloadManualOnly(), publish: true);
 
     /// <summary>準備済み登録差分だけを現在正本へ保存し、他操作の成立済み変更を保持します。XMLの保存差分がなくても、今回成立した要求だけを公開します。</summary>
+    /// <param name="forceSave">出力設定の明示保存では同値XMLも再保存します。保存済み未公開値は今回の差分以外で置き換えません。</param>
     /// <returns>正規化した今回の要求差分です。別媒体成立後の限定公開へ渡せます。</returns>
-    internal Lr2RootChange SaveRoots(Lr2RootChange change, bool publish = true)
+    internal Lr2RootChange SaveRoots(Lr2RootChange change, bool publish = true, bool forceSave = false)
     {
         Lr2RootChange normalized = change.Normalize(document.NormalizeRequestedSearchDirectory);
         return Save(config => config.SetBMSSearchDirectories(normalized.Apply(config.GetBMSSearchDirectoriesForChangeTracking())),
-            publish, normalized);
-    }
-
-    /// <summary>今回の公開済み登録と入力から計画した出力一覧を、同値でも明示保存します。未公開の過去要求は計画の基準にしません。</summary>
-    internal Lr2RootChange SaveOutputRoots(IReadOnlyList<string> previous, IReadOnlyList<string> next)
-    {
-        Lr2RootChange change = new Lr2RootChange(previous, next).Normalize(document.NormalizeRequestedSearchDirectory);
-        Save(config => config.SetBMSSearchDirectories(next), publicationChange: change, forceSave: true);
-        return change;
+            publish, normalized, forceSave);
     }
 
     /// <summary>必要媒体成立後に今回の登録差分と分類用配置だけを公開します。全文の未公開値を巻き込みません。</summary>
@@ -217,8 +210,8 @@ internal sealed class Lr2RootChange
     /// <summary>操作内で捕捉した変更前後から差分を作ります。</summary>
     internal Lr2RootChange(IEnumerable<string> before, IEnumerable<string> after)
     {
-        removed = Array.AsReadOnly(before.Except(after, StringComparer.OrdinalIgnoreCase).ToArray());
-        added = Array.AsReadOnly(after.Except(before, StringComparer.OrdinalIgnoreCase).ToArray());
+        removed = Array.AsReadOnly(before.Except(after, StringComparer.Ordinal).ToArray());
+        added = Array.AsReadOnly(after.Except(before, StringComparer.Ordinal).ToArray());
     }
 
     /// <summary>所有者のLR2ルート基準へ要求を正規化し、文書に表せない空登録を除きます。</summary>
@@ -226,9 +219,24 @@ internal sealed class Lr2RootChange
         removed.Select(normalize).Where(path => !string.IsNullOrWhiteSpace(path)),
         added.Select(normalize).Where(path => !string.IsNullOrWhiteSpace(path)));
 
-    /// <summary>指定した現在登録へ、今回の削除・追加だけを反映します。</summary>
-    internal IReadOnlyList<string> Apply(IEnumerable<string> current) => Array.AsReadOnly(current
-        .Except(removed, StringComparer.OrdinalIgnoreCase).Concat(added).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+    /// <summary>今回の削除・追加だけを反映します。同所の表記変更は元位置で置換し、場所の重複は除きます。</summary>
+    internal IReadOnlyList<string> Apply(IEnumerable<string> current)
+    {
+        var result = new List<string>();
+        foreach (string path in current)
+        {
+            string replacement = removed.Contains(path, StringComparer.OrdinalIgnoreCase)
+                ? added.FirstOrDefault(next => string.Equals(next, path, StringComparison.OrdinalIgnoreCase))
+                : path;
+            if (replacement != null && !result.Contains(replacement, StringComparer.OrdinalIgnoreCase)) { result.Add(replacement); }
+        }
+        foreach (string path in added)
+        {
+            if (!result.Contains(path, StringComparer.OrdinalIgnoreCase)) { result.Add(path); }
+        }
+        return result.AsReadOnly();
+    }
+
 }
 
 /// <summary>XMLを持たず、公開済み登録・分類用配置・読取り値だけを保持する変更不能な入力です。</summary>

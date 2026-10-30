@@ -301,8 +301,14 @@ public sealed partial class SettingDialogEditCompletionTests
                         dialog.AddCustomFolderAdditionalOutputBaseDir(other);
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync("additional"), "output-other-section-after-partial");
                         Settings otherSaved = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
-                        Assert.AreEqual(normal, otherSaved.LR2CustomFolderOutputBaseDir);
-                        Assert.AreEqual(CustomFolderOutputBaseRegistry.SerializeBaseDirectories([other]), otherSaved.LR2CustomFolderAdditionalOutputBaseDirs);
+                        Assert.AreEqual(first, otherSaved.LR2CustomFolderOutputBaseDir, "別区分の保存は、先行成功した未公開のnormal保存値を上書きしません。");
+                        Assert.AreEqual(normal, values.LR2CustomFolderOutputBaseDir);
+                        Assert.AreEqual(normal, composition.CustomFolderOutputSettingsProvider().LR2CustomFolderOutputBaseDir);
+                        Assert.AreEqual(normal, composition.BmsLibraryOptionsProvider().LR2CustomFolderOutputBaseDir);
+                        string expectedAdditional = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([other]);
+                        Assert.AreEqual(expectedAdditional, otherSaved.LR2CustomFolderAdditionalOutputBaseDirs);
+                        Assert.AreEqual(expectedAdditional, values.LR2CustomFolderAdditionalOutputBaseDirs);
+                        Assert.AreEqual(expectedAdditional, composition.CustomFolderOutputSettingsProvider().LR2CustomFolderAdditionalOutputBaseDirs);
                         CollectionAssert.DoesNotContain(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), first);
                     }
                     Choose(latest);

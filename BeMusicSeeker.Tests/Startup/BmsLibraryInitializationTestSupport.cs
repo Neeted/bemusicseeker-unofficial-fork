@@ -15,6 +15,11 @@ namespace BeMusicSeeker.Tests;
 internal static class BmsLibraryInitializationTestSupport
 {
 
+    /// <summary>直接のfile diffテストでも、全登録走査の操作と同じ実DB一括取得結果を明示して渡します。</summary>
+    internal static Lr2FolderTableSnapshot CaptureNormalFolderSnapshot(string songDbPath)
+        => new BmsLibraryInitializationService().LoadFolderTableSnapshot(new BmsLibraryDbGateway(songDbPath),
+            new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true });
+
     internal static void WithTemporaryLr2SongDb(Action<string, string> testAction)
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_InitTests_" + Guid.NewGuid().ToString("N"));

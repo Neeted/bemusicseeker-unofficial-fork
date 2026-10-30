@@ -350,9 +350,9 @@ public partial class BMSLibrary
             return Task.CompletedTask;
         }
 
-        internal Lr2BuiltinCustomFolderSettings CreateCurrentLr2BuiltinCustomFolderSettings(DateTime nowUtc)
+        internal Lr2BuiltinCustomFolderSettings CreateCurrentLr2BuiltinCustomFolderSettings(DateTime nowUtc, BmsLibraryOptionsSnapshot options = null)
         {
-            Lr2ConfigSnapshot config = data.CaptureLr2Config();
+            Lr2ConfigSnapshot config = options?.Lr2Input ?? data.CaptureLr2Config();
             return Lr2BuiltinCustomFolderSettings.CreateFromAddDates(
                 config,
                 data.CaptureBmsFilesSnapshot()

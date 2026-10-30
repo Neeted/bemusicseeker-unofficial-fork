@@ -127,6 +127,7 @@ internal static class Lr2FolderFileProjection
             + "#INFORMATION_B " + definition.InformationB + Environment.NewLine + Environment.NewLine;
     }
 
+    /// <summary>読取り済み定義からcustom行を作り、同じrawキーの既存adddateはNULLも保持します。定義のない新規行は合成しません。</summary>
     internal static bool TryCreateFolderRow(Lr2FolderFileRowRequest request, out LR2SongDB.folder row)
     {
         row = null;
@@ -134,6 +135,7 @@ internal static class Lr2FolderFileProjection
         string databasePath = NormalizeDatabasePath(request.DatabasePath ?? request.FilePath);
         if (string.IsNullOrWhiteSpace(databasePath)
             || request.LastWriteTimeUtc == null
+            || request.Definition == null
             || !IsSupportedFolderType(request.FolderType))
         {
             return false;
@@ -149,7 +151,7 @@ internal static class Lr2FolderFileProjection
             return false;
         }
 
-        Lr2FolderFileDefinition definition = request.Definition ?? new Lr2FolderFileDefinition();
+        Lr2FolderFileDefinition definition = request.Definition;
         row = new LR2SongDB.folder
         {
             title = definition.Title?.Trim(),
@@ -164,7 +166,9 @@ internal static class Lr2FolderFileProjection
             parent = parentHash,
             date = request.LastWriteTimeUtc.Value.ToUnixtime(),
             max = definition.MaxTracks ?? 0,
-            adddate = request.ExistingRow?.adddate ?? request.GeneratedAtUtc.ToUnixtime()
+            adddate = request.ExistingRow != null
+                && string.Equals(request.ExistingRow.path, databasePath, StringComparison.Ordinal)
+                ? request.ExistingRow.adddate : request.GeneratedAtUtc.ToUnixtime()
         };
         return true;
     }

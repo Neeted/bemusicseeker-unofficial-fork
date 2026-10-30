@@ -1181,7 +1181,7 @@
   "LibraryDirectoryPreflightCauseAccessDenied": "没有读取该文件夹的权限。",
   "LibraryDirectoryPreflightCauseNotDirectory": "指定路径不是文件夹。",
   "LibraryDirectoryPreflightCauseInvalidPath": "路径格式无效。",
-  "LibraryDirectoryPreflightCauseInvalidConfiguration": "追加输出文件夹配置无效。",
+  "LibraryDirectoryPreflightCauseInvalidConfiguration": "曲库目录配置无效。",
   "LibraryDirectoryPreflightCauseIo": "无法读取该文件夹。",
   "LibraryDirectoryPreflightCauseWrite": "无法在输出文件夹中写入临时检查文件。",
   "LibraryDirectoryPreflightCauseCleanup": "无法删除临时检查文件。",
@@ -1387,5 +1387,6 @@
   "ChartPropertiesSatisfied": "兼容的资源存在",
   "ChartPropertiesCountedUnfulfilled": "单独计为未满足的资源需求",
   "ChartPropertiesNotCounted": "不计入资源需求数",
-  "ChartPropertiesCp932AlternativeInterpretation": "LR2 的另一种解释（CP932，可能与通常解释同时显示）"
+  "ChartPropertiesCp932AlternativeInterpretation": "LR2 的另一种解释（CP932，可能与通常解释同时显示）",
+  "Validation_Lr2BuiltinCustomFolderReservedFormat": "{0}不能使用 LR2 内置自定义文件夹的保留区域。\n指定位置: {1}\n内置文件夹: {2}"
 }

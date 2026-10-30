@@ -28,7 +28,7 @@ internal sealed class Lr2FolderTableProjection
         IReadOnlyDictionary<string, Lr2FolderTableProjectionSourceKind> sourceKinds)
     {
         Rows = rows ?? [];
-        SourceKinds = sourceKinds ?? new Dictionary<string, Lr2FolderTableProjectionSourceKind>(StringComparer.OrdinalIgnoreCase);
+        SourceKinds = sourceKinds ?? new Dictionary<string, Lr2FolderTableProjectionSourceKind>(StringComparer.Ordinal);
     }
 
     public IReadOnlyList<LR2SongDB.folder> Rows { get; }
@@ -368,12 +368,12 @@ internal static class Lr2FolderTableReconciliationService
         var sourceKinds = selected.Values.ToDictionary(
             candidate => candidate.Row.path,
             candidate => candidate.SourceKind,
-            StringComparer.OrdinalIgnoreCase);
+            StringComparer.Ordinal);
         return new Lr2FolderTableProjection(rows, sourceKinds);
     }
 
     /// <summary>
-    /// 全投影を検証し、既存行を一回取得して利用者列を引き継ぎ、一括でfolder表へ保存します。
+    /// 全投影を検証し、最新の既存行を一回取得してraw完全一致の存続行のadddateだけを保持し、一括でfolder表へ保存します。
     /// stageProgressReporterは準備から保存までの実段階を通知します。
     /// 準備件数の100%は保存成功を意味せず、通知失敗も本体の結果に影響させません。
     /// </summary>
@@ -398,10 +398,7 @@ internal static class Lr2FolderTableReconciliationService
         List<LR2SongDB.folder> existingRows = [.. songDb.Table<LR2SongDB.folder>()];
         var existingByPath = existingRows
             .Where(row => !string.IsNullOrWhiteSpace(row?.path))
-            .GroupBy(row => row.path, PathComparer)
-            .ToDictionary(group => group.Key, group => group
-                .OrderBy(row => row.path, StringComparer.Ordinal)
-                .First(), PathComparer);
+            .ToDictionary(row => row.path, StringComparer.Ordinal);
         int total = projection.Rows.Count;
         progress.Begin("folder_reconciliation", total);
         var rows = new List<LR2SongDB.folder>(total);
@@ -432,10 +429,10 @@ internal static class Lr2FolderTableReconciliationService
     private static Dictionary<string, ProjectionCandidate> SelectCandidates(
         IEnumerable<ProjectionCandidate> candidates)
     {
-        var groups = new Dictionary<string, List<ProjectionCandidate>>(PathComparer);
+        var groups = new Dictionary<string, List<ProjectionCandidate>>(StringComparer.Ordinal);
         foreach (ProjectionCandidate candidate in candidates ?? [])
         {
-            string key = NormalizeRowKey(candidate?.Row?.path);
+            string key = candidate?.Row?.path;
             if (string.IsNullOrWhiteSpace(key))
             {
                 throw new Lr2FolderTableProjectionIncompleteException(
@@ -449,7 +446,7 @@ internal static class Lr2FolderTableReconciliationService
             group.Add(candidate);
         }
 
-        var selected = new Dictionary<string, ProjectionCandidate>(PathComparer);
+        var selected = new Dictionary<string, ProjectionCandidate>(StringComparer.Ordinal);
         foreach (KeyValuePair<string, List<ProjectionCandidate>> group in groups)
         {
             int highestPriority = group.Value.Max(candidate => candidate.Priority);
@@ -647,16 +644,6 @@ internal static class Lr2FolderTableReconciliationService
         return Lr2FolderPath.NormalizeDirectoryPath(path);
     }
 
-    private static string NormalizeFilePath(string path)
-    {
-        return Lr2FolderFileProjection.NormalizeDatabasePath(path);
-    }
-
-    private static string NormalizeRowKey(string path)
-    {
-        return NormalizeFilePath(path);
-    }
-
     private static string NormalizeScopePath(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -716,7 +703,7 @@ internal static class Lr2FolderTableReconciliationService
     {
         return expected != null
             && actual != null
-            && string.Equals(expected.path, actual.path, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(expected.path, actual.path, StringComparison.Ordinal)
             && string.Equals(expected.title, actual.title, StringComparison.Ordinal)
             && string.Equals(expected.subtitle, actual.subtitle, StringComparison.Ordinal)
             && string.Equals(expected.category, actual.category, StringComparison.Ordinal)

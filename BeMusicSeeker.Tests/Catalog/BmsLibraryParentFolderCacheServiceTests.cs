@@ -14,13 +14,15 @@ public sealed class BmsLibraryParentFolderCacheServiceTests
     /// <summary>
     /// LR2フォルダが存在するrootでもbmsonの所持パスがあれば親候補へ残し、譜面なしの除外をそのまま適用しない。
     /// </summary>
-    [TestMethod]
-    public void BuildParentFolderCandidates_BmsonChartKeepsRootEvenWhenLr2FolderExists()
+    [DataTestMethod]
+    [DataRow(".bms", false)]
+    [DataRow(".bmson", true)]
+    public void BuildParentFolderCandidates_BmsonChartKeepsRootEvenWhenLr2FolderExists(string extension, bool trailingSeparator)
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ParentFolderCache_" + Guid.NewGuid().ToString("N"));
         string libraryRootPath = Path.Combine(tempRootPath, "LibraryRoot");
         string chartDirectoryPath = Path.Combine(libraryRootPath, "Package");
-        string chartPath = Path.Combine(chartDirectoryPath, "chart.bmson");
+        string chartPath = Path.Combine(chartDirectoryPath, "chart" + extension);
         string customFolderPath = Path.Combine(tempRootPath, "CustomFolder");
         Directory.CreateDirectory(chartDirectoryPath);
         Directory.CreateDirectory(customFolderPath);
@@ -29,6 +31,7 @@ public sealed class BmsLibraryParentFolderCacheServiceTests
         {
             var service = new BmsLibraryParentFolderCacheService();
             BmsLibraryOptionsSnapshot options = CreateLr2Options(customFolderPath);
+            if (trailingSeparator) { libraryRootPath += Path.DirectorySeparatorChar; }
             List<string> emptyResult = service.BuildParentFolderCandidates([libraryRootPath], [], options);
             List<string> bmsonResult = service.BuildParentFolderCandidates([libraryRootPath], [chartPath], options);
 

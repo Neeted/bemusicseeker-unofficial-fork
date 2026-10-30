@@ -692,7 +692,7 @@ internal static class Lr2SongDbSyncService
     {
         if (songDb == null)
         {
-            return new Dictionary<string, LR2SongDB.folder>(StringComparer.OrdinalIgnoreCase);
+            return new Dictionary<string, LR2SongDB.folder>(StringComparer.Ordinal);
         }
         string[] exactPaths = [.. CreateExistingLr2FolderExactPathScope(request, filePaths)];
         if (exactPaths.Length == 0)

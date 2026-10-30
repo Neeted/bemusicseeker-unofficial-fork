@@ -231,7 +231,7 @@ internal sealed class Lr2FolderFileDiffOwner
             return null;
         }
 
-        BmsLibraryOptionsSnapshot currentSettings = lr2Synchronization.CurrentOptionsSnapshot;
+        BmsLibraryOptionsSnapshot currentSettings = options;
         var stopwatchPrepare = Stopwatch.StartNew();
         var stopwatchStage = Stopwatch.StartNew();
         List<string> roots = [.. (rootDirectories ?? [])
@@ -242,7 +242,7 @@ internal sealed class Lr2FolderFileDiffOwner
         long rootsMs = RestartElapsed(stopwatchStage);
         List<string> builtinSourceDirectories = lr2Synchronization.CreateLr2SongDbSyncBuiltinFolderSourceDirectories(currentSettings);
         long builtinSourceMs = RestartElapsed(stopwatchStage);
-        Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = lr2Synchronization.CreateLr2SongDbSyncAppManagedOutputScope();
+        Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = lr2Synchronization.CreateLr2SongDbSyncAppManagedOutputScope(options);
         long appManagedScopeMs = RestartElapsed(stopwatchStage);
         Lr2FolderFileCandidateSnapshot fileDiffCandidates;
         int appManagedCandidateCount;
@@ -264,7 +264,7 @@ internal sealed class Lr2FolderFileDiffOwner
                 fileDiffCandidates = Lr2FolderFileDiscoveryService.CreateFileCandidates(
                     fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories,
                     currentSettings.LR2RootPath,
-                    lr2Synchronization.CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
+                    lr2Synchronization.CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow, options),
                     logEverythingScan,
                     everythingNative,
                     appManagedOutputScope.Directories);
@@ -296,7 +296,7 @@ internal sealed class Lr2FolderFileDiffOwner
                 : Lr2FolderFileDiscoveryService.CreateFileCandidates(
                     fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories,
                     currentSettings.LR2RootPath,
-                    lr2Synchronization.CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
+                    lr2Synchronization.CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow, options),
                     logEverythingScan,
                     everythingNative,
                     rootFileEnumerator: rootFileEnumerator);

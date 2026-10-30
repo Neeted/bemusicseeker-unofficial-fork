@@ -807,7 +807,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
     }
 
     /// <summary>
-    /// 承認済みで日時が変わらないfolderを修復して実日時を更新した後にDBの異常日時列を退役する。
+    /// 承認済みで日時が変わらないfolderだけを修復してDBの異常日時列を退役し、同列の別raw keyには承認を適用しない。
     /// </summary>
     [TestMethod]
     public void LeapYearFolderRepair_RevalidatesApprovedCandidateAndPersistsAfterTimestampMutation()
@@ -841,6 +841,17 @@ public sealed partial class BmsLibraryInitializationInstallTests
             IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(songDbPath), out _);
             Assert.AreEqual(1, candidates.Count);
             Assert.AreEqual(folderPath, candidates[0].Path);
+            var unapprovedAlias = new LR2SongDB.folder
+            {
+                path = (folderPath + Path.DirectorySeparatorChar).ToUpperInvariant(),
+                title = "LeapYearRepair",
+                parent = "e2977170",
+                type = 1,
+                date = null,
+                adddate = 0
+            };
+            Assert.IsFalse(candidates[0].MatchesCatalogRow(unapprovedAlias), "列が同じ別raw keyは承認対象と一致しません。");
+            using (var seed = new LR2SongDBExtended(songDbPath)) { seed.Insert(unapprovedAlias); }
 
             var fileMutationService = new RecordingFileMutationService
             {
@@ -860,7 +871,9 @@ public sealed partial class BmsLibraryInitializationInstallTests
             Assert.AreEqual(folderPath, fileMutationService.TimestampCalls[0].Path);
             Assert.AreEqual(fileMutationService.TimestampCalls[0].LastWriteTime, Directory.GetLastWriteTime(folderPath));
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
-            LR2SongDB.folder persistedFolder = verify.Table<LR2SongDB.folder>().Single();
+            LR2SongDB.folder persistedFolder = verify.Table<LR2SongDB.folder>().Single(row => row.path == folderPath + Path.DirectorySeparatorChar);
+            LR2SongDB.folder keptAlias = verify.Table<LR2SongDB.folder>().Single(row => row.path == unapprovedAlias.path);
+            Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(unapprovedAlias), System.Text.Json.JsonSerializer.Serialize(keptAlias));
             Assert.IsNull(persistedFolder.adddate);
             Assert.IsNull(persistedFolder.date);
         });

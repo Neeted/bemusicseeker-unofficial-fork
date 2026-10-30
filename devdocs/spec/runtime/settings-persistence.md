@@ -30,11 +30,17 @@
 
 動作モードの選択は今回のモードと確認後の最新確定LR2三項目だけを保存し、無関係な確定値・未知キーを保ちます。未設定・不正なパスもそのまま保持し、未確定詳細を採用したりXMLの成立をモード保存の条件にしたりしません。保存成功と利用開始の必須設定成立は別で、初回・修復中の設定継続と通常利用中の終了・後継起動は[設定仕様](settings.md#lr2の場所と設定xml)に従います。
 
-LR2 XMLの検索登録は最新文書のユーザールートと管理出力rootを保ち、関連する登録変更を同じ文書の一回保存へまとめます。日常の表プロパティ変更・集約編集・削除・root同期も書込み時に最新文書を読み、局所確定前から保持した文書で別の登録を戻しません。
+出力設定は今回のsectionの項目だけをPersist・Publishし、他区分の未確定候補と未公開保存値を混ぜません。XML登録は既存 `SaveRoots` の差分保存を一回使い、明示同値保存だけ既存forceSaveで再保存します。必要な全保存後、受理したtargetをownerとCompositionの型付き配置公開へそのまま渡し、Settings全体から再捕捉しません。profile未構築時の逐次訂正は旧物理移行・削除・DB pruneを開始せず、現在正本の当該既知exact登録だけを調整します。
+
+LR2 XMLの検索登録は共有所有者の採用済み正本に今回の差分だけを適用し、利用者ルートと管理出力rootを保ちます。日常の表プロパティ変更・集約編集・削除・root同期も同じ正本を使い、外部文書を再読込みせず、別操作の成立済み登録を戻しません。
 
 同じ媒体の読取りから置換までをproviderの短い保存境界で直列化します。実処理・通知待ちの間は保持しません。起動移行、終了、位置捕捉、右クリックなど画面外の `Save` も変更済み項目だけを渡し、別wrapperが直近に保存した無関係な値と未知キーを保ちます。
 
 確定利用者BMS登録の読取りと関連項目保存は [`BmsRootRegistrationStore`](../../../BeMusicSeeker/Models/Settings/BmsRootRegistrationStore.cs) が担当します。Settingsの一覧確定は今回の最終一覧と捕捉済み導入先を関連媒体へ保存し、全必要保存後だけ限定公開します。ライブラリ削除後の登録解除は最終利用者一覧だけを保存し、BMSInstallDirを書きません。standaloneは一覧と旧BMSRootPathを一回で保存・公開し、LR2は共有ownerの利用者登録だけを保存・公開します。LR2解除のために変更しないuser.configを再保存しません。物理scopeから解除対象・残存一覧を求める判断はLibraryに置きます。
+
+走査で確認した登録表記は `SaveRootChanges` が今回の同所差分だけを保存します。大小文字差も通常の追加・削除差分として扱い、同所の置換は元位置へ適用します。欠落・親子・未確認の登録と管理登録を全一覧で置換せず、別操作の保存済み未公開値を保持します。standaloneは既存の一覧と `BMSRootPath` を一組で保存し、当該変更rootと同所の `BMSInstallDir` だけを揃えます。 利用者登録と管理登録の双方で確認root全体のprefixだけを適用し、normal/root/additional基点も同じ根拠の範囲へ揃えます。未確認suffixと兄弟基点には波及させず、物理移行は行いません。保存直前のXML正本とSettings現在値を対象にするため、別場所へ進んだ値を古い操作入力から再追加しません。公開済み登録と既存applied配置はそれぞれの現在値へ同じprefixだけを適用し、保存済み未公開配置を再捕捉しません。順序はXML保存、必要Settings項目のPersist、全保存成功後の項目Publish、ownerの登録・配置Publish、Compositionのapplied配置の純差替え、成功通知です。
+
+LR2はXMLの差分保存、必要なSettings項目の保存、今回差分の限定公開の順です。XML失敗ではDB処理へ進まず、XML成功後のSettings失敗では保存文書を保持して今回分を未公開とします。登録成立後にDB失敗・取消となっても登録は巻き戻しません。全必要媒体の成立と限定公開後に小さい成功通知を一回発行します。通知失敗で成立済み保存を失敗へ読み替えません。モデルは既存の親フォルダcacheを失効して既存schedulerで通知し、Settingsは確定一覧・導入先だけを通知します。編集中候補は変更しません。
 
 ### 起動時の回復
 
@@ -76,6 +82,7 @@ BMTの異物理先変更は、新先の必要ファイルと管理情報を先�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 確認済み登録の差分保存・同所導入先・通知 | `BmsRootRegistrationStore.SaveRootChanges`、`Lr2RootChange` | `BmsRootRegistrationTests.RootSpellingChange_PreservesOtherRegistrationsAndPublishesAfterAllMedia` が両modeの登録・三種管理基点・関連/無関係導入先、XML/Settingsの部分失敗、未知属性保持と通知失敗を実媒体で確認する。`RootSpellingChange_DoesNotReAddReplacedSavedRootOrPublishUnrelatedPlacement` が保存済みB/公開Aの分離を確認する。`SettingsDialogBehaviorTests.FileDiffRootSpelling_PublishesConfirmedSettingsAndKeepsNextOutputPlacement` が標準compositionの既定provider・実file diff・次の再出力/差分、確定表示と候補・score取得世代/履歴の保持を確認する。`Lr2ConfigOwnerTests.CaseOnlyRootChange_ReplacesInPlaceAndPublishesOnlyItsDelta` が元順序と限定公開を確認する。 |
 | 未設定LR2へのモード選択の限定保存 | [モード選択](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs)、[終了受付](../../../BeMusicSeeker/ViewModels/MainWindow/ShellShutdownWorkflowOwner.cs) | `SettingsDialogBehaviorTests.OperationModeWithoutActiveProfile_PreservesRawPathsAndAllowsExplicitSaveAfterFailure` が未設定・不正な生パス保持、実保存失敗と明示再操作、未知キー・別wrapperの無関係確定値を確認する。`MainWindowViewHostTests.MainWindowOperationModeRestart*` が実Close・player回収・後継起動を、既存の `PortableSettingsPersistenceTests` がprovider自体の限定公開を分担する。 |
 | 確定BMS登録の共通保存・限定公開 | [`BmsRootRegistrationStore`](../../../BeMusicSeeker/Models/Settings/BmsRootRegistrationStore.cs) | `BmsRootRegistrationTests` が実config/XMLの片側失敗・最新/同値明示保存・未知XML・roots-only保存を、`SettingsDialogBehaviorTests.Lr2BmsConfirmation_PartialSaveCloseKeepsPublishedInputsUntilExplicitSave` が候補・通常Close/reopen・必要差分終端を分担する。 |
 | 既存内容の保全と実際のI/O失敗 | [`PortableSettingsProvider`](../../../BeMusicSeeker/Properties/PortableSettingsProvider.cs) | [`PortableSettingsPersistenceTests`](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) |

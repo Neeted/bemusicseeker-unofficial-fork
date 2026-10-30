@@ -12,6 +12,7 @@ using System.Windows.Media;
 using System.Xml.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
@@ -1331,6 +1332,212 @@ public sealed class SettingsDialogBehaviorTests
         }, nameof(ClosingDiscardsCandidatesAndKeepsConfirmedOrdinaryItems));
     }
 
+    /// <summary>標準compositionの既定providerで実file diffを行い、登録・applied配置・次の再出力が観測表記へ収束する。候補は保持し、score取得世代と履歴は進めない。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    [DoNotParallelize]
+    public void FileDiffRootSpelling_PublishesConfirmedSettingsAndKeepsNextOutputPlacement(bool linked)
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            using var directory = new TemporaryDirectory("scan-root-publication");
+            Settings values = OpenPersistedSettings(directory.Path);
+            string root = Directory.CreateDirectory(Path.Combine(directory.Path, "Music")).FullName;
+            string chart = Path.Combine(root, "chart.bms");
+            File.WriteAllText(chart, BmsLibraryInitializationTestSupport.CreateValidBmsText("Confirmed root"));
+            string observedRoot = char.ToLowerInvariant(root[0]) + root[1..];
+            string observedChart = Path.Combine(observedRoot, "chart.bms");
+            (string SongDbPath, string ConfigPath, string BmsRoot) layout = CreateValidLr2Layout(directory.Path, [root]);
+            values.OperationModeLR2DB = linked;
+            values.LR2RootPath = directory.Path;
+            values.LR2SongDBPath = layout.SongDbPath;
+            values.LR2ConfigXmlPath = layout.ConfigPath;
+            values.BMSRootPath = root;
+            values.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([root]);
+            values.BMSInstallDir = root;
+            values.LR2CustomFolderOutputBaseDir = Directory.CreateDirectory(Path.Combine(root, "Output")).FullName;
+            values.LR2CustomFolderOutputBaseDirRootType = Directory.CreateDirectory(Path.Combine(root, "RootOutput")).FullName;
+            values.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories(
+                [Directory.CreateDirectory(Path.Combine(root, "Additional")).FullName]);
+            values.Save();
+            var scanner = CapturedChartFileScanner.FromFixture([observedChart],
+                new Dictionary<string, IEnumerable<string>> { [observedRoot] = [] }, [observedRoot]);
+            var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(values),
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe")),
+                rootFileEnumerator: new FastRootFileEnumerator(), chartFileScanner: scanner);
+            Lr2ConfigOwner? config = linked ? composition.ResolveLr2Config(values.LR2ConfigXmlPath) : null;
+            string database = linked ? values.LR2SongDBPath : composition.ApplicationPathSnapshot.StandaloneSongDbPath;
+            Directory.CreateDirectory(Path.GetDirectoryName(database) ?? throw new InvalidOperationException());
+            if (!File.Exists(database)) { File.WriteAllBytes(database, []); }
+            var profile = new LibraryProfile(linked, database, [root], config, null, linked, linked, false, false);
+            BMSLibrary library = composition.CreateBmsLibrary(profile);
+            BMSPlaylist playlist = composition.CreateBmsPlaylist(profile, library);
+            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, composition: composition);
+            string candidate = Path.Combine(directory.Path, "Unconfirmed");
+            harness.Dialog.BmsRootPathList.Add(candidate);
+            var publications = new List<(long Version, long ScoreGeneration, string[] Roots, string Install)>();
+            int confirmedNotifications = 0;
+            harness.Dialog.PropertyChanged += (_, args) =>
+            { if (args.PropertyName == nameof(SettingsDialogViewModel.ConfirmedBMSDirectories)) { Interlocked.Increment(ref confirmedNotifications); } };
+            try
+            {
+                await Task.Run(() => library.InitializeScoresOnly([]));
+                BMSLibrary.ScoreSnapshot beforeScore = library.CaptureScoreSnapshotForView();
+                long version = library.BMSParentFolderListCacheVersion;
+                composition.BmsRootRegistrations.Published += (_, _) => publications.Add((library.BMSParentFolderListCacheVersion,
+                    library.GetScoreRuntimeStateForDiagnostics().SourceGeneration,
+                    harness.Dialog.ConfirmedBMSDirectories.ToArray(), harness.Dialog.BMSInstallDir));
+                LibraryFileInitializationResult result = await Task.Run(() => library.ReloadFileDiff(null));
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(1, publications.Count);
+                Assert.IsTrue(publications[0].Version > version);
+                Assert.AreEqual(beforeScore.SourceGeneration, publications[0].ScoreGeneration);
+                CollectionAssert.Contains(publications[0].Roots, observedRoot);
+                Assert.AreEqual(observedRoot, publications[0].Install, false);
+                Assert.IsTrue(Volatile.Read(ref confirmedNotifications) > 0);
+                Assert.AreSame(beforeScore.PlayHistorySnapshot, library.CaptureScoreSnapshotForView().PlayHistorySnapshot);
+                CollectionAssert.Contains(harness.Dialog.BmsRootPathList.ToArray(), candidate);
+                CollectionAssert.Contains(harness.Dialog.ConfirmedBMSDirectories.ToArray(), observedRoot);
+                Assert.AreEqual(observedRoot, harness.Dialog.BMSInstallDir);
+                Settings fresh = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config"));
+                Assert.AreEqual(observedRoot, fresh.BMSInstallDir, false);
+                Assert.AreEqual(Path.Combine(observedRoot, "Output"), fresh.LR2CustomFolderOutputBaseDir, false);
+                Assert.AreEqual(Path.Combine(observedRoot, "Output"), composition.CustomFolderOutputSettingsProvider().LR2CustomFolderOutputBaseDir, false);
+                Assert.AreEqual(Path.Combine(observedRoot, "RootOutput"), composition.BmsLibraryOptionsProvider().LR2CustomFolderOutputBaseDirRootType, false);
+                Assert.AreEqual(Path.Combine(observedRoot, "Additional"), composition.BmsLibraryOptionsProvider().LR2CustomFolderAdditionalOutputBaseDirs.Single(), false);
+                Assert.AreEqual(observedRoot, result.Options.BMSInstallDir, false);
+                if (linked)
+                {
+                    CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), observedRoot);
+                    Assert.AreEqual(Path.Combine(observedRoot, "Output"), config?.Capture().Placement.LR2CustomFolderOutputBaseDir, false);
+                    await Task.Run(() => playlist.ReOutputCustomFoldersAndCommitHeadersToDB([], "confirmed-prefix-follow-up"));
+                }
+                LibraryFileInitializationResult next = await Task.Run(() => library.ReloadFileDiff(null));
+                Assert.AreEqual(observedRoot, next.Options.BMSInstallDir, false);
+                Assert.AreEqual(Path.Combine(observedRoot, "Output"), composition.CustomFolderOutputSettingsProvider().LR2CustomFolderOutputBaseDir, false);
+                Assert.AreEqual(beforeScore.SourceGeneration, library.GetScoreRuntimeStateForDiagnostics().SourceGeneration);
+                Assert.AreEqual(1, publications.Count, "二回目の同じ実返却で登録を再公開しません。");
+            }
+            finally { library.RequestStop("root-spelling-test"); }
+        }, nameof(FileDiffRootSpelling_PublishesConfirmedSettingsAndKeepsNextOutputPlacement));
+    }
+
+    /// <summary>設定受理の予約拒否は三sectionとも保存・XML登録・後続準備より前で止まり、候補setterだけでは予約検査を行わない。</summary>
+    [DataTestMethod]
+    [DataRow("normal")]
+    [DataRow("additional")]
+    [DataRow("root")]
+    [DoNotParallelize]
+    public void OutputConfirmation_ReservedBaseKeepsAllMediaAndBackendUnchanged(string section)
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            using var directory = new TemporaryDirectory("reserved-output-acceptance");
+            Settings values = OpenPersistedSettings(directory.Path);
+            string lr2 = Path.Combine(directory.Path, "LR2");
+            string manual = values.BMSRootPath;
+            (string SongDbPath, string ConfigPath, string BmsRoot) layout = CreateValidLr2Layout(lr2, [manual]);
+            string builtin = Directory.CreateDirectory(Path.Combine(lr2, "LR2files", "CustomFolder")).FullName;
+            string sentinel = Path.Combine(builtin, "sentinel.lr2folder");
+            File.WriteAllText(sentinel, "builtin");
+            values.OperationModeLR2DB = true; values.LR2RootPath = lr2;
+            values.LR2SongDBPath = layout.SongDbPath; values.LR2ConfigXmlPath = layout.ConfigPath;
+            values.LR2CustomFolderOutputBaseDir = Directory.CreateDirectory(Path.Combine(directory.Path, "Normal")).FullName;
+            values.LR2CustomFolderOutputBaseDirRootType = Directory.CreateDirectory(Path.Combine(directory.Path, "Root")).FullName;
+            values.LR2CustomFolderAdditionalOutputBaseDirs = "[]"; values.Save();
+            var dialogs = new RecordingDialogService { MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+            var failures = new List<Exception>();
+            var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(values), settingsDialogService: dialogs,
+                reportSettingsApplyFailure: failures.Add, uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, composition: composition);
+            byte[] settingsBefore = File.ReadAllBytes(Path.Combine(directory.Path, "user.config"));
+            byte[] xmlBefore = File.ReadAllBytes(layout.ConfigPath);
+            if (section == "normal") { harness.Dialog.LR2CustomFolderOutputDir = builtin; }
+            else if (section == "root") { harness.Dialog.LR2CustomFolderAsRootOutputDir = builtin; }
+            else { harness.Dialog.AddCustomFolderAdditionalOutputBaseDir(builtin); }
+            Assert.AreEqual(0, dialogs.MessageCount, "候補では形式と従来衝突だけを検査します。");
+            await harness.Dialog.CommitOutputSettingsAsync(section);
+            Assert.AreEqual(1, dialogs.MessageCount);
+            Assert.IsNotNull(dialogs.LastMessageText);
+            StringAssert.Contains(dialogs.LastMessageText, builtin);
+            Assert.AreEqual(0, failures.Count);
+            Assert.IsFalse(harness.Output.BackendCalled);
+            CollectionAssert.AreEqual(settingsBefore, File.ReadAllBytes(Path.Combine(directory.Path, "user.config")));
+            CollectionAssert.AreEqual(xmlBefore, File.ReadAllBytes(layout.ConfigPath));
+            Assert.AreEqual("builtin", File.ReadAllText(sentinel));
+        }, nameof(OutputConfirmation_ReservedBaseKeepsAllMediaAndBackendUnchanged));
+    }
+
+    /// <summary>実section入口で旧禁止設定を順に訂正する。未訂正区分と候補を巻き込まず、追加集合を一件ずつ縮小し、ROOTは現在XMLの禁止exactだけを外して旧物理を保つ。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void OutputCorrection_SectionsAndAdditionalShrinkKeepBuiltinFilesWithoutStartingBackend()
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            using var directory = new TemporaryDirectory("output-section-correction");
+            Settings values = OpenPersistedSettings(directory.Path);
+            string manual = values.BMSRootPath;
+            string lr2 = Path.Combine(directory.Path, "LR2");
+            string oldNormal = Path.Combine(lr2, "LR2files");
+            string builtin = Path.Combine(oldNormal, "CustomFolder");
+            string one = Path.Combine(builtin, "One"), two = Path.Combine(builtin, "Two"), unknown = Path.Combine(builtin, "Unclassified");
+            (string SongDbPath, string ConfigPath, string BmsRoot) layout = CreateValidLr2Layout(lr2, [manual, lr2, oldNormal, builtin, one, two, unknown]);
+            string[] sentinels = new[] { builtin, one, two, unknown }.Select(path => Path.Combine(path, "sentinel.lr2folder")).ToArray();
+            foreach (string path in sentinels) { File.WriteAllText(path, "preserve-old-physical"); }
+            values.OperationModeLR2DB = true; values.LR2RootPath = lr2;
+            values.LR2SongDBPath = layout.SongDbPath; values.LR2ConfigXmlPath = layout.ConfigPath;
+            values.LR2CustomFolderOutputBaseDir = oldNormal; values.LR2CustomFolderOutputBaseDirRootType = builtin;
+            values.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([one, two]); values.Save();
+            var failures = new List<Exception>();
+            var dialogs = new RecordingDialogService { MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK), ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+            var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(values), settingsDialogService: dialogs,
+                reportSettingsApplyFailure: failures.Add, uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            using var harness = SettingsDialogHarness.Create(values, composition: composition);
+            Lr2ConfigOwner xml = composition.ResolveLr2Config(layout.ConfigPath);
+            string normal = Directory.CreateDirectory(Path.Combine(directory.Path, "SafeNormal")).FullName;
+            harness.Dialog.LR2CustomFolderOutputDir = normal;
+            await harness.Dialog.CommitOutputSettingsAsync("normal");
+            Settings Fresh() => PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config"));
+            Assert.AreEqual(normal, Fresh().LR2CustomFolderOutputBaseDir);
+            Assert.AreEqual(builtin, Fresh().LR2CustomFolderOutputBaseDirRootType);
+            CollectionAssert.AreEqual(new[] { one, two }, CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(Fresh().LR2CustomFolderAdditionalOutputBaseDirs).ToArray());
+            string unselected = Path.Combine(directory.Path, "UnselectedNormal");
+            harness.Dialog.LR2CustomFolderOutputDir = unselected;
+            foreach (string removed in new[] { one, two })
+            {
+                harness.Dialog.SelectedCustomFolderAdditionalOutputBaseDir = removed;
+                harness.Dialog.RemoveSelectedCustomFolderAdditionalOutputBaseDir();
+                await harness.Dialog.CommitOutputSettingsAsync("additional");
+                CollectionAssert.DoesNotContain(xml.Capture().RegisteredRoots.ToArray(), removed);
+                Assert.AreEqual(normal, Fresh().LR2CustomFolderOutputBaseDir);
+                Assert.AreEqual(unselected, harness.Dialog.LR2CustomFolderOutputDir);
+            }
+            string extra = Directory.CreateDirectory(Path.Combine(directory.Path, "SafeExtra")).FullName;
+            harness.Dialog.AddCustomFolderAdditionalOutputBaseDir(extra);
+            await harness.Dialog.CommitOutputSettingsAsync("additional");
+            string root = Directory.CreateDirectory(Path.Combine(directory.Path, "SafeRoot")).FullName;
+            harness.Dialog.LR2CustomFolderAsRootOutputDir = root;
+            await harness.Dialog.CommitOutputSettingsAsync("root");
+            Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+            Assert.AreEqual(0, dialogs.MessageCount);
+            Assert.IsFalse(harness.Output.BackendCalled);
+            Assert.AreEqual(0, harness.State.InitializeCount);
+            Assert.IsTrue(harness.Dialog.IsInitialEnvironment);
+            Assert.AreEqual(root, Fresh().LR2CustomFolderOutputBaseDirRootType);
+            CollectionAssert.AreEqual(new[] { extra }, CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(Fresh().LR2CustomFolderAdditionalOutputBaseDirs).ToArray());
+            CollectionAssert.AreEquivalent(new[] { manual, lr2, normal, extra }, xml.Capture().RegisteredRoots.ToArray());
+            CollectionAssert.AreEquivalent(xml.Capture().RegisteredRoots.ToArray(), new LR2Config(layout.ConfigPath).GetBMSSearchDirectoriesForChangeTracking().ToArray());
+            Assert.AreEqual(root, composition.CustomFolderOutputSettingsProvider().LR2CustomFolderOutputBaseDirRootType);
+            foreach (string path in sentinels) { Assert.AreEqual("preserve-old-physical", File.ReadAllText(path)); }
+        }, nameof(OutputCorrection_SectionsAndAdditionalShrinkKeepBuiltinFilesWithoutStartingBackend));
+    }
+
     private static Settings OpenPersistedSettings(string root)
     {
         Settings values = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config"));
@@ -1693,15 +1900,17 @@ public sealed class SettingsDialogBehaviorTests
 
     private sealed class RecordingCustomFolderOutputPort : ISettingsDialogCustomFolderOutputPort
     {
+        internal bool BackendCalled { get; private set; }
 
 
         public IReadOnlyList<PlaylistCustomFolderOutputMaintenanceOwner.PreviousOutputLocation> CommitCustomFolderOutputSettings(
             CustomFolderOutputSettingsSnapshot previous, CustomFolderOutputSettingsSnapshot target,
-            IReadOnlyDictionary<string, string> renames, LibraryFileMutationCapability capability) => [];
+            IReadOnlyDictionary<string, string> renames, LibraryFileMutationCapability capability)
+        { BackendCalled = true; return []; }
 
         public void RegenerateCustomFolderOutputs(IReadOnlyList<PlaylistCustomFolderOutputMaintenanceOwner.PreviousOutputLocation> previousLocations,
             CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability)
-        { }
+        { BackendCalled = true; }
 
         private readonly ChartFileOperationSynchronizer outputAdmission = new();
 
@@ -1733,10 +1942,11 @@ public sealed class SettingsDialogBehaviorTests
 
         public void ValidateCustomFolderOutputRegistration(CustomFolderOutputSettingsSnapshot settings,
             IReadOnlyDictionary<string, string> renames)
-        { }
+        { BackendCalled = true; }
 
         public IReadOnlyList<string> PrepareCustomFolderOutputSearchRoots(string previousRootOutputBaseDirectory,
-            CustomFolderOutputSettingsSnapshot settings, IReadOnlyList<string> currentDirectories, IReadOnlyDictionary<string, string>? renames = null) => currentDirectories;
+            CustomFolderOutputSettingsSnapshot settings, IReadOnlyList<string> currentDirectories, IReadOnlyDictionary<string, string>? renames = null)
+        { BackendCalled = true; return currentDirectories; }
 
 
     }
@@ -1752,7 +1962,6 @@ public sealed class SettingsDialogBehaviorTests
     private sealed class RecordingSearchRootRuntimePort : ISettingsDialogSearchRootRuntimePort
     {
         public bool HasOwnedChartUnderRealPath(string directoryPath) => false;
-        public void InvalidateLibraryFolderCache() { }
     }
 
     private sealed class NoOpLr2SongDbSyncRuntime : ILr2SongDbSyncWorkflowRuntime

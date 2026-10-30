@@ -6,15 +6,42 @@ using System.Linq;
 using System.Text;
 using System.Xml;
 using System.Xml.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
+using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using static BeMusicSeeker.Tests.BmsLibraryInitializationTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
 public sealed class LR2ConfigTests
 {
+    /// <summary>実在に依存しない登録計画で、root-relative・drive-relative・通常相対をLR2 root基準で解決し、要求・保存本文・raw読取りの基準を揃えます。</summary>
+    [DataTestMethod]
+    [DataRow(@"\Songs", @"D:\Songs")]
+    [DataRow(@"D:Songs", @"D:\LR2\Songs")]
+    [DataRow(@"C:Songs", @"C:\Songs")]
+    [DataRow(@"Songs", @"D:\LR2\Songs")]
+    [DataRow(@".\Songs\.\Pack\..", @"D:\LR2\Songs")]
+    [DataRow(@"..\Songs", @"D:\Songs")]
+    [DataRow(@"E:\Songs\.\Pack\..", @"E:\Songs")]
+    public void RootPlanningDocument_ResolvesRegistrationsAgainstLr2RootWithoutFileAccess(string input, string expected)
+    {
+        var config = LR2Config.CreateRootPlanningDocument(@"D:\LR2\LR2files\Config\config.xml", [input]);
+        Assert.AreEqual(expected, config.NormalizeRequestedSearchDirectory(input));
+        XElement path = config.Element("config")?.Element("jukebox")?.Element("path") ?? throw new AssertFailedException();
+        Assert.AreEqual(expected + "\\", path.Value);
+
+        path.Value = input;
+        CollectionAssert.AreEqual(new[] { expected }, config.GetBMSSearchDirectoriesForChangeTracking());
+        CollectionAssert.AreEqual(new[] { expected }, new Lr2ConfigOwner(config).Capture().RegisteredRoots.ToArray());
+        Assert.AreEqual(input, path.Value, "raw読取りと公開入力の捕捉は元のXML本文を変更しません。");
+    }
+
     /// <summary>ドライブ・UNCルートと通常基点の包含を方向付きで判定し、大小文字・末尾区切りの差を吸収しつつ接頭辞兄弟や別領域を保持します。実媒体へはアクセスしません。</summary>
     [DataTestMethod]
     [DataRow(@"D:\", @"D:\", true)]
@@ -651,14 +678,16 @@ public sealed class LR2ConfigTests
     /// 準備時に新既定先を追加して旧登録を保持し、完了時だけ旧登録を削除して処理途中の参照切れを防ぐ。
     /// </summary>
     /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
-    [TestMethod]
-    public void PrepareNormalOutputBaseRoots_AddsNewDefaultAndRemovesOldDefault()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PrepareNormalOutputBaseRoots_AddsNewDefaultAndRemovesOldDefault(bool oldIsParent)
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
             string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!;
             string oldDefaultBase = Path.Combine(tempRoot, "OldDefault");
-            string newDefaultBase = Path.Combine(tempRoot, "NewDefault");
+            string newDefaultBase = oldIsParent ? Path.Combine(oldDefaultBase, "NewDefault") : Path.Combine(tempRoot, "NewDefault");
             Directory.CreateDirectory(oldDefaultBase);
             Directory.CreateDirectory(newDefaultBase);
             config.AddBMSSearchDirectories([oldDefaultBase]);
@@ -671,8 +700,8 @@ public sealed class LR2ConfigTests
                     "[]",
                     "[]");
 
-            CollectionAssert.Contains(config.GetBMSSearchDirectories(), oldDefaultBase);
-            CollectionAssert.Contains(config.GetBMSSearchDirectories(), newDefaultBase);
+            CollectionAssert.Contains(config.GetBMSSearchDirectoriesForChangeTracking(), oldDefaultBase);
+            CollectionAssert.Contains(config.GetBMSSearchDirectoriesForChangeTracking(), newDefaultBase);
             CollectionAssert.Contains(plan.RemovedPaths.ToArray(), oldDefaultBase);
 
             CustomFolderOutputBaseSearchRootSyncResult result =
@@ -681,8 +710,8 @@ public sealed class LR2ConfigTests
             Assert.IsTrue(result.Changed);
             Assert.AreEqual(1, result.AddedCount);
             Assert.AreEqual(1, result.RemovedCount);
-            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), oldDefaultBase);
-            CollectionAssert.Contains(config.GetBMSSearchDirectories(), newDefaultBase);
+            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectoriesForChangeTracking(), oldDefaultBase);
+            CollectionAssert.Contains(config.GetBMSSearchDirectoriesForChangeTracking(), newDefaultBase);
         });
     }
 
@@ -749,6 +778,87 @@ public sealed class LR2ConfigTests
             Assert.IsTrue(result.Changed);
             CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), oldAdditionalBase);
             CollectionAssert.Contains(config.GetBMSSearchDirectories(), newAdditionalBase);
+        });
+    }
+
+    /// <summary>dot・有効な親要素を含む相対XML/通常DBを本番起動調整と差分で絶対化し、消費側のexact root照合を二周期通して再探索・旧曲NEW・重複を発生させず利用者列とscoreを保持します。</summary>
+    /// <remarks>固定OpenLR2の必要な文字列比較とSQLだけを実SQLiteへ適用します。集計画面全体や実LR2の起動は保証しません。</remarks>
+    [TestMethod]
+    public void StartupRelativeRegistration_ConvergesForExactLr2ConsumerAcrossTwoCycles()
+    {
+        WithConfigFile("<config><system><autoreload>0</autoreload></system><jukebox><path>.\\LR2files\\..\\songs\\</path></jukebox></config>", configPath =>
+        {
+            string root = Directory.GetParent(configPath)?.Parent?.Parent?.FullName ?? throw new AssertFailedException();
+            string songs = Directory.CreateDirectory(Path.Combine(root, "Songs")).FullName;
+            string pack = Directory.CreateDirectory(Path.Combine(songs, "Pack")).FullName;
+            string chart = Path.Combine(pack, "chart.bms");
+            File.WriteAllText(chart, CreateValidBmsText("Old song"), Encoding.ASCII);
+            DateTime timestamp = new(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(chart, timestamp);
+            Directory.SetLastWriteTimeUtc(pack, timestamp);
+            Directory.SetLastWriteTimeUtc(songs, timestamp);
+            ChartFile parsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chart));
+            string songDbPath = Path.Combine(root, "LR2files", "Database", "song.db");
+            Directory.CreateDirectory(Path.GetDirectoryName(songDbPath) ?? throw new AssertFailedException());
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.RunInTransaction(() =>
+                {
+                    db.CreateTable<LR2SongDB.song>(); db.CreateTable<LR2SongDB.folder>();
+                    db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(parsed with { Path = Path.Combine("Songs", "Pack", "chart.bms"), AddDate = 12345, Favorite = 3, Tag = "keep" }), typeof(LR2SongDB.song));
+                    db.InsertOrReplace(new LR2SongDB.folder { path = "Songs\\", parent = "e2977170", type = 1, date = ToUnixSeconds(timestamp), adddate = 12345 }, typeof(LR2SongDB.folder));
+                    db.InsertOrReplace(new LR2SongDB.folder { path = "Songs\\Pack\\", parent = "old", type = 1, date = ToUnixSeconds(timestamp), adddate = 12345 }, typeof(LR2SongDB.folder));
+                    db.Execute("CREATE TABLE consumer_score(hash TEXT PRIMARY KEY, score INTEGER);");
+                    db.Execute("INSERT INTO consumer_score VALUES (?, ?);", parsed.Md5, 9876);
+                });
+            }
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = true; values.LR2RootPath = root; values.LR2ConfigXmlPath = configPath;
+                values.LR2CustomFolderOutputBaseDir = string.Empty; values.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+                values.LR2CustomFolderOutputBaseDirRootType = string.Empty;
+            });
+            var owner = new Lr2ConfigOwner(new LR2Config(configPath));
+            StartupLibraryConstructionOwner.RepairCustomFolderSearchRoots(StartupSettingsSnapshot.CreateCurrent(settings), owner);
+            var service = new BmsLibraryInitializationService();
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            BmsLibraryOptionsSnapshot options = BmsLibraryOptionsSnapshot.CreateCurrent(settings).WithLr2Input(owner.Capture());
+            SongTableLoadResult loaded = service.LoadSongTable(gateway, options, null, new TestFileMutationService(), null, failure => failure.Message);
+            IReadOnlyList<ChartFile> current = loaded.LoadedFiles;
+            for (int cycle = 0; cycle < 2; cycle++)
+            {
+                string confirmed = LongPathFileSystem.ConfirmDirectoryPathSpelling(owner.Capture().RegisteredRoots.Single());
+                owner.SaveRoots(new Lr2RootChange(owner.Capture().RegisteredRoots, [confirmed]));
+                options = options.WithLr2Input(owner.Capture());
+                ChartScanExecutionResult scan = new FastDirectoryFileScanner().Scan([songs], ChartDirectoryScanBuilder.ChartExtensions,
+                    includeTextSurface: true, includeDirectorySurface: true);
+                SongTableFileCheckResult diff = service.ApplyFileScanDiff(gateway, new EverythingNative(ApplicationPathPolicy.Current), options,
+                    current, scan, 0, null, null, currentBmsonSongs: [], lr2NormalFolderSyncRootDirectories: [songs],
+                    folderTableSnapshot: CaptureNormalFolderSnapshot(songDbPath));
+                current = diff.NextFiles;
+                Assert.IsFalse(diff.Lr2NormalFolderSyncFailed);
+                if (cycle == 1) { Assert.AreEqual(0, diff.Lr2NormalFolderUpsertedCount + diff.Lr2NormalFolderDeletedCount); }
+                using LR2SongDBExtended db = gateway.OpenSongDb();
+                // OpenLR2 a87100a0: LR2_configsave.cpp Read_JukeboxPath/adjust_trailing_slashは末尾区切り一つだけを補い、絶対化/case変換はしません。
+                // strclass.cpp isSameはstrcmp、LR2_songmanage.cpp ReloadSongsのROOT SELECT/一致検査とGetFolderDataFromPathのINSERT成功が再探索契機です。
+                // https://github.com/GOMazk/OpenLR2/blob/a87100a0a0f629a5e8130d1e8a3b5c807b9bf96c/LR2/LR2_songmanage.cpp#L2827-L2863
+                string[] jukebox = XDocument.Load(configPath).Root?.Element("jukebox")?.Elements("path")
+                    .Select(element => element.Value.TrimEnd('\\', '/') + "\\").ToArray() ?? [];
+                CollectionAssert.AreEqual(new[] { songs + "\\" }, jukebox);
+                foreach (LR2SongDB.folder folder in db.Query<LR2SongDB.folder>("SELECT * FROM folder WHERE parent = ?;", "e2977170"))
+                { CollectionAssert.Contains(jukebox, folder.path); }
+                int reexplore = jukebox.Sum(path => db.Execute("INSERT OR IGNORE INTO folder(path) VALUES (?);", path));
+                Assert.AreEqual(0, reexplore);
+                // 同版LR2_songmanage.cpp:2914のNEW条件、実song集合/hash別件数とscore結合の一重性を観測します。
+                Assert.AreEqual(0, db.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE adddate > ?;", ToUnixSeconds(DateTime.UtcNow.AddHours(-24))));
+                Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT COUNT(*) FROM song;"));
+                Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE hash = ?;", parsed.Md5));
+                Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT COUNT(*) FROM song JOIN consumer_score ON song.hash = consumer_score.hash;"));
+                Assert.AreEqual(9876, db.ExecuteScalar<int>("SELECT score FROM song JOIN consumer_score ON song.hash = consumer_score.hash;"));
+                LR2SongDB.song row = db.Table<LR2SongDB.song>().Single();
+                Assert.AreEqual(chart, row.path); Assert.AreEqual(12345, row.adddate); Assert.AreEqual(3, row.favorite); Assert.AreEqual("keep", row.tag);
+                Assert.AreEqual(ToUnixSeconds(timestamp), row.date);
+            }
         });
     }
 

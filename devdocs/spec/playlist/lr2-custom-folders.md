@@ -42,9 +42,11 @@
 
 保存済み値の単一名化後に衝突・包含する場合も出力・移行・出力削除・表削除・検索ルート同期を拒否し、DB・正本・ファイル・検索ルートを変更しません。自動改名・設定修復・包含を保護しながらの出力は行いません。外部情報初期化の対象別除外は[プロパティ編集](../ui/playlist-properties.md#サマリーからの一括編集)に従います。
 
+確定したLR2rootの `LR2files/CustomFolder` は組込みの予約領域です。通常・追加・ROOTの出力基点は組込み自身・配下・直上の `LR2files` を拒否し、LR2rootやdrive rootなど、それより上の祖先は許可します。明示BMSrootは組込み自身・配下だけを拒否します。安全な兄弟、無関係な同名、似たprefixは許可し、LR2root不明時に名前だけから推測しません。検査は起動、出力設定、LR2root・詳細設定、明示BMS登録の受理時に各一回行います。検査済みの出力基点と単一出力名を使う表編集・一括編集・移行・再出力・同期では組込みを再検査せず、表間出力衝突など既存の検査を維持します。表実効先が組込みを含む祖先となる場合の保護は保証しません。出力ディレクトリは専用にし、重要なデータを同居させないでください。
+
 ### jukeboxとの同期
 
-通常・追加先は利用者設定を正本として `jukebox` に不足分を補い、同一登録は保持します。両者の同期・起動時修復は共通の配置検証を使い、全候補を検証してからディレクトリ作成・登録追加へ進みます。既存登録の親・子を指定した場合は設定不備として拒否し、親登録を外して子へ置換したり、不正な出力先だけ黙って省略したりしません。
+通常・追加先は利用者設定を正本として `jukebox` に不足分を補い、同一登録は保持します。両者の同期・起動時修復は共通の配置検証を使い、全候補を検証してからディレクトリ作成・登録追加へ進みます。利用者登録の親・子を指定した場合は設定不備として拒否します。今回除去が確定した旧管理exact登録だけを除いた最終候補集合で新先を検査し、移行中は必要な旧新登録を保持します。不正な出力先を黙って省略しません。
 
 ルート型は基点そのものではなく、各表の実効出力ディレクトリをルートとして扱います。既存登録と同じ基点、または既存の表ルートを含む親を指定でき、子ディレクトリが未生成なら必要に応じて作成します。保存時と起動時は基点・不要な旧子登録を現在の表ディレクトリへ揃えますが、基点の外側にある親登録は削除対象にせず、基点がその子となる設定を拒否します。起動時の完全な整理は表一覧を読み込んだ後に行います。`ReloadTables` は不足する表ルートを補い、不要ルートの完全な整理は保存時・起動時が担当します。
 
@@ -122,6 +124,8 @@ ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) IS 
 
 表の出力ディレクトリ内は管理領域です。同じ先への再出力では期待集合にない `.lr2folder` を削除します。出力先変更、ルート切替、表削除では旧表ディレクトリ全体と対応範囲のDB行を整理します。基点直下の他の項目は変更しません。別表の包含に備えた子孫保護は持ちません。同一表の旧親から新子への移行、旧パスの再利用、管理基点外の保全は移行整理の別の保証として維持します。通常基点と追加基点を同じ設定要求で変更するときは、承認した現在名から最終登録名への対応を移行準備へ明示して渡し、未改名の表を含む配置検査・候補出力・整理時の保全先を同じ最終配置で解決します。
 
+既存禁止設定はprofile構築前の設定訂正へ戻します。未構築時の通常・ROOT選択、追加先の追加・改名・削除は当該区分だけを保存でき、追加の旧禁止集合は一件ずつ縮小できます。未設定・旧予約領域の区分は今回の安全訂正を妨げず、有効な既存基点の一般配置衝突・旧配置警告は維持します。旧builtin自身・配下の物理配置、旧scope、PreviousOutputLocationを移行・削除・DB pruneへ渡しません。通常・追加の変更区分では既知旧管理exact登録だけを除き、ROOTでは現在XMLに実在するbuiltin自身・配下のexact登録だけを除きます。祖先・drive・無関係な未知登録を推測して整理せず、上位祖先を特別に保護・除去しません。全体の起動受理が成立するまではprofile/backendを公開せず、旧ファイルを保持します。
+
 ROOT基点がドライブルート・UNC共有ルートの場合も、整理対象は基点直下の当該表ディレクトリです。基点全体を削除対象へ広げません。[一般BMS一覧・導入先からの除外](../runtime/settings.md#カスタムフォルダと検索対象)は基点全体と子孫を対象とする別の契約です。
 
 SQL復元は、置換前に捕捉した全旧配置を、新正本の必須生成成功後に同じ受付内で整理します。表IDの同一性に依存せず新配置集合を保全し、空表集合・旧ROOTから通常/追加先への復元にも適用します。旧配置だけの整理失敗は残存警告とし、新DB・新出力と利用可能性を保持します。自動再試行や次の再出力への整理状態の持越しは行いません。standaloneでは既存ファイルと `folder` 行に触れません。復元の確定・失敗境界と実SQL往復テストは[SQLバックアップと復元](storage-and-export.md#json出力sqlバックアップと復元)に従います。
@@ -156,6 +160,7 @@ ROOT登録の補完・同期、表削除、プロパティ、一括編集は同�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 組込み予約領域と旧禁止設定の訂正 | `CustomFolderOutputBaseSearchRootSyncService`、設定確定担当、`StartupLibraryConstructionOwner` | `SettingDialogCustomFolderOutputBaseTests.SettingsAcceptance_ReservesBuiltinOnlyAtConfigurationBoundary` が三種出力基点・BMS登録の条件表と上位祖先出力下の禁止BMS登録を確認する。`SettingsDialogBehaviorTests.OutputConfirmation_ReservedBaseKeepsAllMediaAndBackendUnchanged` と `OutputCorrection_SectionsAndAdditionalShrinkKeepBuiltinFilesWithoutStartingBackend` が拒否前の媒体保全と実sectionの逐次訂正を、`SettingDialogEditCompletionTests.ReservedOutputModeSave_FreshStartupRequiresCorrectionThenAncestorBaseAndPropertySaveSucceed` がmode即時保存・fresh起動訂正・許容祖先baseと実表編集を分担する。安全管理先の通常移行・削除は `BmsPlaylistMigrationAndRegistrationTests` が維持する。 |
 | ドライブルート配下の実ROOT表削除と管理外楽曲の保持 | `PlaylistRemovalWorkflowOwner`、`PlaylistCustomFolderOutputMaintenanceOwner` | [`SettingDialogLr2OwnerTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogLr2OwnerTests.cs) の `Lr2DriveRootOutput_PreservesConfirmedInstallThroughGenerationInstallationAndTableRemoval` は設定で保存した管理外導入先への実導入後、同じ表の物理ディレクトリ・folder行・表登録・jukebox登録の削除と、楽曲の実体・DB行・表外ファイルの保持を確認します。別名は全owner終端後に解除し、清掃は所有した一時実パスだけへ行います。 |
 | 同じLR2正本へのROOT登録保存と限定公開 | [`PlaylistCustomFolderOutputMaintenanceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistCustomFolderOutputMaintenanceOwner.cs)、[`Lr2ConfigOwner`](../../../BeMusicSeeker/Models/LR2/Lr2ConfigOwner.cs) | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs)、[`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs)、[`PlaylistSummaryBulkEditTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryBulkEditTests.cs) が各入口の保存・出力を、[`部分保存と実表削除`](../../../BeMusicSeeker.Tests/Settings/SettingDialogLr2OwnerTests.cs) が別操作の未公開値を巻き込まないことを確認します。 |
 | 同一・包含の両方向拒否、名前表記と区切り境界 | `ManagedPlaylistOutputPlacement` | `ManagedPlaylistOutputPlacementTests.FinalDirectories_RejectOnlyIdenticalOrNestedPaths` は条件表を共通判定へ集約する。 |

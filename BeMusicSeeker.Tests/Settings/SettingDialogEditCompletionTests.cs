@@ -1779,7 +1779,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
-    /// <summary>BMS一覧の局所確定は実差分を同じL/Pで処理し、DBと画面へ今回の譜面を反映するまで閉鎖を要求しません。</summary>
+    /// <summary>BMS一覧の局所確定は同じL/Pで実差分を完了し、実score取得後も登録公開のcache失効・通知を維持します。DBと画面へ今回の譜面を反映するまで閉鎖を要求しません。</summary>
     /// <remarks>初期化後の独立保守と区別し、当該確定Taskの実終端でDBと必須UIを観測します。</remarks>
     [DataTestMethod]
     [DataRow(false)]
@@ -1839,6 +1839,23 @@ public sealed partial class SettingDialogEditCompletionTests
                     // 次の明示確定が起動後保守のL受付と競合しないよう、両動作modeで受理済み保守の実終端を待ちます。
                     AwaitStartupBackgroundCompletionOnDispatcher(owner, "bms-confirm-initial-background");
                     Assert.AreEqual(1, defaultPlayerCount, "単独動作の実構築は既定playerを一回接続します。");
+                    BMSLibrary library = factory.CreatedLibrary ?? throw new InvalidOperationException("Actual library is unavailable.");
+                    long scoreGeneration = library.GetScoreRuntimeStateForDiagnostics().SourceGeneration;
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ReloadScoresOnlyAsync(), "bms-confirm-score-reload");
+                    Assert.IsTrue(library.GetScoreRuntimeStateForDiagnostics().SourceGeneration > scoreGeneration,
+                        "実score取得と採用を通した後の登録通知を検証します。");
+                    int parentCacheVersion = library.BMSParentFolderListCacheVersion;
+                    int parentCacheNotices = 0;
+                    library.PropertyChanged += (_, args) =>
+                    {
+                        if (args.PropertyName == nameof(BMSLibrary.BMSParentFolderListCacheVersion)) { Interlocked.Increment(ref parentCacheNotices); }
+                    };
+                    // 同じ標準構成のstoreを直接確定し、後の譜面差分が起こす別のcache失効で購読切れを隠さないようにします。
+                    composition.BmsRootRegistrations.SaveUserRoots(composition.BmsRootRegistrations.CaptureUserRoots());
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsTrue(library.BMSParentFolderListCacheVersion > parentCacheVersion,
+                        "実score取得後も、譜面差分を伴わない登録公開がモデルのcacheを失効させます。");
+                    Assert.IsTrue(Volatile.Read(ref parentCacheNotices) > 0, "同じ登録公開を既存UI schedulerのcache通知へ接続します。");
                     File.WriteAllText(chartB, "#PLAYER 1\n#TITLE Folder B\n#BPM 120\n#00111:01\n");
                     var next = CapturedChartFileScanner.FromFixture([chartA, chartB],
                         new Dictionary<string, IEnumerable<string>> { [initialRoot] = [], [addedRoot] = [] }, [initialRoot]);
@@ -1846,7 +1863,11 @@ public sealed partial class SettingDialogEditCompletionTests
                     scanner.Current = next;
                     var capturedRoots = new List<IReadOnlyList<string>>();
                     scanner.RootsObserved = roots => capturedRoots.Add(roots);
-                    owner.SettingDialog.BmsRootPathList.Add(addedRoot);
+                    string candidateRoot = Path.Combine(root, "ADDED");
+                    owner.SettingDialog.BmsRootPathList.Add(candidateRoot);
+                    owner.SettingDialog.ReplacementBmsInstallDir = candidateRoot;
+                    // 同所の導入先も走査の確認表記へ揃うことを、標準compositionのstore通知と実差分で観測します。
+                    values.BMSInstallDir = candidateRoot;
                     apply = owner.SettingDialog.CommitBmsRootsAsync();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, apply, "folder-settings-scan"), "folder-settings-scan");
                     Assert.IsFalse(apply.IsCompleted);
@@ -1860,8 +1881,10 @@ public sealed partial class SettingDialogEditCompletionTests
                     release.Set();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "folder-settings-terminal");
                     Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                    CollectionAssert.Contains(owner.SettingDialog.ConfirmedBMSDirectories.ToArray(), addedRoot);
+                    Assert.AreEqual(addedRoot, owner.SettingDialog.BMSInstallDir);
+                    CollectionAssert.Contains(owner.SettingDialog.BmsRootPathList.ToArray(), candidateRoot);
                     Assert.AreEqual(1, defaultPlayerCount, "Folder段階はplayerの再構築を追加しません。");
-                    BMSLibrary library = factory.CreatedLibrary ?? throw new InvalidOperationException("Actual library is unavailable.");
                     Assert.AreEqual("Folder B", library.BmsCharts.Single(chart => chart.Path == chartB).RawTitle);
                     using (LR2SongDBExtended db = new BmsLibraryDbGateway(lr2 ? values.LR2SongDBPath : composition.ApplicationPathSnapshot.StandaloneSongDbPath).OpenSongDbReadOnly())
                     { Assert.AreEqual("Folder B", db.Table<LR2SongDB.song>().Single(row => row.path == chartB).title); }
@@ -5378,29 +5401,6 @@ public sealed partial class SettingDialogEditCompletionTests
         public Task StopPlayback()
         {
             return Task.CompletedTask;
-        }
-    }
-
-    private sealed class RecordingSearchRootRuntimePort : ISettingsDialogSearchRootRuntimePort
-    {
-        private readonly IList<string> sequence;
-
-        internal RecordingSearchRootRuntimePort(IList<string> sequence)
-        {
-            this.sequence = sequence;
-        }
-
-
-        internal Func<string, bool> HasOwnedChartUnderRealPathHandler { get; set; } = _ => false;
-
-        public bool HasOwnedChartUnderRealPath(string directoryPath)
-            => HasOwnedChartUnderRealPathHandler(directoryPath);
-
-
-
-        public void InvalidateLibraryFolderCache()
-        {
-            sequence.Add("invalidate");
         }
     }
 

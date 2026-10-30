@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -103,6 +104,121 @@ public sealed partial class SettingDialogEditCompletionTests
                 }
             }
             finally { Directory.Delete(root, recursive: true); }
+        });
+    }
+
+    /// <summary>modeは旧禁止値のまま即時保存し、明示開始とfresh起動は構築前に訂正へ戻る。上位祖先baseへ訂正して開始した後の通常表編集・実出力でも旧builtinを変更しない。</summary>
+    [TestMethod]
+    public void ReservedOutputModeSave_FreshStartupRequiresCorrectionThenAncestorBaseAndPropertySaveSucceed()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            string directory = CreateTemporaryRoot();
+            try
+            {
+                string lr2 = Path.Combine(directory, "LR2");
+                string manual = Directory.CreateDirectory(Path.Combine(directory, "Music")).FullName;
+                string chart = Path.Combine(manual, "chart.bms");
+                File.WriteAllText(chart, BmsLibraryInitializationTestSupport.CreateValidBmsText("Accepted settings"));
+                (string SongDb, string Config) layout = CreateValidLr2Layout(lr2);
+                var xml = new LR2Config(layout.Config);
+                xml.SetBMSSearchDirectories([manual]); xml.Save(xml.ConfigFilePath);
+                string builtin = Directory.CreateDirectory(Path.Combine(lr2, "LR2files", "CustomFolder")).FullName;
+                string sentinel = Path.Combine(builtin, "sentinel.lr2folder");
+                const string original = "#TITLE Builtin preserved\n#COMMAND 0\n";
+                File.WriteAllText(sentinel, original);
+                string settingsPath = Path.Combine(directory, "user.config");
+                Settings values = CreateValidStandaloneSettings(manual, PortableSettingsPersistenceTests.OpenSettings(settingsPath));
+                values.LR2RootPath = lr2; values.LR2SongDBPath = layout.SongDb; values.LR2ConfigXmlPath = layout.Config;
+                values.LR2CustomFolderOutputBaseDir = builtin;
+                values.LR2CustomFolderOutputBaseDirRootType = Directory.CreateDirectory(Path.Combine(directory, "RootOutput")).FullName;
+                values.LR2CustomFolderAdditionalOutputBaseDirs = "[]"; values.Save();
+                foreach (bool fresh in new[] { false, true })
+                {
+                    Settings current = fresh ? PortableSettingsPersistenceTests.OpenSettings(settingsPath) : values;
+                    var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+                    var failures = new List<Exception>();
+                    var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(current),
+                        reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs, fileDbMutationDialogService: dialogs,
+                        uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                        applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                        applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory, "application", "BeMusicSeeker.exe")),
+                        chartFileScanner: CapturedChartFileScanner.FromFixture([chart], new Dictionary<string, IEnumerable<string>> { [manual] = [] }, [manual]),
+                        rootFileEnumerator: new FastRootFileEnumerator(), defaultBmsPlayerFactory: () => new RecordingPlaybackPlayer());
+                    var calls = new List<string>();
+                    var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, calls);
+                    MainWindowViewModel owner = new(composition, factory);
+                    owner.SettingDialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort());
+                    try
+                    {
+                        if (!fresh)
+                        {
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SelectOperationModeAsync(true), "reserved-mode-save");
+                            Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(settingsPath).OperationModeLR2DB);
+                            Assert.AreEqual(0, dialogs.MessageCount, "mode選択は保存し、検査は再起動後の共通入口へ委ねます。");
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.StartConfirmedEnvironmentAsync(), "reserved-explicit-start");
+                        }
+                        else
+                        {
+                            Task<bool> startup = owner.InitializeAsync();
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(startup, "reserved-fresh-startup");
+                            Assert.IsFalse(startup.GetAwaiter().GetResult());
+                        }
+                        Assert.IsFalse(owner.HasActiveLibraryProfile);
+                        Assert.IsFalse(owner.IsInitializationCompleted);
+                        Assert.AreEqual(0, calls.Count);
+                        Assert.AreEqual(original, File.ReadAllText(sentinel));
+                        if (!fresh) { continue; }
+                        // LR2rootは直上LR2filesより上なので受理する。実効先包含の救済・再検査を後続へ足さない。
+                        owner.SettingDialog.LR2CustomFolderOutputDir = lr2;
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("normal"), "ancestor-base-correction");
+                        Assert.AreEqual(lr2, PortableSettingsPersistenceTests.OpenSettings(settingsPath).LR2CustomFolderOutputBaseDir);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.StartConfirmedEnvironmentAsync(), "corrected-explicit-start");
+                        Assert.IsTrue(owner.HasActiveLibraryProfile);
+                        Assert.IsTrue(owner.IsInitializationCompleted);
+                        AwaitStartupBackgroundCompletionOnDispatcher(owner, "corrected-startup-background");
+                        BMSLibrary library = factory.CreatedLibrary ?? throw new AssertFailedException();
+                        BMSPlaylist playlist = factory.CreatedPlaylist ?? throw new AssertFailedException();
+                        Lr2ConfigOwner config = composition.ResolveLr2Config(layout.Config);
+                        var table = new BMSTable
+                        {
+                            playlist_id = 9091,
+                            name = "Before",
+                            is_bmt_output = false,
+                            ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
+                        };
+                        playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+                        playlist.CommitBMSTableHeadersToDB([table]);
+                        var service = new PlaylistPropertySaveService(() => playlist, () => library, () => config, composition.CustomFolderOutputSettingsProvider);
+                        // この代表は実保存・出力までを担い、Windowを要しない表示通知は終端だけ受けます。
+                        service.PlaylistPropertySummaryDataRefreshRequested += (_, _) => { };
+                        service.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+                        Task<PlaylistPropertyEditSession> editing = service.CreateEditSessionAsync(table, false);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(editing, "accepted-property-edit");
+                        using PlaylistPropertyEditSession session = editing.GetAwaiter().GetResult() ?? throw new AssertFailedException();
+                        session.Values.Name = "CustomFolder"; session.Values.OutputDirectory = null;
+                        Task<(PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError)> save = service.TrySaveAsync(session, session.Values);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(save, "accepted-property-save");
+                        (PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError) saved = save.GetAwaiter().GetResult();
+                        Assert.IsNotNull(saved.Commit); Assert.IsNull(saved.ValidationError); Assert.IsNull(saved.Commit.Exception);
+                        string output = Path.Combine(lr2, "CustomFolder");
+                        Assert.IsTrue(Directory.GetFiles(output, "*.lr2folder").Length > 0);
+                        using (var db = new LR2SongDBExtended(layout.SongDb))
+                        { Assert.AreEqual("CustomFolder", db.Table<BMSTable>().Single(row => row.playlist_id == 9091).name); }
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(playlist.WaitForPlaylistMutationIdleAsync(), "accepted-property-mutation-idle");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.PlaylistWorkspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "accepted-property-summary-idle");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.PlaylistWorkspace.WaitForPlaylistReloadCleanupIdleAsync(), "accepted-property-cleanup-idle");
+                        Assert.AreEqual(original, File.ReadAllText(sentinel));
+                        Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                    }
+                    finally
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "reserved-mode-owner-terminal");
+                        owner.SettingDialog.Dispose();
+                    }
+                }
+            }
+            finally { Directory.Delete(directory, true); }
         });
     }
 
