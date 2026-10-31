@@ -235,7 +235,8 @@ public partial class BMSTable
         throw new InvalidOperationException("Playlist entry membership and order differ.");
     }
 
-    /// <summary>削除とフォルダ別追加の候補を writer 内で準備します。明示追加は同じ所属キーの削除履歴を今回入力へ置換し、生存重複の既存値を優先します。live 値・所属・日時・版は変更しません。</summary>
+    /// <summary>削除とフォルダ別追加の候補を writer 内で準備します。明示追加は同じ所属キーの削除履歴を今回入力へ置換し、生存重複の既存値を優先します。空フォルダ保持の対象には空白名も含み、live 値・所属・日時・版は変更しません。</summary>
+    /// <param name="preserveEmptyFoldersAfterRemoval">削除・移動元の非空フォルダを空になっても保持するか。改名・統合では元フォルダを残さないためfalseとします。</param>
     /// <param name="replaceRemovedDestinations">明示追加ではtrue。フォルダ改名・統合だけfalseとし、既存の順序による衝突規則を維持します。</param>
     internal EntryMutation PrepareEntryMutation(IReadOnlyCollection<BMSTableEntry> removals,
         IReadOnlyList<(BMSTableEntry Entry, string Folder)> additions,
@@ -316,7 +317,7 @@ public partial class BMSTable
         foreach ((BMSTableEntry entry, string folder) in additions) { Add(entry, folder); }
         foreach (string folder in preserveEmptyFolders)
         {
-            if (!string.IsNullOrWhiteSpace(folder) && Count(folder) == 0) { Add(BMSTableEntry.CreateDummyBMSTableEntry(), folder); }
+            if (!string.IsNullOrEmpty(folder) && Count(folder) == 0) { Add(BMSTableEntry.CreateDummyBMSTableEntry(), folder); }
         }
         ImmutableList<BMSTableEntry> candidateEntries = _entries;
         List<PlaylistEntryChange> changes = [];
@@ -353,7 +354,7 @@ public partial class BMSTable
         };
     }
 
-    /// <summary>対象フォルダの候補と衝突する移動先候補だけで、名称変更・ルートへの統合を準備します。</summary>
+    /// <summary>対象フォルダの候補と衝突する移動先候補だけで名称変更・空文字所属への統合を準備し、空白名を含む非空名への改名は元の明示順序を保持します。</summary>
     internal EntryMutation PrepareFolderRename(string before, string after, IPlaylistEntryMutationWorkObserver observer = null)
     {
         string destination = after ?? string.Empty;
@@ -378,10 +379,10 @@ public partial class BMSTable
         EntryMutation mutation = PrepareEntryMutation(removals, additions, observer,
             preserveEmptyFoldersAfterRemoval: false, replaceRemovedDestinations: false);
         List<string> order = [.. _Folder_order ?? []];
-        if (string.IsNullOrWhiteSpace(after))
+        if (string.IsNullOrEmpty(after))
         {
             bool hasRootEntries = members.Any(entry => entry.md5 != BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER)
-                || entriesByFolder.Any(pair => string.IsNullOrWhiteSpace(pair.Key.Name)
+                || entriesByFolder.Any(pair => string.IsNullOrEmpty(pair.Key.Name)
                     && pair.Value.Count > (entriesByIdentity.TryGetValue((pair.Key.Name, BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER),
                         out HashSet<BMSTableEntry> dummies) ? dummies.Count : 0));
             if (hasRootEntries && !order.Contains(string.Empty)) { order.Insert(0, string.Empty); }

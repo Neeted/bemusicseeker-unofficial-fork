@@ -3395,6 +3395,154 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
+    /// <summary>通常名から空白だけの名前へ改名しても元の手動順序と選択を保ち、独立DBと新storeの読込み後も所属の原値を維持します。</summary>
+    [TestMethod]
+    public async Task PlaylistFolderRename_WhitespaceNamePreservesOrderAndSelection()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "playlist-whitespace-rename-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var table = new BMSTable
+        {
+            playlist_id = 7833,
+            name = "Whitespace rename",
+            Folder_order = ["A", "B"],
+            entries = [new BMSTableEntry { md5 = new string('a', 32), title = "A", folder = "A" },
+                new BMSTableEntry { md5 = new string('b', 32), title = "B", folder = "B" }]
+        };
+        (BMSPlaylist playlist, TestBmsLibrary library, _, PlaylistWorkspaceViewModel workspace) = CreateRootDropStore(directory, table, []);
+        try
+        {
+            workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("A"));
+
+            await workspace.RenameFolderAsync(table, PlaylistFolderNode.CreateFolder("A"), "   ");
+
+            PlaylistDetailSelection selection = workspace.CapturePlaylistDetailSelection();
+            Assert.AreSame(table, selection.Table);
+            Assert.AreEqual(PlaylistDetailSelectionScope.Folder, selection.Scope);
+            Assert.AreEqual("   ", selection.FolderName);
+            AssertPersistedFolderMutationState(Path.Combine(directory, "song.db"), table, ["   ", "B"],
+                [(new string('a', 32), "   "), (new string('b', 32), "B")]);
+        }
+        finally
+        {
+            workspace.CancelDetailBuilds();
+            await workspace.WaitForDetailBuildIdleAsync();
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            workspace.Dispose();
+            playlist.RequestShutdown("playlist_whitespace_rename_test");
+            library.RequestShutdown("playlist_whitespace_rename_test");
+            if (Directory.Exists(directory)) { Directory.Delete(directory, recursive: true); }
+        }
+    }
+
+    /// <summary>空白名の最後の譜面を同表の別フォルダへ移動、または削除した後も、空白名の空フォルダと手動順序をDB・新storeへ保持し、非対象Bを変えません。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PlaylistFolderLastEntry_WhitespaceFolderRemainsAfterMoveOrDelete(bool delete)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "playlist-whitespace-last-entry-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var entry = new BMSTableEntry { md5 = new string('a', 32), title = "Moving", folder = "   " };
+        var table = new BMSTable
+        {
+            playlist_id = 7834,
+            name = "Whitespace last entry",
+            Folder_order = ["   ", "B"],
+            entries = [entry, new BMSTableEntry { md5 = new string('b', 32), title = "Kept", folder = "B" }]
+        };
+        (BMSPlaylist playlist, TestBmsLibrary library, _, PlaylistWorkspaceViewModel workspace) = CreateRootDropStore(directory, table, []);
+        try
+        {
+            PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow();
+            if (delete) { await workspace.DeleteSelectedEntriesAsync([row]); }
+            else { await workspace.AddRowsToFolderAsync([row], table, PlaylistFolderNode.CreateFolder("B")); }
+
+            (string Hash, string Folder)[] expected = delete
+                ? [(BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER, "   "), (new string('b', 32), "B")]
+                : [(BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER, "   "), (new string('a', 32), "B"), (new string('b', 32), "B")];
+            AssertPersistedFolderMutationState(Path.Combine(directory, "song.db"), table, ["   ", "B"], expected);
+        }
+        finally
+        {
+            workspace.CancelDetailBuilds();
+            await workspace.WaitForDetailBuildIdleAsync();
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            workspace.Dispose();
+            playlist.RequestShutdown("playlist_whitespace_last_entry_test");
+            library.RequestShutdown("playlist_whitespace_last_entry_test");
+            if (Directory.Exists(directory)) { Directory.Delete(directory, recursive: true); }
+        }
+    }
+
+    /// <summary>空の通常フォルダを空文字へ改名する際、別所属の空白名を空文字所属と数えず、実在しない空文字の明示順序を作りません。空白名とBはDB・新storeで保持します。</summary>
+    [TestMethod]
+    public async Task PlaylistFolderRename_EmptyDestinationDoesNotTreatWhitespaceAsEmptyMembership()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "playlist-empty-rename-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var dummy = BMSTableEntry.CreateDummyBMSTableEntry();
+        dummy.folder = "A";
+        var table = new BMSTable
+        {
+            playlist_id = 7835,
+            name = "Empty rename",
+            Folder_order = ["A", "   ", "B"],
+            entries = [dummy, new BMSTableEntry { md5 = new string('a', 32), title = "Whitespace", folder = "   " },
+                new BMSTableEntry { md5 = new string('b', 32), title = "B", folder = "B" }]
+        };
+        (BMSPlaylist playlist, TestBmsLibrary library, _, PlaylistWorkspaceViewModel workspace) = CreateRootDropStore(directory, table, []);
+        try
+        {
+            await workspace.RenameFolderAsync(table, PlaylistFolderNode.CreateFolder("A"), string.Empty);
+
+            AssertPersistedFolderMutationState(Path.Combine(directory, "song.db"), table, ["   ", "B"],
+                [(new string('a', 32), "   "), (new string('b', 32), "B")]);
+        }
+        finally
+        {
+            workspace.CancelDetailBuilds();
+            await workspace.WaitForDetailBuildIdleAsync();
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            workspace.Dispose();
+            playlist.RequestShutdown("playlist_empty_rename_test");
+            library.RequestShutdown("playlist_empty_rename_test");
+            if (Directory.Exists(directory)) { Directory.Delete(directory, recursive: true); }
+        }
+    }
+
+    private static void AssertPersistedFolderMutationState(string songDbPath, BMSTable table,
+        string[] expectedOrder, (string Hash, string Folder)[] expectedEntries)
+    {
+        CollectionAssert.AreEqual(expectedOrder, table.Folder_order.ToArray());
+        CollectionAssert.AreEqual(expectedOrder, table.folder_list.ToArray());
+        CollectionAssert.AreEquivalent(expectedEntries, table.entries.Select(entry => (entry.md5, entry.folder)).ToArray());
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+        {
+            string savedOrder = db.Table<LR2SongDBExtended.playlist>().Single(item => item.playlist_id == table.playlist_id).folder_order;
+            CollectionAssert.AreEqual(expectedOrder, System.Text.Json.JsonSerializer.Deserialize<string[]>(savedOrder)
+                ?? throw new AssertFailedException("保存した明示順序がありません。"));
+            CollectionAssert.AreEquivalent(expectedEntries, db.Table<LR2SongDBExtended.playlist_entry>()
+                .Where(entry => entry.playlist_id == table.playlist_id).Select(entry => (entry.md5, entry.folder)).ToArray());
+        }
+        var freshStore = new TestBmsPlaylist(songDbPath, null, null, null,
+            () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
+            () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
+        try
+        {
+            freshStore.BMSTables = new ObservableCollection<BMSTable>(new PlaylistPersistenceRepository(songDbPath).LoadPlaylistHeaders());
+            BMSTable fresh = freshStore.BMSTables.Single(item => item.playlist_id == table.playlist_id);
+            Assert.AreNotSame(table, fresh);
+            Assert.IsFalse(fresh.ArePlaylistEntriesLoaded);
+            freshStore.EnsurePlaylistEntriesLoaded(fresh, "folder_mutation_readback");
+            CollectionAssert.AreEqual(expectedOrder, fresh.Folder_order.ToArray());
+            CollectionAssert.AreEqual(expectedOrder, fresh.folder_list.ToArray());
+            CollectionAssert.AreEqual(expectedOrder, fresh.FolderNodes.Where(node => !node.IsSpecial).Select(node => node.FolderName).ToArray());
+            CollectionAssert.AreEquivalent(expectedEntries, fresh.entries.Select(entry => (entry.md5, entry.folder)).ToArray());
+        }
+        finally { freshStore.RequestShutdown("playlist_folder_mutation_readback_test"); }
+    }
+
     private static (BMSPlaylist Playlist, TestBmsLibrary Library, BMSTable Table, PlaylistWorkspaceViewModel Workspace,
         ChartFile ChartA, ChartFile ChartB, ChartFile ChartC) CreateRootDropWorkingSetFixture(
         string tempDirectory,
