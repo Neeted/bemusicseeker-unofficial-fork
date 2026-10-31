@@ -181,6 +181,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
         using PlaylistWorkspaceTestPorts.OwnedPlaylistStore ownedPlaylistStore =
             PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore();
         var composition = new ApplicationComposition(
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             settingsEditSession: new NoOpSettingsEditSession(settings),
             playlistWorkspaceDialogService: new AcceptedStatusBarTestDialogService(),
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
@@ -261,6 +262,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
         {
             var lifetime = new MainWindowPresentationTestHarness.PresentationApplicationLifetime();
             MainWindowViewModel viewModel = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
                 uiScheduler: uiScheduler ?? new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 applicationLifetime: lifetime,

@@ -46,7 +46,7 @@ public sealed partial class ApplicationCompositionTests
             TestUiDispatcherHost.Invoke(() =>
             {
                 var scheduler = new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher);
-                var composition = new ApplicationComposition(() => new BmsLibraryOptionsSnapshot(),
+                var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), bmsLibraryOptionsProvider: () => new BmsLibraryOptionsSnapshot(),
                     settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: scheduler,
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
                 var library = new TestBmsLibrary(songDb, null, null, new ResilientFileMutationService(), null, scheduler,
@@ -129,6 +129,7 @@ public sealed partial class ApplicationCompositionTests
         try
         {
             var composition = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 bmsLibraryOptionsProvider: () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false },
                 settingsEditSession: new FakeSettingsEditSession { Values = testSettings },
                 uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
@@ -178,6 +179,7 @@ public sealed partial class ApplicationCompositionTests
                 }
                 Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive, "借用終端は外側Pを解放しません。");
                 var otherComposition = new ApplicationComposition(
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                     bmsLibraryOptionsProvider: () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false },
                     settingsEditSession: new FakeSettingsEditSession { Values = testSettings },
                     uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
@@ -247,6 +249,7 @@ public sealed partial class ApplicationCompositionTests
             TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings);
             playlist.BMSTables = new ObservableCollection<BMSTable>();
             var composition = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 () => new BmsLibraryOptionsSnapshot(),
                 settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             MainChartListViewModel missingProviderMainChartList = composition.CreateMainChartListViewModel(action => action(), _ => { });
@@ -351,6 +354,7 @@ public sealed partial class ApplicationCompositionTests
         try
         {
             var composition = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             var settings = new StartupSettingsSnapshot
             {
@@ -380,6 +384,7 @@ public sealed partial class ApplicationCompositionTests
         try
         {
             var composition = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             var settings = new StartupSettingsSnapshot
             {
@@ -412,6 +417,7 @@ public sealed partial class ApplicationCompositionTests
         try
         {
             var composition = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             var settings = new StartupSettingsSnapshot
             {
@@ -452,6 +458,7 @@ public sealed partial class ApplicationCompositionTests
         try
         {
             var composition = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 settingsEditSession: new FakeSettingsEditSession { Values = values },
                 defaultBmsPlayerFactory: () =>
                 {
@@ -497,6 +504,7 @@ public sealed partial class ApplicationCompositionTests
         try
         {
             var composition = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 settingsEditSession: new FakeSettingsEditSession { Values = values },
                 defaultBmsPlayerFactory: () =>
                 {
@@ -528,6 +536,7 @@ public sealed partial class ApplicationCompositionTests
             new SettingsPlayerSettingsGateway(() => testSettings),
             new BassAudioPlaybackRuntime());
         var composition = new ApplicationComposition(
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             defaultBmsPlayerFactory: () => expected,
             settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         testSettings.UsePlayeruBMplay = false;
@@ -551,6 +560,7 @@ public sealed partial class ApplicationCompositionTests
         testSettings.LR2RootPath = missingRoot;
         testSettings.LR2ConfigXmlPath = Path.Combine(missingRoot, "LR2files", "Config.xml");
         var composition = new ApplicationComposition(
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
 
         InvalidOperationException exception = Assert.ThrowsExactly<InvalidOperationException>(
@@ -581,6 +591,7 @@ public sealed partial class ApplicationCompositionTests
             };
             var gateway = new CompositionScoreViewerGateway();
             var composition = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 settingsEditSession: new FakeSettingsEditSession { Values = values },
                 playlistWorkspaceDialogService: dialogs,
                 uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
@@ -628,6 +639,7 @@ public sealed partial class ApplicationCompositionTests
             TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings);
             playlist.BMSTables = new ObservableCollection<BMSTable>([first, second]);
             var composition = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 () => new BmsLibraryOptionsSnapshot(),
                 settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             MainChartListViewModel mainChartList = composition.CreateMainChartListViewModel(action => action(), _ => { });
@@ -1024,6 +1036,7 @@ public sealed partial class ApplicationCompositionTests
             {
                 var scheduler = new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher);
                 var composition = new ApplicationComposition(
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                     settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: scheduler,
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
                 MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
@@ -1138,6 +1151,7 @@ public sealed partial class ApplicationCompositionTests
         TestUiDispatcherHost.Invoke(() =>
         {
             var composition = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 () => new BmsLibraryOptionsSnapshot(),
                 settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
@@ -1203,6 +1217,7 @@ public sealed partial class ApplicationCompositionTests
             });
         var session = new FakeSettingsEditSession { Values = values };
         var composition = new ApplicationComposition(
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             () => new BmsLibraryOptionsSnapshot(),
             settingsEditSession: session,
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
@@ -1230,6 +1245,7 @@ public sealed partial class ApplicationCompositionTests
             });
         var session = new FakeSettingsEditSession { Values = values };
         var composition = new ApplicationComposition(
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             settingsEditSession: session,
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
 
@@ -1273,6 +1289,7 @@ public sealed partial class ApplicationCompositionTests
             });
         var session = new FakeSettingsEditSession { Values = values };
         var composition = new ApplicationComposition(
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             settingsEditSession: session,
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
 
@@ -1307,6 +1324,7 @@ public sealed partial class ApplicationCompositionTests
         try
         {
             var composition = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 settingsEditSession: new FakeSettingsEditSession { Values = values },
                 uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
@@ -1330,6 +1348,7 @@ public sealed partial class ApplicationCompositionTests
                 values.LR2CustomFolderAdditionalOutputBaseDirs = "[\"session-additional\"]";
             });
         var composition = new ApplicationComposition(
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             settingsEditSession: new FakeSettingsEditSession { Values = values },
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
@@ -1351,6 +1370,7 @@ public sealed partial class ApplicationCompositionTests
             PlaylistSummaryKeywordSearchHistory = KeywordSearchHistoryStore.Serialize(["summary-old"])
         };
         var composition = new ApplicationComposition(
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             () => new BmsLibraryOptionsSnapshot(),
             keywordSearchHistorySettingsStore: store,
             settingsEditSession: new FakeSettingsEditSession { Values = testSettings },
@@ -1370,6 +1390,7 @@ public sealed partial class ApplicationCompositionTests
     {
         Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings();
         var composition = new ApplicationComposition(
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             () => new BmsLibraryOptionsSnapshot(),
             settingsEditSession: new FakeSettingsEditSession { Values = values },
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
@@ -1397,6 +1418,7 @@ public sealed partial class ApplicationCompositionTests
         var historyStore = new FakeKeywordSearchHistorySettingsStore();
         var favoriteStore = new FakeKeywordSearchFavoritesSettingsStore();
         var composition = new ApplicationComposition(
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             () => new BmsLibraryOptionsSnapshot(),
             keywordSearchHistorySettingsStore: historyStore,
             keywordSearchFavoritesSettingsStore: favoriteStore,
@@ -1430,6 +1452,7 @@ public sealed partial class ApplicationCompositionTests
             PlaylistSummaryKeywordSearchHistory = KeywordSearchHistoryStore.Serialize(["summary-old"])
         };
         var composition = new ApplicationComposition(
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             () => new BmsLibraryOptionsSnapshot(),
             keywordSearchHistorySettingsStore: store,
                 settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
@@ -1485,6 +1508,7 @@ public sealed partial class ApplicationCompositionTests
             ])
         };
         var composition = new ApplicationComposition(
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             () => new BmsLibraryOptionsSnapshot(),
             playHistoryDisplaySettingsStore: store,
             settingsEditSession: new FakeSettingsEditSession { Values = testSettings },

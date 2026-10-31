@@ -78,6 +78,7 @@ public sealed partial class MainWindowViewHostTests
                 using (var db = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath)) { }
                 Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
                 composition = new ApplicationComposition(
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                     settingsEditSession: new RecordingSettingsEditSession(settings),
                     defaultBmsPlayerFactory: () => new FakeBmsPlayer(),
                     uiScheduler: new WpfUiScheduler(() => dispatcher),
@@ -515,6 +516,7 @@ public sealed partial class MainWindowViewHostTests
         IApplicationLifetimePort applicationLifetime)
     {
         return new ApplicationComposition(
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             settingsEditSession: settingsSession,
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
             applicationLifetime: applicationLifetime,
@@ -728,7 +730,7 @@ public sealed partial class MainWindowViewHostTests
                     defaultBmsPlayerFactory: () => player,
                     uiScheduler: ui,
                     applicationLifetime: lifetime,
-                    applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe")),
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe"))),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog());
                 viewModel = CreatePlaybackHostViewModel(composition, settings, directory.Path);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
@@ -831,7 +833,7 @@ public sealed partial class MainWindowViewHostTests
                     settingsEditSession: new NoOpSettingsEditSession(settings),
                     uiScheduler: new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: lifetime,
-                    applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe")),
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe"))),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog());
                 viewModel = CreatePlaybackHostViewModel(composition, settings, directory.Path,
                     bmtOptionsProvider: () =>
@@ -1029,7 +1031,7 @@ public sealed partial class MainWindowViewHostTests
                     defaultBmsPlayerFactory: () => startupPlayer,
                     uiScheduler: new WpfUiScheduler(() => dispatcher),
                     applicationLifetime: lifetime,
-                    applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe")),
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe"))),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     packageInstallMutationPort: new DelegatePackageInstallMutationPort((_, _, _, _) =>
                     {
@@ -1325,7 +1327,7 @@ public sealed partial class MainWindowViewHostTests
                     defaultBmsPlayerFactory: () => new FakeBmsPlayer(),
                     uiScheduler: new WpfUiScheduler(() => dispatcher),
                     applicationLifetime: lifetime,
-                    applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe")),
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe"))),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     settingsDialogService: settingsDialogs,
                     restartFailureDialogs: dialogs,

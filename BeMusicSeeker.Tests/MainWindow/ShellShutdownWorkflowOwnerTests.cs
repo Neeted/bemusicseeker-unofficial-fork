@@ -1310,7 +1310,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
                 uiScheduler: new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 applicationLifetime: lifetime,
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe"))),
                 restartFailureDialogs: dialogs,
                 reportRestartFailure: reportedFailures.Add);
             MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();

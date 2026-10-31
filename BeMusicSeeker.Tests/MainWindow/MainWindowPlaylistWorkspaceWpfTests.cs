@@ -6429,7 +6429,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             settingsEditSession: new NoOpSettingsEditSession(settings),
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             applicationLifetime: lifetime,
-            applicationPathSnapshot: applicationPath,
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         Lr2ConfigOwner? lr2ConfigOwner = settings.OperationModeLR2DB ? composition.ResolveLr2Config(settings.LR2ConfigXmlPath) : null;
         var library = new TestBmsLibrary(

@@ -379,6 +379,7 @@ public sealed class ChartListVirtualViewTests
             testSettings.OperationModeLR2DB = false;
             var player = new RecordingBmsPlayer();
             var composition = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 defaultBmsPlayerFactory: () => player,
                 settingsEditSession: new NoOpSettingsEditSession(testSettings),
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());

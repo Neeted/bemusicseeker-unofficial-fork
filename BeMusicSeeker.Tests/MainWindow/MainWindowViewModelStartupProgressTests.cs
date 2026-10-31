@@ -1721,7 +1721,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 var composition = new ApplicationComposition(settingsEditSession: new NoOpSettingsEditSession(settings),
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: new TestApplicationLifetime(firstStartup: false),
-                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(), applicationPathSnapshot: path,
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(), runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(path),
                     fileDbMutationDialogService: dialogs, settingsDialogService: dialogs, chartFileScanner: scanner);
                 var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
                 {
@@ -2011,7 +2011,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             PlaylistPersistenceRepository.EnsureSchema(songDb);
             Composition = new ApplicationComposition(settingsEditSession: settingsSessionFactory?.Invoke(Settings) ?? new NoOpSettingsEditSession(Settings), reportSettingsApplyFailure: settingsFailureReporter,
                 uiScheduler: Ui, applicationLifetime: Lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                applicationPathSnapshot: path, fileDbMutationDialogService: Dialogs, settingsDialogService: Dialogs,
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(path), fileDbMutationDialogService: Dialogs, settingsDialogService: Dialogs,
                 defaultBmsPlayerFactory: defaultPlayer);
             Library = new TestBmsLibrary(songDb, lr2Mode ? Composition.ResolveLr2Config(lr2Config) : null, null, null, null,
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), CaptureOptions,

@@ -303,6 +303,7 @@ public sealed class MainWindowPlaybackWpfTests
                 });
                 var lifetime = new MainWindowPresentationTestHarness.PresentationApplicationLifetime();
                 var composition = new ApplicationComposition(
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                     settingsEditSession: new NoOpSettingsEditSession(settings),
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: lifetime,
@@ -708,6 +709,7 @@ public sealed class MainWindowPlaybackWpfTests
                 });
                 var lifetime = new MainWindowPresentationTestHarness.PresentationApplicationLifetime();
                 MainWindowViewModel viewModel = new ApplicationComposition(
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                     settingsEditSession: new NoOpSettingsEditSession(settings),
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: lifetime,

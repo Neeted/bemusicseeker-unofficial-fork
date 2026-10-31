@@ -47,7 +47,7 @@ public sealed partial class ApplicationCompositionTests
         var composition = new ApplicationComposition(settingsEditSession: session,
             defaultBmsPlayerFactory: () => player, uiScheduler: new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-            applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe"))),
             chartFileScanner: CapturedChartFileScanner.FromFixture([path], new Dictionary<string, IEnumerable<string>> { [root] = [] }, [root]),
             rootFileEnumerator: new FastRootFileEnumerator(),
             fileDbMutationDialogService: dialogs, settingsDialogService: dialogs);
@@ -155,8 +155,8 @@ public sealed partial class ApplicationCompositionTests
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new System.Threading.ManualResetEventSlim();
         bool holdPreparation = false;
-        var composition = new ApplicationComposition(() => options, settingsEditSession: session,
-            applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
+        var composition = new ApplicationComposition(bmsLibraryOptionsProvider: () => options, settingsEditSession: session,
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.MissingEverythingBridge),
             rootFileEnumerator: new EmptyAdmissionRootFileEnumerator(),
             customFolderOutputSettingsProvider: () =>
             {
@@ -245,10 +245,10 @@ public sealed partial class ApplicationCompositionTests
             settings.LR2ConfigXmlPath = BmsPlaylistTestSupport.CreateLr2Config(scope.DirectoryPath).ConfigFilePath;
             settings.LR2CustomFolderOutputBaseDir = outputBase;
         });
-        var composition = new ApplicationComposition(() => options,
+        var composition = new ApplicationComposition(bmsLibraryOptionsProvider: () => options,
             settingsEditSession: new FakeSettingsEditSession { Values = values },
             customFolderOutputSettingsProvider: () => outputSettings,
-            applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.MissingEverythingBridge),
             rootFileEnumerator: new EmptyAdmissionRootFileEnumerator(),
             uiScheduler: new TestUiScheduler(() => null),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
@@ -316,7 +316,7 @@ public sealed partial class ApplicationCompositionTests
         var captured = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseCapture = new System.Threading.ManualResetEventSlim();
         bool holdCapture = false;
-        var composition = new ApplicationComposition(() => BmsLibraryOptionsSnapshot.CreateCurrent(values),
+        var composition = new ApplicationComposition(bmsLibraryOptionsProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(values),
             settingsEditSession: new FakeSettingsEditSession { Values = values },
             customFolderOutputSettingsProvider: () =>
             {
@@ -328,7 +328,7 @@ public sealed partial class ApplicationCompositionTests
                 }
                 return snapshot;
             },
-            applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.MissingEverythingBridge),
             rootFileEnumerator: new EmptyAdmissionRootFileEnumerator(),
             uiScheduler: new TestUiScheduler(() => null),
             applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
@@ -435,7 +435,7 @@ public sealed partial class ApplicationCompositionTests
             });
         TestBmsFactory.CreateRootSettings([music], values);
         var composition = new ApplicationComposition(settingsEditSession: new FakeSettingsEditSession { Values = values },
-            applicationPathSnapshot: TestBmsFactory.AvailableEverythingBridge, rootFileEnumerator: new FastRootFileEnumerator(),
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.AvailableEverythingBridge), rootFileEnumerator: new FastRootFileEnumerator(),
             uiScheduler: new TestUiScheduler(() => null),
             applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         var scanner = CapturedChartFileScanner.FromFixture([chart], new Dictionary<string, IEnumerable<string>>(), [music]);

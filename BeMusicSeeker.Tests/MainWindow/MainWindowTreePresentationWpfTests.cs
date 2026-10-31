@@ -540,6 +540,7 @@ internal static class MainWindowPresentationTestHarness
         {
             var lifetime = new PresentationApplicationLifetime();
             MainWindowViewModel viewModel = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 settingsEditSession: new NoOpSettingsEditSession(settings),
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 applicationLifetime: lifetime,

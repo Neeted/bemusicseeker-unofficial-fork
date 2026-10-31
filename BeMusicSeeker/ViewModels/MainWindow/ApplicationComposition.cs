@@ -10,6 +10,7 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.Runtime;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Ribbit.Logging;
@@ -23,6 +24,9 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort, IStartupLibraryFactory
 {
+    /// <summary>同じ構成の機能へ渡す、起動時に確定した実行条件を取得します。</summary>
+    internal ApplicationRuntimeOptions RuntimeOptions { get; }
+
     /// <summary>Shares optional FS/DB terminal reporting across feature and view consumers.</summary>
     internal IUiDialogService FileDbMutationDialogs { get; }
 
@@ -111,6 +115,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     private readonly IPackageInstallMutationPort packageInstallMutationPort;
 
     /// <summary>同じ共通受付と明示されたプロセス・音声・入力列挙境界で本番の機能を構成します。</summary>
+    /// <param name="runtimeOptions">起動境界またはfixtureが明示的に所有する配置と実行条件。</param>
     /// <param name="rootFileEnumerator">モデルとLR2入力に共通の任意グループ列挙境界。nullは通常経路です。</param>
     /// <param name="chartFileScanner">モデルの譜面入力を捕捉する任意の走査境界。省略時は通常の走査サービスを使います。</param>
     /// <param name="scoreViewerRegistrationGateway">Score Viewer 登録の network boundary。未指定時は production gateway を使います。</param>
@@ -122,6 +127,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     /// <param name="settingsDialogService">設定画面の確認と通知。省略時は既存のダイアログ調停処理を使います。</param>
     /// <param name="packageInstallMutationPort">パッケージの変更処理。省略時は既存のライブラリ変更処理を使います。</param>
     internal ApplicationComposition(
+        ApplicationRuntimeOptions runtimeOptions,
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
         Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider = null,
@@ -139,7 +145,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         IUiScheduler uiScheduler = null,
         IApplicationLifetimePort applicationLifetime = null,
         ICultureCatalog cultureCatalog = null,
-        ApplicationPathSnapshot applicationPathSnapshot = null,
         IRootFileEnumerator rootFileEnumerator = null,
         IExternalShellGateway externalShellGateway = null,
         IExternalPlayerProcessGateway externalPlayerProcessGateway = null,
@@ -156,6 +161,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         IPackageInstallMutationPort packageInstallMutationPort = null,
         IChartFileScanner chartFileScanner = null)
     {
+        RuntimeOptions = runtimeOptions ?? throw new ArgumentNullException(nameof(runtimeOptions));
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
         this.applicationLifetime = applicationLifetime
@@ -164,7 +170,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             ?? throw new ArgumentNullException(nameof(cultureCatalog));
         this.rootFileEnumerator = rootFileEnumerator;
         this.chartFileScanner = chartFileScanner;
-        this.applicationPathSnapshot = applicationPathSnapshot ?? ApplicationPathPolicy.Current;
+        applicationPathSnapshot = runtimeOptions.Paths;
         this.externalShellGateway = externalShellGateway ?? ExternalShellGatewayPolicy.Current;
         this.externalProgramLaunchGateway = externalProgramLaunchGateway ?? ExternalProgramLaunchGatewayPolicy.Current;
         this.externalPlayerProcessGateway = externalPlayerProcessGateway ?? ExternalPlayerProcessGatewayPolicy.Current;

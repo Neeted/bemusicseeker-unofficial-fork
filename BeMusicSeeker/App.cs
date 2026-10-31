@@ -12,6 +12,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Localization;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.Runtime;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
@@ -38,6 +39,8 @@ public partial class App : System.Windows.Application
     private static string coordinatedShutdownReason;
 
     private ApplicationPathSnapshot applicationPathSnapshot;
+
+    private ApplicationRuntimeOptions applicationRuntimeOptions;
 
     private readonly IApplicationRestartGateway applicationRestartGateway;
 
@@ -130,10 +133,10 @@ public partial class App : System.Windows.Application
             createViewModel: () =>
             {
                 var composition = new ApplicationComposition(
+                    runtimeOptions: applicationRuntimeOptions,
                     uiScheduler: new WpfUiScheduler(() => base.Dispatcher),
                     applicationLifetime: new AppApplicationLifetime(this),
                     cultureCatalog: new AppCultureCatalog(this),
-                    applicationPathSnapshot: applicationPathSnapshot,
                     reportTerminalSettingsSaveFailure: exception => EmergencyDialog.Show(
                         string.Format(BeMusicSeeker.Properties.Resources.SettingsSaveFailedDuringShutdown, SettingsFailureMessage.Format(exception)),
                         BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Warning));
@@ -201,6 +204,7 @@ public partial class App : System.Windows.Application
     {
         // 必須準備の故障は既存の起動ownerが受け止め、未構成のまま終了します。
         applicationPathSnapshot = ApplicationPathPolicy.Current;
+        applicationRuntimeOptions = ApplicationRuntimeOptions.Capture(applicationPathSnapshot);
         InitializeStartupDiagnostics();
         InitializeAvailableCultures();
         applicationSettingsLifecycle.Initialize(

@@ -9,6 +9,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.Runtime;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Tests;
@@ -16,6 +17,12 @@ namespace BeMusicSeeker.Tests;
 internal static class MainWindowViewModelTestFactory
 {
     private static readonly ConcurrentBag<string> isolatedSettingsDirectories = [];
+
+    /// <summary>fixtureの配置を明示し、process環境を再読しない固定の実行条件を作ります。</summary>
+    internal static ApplicationRuntimeOptions CreateRuntimeOptions(ApplicationPathSnapshot? paths = null)
+        => new(paths ?? ApplicationPathPolicy.Current,
+            new BmsDatabaseLoadOptions(true, true, true), null,
+            BeMusicSeeker.Models.Update.UpdateCheckService.DefaultManifestUrl, []);
 
     /// <summary>
     /// 明示された設定、または他の testhost と共有しない既定値で画面 owner を構成する。
@@ -25,6 +32,7 @@ internal static class MainWindowViewModelTestFactory
     {
         settings ??= CreateIsolatedSettings();
         return new ApplicationComposition(
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             settingsEditSession: new NoOpSettingsEditSession(settings),
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),

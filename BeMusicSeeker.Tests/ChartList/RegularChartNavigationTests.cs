@@ -2120,7 +2120,7 @@ public sealed class RegularChartNavigationTests
                 values.UseBeatorajaScoreDb = false;
             });
             var tasks = new ProjectionTaskCollector(scheduler ?? new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
-            MainWindowViewModel vm = new ApplicationComposition(settingsEditSession: new NoOpSettingsEditSession(settings), uiScheduler: tasks,
+            MainWindowViewModel vm = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new NoOpSettingsEditSession(settings), uiScheduler: tasks,
                 applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 fileDbMutationDialogService: dialogs).CreateMainWindowViewModelForTest();
             var lifetime = new MainWindowTestLifetime(vm, Task.CompletedTask);

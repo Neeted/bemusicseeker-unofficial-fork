@@ -22,6 +22,7 @@ public sealed class MainChartColumnSettingsBoundaryTests
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
         };
         var composition = new ApplicationComposition(
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             () => new BmsLibraryOptionsSnapshot(),
             mainChartColumnSettingsStore: store,
             settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),

@@ -99,7 +99,7 @@ public sealed class MainWindowCatalogProjectionTests
             var composition = new ApplicationComposition(settingsEditSession: new NoOpSettingsEditSession(settings),
                 uiScheduler: delayedUi,
                 applicationLifetime: new TestApplicationLifetime(firstStartup: false),
-                cultureCatalog: TestApplicationContext.CreateCultureCatalog(), applicationPathSnapshot: paths,
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(), runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(paths),
                 chartFileScanner: scanner, rootFileEnumerator: new FastRootFileEnumerator(),
                 fileDbMutationDialogService: dialogs, settingsDialogService: dialogs, playlistWorkspaceDialogService: dialogs);
             var owner = new MainWindowViewModel(composition, composition);

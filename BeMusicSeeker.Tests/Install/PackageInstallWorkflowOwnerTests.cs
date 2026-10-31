@@ -111,6 +111,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                     {
                     }
                     var composition = new ApplicationComposition(
+                        runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                         settingsEditSession: new NoOpSettingsEditSession(settings),
                         uiScheduler: scheduler,
                         applicationLifetime: TestApplicationContext.CreateLifetime(),

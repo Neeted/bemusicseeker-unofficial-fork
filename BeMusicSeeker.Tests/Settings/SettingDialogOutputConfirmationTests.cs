@@ -32,7 +32,7 @@ public sealed partial class SettingDialogEditCompletionTests
             {
                 var failures = new List<Exception>();
                 var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK) };
-                var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(values),
+                var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(values),
                     reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs, playlistWorkspaceDialogService: dialogs,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
@@ -186,7 +186,7 @@ public sealed partial class SettingDialogEditCompletionTests
             {
                 var failures = new List<Exception>();
                 var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK) };
-                var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(values),
+                var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(values),
                     reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs, playlistWorkspaceDialogService: dialogs,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
@@ -257,7 +257,7 @@ public sealed partial class SettingDialogEditCompletionTests
             TestUiDispatcherHost.Invoke(() =>
             {
                 var failures = new List<Exception>();
-                var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(values),
+                var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(values),
                     reportSettingsApplyFailure: failures.Add,
                     settingsDialogService: new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK) },
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
@@ -383,7 +383,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 (MainWindowViewModel Owner, TestBmsPlaylist Playlist, ApplicationComposition Composition) OpenOwner(Settings settings)
                 {
                     var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK) };
-                    var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(settings),
+                    var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(settings),
                         reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs, playlistWorkspaceDialogService: dialogs,
                         uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                         applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
@@ -506,7 +506,7 @@ public sealed partial class SettingDialogEditCompletionTests
             {
                 var failures = new List<Exception>();
                 var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK) };
-                var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(values),
+                var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(values),
                     reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs, playlistWorkspaceDialogService: dialogs,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());

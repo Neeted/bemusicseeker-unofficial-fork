@@ -50,7 +50,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         settingsEditSession: new SettingsEditSession(current),
                         uiScheduler: new WpfUiScheduler(() => System.Windows.Threading.Dispatcher.CurrentDispatcher),
                         applicationLifetime: TestApplicationContext.CreateLifetime(freshStartup ? false : firstStartup),
-                        cultureCatalog: TestApplicationContext.CreateCultureCatalog(), applicationPathSnapshot: applicationPath,
+                        cultureCatalog: TestApplicationContext.CreateCultureCatalog(), runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
                         settingsDialogService: dialogs, fileDbMutationDialogService: dialogs);
                     MainWindowViewModel owner = new(composition, factory);
                     var sequence = new List<string>();
@@ -142,7 +142,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs, fileDbMutationDialogService: dialogs,
                         uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                         applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                        applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory, "application", "BeMusicSeeker.exe")),
+                        runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory, "application", "BeMusicSeeker.exe"))),
                         chartFileScanner: CapturedChartFileScanner.FromFixture([chart], new Dictionary<string, IEnumerable<string>> { [manual] = [] }, [manual]),
                         rootFileEnumerator: new FastRootFileEnumerator(), defaultBmsPlayerFactory: () => new RecordingPlaybackPlayer());
                     var calls = new List<string>();
@@ -582,7 +582,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     fileDbMutationDialogService: dialogs, reportSettingsApplyFailure: failures.Add,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                    applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge, rootFileEnumerator: new FastRootFileEnumerator());
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.MissingEverythingBridge), rootFileEnumerator: new FastRootFileEnumerator());
                 var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []);
                 var owner = new MainWindowViewModel(composition, factory);
                 Task<bool> startup = owner.InitializeAsync();
@@ -641,7 +641,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs, fileDbMutationDialogService: dialogs,
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "application", "BeMusicSeeker.exe")),
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "application", "BeMusicSeeker.exe"))),
                 rootFileEnumerator: new FastRootFileEnumerator(), audioDeviceCatalog: new TestAudioDeviceCatalog(),
                 chartFileScanner: CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { [root] = [] }, [root]));
             MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
@@ -728,7 +728,7 @@ public sealed partial class SettingDialogEditCompletionTests
             {
                 var failures = new List<Exception>();
                 var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
-                var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(values),
+                var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(values),
                     reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
@@ -868,7 +868,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 values.Save();
                 var failures = new List<Exception>();
                 var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
-                var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(values),
+                var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(values),
                     reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs, audioDeviceCatalog: new TestAudioDeviceCatalog(),
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());

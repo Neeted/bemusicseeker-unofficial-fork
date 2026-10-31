@@ -546,6 +546,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     db.Execute("CREATE TRIGGER fail_report_finalizer BEFORE INSERT ON folder WHEN NEW.path LIKE '%ReceiptTarget%' BEGIN SELECT RAISE(ABORT, 'consumer-finalizer-marker'); END;");
                 }
                 var composition = new ApplicationComposition(
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                     settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(),
@@ -666,6 +667,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     : new ResilientFileMutationService();
                 // 登録済みの原本は導入対象から除外されるため、ここでは導入先だけを登録します。
                 var composition = new ApplicationComposition(
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                     settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(),
@@ -738,6 +740,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         {
             var dialogs = new FileDbReportRecordingDialogs();
             var composition = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
@@ -3381,6 +3384,7 @@ internal static class MainWindowPackageMaintenanceTestHarness
         {
             var lifetime = new MainWindowPresentationTestHarness.PresentationApplicationLifetime();
             MainWindowViewModel viewModel = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 settingsEditSession: new NoOpSettingsEditSession(settings),
                 uiScheduler: uiScheduler ?? new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 applicationLifetime: lifetime,

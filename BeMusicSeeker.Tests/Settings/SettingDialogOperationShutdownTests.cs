@@ -54,7 +54,7 @@ public sealed partial class SettingDialogEditCompletionTests
             var failures = new List<Exception>();
             var composition = new ApplicationComposition(settingsEditSession: session, uiScheduler: ui, applicationLifetime: lifetime,
                 reportSettingsApplyFailure: failures.Add, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                settingsDialogService: dialogs, fileDbMutationDialogService: dialogs, applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
+                settingsDialogService: dialogs, fileDbMutationDialogService: dialogs, runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.MissingEverythingBridge),
                 rootFileEnumerator: new FastRootFileEnumerator(), audioDeviceCatalog: new TestAudioDeviceCatalog());
             MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
             Window? previousMain = Application.Current.MainWindow;

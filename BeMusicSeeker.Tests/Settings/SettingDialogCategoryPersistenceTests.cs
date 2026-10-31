@@ -758,7 +758,7 @@ public sealed partial class SettingDialogEditCompletionTests
             values.StagefilePath = imagePath;
             values.Save();
             var failures = new List<Exception>();
-            var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(values),
+            var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(values),
                 reportSettingsApplyFailure: failures.Add, audioDeviceCatalog: new TestAudioDeviceCatalog(),
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());

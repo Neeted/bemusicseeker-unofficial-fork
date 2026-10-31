@@ -134,6 +134,7 @@ public sealed class SettingDialogOpenCommandTests
         ISettingsEditSession? settingsEditSession = null)
     {
         return new ApplicationComposition(
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),

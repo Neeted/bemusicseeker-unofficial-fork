@@ -869,6 +869,7 @@ public sealed class SettingsWindowPresentationTests
             });
                 var dialogs = new RecordingSettingsRouteDialogService(searchRoot, additionalOutputBase);
                 var composition = new ApplicationComposition(
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                     settingsEditSession: new NoOpSettingsEditSession(settings), settingsDialogService: dialogs,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
@@ -975,6 +976,7 @@ public sealed class SettingsWindowPresentationTests
                     ConfirmationResult = failedWithException ? UiDialogResult.Failed(original) : UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable)
                 };
                 var composition = new ApplicationComposition(
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                     settingsEditSession: new SettingsEditSession(settings), settingsDialogService: dialogs,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
@@ -1944,6 +1946,7 @@ public sealed class SettingsWindowPresentationTests
             var lifetime = new DangerApplicationLifetime(events);
             var settingsSession = new DangerSettingsEditSession(values, events);
             var composition = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 settingsEditSession: settingsSession,
                 uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
                 applicationLifetime: lifetime,
@@ -2407,6 +2410,7 @@ public sealed class SettingsWindowPresentationTests
             var lifetime = new DangerApplicationLifetime(events, firstStartup: true);
             var settingsSession = new DangerSettingsEditSession(settings, events);
             var composition = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 settingsEditSession: settingsSession,
                 uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
                 applicationLifetime: lifetime,
@@ -2923,6 +2927,7 @@ public sealed class SettingsWindowPresentationTests
                 startupLifetime = new DangerApplicationLifetime(startupEvents, firstStartup: true);
                 var startupSettingsSession = new DangerSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings(), startupEvents);
                 var composition = new ApplicationComposition(
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                     settingsEditSession: startupSettingsSession,
                     uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
                     applicationLifetime: startupLifetime,
@@ -3921,6 +3926,7 @@ public sealed class SettingsWindowPresentationTests
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
         owner.SettingDialog.Dispose();
         var composition = new ApplicationComposition(
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
@@ -4034,6 +4040,7 @@ public sealed class SettingsWindowPresentationTests
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
         var settingsSession = new NoOpSettingsEditSession(values);
         var composition = new ApplicationComposition(
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             settingsEditSession: settingsSession,
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
@@ -4457,7 +4464,7 @@ public sealed class SettingsWindowPresentationTests
             var composition = new ApplicationComposition(settingsEditSession: new DangerSettingsEditSession(values, events),
                 reportSettingsApplyFailure: failures.Add, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
                 applicationLifetime: lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe"))),
                 chartFileScanner: scanner, rootFileEnumerator: new FastRootFileEnumerator());
             MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
             owner.StartupUpdateWorkflow.NotifyClosing();
@@ -4604,6 +4611,7 @@ public sealed class SettingsWindowPresentationTests
             Settings startupSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
             var startupSettingsSession = new DangerSettingsEditSession(startupSettings, startupEvents);
             var composition = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 settingsEditSession: startupSettingsSession,
                 uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
                 applicationLifetime: startupLifetime,
@@ -4749,6 +4757,7 @@ public sealed class SettingsWindowPresentationTests
             var startupLifetime = new DangerApplicationLifetime(startupEvents, firstStartup: true);
             var startupSettingsSession = new DangerSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings(), startupEvents);
             var composition = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 settingsEditSession: startupSettingsSession,
                 uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
                 applicationLifetime: startupLifetime,
@@ -5373,6 +5382,7 @@ public sealed class SettingsWindowPresentationTests
                 values.OperationModeLR2DB = true;
             }));
         var composition = new ApplicationComposition(
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             settingsEditSession: settingsSession,
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),

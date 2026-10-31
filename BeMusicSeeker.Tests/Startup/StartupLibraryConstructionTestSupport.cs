@@ -29,6 +29,7 @@ internal static class StartupLibraryConstructionTestSupport
                 values.OperationModeLR2DB = false;
             });
         return new ApplicationComposition(
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             bmsLibraryOptionsProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
             settingsEditSession: new NoOpSettingsEditSession(settings),
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
