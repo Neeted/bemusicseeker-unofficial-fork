@@ -309,6 +309,34 @@ BMIIDX/LR2でAの捕捉済み終了通知がB開始後に届くと、Bのprocess
 
 将来採用時は実操作・終了準備の既存状態へ開始可否を接続する。現在の `IsOperationActive` も同じ `IsActive` を含むため、参照を置き換えるだけでは解消しない。通常初期化中・ファイル変更中・失敗後処理中は抑止し、後処理完了後に開始可能なことを確認する。失敗表示を強制的に隠す回避や新しい永続状態は追加しない。Updaterのファイル整理修正とは別の未採用課題である。
 
+## 更新ZIP取得中の通常終了の応答性
+
+更新ZIPを正常に取得している間にアプリを閉じると、要求の世代は失効するがHTTP取得は続き、通常終了はその実完了を待つ。HTTPの期限は300秒である。[終了契約](../spec/runtime/shutdown.md)は取消完了または実完了待ちを許容しており、今回は現在の完了待ちを維持する。
+
+再検討する場合は、正常な低速取得中に終了を早める必要性を確認する。採用時は、今回の取得が所有する取消をHTTPとコピーへ渡し、ストリーム・一時ファイルを含む実Taskの終端まで待つ。更新プログラムが適用を始めた後の強制停止へ広げない。
+
+根拠は [StartupUpdateWorkflowOwner](../../BeMusicSeeker/ViewModels/Startup/StartupUpdateWorkflowOwner.cs) の `NotifyClosing` と `ExecuteAsync`、[UpdateDownloadService](../../BeMusicSeeker/Models/Update/UpdateDownloadService.cs) の `DownloadAndVerifyAsync`、[ShellShutdownWorkflowOwner](../../BeMusicSeeker/ViewModels/MainWindow/ShellShutdownWorkflowOwner.cs) の `CompleteWindowCloseAsync`。採用時には、長い正常本文の取得中に閉じたときの取消・解放・通常終了と、通常取得成功を対にして確認する。
+
+## アプリ全体のキーボード操作の要求整理
+
+画面は、対象範囲を選ぶツリー、検索と候補、情報・操作・編集項目が混在する一覧、再生パネル、メニュー・ダイアログから構成される。表計算ソフトのようなセル間の連続編集を前提にしない。今回はMEMO等をTabで確定できる現在の操作を維持し、Shift+Tabだけを逆方向へ変える修正は行わない。
+
+編集中のTabは入力確定後にWPFのフォーカス移動を要求し、次の現在セル・選択行を選ぶ処理ではない。検索欄の候補ポップアップ表示中はEnter/Tabが候補適用、Shift+Tabが保存検索の操作ボタンへの入口になる。メイン一覧のEnterは再生、表の概要一覧のEnterはツリー項目への移動につながるため、個々のキーの向きだけではアプリ全体の操作を決められない。
+
+将来改善する場合は、キーボードで支援する利用手順の必要性を先に決める。候補は「対象範囲を選ぶ→検索する→結果を選ぶ→行操作をする→閲覧を続ける」「一行のMEMOを入力・確定して閲覧へ戻る」「メニューやダイアログを閉じて同じ作業を続ける」などとし、全操作のキーボード対応を既定の目標にはしない。
+
+採用する利用手順について、次を要求として確定してからキー操作を設計する。
+
+- キーボードだけで完結させる範囲と、マウスを併用する範囲。
+- ツリー・検索・一覧・再生・ダイアログ間の入口、終了時の出口、取消時の復帰先。
+- 選択行・選択集合、現在セル、編集用入力欄、キーボードフォーカスの役割と、操作が参照する対象。
+- 通常表示、編集中、候補表示中、IME変換中、保存中における確定・取消の役割。
+- 入力先と操作対象を利用者が認識する方法。
+
+その後に既存のキー操作を利用手順へ対応付け、維持・統合・追加・削除の必要性を判断する。局所的なショートカット追加を先行させず、既存操作も一律には削除しない。受入条件は採用した利用手順の入口から目的達成・復帰までを対象とし、キー分岐や単独のフォーカス移動だけで完了としない。
+
+根拠は [CustomTableView](../../BeMusicSeeker/Views/CustomTable/CustomTableView.cs) の `HandleKeyDown`、[KeywordSearchEditor](../../BeMusicSeeker/Views/Search/KeywordSearchEditor.xaml.cs) の `HandleInputKey`、[MainWindow](../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) の行操作接続と再生後のフォーカス復帰、および[一覧](../spec/ui/table-view.md)、[検索](../spec/ui/keyword-search.md)、[再生パネル](../spec/ui/playback-panel.md)。
+
 ## 採用・完了時
 
 採用する場合は未確定の利用者挙動を質問し、実装計画へ必要な入口・契約・検証条件を移す。完了した項目は契約・採用理由・検証対応を仕様へ移して計画から除き、完了記録だけを残さない。[計画の運用](README.md#運用)に従う。
