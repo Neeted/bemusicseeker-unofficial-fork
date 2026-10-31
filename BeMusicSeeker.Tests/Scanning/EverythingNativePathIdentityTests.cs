@@ -21,7 +21,7 @@ public sealed class EverythingNativePathIdentityTests
     /// 実SDK getterから公開pack、managed decode、六面・三逆引き、健康度と通常推定へ渡し、親名と所有先の接続ずれを検出する。
     /// 条件表はnative側へ集約し、通常親子と絶対drive rootの接続代表だけを通す。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [TestCategory("ProcessIntegration")]

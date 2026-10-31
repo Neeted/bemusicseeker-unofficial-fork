@@ -30,7 +30,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class SettingsDialogBehaviorTests
 {
     /// <summary>未設定・不正な確定LR2パスでもモードだけを保存し、有効な詳細候補を便乗させません。実保存失敗後も次の明示入力を受け付け、別wrapperの確定値と未知キーを保ちます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [DoNotParallelize]
@@ -159,7 +159,7 @@ public sealed class SettingsDialogBehaviorTests
                 catch when (primaryFailure != null) { }
                 catch (IOException failure) when (ReferenceEquals(expected, failure)) { }
             }
-            IOException actual = await Assert.ThrowsExceptionAsync<IOException>(() => operation);
+            IOException actual = await Assert.ThrowsExactlyAsync<IOException>(() => operation);
             Assert.AreSame(expected, actual);
             await terminal;
             Assert.IsTrue(dialog.IsSettingsOperationAvailable);
@@ -171,7 +171,7 @@ public sealed class SettingsDialogBehaviorTests
     }
 
     /// <summary>root確定は保存済みBMTとscore使用方針で両取得先を反映し、別BMT・score候補を採用せず破棄します。OFFのroot変更はscoreを再読込みせず、ONのroot/player変更は各一回です。物理出力・所有権は実媒体系列が分担します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true, false, true, false, false)]
     [DataRow(false, true, true, true, false)]
     [DataRow(false, false, true, false, true)]
@@ -339,7 +339,7 @@ public sealed class SettingsDialogBehaviorTests
     }
 
     /// <summary>BMT/scoreの過去失敗後も通常LR2確定へ進み、確認中に要求した別の設定実操作だけを拒否します。独立score保存と無関係な同期保存も維持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("mode", true, false)]
     [DataRow("root", true, true)]
     [DataRow("details", false, false)]
@@ -439,7 +439,7 @@ public sealed class SettingsDialogBehaviorTests
     }
 
     /// <summary>root採用後のURL/整理失敗でも同じ受理Taskでscoreと必要表示を回収します。score/必須UIの二次失敗がBMT元原因を消す誤りと、親受付の早期解放を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("URL", "success")]
     [DataRow("cleanup", "success")]
     [DataRow("URL", "score-failure")]
@@ -959,7 +959,7 @@ public sealed class SettingsDialogBehaviorTests
     }
 
     /// <summary>保存前の準備中に通常閉鎖・再表示した各欄は、捕捉入力の保存採用時に自分の候補だけを確定値へ揃えます。後段失敗でも旧候補へ戻さず、無関係な未成立画像候補を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("score", false)]
     [DataRow("score", true)]
     [DataRow("bmt", false)]
@@ -1118,7 +1118,7 @@ public sealed class SettingsDialogBehaviorTests
     }
 
     /// <summary>Web/Programとも未確定Cを含む表示順から確定IDだけを保存し、Cの確定位置とBの明示移動を保ちます。実保存失敗では画面順・媒体を保持し、他行の入力は保存せず削除も明示対象だけへ適用します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true, false)]
     [DataRow(false, false)]
     [DataRow(true, true)]
@@ -1416,7 +1416,7 @@ public sealed class SettingsDialogBehaviorTests
     }
 
     /// <summary>設定受理の予約拒否は三sectionとも保存・XML登録・後続準備より前で止まり、候補setterだけでは予約検査を行わない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("normal")]
     [DataRow("additional")]
     [DataRow("root")]

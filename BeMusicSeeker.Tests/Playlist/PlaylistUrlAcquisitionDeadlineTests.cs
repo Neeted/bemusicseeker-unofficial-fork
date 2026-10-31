@@ -17,7 +17,7 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class PlaylistUrlAcquisitionOwnershipTests
 {
     /// <summary>URLの未受理cleanupが失敗しても、独立した実再走査の終端前にClose・撤去へ進まず、元要求の故障と終了診断を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [DoNotParallelize]
@@ -79,7 +79,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             terminal = CompleteCloseAsync(close);
             Assert.IsFalse(close.IsCompleted);
             releaseCleanup.TrySetResult();
-            AggregateException failure = await Assert.ThrowsExceptionAsync<AggregateException>(() => request);
+            AggregateException failure = await Assert.ThrowsExactlyAsync<AggregateException>(() => request);
             CollectionAssert.Contains(failure.Flatten().InnerExceptions, cleanupFailure);
             await TestUiDispatcherHost.AwaitNotificationAsync(diagnostic.Task, terminal, "URL shutdown failure diagnostic");
             StringAssert.Contains(await diagnostic.Task, cleanupFailure.Message);
@@ -230,7 +230,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     }
 
     /// <summary>受信ごとに無受信30秒を更新し、期限取消しの観測後も実read終端まで応答・一時入力を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task BodyDeadline_ResetsOnDataAndJoinsCancelledRead(bool sharedHtml)

@@ -777,7 +777,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     /// <summary>実管理ZIPを含む保留確定から直接推定へ進み、取消・例外後も既適用結果と未適用管理入力を保持する。開始済み兄弟のjoin中は受付を保持し、受理済み必須更新の完了も確認します。</summary>
     /// <remarks>実ライブラリのDB確定・譜面情報公開と共通受付を接続する。開始した背景Taskとownerのidle終端を回収し、通知の到達だけで受付解放としない。</remarks>
     // falseは利用者取消、trueは二件目の実評価例外。どちらも既適用Aを残し、成功終端Cを新たに適用しない。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ProductionImport_StopsDispatchAndApplyThenJoinsSuccessfulSiblingBeforeAdmissionRelease(bool fault)

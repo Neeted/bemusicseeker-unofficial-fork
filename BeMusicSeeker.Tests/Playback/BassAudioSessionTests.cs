@@ -18,7 +18,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BassAudioSessionTests
 {
     /// <summary>照会と明示テストを反復し、部分初期化／cleanupの独立失敗を要求とともに保持して隔離し、明示回収後だけ再受付できる。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void DeviceTestRuntime_PartialFailureAndCleanupFailurePreserveRequestAndAllowExplicitRecovery(bool cleanupInInitialization)
@@ -262,7 +262,7 @@ public sealed class BassAudioSessionTests
         var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
         Assert.IsTrue(session.TryRecordCallbackOutputFailure(AudioOutputProcessFailure.NonFiniteOutput));
 
-        AudioCallbackOutputFailureException exception = Assert.ThrowsException<AudioCallbackOutputFailureException>(
+        AudioCallbackOutputFailureException exception = Assert.ThrowsExactly<AudioCallbackOutputFailureException>(
             session.ThrowPendingOutputFailure);
 
         Assert.AreEqual(AudioOutputProcessFailure.NonFiniteOutput, exception.Failure.ProcessStage);
@@ -672,7 +672,7 @@ public sealed class BassAudioSessionTests
             OutputHandle = 51
         };
         session.TrackAdditionalStreamHandle(51);
-        Assert.ThrowsException<InvalidOperationException>(
+        Assert.ThrowsExactly<InvalidOperationException>(
             () => session.TrackPlayerStream(51, new object(), _ => playerReleaseNotifications++));
         var native = new RecordingNativeBoundary();
 
@@ -734,7 +734,7 @@ public sealed class BassAudioSessionTests
         var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.ASIO);
         session.TrackOutputHandle(101);
 
-        Assert.ThrowsException<InvalidOperationException>(() =>
+        Assert.ThrowsExactly<InvalidOperationException>(() =>
             session.TryPrepareCallbackOutputReplacement(
                 101,
                 202,
@@ -782,7 +782,7 @@ public sealed class BassAudioSessionTests
             Marshal.Copy(IntPtr.Add(buffer, 4), samples, 0, 4);
             CollectionAssert.AreEqual(new float[4], samples);
             Assert.IsTrue(session.HasCallbackOutputFailure);
-            Assert.ThrowsException<AudioCallbackOutputFailureException>(session.ThrowPendingOutputFailure);
+            Assert.ThrowsExactly<AudioCallbackOutputFailureException>(session.ThrowPendingOutputFailure);
         }
         finally
         {
@@ -826,7 +826,7 @@ public sealed class BassAudioSessionTests
     }
 
     /// <summary>初回callbackの負長・非整列長は元故障で待機を起こし、最大frameを成功として増やさず再待機にも故障を返す。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(-1, (int)AudioPcmRenderStage.InvalidReadLength)]
     [DataRow(1, (int)AudioPcmRenderStage.UnalignedFrame)]
     public async Task FirstCallbackReady_InvalidLengthWakesManagementWithOriginalFailure(int length, int expectedStage)
@@ -843,10 +843,10 @@ public sealed class BassAudioSessionTests
         try
         {
             _ = BassAudioPlayer.ReadPublishedCallbackOutput(session, buffer, length);
-            AudioCallbackOutputFailureException failure = await Assert.ThrowsExceptionAsync<AudioCallbackOutputFailureException>(() => ready);
+            AudioCallbackOutputFailureException failure = await Assert.ThrowsExactlyAsync<AudioCallbackOutputFailureException>(() => ready);
             Assert.AreEqual((AudioPcmRenderStage)expectedStage, failure.Failure.RenderStage);
             Assert.AreEqual(0, session.MaximumCallbackFrames);
-            await Assert.ThrowsExceptionAsync<AudioCallbackOutputFailureException>(session.WaitForOutputReadyAsync);
+            await Assert.ThrowsExactlyAsync<AudioCallbackOutputFailureException>(session.WaitForOutputReadyAsync);
         }
         finally { Marshal.FreeHGlobal(buffer); }
     }
@@ -1130,7 +1130,7 @@ public sealed class BassAudioSessionTests
             var lease = new BassAudioSessionLease();
             lease.Attach(owned);
 
-            Assert.ThrowsException<InvalidOperationException>(() => lease.Attach(replacement));
+            Assert.ThrowsExactly<InvalidOperationException>(() => lease.Attach(replacement));
             Assert.AreSame(owned, lease.Session, state.ToString());
         }
     }
@@ -1144,7 +1144,7 @@ public sealed class BassAudioSessionTests
         var failure = new InvalidOperationException("release failed");
         lease.Attach(session);
 
-        InvalidOperationException observed = Assert.ThrowsException<InvalidOperationException>(
+        InvalidOperationException observed = Assert.ThrowsExactly<InvalidOperationException>(
             () => lease.TryRelease(_ => throw failure));
 
         Assert.AreSame(failure, observed);
@@ -1434,7 +1434,7 @@ public sealed class BassAudioSessionTests
         failedCleanup.Dispose();
 
         Assert.IsTrue(gate.AdmissionClosed);
-        Assert.ThrowsException<InvalidOperationException>(() =>
+        Assert.ThrowsExactly<InvalidOperationException>(() =>
         {
             gate.EnterRuntimeInitialization();
         });
@@ -1617,7 +1617,7 @@ public sealed class BassAudioSessionTests
             native.FreeStreamResult = true;
             Assert.IsTrue(BassAudioSessionCleanup.Release(session, native));
             Assert.IsTrue(session.IsReleased);
-            Assert.ThrowsException<ObjectDisposedException>(() => input.OpenReadView());
+            Assert.ThrowsExactly<ObjectDisposedException>(() => input.OpenReadView());
         }
         finally
         {

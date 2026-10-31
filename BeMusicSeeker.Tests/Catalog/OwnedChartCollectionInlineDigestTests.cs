@@ -116,7 +116,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
     /// 背景16譜面の中で二件を順に実補完したとき、hash・導入済み・playlist索引を局所更新し、通知時に新hashを解決できる。
     /// </summary>
     /// <remarks>実ライブラリの保存・索引・通知を接続し、局所のdigest差分だけでは分からない公開順と失敗時の非公開を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     public void BuildInlineChartInfo_WarmDigestDeltaStaysLocalAcrossTwoOperations(int backgroundCount)
     {
@@ -435,7 +435,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
                 setup.Execute("CREATE TRIGGER fail_inline_chart_info BEFORE INSERT ON chart_info BEGIN SELECT RAISE(ABORT, 'forced inline chart-info failure'); END;");
             }
 
-            Assert.ThrowsException<SQLite.SQLiteException>(() =>
+            Assert.ThrowsExactly<SQLite.SQLiteException>(() =>
                 InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
                     library,
                     "test_inline_storage_failure",

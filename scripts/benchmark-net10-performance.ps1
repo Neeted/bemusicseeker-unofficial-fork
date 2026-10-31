@@ -47,12 +47,13 @@ $commandReceipt | ConvertTo-Json -Depth 4 |
 $previousScales = $env:BMS_NET10_PERF_SCALES
 try {
     $env:BMS_NET10_PERF_SCALES = $normalizedScale -join ','
-    & dotnet test (Join-Path $repositoryRoot 'BeMusicSeeker.Tests\BeMusicSeeker.Tests.csproj') `
+    & dotnet run --project (Join-Path $repositoryRoot 'BeMusicSeeker.Tests\BeMusicSeeker.Tests.csproj') `
         --no-restore `
         --configuration $Configuration `
-        /p:Platform=x64 `
+        -p:Platform=x64 -- `
         --filter $filter `
-        --logger "trx;LogFileName=net10-performance-$Corpus.trx" `
+        --report-trx --report-trx-filename "net10-performance-$Corpus.trx" `
+        --minimum-expected-tests 1 `
         --results-directory $outputRoot
     if ($LASTEXITCODE -ne 0) {
         throw "The .NET 10 performance corpus command failed with exit code $LASTEXITCODE."

@@ -150,7 +150,7 @@ public sealed class PlayHistoryRuntimeEventReporterTests
                      failure: null)));
         var malformedEvents = new List<PlayHistoryRuntimeEvent>();
         var malformedReporter = new PlayHistoryRuntimeEventReporter(malformedEvents.Add);
-        InvalidOperationException missingProjection = Assert.ThrowsException<InvalidOperationException>(() =>
+        InvalidOperationException missingProjection = Assert.ThrowsExactly<InvalidOperationException>(() =>
             malformedReporter.ReportReadWorkflowProgress(
                 period,
                 requestId: 9,
@@ -158,7 +158,7 @@ public sealed class PlayHistoryRuntimeEventReporterTests
         StringAssert.Contains(missingProjection.Message, "progress.Projection");
         Assert.AreEqual(0, malformedEvents.Count);
 
-        InvalidOperationException missingRead = Assert.ThrowsException<InvalidOperationException>(() =>
+        InvalidOperationException missingRead = Assert.ThrowsExactly<InvalidOperationException>(() =>
             malformedReporter.ReportReadWorkflowProgress(
                 period,
                 requestId: 9,
@@ -166,7 +166,7 @@ public sealed class PlayHistoryRuntimeEventReporterTests
         StringAssert.Contains(missingRead.Message, "progress.Read");
         Assert.AreEqual(0, malformedEvents.Count);
 
-        InvalidOperationException missingPeriodIndex = Assert.ThrowsException<InvalidOperationException>(() =>
+        InvalidOperationException missingPeriodIndex = Assert.ThrowsExactly<InvalidOperationException>(() =>
             malformedReporter.ReportReadWorkflowProgress(
                 period,
                 requestId: 9,
@@ -409,7 +409,7 @@ public sealed class PlayHistoryRuntimeEventReporterTests
             keywordMs: 0,
             keywordCount: 0,
             sortMs: 0);
-        InvalidOperationException applyException = Assert.ThrowsException<InvalidOperationException>(() =>
+        InvalidOperationException applyException = Assert.ThrowsExactly<InvalidOperationException>(() =>
             reporter.ReportViewExecution(missingApplyResult, PlayHistoryDisplayTargetItem.All, currentRequestId: 12));
         StringAssert.Contains(applyException.Message, "execution.ApplyResult");
         Assert.AreEqual(0, events.Count);
@@ -436,7 +436,7 @@ public sealed class PlayHistoryRuntimeEventReporterTests
             keywordMs: 0,
             keywordCount: 0,
             sortMs: 0);
-        InvalidOperationException terminalException = Assert.ThrowsException<InvalidOperationException>(() =>
+        InvalidOperationException terminalException = Assert.ThrowsExactly<InvalidOperationException>(() =>
             reporter.ReportViewExecution(missingTerminalExecution, PlayHistoryDisplayTargetItem.All, currentRequestId: 12));
         StringAssert.Contains(terminalException.Message, "execution.ApplyResult.TerminalCommit");
         Assert.AreEqual(0, events.Count);
@@ -470,7 +470,7 @@ public sealed class PlayHistoryRuntimeEventReporterTests
             keywordMs: 0,
             keywordCount: 0,
             sortMs: 0);
-        InvalidOperationException stateException = Assert.ThrowsException<InvalidOperationException>(() =>
+        InvalidOperationException stateException = Assert.ThrowsExactly<InvalidOperationException>(() =>
             reporter.ReportViewExecution(missingStateExecution, PlayHistoryDisplayTargetItem.All, currentRequestId: 12));
         StringAssert.Contains(stateException.Message, "execution.State");
         Assert.AreEqual(0, events.Count);
@@ -489,14 +489,14 @@ public sealed class PlayHistoryRuntimeEventReporterTests
         reporter.ReportViewExecution(execution: null, currentDisplayTarget: null, currentRequestId: 0);
 
         Assert.AreEqual(0, events.Count);
-        InvalidOperationException missingRequest = Assert.ThrowsException<InvalidOperationException>(() =>
+        InvalidOperationException missingRequest = Assert.ThrowsExactly<InvalidOperationException>(() =>
             reporter.ReportViewExecution(
                 PlayHistoryViewExecutionResult.Stale(request: null),
                 currentDisplayTarget: null,
                 currentRequestId: 0));
         StringAssert.Contains(missingRequest.Message, "execution.Request");
         Assert.AreEqual(0, events.Count);
-        Assert.ThrowsException<ArgumentNullException>(() => new PlayHistoryRuntimeEventReporter(null));
+        Assert.ThrowsExactly<ArgumentNullException>(() => new PlayHistoryRuntimeEventReporter(null));
         Assert.AreEqual("event fields", new PlayHistoryRuntimeEvent("event", "fields").Message);
         Assert.AreEqual("event", new PlayHistoryRuntimeEvent("event", string.Empty).Message);
     }

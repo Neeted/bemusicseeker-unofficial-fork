@@ -17,7 +17,7 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class PendingPackageWorkflowOwnerTests
 {
     /// <summary>実発見した禁止一式を親行・子行の選択から解決し、実owner/storeの手動・強制導入で拒否します。正常な別packageの導入と元bytes・install行・所持・受付終端を確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false, false)]
     [DataRow(false, true, false)]
     [DataRow(true, false, false)]
@@ -84,7 +84,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
     }
 
     /// <summary>実手動・強制の全拒否を非例外の失敗結果へ接続し、成功0件のreceiptを物理失敗で偽装しません。受付解放後の重要警告一回と元入力・DB保持を確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task InstallPendingAsync_AllResourceBearingNestedChartsReportNonExceptionalRefusalAfterRelease(bool manual)
@@ -127,7 +127,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
     }
 
     /// <summary>非例外拒否の結果合成は、先行成功receiptと既存の物理・反映・終端Failureをそのまま保ちます。実ownerの失敗併存は上の入力消失代表へ分担します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("none")]
     [DataRow("physical")]
     [DataRow("apply")]
@@ -150,7 +150,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
     }
 
     /// <summary>全既所持の資源上書きと、推定先・全既所持の清掃だけの実経路を同じ元条件で拒否します。清掃0件は発見後に所有mediaを退避して自然に作り、正常別packageの成功は維持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("overwrite")]
     [DataRow("overwrite-cleanup")]
     [DataRow("manual-cleanup")]
@@ -203,7 +203,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
     }
     /// <summary>重要警告の実判定値を持つpackageでも、保留行の操作能力と実削除・0note無効改名を維持します。導入禁止を一律の能力剥奪へ広げる誤りを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ResourceBearingNestedCharts_AllowExplicitSourceDeletionAndInvalidExtensionRename(bool rename)

@@ -29,7 +29,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class PlaylistWorkspaceActionWorkflowTests
 {
     /// <summary>実buildのraw公開が編集より先/後でも、公開時の正本属性でfilter加入し、別row採用・cache可否に依存せず現在結果を保ちます。後発buildを編集の終端条件へ足しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -114,7 +114,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     }
 
     /// <summary>少数編集は全体再構築/整列を開始せず、別主キー同値時のName移動、派生値、filter離脱と件数を現在条件で更新します。無関係な16/128表で対象投影/filterと二分比較の仕事量を観測します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16, nameof(PlaylistSummaryRow.TotalCharts))]
     [DataRow(128, nameof(PlaylistSummaryRow.TotalCharts))]
     [DataRow(16, nameof(PlaylistSummaryRow.Name))]
@@ -205,7 +205,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     }
 
     /// <summary>treeの実entry配送を保存scope後まで遅らせても、自分のprefix差分はsummary予約/世代/cacheを失効させません。独立sort/buildを保持し、一般folder変更と件数変更の必要更新は残します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task SummaryPrefixCell_DelayedEntryDeliveryPreservesIndependentRequest(bool independentBuild)
@@ -491,7 +491,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     }
 
     /// <summary>summaryの正規化済み正本値を現在行へ局所通知し、必要表示の実終端までPを保ちます。出力・表示失敗でも保存値と次の明示受付を保持し、全summary再構築へ委ねません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -721,11 +721,11 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 ? throw new InvalidOperationException("preparation failed") : new CustomFolderOutputSettingsSnapshot());
         using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _,
             playlistStoreProvider: () => fixture.Playlist, propertySaveService: service);
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => workspace.OpenPropertyDialogAsync(fixture.Table));
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => workspace.OpenPropertyDialogAsync(fixture.Table));
         Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => workspace.CreatePlaylistPropertyDialogAsync());
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => workspace.CreatePlaylistPropertyDialogAsync());
         Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
-        Assert.ThrowsException<InvalidOperationException>(() => workspace.OpenSummaryBulkEditDialog(ThrowingRows()));
+        Assert.ThrowsExactly<InvalidOperationException>(() => workspace.OpenSummaryBulkEditDialog(ThrowingRows()));
         Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
         Assert.IsNull(workspace.OpenSummaryBulkEditDialog([]));
         Assert.IsNull(await workspace.OpenPropertyDialogAsync(new BMSTable { playlist_id = 99999 }));
@@ -755,7 +755,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     }
 
     /// <summary>改名・別folderの更新・特殊子と内容あり/空folder削除を実保存し、選択requestと詳細hashを照合します。Bから前後空白Aへの改名はAを保持し、独立DB読取りと新storeの読込み後も全所属と各詳細表示を維持します。WPFの構造置換は実MainWindow代表へ分担します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("rename")]
     [DataRow("other")]
     [DataRow("special")]
@@ -848,7 +848,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     }
 
     /// <summary>prefix確定後・旧対応通知前に同じキーを明示選択し、新Q1が旧Q1の対応先QQ1へ再変換されないことを、実保存と詳細hashで確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task PlaylistPropertySave_NewExplicitSelectionDoesNotApplyOldPrefixMap(bool useLamp)
@@ -887,7 +887,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     }
 
     /// <summary>実property prefix保存を全体/選択folder詳細へ配送し、非表示入力・次sort/filter・memo編集の実終端を確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task PlaylistPropertySave_PrefixReceiptUpdatesExistingDetailAndLaterRequests(bool selectedFolder)
@@ -1290,7 +1290,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             out _,
             browserOpenSink: _ => throw new InvalidOperationException("launch failed"));
         await failingWorkspace.OpenPlaylistSummaryUriAsync(summaryUri);
-        Assert.ThrowsException<InvalidOperationException>(
+        Assert.ThrowsExactly<InvalidOperationException>(
             () => failingWorkspace.OpenPlaylistTablePage(table));
     }
 
@@ -2205,7 +2205,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
 
     /// <summary>新規/既存・LR2/単独・手動外部同期表の空名を実sessionで拒否し、DB・正本・別項目・出力を保ちます。同sessionの既存VM経路で訂正後の通常名を保存します。</summary>
     /// <remarks>LR2は明示出力名を与えて配置検査による偶然の拒否を避けます。BindingとOK接続は変更せず既存WPF系列へ分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false, false)]
     [DataRow(false, true, false)]
     [DataRow(true, false, false)]
@@ -2383,7 +2383,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     }
 
     /// <summary>実効同期元の変更とOFF→ONだけが再取得を行い、Pageなし・解除・Header変更を同じ保存境界で扱います。不要取得は元本文を変えて項目と開始通知で検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("page-add", true)]
     [DataRow("header-change", true)]
     [DataRow("page-remove", true)]
@@ -2438,7 +2438,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     }
 
     /// <summary>共通保存は新規と変更したrawだけを副作用前に拒否し、旧rawの無変更継承と明示既定名のNULL保存を維持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("draft")]
     [DataRow("changed")]
     [DataRow("legacy")]
@@ -2487,7 +2487,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     }
 
     /// <summary>サマリーではlegacyの同文字列や正規化後同値のパス入力を先に拒否し、専用理由を通知して正本再表示を要求します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(@"Legacy\Name")]
     [DataRow("./LegacyName")]
     public async Task SummaryOutputName_RejectsRawBeforeEquivalentValueCheck(string input)
@@ -2617,7 +2617,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     }
 
     /// <summary>他者属性更新、同ID正本置換、属性不変の本番項目追加を保存前に検出し、古い画面値で上書きしません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // propertiesは属性競合、referenceは同ID参照置換、entriesは属性不変の行変更です。
     [DataRow("properties")]
     [DataRow("reference")]
@@ -2674,7 +2674,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 Assert.AreNotEqual(session.OriginalValues.EntriesRevision, table.PlaylistEntriesRevision);
             }
 
-            InvalidOperationException conflict = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            InvalidOperationException conflict = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 async () => { await service.TrySaveAsync(session, session.Values); });
 
             StringAssert.Contains(conflict.Message, "changed after editing began");
@@ -2692,7 +2692,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     }
 
     /// <summary>property保存をDB前の実拒否とDB後の通知故障で分け、前者は全旧状態、後者は同entry/header/版/詳細を確定値で保ちます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task PlaylistPropertySave_FailuresRespectDatabaseCommitBoundary(bool afterCommit)
@@ -2857,7 +2857,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 dialogs.LastMessageRequest.MessageBoxText);
 
             dialogs.MessageResult = UiDialogResult.NotShown(UiDialogStatus.DispatcherUnavailable);
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
                 workspace.CompleteSummaryPropertyEditAsync(
                     row,
                     "Unsupported",
@@ -2985,7 +2985,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             int? registeredId = null;
             if (failure is "output" or "xml")
             {
-                await Assert.ThrowsExceptionAsync<IOException>(async () => await dialog.SaveAndApplyAsync());
+                await Assert.ThrowsExactlyAsync<IOException>(async () => await dialog.SaveAndApplyAsync());
                 BMSTable registered = playlist.BMSTables.Single(table => table.playlist_id != sibling.playlist_id);
                 registeredId = registered.playlist_id;
                 Assert.IsTrue(registeredId.HasValue);
@@ -3071,7 +3071,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             {
                 db.Execute("CREATE TRIGGER fail_draft_insert BEFORE INSERT ON playlist BEGIN SELECT RAISE(FAIL, 'forced draft save failure'); END;");
             }
-            await Assert.ThrowsExceptionAsync<SQLite.SQLiteException>(async () => await dialog.SaveAndApplyAsync());
+            await Assert.ThrowsExactlyAsync<SQLite.SQLiteException>(async () => await dialog.SaveAndApplyAsync());
             Assert.AreEqual(0, playlist.BMSTables.Count, "値適用だけで登録済みへ進めません。");
             Assert.AreEqual("Registered draft", dialog.name, "DB未確定の失敗でも入力を保持します。");
             using (var db = new LR2SongDBExtended(songPath))
@@ -3079,7 +3079,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 Assert.AreEqual(0, db.Table<BMSTable>().Count());
                 db.Execute("DROP TRIGGER fail_draft_insert;");
             }
-            await Assert.ThrowsExceptionAsync<PlaylistMutationPostCommitException>(async () => await dialog.SaveAndApplyAsync());
+            await Assert.ThrowsExactlyAsync<PlaylistMutationPostCommitException>(async () => await dialog.SaveAndApplyAsync());
             BMSTable registered = playlist.BMSTables.Single();
             Assert.IsTrue(registered.playlist_id.HasValue);
             using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
@@ -3353,7 +3353,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             playlistWorkspaceDialogService: dialogs);
         var table = new BMSTable { is_external_sync = false };
 
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => workspace.ApplyPlaylistSummaryCellActionAsync(
                 [new PlaylistSummaryRow { TableRef = table }],
                 "IsExternalSync",
@@ -3497,7 +3497,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.AreEqual(0, libraryProviderCalls);
 
         dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             workspace.PlaylistTableLevelOverwriteWorkflow.OverwriteAsync(normalTable));
         Assert.AreEqual(1, libraryProviderCalls);
     }
@@ -3549,7 +3549,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             playlistWorkspaceDialogService: dialogs);
         PlaylistSummaryColumnSettings originalSettings = workspace.PlaylistSummaryColumnsSettings;
 
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => workspace.ResetPlaylistSummaryColumnsToDefaultAsync());
 
         Assert.AreSame(originalSettings, workspace.PlaylistSummaryColumnsSettings);
@@ -3676,7 +3676,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     [TestMethod]
     public void PlaylistWorkspaceEntrySnapshotPreservesReferencesAfterTableMutation()
     {
-        Assert.ThrowsException<ArgumentNullException>(
+        Assert.ThrowsExactly<ArgumentNullException>(
             () => PlaylistWorkspaceViewModel.SnapshotPlaylistEntriesExceptDummy(null));
 
         var entry = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "entry");

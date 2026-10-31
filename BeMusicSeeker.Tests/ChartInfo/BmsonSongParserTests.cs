@@ -11,7 +11,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsonSongParserTests
 {
     /// <summary>旧0.21・versionlessの捕捉bytesから現代形式と同じ基本値・使用音源を生成し、空notesの音源を使用要求に混ぜません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("\"version\":\"0.21\",")]
     [DataRow("")]
     public void ParseSnapshot_LegacySoundChannelsMatchModernUsedResources(string version)
@@ -121,7 +121,7 @@ public sealed class BmsonSongParserTests
     }
 
     /// <summary>原題省略・null・空文字でも副題と譜面名の表示を保ち、原題への合成表示の混入を検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("")]
     [DataRow("\"title\":null,")]
     [DataRow("\"title\":\"\",")]

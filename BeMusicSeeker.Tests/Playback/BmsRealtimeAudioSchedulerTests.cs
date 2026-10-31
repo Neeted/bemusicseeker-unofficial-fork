@@ -340,7 +340,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
 
     /// <summary>物理出力のcallbackサイズが未観測の場合、scheduler構築とplayer開始の双方が失敗し未準備の予約で再生しないことを確認します。</summary>
     /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task PhysicalSessionWithoutCallback_RejectsSchedulerConstructionAndPlaybackStart(bool startPlayer)
@@ -358,12 +358,12 @@ public sealed class BmsRealtimeAudioSchedulerTests
             session.ActualBackend = BassAudioPlayer.DeviceDriver.WASAPI_SHARED;
             if (startPlayer)
             {
-                await Assert.ThrowsExceptionAsync<InvalidOperationException>(player.Start);
+                await Assert.ThrowsExactlyAsync<InvalidOperationException>(player.Start);
                 Assert.IsNull(player.RealtimeScheduler);
             }
             else
             {
-                Assert.ThrowsException<InvalidOperationException>(() => new BmsRealtimeAudioScheduler(
+                Assert.ThrowsExactly<InvalidOperationException>(() => new BmsRealtimeAudioScheduler(
                     player.AudioSchedule, player.AudioResourcesByIndex, session, new BassMixerSourceNativeBoundary(),
                     player.Duration, 0, 1f, 0));
             }
@@ -1389,7 +1389,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
 
     /// <summary>bmsonの重なるrestart runを各seek位置で復元し、それぞれの音源offsetと有効voice数が一致することで片方の音の欠落を検出します。</summary>
     /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(60000L, 2, 60000, 12000)]
     [DataRow(72000L, 2, 72000, 24000)]
     [DataRow(144000L, 1, 0, 96000)]
@@ -1415,7 +1415,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
 
     /// <summary>bmsonの継続音をrunの起点から復元し、出力レートが異なる場合も物理EOFの半開区間でvoiceを終了することを確認します。</summary>
     /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(93L, 1, 101L)]
     [DataRow(919L, 0, 0L)]
     public void BmsonSeekAfterContinuationUsesTheRunOriginAndHalfOpenPhysicalEof(long seekFrame, int activeVoices, long sourceFrame)
@@ -1655,7 +1655,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
                 BassAudioPlayer.ReadPublishedCallbackOutput(session, callbackBuffer, callbackBytes));
             nativePull.PullCompleted.Wait();
 
-            BmsScheduledAudioException failure = Assert.ThrowsException<BmsScheduledAudioException>(() =>
+            BmsScheduledAudioException failure = Assert.ThrowsExactly<BmsScheduledAudioException>(() =>
                 new BmsRealtimeAudioScheduler(
                     player.AudioSchedule,
                     player.AudioResourcesByIndex,
@@ -1679,7 +1679,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             CollectionAssert.AreEqual(new float[callbackPcm.Length], callbackPcm);
             Assert.IsTrue(session.HasCallbackOutputFailure);
             Assert.AreEqual(0, session.AdditionalStreamHandles.Count);
-            Assert.ThrowsException<AudioCallbackOutputFailureException>(session.ThrowPendingOutputFailure);
+            Assert.ThrowsExactly<AudioCallbackOutputFailureException>(session.ThrowPendingOutputFailure);
         }
         finally
         {
@@ -1721,7 +1721,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
 
         try
         {
-            BmsScheduledAudioException failure = Assert.ThrowsException<BmsScheduledAudioException>(() =>
+            BmsScheduledAudioException failure = Assert.ThrowsExactly<BmsScheduledAudioException>(() =>
                 new BmsRealtimeAudioScheduler(
                     player.AudioSchedule,
                     player.AudioResourcesByIndex,
@@ -1748,7 +1748,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
 
     /// <summary>stopとdisposeの双方でvoice回収が失敗した場合、所有者と無音状態を保持して元の失敗を返し、同sessionへの再開始を拒否することを確認します。</summary>
     /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task StopOrDisposeRetainsVoiceOwnerAndKeepsOutputPausedWhenVoiceCleanupFails(bool dispose)
@@ -1779,8 +1779,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
                 "The active playback must own a scheduled voice before stopping or disposing begins.");
 
             stop = Task.Run(dispose ? (Action)player.Dispose : player.Stop);
-            AggregateException stopFailure = await Assert.ThrowsExceptionAsync<AggregateException>(() => stop);
-            AggregateException playbackFailure = await Assert.ThrowsExceptionAsync<AggregateException>(() => playback);
+            AggregateException stopFailure = await Assert.ThrowsExactlyAsync<AggregateException>(() => stop);
+            AggregateException playbackFailure = await Assert.ThrowsExactlyAsync<AggregateException>(() => playback);
             Assert.AreSame(playbackFailure, stopFailure,
                 "Stopping or disposing must return the original playback cleanup failure.");
 
@@ -1835,7 +1835,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
 
             using var nextPlayer = new BMSAutoPlayer(new BMSFile(chartPath));
             nextPlayer.LoadResources();
-            await Assert.ThrowsExceptionAsync<AudioCallbackOutputFailureException>(() => nextPlayer.Start(),
+            await Assert.ThrowsExactlyAsync<AudioCallbackOutputFailureException>(() => nextPlayer.Start(),
                 "A new BMS player must reject the session while old native cleanup is unconfirmed.");
         }
         finally
@@ -1878,7 +1878,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             failNextUnlock: false,
             failSetPositionAt: 2);
 
-        BmsScheduledAudioException failure = Assert.ThrowsException<BmsScheduledAudioException>(() =>
+        BmsScheduledAudioException failure = Assert.ThrowsExactly<BmsScheduledAudioException>(() =>
             new BmsRealtimeAudioScheduler(
                 schedule,
                 resources,
@@ -1927,7 +1927,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             ownedSession!,
             native,
             originMixerFrame: 500);
-        BmsScheduledAudioException failure = Assert.ThrowsException<BmsScheduledAudioException>(() =>
+        BmsScheduledAudioException failure = Assert.ThrowsExactly<BmsScheduledAudioException>(() =>
             mixer.ReserveBeforeFrame(exclusiveSongFrame: 1, currentSongFrame: 1));
 
         Assert.AreEqual("missed look-ahead deadline", failure.Stage);
@@ -1981,7 +1981,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             native,
             originMixerFrame: 500,
             generation: 41);
-        BmsScheduledAudioException failure = Assert.ThrowsException<BmsScheduledAudioException>(() =>
+        BmsScheduledAudioException failure = Assert.ThrowsExactly<BmsScheduledAudioException>(() =>
             mixer.ReserveSegmentBeforeFrame(segmentStartSongFrame: 100, exclusiveSongFrame: 200));
         mixer.Dispose();
 
@@ -2040,7 +2040,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             native,
             originMixerFrame: 500,
             generation: 42);
-        BmsScheduledAudioException failure = Assert.ThrowsException<BmsScheduledAudioException>(() =>
+        BmsScheduledAudioException failure = Assert.ThrowsExactly<BmsScheduledAudioException>(() =>
             mixer.ReserveSegmentBeforeFrame(segmentStartSongFrame: 100, exclusiveSongFrame: 200));
         mixer.Dispose();
 
@@ -2119,7 +2119,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
         {
             try
             {
-                failure = Assert.ThrowsException<BmsScheduledAudioException>(() =>
+                failure = Assert.ThrowsExactly<BmsScheduledAudioException>(() =>
                     mixer.ReserveSegmentBeforeFrame(segmentStartSongFrame: 100, exclusiveSongFrame: 200));
             }
             finally
@@ -2160,7 +2160,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
         BmsAudioResource?[] resources = [null, resource];
         int baselineOwnedHandles = ownedSession!.AdditionalStreamHandles.Count;
 
-        BmsScheduledAudioException failure = Assert.ThrowsException<BmsScheduledAudioException>(() =>
+        BmsScheduledAudioException failure = Assert.ThrowsExactly<BmsScheduledAudioException>(() =>
             new BmsRealtimeAudioScheduler(
                 schedule,
                 resources,
@@ -2205,7 +2205,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
 
         try
         {
-            Assert.ThrowsException<BmsScheduledAudioException>(() =>
+            Assert.ThrowsExactly<BmsScheduledAudioException>(() =>
                 new BmsRealtimeAudioScheduler(
                     player.AudioSchedule,
                     player.AudioResourcesByIndex,

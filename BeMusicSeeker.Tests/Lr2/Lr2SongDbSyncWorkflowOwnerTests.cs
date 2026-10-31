@@ -77,7 +77,7 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
                 observed = owner.SyncExternalFolderRowsAfterCustomFolderOutputBaseSettingsChangeAsync("SettingDialog.SaveSettings", capability);
                 Assert.IsFalse(observed.IsCompleted);
                 completion.SetException(failure);
-                System.IO.IOException thrown = await Assert.ThrowsExceptionAsync<System.IO.IOException>(() => observed);
+                System.IO.IOException thrown = await Assert.ThrowsExactlyAsync<System.IO.IOException>(() => observed);
                 Assert.AreSame(failure, thrown);
                 Assert.IsTrue(observed.IsCompleted);
             }

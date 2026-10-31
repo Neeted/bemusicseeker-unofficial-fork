@@ -136,7 +136,7 @@ public sealed class ResilientFileMutationServiceTests
 
             using FileStream lockedFileStream = LongPathFileSystem.Open(sourceFilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
 
-            Assert.ThrowsException<IOException>(() =>
+            Assert.ThrowsExactly<IOException>(() =>
                 LongPathFileSystem.MoveFile(sourceFilePath, destinationFilePath, overwrite: true));
 
             Assert.IsTrue(LongPathFileSystem.FileExists(sourceFilePath));
@@ -267,7 +267,7 @@ public sealed class ResilientFileMutationServiceTests
         WriteAllText(Path.Combine(sourceDirectoryPath, "source.bms"), "source");
         WriteAllText(Path.Combine(destinationDirectoryPath, "destination.bms"), "destination");
 
-        Assert.ThrowsException<FileMutationException>(() =>
+        Assert.ThrowsExactly<FileMutationException>(() =>
             resilientFileMutationService.MoveDirectory(sourceDirectoryPath, destinationDirectoryPath, overwrite: false, recursiveDirectoryTreeFileMutationOptions));
 
         Assert.IsTrue(LongPathFileSystem.DirectoryExists(sourceDirectoryPath));
@@ -288,7 +288,7 @@ public sealed class ResilientFileMutationServiceTests
             LongPathFileSystem.CreateDirectory(sourceDirectoryPath);
             WriteAllText(Path.Combine(sourceDirectoryPath, "song.bms"), "source");
 
-            Assert.ThrowsException<IOException>(() =>
+            Assert.ThrowsExactly<IOException>(() =>
                 LongPathFileSystem.CopyDirectory(sourceDirectoryPath, nestedDestinationPath, overwrite: false));
 
             Assert.IsFalse(LongPathFileSystem.DirectoryExists(nestedDestinationPath));
@@ -308,7 +308,7 @@ public sealed class ResilientFileMutationServiceTests
             LongPathFileSystem.CreateDirectory(nestedDestinationPath);
             WriteAllText(Path.Combine(sourceDirectoryPath, "song.bms"), "source");
 
-            Assert.ThrowsException<IOException>(() =>
+            Assert.ThrowsExactly<IOException>(() =>
                 LongPathFileSystem.MoveDirectory(sourceDirectoryPath, nestedDestinationPath, overwrite: true));
 
             Assert.IsTrue(LongPathFileSystem.DirectoryExists(sourceDirectoryPath));
@@ -366,7 +366,7 @@ public sealed class ResilientFileMutationServiceTests
             File.WriteAllText(filePath, "locked");
 
             using var lockedFileStream = new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
-            FileMutationException fileMutationException = Assert.ThrowsException<FileMutationException>(() =>
+            FileMutationException fileMutationException = Assert.ThrowsExactly<FileMutationException>(() =>
                 resilientFileMutationService.DeleteFileDirect(filePath, targetOnlyFileMutationOptions));
 
             Assert.AreEqual(FileMutationKind.DeleteFileDirect, fileMutationException.Kind);

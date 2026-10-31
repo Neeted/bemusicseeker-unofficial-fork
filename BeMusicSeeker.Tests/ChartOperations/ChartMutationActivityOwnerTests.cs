@@ -170,7 +170,7 @@ public sealed class ChartMutationActivityOwnerTests
             if (!owner.IsActive) { throw new InvalidOperationException("release publish failed"); }
         };
 
-        InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(() =>
+        InvalidOperationException failure = Assert.ThrowsExactly<InvalidOperationException>(() =>
         {
             using (owner.Enter()) { throw new InvalidOperationException("mutation failed"); }
         });

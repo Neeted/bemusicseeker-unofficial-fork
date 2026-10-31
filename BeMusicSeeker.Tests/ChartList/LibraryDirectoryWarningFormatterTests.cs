@@ -11,7 +11,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class LibraryDirectoryWarningFormatterTests
 {
     /// <summary>設定受理時の予約領域だけは既知の具体理由を表示し、壊れた追加JSONは汎用理由を保つ。どちらも元例外と診断理由を失わない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Format_InvalidConfigurationShowsOnlyKnownReservedDirectoryDetail(bool reserved)
@@ -26,7 +26,7 @@ public sealed class LibraryDirectoryWarningFormatterTests
             LR2CustomFolderAdditionalOutputBaseDirsSerialized = reserved ? "[]" : "{broken-json-private-diagnostic"
         };
         var service = new LibraryDirectoryPreflightService();
-        LibraryDirectoryPreflightException failure = Assert.ThrowsException<LibraryDirectoryPreflightException>(() => LibraryDirectoryPreflightService.ValidateSettingsAcceptance([], service.CreateRequest([], [], options), options));
+        LibraryDirectoryPreflightException failure = Assert.ThrowsExactly<LibraryDirectoryPreflightException>(() => LibraryDirectoryPreflightService.ValidateSettingsAcceptance([], service.CreateRequest([], [], options), options));
         Exception? original = failure.InnerException;
         string reason = failure.Reason;
         Assert.IsNotNull(original);

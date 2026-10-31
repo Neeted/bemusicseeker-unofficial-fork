@@ -65,7 +65,7 @@ public sealed class AudioMixerSignalTests
         Assert.AreEqual(PlayState.Stopped, player.PlayState,
             "Play must leave a zero-frame source stopped immediately.");
         player.CurrentTime = TimeSpan.Zero;
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => player.CurrentTime = TimeSpan.FromTicks(1));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => player.CurrentTime = TimeSpan.FromTicks(1));
         player.Stop();
 
         Assert.AreEqual(PlayState.Stopped, player.PlayState);

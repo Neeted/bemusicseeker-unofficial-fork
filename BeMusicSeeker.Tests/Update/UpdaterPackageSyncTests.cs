@@ -1352,7 +1352,7 @@ public sealed class UpdaterPackageSyncTests
                 {
                     Console.SetError(diagnosticWriter);
                 }
-                failure = Assert.ThrowsException<TargetInvocationException>(() =>
+                failure = Assert.ThrowsExactly<TargetInvocationException>(() =>
                     program.GetMethod("ApplyUpdate", BindingFlags.NonPublic | BindingFlags.Static)!
                         .Invoke(null, [request, startApplication]));
             }
@@ -1380,7 +1380,7 @@ public sealed class UpdaterPackageSyncTests
 
     /// <summary>実再起動後の診断故障や監視者の起動でも新版と回復資料を保ち、次回の明示回復だけが残留一時物を退役します。</summary>
     /// <remarks>実再起動のPIDを持つ確定済み・確定保存直前の両journalを使い、全processとアプリ固有登録を所有scopeで回収します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [DoNotParallelize]
@@ -1870,7 +1870,7 @@ public sealed class UpdaterPackageSyncTests
             restartAttempted = true;
             throw startFailure;
         };
-        TargetInvocationException failure = Assert.ThrowsException<TargetInvocationException>(() =>
+        TargetInvocationException failure = Assert.ThrowsExactly<TargetInvocationException>(() =>
             program.GetMethod("ApplyUpdate", BindingFlags.NonPublic | BindingFlags.Static)!
                 .Invoke(null, [request, startApplication]));
         Assert.IsTrue(restartAttempted, "The test must reach restart after applying the package, not fail during preflight.");

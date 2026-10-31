@@ -130,7 +130,7 @@ public sealed class ChartPropertiesWindowManagerTests
             var manager = new ChartPropertiesWindowManager(owner, (_, _) => child, scope.PrepareForOwnedPresentation);
             try
             {
-                InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(() => manager.Open(ChartTestValues.Empty()));
+                InvalidOperationException failure = Assert.ThrowsExactly<InvalidOperationException>(() => manager.Open(ChartTestValues.Empty()));
                 Assert.AreEqual("chart properties real Show failure", failure.Message);
                 Assert.IsTrue(child.ThemeCloseCompleted);
                 Assert.IsFalse(child.IsVisible);

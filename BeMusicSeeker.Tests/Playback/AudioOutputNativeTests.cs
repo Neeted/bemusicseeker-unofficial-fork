@@ -17,7 +17,7 @@ public sealed class AudioOutputNativeTests
 {
     /// <summary>16／24bit整数Waveの実保存を大量の正負微小値と無音で測り、ditherの偏りと2LSBを超す量子化誤差を検出する。</summary>
     /// <remarks>実NULL_DEVICEのencoderとWave保存を使い、native変換後のPCMを検査するため共有native状態を直列所有する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     [DataRow(24)]
     public void IntegerWaveDitherHasNearZeroMeanAndBoundedSampleError(int bitsPerSample)

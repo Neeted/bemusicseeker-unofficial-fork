@@ -18,7 +18,7 @@ public sealed class PlaylistShutdownCoordinatorTests
         InvalidOperationException primaryFailure = new("readiness cancellation failed");
         InvalidOperationException laterFailure = new("hydration cleanup failed");
 
-        InvalidOperationException thrown = Assert.ThrowsException<InvalidOperationException>(
+        InvalidOperationException thrown = Assert.ThrowsExactly<InvalidOperationException>(
             () => coordinator.Request(
                 "window-closing",
                 () =>

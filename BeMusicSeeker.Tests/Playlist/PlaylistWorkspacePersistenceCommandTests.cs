@@ -98,7 +98,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
     /// <summary>実workerのrawからDispatcher適用へ接続し、通常・表示失敗・交換・停止でもAction後のscheduler実Taskより先にbuild idleへ抜けません。entry集計はworker、通知はUIに属します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("normal")]
     [DataRow("failure")]
     [DataRow("hidden")]
@@ -150,7 +150,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             else { Assert.AreEqual(0, workspace.PlaylistSummaryView.Count); }
             complete.TrySetResult();
             if (outcome == "failure")
-            { Assert.AreEqual("summary UI completion failure", (await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => apply)).Message); }
+            { Assert.AreEqual("summary UI completion failure", (await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => apply)).Message); }
             else { await apply; }
             await idle;
         }
@@ -164,7 +164,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     }
 
     /// <summary>順序四入口を実DB・本番サマリー・configへ接続し、同期前のP保持、無変更と次操作を確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 四つの入口へ異なる選択を渡し、どれも独立期待の3→1→2へ並べ替えます。
     [DataRow("top")]
     [DataRow("bottom")]
@@ -247,7 +247,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             {
                 CollectionAssert.AreEqual(new int?[] { 3, 1, 2 }, verify.Table<BMSTable>().OrderBy(table => table.bmt_sort).Select(table => table.playlist_id).ToArray());
             }
-            Assert.ThrowsException<InvalidOperationException>(() => playlist.AcquirePlaylistMutationLease("order-test-competing"));
+            Assert.ThrowsExactly<InvalidOperationException>(() => playlist.AcquirePlaylistMutationLease("order-test-competing"));
             release.TrySetResult();
             await operation;
             CollectionAssert.AreEqual(new int?[] { 3, 1, 2 }, workspace.PlaylistSummaryView.Select(row => row.PlaylistId).ToArray());
@@ -307,7 +307,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     }
 
     /// <summary>代表順序入口を実configの解析・読取り・置換失敗へ接続し、確定DB、実通知中のP、出力保全と修復後の明示操作を保証します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // corruptはJSON解析、readは共有拒否の読込、replaceは読める共有lock下の置換失敗です。
     [DataRow("corrupt")]
     [DataRow("read")]
@@ -345,13 +345,13 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             operation = workspace.MoveSummaryRowsToBmtTopAsync([workspace.PlaylistSummaryView.Single(row => row.PlaylistId == 3)]);
             await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, operation, "BMT config failure notification");
             Assert.IsFalse(operation.IsCompleted);
-            Assert.ThrowsException<InvalidOperationException>(() => playlist.AcquirePlaylistMutationLease("config-failure-competing"));
+            Assert.ThrowsExactly<InvalidOperationException>(() => playlist.AcquirePlaylistMutationLease("config-failure-competing"));
             using (LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.DatabasePath).OpenSongDbReadOnly())
             {
                 CollectionAssert.AreEqual(new int?[] { 3, 1, 2 }, verify.Table<BMSTable>().OrderBy(table => table.bmt_sort).Select(table => table.playlist_id).ToArray());
             }
             release.TrySetResult();
-            PlaylistMutationPostCommitException failure = await Assert.ThrowsExceptionAsync<PlaylistMutationPostCommitException>(() => operation);
+            PlaylistMutationPostCommitException failure = await Assert.ThrowsExactlyAsync<PlaylistMutationPostCommitException>(() => operation);
             failureObserved = true;
             Assert.IsInstanceOfType(failure.GetBaseException(), fault == "corrupt" ? typeof(Newtonsoft.Json.JsonReaderException) : typeof(IOException));
             Assert.AreEqual(1, notifications.Count);
@@ -895,7 +895,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
 
     // DB Monitor の再取得は process-wide な所有確認のため、他 fixture の DB 保持から隔離する。
     /// <summary>実DB復元確定、UI集合適用、UI operation完了を別gateで観測し、待機中のDB lock解放とP保持、競合変更拒否、完了後の次保存を確認します。任意URL補完の予約が失敗しても必須復元の成功を取り消しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [DoNotParallelize]
@@ -970,16 +970,16 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             {
                 Assert.AreEqual(22, db.Table<BMSTable>().Single().playlist_id);
             }
-            Assert.ThrowsException<InvalidOperationException>(() => playlist.CommitBMSTableHeaderToDB(oldTable));
-            Assert.ThrowsException<InvalidOperationException>(() => playlist.RemoveBMSTable(oldTable));
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => playlist.ReloadTablesAsync());
+            Assert.ThrowsExactly<InvalidOperationException>(() => playlist.CommitBMSTableHeaderToDB(oldTable));
+            Assert.ThrowsExactly<InvalidOperationException>(() => playlist.RemoveBMSTable(oldTable));
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => playlist.ReloadTablesAsync());
             registration = playlist.ExternalSyncOwner.RegistrateExternalTableAsync(
                 new BMSTable { name = "Rejected registration", Output_dir = "RejectedRegistration" },
                 renameDuplicateName: false, reason: "restore_exclusion");
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
                 registration);
             competingRestore = playlist.RestorePlaylistDumpAsync(CreatePlaylistRestoreDump(33, "Rejected", "X"));
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
                 competingRestore);
             execute.TrySetResult();
             await TestUiDispatcherHost.AwaitNotificationAsync(executed.Task, restore, "playlist.restore-ui-executed");
@@ -987,7 +987,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.IsTrue(collectionOnUi);
             Assert.IsFalse(restore.IsCompleted);
             Assert.AreEqual(0, notifications.Count);
-            Assert.ThrowsException<InvalidOperationException>(() =>
+            Assert.ThrowsExactly<InvalidOperationException>(() =>
                 playlist.CommitBMSTableHeaderToDB(playlist.BMSTables.Single()));
             complete.TrySetResult();
             Assert.IsTrue(await restore);
@@ -1339,7 +1339,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     }
 
     /// <summary>空Data_urlでは実headerから選択dataへ到達し、主要項目・空receiptとシリアライズ中の正本URLを保ちます。同名の別ディレクトリと両保存先の予約文字も区別します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("header.json", "data.json")]
     [DataRow("header.json", "other/header.json")]
     [DataRow("見出し # %23/header # %23.json", "データ # %23/data # %23.json")]
@@ -1407,7 +1407,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     }
 
     /// <summary>既存の絶対リモート参照と相対参照は選択したローカルdataへ置換せず、既存先の出力置換・主要項目・正本URL・空receiptを保ちます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("https://example.test/export-data.json")]
     [DataRow("../published/data%23.json")]
     public async Task PlaylistWorkspaceExportPlaylistTableAsync_PreservesExistingDataReference(string existingDataReference)
@@ -1445,7 +1445,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     }
 
     /// <summary>既存先の実Replace失敗と初回の保存失敗で旧内容または不在を保持し、header成功後のdata失敗を部分失敗として通知します。表示・診断故障でも次の明示出力へ進めます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 最初の四条件は旧テストの表示・診断故障の分離、最後は初回出力の不完全ファイル非公開を担います。
     [DataRow(false, false, true)]
     [DataRow(false, true, true)]
@@ -1556,7 +1556,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     }
 
     /// <summary>専用画面の取消と、Acceptedに混入した同一保存先をWorkspace入口で止め、既存ファイル・DB・正本を変更しません。条件網羅は保存先VMへ分担します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public async Task PlaylistWorkspaceExportPlaylistTableAsync_CancellationAndInvalidAcceptancePreserveState(bool cancelled)
@@ -1633,7 +1633,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             var error = new IOException("export dialog unavailable");
             // 有効なパスが添付されていてもFailedをAcceptedとして使わないことを確認します。
             dialogs.JsonExportResults.Enqueue(new(UiDialogStatus.Failed, new(headerPath, dataPath), error: error));
-            InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            InvalidOperationException failure = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 () => workspace.ExportPlaylistTableAsync(table));
             Assert.AreSame(error, failure.InnerException);
             Assert.AreEqual("existing header", File.ReadAllText(headerPath));
@@ -2154,7 +2154,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     }
 
     /// <summary>保存済み詳細の同表root再分類・別表コピーで編集値を正本と新readonly DBへ保持し、表示用URLの材料化と重複先の上書きを防ぎます。未所持詳細も保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)] // 同表の表示前sourceを移動します。
     [DataRow(true)] // 別表の表示行をコピーし、コピー元も保持します。
     public async Task PlaylistRootFolderDrop_PreservesEditedEntryValuesAndExistingDuplicates(bool copyFromAnotherTable)
@@ -2375,7 +2375,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
 
     /// <summary>実再同期でH@Bを履歴化してから明示再追加・移動・コピーし、新DB・参照表示・実LR2 COMMAND・gzip BMTまでBの生存所属一件と入力元の値を確認します。</summary>
     /// <remarks>履歴置換の分岐とDB前失敗はEntryCommitの局所テスト、DB後失敗・P寿命は既存Admission系列が分担します。Windowを作らず、受理Taskとbuild終端後にownerと固有tempを回収します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("library")]
     [DataRow("move")]
     [DataRow("copy")]
@@ -2770,7 +2770,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             synchronization.Failure = new InvalidOperationException("playlist drop output failure");
             int notificationCountBeforeOutputFailure = notificationCount;
 
-            InvalidOperationException outputFailure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+            InvalidOperationException outputFailure = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
                 workspace.AddRowsToFolderAsync(
                     [outputFailureLibraryRow],
                     table,
@@ -2815,7 +2815,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             synchronization.PhysicalSurfaceFactory = () => throw preparationFailure;
             int notificationCountBeforePreparationFailure = notificationCount;
 
-            NotSupportedException caughtPreparationFailure = await Assert.ThrowsExceptionAsync<NotSupportedException>(() =>
+            NotSupportedException caughtPreparationFailure = await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
                 workspace.AddRowsToFolderAsync(
                     [preparationFailureLibraryRow],
                     table,
@@ -3203,7 +3203,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     }
 
     /// <summary>空文字・空白名の実folderへ所持追加・同表移動・別表コピーし、root分類せず正確な所属キーと編集値をDBへ保存します。同一所属の再drop、非対象行と元ファイルも保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("", "library")]
     [DataRow("", "move")]
     [DataRow("", "copy")]
@@ -3350,7 +3350,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     }
 
     /// <summary>通常の改名で失効した空名nodeへの追加をstaleとして拒否し、表rootの分類へ読み替えません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("")]
     [DataRow("   ")]
     public async Task PlaylistFolderDrop_RenamedEmptyNodeIsRejectedAsStale(string folderName)
@@ -3397,7 +3397,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     }
 
     /// <summary>新しい空欄・空白入力を唯一の名前なしへまとめ、既存の名前なしの位置と改名統合規則を保ちます。未指定なら先頭へ置き、通常文字のある入力は前後空白も保存します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("", "", false)]
     [DataRow("   ", "", false)]
     [DataRow("　", "", false)]
@@ -3451,7 +3451,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     }
 
     /// <summary>旧空白名の同一原文・取消と名前なしへの空白入力は無変更にし、旧値を空欄や別空白へ変更した場合だけ名前なしへ移します。別の旧空白所属を統合しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("   ", "   ", "   ", true)]
     [DataRow("   ", null, "   ", true)]
     [DataRow("", "　", "", true)]
@@ -3508,7 +3508,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     }
 
     /// <summary>表rootのMD5分類では名前なし・旧空白名を候補にせず、通常候補があればそこへ、なければ通常の新規名へ保存します。明示子dropの保証は既存系列へ分担します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("", false)]
     [DataRow("   ", false)]
     [DataRow("", true)]
@@ -3556,7 +3556,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     }
 
     /// <summary>最後の譜面の移動・削除後、正規の名前なしはノードもダミーも残さず、旧空白名は通常の空フォルダを保持します。未使用の明示順序は保持でき、読込みで書き換えません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("", false)]
     [DataRow("", true)]
     [DataRow("   ", false)]
@@ -3599,7 +3599,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     }
 
     /// <summary>空の通常フォルダから名前なしへの改名で空ノードを作らず、既存の名前なしに実譜面があれば選択します。旧空白名は別所属として維持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task PlaylistFolderRename_EmptyDestinationDoesNotTreatWhitespaceAsEmptyMembership(bool hasUnnamed)

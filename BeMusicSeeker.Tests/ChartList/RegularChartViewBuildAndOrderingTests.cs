@@ -24,7 +24,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class RegularChartViewBuildAndOrderingTests
 {
     /// <summary>専用subsetも最初のscore投影前のbを固定し、非表示元行を含む変更rangeを実配送後に局所反映してから採用します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void VirtualSubset_ScoreBaselineCoversOriginalRangeBeforeFilter(bool filtered)
@@ -441,7 +441,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
             isPlaylistTreeActive: false,
             includeBmsonRows: false);
 
-        Assert.ThrowsException<ArgumentException>(() => owner.ApplyMainLibraryView(
+        Assert.ThrowsExactly<ArgumentException>(() => owner.ApplyMainLibraryView(
             route,
             library: null,
             parameter: null,
@@ -728,7 +728,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
 
     /// <summary>各準備範囲の対象外列を実ownerへ要求し、昇降順の結果・cache登録再利用・カタログ更新後の失効を確認します。0ではsourceもorderも作りません。</summary>
     /// <remarks>小DBと実カタログを使い、比較規則の網羅と取消・並列上限は既存系列へ分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0, "Title")]
     [DataRow(1, "ChartNotes")]
     [DataRow(2, "mode")]
@@ -902,7 +902,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
     /// <summary>新規・保留の全体/単一packageについて警告順、BMS/BMSON、検索・modeとfolder件数を実ownerで確認します。背景所持数だけを増やしてもpackage投影は対象entry数に限られます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true, false, 16)]
     [DataRow(true, false, 128)]
     [DataRow(true, true, 16)]
@@ -997,7 +997,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
     /// <summary>旧package workerの入力投影をgateで止めても実Dispatcherが応答し、新要求の採用後に旧workerを解放してもRowsを上書きしません。停止は取消だけでなく実workerの終了を回収します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task PackageViewAsync_BlockedWorkerKeepsDispatcherResponsiveAndCannotOverwriteNewerView(bool stopWhileBlocked)
@@ -1266,7 +1266,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
     /// <summary>同名・空名でも所属が異なる群を実owner入口から区別し、明示rootだけ全件、消失/不明は空一覧にします。行選択scopeも同じ所属から作られます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("same")]
     [DataRow("")]
     public void RegularEntry_SelectsDuplicateSubsetFromLibraryOwner(string header)

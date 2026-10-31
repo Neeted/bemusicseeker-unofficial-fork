@@ -565,7 +565,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
     }
 
     /// <summary>所持・保留・未所持のcompiledメニューは手動順位取得を含まず、閲覧項目の表示・非表示に応じても表示直下の区切りを連続・末尾へ残しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void CompiledChartContextMenus_HaveNoManualRankingAndRedundantVisibleSeparators(bool showViewer)
@@ -1048,7 +1048,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
     }
 
     /// <summary>改名・文字コード修正の実メニューから同期例外・待機後の失敗・型付き失敗を受け、正確な選択パスと一回の一般通知・イベント終端を保ちます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0)] // renameのTask取得前に同期throw。
     [DataRow(1)] // renameの実Taskがgate後にfault。
     [DataRow(2)] // encodingの非同期結果が型付き失敗。
@@ -1133,7 +1133,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
     }
 
     /// <summary>物理・DB反映・確定後反映・後片付けの四種のreceiptを実reportへ一度渡し、compiled rename入口が汎用通知を重ねないことを確認します。確定factsと実解放は下位ownerテストが分担します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0)]
     [DataRow(1)]
     [DataRow(2)]

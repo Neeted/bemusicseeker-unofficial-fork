@@ -242,7 +242,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>user.config失敗ではXMLへ進まず、部分保存後の同じ入力でも成功済みconfigを再保存します。Closeと別dirty保存は先行保存を戻さず、次の同区分・別区分選択は公開値と今回入力だけを保存します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("normal")]
     [DataRow("root")]
     [DataRow("additional")]
@@ -363,7 +363,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>改名のDB失敗後、同じruntimeは旧公開名から内部空白を含む新名へ保存・出力します。fresh ownerはdiskの新定義だけを読み、保存されなかった旧名を過去の改名対応で補わず、表の再選択で解消します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void OutputConfirmation_HeaderFailureUsesPublishedNamesOrFreshSavedDefinitions(bool reopenOwner)
@@ -487,7 +487,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>生成失敗と旧先のファイル・DB行整理失敗を区別し、採用済み設定を保ちます。整理失敗は対象と原因を通知して後続同期へ進み、次の明示選択で過去旧先を全回収しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("generation")]
     [DataRow("file-cleanup")]
     [DataRow("row-cleanup")]

@@ -21,7 +21,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class SettingDialogCustomFolderOutputBaseTests
 {
     /// <summary>設定受理の予約領域条件を集約する。出力基点三種は組込み自身・配下・直上を拒否し、LR2rootより上の祖先、BMS親・drive、兄弟と未知LR2rootを維持する。実drive/UNCへアクセスしない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("normal", "same", true)]
     [DataRow("normal", "child", true)]
     [DataRow("normal", "ancestor", true)]
@@ -69,7 +69,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                     LR2CustomFolderOutputBaseDir = directory,
                     LR2CustomFolderAdditionalOutputBaseDirs = "[]"
                 };
-                LibraryDirectoryPreflightException failure = await Assert.ThrowsExceptionAsync<LibraryDirectoryPreflightException>(
+                LibraryDirectoryPreflightException failure = await Assert.ThrowsExactlyAsync<LibraryDirectoryPreflightException>(
                     () => StartupLibraryConstructionOwner.PrepareDirectoriesAsync(startup, new CustomFolderOutputSettingsSnapshot(), new Lr2ConfigSession()));
                 Assert.AreEqual(LibraryDirectoryPreflightUse.BmsRoot, failure.Use);
                 Assert.AreEqual(LibraryDirectoryPreflightFailureCause.InvalidConfiguration, failure.Cause);
@@ -103,7 +103,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         LibraryDirectoryPreflightRequest request = new LibraryDirectoryPreflightService().CreateRequest(registeredRoots, registeredRoots, options);
         if (reject)
         {
-            LibraryDirectoryPreflightException error = Assert.ThrowsException<LibraryDirectoryPreflightException>(() => LibraryDirectoryPreflightService.ValidateSettingsAcceptance(registeredRoots, request, options));
+            LibraryDirectoryPreflightException error = Assert.ThrowsExactly<LibraryDirectoryPreflightException>(() => LibraryDirectoryPreflightService.ValidateSettingsAcceptance(registeredRoots, request, options));
             Assert.AreEqual(LibraryDirectoryPreflightFailureCause.InvalidConfiguration, error.Cause);
             Assert.IsNotNull(error.InnerException);
         }
@@ -525,7 +525,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     /// <summary>保存済み出力だけをBMS候補から除き、他セクションの出力候補では表示を変更しません。欠落登録と親・兄弟・順序を保ちます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void Lr2BmsDirectoryChoices_ExcludeOnlyConfirmedCustomFolderOutputs(bool configureRootOutputs)
@@ -573,7 +573,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
     /// <summary>保存済み基点がドライブ・UNCルートでも一般一覧と導入候補から全子孫を除き、欠落登録・別領域・必要なjukebox登録を保ちます。</summary>
     /// <remarks>実XMLと設定ownerを接続しますが合成パスの存在確認や出力は行いません。実在管理先の保存拒否は実ownerの導入・削除代表が担当します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("root", @"V:\", @"W:\Songs")]
     [DataRow("root", @"\\test-server\share\", @"\\test-server\share2\Songs")]
     [DataRow("root", @"\\test-server\share", @"\\other-server\share\Songs")]
@@ -614,7 +614,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
     /// <summary>他基点・有効導入先と交差しないドライブ・UNCルートを新しいROOT候補として受理し、未確定の選択では公開候補を変更しません。</summary>
     /// <remarks>登録はローカルの実パスだけにして、合成UNCへの存在確認・実I/Oを伴わずsetterの入力検査を確認します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(@"V:\")]
     [DataRow(@"\\test-server\share\")]
     public void RootOutputCandidate_AcceptsDriveAndShareRootsWithoutPublishing(string candidate)
@@ -914,7 +914,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
             List<string> before = config.GetBMSSearchDirectoriesForChangeTracking();
             byte[] savedXml = File.ReadAllBytes(testSettings.LR2ConfigXmlPath);
-            Assert.ThrowsException<ArgumentException>(() =>
+            Assert.ThrowsExactly<ArgumentException>(() =>
                 SavePreparedCustomFolderSearchRoots(viewModel,
                         string.Empty, CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings)));
 
@@ -929,7 +929,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     /// <summary>通常・追加・ROOTの同一先と包含親を採用前に拒否します。大小文字・末尾区切りを同一視し、BMS2は別のパスとして許可して単純prefix判定を検出します。未登録・欠落した元から不正な導入先の段階設定は妨げません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("normal", "same", false)]
     [DataRow("additional", "same", false)]
     [DataRow("root", "same", false)]
@@ -983,7 +983,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     /// <summary>通常出力先の保存指定あり・復元指定なしの双方で、同一登録を出力先へ採用でき、譜面候補だけから除くことを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void NormalOutputBase_AllowsRegisteredRootWithOrWithoutSavedOutputSetting(bool restoreOutput)
@@ -1182,14 +1182,14 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     /// <summary>改名確定時に現在ディレクトリ表現と空白だけの名前を拒否し、生入力を保持する画面でも無効な出力先を作らない既存判断を確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(".")]
     [DataRow("   ")]
     public void AdditionalOutputBaseRename_RejectsCurrentDirectoryName(string name)
     {
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
         string additionalOutputBase = Path.Combine(root, "AdditionalOutput");
-        Assert.ThrowsException<ArgumentException>(() =>
+        Assert.ThrowsExactly<ArgumentException>(() =>
             CustomFolderOutputBaseRegistry.RenameLastDirectoryName(additionalOutputBase, name));
     }
 

@@ -151,8 +151,8 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         fixture.Playlist.CommitBMSTableHeadersToDB([active]);
         fixture.Playlist.BMSTables.Remove(fixture.Table);
         active.name = "After";
-        Assert.ThrowsException<InvalidOperationException>(() => fixture.Playlist.CommitBMSTableHeadersToDB([fixture.Table]));
-        Assert.ThrowsException<InvalidOperationException>(() => fixture.Playlist.CommitBMSTableHeadersToDB([active, fixture.Table]));
+        Assert.ThrowsExactly<InvalidOperationException>(() => fixture.Playlist.CommitBMSTableHeadersToDB([fixture.Table]));
+        Assert.ThrowsExactly<InvalidOperationException>(() => fixture.Playlist.CommitBMSTableHeadersToDB([active, fixture.Table]));
         Assert.AreEqual(0, fixture.Playlist.CommitBMSTableHeadersToDB([]).Count);
         Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
         using (var db = new LR2SongDBExtended(fixture.SongDb))
@@ -925,7 +925,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 }
             };
 
-            InvalidOperationException notificationFailure = Assert.ThrowsException<InvalidOperationException>(
+            InvalidOperationException notificationFailure = Assert.ThrowsExactly<InvalidOperationException>(
                 () => playlist.RemoveBMSTable(table));
 
             Assert.AreEqual("test remove notification failure", notificationFailure.Message);
@@ -1030,7 +1030,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
     }
 
     /// <summary>外部初期化は明示名・旧名の単一名化後の衝突候補を表ごとに除外します。除外表の旧先との再衝突も拒否し、安全な表だけをDB・正本へ反映します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("duplicate")]
     [DataRow("legacy")]
     [DataRow("retained")]
@@ -1403,7 +1403,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 PlaylistWorkspaceTestDataSupport.CreatePlaylistRestoreDump(8011, "Restored root", "R")
                 + "\v" + Environment.NewLine
                 + "UPDATE playlist SET output_dir = 'BlockedRoot', is_root_folder = 1 WHERE playlist_id = 8011;");
-            IOException restoreFailure = await Assert.ThrowsExceptionAsync<IOException>(() =>
+            IOException restoreFailure = await Assert.ThrowsExactlyAsync<IOException>(() =>
                 playlist.RestorePlaylistDumpAsync(File.ReadAllText(backupPath)));
 
             using (LR2SongDBExtended verify = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly())
@@ -1420,7 +1420,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             { Assert.IsTrue(previousOutput.Table<LR2SongDB.folder>().Any(row => row.path == previousFile)); }
 
             readiness = playlist.StartupReadiness.WaitForRequiredPlaylistReadinessAsync();
-            IOException readinessFailure = await Assert.ThrowsExceptionAsync<IOException>(() =>
+            IOException readinessFailure = await Assert.ThrowsExactlyAsync<IOException>(() =>
                 readiness);
             Assert.AreSame(restoreFailure, readinessFailure);
         }
@@ -1502,7 +1502,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             };
             await playlist.ReloadTablesAsync(exportBeatorajaBmt: false);
             Assert.IsNotNull(rejectedRestore);
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => rejectedRestore!);
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => rejectedRestore!);
             using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(7001, verify.Table<BMSTable>().Single().playlist_id);
@@ -1730,7 +1730,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             var expectedRepairFailure = new InvalidOperationException("deterministic startup repair failure");
             synchronization.Failure = expectedRepairFailure;
 
-            InvalidOperationException actualRepairFailure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            InvalidOperationException actualRepairFailure = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 () => playlist.ReloadTablesAsync(exportBeatorajaBmt: false));
 
             Assert.AreSame(expectedRepairFailure, actualRepairFailure);
@@ -1987,7 +1987,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Assert.IsTrue(outputAdmission.TryEnter(out IDisposable heldOutput));
             using IDisposable incumbent = heldOutput;
             Task reloadTask = playlist.ReloadTablesAsync(exportBeatorajaBmt: false);
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => reloadTask);
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => reloadTask);
 
             Assert.AreEqual(0, synchronization.Operations.Count - synchronizationOperationCountBeforeRepair);
             Assert.AreEqual(databaseBeforeRepair, SnapshotDatabase());
@@ -2000,7 +2000,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             }
 
             BMSTable activeTable = playlist.BMSTables.Single();
-            Assert.ThrowsException<InvalidOperationException>(() => playlist.ReOutputCustomFolder(activeTable));
+            Assert.ThrowsExactly<InvalidOperationException>(() => playlist.ReOutputCustomFolder(activeTable));
 
 
 
@@ -2153,7 +2153,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             };
             playlist.PlaylistEntriesHydrationReceiptPublished += consumer;
 
-            InvalidOperationException observed = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            InvalidOperationException observed = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 () => playlist.InitializeAsync(reloadExtPlaylist: false, exportBeatorajaBmt: false));
             Assert.AreSame(failure, observed);
             Assert.AreEqual(1, consumerCalls);

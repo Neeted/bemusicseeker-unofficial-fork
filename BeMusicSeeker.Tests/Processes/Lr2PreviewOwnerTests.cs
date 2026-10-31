@@ -53,7 +53,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
     }
 
     /// <summary>processが既に終了した後の復元失敗もscopeを保持し、新開始を阻止した上で明示Closeか次開始の復元成功から再開できます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Lr2PreviewRestoreFailureAfterProcessExitRetainsScopeForExplicitRetry(bool retryOnStart)
@@ -73,10 +73,10 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.None))
                 {
                     gateway.Session.KeepRunning = false;
-                    InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(gateway.Session.RaiseExited);
+                    InvalidOperationException failure = Assert.ThrowsExactly<InvalidOperationException>(gateway.Session.RaiseExited);
                     StringAssert.Contains(failure.Message, path);
-                    Assert.ThrowsException<InvalidOperationException>(() => owner.BeginPreview());
-                    Assert.ThrowsException<InvalidOperationException>(() => player.PlayStart(chart, (EventHandler?)null));
+                    Assert.ThrowsExactly<InvalidOperationException>(() => owner.BeginPreview());
+                    Assert.ThrowsExactly<InvalidOperationException>(() => player.PlayStart(chart, (EventHandler?)null));
                 }
                 if (!retryOnStart) { player.CloseProcess(); }
                 gateway.Session.KeepRunning = true;
@@ -103,7 +103,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             try
             {
                 using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.None))
-                { Assert.ThrowsException<IOException>(() => player.PlayStart(chart, (EventHandler?)null)); }
+                { Assert.ThrowsExactly<IOException>(() => player.PlayStart(chart, (EventHandler?)null)); }
                 CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
                 Assert.IsFalse(gateway.Session.Started);
                 Assert.AreEqual(0, gateway.Session.HasExitedReadCount);

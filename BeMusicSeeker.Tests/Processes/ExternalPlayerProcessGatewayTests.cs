@@ -70,9 +70,9 @@ public sealed partial class ExternalPlayerProcessGatewayTests
     [TestMethod]
     public void RequestFactoriesRejectMissingValues()
     {
-        Assert.ThrowsException<ArgumentException>(() => ExternalPlayerProcessDiscoveryRequest.Create(" "));
-        Assert.ThrowsException<ArgumentException>(() => ExternalPlayerProcessDiscoveryRequest.Create());
-        Assert.ThrowsException<ArgumentException>(() => ExternalPlayerProcessLaunchRequest.Create(" ", "args"));
+        Assert.ThrowsExactly<ArgumentException>(() => ExternalPlayerProcessDiscoveryRequest.Create(" "));
+        Assert.ThrowsExactly<ArgumentException>(() => ExternalPlayerProcessDiscoveryRequest.Create());
+        Assert.ThrowsExactly<ArgumentException>(() => ExternalPlayerProcessLaunchRequest.Create(" ", "args"));
     }
 
     /// <summary>終了の速い実processでも準備後の購読が起動前に成立し、終了通知を取り逃しません。</summary>
@@ -120,7 +120,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 gateway);
             ((IExternalWindowPlayer)player).AttachWindowHost(new Win32ExternalPlayerWindowHost(IntPtr.Zero));
 
-            Assert.ThrowsException<TimeoutException>(() => player.PlayStart(chartPath, (EventHandler)null!));
+            Assert.ThrowsExactly<TimeoutException>(() => player.PlayStart(chartPath, (EventHandler)null!));
 
             Assert.AreEqual(2, gateway.DiscoveryRequest.ProcessNames.Count);
             Assert.AreEqual("LR2body", gateway.DiscoveryRequest.ProcessNames[0]);
@@ -145,7 +145,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 gateway);
             ((IExternalWindowPlayer)player).AttachWindowHost(new Win32ExternalPlayerWindowHost(IntPtr.Zero));
 
-            Assert.ThrowsException<InvalidOperationException>(() => player.PlayStart(chartPath, (EventHandler)null!));
+            Assert.ThrowsExactly<InvalidOperationException>(() => player.PlayStart(chartPath, (EventHandler)null!));
 
             Assert.AreEqual(2, gateway.DiscoveryRequest.ProcessNames.Count);
             Assert.AreEqual("BMIIDXView2015", gateway.DiscoveryRequest.ProcessNames[0]);
@@ -199,7 +199,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
         var policy = new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(25));
         var stopwatch = Stopwatch.StartNew();
 
-        TimeoutException exception = Assert.ThrowsException<TimeoutException>(
+        TimeoutException exception = Assert.ThrowsExactly<TimeoutException>(
             () => policy.WaitUntil(
                 completed: () => false,
                 aborted: () => false,
@@ -228,7 +228,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             ((IExternalWindowPlayer)player).AttachWindowHost(
                 new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99))));
 
-            Assert.ThrowsException<TimeoutException>(
+            Assert.ThrowsExactly<TimeoutException>(
                 () => player.PlayStart(chartPath, (EventHandler)null!));
 
             Assert.AreEqual(1, gateway.Session.CloseMainWindowCount);
@@ -287,7 +287,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             player.PlayStart(chartPath, (Action<object, EventArgs>)null!);
             gateway.Session.KillException = new InvalidOperationException("kill rejected");
 
-            InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(
+            InvalidOperationException failure = Assert.ThrowsExactly<InvalidOperationException>(
                 player.CloseProcess);
             StringAssert.Contains(failure.Message, "could not be terminated");
             Assert.IsTrue(gateway.Session.KeepRunning);
@@ -377,7 +377,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(100)));
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
 
-            Assert.ThrowsException<InvalidOperationException>(
+            Assert.ThrowsExactly<InvalidOperationException>(
                 () => player.PlayStart(chartPath, (EventHandler)null!));
             CollectionAssert.Contains(windowHost.Operations, "ApplyLr2WindowStyle");
             CollectionAssert.DoesNotContain(windowHost.Operations, "ApplyWindowPlacement");
@@ -520,7 +520,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             ((IExternalWindowPlayer)player).AttachWindowHost(
                 new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99))));
 
-            InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(
+            InvalidOperationException failure = Assert.ThrowsExactly<InvalidOperationException>(
                 () => player.PlayStart(chartPath, (EventHandler)null!));
 
             Assert.AreSame(startFailure, failure);
@@ -562,7 +562,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(80)));
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
 
-            InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(
+            InvalidOperationException failure = Assert.ThrowsExactly<InvalidOperationException>(
                 () => player.PlayStart(chartPath, (EventHandler)null!));
 
             StringAssert.Contains(failure.Message, configPath);
@@ -654,7 +654,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
 
             try
             {
-                Assert.ThrowsException<IOException>(
+                Assert.ThrowsExactly<IOException>(
                     () => player.PlayStart(chartPath, (EventHandler)null!));
 
                 Assert.AreEqual(0, gateway.Session.KillCount);
@@ -707,7 +707,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                     new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(80)));
                 ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
 
-                InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(
+                InvalidOperationException failure = Assert.ThrowsExactly<InvalidOperationException>(
                     () => player.PlayStart(chartPath, (EventHandler)null!));
 
                 StringAssert.Contains(failure.Message, configPath);
@@ -751,7 +751,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
     }
 
     /// <summary>実INIの読取り・原子公開失敗を両viewer入口で観測し、旧内容と開始前の他processを保全します。原因解消後の明示開始だけを受け付けます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, 0)]
     [DataRow(false, 1)]
     [DataRow(false, 2)]
@@ -786,8 +786,8 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 using (FileStream? held = failureMode == 2 ? null : new FileStream(ini, FileMode.Open, FileAccess.Read,
                     failureMode == 0 ? FileShare.None : FileShare.Read))
                 {
-                    if (failureMode == 2) { Assert.ThrowsException<UnauthorizedAccessException>(() => player.PlayStart(chart).GetAwaiter().GetResult()); }
-                    else { Assert.ThrowsException<IOException>(() => player.PlayStart(chart).GetAwaiter().GetResult()); }
+                    if (failureMode == 2) { Assert.ThrowsExactly<UnauthorizedAccessException>(() => player.PlayStart(chart).GetAwaiter().GetResult()); }
+                    else { Assert.ThrowsExactly<IOException>(() => player.PlayStart(chart).GetAwaiter().GetResult()); }
                     Assert.AreEqual(0, old.CloseMainWindowCount);
                     Assert.AreEqual(0, old.KillCount);
                     Assert.AreEqual(0, gateway.PrepareCount);
@@ -805,7 +805,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
     }
 
     /// <summary>初回INI不在時はBMIIDXが生成せず、uBMplayだけが従来の不足節を生成して起動します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ExternalViewerMissingIniPreservesCreationContract(bool ubmplay)
@@ -835,7 +835,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
     }
 
     /// <summary>自然終了の復元失敗を一度返してbackupを保持し、新規起動を阻止します。次の明示停止で元bytesへ復元できます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void UbmplayRestoreFailureRetainsBackupAndBlocksNewStartUntilExplicitRetry(bool retryByStart)
@@ -872,7 +872,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                     Assert.IsInstanceOfType<PlaybackExitEventArgs>(exit);
                     StringAssert.Contains(((PlaybackExitEventArgs)exit).Failure.ToString(), ini);
                     CollectionAssert.AreEqual(temporary, File.ReadAllBytes(ini));
-                    Assert.ThrowsException<IOException>(() => player.PlayStart(chart).GetAwaiter().GetResult());
+                    Assert.ThrowsExactly<IOException>(() => player.PlayStart(chart).GetAwaiter().GetResult());
                     Assert.AreEqual(1, gateway.PrepareCount);
                 }
                 if (!retryByStart)
@@ -891,7 +891,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
     }
 
     /// <summary>mainの実終了を先に観測した明示開始は新mainを作り、解除前に捕捉された旧通知が届いても新window・callbackを保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void UbmplayExitedMainStartsReplacementBeforeDelayedOldNotification(bool synchronousNotification)
@@ -942,7 +942,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
 
     /// <summary>main/requestのHasExited同期再入でも復元結果を一度だけロック外へ通知し、callbackから別threadの実Closeが進みます。復元失敗は同じ例外を返す開始・停止要求が通知を所有し、次の明示操作で再試行します。</summary>
     /// <remarks>requestはtimeoutとcleanup失敗でmainだけを終了した後、次の明示Closeが購読中のHasExitedを読む実経路です。返却例外と終了引数の同一原因・通知所有を確認し、Panelの一通知/一診断と状態保全は実uBMplay接続代表へ分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -1001,7 +1001,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 player.PlayStart(chart, requestExit ? null! : callback).GetAwaiter().GetResult();
                 if (requestExit)
                 {
-                    Assert.ThrowsException<AggregateException>(() => player.PlayStart(chart, callback).GetAwaiter().GetResult());
+                    Assert.ThrowsExactly<AggregateException>(() => player.PlayStart(chart, callback).GetAwaiter().GetResult());
                     Assert.IsTrue(main.HasExited);
                     Assert.IsFalse(request.HasExited);
                 }
@@ -1261,7 +1261,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             player.CloseProcess();
             CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(iniPath));
 
-            Assert.ThrowsException<InvalidOperationException>(
+            Assert.ThrowsExactly<InvalidOperationException>(
                 () => player.PlayStart(chartPath, (Action<object, EventArgs>)null!));
             CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(iniPath));
         });
@@ -1299,7 +1299,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             player.PlayStart(chartPath, (_, _) => exits++);
             gateway.Session.KillException = new InvalidOperationException("kill rejected");
 
-            Assert.ThrowsException<InvalidOperationException>(player.CloseProcess);
+            Assert.ThrowsExactly<InvalidOperationException>(player.CloseProcess);
 
             File.WriteAllText(iniPath, "late process write", Encoding.GetEncoding("shift_jis"));
             gateway.Session.KeepRunning = false;
@@ -1348,7 +1348,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
             player.PlayStart(chartPath, (Action<object, EventArgs>)null!);
 
-            Assert.ThrowsException<AggregateException>(
+            Assert.ThrowsExactly<AggregateException>(
                 () => player.PlayStart(chartPath, (Action<object, EventArgs>)null!));
             Assert.IsTrue(requestSession.KillCount >= 1);
 

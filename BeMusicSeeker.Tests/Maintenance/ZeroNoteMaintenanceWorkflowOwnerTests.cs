@@ -73,7 +73,7 @@ public sealed class ZeroNoteMaintenanceWorkflowOwnerTests
             new ChartFileOperationSynchronizer(),
             (_, capability) => throw new InvalidOperationException("recheck failed"));
 
-        InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+        InvalidOperationException exception = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => owner.RecheckAsync());
 
         Assert.AreEqual("recheck failed", exception.Message);

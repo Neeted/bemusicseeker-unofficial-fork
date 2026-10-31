@@ -53,7 +53,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
         });
     }
     /// <summary>16/128のwarm元集合でAだけを実setterから配送し、値・再配置・選択とU同一性を保ちます。実lookup/投影/順序/確保の仕事量と実操作Completionを観測します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16, false)]
     [DataRow(128, false)]
     [DataRow(16, true)]
@@ -112,7 +112,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     }
 
     /// <summary>A/Bを同じ正本gateで確定し、両PropertyChanged起動を止めて片方だけ配送します。逆順起動・非表示加入離脱・同条件reuseも独立期待B,U,A/{U,A}へ収束します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -183,7 +183,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     }
 
     /// <summary>Aの初回投影後・Bの投影直前に実scoreを確定し、旧bの混合候補を採用しません。配送後は同じ候補へ変更キーだけを反映します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ScoreCandidate_FixesBaselineBeforeFirstProjectionAndPatchesBufferedRanges(bool filtered)
@@ -228,7 +228,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     }
 
     /// <summary>v1予約後に合流した実v2のfanout失敗を同じ配送Taskへ返し、候補を取消終端にします。同位置を再予約せず、実試行を超えるv3の確定時は未完了v1/v2も次配送へ渡します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ScoreDelivery_MergedRangeFailureDoesNotRetryAttemptedPosition(bool publishNewerRange)
@@ -275,7 +275,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
             if (publishNewerRange) { fixture.Change(0, 45); }
             Assert.AreEqual(0, fixture.Scheduler.Count, "実Completion前は追加wakeも同じ予約へ合流します。");
             operation.Complete();
-            InvalidOperationException actual = await Assert.ThrowsExceptionAsync<InvalidOperationException>(async () => await delivery);
+            InvalidOperationException actual = await Assert.ThrowsExactlyAsync<InvalidOperationException>(async () => await delivery);
             Assert.AreSame(failure, actual);
             await cancelled.Task;
             Assert.AreSame(displayed, fixture.Table.Rows, "配送失敗の候補を採用しません。");
@@ -315,7 +315,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     }
 
     /// <summary>呼出元取消・受付後取消・適用例外を共有drainと区別し、実Completionまで受付を共有して停止を回収します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("caller_cancel")]
     [DataRow("abort")]
     [DataRow("apply_failure")]
@@ -332,7 +332,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
             if (outcome == "reject")
             {
                 Task rejected = fixture.Owner.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None);
-                await Assert.ThrowsExceptionAsync<InvalidOperationException>(async () => await rejected);
+                await Assert.ThrowsExactlyAsync<InvalidOperationException>(async () => await rejected);
                 return;
             }
             Task shared = fixture.Owner.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None);
@@ -340,12 +340,12 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
             using var cancellation = new CancellationTokenSource();
             Task caller = fixture.Owner.DeliverPendingLibraryChangesAsync(fixture.Library, cancellation.Token);
             cancellation.Cancel();
-            await Assert.ThrowsExceptionAsync<TaskCanceledException>(async () => await caller);
+            await Assert.ThrowsExactlyAsync<TaskCanceledException>(async () => await caller);
             Assert.IsFalse(shared.IsCompleted);
             if (outcome == "abort")
             {
                 operation.Abort();
-                await Assert.ThrowsExceptionAsync<TaskCanceledException>(async () => await shared);
+                await Assert.ThrowsExactlyAsync<TaskCanceledException>(async () => await shared);
             }
             else
             {
@@ -353,7 +353,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 if (outcome == "apply_failure") { fixture.Owner.NormalLibraryRefreshApplied += fail; }
                 try { operation.Run(); operation.Complete(); }
                 finally { fixture.Owner.NormalLibraryRefreshApplied -= fail; }
-                if (outcome == "apply_failure") { await Assert.ThrowsExceptionAsync<InvalidOperationException>(async () => await shared); }
+                if (outcome == "apply_failure") { await Assert.ThrowsExactlyAsync<InvalidOperationException>(async () => await shared); }
                 else { await shared; Assert.AreEqual(fixture.Library.ScoreSnapshotVersion, fixture.View.ScorePosition); }
             }
         }

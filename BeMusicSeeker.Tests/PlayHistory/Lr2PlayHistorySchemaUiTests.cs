@@ -182,7 +182,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
     /// </summary>
     /// <remarks>実設定画面VMと構成を使い、受付/状態購読と機能窓口の接続を確認する。共有設定のedit sessionを使うため並列実行しない。</remarks>
     [DoNotParallelize]
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("initializing")]
     [DataRow("library")]
     [DataRow("playlist")]
@@ -235,7 +235,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
     /// <summary>導入確認は確定XMLのplayer DBと候補破棄案内を一回で示し、取消/L/P拒否/DB不成立では候補と両DBを保持します。成功時だけ関係XML候補を戻します。</summary>
     /// <remarks>実SQLiteを別playerで区別し、設定VMの通常入口からcache失効/必要score処理まで確認します。compiled buttonの閉鎖抑止はWindow系列へ分担します。</remarks>
     [DoNotParallelize]
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("cancel")]
     [DataRow("library-busy")]
     [DataRow("playlist-busy")]
@@ -305,7 +305,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
     /// </summary>
     /// <remarks>実設定画面VMと構成を使い、受付/状態購読と機能窓口の接続を確認する。共有設定のedit sessionを使うため並列実行しない。</remarks>
     [DoNotParallelize]
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("install")]
     [DataRow("repair")]
     [DataRow("triggers")]

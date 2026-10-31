@@ -33,7 +33,7 @@ public sealed class BmsAudioFrameScheduleTests
     /// <summary>
     /// 44.1kHzと48kHzの相互変換では連続音を物理EOFまでの一イベントへ統合し、後続の論理noteや欠落音源で音を延長しない。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(44100, 48000, 91L, 100L, 101L)]
     [DataRow(48000, 44100, 99L, 92L, 92L)]
     public void BmsonContinuationRunResolvesPhysicalEofWithoutExtendingAtLaterLogicalNotes(int sourceRate, int outputRate, long sourceStart, long start, long end)

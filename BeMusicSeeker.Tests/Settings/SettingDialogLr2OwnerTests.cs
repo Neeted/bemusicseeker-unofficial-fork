@@ -18,7 +18,7 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class SettingDialogEditCompletionTests
 {
     /// <summary>無変更の二周期・Greekのlive表記訂正・ASCIIの次回起動での初検出を分担し、管理表/CLEAR FOLDERの全親とCRCを同じ操作で確定します。fresh起動は全体同期や任意修復による救済と区別します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("NormalOutput", "NormalOutput", false)]
     [DataRow("normalOutput", "NormalOutput", true)]
     [DataRow("αOutput", "ΑOutput", false)]
@@ -440,7 +440,7 @@ public sealed partial class SettingDialogEditCompletionTests
 
     /// <summary>起動XMLに登録済みの管理AをBへ移す前に未確定のユーザー追加・削除の破棄を確認し、その後のC確定でAをユーザー登録へ復活させません。</summary>
     /// <remarks>旧Aの実在だけを条件差とし、実設定保存・出力port・共有profileを動かします。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Lr2OutputConfirmationDiscardsApprovedCandidatesWithoutResurrectingOldOutput(bool keepOldDirectory)

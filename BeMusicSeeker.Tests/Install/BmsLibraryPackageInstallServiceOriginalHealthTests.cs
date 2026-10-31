@@ -10,7 +10,7 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class BmsLibraryPackageInstallServiceTests
 {
     /// <summary>計算済みの不足・0件・未判定を12値とも復元し、現在の文字コード・除外・LR2診断と他分類警告を保ちます。未取得資源と不存在譜面を使い、再解析へ戻る実装を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0, false)]
     [DataRow(0, true)]
     [DataRow(1, false)]
@@ -127,7 +127,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         var entry = PackageChartEntry.FromChart(ChartTestValues.Empty() with { Path = @"C:\Unavailable\chart.bms", Resources = null });
         entry.RestoreInstallDestinationState(new PackageChartInstallDestinationState(@"C:\Candidate", "Title", "Artist", [@"C:\Candidate"]));
         entry.SetWarning(ChartWarningKind.InstallEstimationAudioMissing, "estimate");
-        Assert.ThrowsException<InvalidOperationException>(() => BmsLibraryPackageInstallService.ClearPendingInstallDestination(entry));
+        Assert.ThrowsExactly<InvalidOperationException>(() => BmsLibraryPackageInstallService.ClearPendingInstallDestination(entry));
         Assert.AreEqual(@"C:\Candidate", entry.Chart.InstallDestination);
         Assert.AreEqual("Title", entry.Chart.InstallDestinationTitle);
         Assert.AreEqual("Artist", entry.Chart.InstallDestinationArtist);
@@ -136,7 +136,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>実元配置の初期評価後に音源を追加・削除し、候補A/Bの通常評価を挟んでも登録時へ戻します。譜面と参照を解放してから消去し、復元での再読取りを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ClearPendingInstallDestination_UsesRegistrationResultAfterExternalChanges(bool originallyPresent)

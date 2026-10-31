@@ -155,7 +155,7 @@ public sealed class NativeWindowThemeContractTests
     }
 
     /// <summary>保存値は登録された識別子へ正規化し、題名部の明暗は配色系列ごとに判定します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("Light", "Light", false)]
     [DataRow("Dark", "Dark", true)]
     [DataRow("Sepia", "Sepia", false)]
@@ -175,7 +175,7 @@ public sealed class NativeWindowThemeContractTests
     }
 
     /// <summary>各テーマから明暗の反対側へ往復切替し、共通style・変更通知・版更新とResourceAssemblyを保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DoNotParallelize]
     [DataRow("Light", "/BeMusicSeeker;component/Themes/Light.xaml")]
     [DataRow("Dark", "/BeMusicSeeker;component/Themes/Dark.xaml")]

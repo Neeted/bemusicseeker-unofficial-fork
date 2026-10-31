@@ -14,7 +14,7 @@ public sealed class BmsLibraryParentFolderCacheServiceTests
     /// <summary>
     /// LR2フォルダが存在するrootでもbmsonの所持パスがあれば親候補へ残し、譜面なしの除外をそのまま適用しない。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(".bms", false)]
     [DataRow(".bmson", true)]
     public void BuildParentFolderCandidates_BmsonChartKeepsRootEvenWhenLr2FolderExists(string extension, bool trailingSeparator)

@@ -185,7 +185,7 @@ public sealed class PlaylistImportDialogTests
     }
 
     /// <summary>pickerの取消と閉鎖は既存入力を保持し、メッセージ表示を起こさない。非受理結果での追記や誤通知を検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 明示取消とWindowの閉鎖はどちらも受理パスなしとして入力を維持する。
     [DataRow(UiDialogStatus.CancelledByUser)]
     [DataRow(UiDialogStatus.ClosedByUser)]
@@ -234,7 +234,7 @@ public sealed class PlaylistImportDialogTests
                 var input = (TextBox)dialog.FindName("textBoxURIInput");
                 SetText(input, "existing input");
 
-                InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(
+                InvalidOperationException failure = Assert.ThrowsExactly<InvalidOperationException>(
                     () => dialog.HandleOpenLocalFileAsync().GetAwaiter().GetResult());
 
                 Assert.AreSame(sentinel, failure.InnerException);
@@ -356,7 +356,7 @@ public sealed class PlaylistImportDialogTests
     }
 
     /// <summary>共通受付の全結果を実Windowの実行ボタンへ返し、StartedだけCloseし、それ以外では理由と選択を残します。対象ゼロでも受付理由を到達可能にします。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(PlaylistImportStartStatus.Started)]
     [DataRow(PlaylistImportStartStatus.Busy)]
     [DataRow(PlaylistImportStartStatus.NotReady)]

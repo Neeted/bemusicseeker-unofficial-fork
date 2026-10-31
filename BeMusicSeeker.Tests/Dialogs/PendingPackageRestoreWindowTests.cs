@@ -19,7 +19,7 @@ public sealed class PendingPackageRestoreWindowTests
 {
     /// <summary>実Windowの三つのボタンがそれぞれの明示値を返し、×・Escは承認も終了選択も返しません。警告・原因・ボタンのBinding接続も確認します。</summary>
     /// <remarks>実coordinator・同じscopeの親子モーダルを表示し、実ボタンClickとXAMLで接続したEscイベントを操作します。OS入力・フォーカスは保証対象ではありません。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("Retry")]
     [DataRow("Reset")]
     [DataRow("Exit")]
@@ -29,7 +29,7 @@ public sealed class PendingPackageRestoreWindowTests
         => TestUiDispatcherHost.RunWindowTest(scope => CheckWindow(scope, operationKind));
 
     /// <summary>6言語の実Windowで各資源が実Content・本文へ届き、既定言語や固定ラベルの残存を検出します。辞書・getter整合は既存ParityTestsへ分担します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("en-US")]
     [DataRow("fr-FR")]
     [DataRow("ja-JP")]

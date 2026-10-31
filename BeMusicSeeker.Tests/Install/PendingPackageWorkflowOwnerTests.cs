@@ -228,7 +228,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreEqual(System.Windows.MessageBoxImage.Error, dialogs.Messages.Single().Icon);
         Assert.AreEqual(1, events.Count(value => value == "store-fix-installed-locations"));
         store.RepairFailure = new IOException("unrelated failure");
-        Exception unrelated = await Assert.ThrowsExceptionAsync<IOException>(() => owner.FixInstalledLocationsAsync(request));
+        Exception unrelated = await Assert.ThrowsExactlyAsync<IOException>(() => owner.FixInstalledLocationsAsync(request));
         Assert.AreSame(store.RepairFailure, unrelated);
         Assert.AreEqual(1, dialogs.Messages.Count);
     }
@@ -659,7 +659,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
                 return new ExplorerOpenResult { Kind = ExplorerOpenResultKind.OpenedDirectory };
             });
 
-        InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+        InvalidOperationException exception = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => owner.OpenInstallDestinationForChartsAsync(
                 [CreateTarget(CreateChart(installDestination: Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"))))]));
 
@@ -821,7 +821,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
     }
 
     /// <summary>通常・無関係保持の方針と保留entryをstoreへ渡し、変更投影が空でも抑制・activity終端後に導入先と識別情報の更新通知を送る。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task SearchPendingAsync_EmptyChangesStillPublishesTerminalRefresh(bool keepUnrelated)
@@ -864,7 +864,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
     }
 
     /// <summary>通常・無関係保持の方針と単独譜面をstoreへ渡し、受付解放後に変更投影を一度公開して一覧更新へ渡す。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task SearchPendingAsync_LooseTargetPublishesTransientProjectionAfterGateRelease(bool keepUnrelated)
@@ -919,7 +919,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
     }
 
     /// <summary>単一・複数パッケージと通常・無関係保持の方針をstoreへ渡し、抑制・activity終端後に更新を通知する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, true)]
     public async Task SearchPackagesAsync_RunsMutation(bool keepUnrelated, bool multiplePackages)
@@ -1030,7 +1030,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
     }
 
     /// <summary>導入先セル編集は短い抑制/activityを閉じても必要表示Taskの終端まで実Lを保持し、表示失敗を伝えて解放します。終端後の明示編集だけを再受付します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task SetPendingAsync_HoldsAdmissionThroughRequiredPresentation(bool failPresentation)
@@ -1069,7 +1069,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             Assert.IsFalse(gate.TryEnter(out IDisposable rejected)); rejected?.Dispose();
         }
         finally { hold = false; release.TrySetResult(); }
-        if (failPresentation) { Assert.AreSame(failure, await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => edit)); }
+        if (failPresentation) { Assert.AreSame(failure, await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => edit)); }
         else { await edit; }
         Assert.IsTrue(gate.TryEnter(out IDisposable next)); next.Dispose();
         await owner.SetPendingAsync(request, @"C:\Next");
@@ -1087,7 +1087,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             [CreateTarget(CreateChart())],
             out PendingInstallDestinationClearRequest request));
 
-        InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+        InvalidOperationException exception = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => owner.ClearPendingAsync(request));
 
         Assert.AreEqual("clear failed", exception.Message);
@@ -1247,7 +1247,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
                 playback: new NoOpChartMutationPlaybackPort(),
                 chartFileOperations: gate);
 
-            AggregateException exception = await Assert.ThrowsExceptionAsync<AggregateException>(
+            AggregateException exception = await Assert.ThrowsExactlyAsync<AggregateException>(
                 () => owner.SearchPackagesAsync(
                     [new ChartPackage()]));
 
@@ -1361,7 +1361,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
 
     /// <summary>導入先有無と新規確認設定に応じて確認を行い、肯定した対象だけを承認し、未選択の閉鎖を承認に変換しない。</summary>
     // 導入先有無/新規確認ON-OFF/肯定・拒否/未選択閉鎖を分け、閉鎖応答は実表示部品の既定応答正規化へ通す。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, true, true, false)]
     [DataRow(false, true, false, false)]
     [DataRow(false, false, false, false)]
@@ -1820,7 +1820,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             [CreateTarget(CreateChart(), ChartOperationCapabilities.RepairInstalledLocation)],
             out RepairInstalledLocationRequest request));
 
-        InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+        InvalidOperationException exception = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => owner.FixInstalledLocationsAsync(request));
 
         Assert.AreSame(failure, exception.InnerException);
@@ -2036,7 +2036,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
 
     /// <summary>リソース上書きの反映・最終化・物理・回収・型衝突の異常を通常集計で隠さず、受付解放後に対象と原因を一度報告する。</summary>
     // failureKindは反映・最終化・物理・回収・型衝突。reporterThrowsは任意の報告表示失敗でも元の終端を変えない条件。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("apply", false)]
     [DataRow("finalization", false)]
     [DataRow("physical", false)]
@@ -2148,7 +2148,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         dialogs.ProgressResult = new UiProgressResult(UiDialogStatus.Failed, error: failure);
         PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
 
-        InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+        InvalidOperationException exception = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             owner.DeleteInstalledOnlyPendingPackageSourcesAsync);
 
         Assert.AreSame(failure, exception.InnerException);
@@ -2195,7 +2195,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         dialogs.ProgressResult = new UiProgressResult(UiDialogStatus.Failed, error: dialogFailure);
         PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
 
-        AggregateException exception = await Assert.ThrowsExceptionAsync<AggregateException>(
+        AggregateException exception = await Assert.ThrowsExactlyAsync<AggregateException>(
             owner.DeleteInstalledOnlyPendingPackageSourcesAsync);
 
         Assert.AreSame(dialogFailure, exception.InnerExceptions[0].InnerException);
@@ -2259,7 +2259,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
 
     /// <summary>手動・強制導入の抑制終了が失敗しても、確定済みの元receiptと最終化失敗を結果へ保持して受付を解放する。</summary>
     // falseは強制導入、trueは手動導入。同じ確定receiptを抑制終了の失敗後も保持する。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task InstallRetainsReceiptWhenOuterSuppressionCleanupFails(bool manual)
@@ -2365,7 +2365,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
 
     /// <summary>保留導入の確認待ちからdropを拒否し、成功・変更失敗・確認取消の実終端後に新しい要求だけを受理する。</summary>
     // manualで手動/強制入口、failMutationで変更失敗、cancelConfirmationで確認取消を分け、全終端でdrop受付を解放する。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false, false)]
     [DataRow(false, true, false)]
     [DataRow(true, false, false)]
@@ -2457,7 +2457,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
 
     /// <summary>一要求の複数入力を受理したworkerの開始前から終端まで保留導入と追加dropを拒否し、全入力処理と受付解放を観測した後に明示導入を受理する。</summary>
     // manualで手動/強制、selectedRowsで選択要求/パッケージ直接入口を分け、共通受付の拒否と再受付を確認する。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]

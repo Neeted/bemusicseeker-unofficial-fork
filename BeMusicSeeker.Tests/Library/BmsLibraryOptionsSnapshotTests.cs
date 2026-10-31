@@ -28,7 +28,7 @@ public sealed class BmsLibraryOptionsSnapshotTests
         CollectionAssert.AreEqual(
             new[] { "first", "second" },
             snapshot.LR2CustomFolderAdditionalOutputBaseDirs.ToArray());
-        Assert.ThrowsException<NotSupportedException>(() =>
+        Assert.ThrowsExactly<NotSupportedException>(() =>
             ((IList<string>)snapshot.LR2CustomFolderAdditionalOutputBaseDirs)[0] = "not allowed");
     }
 

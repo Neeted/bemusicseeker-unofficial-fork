@@ -21,7 +21,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class LR2ConfigTests
 {
     /// <summary>実在に依存しない登録計画で、root-relative・drive-relative・通常相対をLR2 root基準で解決し、要求・保存本文・raw読取りの基準を揃えます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(@"\Songs", @"D:\Songs")]
     [DataRow(@"D:Songs", @"D:\LR2\Songs")]
     [DataRow(@"C:Songs", @"C:\Songs")]
@@ -43,7 +43,7 @@ public sealed class LR2ConfigTests
     }
 
     /// <summary>ドライブ・UNCルートと通常基点の包含を方向付きで判定し、大小文字・末尾区切りの差を吸収しつつ接頭辞兄弟や別領域を保持します。実媒体へはアクセスしません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(@"D:\", @"D:\", true)]
     [DataRow(@"D:\", @"d:\Table", true)]
     [DataRow(@"D:\", @"D:\Table\Level", true)]
@@ -67,7 +67,7 @@ public sealed class LR2ConfigTests
     /// <summary>
     /// 未指定・空白・不正文字の設定パスは読取り不能として返し、設定があるという誤報を防ぐ。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(null)]
     [DataRow("")]
     [DataRow("   ")]
@@ -82,7 +82,7 @@ public sealed class LR2ConfigTests
     /// 不完全XML・必須jukebox欠落・別ルート要素を拒否して元ファイルを保持し、読取り時の無断修復を検出する。
     /// </summary>
     /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("<config>")]
     [DataRow("<config />")]
     [DataRow("<config><system /></config>")]
@@ -95,7 +95,7 @@ public sealed class LR2ConfigTests
 
             Assert.IsFalse(new Lr2ConfigSession().TryResolve(configPath, out Lr2ConfigOwner? config));
             Assert.IsNull(config);
-            Assert.ThrowsException<XmlException>(() => new LR2Config(configPath));
+            Assert.ThrowsExactly<XmlException>(() => new LR2Config(configPath));
             CollectionAssert.AreEqual(before, File.ReadAllBytes(configPath));
         });
     }
@@ -104,7 +104,7 @@ public sealed class LR2ConfigTests
     /// xmlとxmhの設定を読み、現在存在しない登録ルートも変更追跡用に保持して一時的な不在を登録削除へ読み替える誤りを防ぐ。
     /// </summary>
     /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("config.xml")]
     [DataRow("config.xmh")]
     public void SessionTryResolve_ValidConfigPreservesUnavailableRegisteredRoots(string fileName)
@@ -151,7 +151,7 @@ public sealed class LR2ConfigTests
     /// 異文化でも共通整数の空白・符号を固定解釈し、自動再読込み2を手動専用0へ実保存して新しい文書から読み戻す。
     /// </summary>
     /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DoNotParallelize]
     [DataRow("ja-JP")]
     [DataRow("en-US")]
@@ -267,7 +267,7 @@ public sealed class LR2ConfigTests
                 FileAccess.ReadWrite,
                 FileShare.None))
             {
-                IOException failure = Assert.ThrowsException<IOException>(() => owner.EnsureDatabaseAutoReloadManualOnly());
+                IOException failure = Assert.ThrowsExactly<IOException>(() => owner.EnsureDatabaseAutoReloadManualOnly());
 
                 Assert.IsNotNull(failure.InnerException);
                 StringAssert.Contains(failure.Message, Path.GetDirectoryName(configPath));
@@ -298,7 +298,7 @@ public sealed class LR2ConfigTests
                 FileAccess.ReadWrite,
                 FileShare.None))
             {
-                IOException failure = Assert.ThrowsException<IOException>(() =>
+                IOException failure = Assert.ThrowsExactly<IOException>(() =>
                     owner.SaveRoots(new Lr2RootChange(owner.CaptureSaved().RegisteredRoots, [])));
                 Assert.IsNotNull(failure.InnerException);
                 StringAssert.Contains(failure.Message, Path.GetDirectoryName(configPath));
@@ -325,7 +325,7 @@ public sealed class LR2ConfigTests
             string childPath = Path.Combine(rootPath, "Child");
             Directory.CreateDirectory(childPath);
 
-            Assert.ThrowsException<ArgumentException>(() => config.AddBMSSearchDirectories([rootPath, childPath]));
+            Assert.ThrowsExactly<ArgumentException>(() => config.AddBMSSearchDirectories([rootPath, childPath]));
         });
     }
 
@@ -353,7 +353,7 @@ public sealed class LR2ConfigTests
     /// <summary>
     /// 同一・正規化同一・子・親・兄弟・接頭辞類似・ボリューム親を区別し、親出力をルート出力時だけ許可して範囲衝突を防ぐ。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("same", false, true)]
     [DataRow("same", true, true)]
     [DataRow("normalized-same", false, true)]
@@ -389,7 +389,7 @@ public sealed class LR2ConfigTests
         }
         else
         {
-            ArgumentException error = Assert.ThrowsException<ArgumentException>(Validate);
+            ArgumentException error = Assert.ThrowsExactly<ArgumentException>(Validate);
             StringAssert.Contains(error.Message, output);
             StringAssert.Contains(error.Message, registered);
         }
@@ -464,7 +464,7 @@ public sealed class LR2ConfigTests
     /// 通常出力先が登録ルートの親・子となる両条件を拒否し、元の登録集合を保持する。
     /// </summary>
     /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     // false は出力先が子、true は出力先が親となる衝突。
     [DataRow(false)]
     [DataRow(true)]
@@ -480,7 +480,7 @@ public sealed class LR2ConfigTests
             Directory.CreateDirectory(bmsRoot);
             config.AddBMSSearchDirectories([bmsRoot]);
 
-            Assert.ThrowsException<ArgumentException>(() =>
+            Assert.ThrowsExactly<ArgumentException>(() =>
                 CustomFolderOutputBaseSearchRootSyncService.RepairNormalOutputBaseRoots(config, outputBase, "[]"));
 
             CollectionAssert.AreEqual(new[] { bmsRoot }, config.GetBMSSearchDirectoriesForChangeTracking());
@@ -503,7 +503,7 @@ public sealed class LR2ConfigTests
             Directory.CreateDirectory(nestedAdditionalOutputBase);
             config.AddBMSSearchDirectories([bmsRoot]);
 
-            Assert.ThrowsException<ArgumentException>(() =>
+            Assert.ThrowsExactly<ArgumentException>(() =>
                 CustomFolderOutputBaseSearchRootSyncService.RepairNormalOutputBaseRoots(
                     config,
                     defaultOutputBase,
@@ -530,7 +530,7 @@ public sealed class LR2ConfigTests
             Directory.CreateDirectory(outputBase);
             config.AddBMSSearchDirectories([bmsRoot]);
 
-            Assert.ThrowsException<ArgumentException>(() =>
+            Assert.ThrowsExactly<ArgumentException>(() =>
                 CustomFolderOutputBaseSearchRootSyncService.RepairNormalOutputBaseRoots(
                     config,
                     outputBase,
@@ -557,7 +557,7 @@ public sealed class LR2ConfigTests
             Directory.CreateDirectory(bmsRoot);
             config.AddBMSSearchDirectories([bmsRoot]);
 
-            Assert.ThrowsException<ArgumentException>(() =>
+            Assert.ThrowsExactly<ArgumentException>(() =>
                 CustomFolderOutputBaseSearchRootSyncService.RepairNormalOutputBaseRoots(
                     config, defaultOutput,
                     CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalOutput])));
@@ -581,7 +581,7 @@ public sealed class LR2ConfigTests
             string defaultOutputBase = Path.Combine(tempRoot, "DefaultOutput");
             Directory.CreateDirectory(defaultOutputBase);
 
-            Assert.ThrowsException<ArgumentException>(() =>
+            Assert.ThrowsExactly<ArgumentException>(() =>
                 CustomFolderOutputBaseSearchRootSyncService.RepairNormalOutputBaseRoots(config, defaultOutputBase, "{"));
         });
     }
@@ -620,7 +620,7 @@ public sealed class LR2ConfigTests
     /// 登録ルートの親・子となる追加先を拒否して登録と保存バイトを保持し、失敗時に登録が置換される誤りを防ぐ。
     /// </summary>
     /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     // false は出力先が子、true は出力先が親となる衝突。
     [DataRow(false)]
     [DataRow(true)]
@@ -638,7 +638,7 @@ public sealed class LR2ConfigTests
             config.Save(config.ConfigFilePath);
             byte[] savedXml = File.ReadAllBytes(configPath);
 
-            Assert.ThrowsException<ArgumentException>(() =>
+            Assert.ThrowsExactly<ArgumentException>(() =>
                 CustomFolderOutputBaseSearchRootSyncService.SyncAdditionalOutputBaseRoots(
                     config, "[]", CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalBase])));
 
@@ -678,7 +678,7 @@ public sealed class LR2ConfigTests
     /// 準備時に新既定先を追加して旧登録を保持し、完了時だけ旧登録を削除して処理途中の参照切れを防ぐ。
     /// </summary>
     /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void PrepareNormalOutputBaseRoots_AddsNewDefaultAndRemovesOldDefault(bool oldIsParent)

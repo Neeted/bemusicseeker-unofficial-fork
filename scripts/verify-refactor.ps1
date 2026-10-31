@@ -783,32 +783,23 @@ function Get-TestArguments {
         [Parameter(Mandatory)]
         [string]$DiagnosticsDirectory,
 
-        [string]$RunSettingsPath,
-
-        [switch]$NoBuild
+        [string]$RunSettingsPath
     )
 
     $arguments = @(
-        'test',
-        $solution,
-        '/p:Configuration=Release',
-        '/p:Platform=x64',
-        '--no-restore',
         '--results-directory',
         $DiagnosticsDirectory,
-        '--logger',
-        'trx;LogFileName=results.trx',
-        '--logger',
-        'console;verbosity=normal',
-        '--blame-crash')
+        '--report-trx',
+        '--report-trx-filename',
+        'results.trx',
+        '--minimum-expected-tests',
+        '1',
+        '--crashdump')
     if (-not [string]::IsNullOrWhiteSpace($Filter)) {
         $arguments += @('--filter', $Filter)
     }
     if (-not [string]::IsNullOrWhiteSpace($RunSettingsPath)) {
         $arguments += @('--settings', $RunSettingsPath)
-    }
-    if ($NoBuild) {
-        $arguments += '--no-build'
     }
     return $arguments
 }
@@ -832,19 +823,16 @@ function Invoke-TestLane {
         [string[]]$SelectedFqns,
 
         [Parameter(Mandatory)]
-        [object]$DeadlinePolicy,
-
-        [switch]$NoBuild
+        [object]$DeadlinePolicy
     )
 
     $arguments = Get-TestArguments `
         -Filter $Filter `
         -DiagnosticsDirectory $DiagnosticsDirectory `
-        -RunSettingsPath $RunSettingsPath `
-        -NoBuild:$NoBuild
+        -RunSettingsPath $RunSettingsPath
     Invoke-VerificationMonitoredCommand `
         -Label "$Name test lane" `
-        -CommandPath 'dotnet' `
+        -CommandPath ([IO.Path]::ChangeExtension($functionalTestAssemblyPath, '.exe')) `
         -Arguments $arguments `
         -WorkingDirectory $repoRoot `
         -DiagnosticsDirectory $DiagnosticsDirectory `
@@ -877,10 +865,9 @@ function Start-FunctionalShardProcess {
     $arguments = Get-TestArguments `
         -Filter ([string]::Empty) `
         -DiagnosticsDirectory $DiagnosticsDirectory `
-        -RunSettingsPath $RunSettingsPath `
-        -NoBuild
+        -RunSettingsPath $RunSettingsPath
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = 'dotnet'
+    $startInfo.FileName = [IO.Path]::ChangeExtension($functionalTestAssemblyPath, '.exe')
     $startInfo.WorkingDirectory = $repoRoot
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
@@ -899,7 +886,7 @@ function Start-FunctionalShardProcess {
             throw "Unable to start functional test shard '$($Shard.Name)'."
         }
         $started = $true
-        $commandIdentity = "dotnet $($arguments -join ' ')"
+        $commandIdentity = "$($startInfo.FileName) $($arguments -join ' ')"
         # Retain the raw Process handle before any subsequent start/stream/identity
         # operation can throw.  The caller's single ownership ledger then cleans up
         # both fully recorded entries and a process whose entry construction failed.
@@ -1078,7 +1065,7 @@ function Invoke-ParallelFunctionalTestShards {
     $deadlinePolicy = $null
 
     try {
-        # The Functional budget starts at the portable dotnet test boundary.  Everything
+        # The Functional budget starts at the portable MTP process boundary.  Everything
         # above this point is test setup; the same policy then covers portable completion,
         # fanout launch, and every test host until the last host exits.
         $testExecutionStartedUtc = [DateTime]::UtcNow
@@ -1803,17 +1790,25 @@ function Invoke-FilteredQuickVerification {
 
         $testDirectory = Join-Path $DiagnosticsRoot 'functional'
         [void](New-Item -ItemType Directory -Path $testDirectory -Force)
+        # 実行ファイル相対の資産を使うため、MTP apphostを直接起動する。整形後の内容は同じQuick予算内で一回ビルドする。
+        Invoke-BudgetedCommand `
+            -Stopwatch $filteredQuickStopwatch `
+            -BudgetSeconds $TimeoutSeconds `
+            -Label 'Filtered build' `
+            -CommandPath 'dotnet' `
+            -Arguments @('build', $solution, '/p:Configuration=Release', '/p:Platform=x64', '--no-restore') `
+            -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'build')
+        Assert-BuiltOutputs
         $testArguments = Get-TestArguments `
             -Filter $Filter `
             -DiagnosticsDirectory $testDirectory
         Invoke-BudgetedCommand `
             -Stopwatch $filteredQuickStopwatch `
             -BudgetSeconds $TimeoutSeconds `
-            -Label 'Filtered build and test' `
-            -CommandPath 'dotnet' `
+            -Label 'Filtered test' `
+            -CommandPath ([IO.Path]::ChangeExtension($functionalTestAssemblyPath, '.exe')) `
             -Arguments $testArguments `
             -DiagnosticsDirectory $testDirectory
-        Assert-BuiltOutputs
         $knownNames = [string[]]@(Get-VerificationTestMetadata -AssemblyPath $functionalTestAssemblyPath |
             ForEach-Object { $_.FullyQualifiedName })
         [void](Assert-VerificationTestOutcomes -ResultPaths @(Join-Path $testDirectory 'results.trx') -KnownFqns $knownNames)
@@ -1933,8 +1928,7 @@ try {
                 -Filter 'TestCategory=ProcessIntegration&TestCategory!=EnvironmentIntegration' `
                 -SelectedFqns (Get-VerificationCategoryTestNames -Category 'ProcessIntegration') `
                 -DiagnosticsDirectory $processIntegrationTestDirectory `
-                -DeadlinePolicy $deadlinePolicy `
-                -NoBuild
+                -DeadlinePolicy $deadlinePolicy
         })
         [void](Invoke-MonitoredVerificationPhase -Name 'EnvironmentIntegration' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
@@ -1943,8 +1937,7 @@ try {
                 -Filter 'TestCategory=EnvironmentIntegration' `
                 -SelectedFqns (Get-VerificationCategoryTestNames -Category 'EnvironmentIntegration') `
                 -DiagnosticsDirectory (Join-Path $phaseDirectory 'test') `
-                -DeadlinePolicy $deadlinePolicy `
-                -NoBuild
+                -DeadlinePolicy $deadlinePolicy
         })
         [void](Invoke-MonitoredVerificationPhase -Name 'ReleaseAcceptance' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
@@ -1970,8 +1963,7 @@ try {
                     BMS_LEGACY_UPDATER_CURRENT_PACKAGE_PATH = $currentPackagePath
                     BMS_LEGACY_UPDATER_EXECUTION_DEADLINE_UTC = $deadlinePolicy.ExecutionDeadlineUtc.ToString('O')
                     BMS_LEGACY_UPDATER_CLEANUP_DEADLINE_UTC = $deadlinePolicy.CleanupDeadlineUtc.ToString('O')
-                } `
-                -NoBuild
+                }
             [void](Assert-FullVerificationTestOutcomes `
                     -DiagnosticsRoot $testDiagnosticsDirectory `
                     -ReceiptPath (Join-Path $phaseDirectory 'release-outcomes.json'))

@@ -15,7 +15,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class ScoreSnapshotPublicationTests
 {
     /// <summary>背景score16/128件で二つの実setterと二lookupの仕事を固定し、lookup全列挙・複製なしで連続rangeを登録する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     [DataRow(128)]
     public void LocalSetters_RegisterContinuousRangesWithoutCloningScoreLookup(int count)
@@ -120,7 +120,7 @@ public sealed class ScoreSnapshotPublicationTests
     }
 
     /// <summary>実setterの前後にcatalog全置換があってもscore rangeを保ち、wakeを逆順にdrainしても登録順を欠落・逆転しない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ScoreQueue_PreservesRangesAcrossCatalogResetAndReversedWake(bool scoreFirst)

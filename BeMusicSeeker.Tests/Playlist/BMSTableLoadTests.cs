@@ -18,7 +18,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BMSTableLoadTests
 {
     /// <summary>数値primitiveの明示順と本文所属を一緒に読み、逆自然順・文字列・装飾・nullの互換性とJSON往復を地域によらず保ちます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("fr-FR", "level_order")]
     [DataRow("de-DE", "folder_order")]
     public void LoadJson_NumericOrderAndFolderUseInvariantMembership(string cultureName, string orderProperty)
@@ -55,7 +55,7 @@ public sealed class BMSTableLoadTests
     }
 
     /// <summary>同じ旧形式・ISO入力を異文化で全体解析し、Gregorian日・壁時計tickとUnspecifiedを保持します。offset変換は別ケースへ分担します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("ja-JP")]
     [DataRow("en-US")]
     [DataRow("fr-FR")]
@@ -92,7 +92,7 @@ public sealed class BMSTableLoadTests
     }
 
     /// <summary>採用する非空日時の装飾・部分一致・年末尾・桁超過をheader/data分類で拒否し、先行する正常行も一表へ採用しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("2024/12/3100")]
     [DataRow("added [2024/12/31]")]
     [DataRow("12/31/2024")]
@@ -107,11 +107,11 @@ public sealed class BMSTableLoadTests
     {
         var table = new BMSTable { entries = [new BMSTableEntry { title = "Keep" }] };
         IReadOnlyList<BMSTableEntry> old = table.entries;
-        PlaylistHeaderParseException headerFailure = Assert.ThrowsException<PlaylistHeaderParseException>(() =>
+        PlaylistHeaderParseException headerFailure = Assert.ThrowsExactly<PlaylistHeaderParseException>(() =>
             table.LoadHeaderJSON(new JObject { ["last_update"] = text }.ToString()));
         Assert.IsInstanceOfType<PlaylistJsonDateException>(headerFailure.InnerException);
         StringAssert.Contains(headerFailure.Message, "last_update");
-        PlaylistDataParseException dataFailure = Assert.ThrowsException<PlaylistDataParseException>(() =>
+        PlaylistDataParseException dataFailure = Assert.ThrowsExactly<PlaylistDataParseException>(() =>
             table.LoadDataJSON(new JArray(new JObject { ["title"] = "Valid first", ["adddate"] = "2024-01-02" },
                 new JObject { ["title"] = "Invalid next", ["adddate"] = text }).ToString()));
         Assert.IsInstanceOfType<PlaylistJsonDateException>(dataFailure.InnerException);
@@ -120,7 +120,7 @@ public sealed class BMSTableLoadTests
     }
 
     /// <summary>省略・null・空白は既定日時を維持し、output_dateと実採用条件を満たさない行の日時は検査しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, null)]
     [DataRow(true, null)]
     [DataRow(true, "")]
@@ -146,7 +146,7 @@ public sealed class BMSTableLoadTests
     }
 
     /// <summary>旧形式の月日桁数とISOのZ/offsetによらず、明示offsetだけをLocalDateTimeへ変換します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("2024/1/21 1:2:3+09:00", 9)]
     [DataRow("2024/01/21 01:02:03+00:00", 0)]
     [DataRow("2024-01-21T01:02:03Z", 0)]
@@ -163,7 +163,7 @@ public sealed class BMSTableLoadTests
     }
 
     /// <summary>異文化へ実出力JSONを渡し、時刻と1tickを含む日時を丸めず保持します。完全wireは独立goldenへ分担します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("en-US", "fr-FR")]
     [DataRow("fr-FR", "th-TH")]
     [DataRow("th-TH", "ja-JP")]
@@ -190,7 +190,7 @@ public sealed class BMSTableLoadTests
     }
 
     /// <summary>外部levelはorg_level優先/nullと原文folderを保ち、JSON numberの直接値と既存の一数値抽出だけを固定Cultureへ揃えます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("ja-JP")]
     [DataRow("fr-FR")]
     [DataRow("de-DE")]
@@ -291,7 +291,7 @@ public sealed class BMSTableLoadTests
     }
 
     /// <summary>空・非空の完成入力は一度だけ自前集合へ取り込み、呼出元の追加・削除・置換・並替えを反映せず、行自体の参照は維持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Entries_InputListMutationDoesNotAlterCommittedComposition(bool nonempty)
@@ -347,7 +347,7 @@ public sealed class BMSTableLoadTests
     {
         var table = new BMSTable();
 
-        PlaylistHeaderParseException exception = Assert.ThrowsException<PlaylistHeaderParseException>(() => table.LoadHeaderJSON("{ invalid json }"));
+        PlaylistHeaderParseException exception = Assert.ThrowsExactly<PlaylistHeaderParseException>(() => table.LoadHeaderJSON("{ invalid json }"));
 
         Assert.IsNotNull(exception.InnerException);
     }
@@ -358,7 +358,7 @@ public sealed class BMSTableLoadTests
     {
         var table = new BMSTable();
 
-        PlaylistDataParseException exception = Assert.ThrowsException<PlaylistDataParseException>(() => table.LoadDataJSON("{ invalid json }"));
+        PlaylistDataParseException exception = Assert.ThrowsExactly<PlaylistDataParseException>(() => table.LoadDataJSON("{ invalid json }"));
 
         Assert.IsNotNull(exception.InnerException);
     }
@@ -369,7 +369,7 @@ public sealed class BMSTableLoadTests
     {
         var table = new BMSTable();
 
-        PlaylistDataParseException exception = Assert.ThrowsException<PlaylistDataParseException>(
+        PlaylistDataParseException exception = Assert.ThrowsExactly<PlaylistDataParseException>(
             () => table.LoadDataJSON("{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"));
 
         Assert.IsNotNull(exception.InnerException);
@@ -405,7 +405,7 @@ public sealed class BMSTableLoadTests
     }
 
     /// <summary>文字列・boolean・array・object の org_level は数値へ暗黙変換せず、専用解析例外と元原因を保って拒否することを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("\"1\"")]
     [DataRow("true")]
     [DataRow("[]")]
@@ -414,7 +414,7 @@ public sealed class BMSTableLoadTests
     {
         var table = new BMSTable();
 
-        PlaylistDataParseException exception = Assert.ThrowsException<PlaylistDataParseException>(
+        PlaylistDataParseException exception = Assert.ThrowsExactly<PlaylistDataParseException>(
             () => table.LoadDataJSON("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"org_level\":" + orgLevelJson + "}]"));
 
         Assert.IsNotNull(exception.InnerException);
@@ -426,7 +426,7 @@ public sealed class BMSTableLoadTests
     {
         var table = new BMSTable();
 
-        PlaylistHeaderParseException exception = Assert.ThrowsException<PlaylistHeaderParseException>(
+        PlaylistHeaderParseException exception = Assert.ThrowsExactly<PlaylistHeaderParseException>(
             () => table.LoadHeaderJSON("{\"name\":\"Typed\",\"symbol\":\"st\",\"entry_type\":null,\"data_url\":\"data.json\"}"));
 
         Assert.IsNotNull(exception.InnerException);
@@ -595,7 +595,7 @@ public sealed class BMSTableLoadTests
     {
         var table = new BMSTable();
 
-        PlaylistHeaderParseException exception = Assert.ThrowsException<PlaylistHeaderParseException>(
+        PlaylistHeaderParseException exception = Assert.ThrowsExactly<PlaylistHeaderParseException>(
             () => table.LoadHeaderJSON("{\"name\":\"Typed\",\"symbol\":\"st\"}{\"extra\":true}"));
 
         Assert.IsNotNull(exception.InnerException);
@@ -607,14 +607,14 @@ public sealed class BMSTableLoadTests
     {
         var table = new BMSTable();
 
-        PlaylistDataParseException exception = Assert.ThrowsException<PlaylistDataParseException>(
+        PlaylistDataParseException exception = Assert.ThrowsExactly<PlaylistDataParseException>(
             () => table.LoadDataJSON("[]{}"));
 
         Assert.IsNotNull(exception.InnerException);
     }
 
     /// <summary>新しい出力名は単一名だけを受理し、空欄を既定指定として保ちます。正規化でパス入力が同値になる場合も生入力で拒否します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(null, true)]
     [DataRow("", true)]
     [DataRow("   ", true)]
@@ -662,7 +662,7 @@ public sealed class BMSTableLoadTests
     {
         var table = new BMSTable();
 
-        InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(() => table.LoadHeaderJSON("{\"name\":\"Test\",\"symbol\":\"T\",\"data_url\":\"http://[broken\",\"level_order\":[1]}"));
+        InvalidOperationException exception = Assert.ThrowsExactly<InvalidOperationException>(() => table.LoadHeaderJSON("{\"name\":\"Test\",\"symbol\":\"T\",\"data_url\":\"http://[broken\",\"level_order\":[1]}"));
 
         StringAssert.Contains(exception.Message, "Failed to resolve playlist data_url");
     }
@@ -1071,7 +1071,7 @@ public sealed class BMSTableLoadTests
         };
 
         Assert.IsFalse(table.CanRewriteCompatibleFolderPrefix("★", "☆"));
-        Assert.ThrowsException<InvalidOperationException>(() => ApplyPrefixCandidate(table, "☆"));
+        Assert.ThrowsExactly<InvalidOperationException>(() => ApplyPrefixCandidate(table, "☆"));
 
         Assert.AreEqual("1", table.entries[0].folder);
         Assert.AreEqual("★1", table.entries[1].folder);
@@ -1159,8 +1159,8 @@ public sealed class BMSTableLoadTests
             var table = new BMSTable();
             string header = new JObject { ["last_update"] = token }.ToString();
             string data = new JArray(new JObject { ["title"] = "date", ["adddate"] = token }).ToString();
-            Assert.ThrowsException<PlaylistHeaderParseException>(() => table.LoadHeaderJSON(header));
-            Assert.ThrowsException<PlaylistDataParseException>(() => table.LoadDataJSON(data));
+            Assert.ThrowsExactly<PlaylistHeaderParseException>(() => table.LoadHeaderJSON(header));
+            Assert.ThrowsExactly<PlaylistDataParseException>(() => table.LoadDataJSON(data));
             table.LoadHeaderJSON(header, PlaylistJsonDatePolicy.Compatible);
             table.LoadDataJSON(data, PlaylistJsonDatePolicy.Compatible);
             Assert.AreEqual(expected, table.last_update);
@@ -1190,8 +1190,8 @@ public sealed class BMSTableLoadTests
             string header = "{\"name\":\"Keep\",\"last_update\":" + json + "}";
             string data = "[{\"title\":\"Valid first\",\"adddate\":\"2026-10-19\"},{\"title\":\"Keep invalid\",\"artist\":\"Other field\",\"adddate\":" + json + "}]";
             var table = new BMSTable { last_update = new DateTime(2020, 1, 2) };
-            Assert.ThrowsException<PlaylistHeaderParseException>(() => table.LoadHeaderJSON(header), json);
-            Assert.ThrowsException<PlaylistDataParseException>(() => table.LoadDataJSON(data), json);
+            Assert.ThrowsExactly<PlaylistHeaderParseException>(() => table.LoadHeaderJSON(header), json);
+            Assert.ThrowsExactly<PlaylistDataParseException>(() => table.LoadDataJSON(data), json);
             var warnings = new List<string>();
             DateTime before = DateTime.Now;
             table.LoadHeaderJSON(header, PlaylistJsonDatePolicy.Compatible, logDateWarning: (_, message) => warnings.Add(message));
@@ -1217,7 +1217,7 @@ public sealed class BMSTableLoadTests
     }
 
     /// <summary>異文化と非Gregorianの既定暦でも文法・曖昧拒否・compact・offset・Invariant数値診断を変えません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("en-US", false)]
     [DataRow("fr-FR", false)]
     [DataRow("ja-JP", false)]
@@ -1288,7 +1288,7 @@ public sealed class BMSTableLoadTests
         table.LoadDataJSON(data, PlaylistJsonDatePolicy.Compatible, (_, _) => throw new InvalidOperationException("diagnostic failure"));
         Assert.AreEqual(261, table.entries.Count);
         var strictWarnings = new List<string>();
-        Assert.ThrowsException<PlaylistHeaderParseException>(() => table.LoadHeaderJSON(header, PlaylistJsonDatePolicy.Strict, logDateWarning: (_, message) => strictWarnings.Add(message)));
+        Assert.ThrowsExactly<PlaylistHeaderParseException>(() => table.LoadHeaderJSON(header, PlaylistJsonDatePolicy.Strict, logDateWarning: (_, message) => strictWarnings.Add(message)));
         StringAssert.Contains(strictWarnings.Single(), " raw ");
     }
 

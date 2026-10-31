@@ -61,7 +61,7 @@ public sealed class ChartInfoParserBoundaryTests
                 }
                 if (fixture.Failure != null)
                 {
-                    InvalidDataException exception = Assert.ThrowsException<InvalidDataException>(() => ChartInfoParser.ParseBytesDetailed(bytes, fixture.Extension));
+                    InvalidDataException exception = Assert.ThrowsExactly<InvalidDataException>(() => ChartInfoParser.ParseBytesDetailed(bytes, fixture.Extension));
                     Assert.AreEqual(fixture.Failure, exception.Message);
                     Assert.IsNotNull(exception.InnerException);
                     Assert.AreEqual(fixture.Failure, exception.InnerException.Message);

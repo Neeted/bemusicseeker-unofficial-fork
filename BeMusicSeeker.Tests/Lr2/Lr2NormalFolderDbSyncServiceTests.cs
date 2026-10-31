@@ -14,7 +14,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class Lr2NormalFolderDbSyncServiceTests
 {
     /// <summary>削除候補の直接custom・別子custom・親欠落・customなしを限定読取りと生成へ接続し、必要親だけを生成保持します。custom全列と無関係ルートの不変性も観測します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 直接親の保持、祖先の別子による保持、欠落親の補完、依存なしのpruneをそれぞれ識別します。
     [DataRow(true, false, true)]
     [DataRow(true, true, true)]
@@ -77,7 +77,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
     }
 
     /// <summary>対象共通親の実限定取得から保存まで、別rawキーは削除・新規、exact存続は値とNULLを保持します。ASCII・CP932 Greek・通常移動を同じ集合則で比較します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("a", "A", true, false, 987)]
     [DataRow("a", "A", true, true, 987)]
     [DataRow("a", "A", false, true, null)]

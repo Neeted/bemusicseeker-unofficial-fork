@@ -26,7 +26,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class WpfTestApplicationHostTests
 {
     /// <summary>既終端と受理後終了の要求が、停止の二次失敗を含め元例外とthread回収を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -77,7 +77,7 @@ public sealed class WpfTestApplicationHostTests
             {
                 releaseFatal.Set();
                 completed.Wait();
-                Assert.AreSame(original, Assert.ThrowsException<InvalidOperationException>(() =>
+                Assert.AreSame(original, Assert.ThrowsExactly<InvalidOperationException>(() =>
                     TestUiDispatcherHost.InvokeOnOwnedDispatcher(target, thread, completed, () => terminalFailure,
                         () => actionCalls++)));
             }
@@ -97,7 +97,7 @@ public sealed class WpfTestApplicationHostTests
                     if (request.IsCompleted) { request.GetAwaiter().GetResult(); Assert.Fail("The request ended before its actual registration."); }
                     accepted = registered.Task.GetAwaiter().GetResult();
                     releaseFatal.Set();
-                    Assert.AreSame(original, Assert.ThrowsException<InvalidOperationException>(() => request.GetAwaiter().GetResult()));
+                    Assert.AreSame(original, Assert.ThrowsExactly<InvalidOperationException>(() => request.GetAwaiter().GetResult()));
                 }
                 finally { target.Hooks.OperationPosted -= posted; }
             }
@@ -111,7 +111,7 @@ public sealed class WpfTestApplicationHostTests
                     ?? throw new AssertFailedException("The secondary shutdown failure was not preserved.");
                 StringAssert.Contains(detail, secondary.Message);
             }
-            Assert.AreSame(original, Assert.ThrowsException<InvalidOperationException>(() =>
+            Assert.AreSame(original, Assert.ThrowsExactly<InvalidOperationException>(() =>
                 TestUiDispatcherHost.JoinOwnedDispatcher(thread, completed, () => terminalFailure)));
             Assert.IsFalse(thread.IsAlive);
         }
@@ -133,7 +133,7 @@ public sealed class WpfTestApplicationHostTests
     public void Invoke_ActionFailurePreservesHealthyHostAndFollowingRequest()
     {
         var original = new InvalidOperationException("action failure");
-        Assert.AreSame(original, Assert.ThrowsException<InvalidOperationException>(() => TestUiDispatcherHost.Invoke(() => throw original)));
+        Assert.AreSame(original, Assert.ThrowsExactly<InvalidOperationException>(() => TestUiDispatcherHost.Invoke(() => throw original)));
         bool followingCompleted = false;
         TestUiDispatcherHost.Invoke(() => followingCompleted = true);
         Assert.IsTrue(followingCompleted);
@@ -175,7 +175,7 @@ public sealed class WpfTestApplicationHostTests
     }
 
     /// <summary>通常Taskの待機が予約consumerの成功・失敗・取消をそのまま観測します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("success")]
     [DataRow("failure")]
     [DataRow("canceled")]
@@ -206,16 +206,16 @@ public sealed class WpfTestApplicationHostTests
                     case "success": TestUiDispatcherHost.AwaitTaskOnDispatcher(observation, outcome); break;
                     case "failure":
                     case "producer_failure":
-                        Assert.AreSame(failure, Assert.ThrowsException<InvalidOperationException>(() =>
+                        Assert.AreSame(failure, Assert.ThrowsExactly<InvalidOperationException>(() =>
                             TestUiDispatcherHost.AwaitTaskOnDispatcher(observation, outcome)));
                         break;
                     case "canceled":
                     case "producer_canceled":
-                        Assert.ThrowsException<TaskCanceledException>(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(observation, outcome));
+                        Assert.ThrowsExactly<TaskCanceledException>(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(observation, outcome));
                         if (outcome == "producer_canceled") { Assert.IsTrue(producer.Task.IsCanceled); }
                         break;
                     case "missing":
-                        Assert.ThrowsException<InvalidOperationException>(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(observation, outcome));
+                        Assert.ThrowsExactly<InvalidOperationException>(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(observation, outcome));
                         break;
                 }
             }
@@ -507,7 +507,7 @@ public sealed class WpfTestApplicationHostTests
             };
             bool contentRendered = false;
             window.ContentRendered += (_, _) => contentRendered = true;
-            Assert.ThrowsException<TimeoutException>(() => scope.ShowAndWaitForContentRendered(window));
+            Assert.ThrowsExactly<TimeoutException>(() => scope.ShowAndWaitForContentRendered(window));
             Assert.IsFalse(contentRendered);
             Assert.IsTrue(window.IsLoaded);
             Assert.AreNotEqual(0, TestWindowPresentationScope.GetNativeHandle(window));

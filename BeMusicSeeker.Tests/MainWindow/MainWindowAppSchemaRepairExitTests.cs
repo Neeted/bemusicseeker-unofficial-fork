@@ -15,7 +15,7 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class MainWindowViewHostTests
 {
     /// <summary>通常起動と初回設定開始で非同期schema確認の取消・×を実Closeへ渡し、L/P・gate解放後の一回終了と旧DB保持を確認します。Escの結果生成は実dialogのOKCancelケースへ分担します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, MessageBoxResult.Cancel)]
     [DataRow(false, MessageBoxResult.None)]
     [DataRow(true, MessageBoxResult.Cancel)]

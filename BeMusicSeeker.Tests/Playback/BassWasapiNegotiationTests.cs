@@ -60,7 +60,7 @@ public sealed class BassWasapiNegotiationTests
     }
 
     /// <summary>共有方式はmix要求とGetInfo実値を区別し、端末16/24/32bit・FloatでもFloat32バッファを10msへ換算して端末精度とsession結果を保つ。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(WasapiFormat.Bit16, SampleFormat.SAMPLE_INT_16BIT, 16)]
     [DataRow(WasapiFormat.Bit24, SampleFormat.SAMPLE_INT_24BIT, 24)]
     [DataRow(WasapiFormat.Bit32, SampleFormat.SAMPLE_INT_32BIT, 32)]
@@ -182,7 +182,7 @@ public sealed class BassWasapiNegotiationTests
 
         try
         {
-            await Assert.ThrowsExceptionAsync<OperationCanceledException>(async () => await queryTask);
+            await Assert.ThrowsExactlyAsync<OperationCanceledException>(async () => await queryTask);
         }
         finally
         {
@@ -359,7 +359,7 @@ public sealed class BassWasapiNegotiationTests
     }
 
     /// <summary>共有開始で指定並列数1～4を設定・読戻しし、native Start時のcallback出力handleと初期化完了後の初期gain・rendererを確認する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(1)]
     [DataRow(2)]
     [DataRow(3)]
@@ -396,7 +396,7 @@ public sealed class BassWasapiNegotiationTests
     }
 
     /// <summary>並列数の設定失敗・読戻し失敗・不一致をそれぞれ初期化失敗へ伝え、未確認mixerを成功にしない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("set")]
     [DataRow("get")]
     [DataRow("mismatch")]
@@ -418,7 +418,7 @@ public sealed class BassWasapiNegotiationTests
             native.ReportedMixerThreadCount = BassMixerThreadConfigurator.RealtimeDefaultThreadCount + 1;
         }
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => new BassWasapiNegotiator(native).Initialize(
                 CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
                 CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
@@ -451,7 +451,7 @@ public sealed class BassWasapiNegotiationTests
     }
 
     /// <summary>排他開始へ指定並列数と音量を渡し、整数endpointのdither flagを維持する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(1)]
     [DataRow(2)]
     [DataRow(3)]
@@ -489,7 +489,7 @@ public sealed class BassWasapiNegotiationTests
         native.InitializationErrors.Enqueue(Errors.NotAvailable);
         BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => new BassWasapiNegotiator(native).Initialize(
                 CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
                 session,
@@ -537,7 +537,7 @@ public sealed class BassWasapiNegotiationTests
         };
         native.InitializationResults.Enqueue(true);
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => new BassWasapiNegotiator(native).Initialize(
                 CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
                 session,
@@ -553,7 +553,7 @@ public sealed class BassWasapiNegotiationTests
     }
 
     /// <summary>共有イベント失敗は通常再生だけ非イベントへ代替し、明示テストと非イベント要求では失敗として要求条件を守る。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, true)]
     [DataRow(true, true)]
     [DataRow(false, false)]
@@ -576,7 +576,7 @@ public sealed class BassWasapiNegotiationTests
 
         if (purpose == AudioOutputPurpose.DeviceTest || !eventMode)
         {
-            AudioInitializationException failure = Assert.ThrowsException<AudioInitializationException>(() => Initialize());
+            AudioInitializationException failure = Assert.ThrowsExactly<AudioInitializationException>(() => Initialize());
             Assert.AreEqual("BASS_WASAPI_Init", failure.Stage);
             Assert.AreEqual(eventMode, native.InitializationCalls.Single().Flags.HasFlag(WasapiInitFlags.EventDriven));
             Assert.AreEqual(0, native.MixerRate);
@@ -770,7 +770,7 @@ public sealed class BassWasapiNegotiationTests
         };
         BassAudioNegotiationRequest request = CreateWasapiRequest(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => new BassWasapiNegotiator(native).Initialize(
                 request,
                 CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
@@ -801,7 +801,7 @@ public sealed class BassWasapiNegotiationTests
             device: new BassAudioPlayer.DeviceDescriptor("Selected WASAPI", "stale-id"),
             purpose: AudioOutputPurpose.DeviceTest);
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => new BassWasapiNegotiator(native).Initialize(
                 request,
                 CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE),
@@ -827,7 +827,7 @@ public sealed class BassWasapiNegotiationTests
             SampleRate.SAMPLE_RATE_44100Hz,
             purpose: AudioOutputPurpose.DeviceTest);
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => new BassWasapiNegotiator(native).Initialize(
                 request,
                 CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE),
@@ -855,7 +855,7 @@ public sealed class BassWasapiNegotiationTests
             format: SampleFormat.SAMPLE_INT_16BIT,
             purpose: AudioOutputPurpose.DeviceTest);
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => new BassWasapiNegotiator(native).Initialize(
                 request,
                 CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE),
@@ -869,7 +869,7 @@ public sealed class BassWasapiNegotiationTests
     }
 
     /// <summary>排他の周期調整は用途とイベント要求を保持し、通常再生だけ許された非イベント／形式代替へ進んで原因を残す。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true, true)]
     [DataRow(true, false)]
     [DataRow(false, true)]
@@ -911,7 +911,7 @@ public sealed class BassWasapiNegotiationTests
     }
 
     /// <summary>Auto rateと明示24bit形式は照会済みを前提とせず最初の完全一致rateで開始し、低精度readbackを対応として受け入れない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true, true)]
     [DataRow(true, false)]
     [DataRow(false, true)]
@@ -954,7 +954,7 @@ public sealed class BassWasapiNegotiationTests
     }
 
     /// <summary>Auto rateに要求形式の対応がなければ明示テストは開始せず失敗し、通常再生だけ形式代替を理由付きで行う。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void AutoRateWithUnavailableExplicitFormat_RespectsPurposeFallbackPolicy(bool deviceTest)
@@ -973,7 +973,7 @@ public sealed class BassWasapiNegotiationTests
             WasapiCallback, initialGain: 0.4f, eventModeRequested: false);
         if (purpose == AudioOutputPurpose.DeviceTest)
         {
-            AudioInitializationException failure = Assert.ThrowsException<AudioInitializationException>(() => Initialize());
+            AudioInitializationException failure = Assert.ThrowsExactly<AudioInitializationException>(() => Initialize());
             Assert.AreEqual("BASS_WASAPI_CheckFormat", failure.Stage);
             Assert.AreEqual(0, native.InitializationCalls.Count);
             Assert.AreEqual(0, native.MixerRate);

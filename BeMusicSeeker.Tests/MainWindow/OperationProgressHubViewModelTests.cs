@@ -223,7 +223,7 @@ public sealed class OperationProgressHubViewModelTests
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         using var fixture = ProgressWorkflowFixture.Create(hub);
 
-        Assert.ThrowsException<InvalidOperationException>(() => hub.AttachWorkflowProgressSources(
+        Assert.ThrowsExactly<InvalidOperationException>(() => hub.AttachWorkflowProgressSources(
             fixture.Package,
             fixture.Maintenance,
             fixture.Folder));
@@ -338,7 +338,7 @@ public sealed class OperationProgressHubViewModelTests
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         PlaylistWorkspaceViewModel workspace = AttachPlaylistProgressSources(hub);
 
-        Assert.ThrowsException<InvalidOperationException>(() => hub.AttachPlaylistProgressSources(
+        Assert.ThrowsExactly<InvalidOperationException>(() => hub.AttachPlaylistProgressSources(
             workspace,
             action => action(),
             () => false));
@@ -705,7 +705,7 @@ public sealed class OperationProgressHubViewModelTests
     }
 
     /// <summary>起動・全再初期化・差分読込みに対応した実LR2要求だけを必須親へ所属させ、未完了の警告は親終端後も独立行にします。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(StartupProgressOperationKind.Startup)]
     [DataRow(StartupProgressOperationKind.FullReinitialize)]
     [DataRow(StartupProgressOperationKind.ReloadFileDiff)]
@@ -777,7 +777,7 @@ public sealed class OperationProgressHubViewModelTests
     }
 
     /// <summary>外部同期とTable URL取込みを両方の終端順で実行し、同期だけを起動任意親へ所属させて先着終端が他方の件数・対象・親を消しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void PlaylistRows_SyncAndBeatorajaImportRemainIndependentInEitherCompletionOrder(bool syncCompletesFirst)
@@ -965,7 +965,7 @@ public sealed class OperationProgressHubViewModelTests
     }
 
     /// <summary>起動種別・要求source・版が一致した必須スコア実行だけを親へ所属させ、表示用行の所属判定で親進捗を増減させません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, "score_hydration_deferred", 2, true)] // 起動の必須スコア要求とsource・版が一致します。
     [DataRow(true, "ranking_refresh_deferred", 2, false)] // 全再初期化でも順位は任意workです。
     [DataRow(true, "ranking_refresh_deferred", 1, false)] // 異なる版の順位を必須要求へ混ぜません。
@@ -988,7 +988,7 @@ public sealed class OperationProgressHubViewModelTests
     }
 
     /// <summary>操作IDの有無にかかわらず同sourceの旧要求終端は新要求の件数・対象を残し、新要求の終端でだけ最後の行を消します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0L)]
     [DataRow(7L)]
     public void PlaylistRows_LateTerminalWithSameSourceAndOperationIdKeepsDifferentAcceptedRequest(long operationId)
@@ -1011,7 +1011,7 @@ public sealed class OperationProgressHubViewModelTests
     }
 
     /// <summary>スコア再読込みでは対応するモデル要求の版だけを必須親へ所属させ、任意順位と次版実行を混入させません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("score_hydration_deferred")]
     [DataRow("ranking_refresh_deferred")]
     public void ExecutionRows_ScoreOnlyAttachesOnlyMatchingModelRequest(string name)
@@ -1030,7 +1030,7 @@ public sealed class OperationProgressHubViewModelTests
     }
 
     /// <summary>自動・手動再取得で逆順の終了通知を即時／予約配送しても件数と終了対象を一体で保ち、同数更新・URI代替と次要求の0件を採用します。対象外の通知は最新値を保ちます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("external_playlist_sync", false)]
     [DataRow("external_playlist_sync", true)]
     [DataRow("playlist_manual_reload", false)]

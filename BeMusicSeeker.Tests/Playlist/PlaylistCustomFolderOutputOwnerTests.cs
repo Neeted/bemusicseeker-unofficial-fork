@@ -16,7 +16,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class PlaylistCustomFolderOutputOwnerTests
 {
     /// <summary>2表の生成・未変更・不要ファイル削除をまとめて反映し、実ファイル3件の有限進捗と同期項目を返す。観測先が正常・例外の両方で出力を完了し、誤った総数や観測失敗による処理中断を検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 専用の進捗観測先が正常な場合と例外を投げる場合で、物理反映は同じ結果を維持する。
     [DataRow(false)]
     [DataRow(true)]

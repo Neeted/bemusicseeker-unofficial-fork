@@ -21,7 +21,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class ChartInfoParserBehaviorTests
 {
     /// <summary>正ノーツBMSONのTOTAL省略・非正値・nullは未定義、明示正値は定義済みとし、有効TOTALの既定計算と倍率を維持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("", false, 260d)]
     [DataRow(",\"total\":100", true, 260d)]
     [DataRow(",\"total\":0", false, 260d)]
@@ -40,7 +40,7 @@ public sealed class ChartInfoParserBehaviorTests
     }
 
     /// <summary>旧0.21・versionless・現代versionの旧別名を同じJSON境界で受理し、旧形式だけresolutionを240へ固定してSTOPをpulse長のまま扱います。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("\"version\":\"0.21\",", 480)]
     [DataRow("", 480)]
     [DataRow("\"version\":\"1.0.0\",", 240)]
@@ -71,7 +71,7 @@ public sealed class ChartInfoParserBehaviorTests
     }
 
     /// <summary>各原文objectの現代名を位置にかかわらず優先し、null・空配列・大小文字違いを旧値で補いません。別info objectのpopulateと重複キーの順序も保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void BmsonJsonParser_ModernNamesWinWithinEachOriginalObject(bool legacyFirst)
@@ -106,7 +106,7 @@ public sealed class ChartInfoParserBehaviorTests
     }
 
     /// <summary>現代名の不正値は旧値へfallbackせず入力失敗にし、旧resolutionの変換前固定でも構文不良を消して受理しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("{\"info\":{\"initBPM\":120,\"init_bpm\":{}}}")]
     [DataRow("{\"bpmNotes\":[],\"bpm_events\":5}")]
     [DataRow("{\"bpmNotes\":[{\"v\":120,\"bpm\":{}}]}")]
@@ -285,7 +285,7 @@ public sealed class ChartInfoParserBehaviorTests
     }
 
     /// <summary>bmsonのJSON数値の原文から参照互換のBPMを生成し、中間変換で末尾桁が変わってハッシュ入力をずらす誤りを検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("modern")]
     [DataRow("legacy")]
     [DataRow("versionless")]
@@ -713,7 +713,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + "#99911:01\r\n",
                 Encoding.ASCII);
 
-            InvalidDataException ex = Assert.ThrowsException<InvalidDataException>(() => ChartInfoParser.Parse(chartPath));
+            InvalidDataException ex = Assert.ThrowsExactly<InvalidDataException>(() => ChartInfoParser.Parse(chartPath));
             StringAssert.Contains(ex.Message, "BMS timeline length is too large.");
         });
     }
@@ -911,7 +911,7 @@ public sealed class ChartInfoParserBehaviorTests
             string chartPath = Path.Combine(tempRootPath, "missing-bpm.bms");
             File.WriteAllText(chartPath, "#00111:01\r\n", Encoding.ASCII);
 
-            Assert.ThrowsException<InvalidDataException>(() => ChartInfoParser.Parse(chartPath));
+            Assert.ThrowsExactly<InvalidDataException>(() => ChartInfoParser.Parse(chartPath));
         });
     }
 
@@ -979,7 +979,7 @@ public sealed class ChartInfoParserBehaviorTests
                 string chartPath = Path.Combine(tempRootPath, "invalid-bpm-" + index.ToString(CultureInfo.InvariantCulture) + ".bms");
                 File.WriteAllText(chartPath, texts[index], Encoding.ASCII);
 
-                Assert.ThrowsException<InvalidDataException>(() => ChartInfoParser.Parse(chartPath));
+                Assert.ThrowsExactly<InvalidDataException>(() => ChartInfoParser.Parse(chartPath));
             }
         });
     }
@@ -1884,7 +1884,7 @@ public sealed class ChartInfoParserBehaviorTests
         {
             string chartPath = Path.Combine(fixtureRootPath, sample.fixture_path.Replace('/', Path.DirectorySeparatorChar));
 
-            Assert.ThrowsException<InvalidDataException>(() => ChartInfoParser.Parse(chartPath, sample.md5, sample.sha256), sample.sha256);
+            Assert.ThrowsExactly<InvalidDataException>(() => ChartInfoParser.Parse(chartPath, sample.md5, sample.sha256), sample.sha256);
         }
     }
 

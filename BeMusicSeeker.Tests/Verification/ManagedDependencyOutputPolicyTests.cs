@@ -219,7 +219,7 @@ public sealed class ManagedDependencyOutputPolicyTests
     }
 
     /// <summary>
-    /// テストプロジェクトが自分のlocked restoreとテストhost依存を持ち、アプリ出力への依存で検証環境を成立させる誤りを検出する。
+    /// SDKが所有するMTP依存をlock・評価済みassetsと照合し、旧host依存の混在や製品出力へのテスト依存混入を検出する。
     /// </summary>
     [TestMethod]
     public void TestProjectOwnsLockedTestHostDependencyGraph()
@@ -232,24 +232,39 @@ public sealed class ManagedDependencyOutputPolicyTests
             "true",
             (string)projectRoot.Elements("PropertyGroup").Elements("RestorePackagesWithLockFile").Single(),
             "The test project must own a packages.lock.json for deterministic testhost restore.");
-        XElement testSdkReference = projectRoot
-            .Elements("ItemGroup")
-            .Elements("PackageReference")
-            .Single(reference => string.Equals((string?)reference.Attribute("Include"), "Microsoft.NET.Test.Sdk", StringComparison.Ordinal));
-        Assert.IsNull((object?)testSdkReference.Attribute("Version"));
+        Assert.AreEqual("MSTest.Sdk", (string?)projectRoot.Attribute("Sdk"));
+        using var global = JsonDocument.Parse(File.ReadAllText(Path.Combine(repositoryRoot, "global.json")));
+        string? sdkVersion = global.RootElement.GetProperty("msbuild-sdks").GetProperty("MSTest.Sdk").GetString();
+        Assert.AreEqual("Microsoft.Testing.Platform", global.RootElement.GetProperty("test").GetProperty("runner").GetString());
 
         string lockPath = Path.Combine(repositoryRoot, "BeMusicSeeker.Tests", "packages.lock.json");
         Assert.IsTrue(File.Exists(lockPath), "The test project lock file must be tracked beside its project.");
         using var lockDocument = JsonDocument.Parse(File.ReadAllText(lockPath));
         JsonElement dependencies = lockDocument.RootElement.GetProperty("dependencies");
         JsonElement targetDependencies = dependencies.GetProperty("net10.0-windows7.0");
-        JsonElement sdk = targetDependencies.GetProperty("Microsoft.NET.Test.Sdk");
-        string sdkVersion = sdk.GetProperty("resolved").GetString()
-            ?? throw new AssertFailedException("The test SDK lock entry has no resolved version.");
         using var assetsDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(repositoryRoot, "BeMusicSeeker.Tests", "obj", "project.assets.json")));
-        Assert.IsTrue(assetsDocument.RootElement.GetProperty("targets").GetProperty("net10.0-windows/win-x64")
-            .TryGetProperty("Microsoft.NET.Test.Sdk/" + sdkVersion, out _));
-        Assert.AreEqual("Direct", sdk.GetProperty("type").GetString());
+        JsonElement selected = assetsDocument.RootElement.GetProperty("targets").GetProperty("net10.0-windows/win-x64");
+        foreach (string packageId in new[] { "MSTest.TestFramework", "MSTest.TestAdapter", "Microsoft.Testing.Platform" })
+        {
+            JsonElement locked = targetDependencies.GetProperty(packageId);
+            string? resolved = locked.GetProperty("resolved").GetString();
+            Assert.IsTrue(selected.TryGetProperty(packageId + "/" + resolved, out _), packageId);
+            if (packageId.StartsWith("MSTest.", StringComparison.Ordinal)) { Assert.AreEqual(sdkVersion, resolved, packageId); }
+        }
+        foreach (string retired in new[] { "Microsoft.NET.Test.Sdk", "Microsoft.Testing.Extensions.VSTestBridge" })
+        {
+            Assert.IsFalse(targetDependencies.TryGetProperty(retired, out _), retired);
+        }
+
+        using var applicationDeps = JsonDocument.Parse(File.ReadAllText(Path.Combine(ResolveReleaseOutputDirectory(), "BeMusicSeeker.deps.json")));
+        Assert.IsFalse(applicationDeps.RootElement.GetProperty("libraries").EnumerateObject().Any(package =>
+            package.Name.StartsWith("MSTest", StringComparison.Ordinal) ||
+            package.Name.StartsWith("Microsoft.Testing.", StringComparison.Ordinal) ||
+            package.Name.StartsWith("Microsoft.TestPlatform.", StringComparison.Ordinal)));
+        Assert.IsFalse(Directory.EnumerateFiles(ResolveReleaseOutputDirectory(), "*.dll").Any(path =>
+            Path.GetFileName(path).StartsWith("Microsoft.Testing.", StringComparison.Ordinal) ||
+            Path.GetFileName(path).StartsWith("Microsoft.VisualStudio.TestPlatform.", StringComparison.Ordinal) ||
+            Path.GetFileName(path).StartsWith("MSTest", StringComparison.Ordinal)));
     }
 
     /// <summary>
@@ -424,7 +439,12 @@ public sealed class ManagedDependencyOutputPolicyTests
                 string packageKey = lockedPackage.Name + "/" + resolved;
                 Assert.IsTrue(selectedTarget.TryGetProperty(packageKey, out JsonElement selectedPackage), packageKey);
                 Assert.AreEqual("package", selectedPackage.GetProperty("type").GetString(), packageKey);
-                Assert.IsTrue(depsTarget.TryGetProperty(packageKey, out _), packageKey);
+                // SDKのbuild/analyzer専用依存は配置対象ではない。実行時資産を持つpackageの配布を保証する。
+                if (selectedPackage.TryGetProperty("runtime", out _) || selectedPackage.TryGetProperty("native", out _) ||
+                    selectedPackage.TryGetProperty("runtimeTargets", out _))
+                {
+                    Assert.IsTrue(depsTarget.TryGetProperty(packageKey, out _), packageKey);
+                }
             }
             AssertRuntimeOutputsMatchSelectedAssets(assetsDocument.RootElement, selectedTarget, depsTarget, outputDirectory);
         }
@@ -650,7 +670,8 @@ public sealed class ManagedDependencyOutputPolicyTests
     {
         foreach (JsonProperty package in selectedTarget.EnumerateObject())
         {
-            if (package.Value.GetProperty("type").GetString() != "package")
+            if (package.Value.GetProperty("type").GetString() != "package" ||
+                !package.Value.TryGetProperty("runtime", out _))
             {
                 continue;
             }

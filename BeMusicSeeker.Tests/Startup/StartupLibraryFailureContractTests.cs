@@ -29,7 +29,7 @@ public sealed class StartupLibraryFailureContractTests
         var nullOwner = new StartupLibraryConstructionOwner(nullFactory);
         var nullApplication = new RecordingStartupLibraryApplicationPort([]);
 
-        Assert.ThrowsException<InvalidOperationException>(() => nullOwner.CreateAndApply(profile, nullApplication));
+        Assert.ThrowsExactly<InvalidOperationException>(() => nullOwner.CreateAndApply(profile, nullApplication));
         Assert.AreEqual(1, nullFactory.LibraryCallCount);
         Assert.AreEqual(0, nullFactory.PlaylistCallCount);
 
@@ -52,7 +52,7 @@ public sealed class StartupLibraryFailureContractTests
             application = new RecordingStartupLibraryApplicationPort(events);
             factory.ReturnNullPlaylist = true;
 
-            InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
+            InvalidOperationException exception = Assert.ThrowsExactly<InvalidOperationException>(
                 () => owner.CreateAndApply(profile, application, previousLibrary: previous.Library, previousPlaylist: previous.Playlist));
 
             StringAssert.Contains(exception.Message, "Startup playlist factory returned null");
@@ -69,7 +69,7 @@ public sealed class StartupLibraryFailureContractTests
             events.Clear();
             factory.ReturnNullPlaylist = false;
             factory.ThrowOnLibrary = true;
-            exception = Assert.ThrowsException<InvalidOperationException>(
+            exception = Assert.ThrowsExactly<InvalidOperationException>(
                 () => owner.CreateAndApply(profile, application, previousLibrary: previous.Library, previousPlaylist: previous.Playlist));
             StringAssert.Contains(exception.Message, "recording library factory failure");
             CollectionAssert.AreEqual(new[] { "factory-library" }, events);
@@ -78,7 +78,7 @@ public sealed class StartupLibraryFailureContractTests
             factory.ThrowOnLibrary = false;
             factory.ReturnNullPlaylist = false;
             factory.ThrowOnPlaylist = true;
-            exception = Assert.ThrowsException<InvalidOperationException>(
+            exception = Assert.ThrowsExactly<InvalidOperationException>(
                 () => owner.CreateAndApply(profile, application, previousLibrary: previous.Library, previousPlaylist: previous.Playlist));
             StringAssert.Contains(exception.Message, "recording playlist failure");
             CollectionAssert.AreEqual(
@@ -262,7 +262,7 @@ public sealed class StartupLibraryFailureContractTests
             {
                 ThrowOnLibrary = true
             };
-            InvalidOperationException libraryException = Assert.ThrowsException<InvalidOperationException>(
+            InvalidOperationException libraryException = Assert.ThrowsExactly<InvalidOperationException>(
                 () => new StartupLibraryConstructionOwner(libraryFactory).CreateAndApply(profile, libraryApplication));
             StringAssert.Contains(libraryException.Message, "recording library application failure");
             CollectionAssert.AreEqual(new[] { "factory-library", "factory-playlist", "application-library" }, libraryEvents);
@@ -273,7 +273,7 @@ public sealed class StartupLibraryFailureContractTests
             {
                 ThrowOnServices = true
             };
-            InvalidOperationException servicesException = Assert.ThrowsException<InvalidOperationException>(
+            InvalidOperationException servicesException = Assert.ThrowsExactly<InvalidOperationException>(
                 () => new StartupLibraryConstructionOwner(servicesFactory).CreateAndApply(profile, servicesApplication));
             StringAssert.Contains(servicesException.Message, "recording services application failure");
             CollectionAssert.AreEqual(

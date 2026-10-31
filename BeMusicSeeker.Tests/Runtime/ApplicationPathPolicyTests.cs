@@ -32,7 +32,7 @@ public sealed class ApplicationPathPolicyTests
     [TestMethod]
     public void SnapshotRejectsMissingExecutablePath()
     {
-        Assert.ThrowsException<ArgumentException>(() => ApplicationPathSnapshot.FromExecutablePath(null));
+        Assert.ThrowsExactly<ArgumentException>(() => ApplicationPathSnapshot.FromExecutablePath(null));
     }
 
     /// <summary>注入した実行ファイル基準をnative bridgeの探索へ渡し、別のアプリ配置を参照しません。</summary>

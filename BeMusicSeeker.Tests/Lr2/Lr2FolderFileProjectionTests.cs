@@ -182,7 +182,7 @@ public sealed class Lr2FolderFileProjectionTests
     /// 外部DBが受理するカスタム種別整数を指定どおり保存し、正常種別の拒否や別種別への置換を検出します。
     /// </summary>
     /// <remarks>DataRowの2・3・4・6は外部DBのカスタム種別整数です。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(2)]
     [DataRow(3)]
     [DataRow(4)]
@@ -381,7 +381,7 @@ public sealed class Lr2FolderFileProjectionTests
     /// 既知の組込みファイル名から通常・新規曲・コースの外部種別を選び、相対保存パスを保って特殊種別の取り違えを検出します。
     /// </summary>
     /// <remarks>既知パスと期待種別のDataRowで通常2・新規曲3・コース6の条件差を示します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(@"LR2files\CustomFolder\favorite.lr2folder", 2)]
     [DataRow(@"LR2files\CustomFolder\TOP10.lr2folder", 2)]
     [DataRow(@"LR2files\CustomFolder\PLAYLEVEL\1.lr2folder", 2)]

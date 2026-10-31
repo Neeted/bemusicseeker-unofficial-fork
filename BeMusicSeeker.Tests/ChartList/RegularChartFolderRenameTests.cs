@@ -48,7 +48,7 @@ public sealed class RegularChartFolderRenameTests
             Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out IDisposable held));
             try
             {
-                InvalidOperationException busy = Assert.ThrowsException<InvalidOperationException>(() =>
+                InvalidOperationException busy = Assert.ThrowsExactly<InvalidOperationException>(() =>
                     owner.RenameChartFolderAsync(CreateRenameRequest(chart), "Moved").GetAwaiter().GetResult());
                 StringAssert.Contains(busy.Message, BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy);
                 Assert.AreEqual(0, playback.StopCount);

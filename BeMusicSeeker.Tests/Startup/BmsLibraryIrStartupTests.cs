@@ -167,7 +167,7 @@ public sealed class BmsLibraryIrStartupTests
     /// IR通信中は共有操作受付を占有せず、既に持つLの解放後に現モデルだけを保存して退役モデルの結果を破棄する。
     /// </summary>
     /// <remarks>実起動・score DB・IR XML解析・ranking workerを接続し、通信と保存の受付分離および終了時の資源回収を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task IrCommunication_LeavesAdmissionFreeAndRetiredResultDoesNotCommit(bool retire)
@@ -297,7 +297,7 @@ public sealed class BmsLibraryIrStartupTests
     /// 連続するranking要求は受付時のreporterと要求世代で開始・終端を通知し、次reporterの例外でも旧通知を混同せず全作業を終端する。
     /// </summary>
     /// <remarks>実起動・score DB・IR XML解析・ranking workerを接続し、通信と保存の受付分離および終了時の資源回収を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public Task RankingRefresh_UsesAcceptanceReporterForNextRequestAndIsolatesPublicationFailure(bool failNextPublication)
@@ -543,7 +543,7 @@ public sealed class BmsLibraryIrStartupTests
 
     /// <summary>本人IRと独立cacheの新hashを実起動で採用し、版またはsnapshot通知の通常故障でも保存・lookup・購読・要求終端を保持します。</summary>
     /// <remarks>通信gate後に故障購読を接続し、callbackは採用状態とL解放を記録して処理後に検証します。全subscriber配送や初期化の通知時点は保証しません。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task InitializeStartup_NotificationFailurePreservesCommittedSnapshotAndIndependentCache(bool failSnapshot)

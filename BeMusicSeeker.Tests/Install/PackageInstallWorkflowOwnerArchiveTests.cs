@@ -14,7 +14,7 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class PackageInstallWorkflowOwnerTests
 {
     /// <summary>未引渡し展開先の実削除失敗を、展開後取消または停止の元失敗とともに終端へ残します。Delete共有を許さない実handleを終端まで保持し、解放だけでは再試行しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [DoNotParallelize]
@@ -90,7 +90,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     /// 未引渡し管理入力の回収終端まで受付を保持し、利用者元ZIPと未変更DBを保全し、取消・元例外・準備診断を解放後へ一度渡します。
     /// </summary>
     /// <remarks>実アーカイブのnative展開、実FSとSQLiteへの確定を通す。管理入力の消費と借用元の保持は、展開portの成功応答だけでは確認できない。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("cancel")]
     [DataRow("stop_failure")]
     [DataRow("no_charts")]
@@ -229,7 +229,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     /// <summary>全失敗の必須日時警告と壊れZIP混在の抽出警告を、実処理が生成して受付解放後に一度表示します。正常独立対象の確定と次の明示要求を妨げません。</summary>
     /// <remarks>実アーカイブのnative展開、実FSとSQLiteへの確定を通す。管理入力の消費と借用元の保持は、展開portの成功応答だけでは確認できない。</remarks>
     // trueは必須日時復元の全失敗、falseは壊れZIPと正常ZIPの混在による部分成功。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     // 初回管理sessionのマーカーと実回収を共有するため、fixture生成から終端・回収まで非並列にします。

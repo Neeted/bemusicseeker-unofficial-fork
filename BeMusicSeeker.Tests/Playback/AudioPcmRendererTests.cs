@@ -61,7 +61,7 @@ public sealed class AudioPcmRendererTests
         exactNative.Results.Enqueue(new ReadResult([0.25f, -0.25f], null, Errors.OK));
         exactNative.Results.Enqueue(new ReadResult([], -1, Errors.Ended));
         var exactRenderer = new AudioPcmRenderer(11, 44100, 2, exactNative);
-        AudioPcmRenderException exception = Assert.ThrowsException<AudioPcmRenderException>(
+        AudioPcmRenderException exception = Assert.ThrowsExactly<AudioPcmRenderException>(
             () => exactRenderer.ReadFramesExactly(output, 0, 3));
 
         Assert.AreEqual(AudioPcmRenderStage.UnexpectedEnd, exception.Stage);
@@ -77,7 +77,7 @@ public sealed class AudioPcmRendererTests
         native.Results.Enqueue(new ReadResult([], 0, Errors.OK));
         var renderer = new AudioPcmRenderer(11, 48000, 2, native);
 
-        AudioPcmRenderException exception = Assert.ThrowsException<AudioPcmRenderException>(
+        AudioPcmRenderException exception = Assert.ThrowsExactly<AudioPcmRenderException>(
             () => renderer.ReadFrames(new float[2], 0, 1));
 
         Assert.AreEqual(AudioPcmRenderStage.Stalled, exception.Stage);
@@ -169,14 +169,14 @@ public sealed class AudioPcmRendererTests
         FakeNative unalignedNative = new();
         unalignedNative.Results.Enqueue(new ReadResult([0.5f], 4, Errors.OK));
         var unalignedRenderer = new AudioPcmRenderer(11, 48000, 2, unalignedNative);
-        AudioPcmRenderException unaligned = Assert.ThrowsException<AudioPcmRenderException>(
+        AudioPcmRenderException unaligned = Assert.ThrowsExactly<AudioPcmRenderException>(
             () => unalignedRenderer.ReadFrames(new float[2], 0, 1));
         Assert.AreEqual(AudioPcmRenderStage.UnalignedFrame, unaligned.Stage);
 
         FakeNative nonFiniteNative = new();
         nonFiniteNative.Results.Enqueue(new ReadResult([float.NaN, 0f], null, Errors.OK));
         var nonFiniteRenderer = new AudioPcmRenderer(11, 48000, 2, nonFiniteNative);
-        AudioPcmRenderException nonFinite = Assert.ThrowsException<AudioPcmRenderException>(
+        AudioPcmRenderException nonFinite = Assert.ThrowsExactly<AudioPcmRenderException>(
             () => nonFiniteRenderer.ReadFrames(new float[2], 0, 1));
         Assert.AreEqual(AudioPcmRenderStage.NonFiniteSample, nonFinite.Stage);
     }

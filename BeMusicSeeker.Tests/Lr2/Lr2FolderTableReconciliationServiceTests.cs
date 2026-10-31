@@ -15,7 +15,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class Lr2FolderTableReconciliationServiceTests
 {
     /// <summary>譜面とcustomが0件で通常候補にない深いfolderinfoだけから全階層を実DBへ生成し、既存追加時刻・実更新時刻・タイトル・親を守ります。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 新規行と既存行の両方で、folderinfo入力を候補絞込み前に必要集合へ加えることを保証します。
     [DataRow(false)]
     [DataRow(true)]
@@ -184,10 +184,10 @@ public sealed class Lr2FolderTableReconciliationServiceTests
             StartedAtUtc = directoryTime
         };
 
-        Assert.ThrowsException<Lr2FolderTableProjectionConflictException>(
+        Assert.ThrowsExactly<Lr2FolderTableProjectionConflictException>(
             () => Lr2FolderTableReconciliationService.BuildProjection(conflict));
         conflict.Lr2FolderFilePaths = [conflictAlias, conflictPath];
-        Assert.ThrowsException<Lr2FolderTableProjectionConflictException>(
+        Assert.ThrowsExactly<Lr2FolderTableProjectionConflictException>(
             () => Lr2FolderTableReconciliationService.BuildProjection(conflict));
 
         conflict.Lr2FolderFilePaths = [conflictPath, conflictPath];
@@ -216,7 +216,7 @@ public sealed class Lr2FolderTableReconciliationServiceTests
             date = 4
         }, typeof(LR2SongDB.folder));
 
-        Assert.ThrowsException<Lr2FolderTableProjectionIncompleteException>(() =>
+        Assert.ThrowsExactly<Lr2FolderTableProjectionIncompleteException>(() =>
             Lr2FolderTableReconciliationService.Reconcile(songDb, new Lr2SongDbSyncRequest
             {
                 Lr2FolderFileDiscoveryComplete = false
@@ -228,7 +228,7 @@ public sealed class Lr2FolderTableReconciliationServiceTests
         string folderInfo = Path.Combine(root, "folderinfo.txt");
         File.WriteAllText(folderInfo, "#TITLE Late failure\r\n", Encoding.ASCII);
         DateTime rootTime = new(2026, 6, 8, 3, 0, 0, DateTimeKind.Utc);
-        Assert.ThrowsException<Lr2FolderTableProjectionIncompleteException>(() =>
+        Assert.ThrowsExactly<Lr2FolderTableProjectionIncompleteException>(() =>
             Lr2FolderTableReconciliationService.Reconcile(songDb, new Lr2SongDbSyncRequest
             {
                 RootDirectories = [root],
@@ -295,7 +295,7 @@ public sealed class Lr2FolderTableReconciliationServiceTests
     /// 全表再整合は最新DBのexact存続行だけ追加時刻を保持し、別case旧行からの継承と共存時の上書きを防ぐ。
     /// </summary>
     /// <remarks>実SQLiteの既存行と反映後の行を観測し、全置換時の保存保証を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true, false)]
     [DataRow(false, true)]
     [DataRow(true, true)]

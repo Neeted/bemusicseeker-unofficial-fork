@@ -420,10 +420,10 @@ public sealed class ChartResourceDiagnosticsTests
         try
         {
             var service = new ChartResourceDiagnosticsService();
-            Assert.ThrowsException<FileNotFoundException>(() => service.Read(Path.Combine(directory, "missing.bms"), ChartFileKind.Bms));
+            Assert.ThrowsExactly<FileNotFoundException>(() => service.Read(Path.Combine(directory, "missing.bms"), ChartFileKind.Bms));
             string path = Path.Combine(directory, "bad.bmson");
             File.WriteAllText(path, "{");
-            Assert.ThrowsException<JsonSerializationException>(() => service.Read(path, ChartFileKind.Bmson));
+            Assert.ThrowsExactly<JsonSerializationException>(() => service.Read(path, ChartFileKind.Bmson));
         }
         finally
         {

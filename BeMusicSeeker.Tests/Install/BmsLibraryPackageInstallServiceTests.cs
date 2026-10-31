@@ -29,7 +29,7 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class BmsLibraryPackageInstallServiceTests
 {
     /// <summary>確定後の実走査rootだけを使い、自身/祖先配下の保留を解除します。登録済みでも追加出力・ROOT出力は保持し、登録一覧や利用者一覧の誤使用を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ReevaluatePendingPackages_UsesActualScanRootsAndPreservesSource(bool ancestor)
@@ -135,7 +135,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>明示DSTの改名・削除を物理処理前に拒否し、元bytes・package・未確定DBを保持して再選択後の実導入を許可します。自動命名と通常file衝突は既存ケースへ分担します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void MovePackageFilesWithReceipt_MissingExplicitDestinationRetainsSourceAndAllowsReselection(bool rename)
@@ -345,7 +345,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// 入力Txtに依存せずDB・所持正本・導入済み項目が実配置に一致し、直後のLR2差分読込みで再解析しないことを保証します。
     /// </summary>
     /// <remarks>ケース専用の実FS・SQLite・固定設定を使い、一操作一回の保存反映とfile_diffへの実接続を確認します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0, true, false, 1)]
     [DataRow(0, false, true, 1)]
     [DataRow(1, false, false, 0)]
@@ -744,7 +744,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     // force=falseは通常導入、trueは所持済み譜面も含む強制導入。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void PendingResourcePackages_InstallThroughLibraryAndPreserveEarlierResourceSnapshot(bool force)
@@ -1212,7 +1212,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 songDb.Execute("DROP TABLE install");
             }
 
-            SQLite.SQLiteException primaryFailure = Assert.ThrowsException<SQLite.SQLiteException>(() =>
+            SQLite.SQLiteException primaryFailure = Assert.ThrowsExactly<SQLite.SQLiteException>(() =>
                 library.RenamePendingBmsFormatChartFileExtensions(
                     [
                         (firstChart),
@@ -1269,7 +1269,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 failureDialogObservedReleasedLease = probe != null;
             };
 
-            SQLite.SQLiteException primaryFailure = Assert.ThrowsException<SQLite.SQLiteException>(() =>
+            SQLite.SQLiteException primaryFailure = Assert.ThrowsExactly<SQLite.SQLiteException>(() =>
                 library.RenameBMSFilesExtensions(
                     [
                         (firstChart),
@@ -1324,7 +1324,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 songDb.Commit();
             }
 
-            SQLite.SQLiteException durableFailure = Assert.ThrowsException<SQLite.SQLiteException>(() =>
+            SQLite.SQLiteException durableFailure = Assert.ThrowsExactly<SQLite.SQLiteException>(() =>
                 library.RenameBMSFilesExtensions(
                     [(chart)],
                     ".bme",
@@ -1582,7 +1582,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     // 第一値は元入力削除の設定、第二値はその設定から期待する実削除。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, true)]
     public void InstallPendingPackagesToEstimatedDestinations_MixedPackageSourceCleanupHonorsSetting(
@@ -1660,7 +1660,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     // 第一値は終端への報告集約、第二値は片付け失敗の注入。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(false, true)]
@@ -2121,7 +2121,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     // falseは資源のみ、trueは未所持の独立譜面も含む後続入力。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void InstallPendingPackagesToEstimatedDestinations_ReevaluatesResourceOnlyAfterEarlierPhysicalSuccess(
@@ -2355,7 +2355,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     // falseは資源上書き、trueは元入力の片付けだけをDB反映失敗の対象にする。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void OverwritePendingInstalledOnlyPackagesResources_CanonicalFailureDoesNotPublishSuccessCounts(
@@ -2440,7 +2440,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     // falseは通常購読、trueは通知先の例外を注入して成功保持を確認する。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void OverwritePendingInstalledOnlyPackagesResources_ReleasesOuterWritersBeforeEstimatedInstallPublication(
@@ -2561,7 +2561,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     // 背景16件は少数変更と全件処理を区別する入力で、処理時間の比較値ではない。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     public void OverwritePendingInstalledOnlyPackagesResources_UsesWarmCatalogWithoutChartDelta(int backgroundCount)
     {
@@ -3140,7 +3140,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             library.Lr2Synchronization.Running = true;
             try
             {
-                Assert.ThrowsException<ArgumentNullException>(
+                Assert.ThrowsExactly<ArgumentNullException>(
                     () => library.InstallPendingPackagesToEstimatedDestinations(null));
             }
             finally
@@ -3154,7 +3154,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     // 第一値でLR2基点かBMS基点を選び、第二値で基点自身・配下フォルダ・配下ファイルを区別する。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, "root")]
     [DataRow(false, "directory")]
     [DataRow(false, "file")]
@@ -3678,7 +3678,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// 自動導入結果の宛先をFS・DB・索引と照合し、全件再構築なく通知を更新する。通知中は短いモデルロックを解放して外側受付を実Task終端まで保ち、途中の再受付を検出する。
     /// </summary>
     // 背景16件は少数変更と全件処理を区別する入力で、処理時間の比較値ではない。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     public void InstallChartPackagesAuto_UsesPreflightDestinationAndWarmDelta(int backgroundCount)
     {
@@ -3690,7 +3690,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// 推定先への実導入結果の宛先をFS・DB・索引と照合し、局所差分を通知して、通知時の排他解放と全件再構築の不在を確認する。
     /// </summary>
     // 背景16件は少数変更と全件処理を区別する入力で、処理時間の比較値ではない。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     public void InstallPendingPackagesToEstimatedDestinations_UsesPreflightDestinationAndWarmDelta(int backgroundCount)
     {
@@ -3702,7 +3702,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// 強制導入結果の宛先をFS・DB・索引と照合し、推定済みの別宛先を使わず局所差分と通知を更新して、誤った適用先や全件再構築を検出する。
     /// </summary>
     // 背景16件は少数変更と全件処理を区別する入力で、処理時間の比較値ではない。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     public void ForceInstallPendingPackages_UsesPreflightDestinationAndWarmDelta(int backgroundCount)
     {
@@ -3714,7 +3714,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// 宛先設定済み行も強制新規では別フォルダを使い、兄弟を保持したままsong DB・所持・新規・保留・install表を一致させ、発見時の単体警告を成功後の所持・live項目から解除します。
     /// </summary>
     /// <remarks>実取り込みで単体分類と保留保存を成立させ、実libraryの変更セッションとSQLite読戻しまでの接続を確認します。命名の物理条件は小さい実FSで観測します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ForceInstallPendingPackages_SingleChartsAndDirectoryUseReservedNewFolders(bool hasConfiguredDestination)
@@ -3848,7 +3848,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。 導入結果から新規・通常一覧の管理主体へ渡る警告と資源状態も観測する。</remarks>
     // 順に譜面種類(BMS/Bmson)、導入先資源の既存有無、健全性索引のcold/warmを組み合わせる。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false, false)]
     [DataRow(false, false, true)]
     [DataRow(false, true, false)]
@@ -4632,7 +4632,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 "test_busy_auto_install");
             Assert.IsNotNull(incumbent);
 
-            Assert.ThrowsException<InvalidOperationException>(
+            Assert.ThrowsExactly<InvalidOperationException>(
                 () => library.InstallChartPackagesAutoWithProgressAsync([sourceDirectory], CancellationToken.None, new RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult());
         });
     }
@@ -4645,13 +4645,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     {
         var acquiredBeforeFailure = new TrackingDisposable();
 
-        Assert.ThrowsException<InvalidOperationException>(() => PendingEstimatedInstallMutationLease.Acquire(
+        Assert.ThrowsExactly<InvalidOperationException>(() => PendingEstimatedInstallMutationLease.Acquire(
             () => acquiredBeforeFailure,
             () => throw new InvalidOperationException("acquire-failed")));
         Assert.AreEqual(1, acquiredBeforeFailure.DisposeCount);
 
         var throwingCleanupGuard = new TrackingDisposable(throwOnDispose: true);
-        AggregateException acquisitionAndCleanupFailure = Assert.ThrowsException<AggregateException>(
+        AggregateException acquisitionAndCleanupFailure = Assert.ThrowsExactly<AggregateException>(
             () => PendingEstimatedInstallMutationLease.Acquire(
                 () => throwingCleanupGuard,
                 () => throw new InvalidOperationException("acquire-failed-with-cleanup-error")));
@@ -4667,7 +4667,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             () => throwingGuard,
             () => releasedGuard);
 
-        Assert.ThrowsException<AggregateException>(() => lease.Dispose());
+        Assert.ThrowsExactly<AggregateException>(() => lease.Dispose());
         Assert.AreEqual(1, throwingGuard.DisposeCount);
         Assert.AreEqual(1, releasedGuard.DisposeCount);
     }
@@ -4903,7 +4903,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     // 順に推定先の有無と新規導入確認の設定を変え、未承認入力を保つ。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true, true)]
     [DataRow(true, false)]
     [DataRow(false, true)]
@@ -4960,7 +4960,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     // 順に推定先の有無、確認設定、No・未選択閉鎖・Yesの応答を区別する。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, true, (int)MessageBoxResult.No)]
     [DataRow(false, true, (int)MessageBoxResult.None)]
     [DataRow(false, true, (int)MessageBoxResult.Yes)]
@@ -5328,7 +5328,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     // falseは正規基点、trueは末尾区切りなどを含む同一基点の別表記。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void PrepareAutoInstallWorkflow_ExcludesRegisteredRootsButKeepsOutsideSibling(bool useRootAlias)
@@ -5530,7 +5530,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// 親資源のない差分集は直下二譜面と子・孫を分け、子譜面なしの明示一式はまとめます。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0)]
     [DataRow(1)]
     [DataRow(2)]
@@ -5622,7 +5622,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// 親の実在資源だけを子譜面を含む一式の根拠とし、直下1譜面・共通参照だけなら親直下と子作品を分けます。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("single")]
     [DataRow("resources")]
     [DataRow("shared")]
@@ -5739,7 +5739,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// 通常フォルダ入力の旧0.21・versionless・現代Bmsonを実導入し、音源ありは実配置・所持・専用song表と版21の詳細保存まで、欠損は元入力保持・不足警告付き保留・未導入まで確認します。
     /// </summary>
     /// <remarks>公開導入入口から実FS・本番保存・所持反映へ接続し、新規の読取り専用DB接続で観測します。キー優先・数値字句などの条件網羅は共通JSON境界へ分担し、各caseのDB・設定・実フォルダを所有して操作終端後に解放します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("modern", false)]
     [DataRow("modern", true)]
     [DataRow("legacy", false)]
@@ -6397,7 +6397,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// 元フォルダと同じ・子・祖先の宛先を物理変更前に拒否し、保存callbackを呼ばず元入力を保って、自己重複移動の開始を検出する。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("same")]
     [DataRow("inside")]
     [DataRow("ancestor")]
@@ -6516,7 +6516,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// 単一BMS・単一Bmson・混在フォルダの実衝突解決先をbytesから識別し、準備結果と現在パッケージへ同じパスを渡して、入力形状別の宛先不一致を検出する。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("single-bms")]
     [DataRow("single-bmson")]
     [DataRow("directory-mixed")]
@@ -6651,7 +6651,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     // smart上書きの有無の両方で、ファイルの宛先が既存フォルダなら拒否する。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void MovePackageFilesWithReceipt_RejectsBundledFileWhenDestinationIsDirectory(bool enableSmartOverwrite)
@@ -6844,7 +6844,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     // falseは通常導入、trueは強制導入で同じ開始前入力消失を注入する。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void InstallPendingPackages_RejectsMissingSourceAndContinuesIndependentPackages(bool force)
@@ -7369,7 +7369,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     // 第一値は終端集約、第二値はコピー中の入力消失(falseは別のコピー失敗)を選ぶ。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(false, true)]
@@ -7637,7 +7637,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// 自動命名をフォルダ移動へ読み替える誤りと、明示宛先差分での衝突回避・現在パス更新の欠落を検出します。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -7765,7 +7765,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// 完全捕捉後に不正または有効未選択の子BMSONを追加したfolderと、復元部分一覧でも、選択BMSだけを削除し非対象の譜面・資源を保つ。
     /// </summary>
     /// <remarks>小さい実FSと本番の発見・削除サービスを使い、全体skipと誤ったフォルダ削除をともに検出する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("added-invalid-child")]
     [DataRow("restored-invalid")]
     [DataRow("added-unselected-child")]
@@ -8106,7 +8106,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// 独立所持で裏付けた残譜面を通常は整理し、別保留の単体完全一致・directory配下があれば追加整理全体だけを見送ります。同prefix兄弟は保護範囲へ含めません。
     /// </summary>
     /// <remarks>実receiptとFSで本人の正常移動・元消費、独立所持コピー、親の削除可否を確認します。保留入力は本番の一回列挙で捕捉し、捕捉後のpackage.path変更で元範囲を失わないことも確認します。実ZIP・DB・表示への接続はSplitZipKeepsOtherPendingInputが分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("none", false)]
     [DataRow("file", true)]
     [DataRow("directory", true)]
@@ -8347,7 +8347,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>対応する四書庫拡張子と各大文字形の通常ディレクトリを展開せず返し、展開通知・準備警告なしで譜面と音源の内容を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(".zip")]
     [DataRow(".7z")]
     [DataRow(".rar")]
@@ -8401,7 +8401,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// ZIP・7z・RAR・LZHの実入力を展開して保存日時と進捗を復元し、形式別の展開・必須日時復元の欠落を検出する。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。 展開先の共通一時領域を回収するため並列実行を避ける。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("fixture.zip")]
     [DataRow("fixture.7z")]
     [DataRow("fixture.rar")]
@@ -8455,7 +8455,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// 各実書庫の必須更新日時復元が失敗したら展開先を受理せず進捗と失敗通知を残し、復元失敗を正常入力へ読み替える誤りを検出する。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。 展開先の共通一時領域を回収するため並列実行を避ける。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("fixture.zip")]
     [DataRow("fixture.7z")]
     [DataRow("fixture.rar")]
@@ -8576,7 +8576,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// 暗号化・破損7zと短い・切断RARの展開失敗では借用元bytesと排他再読取りを保ってprivate準備先を削除し、失敗通知と進捗を残します。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。 展開先の共通一時領域を回収するため並列実行を避ける。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("encrypted.7z")]
     [DataRow("corrupt.7z")]
     [DataRow("short.rar")]
@@ -8744,7 +8744,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// dot-dotと空白を含む実ZIPエントリは展開ルート外へ出る前に拒否し、準備フォルダや外部ファイルを残す経路逸脱を検出する。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("../outside.txt")]
     [DataRow(".. /outside.txt")]
     [DataRow(" ../outside.txt")]
@@ -8759,7 +8759,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             }
 
             string extractionDirectoryPath = Path.Combine(tempDirectoryPath, "extracted");
-            Assert.ThrowsException<InvalidDataException>(() => SevenZipArchiveExtractor.ExtractArchiveEntries(
+            Assert.ThrowsExactly<InvalidDataException>(() => SevenZipArchiveExtractor.ExtractArchiveEntries(
                 archivePath,
                 SevenZipArchiveExtractor.ResolveBundledSevenZipLibraryPath(),
                 extractionDirectoryPath));

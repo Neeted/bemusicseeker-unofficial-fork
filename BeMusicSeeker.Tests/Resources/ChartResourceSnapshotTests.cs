@@ -702,14 +702,14 @@ public sealed class ChartResourceSnapshotTests
         ChartFile owner = (ChartTestValues.Empty() with { Path = @"C:\Missing\chart.bms" });
         ChartFile unacquired = (owner);
         Assert.IsNull(unacquired.Resources);
-        Assert.ThrowsException<InvalidOperationException>(() => ChartResourceSnapshot.Create(unacquired));
-        Assert.ThrowsException<InvalidOperationException>(() => ChartResourceSnapshot.CreateAggregate([unacquired]));
+        Assert.ThrowsExactly<InvalidOperationException>(() => ChartResourceSnapshot.Create(unacquired));
+        Assert.ThrowsExactly<InvalidOperationException>(() => ChartResourceSnapshot.CreateAggregate([unacquired]));
         owner = owner with { Resources = [] };
         ChartFile acquired = (owner);
         Assert.IsNotNull(acquired.Resources);
         Assert.AreEqual(0, ChartResourceSnapshot.Create(acquired).TotalReferenceCount);
         ChartFile omitted = owner with { Resources = null };
-        Assert.ThrowsException<InvalidOperationException>(() => ChartResourceSnapshot.Create(omitted));
+        Assert.ThrowsExactly<InvalidOperationException>(() => ChartResourceSnapshot.Create(omitted));
     }
 
     /// <summary>
@@ -828,7 +828,7 @@ public sealed class ChartResourceSnapshotTests
             })
             {
                 Assert.IsNull(copy.Resources);
-                Assert.ThrowsException<InvalidOperationException>(() => ChartResourceSnapshot.Create(copy));
+                Assert.ThrowsExactly<InvalidOperationException>(() => ChartResourceSnapshot.Create(copy));
             }
         }
     }

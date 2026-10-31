@@ -202,7 +202,7 @@ public sealed class ChartInfoInlineHydrationTests
         }).ToArray();
 
     /// <summary>初回補完後のhealth変更は全体候補検索をせず、digest欠損一件の再補完は背景16/128件に関係なく対象だけを取得・投影する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     [DataRow(128)]
     public void WarmBackfill_UsesChangedInputTokensInsteadOfGlobalCatalogRevision(int backgroundCount)
@@ -260,7 +260,7 @@ public sealed class ChartInfoInlineHydrationTests
 
     /// <summary>候補取得前と受付後保存前のDB準備故障を隠さず、未採用のDB・現在値と実Taskの失敗を保持する。</summary>
     /// <remarks>既存gatewayの接続factoryで候補取得または受付後の最初のDB準備だけを失敗させる。同じSQLiteの後続接続、要求終端と次の明示要求を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task CatalogChartInfoOwner_PreparationFailureTerminatesAndNextExplicitRequestSucceeds(bool afterAcceptance)
@@ -523,7 +523,7 @@ public sealed class ChartInfoInlineHydrationTests
     /// 保存済み情報の必須反映は任意候補要約を待たずに終端し、後続は元要求を保持して補完する。終了先着時は要約・補完を始める誤りを検出する。
     /// </summary>
     /// <remarks>専用SQLiteに異なる現行条件の保存行を投入し、候補要約の実検索を確認する。合成した要約だけでDB条件の保証を代用しない。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task RequiredHydration_DefersCandidateSummaryAndBackfillWithOriginalRequest(bool shutdownBeforeFollowup)
@@ -1277,7 +1277,7 @@ public sealed class ChartInfoInlineHydrationTests
     /// 通常/完了済みLR2モードとも実保存行の表示情報を反映し、全対象が現行なら不要な再補完を開始しないことを確かめる。
     /// </summary>
     /// <remarks>実BMSLibraryと専用DBを使い、保存行から索引・所有行・facade通知への接続を観測する。管理主体だけの結果ではこの接続を代用できない。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task DeferredChartInfoHydration_UsesActualDataInBothModesAndSkipsFullBackfillWhenCurrent(bool operationModeLr2Db)
@@ -1803,7 +1803,7 @@ public sealed class ChartInfoInlineHydrationTests
     /// 欠落情報と旧21を通常補完し、旧署名Completedでも全体同期を始めず、上書きlevel12を譜面由来3へDB・current・再読込みで戻します。
     /// </summary>
     /// <remarks>実BMSLibraryと専用DBを使い、保存行から索引・所有行・facade通知への接続を観測する。管理主体だけの結果ではこの接続を代用できない。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(true, true)]
@@ -2244,7 +2244,7 @@ public sealed class ChartInfoInlineHydrationTests
     }
 
     /// <summary>入力解析失敗と期限切れを実snapshotで発生させ、警告先の故障で元の失敗分類・永続行を失わないことを確かめる。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ChartInfoSnapshotEvaluator_WarningFailurePreservesInputFailure(bool timeout)

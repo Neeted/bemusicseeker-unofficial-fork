@@ -401,7 +401,7 @@ public sealed class BmsLibraryCatalogRelocationTests
                     }],
                     []);
 
-                Assert.ThrowsException<SQLite.SQLiteException>(() => ApplyCatalogRelocation(songDbPath, catalogFacts, callbacks));
+                Assert.ThrowsExactly<SQLite.SQLiteException>(() => ApplyCatalogRelocation(songDbPath, catalogFacts, callbacks));
 
                 Assert.AreEqual(oldChartPath, movedFile.Path);
                 Assert.AreEqual(1, callbacks.SongDbWriteFailureCount);

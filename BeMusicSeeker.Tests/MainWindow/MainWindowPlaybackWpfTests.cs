@@ -109,7 +109,7 @@ public sealed class MainWindowPlaybackWpfTests
                     Assert.AreEqual(nameof(PlaylistDetailRow.memo), beginnings[0].EditPropertyName);
                     Assert.IsTrue(table.HandleKeyDown(Key.Escape, ModifierKeys.None));
                     probeCopy = true;
-                    Assert.AreSame(copySentinel, Assert.ThrowsException<InvalidOperationException>(() => table.HandleKeyDown(Key.C, ModifierKeys.Control)));
+                    Assert.AreSame(copySentinel, Assert.ThrowsExactly<InvalidOperationException>(() => table.HandleKeyDown(Key.C, ModifierKeys.Control)));
                     CollectionAssert.AreEqual(new object[] { b }, copyRows.ToArray());
                 }
                 finally
@@ -279,7 +279,7 @@ public sealed class MainWindowPlaybackWpfTests
 
     /// <summary>標準構成の両再生入口では競合拒否の実終端まで面・保存値を変えず、解放後の次の明示入力だけが実面と保存値を切り替えます。</summary>
     /// <remarks>実BMIIDXView2015の設定・process・window操作を既存gatewayで代替し、実開始と対象pathを観測します。compiled表のキーから同じ入口への行identity転送は既存ケース、後段L競合と入力時状態の条件表はownerケースに委ねます。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void PlaybackSurface_ChangesOnlyAfterAcceptedExplicitInput(bool playButton)
@@ -529,7 +529,7 @@ public sealed class MainWindowPlaybackWpfTests
 
     /// <summary>内蔵Readyから実Viewとシェルへ届いた開始通知で表への初回復帰を保ち、後発の検索入力・MEMO編集へ古いフォーカス要求を適用する誤りを検出します。</summary>
     /// <remarks>0は入力なし、1は検索、2は本番受付を通るMEMO編集です。実MainWindowのContent・非ゼロHWND・前面照合を維持し、OS前面値と要求先だけを観測します。物理OSフォーカス取得と実LostKeyboardFocusは保証しません。状態通知と行保持は既存ケース、古いowner/View通知は各寿命ケースへ分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0)]
     [DataRow(1)]
     [DataRow(2)]

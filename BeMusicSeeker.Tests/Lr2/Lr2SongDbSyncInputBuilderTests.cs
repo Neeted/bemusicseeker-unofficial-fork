@@ -28,7 +28,7 @@ public sealed class Lr2SongDbSyncInputBuilderTests
     /// 走査なしの入力を実管理出力設定へ接続し、三種類の列挙から旧管理候補だけを除いて準備済み出力と外部候補を混合することを確認します。
     /// </summary>
     /// <remarks>実管理設定のSQLite読込みと準備済みファイルのmetadataを使い、列挙portだけを固定入力へ差替えます。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     // 管理定義が揃う場合だけ全入力を採用し、物理metadataだけを管理定義へ読み替えません。
     [DataRow(true)]
     [DataRow(false)]
@@ -156,7 +156,7 @@ public sealed class Lr2SongDbSyncInputBuilderTests
             CollectionAssert.AreEquivalent(new[] { preparedPath, externalPath }, input.Lr2FolderFilePaths.ToArray());
             Assert.IsNull(input.ManagedFolderDefinitions);
             CollectionAssert.AreEquivalent(new[] { EnumerationCategory.Lr2Folder, EnumerationCategory.TextMetadata, EnumerationCategory.Directories }, enumerator.RequestedCategories.ToArray());
-            Assert.ThrowsException<Lr2FolderTableProjectionIncompleteException>(() => Lr2FolderTableReconciliationService.BuildProjection(new Lr2SongDbSyncRequest { Lr2FolderFilePaths = input.Lr2FolderFilePaths, Lr2FolderFileDiscoveryComplete = input.Lr2FolderFileDiscoveryComplete }));
+            Assert.ThrowsExactly<Lr2FolderTableProjectionIncompleteException>(() => Lr2FolderTableReconciliationService.BuildProjection(new Lr2SongDbSyncRequest { Lr2FolderFilePaths = input.Lr2FolderFilePaths, Lr2FolderFileDiscoveryComplete = input.Lr2FolderFileDiscoveryComplete }));
             return;
         }
         Assert.AreSame(preparedSurface.ManagedFolderDefinitions, input.ManagedFolderDefinitions);
@@ -197,7 +197,7 @@ public sealed class Lr2SongDbSyncInputBuilderTests
     }
 
     /// <summary>通常候補にない深いfolderinfoを実入力構築から全体DB投影まで接続します。scanなしで組込み準備面も合流するとき、外部候補を失わず、双方のタイトル・親・相対DBpathと準備済みmetadataを保持することを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // scanあり/なしの既存保証に、列挙だけにある外部InfoOnlyと準備面だけにある組込みを混在させる条件を加えます。
     [DataRow(false, false)]
     [DataRow(true, false)]

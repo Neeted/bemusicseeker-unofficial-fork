@@ -22,7 +22,7 @@ public sealed partial class SettingDialogEditCompletionTests
 {
     /// <summary>BMS候補から競合操作へ切り替える通常入口で、取消・承認・実確定のP先着・候補編集のL/P非要求を分け、対象範囲名・候補保持と保存副作用を確認します。無関係なBMT候補は全経路で保持します。</summary>
     /// <remarks>条件網羅はWindowを使わず実専用providerと既存受付で行い、pickerとBindingはcompiled系列へ分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("normal", "cancel")]
     [DataRow("normal", "accept")]
     [DataRow("normal", "busy")]
@@ -128,7 +128,7 @@ public sealed partial class SettingDialogEditCompletionTests
         });
     }
     /// <summary>LR2詳細の別DB候補を持つとき、BMS候補編集はL/Pを要求せず、出力確定だけ既存受付を使います。取消は候補を保ち、採用時だけ対象名を示した詳細候補を確定値へ戻します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("add", "cancel")]
     [DataRow("add", "accept")]
     [DataRow("add", "busy")]
@@ -200,7 +200,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>今回の同値・不正入力だけで破棄確認へ進まず、元BMS候補と確定媒体を保ちます。出力は初期Binding相当の同値通知を対象とし、明示再選択の再保存とは分けます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("root")]
     [DataRow("song")]
     [DataRow("config")]
@@ -242,7 +242,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
     /// <summary>事前生成した導入設定ページで、ルート確定の非先頭代替B、局所取消、公開前の実保存失敗、追加だけの非先頭A維持を、確定候補・fresh reader・実選択の一致で確認します。</summary>
     /// <remarks>候補通知の生産から同じcompiledページのBindingまで通し、選択の再代入や再生成で表示を補いません。媒体部分成功と公開後再読込みは既存BMS確定系列、独立選択の確認取消と未確定候補非漏出は次のcompiled系列へ分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("replace")]
     [DataRow("cancel")]
     [DataRow("saveFailure")]
@@ -347,7 +347,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>独立導入先の実Bindingは確定BMSだけを候補にし、選択の確認取消では元候補・保存先・表示を保ち、承認時だけ当該項目を保存します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void CompiledInstallSelection_UsesConfirmedRootsAndConfirmsBmsDiscard(bool accepted)
@@ -447,7 +447,7 @@ public sealed partial class SettingDialogEditCompletionTests
         });
     }
     /// <summary>独立導入先はL中に拒否し、解放だけでは保存せず次の明示選択を待ちます。Pや無関係Window操作中の普通保存を保ちます。BMS破棄確認だけは設定担当の単一所有に従って無効表示と入口拒否を揃え、普通保存・同じTask・元候補と終端後再操作を保ちます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("library", false)]
     [DataRow("playlist", true)]
     [DataRow("window", false)]
@@ -543,7 +543,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>実ライブラリのLと同じ受付で独立選択を拒否し、次の明示入力だけを保存します。続く実root登録解除でも新導入先と無関係候補を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void IndependentInstallSelection_LibraryAdmissionPreservesValuesUntilExplicitRetry(bool lr2)
@@ -605,7 +605,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>実providerの同期保存前後でも同じLを保有し、成功・実媒体失敗の両終端で解放します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void IndependentInstallSelection_SaveHoldsLibraryAdmissionAndReleasesAfterFailure(bool failSave)

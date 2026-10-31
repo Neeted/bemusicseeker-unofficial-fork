@@ -174,7 +174,7 @@ public sealed class BassNativeRuntimeTests
     {
         var events = new List<string>();
 
-        Exception exception = Assert.ThrowsException<Exception>(() => BassAudioRuntime.FreeCoreDevice(
+        Exception exception = Assert.ThrowsExactly<Exception>(() => BassAudioRuntime.FreeCoreDevice(
             () =>
             {
                 events.Add("free");
@@ -198,7 +198,7 @@ public sealed class BassNativeRuntimeTests
         var events = new List<string>();
         var expected = new InvalidOperationException("free failed");
 
-        Exception actual = Assert.ThrowsException<InvalidOperationException>(() => BassAudioRuntime.FreeCoreDevice(
+        Exception actual = Assert.ThrowsExactly<InvalidOperationException>(() => BassAudioRuntime.FreeCoreDevice(
             () =>
             {
                 events.Add("free");
@@ -383,7 +383,7 @@ public sealed class BassNativeRuntimeTests
                 using (ExecutionContext.SuppressFlow())
                 {
                     independentRequest = Task.Factory.StartNew(
-                        () => Assert.ThrowsException<InvalidOperationException>(BassAudioRuntime.Initialize),
+                        () => Assert.ThrowsExactly<InvalidOperationException>(BassAudioRuntime.Initialize),
                         CancellationToken.None,
                         TaskCreationOptions.LongRunning,
                         TaskScheduler.Default);
@@ -455,7 +455,7 @@ public sealed class BassNativeRuntimeTests
         BassAudioRuntime.Initialize();
         BassAudioRuntime.Shutdown();
 
-        Assert.ThrowsException<DllNotFoundException>(
+        Assert.ThrowsExactly<DllNotFoundException>(
             () => ManagedBassNativeLibraryResolver.ResolveForTesting("bass"));
     }
 
@@ -509,7 +509,7 @@ public sealed class BassNativeRuntimeTests
         var freedHandles = new List<IntPtr>();
         int loadCount = 0;
 
-        Assert.ThrowsException<DllNotFoundException>(() => BassNativeRuntime.LoadForTesting(
+        Assert.ThrowsExactly<DllNotFoundException>(() => BassNativeRuntime.LoadForTesting(
             _ =>
             {
                 loadCount++;
@@ -532,7 +532,7 @@ public sealed class BassNativeRuntimeTests
     [TestMethod]
     public void BassNativeRuntime_VersionMismatchPreservesComponentAndPackedValues()
     {
-        InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(() =>
+        InvalidOperationException exception = Assert.ThrowsExactly<InvalidOperationException>(() =>
             BassNativeRuntime.ValidateVersionForTesting(
                 "bassmix.dll",
                 new Version(2, 4, 12, 1),
@@ -567,7 +567,7 @@ public sealed class BassNativeRuntimeTests
         Assert.AreEqual(
             new Version(2, 4, 18, 0),
             BassVersionPacking.Unpack(BassVersionPacking.Pack(new Version(2, 4, 18))));
-        Assert.ThrowsException<ArgumentOutOfRangeException>(
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(
             () => BassVersionPacking.Pack(new Version(2, 4, 256, 0)));
     }
 
@@ -580,7 +580,7 @@ public sealed class BassNativeRuntimeTests
             BassAudioRuntime.Initialize();
 
             Assert.AreEqual(PlayState.Stopped, BassAudioWriter.RecordState);
-            Assert.ThrowsException<InvalidOperationException>(BassAudioWriter.StopRecording);
+            Assert.ThrowsExactly<InvalidOperationException>(BassAudioWriter.StopRecording);
             Assert.AreEqual(PlayState.Stopped, BassAudioWriter.RecordState);
         }
         finally
@@ -821,30 +821,59 @@ public sealed class BassNativeRuntimeTests
     {
         BassAudioRuntime.Initialize();
         BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation();
-        var shutdown = Task.Run(BassAudioRuntime.Shutdown);
+        int operationThreadId = Environment.CurrentManagedThreadId;
+        Task? shutdown = null;
+        Task<bool>? newRootAdmission = null;
+        ExceptionDispatchInfo? failure = null;
+        void CaptureCleanupFailure(Exception exception)
+        {
+            if (failure == null) { failure = ExceptionDispatchInfo.Capture(exception); }
+            else { Console.Error.WriteLine("音声shutdown検査の後片付け失敗: " + exception); }
+        }
+        void CaptureCleanup(Action cleanup)
+        {
+            try { cleanup(); }
+            catch (Exception exception) { CaptureCleanupFailure(exception); }
+        }
 
         try
         {
+            shutdown = Task.Run(BassAudioRuntime.Shutdown);
             Assert.IsTrue(BassAudioRuntime.WaitForAudioShutdownRequest(TimeSpan.FromSeconds(5)));
-            Task<bool> newRootAdmission = Task.Run(() =>
-            {
-                if (!BassAudioRuntime.TryEnterAudioOperation(out BassAudioOperationLease lease))
+            // 同期待機によるTaskのinline実行を避け、保持中operationのネストではない新rootを作る。
+            newRootAdmission = Task.Factory.StartNew(
+                () =>
                 {
-                    return false;
-                }
+                    Assert.AreNotEqual(operationThreadId, Environment.CurrentManagedThreadId);
+                    if (!BassAudioRuntime.TryEnterAudioOperation(out BassAudioOperationLease lease))
+                    {
+                        return false;
+                    }
 
-                lease.Dispose();
-                return true;
-            });
+                    try { return true; }
+                    finally { lease.Dispose(); }
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
             Assert.IsFalse(newRootAdmission.GetAwaiter().GetResult());
+            Assert.IsFalse(shutdown.IsCompleted);
             Assert.IsTrue(BassNativeRuntime.IsLoaded);
+        }
+        catch (Exception exception)
+        {
+            failure = ExceptionDispatchInfo.Capture(exception);
         }
         finally
         {
-            operation.Dispose();
+            try { operation.Dispose(); }
+            catch (Exception exception) { CaptureCleanupFailure(exception); }
+            CaptureCleanup(() => newRootAdmission?.GetAwaiter().GetResult());
+            CaptureCleanup(() => shutdown?.GetAwaiter().GetResult());
+            if (shutdown == null) { CaptureCleanup(BassAudioRuntime.Shutdown); }
         }
 
-        shutdown.GetAwaiter().GetResult();
+        failure?.Throw();
         Assert.IsFalse(BassNativeRuntime.IsLoaded);
     }
 
@@ -869,7 +898,7 @@ public sealed class BassNativeRuntimeTests
     {
         var events = new System.Collections.Generic.List<string>();
 
-        Assert.ThrowsException<InvalidOperationException>(() => BassAudioRuntime.InitializeRuntimeCore(
+        Assert.ThrowsExactly<InvalidOperationException>(() => BassAudioRuntime.InitializeRuntimeCore(
             () =>
             {
                 events.Add("LoadNative");
@@ -1856,14 +1885,14 @@ public sealed class BassNativeRuntimeTests
             StringAssert.Contains(versions, "bassFxVersion=0x00000005");
             StringAssert.Contains(versions, "bassEncVersion=0x00000006");
 
-            Assert.ThrowsException<AudioInitializationException>(() => BassAudioPlayer.InitializeOwned(
+            Assert.ThrowsExactly<AudioInitializationException>(() => BassAudioPlayer.InitializeOwned(
                 BassAudioPlayer.DeviceDriver.NULL_DEVICE,
                 default,
                 0f,
                 out _));
             Assert.AreSame(ownedSession, BassAudioPlayer.ActiveSession);
 
-            Assert.ThrowsException<AudioInitializationException>(() => BassAudioPlayer.Initialize(
+            Assert.ThrowsExactly<AudioInitializationException>(() => BassAudioPlayer.Initialize(
                 BassAudioPlayer.DeviceDriver.NULL_DEVICE));
             Assert.AreSame(ownedSession, BassAudioPlayer.ActiveSession);
         }

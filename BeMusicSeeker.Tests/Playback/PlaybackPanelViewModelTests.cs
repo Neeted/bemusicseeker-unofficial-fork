@@ -208,7 +208,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     /// <summary>置換の失敗は元原因を返して要求を保持し、置換中の新保存は成功/失敗どちらでも残します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true, false)]
     [DataRow(false, true)]
     [DataRow(true, true)]
@@ -246,7 +246,7 @@ public sealed class PlaybackPanelViewModelTests
             else { release.SetResult(); }
             if (failReplacement)
             {
-                Assert.AreSame(failure, await Assert.ThrowsExceptionAsync<IOException>(() => acceptedStart));
+                Assert.AreSame(failure, await Assert.ThrowsExactlyAsync<IOException>(() => acceptedStart));
                 Assert.AreEqual(0, second.Starts.Count, "置換失敗を旧playerでの代替成功に変えません。");
             }
             else { await acceptedStart; }
@@ -279,7 +279,7 @@ public sealed class PlaybackPanelViewModelTests
 
     /// <summary>通常/一時配置のClose待ち・採用後UI待ちをStopで失効させ、未採用要求の保持と採用済みplayerの再利用、新保存の保持を確認します。</summary>
     /// <remarks>実queue・次回設定port・置換を通し、Close/UIのgateを解放して開始と停止の実終端を回収します。停止中の不要copy、故障通知、自動再開がなく、受理済み面要求だけを一度配送することを観測します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false, false)]
     [DataRow(false, true, false)]
     [DataRow(true, false, false)]
@@ -458,7 +458,7 @@ public sealed class PlaybackPanelViewModelTests
 
     /// <summary>通常・一時配置の受理後に実player交換の統計準備が失敗しても候補を保持し、次の明示開始で再採用し、成功後は再生成しません。</summary>
     /// <remarks>旧曲の実開始から設定runtime portへfactoryを渡し、実queue・受付・ReplacePlayerAsyncと既存probeを通します。故障通知と要求Taskの終端で自動再試行なし・旧session保全・一時経路のL解放を確認し、直接交換自体の失敗保証は既存SettingsRuntimeApplyFailureケースへ分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ConfirmedPlayerFactory_ApplyFailureKeepsCandidateForNextExplicitStart(bool temporaryInstall)
@@ -541,7 +541,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     /// <summary>冒頭の競合確認後に別操作がLを先取りすると、Start/Next/Previous/実際の行activation入口はいずれも旧player・保留factory・session・異なる曲名/字幕/作者・表示対象・選択・イベント・実ファイルを変えません。旧終了callbackと後続の明示開始・停止・終了が引き続き有効で、受理後だけ保留playerを一回採用します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("Start")]
     [DataRow("Next")]
     [DataRow("Previous")]
@@ -658,7 +658,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     /// <summary>入力時の停止・一時停止だけが受付後の面要求を作り、再生中Pauseでは要求しません。受理後失敗/取消と空選択でも面意図を維持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("Stopped", 1)]
     [DataRow("Paused", 1)]
     [DataRow("Playing", 0)]
@@ -694,7 +694,7 @@ public sealed class PlaybackPanelViewModelTests
 
     /// <summary>停止中に確定した次回BMIIDXViewへ明示開始すると、旧playerの解放中にDispatcherが動いても面要求を失わず、通常・一時配置で実効面と保存状態を一回切り替えます。</summary>
     /// <remarks>実owner・View・DispatcherとBMIIDXViewを接続し、processとwindow操作だけを既存gatewayで代替します。旧Closeの待機中に実UI操作を回収し、要求Taskと面callback自身、後置したUI操作の終端を別々に待ちます。共有WPF資源を回収まで所有するため非並列です。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DoNotParallelize]
     [DataRow(false, true)]
     [DataRow(false, false)]
@@ -854,7 +854,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     /// <summary>面要求をUIへ未配送でも後続の受理を完了でき、世代が変わっても受付順に配送します。投稿またはcallback故障は再生結果を変えません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task SurfaceRequest_QueuedFifoAndOptionalFailureDoNotChangePlayback(bool failDispatch)
@@ -893,7 +893,7 @@ public sealed class PlaybackPanelViewModelTests
 
     /// <summary>実uBMplayの自然終了時の原子復元失敗を一回通知・診断し、自動次曲へ進みません。開始中の同期終了では同じ失敗の通知を開始側が所有します。</summary>
     /// <remarks>Naturalは終了単独、PreviousStartはAの終了通知未配送でBを明示開始、CurrentStartは現開始中の同期終了です。Stop/ShutdownBeforeReturnは実復元故障確定後のB返却を保留し実停止/終了で世代を失効、共有拒否を先に解放してから全Taskを回収します。元原因・INI path・起動阻止・明示再試行と旧snapshotの表示保全を確認し、通知故障も封じます。NLog共有構成を復元まで非並列で所有します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DoNotParallelize]
     [DataRow("Natural", false)]
     [DataRow("Natural", true)]
@@ -1193,7 +1193,7 @@ public sealed class PlaybackPanelViewModelTests
     /// 通知Taskの終端を待ち、通知・元名復元が失敗しても開始主原因を変更せず、第三者fileと退避元を保全します。
     /// </summary>
     /// <remarks>Windowsの削除共有拒否だけを実FSで作り、playerのReadyと通知の寿命は既存の代替実装で制御します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DoNotParallelize]
     [DataRow(false, false, false)]
     [DataRow(false, true, false)]
@@ -1432,7 +1432,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     /// <summary>ファイル変更の受付中は再生を拒否し、現在曲の停止終端後だけ書込みを許可します。停止失敗時には物理変更と自動再開を行わないことも確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task FileMutation_StopsCurrentSongBeforeWritingAndRejectsPlaybackWhileBusy(bool failStop)
@@ -1488,7 +1488,7 @@ public sealed class PlaybackPanelViewModelTests
 
     /// <summary>Pause中・演奏完了後にも管理入力の解除は停止へ収束し、停止待ち中の試聴を予約せず、次の明示要求だけを開始します。</summary>
     /// <remarks>実panelと共通受付・目録store・SQLite/FSを接続します。playerのclose待機は状態・受付の保証で、実decode終端はAudioContractsTestsが担当します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     // 独立Lを持つfixtureが同一processの共通session markerを初期公開するため、準備から開始Task終端・固有root回収まで非並列で所有します。本番の同一Lによる直列化と、case内のBusy・非予約・次明示要求の判定は維持します。
     [DoNotParallelize]
     [DataRow(false)] // Pauseした現在曲と、異なる管理入力の先読み候補。
@@ -1659,7 +1659,7 @@ public sealed class PlaybackPanelViewModelTests
 
     /// <summary>Readyの入力不良が開始時または非同期に届いても一回通知して次の有効曲へ進み、同じ失敗や面要求を重ねず、同じ開始内では待機中に保存された次回player要求を消費しません。</summary>
     /// <remarks>同期失敗は既存のskip保証、非同期失敗はReady待機中の次回設定保存と後続の明示開始までを確認します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task InternalReady_InvalidInputNotifiesAndSkipsOnce(bool asynchronous)
@@ -1866,7 +1866,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     /// <summary>player交換と終了の双方は旧playerのClose終端を待ち、回収前に新playerの表示値へ切り替えないことを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task InternalReplacementAndShutdown_WaitForCloseTerminal(bool shutdown)
@@ -1900,7 +1900,7 @@ public sealed class PlaybackPanelViewModelTests
 
     /// <summary>一時配置が必要な次候補はさらに先へ飛ばさず先読みを止め、配置先がなくコピー不要の未導入候補だけを直接準備することを確認します。</summary>
     /// <remarks>実在する譜面と配置先の有無を候補計算へ渡し、コピーは開始せず局所playerの準備要求を観測します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task PreloadCandidate_DoesNotSkipTemporaryTargetAndAllowsPendingTargetWithoutCopy(bool destinationExists)
@@ -1940,7 +1940,7 @@ public sealed class PlaybackPanelViewModelTests
 
     /// <summary>通常入力と一時配置入力の外部開始は旧Closeの実終端を待ち、開始呼出しまで入力を保持します。同期失敗と返却Taskの遅い失敗を各一回通知することも確認します。</summary>
     /// <remarks>一時配置の物理コピー・回収または確認から開始への接続を通すため実ライブラリを接続し、playerの実行は局所probeで制御します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -2047,7 +2047,7 @@ public sealed class PlaybackPanelViewModelTests
 
     /// <summary>通常発見した入れ子パッケージで衝突なし・入力元兄弟・両側複数・ディレクトリ占有から開始名を決め、元入力と第三者のバイト内容・相対配置を保全します。</summary>
     /// <remarks>実コピーを内蔵BeginStartのReadyまで保持し、要求TaskとLの未終端、Completion前の所有物回収を観測します。ディレクトリ占有の代表だけReady故障を重ね、元原因の一通知と明示再試聴を確認します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0, "chart.bms", false)]
     [DataRow(1, "chart__.bms", false)]
     [DataRow(2, "chart_____.bms", false)]
@@ -2838,7 +2838,7 @@ public sealed class PlaybackPanelViewModelTests
         Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
     /// <summary>現在playerまたはpending要求がbmson非対応なら、明示行を副作用前に拒否して現在曲・選択・header・状態を保ちます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task PlaybackPanelDoesNotSendBmsonToAnExternalPlayerWithoutThatCapability(bool pendingExternal)
@@ -3168,7 +3168,7 @@ public sealed class PlaybackPanelViewModelTests
 
         completion.SetException(failure);
 
-        await Assert.ThrowsExceptionAsync<IOException>(async () => await playStartTask);
+        await Assert.ThrowsExactlyAsync<IOException>(async () => await playStartTask);
         Assert.IsNull(panel.NowPlayingChart);
         player.ExitHandler!(player, EventArgs.Empty);
 
@@ -3288,12 +3288,12 @@ public sealed class PlaybackPanelViewModelTests
 
         firstCompletion.SetException(new IOException("stale player start failed"));
 
-        await Assert.ThrowsExceptionAsync<IOException>(
+        await Assert.ThrowsExactlyAsync<IOException>(
             async () => await firstObservationTask);
         Assert.AreSame(secondFile, panel.NowPlayingChart);
         Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
         secondCompletion.SetCanceled();
-        await Assert.ThrowsExceptionAsync<TaskCanceledException>(
+        await Assert.ThrowsExactlyAsync<TaskCanceledException>(
             async () => await secondObservationTask);
         Assert.IsNull(panel.NowPlayingChart);
     }
@@ -3314,7 +3314,7 @@ public sealed class PlaybackPanelViewModelTests
 
         panel.StopPlayback().GetAwaiter().GetResult();
         firstCompletion.SetException(new IOException("stale after stop"));
-        await Assert.ThrowsExceptionAsync<IOException>(async () => await firstStart);
+        await Assert.ThrowsExactlyAsync<IOException>(async () => await firstStart);
         Assert.IsNull(panel.NowPlayingChart);
         Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
 
@@ -3325,7 +3325,7 @@ public sealed class PlaybackPanelViewModelTests
         panel.ReplacePlayerAsync(replacementPlayer).GetAwaiter().GetResult();
         secondCompletion.SetException(new IOException("stale after replacement"));
 
-        await Assert.ThrowsExceptionAsync<IOException>(async () => await secondStart);
+        await Assert.ThrowsExactlyAsync<IOException>(async () => await secondStart);
         Assert.AreSame(secondFile, panel.NowPlayingChart);
         Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
         panel.StopPlayback().GetAwaiter().GetResult();
@@ -3729,7 +3729,7 @@ public sealed class PlaybackPanelViewModelTests
                 player,
                 dialogs);
 
-            Assert.AreSame(failure, Assert.ThrowsException<InvalidOperationException>(() => panel.Start().GetAwaiter().GetResult()));
+            Assert.AreSame(failure, Assert.ThrowsExactly<InvalidOperationException>(() => panel.Start().GetAwaiter().GetResult()));
             Assert.AreEqual(1, dialogs.TemporaryInstallConfirmationCount);
             Assert.IsFalse(gateway.Session.Started);
             Assert.IsNull(panel.NowPlayingChart);
@@ -4169,7 +4169,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     /// <summary>準備時除外後も要求方向の有効曲だけへ送り、手動送り先がなければ現在曲・再生状態・選択を維持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("Bmson", false)]
     [DataRow("Missing", false)]
     [DataRow("Multiple", false)]
@@ -4218,7 +4218,7 @@ public sealed class PlaybackPanelViewModelTests
 
     /// <summary>手動送りの初回候補ゼロはfolder設定や不備種別によらず現在曲・PLAY/PAUSE・次回方式を保ち、自然終曲だけは停止します。</summary>
     /// <remarks>同folder正常曲は中央から前後と自然終了を、未所持・別folder欠落・非対応形式は手動を、混在は自然終了を確認します。実ロード後の枯渇はLegacy/Readyケースへ分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("SameFolder", "Next", true, false)]
     [DataRow("SameFolder", "Previous", true, false)]
     [DataRow("SameFolder", "Natural", true, false)]
@@ -4303,7 +4303,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     /// <summary>前曲のロード入力不良後は後方の正常曲へ進み、後続が欠落だけなら停止します。初回候補ゼロの無作用へ読み替えません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task Previous_LegacyInvalidStartContinuesBackward(bool remainingMissing)
@@ -4333,7 +4333,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     /// <summary>前曲候補のReady入力不良は同期・非同期とも一回通知して後退し、同じ開始中に保存した次回方式は次の明示開始まで保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task Previous_InvalidReadyContinuesBackwardWithoutRecapturingPlayer(bool asynchronous)
@@ -4393,7 +4393,7 @@ public sealed class PlaybackPanelViewModelTests
 
     /// <summary>同一フォルダを後退中に一覧が5行から3行へ縮小しStopまたは終了が失効させても、元要求と後続要求・終了が終端し、新曲・開始イベント・通知を追加しません。</summary>
     /// <remarks>実queueの行snapshot取得とrowGate解放後に停止します。移動予算超過は旧無限巡回の明示失敗にし、厳密な行取得回数は契約にしません。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task Previous_ListShrinkAndInvalidationTerminateNavigation(bool shutdown)
@@ -4453,7 +4453,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     /// <summary>FolderSkipは後方最寄りの異folderへ戻り、全行同folderなら前後とも捕捉したRepeatで現在曲を一回開始します。探索中のモード変更は次要求へ適用します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(false, true)]
@@ -4506,7 +4506,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     /// <summary>同hash別pathの通常viewと同chart別entryのplaylist viewで、並替・現在行が残る絞込み後も生存identityの現位置から送ります。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task Navigation_CurrentIdentitySurvivesSortAndFilterWithoutMergingDuplicateCharts(bool playlist)
@@ -4557,7 +4557,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     /// <summary>現在行消失後の手動前後送りは現曲を保ち、通常自然終了は停止、SingleRepeatは同曲だけを再開し、その入力不良で別曲へ進みません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("Manual")]
     [DataRow("Natural")]
     [DataRow("SingleRepeat")]
@@ -4632,7 +4632,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     /// <summary>ロード不良後も送り元Aを固定し、Aotherは大小文字差も含め除外、別folderのBotherは採用します。同期開始例外と遅延Readyの試行列を同じ基準で確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -4698,7 +4698,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     /// <summary>Repeatの先頭折返し不良を周回終端と誤認せず、手動・自然終了とも次の正常曲へ進み、全開始不良なら一巡だけで停止します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(false, true)]
@@ -4725,7 +4725,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     /// <summary>明示Startは同folderの指定曲を優先し、その入力不良後は直前の成功曲ではなく初期対象のfolderを固定して探索します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task Navigation_ExplicitStartPrioritizesInitialRowAndKeepsItsFolderAfterFailure(bool invalid)

@@ -150,7 +150,7 @@ public sealed class BackupTests
     {
         string missingBackupRoot = Path.Combine(Path.GetTempPath(), "BackupTests", Guid.NewGuid().ToString("N"));
 
-        Assert.ThrowsException<DirectoryNotFoundException>(() => Backup.SaveBackups(missingBackupRoot, TimeSpan.Zero, 1, ["dummy.db"]));
+        Assert.ThrowsExactly<DirectoryNotFoundException>(() => Backup.SaveBackups(missingBackupRoot, TimeSpan.Zero, 1, ["dummy.db"]));
     }
 
     /// <summary>後半の対象を排他ロックしてコピーを失敗させ、旧世代の維持と途中コピーの回収を確認します。</summary>
@@ -388,7 +388,7 @@ public sealed class BackupTests
             Directory.CreateDirectory(TodayPath(root));
             WriteAllText(Path.Combine(TodayPath(root), "sentinel.db"), "competitor");
 
-            Assert.ThrowsException<IOException>(() => LongPathFileSystem.MoveDirectory(staged, TodayPath(root), overwrite: false));
+            Assert.ThrowsExactly<IOException>(() => LongPathFileSystem.MoveDirectory(staged, TodayPath(root), overwrite: false));
 
             Assert.AreEqual("competitor", ReadAllText(Path.Combine(TodayPath(root), "sentinel.db")));
             Assert.AreEqual("candidate", ReadAllText(Path.Combine(staged, "sentinel.db")));

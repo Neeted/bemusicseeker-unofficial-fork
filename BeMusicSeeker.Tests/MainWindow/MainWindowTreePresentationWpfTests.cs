@@ -73,7 +73,7 @@ public sealed class MainWindowTreePresentationWpfTests
     }
 
     /// <summary>通常フォルダとrootの再読込み入口で操作失敗を一回通知し、所有された終了取消だけを静穏に終えます。rootの末尾区切りなしとfolderの合法な区切り、両メニューの2操作配送も維持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)] // 普通の失敗は一回ずつ通知し、次の要求へ過去の失敗を持ち越しません。
     [DataRow(true, false)] // 終了要求のない取消は実失敗として通知します。
     [DataRow(true, true)] // 実Window終了で所有された取消だけを通知しません。

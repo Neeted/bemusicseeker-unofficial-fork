@@ -97,7 +97,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     }
 
     /// <summary>通常削除の実prepared入口で登録解除を確認し、Yes/No/保護を実FS・SQLite・設定へ接続します。保護だけなら停止も物理対象も持たず、catalog反映も未実施として報告します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("yes")]
     [DataRow("no")]
     [DataRow("protected")]
@@ -269,7 +269,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     }
 
     /// <summary>全folderの回答前はLだけを保持し、後続取消・閉鎖・表示失敗で先行Yesを実行しません。明示Noだけは全回答後の譜面削除へ進めます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("no")]
     [DataRow("cancel")]
     [DataRow("close")]
@@ -371,7 +371,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     }
 
     /// <summary>初回の件数確認が表示不能ならfolder確認・停止・P取得を始めず、元失敗とL解放を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task DeleteAsync_FirstConfirmationFailureDoesNotStartFolderDecisions(bool unavailable)
@@ -1483,7 +1483,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     }
 
     /// <summary>実storeと実DBを通し、最初の確認前の固定対象が削除・通常拡張子変更へ届くことを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 0: 初期hashと現hashが違う削除、2: 確認取消、3: 現path変更後の拡張子修正。
     [DataRow(0)]
     [DataRow(2)]

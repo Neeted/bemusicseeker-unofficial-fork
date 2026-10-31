@@ -477,7 +477,7 @@ public sealed class DirectoryResourceLookupCacheTests
         exposedHashes[0] = 999u;
 
         Assert.AreNotEqual(999u, entry.AudioRelativePathHashArray[0]);
-        Assert.ThrowsException<NotSupportedException>(() => entry.AudioRelativePathHashes.Add(999u));
+        Assert.ThrowsExactly<NotSupportedException>(() => entry.AudioRelativePathHashes.Add(999u));
         Assert.IsFalse(cache.GetDirectoriesByAudioRelativeHash(2u) is string[]);
     }
 
@@ -518,7 +518,7 @@ public sealed class DirectoryResourceLookupCacheTests
     /// <summary>
     /// 保証：音声・画像・動画の各単独変更は該当分類だけの逆引きを更新し、旧世代と他分類の候補を保持する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0)]
     [DataRow(1)]
     [DataRow(2)]
@@ -579,7 +579,7 @@ public sealed class DirectoryResourceLookupCacheTests
     /// <summary>
     /// 保証：自己所有だけの置換でも候補を除去後に末尾へ追加し、既に末尾の場合だけ逆引き無変更として旧候補順を保持する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void SelfOwnedOnlyChange_MultipleCandidatesPreserveRemoveThenAppendOrder(bool changeLastCandidate)
@@ -675,7 +675,7 @@ public sealed class DirectoryResourceLookupCacheTests
     /// <summary>
     /// 保証：管理走査・native入力の両方で変更列の各世代が独立した所属事実へ一致し、共有・固有・零ハッシュの誤反映を検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ResourceMutationSequence_MatchesIndependentMembershipFactsInEveryRetainedGeneration(bool native)

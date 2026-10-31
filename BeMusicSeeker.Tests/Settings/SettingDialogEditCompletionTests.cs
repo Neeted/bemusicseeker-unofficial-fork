@@ -71,7 +71,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>未設定・欠損・不正・占有 config／DB の起動は設定案内へ終端し、初回と通常の案内順を分け、元ファイルと raw path を保って修復・出力を始めないことを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("null-path", false)]
     [DataRow("null-path", true)]
     [DataRow("empty-path", false)]
@@ -270,7 +270,7 @@ public sealed partial class SettingDialogEditCompletionTests
 
     /// <summary>実音量Sliderのpreviewは現在再生runtimeだけへ届き、操作終端で音量だけを実保存します。同値終端は保存0、失敗は表示・現在再生・readerを最新確定値へ戻します。</summary>
     /// <remarks>実provider・composition・Internal playerから音声runtime境界までを接続します。OS音声出力だけを固定代替し、別項目保存と終了時保存にもpreviewを混ぜません。dragの失敗行は先行保存60の後のpreview70を失敗させ、初期値50でなく最新確定60へ戻すことを確認します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("drag", false)]
     [DataRow("mouse", false)]
     [DataRow("keyboard", false)]
@@ -410,7 +410,7 @@ public sealed partial class SettingDialogEditCompletionTests
 
     /// <summary>両モードで画面を繰り返し開閉しても保存要求を出さず、明示した選択と実RadioButtonのClickから確認一回・承認後の保存一回へ進むことを確認します。</summary>
     /// <remarks>標準の選択後と同じ状態をBindingを保って渡し、物理キー・マウス状態を参照するWPF入力処理は呼びません。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void OperationModeRadio_RepeatedWindowLifetimesDoNotRequestChangeUntilAcceptedClick(bool initialOperationMode)
@@ -483,7 +483,7 @@ public sealed partial class SettingDialogEditCompletionTests
 
     /// <summary>両モードの実Radioで、確認取消と別実操作中の入口拒否を分け、保存・再起動なしで両選択表示を確定モードへ戻します。</summary>
     /// <remarks>確認前に反対の選択へ切り替え、取消が実際に選択表示を復元することをOS入力状態から分離して観測します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -607,7 +607,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>準備・設定保存・URL切替・旧先整理の実媒体故障を区別し、採用点、管理外保全、最新入力への次変更を保証します。同先の形式変更/再更新は全表と正本hashを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("success")]
     [DataRow("prepare-file")]
     [DataRow("prepare-manifest")]
@@ -1785,7 +1785,7 @@ public sealed partial class SettingDialogEditCompletionTests
 
     /// <summary>BMS一覧の局所確定は同じL/Pで実差分を完了し、実score取得後も登録公開のcache失効・通知を維持します。成功時はDBと画面へ今回の譜面を反映し、走査失敗でも確定rootの保留解除通知を親L/P・モデル保護の解放後に完了します。</summary>
     /// <remarks>初期化後の独立保守と区別し、当該確定Taskの実終端でDBと必須UIを観測します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(true, true)]
@@ -2043,7 +2043,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>無効な検索ルートでは通常起動だけが初回言語選択／設定再表示を要求し、設定経由では重ねて表示せず、進捗 block と profile を残さないことを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true, false)]
     [DataRow(true, true)]
     [DataRow(false, false)]
@@ -2096,7 +2096,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>実LR2設定不備に対する任意警告が失敗しても設定修復の結果・呼出元の案内を保ち、再帰通知・構築・元XML/DBの変更を始めません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("startup", false)] // 通常起動の警告Task失敗でも設定を案内します。
     [DataRow("startup", true)] // 通常起動のFailed結果でも設定を案内します。
     [DataRow("typed", false)] // 型付き終端は警告Task失敗を設定検証結果へ混ぜません。
@@ -2203,7 +2203,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>有効な DB／config がある LR2 root 未設定は通常起動だけ警告し、設定経由は警告を重ねず、どちらも実初期化を成功できることを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -2310,7 +2310,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>起動走査の有無と既存 DB の有無によらず、欠損登録 root では警告後に設定を開き、新規 DB 作成や既存 DB の改変前に止まることを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -2620,7 +2620,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>実構成入口の失敗通知中にL/Pと進捗が解放され、元の構成失敗を保持して設定を自動再表示しないことを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("startup")] // 通常起動も実構成失敗で設定を自動再表示しません。
     [DataRow("typed")] // 型付き入口は元失敗とOperationFailedを返し、設定検証結果へ読み替えません。
     [DataRow("apply")] // 実設定適用も型付き処理失敗を設定修復へ読み替えず、保存・Close・cleanupを維持します。
@@ -2749,7 +2749,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>通常起動と設定借用の実入口で終了し、ShutdownRequested相当・初回状態保持・親解禁/外部投入の中止と全cleanupを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void InitializeLibrary_ShutdownRetainsFirstStartupAndDoesNotUnlockOrQueueExternalWork(bool fromSettings)
@@ -3034,7 +3034,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>出力先重複を注入通知先へ一回届け、通知成功・Failed・owner不在・Task faultのいずれも元の出力先とconfigを保ち、通知不能を元の入力拒否へ合成せず再通知しないことを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("Accepted")]
     [DataRow("Failed")]
     [DataRow("OwnerUnavailable")]
@@ -3101,7 +3101,7 @@ public sealed partial class SettingDialogEditCompletionTests
 
     /// <summary>一般ページの実Table URLボタンで確定rootと別候補を識別し、破棄取消/実P拒否では保持、受理後は関係rootだけを戻して実通知終端まで同再操作を拒否します。通常Closeは同じTaskを保持して許可します。</summary>
     /// <remarks>実workspaceの既存URL入力を使ってHTTPを避け、DB/順序/BMTの詳細はPlaylist系列へ分担します。通知gateを実Taskより先に完了条件にしません。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("cancel")]
     [DataRow("busy")]
     [DataRow("accepted")]
@@ -3200,7 +3200,7 @@ public sealed partial class SettingDialogEditCompletionTests
 
     /// <summary>スコア組の確定から同じL/Pを実ScoreOnlyモデルへ渡し、実親解放後の純通知と必須UIの実終端まで同じWindowの受理Taskを追跡します。</summary>
     /// <remarks>実compiled選択からWindowの受理Taskへ接続し、実設定・モデル・UI完了を確認します。純通知を保持点にせず既存UI gateで実Taskを待ちます。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)] // 同じroot内のplayer選択。
     [DataRow(true)] // root pickerの局所組変更。
     public void ScoreConfirmation_PublishesChangedRealScoreBeforeClosing(bool changeRoot)
@@ -3645,7 +3645,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>実開始buttonの連打は一回だけ受理し、必須UI待ちで親権限の解放と同WindowのClose抑止を確認します。UI失敗は同Windowで修復再開始でき、成功後は別に任意背景の実終端とL/P解放を待ちます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void InitialEnvironmentStart_CompletesRealLr2InitializationWithoutReacquiringAdmission(bool uiFails)
@@ -3761,7 +3761,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>標準／個別の欠損 DB を同じ path に復旧して再選択すると status を通知・更新し、path tuple と config を保存せず保つことを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Lr2SongDbPicker_ReselectingRestoredFileRefreshesStatusWithoutSaving(bool useIndividualPath)
@@ -4022,7 +4022,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>同じ／別の有効 root に復旧すると raw tuple を依存表示より先に一回ずつ通知し、拒否状態を解除することを確認して、途中の不整合表示や重複通知を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Lr2RootPicker_RecoveryNotifiesRawTupleBeforeDependentPresentationExactlyOnce(bool useDifferentRoot)
@@ -4122,7 +4122,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>通常・追加・ROOTの先の選択を実保存し、同一・親・子関係の次の選択を最新確定配置に対して拒みます。どちらの操作順でも保存済み配置と候補一覧を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("normal", "additional")]
     [DataRow("additional", "normal")]
     [DataRow("normal", "root")]
@@ -4176,7 +4176,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>作業スレッドの実候補読取と画面結果の分類を非WPFで確認し、終了フラグだけで元の画面障害を黙殺しないことを保証します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 0:承認後終了、1:AppClosing、2:元例外付きFailed、3:owner不在、4:通知境界から元例外。
     [DataRow(0)]
     [DataRow(1)]
@@ -4218,11 +4218,11 @@ public sealed partial class SettingDialogEditCompletionTests
             using var gate = new SemaphoreSlim(1, 1);
             var owner = new StartupLibraryInitializationWorkflowOwner(gate);
             Task<LeapYearFolderRepairApproval> operation = owner.PrepareLeapYearFolderRepairAsync(settings.LR2SongDBPath, dialogs, () => shutdown);
-            if (resultKind is 0 or 1) { await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => operation); }
-            else if (resultKind == 4) { Assert.AreSame(original, await Assert.ThrowsExceptionAsync<IOException>(() => operation)); }
+            if (resultKind is 0 or 1) { await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => operation); }
+            else if (resultKind == 4) { Assert.AreSame(original, await Assert.ThrowsExactlyAsync<IOException>(() => operation)); }
             else
             {
-                InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => operation);
+                InvalidOperationException failure = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => operation);
                 if (resultKind == 2) { Assert.AreSame(original, failure.InnerException); }
                 else { StringAssert.Contains(failure.Message, nameof(UiDialogStatus.OwnerUnavailable)); }
             }
@@ -4238,7 +4238,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>修復後の通知は表示失敗を局所処理し、終了要求がある場合だけ取消しを伝播します。通知結果だけで終了したことにはしません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // warningは修復警告/修復失敗を区別。0:AppClosing、1:Failed、2:owner不在、3:null、4:元例外throw、5:OK、6:終了要求のないAppClosing。
     [DataRow(true, 0, true)]
     [DataRow(false, 0, true)]
@@ -4276,14 +4276,14 @@ public sealed partial class SettingDialogEditCompletionTests
         var owner = new StartupLibraryInitializationWorkflowOwner(gate);
         var notification = new LeapYearFolderRepairNotification(warning, warning ? [] : [("original folder", new IOException("timestamp repair failed"))]);
         Task operation = owner.PresentLeapYearFolderRepairAsync(notification, dialogs, () => shutdown);
-        if (shutdownAfterDisplay) { await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => operation); }
+        if (shutdownAfterDisplay) { await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => operation); }
         else { await operation; }
         Assert.AreEqual(1, dialogs.MessageCount);
         Assert.AreEqual(0, dialogs.ConfirmationCount);
     }
 
     /// <summary>各実入口で確認中の終了は副作用を始めず、成功公開後の修復通知中の終了は既公開成功を保持し、新しい案内・後続・設定再表示を止めます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // entry 0:初回の明示開始、2:通常startup、3:tree再初期化。二つのboolは確認中/通知中の終了を区別します。
     [DataRow(0, false, false)]
     [DataRow(2, false, false)]

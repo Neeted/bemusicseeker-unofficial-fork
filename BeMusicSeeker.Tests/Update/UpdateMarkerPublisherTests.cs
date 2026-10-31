@@ -12,7 +12,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class UpdateMarkerPublisherTests
 {
     /// <summary>既存readyは元のバイト列を保って拒否し、decisionは完成内容へ置換する。両方で旧固定一時名と他writerの一時物を保護し、自身の一時物を残さない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, "updater-ready.txt", "1")]
     [DataRow(true, "updater-decision.txt", "proceed")]
     public void Publish_ExistingMarkerHonorsReplacementPolicyAndPreservesOtherTemporaryFiles(
@@ -34,7 +34,7 @@ public sealed class UpdateMarkerPublisherTests
             }
             else
             {
-                Assert.ThrowsException<IOException>(Publish);
+                Assert.ThrowsExactly<IOException>(Publish);
             }
 
             CollectionAssert.AreEqual(overwrite ? bytes : original, File.ReadAllBytes(finalPath));
@@ -58,7 +58,7 @@ public sealed class UpdateMarkerPublisherTests
             var expected = new InvalidOperationException("producer failed after partial output");
             string? ownedPath = null;
 
-            InvalidOperationException actual = Assert.ThrowsException<InvalidOperationException>(() =>
+            InvalidOperationException actual = Assert.ThrowsExactly<InvalidOperationException>(() =>
                 UpdateMarkerPublisher.Publish(finalPath, overwrite: false, stream =>
                 {
                     stream.WriteByte((byte)'1');
@@ -89,7 +89,7 @@ public sealed class UpdateMarkerPublisherTests
             string finalPath = Path.Combine(root, "updater-ready.txt");
             var expected = new InvalidOperationException("producer failed before publication");
 
-            InvalidOperationException actual = Assert.ThrowsException<InvalidOperationException>(() =>
+            InvalidOperationException actual = Assert.ThrowsExactly<InvalidOperationException>(() =>
                 UpdateMarkerPublisher.Publish(finalPath, overwrite: false, stream =>
                 {
                     stream.WriteByte((byte)'1');
@@ -102,7 +102,7 @@ public sealed class UpdateMarkerPublisherTests
             Assert.IsNotNull(ownedPath);
             Assert.IsTrue(File.Exists(ownedPath), "The real readonly cleanup fault must leave the owned temporary file.");
             Assert.IsTrue(File.GetAttributes(ownedPath).HasFlag(FileAttributes.ReadOnly));
-            Assert.ThrowsException<UnauthorizedAccessException>(() => File.Delete(ownedPath));
+            Assert.ThrowsExactly<UnauthorizedAccessException>(() => File.Delete(ownedPath));
             Assert.IsFalse(File.Exists(finalPath));
         });
     }

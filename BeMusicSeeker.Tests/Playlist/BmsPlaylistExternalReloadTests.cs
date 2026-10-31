@@ -540,7 +540,7 @@ public sealed class BmsPlaylistExternalReloadTests
     /// 二表の取得失敗とも別に返ることを確認します。解除後の変更なしと次操作まで実DBで観測します。
     /// 置換前の拒否・中断は既存UIスケジューラ検証へ分担します。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [TestCategory("Playlist")]
@@ -636,7 +636,7 @@ public sealed class BmsPlaylistExternalReloadTests
     /// A/C完了進捗からsummary buildを回収するため、終端一括採用への退行は待機継続ではなく旧表示の表明で検出します。
     /// 自動・手動とも0件は空名、成功Aと失敗Cの2/3終了では保持中Bを終了名にせず、B解放後に3/3を通知します。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(false, true)]
@@ -792,7 +792,7 @@ public sealed class BmsPlaylistExternalReloadTests
             server.ReleaseBody.TrySetResult();
             if (failSummaryRequest)
             {
-                Exception actual = await Assert.ThrowsExceptionAsync<InvalidOperationException>(async () => await operation);
+                Exception actual = await Assert.ThrowsExactlyAsync<InvalidOperationException>(async () => await operation);
                 Assert.AreSame(summaryFailure, actual, "モデルの任意callback境界で必須採用失敗を飲み込みません。");
             }
             else { await operation; }
@@ -834,7 +834,7 @@ public sealed class BmsPlaylistExternalReloadTests
     /// 手動単表と任意複数表の実再取得で、実BMT失敗と確定参照採用後の詳細通知失敗を重ね、両原因・DB・P/Taskと進捗終端・次要求を保ちます。
     /// 実BMT開始通知を保持してN/NでもHub行と実Taskが存続することを確認し、次に詳細表示を保持します。実保存・BMTは置換しません。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [TestCategory("Playlist")]
@@ -984,7 +984,7 @@ public sealed class BmsPlaylistExternalReloadTests
     /// 有効行と削除履歴の有限集合をmodel/DBで照合し、BMTは有効行だけ、manifest故障では先行生成物と旧台帳を保ちます。
     /// BMT Warningを別に観測し、終端Information配送中のP/Taskと実結果・完了事実、次の明示JSON変更と空receiptの非表示を保ちます。削除履歴の分岐はPlaylistReloadMergeTests、実modalは上位へ分担します。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)] // BMT成功を実Informationの表示・診断故障で失敗へ変えない。
     [DataRow(true)] // manifest失敗のWarningと終端Informationを分け、必須出力原因を保つ。
     [TestCategory("Playlist")]
@@ -1608,7 +1608,7 @@ public sealed class BmsPlaylistExternalReloadTests
     }
 
     /// <summary>保存済みの旧難度、通知設定、保存成否を変えて初回hash保存を行い、数値の難度変化だけを通知します。保存失敗で旧状態を戻さない誤りと、名前変更や同値表記だけで通知する誤りを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("旧方針 ★3.87", "standard", true, false, 1)]
     [DataRow("旧方針 ★6.6", "standard", true, false, 0)]
     [DataRow("旧方針 ★6.60", "mixed", true, false, 1)]
@@ -1744,7 +1744,7 @@ public sealed class BmsPlaylistExternalReloadTests
             File.Delete(songDbPath);
             Directory.CreateDirectory(songDbPath);
 
-            InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(() =>
+            InvalidOperationException exception = Assert.ThrowsExactly<InvalidOperationException>(() =>
                 playlist.ReOutputCustomFoldersAndCommitHeadersToDB([table], "test_capability_failure"));
 
             Assert.AreSame(originalException, exception);
@@ -2425,7 +2425,7 @@ public sealed class BmsPlaylistExternalReloadTests
     }
 
     /// <summary>通常表と推薦表のUI置換を保留し、完了前は旧参照と無通知を保ち、競合する復元・削除を拒否します。UI確定前の成功通知と予約の早期解放を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [TestCategory("Playlist")]
@@ -2454,7 +2454,7 @@ public sealed class BmsPlaylistExternalReloadTests
             // U2-R2: 個別 reload の実 pending publication がある間、復元は DB 更新前に拒否する。
             competingRestore = playlist.RestorePlaylistDumpAsync(
                 PlaylistWorkspaceTestDataSupport.CreatePlaylistRestoreDump(77, "Rejected restore", "X"));
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
                 competingRestore);
             using (var db = new LR2SongDBExtended(Path.Combine(tempDirectory, "song.db")))
             {
@@ -2466,7 +2466,7 @@ public sealed class BmsPlaylistExternalReloadTests
             {
                 persistedEntries = before.Table<LR2SongDBExtended.playlist_entry>().Select(entry => entry.md5 + ":" + entry.title).OrderBy(value => value, StringComparer.Ordinal).ToArray();
             }
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => Task.Run(() => playlist.RemoveBMSTable(table)));
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => Task.Run(() => playlist.RemoveBMSTable(table)));
             using (LR2SongDBExtended afterRejection = new BmsLibraryDbGateway(Path.Combine(tempDirectory, "song.db")).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(1, afterRejection.Table<BMSTable>().Count());
@@ -2521,7 +2521,7 @@ public sealed class BmsPlaylistExternalReloadTests
 
     // U2-R4/R2: 既存 operation scheduler で UI rejection / cancel / fault を区別し、DB 保持と予約解放を確認する。
     /// <summary>復元後のUI配送が拒否・取消・失敗しても確定DBを保持し、旧表示のまま失敗を返して次の明示復元を受理します。表示失敗でDBを巻き戻す誤りと予約漏れを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("Rejected")]
     [DataRow("Aborted")]
     [DataRow("Faulted")]
@@ -2565,7 +2565,7 @@ public sealed class BmsPlaylistExternalReloadTests
     }
 
     /// <summary>通常表と推薦表のUI配送拒否を再取得適用失敗として返し、旧モデル・保存値を保持して成功通知を出しません。配送できない置換を成功扱いする誤りを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [TestCategory("Playlist")]
@@ -2576,7 +2576,7 @@ public sealed class BmsPlaylistExternalReloadTests
             "rejected", recommendation);
 
     /// <summary>通常表と推薦表のUI配送取消を元取消の分類付きで返し、旧モデル・保存値と無通知を保持します。取消を適用済み扱いする誤りを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [TestCategory("Playlist")]
@@ -2587,7 +2587,7 @@ public sealed class BmsPlaylistExternalReloadTests
             "aborted", recommendation);
 
     /// <summary>通常表と推薦表のUI配送例外を適用失敗の内部例外に保持し、旧モデル・保存値を変えません。配送失敗を隠して成功通知する誤りを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [TestCategory("Playlist")]
@@ -2644,7 +2644,7 @@ public sealed class BmsPlaylistExternalReloadTests
             if (!server.HeadersSent.Task.IsCompleted) { await reloadTask; Assert.Fail("実通信へ到達しませんでした。"); }
             Assert.IsFalse(reloadTask.IsCompleted);
             Assert.IsFalse(playlist.TryEnterPlaylistMutation(out _));
-            Assert.ThrowsException<InvalidOperationException>(() => playlist.RemoveBMSTable(table));
+            Assert.ThrowsExactly<InvalidOperationException>(() => playlist.RemoveBMSTable(table));
             using (LR2SongDBExtended before = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(1L, before.ExecuteScalar<long>("SELECT COUNT(1) FROM playlist WHERE playlist_id = 9021;"));

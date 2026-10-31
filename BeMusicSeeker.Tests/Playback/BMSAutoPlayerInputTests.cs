@@ -27,7 +27,7 @@ public sealed class BMSAutoPlayerInputTests
 {
     /// <summary>実在する各階層と譜面側に同名・別PCMを置き、BMS/PMSの親参照とdir経由の親参照が意図した階層の音源だけを採用する。</summary>
     /// <remarks>実PlaybackChart.LoadからNULL_DEVICEの音源読込み・decoderまで接続し、採用絶対path・元PCM・frame・rate・省略なしを確認するため共有native状態を直列所有する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("../tone.wav", "a/b", 3, 0.375f, "bms")]
     [DataRow("../../tone.wav", "a", 2, 0.25f, "bms")]
     [DataRow("../../../tone.wav", "", 1, 0.125f, "bms")]
@@ -71,7 +71,7 @@ public sealed class BMSAutoPlayerInputTests
 
     /// <summary>BMS／bmsonでwav→ogg→mp3の最初の復号成功を採用し、選んだ候補の元rate・frame・PCMを保って途中失敗を省略に出さない。</summary>
     /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, 0)]
     [DataRow(false, 1)]
     [DataRow(false, 2)]
@@ -102,7 +102,7 @@ public sealed class BMSAutoPlayerInputTests
 
     /// <summary>サブフォルダの全拡張子候補をbasenameより先に試し、失敗を尽くしてからbasenameの正常候補を採用する。</summary>
     /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void AudioFallbackExhaustsSubdirectoryBeforeBasenameCandidates(bool bmson)
@@ -170,7 +170,7 @@ public sealed class BMSAutoPlayerInputTests
 
     /// <summary>入力以外のread／decode故障は元原因を保持してロード全体を失敗させ、正常代替を試さず入力・decoderを回収する。</summary>
     /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void AudioFallbackFatalReadOrDecodeFailureNeverTriesHealthyAlternative(bool duringDecode)
@@ -186,7 +186,7 @@ public sealed class BMSAutoPlayerInputTests
         {
             AudioInputFile? held = null;
             int alternatives = 0;
-            AudioSourceFatalException fatal = Assert.ThrowsException<AudioSourceFatalException>(() => BmsAudioResourceLoader.Load(chart, directory.File(""), 1f,
+            AudioSourceFatalException fatal = Assert.ThrowsExactly<AudioSourceFatalException>(() => BmsAudioResourceLoader.Load(chart, directory.File(""), 1f,
                 readInput: path =>
                 {
                     if (path.EndsWith(".ogg", StringComparison.OrdinalIgnoreCase))
@@ -210,7 +210,7 @@ public sealed class BMSAutoPlayerInputTests
             Assert.AreEqual(streams, session.OwnedStreamCount);
             if (held != null)
             {
-                Assert.ThrowsException<ObjectDisposedException>(() => held.OpenReadView());
+                Assert.ThrowsExactly<ObjectDisposedException>(() => held.OpenReadView());
             }
         }
     }
@@ -249,8 +249,8 @@ public sealed class BMSAutoPlayerInputTests
             cancellation.Cancel();
             Assert.IsFalse(loading.IsCompleted);
             release.Set();
-            await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => loading);
-            Assert.ThrowsException<ObjectDisposedException>(() => held.OpenReadView());
+            await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => loading);
+            Assert.ThrowsExactly<ObjectDisposedException>(() => held.OpenReadView());
             Assert.AreEqual(streams, session.OwnedStreamCount);
             Assert.AreSame(session, BassAudioPlayer.ActiveSession);
         }
@@ -264,7 +264,7 @@ public sealed class BMSAutoPlayerInputTests
 
     /// <summary>BMSの親参照と譜面側同名別音源、bmsonの通常参照で正常代替を先読みし、入力消失後も本来の準備PCMを採用して再読込みしない。</summary>
     /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task NextSongFallbackPreparationAdoptsDecodedResultAfterInputsDisappear(bool bmson)
@@ -376,12 +376,12 @@ public sealed class BMSAutoPlayerInputTests
         Assert.AreSame(player.AudioResourcesByIndex[0], player.AudioResourcesByIndex[1]);
         Assert.AreEqual(2, player.AudioSchedule.Events.Count);
         Assert.AreEqual(streams, session.OwnedStreamCount);
-        Assert.ThrowsException<InvalidOperationException>(() => prepared.TakeResources());
+        Assert.ThrowsExactly<InvalidOperationException>(() => prepared.TakeResources());
     }
 
     /// <summary>BMSの選択済みRANDOM分岐と共有PCMを入力消失後も使い、次出力rateへscheduleを結び直して一回だけ採用する。</summary>
     /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(44100)]
     [DataRow(48000)]
     public async Task PreparedSong_UsesParsedBranchAndDecodedPcmAfterInputsDisappear(int outputRate)
@@ -423,7 +423,7 @@ public sealed class BMSAutoPlayerInputTests
             Assert.AreEqual(0, player.OmittedAudioSources.Count);
             Assert.AreEqual(playbackOwnedStreams, playbackSession.OwnedStreamCount, "Adoption must not create voices before Start.");
             await player.Start();
-            Assert.ThrowsException<InvalidOperationException>(() => prepared.TakeResources());
+            Assert.ThrowsExactly<InvalidOperationException>(() => prepared.TakeResources());
         }
         finally { BassAudioPlayer.Frequency = previousFrequency; }
     }
@@ -440,7 +440,7 @@ public sealed class BMSAutoPlayerInputTests
         int streams = session.OwnedStreamCount;
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
-        Assert.ThrowsException<OperationCanceledException>(() => PreparedBmsSong.Prepare(new BMSFile(directory.File("chart.bms")), 0.4f, cancellation.Token, session));
+        Assert.ThrowsExactly<OperationCanceledException>(() => PreparedBmsSong.Prepare(new BMSFile(directory.File("chart.bms")), 0.4f, cancellation.Token, session));
         Assert.AreEqual(streams, session.OwnedStreamCount);
         Assert.AreSame(session, BassAudioPlayer.ActiveSession);
     }
@@ -561,7 +561,7 @@ public sealed class BMSAutoPlayerInputTests
 
         try
         {
-            InvalidDataException failure = Assert.ThrowsException<InvalidDataException>(
+            InvalidDataException failure = Assert.ThrowsExactly<InvalidDataException>(
                 player.LoadResources);
 
             StringAssert.Contains(failure.Message, "missing.wav");
@@ -594,7 +594,7 @@ public sealed class BMSAutoPlayerInputTests
         Assert.AreEqual(AudioSourceLoadStage.DecodeWithBass, cause.Stage);
         Assert.AreEqual(Path.GetFullPath(directory.File("sub/tone.ogg")), result.Failures[0].NormalizedPath);
         using var player = new BMSAutoPlayer(chart);
-        InvalidDataException failure = Assert.ThrowsException<InvalidDataException>(() => player.LoadResources());
+        InvalidDataException failure = Assert.ThrowsExactly<InvalidDataException>(() => player.LoadResources());
         Assert.IsInstanceOfType<AudioSourceLoadException>(failure.InnerException);
         Assert.AreEqual(AudioSourceLoadStage.DecodeWithBass, ((AudioSourceLoadException)failure.InnerException).Stage);
         Assert.AreEqual(0, player.OmittedAudioSources.Count);
@@ -791,7 +791,7 @@ public sealed class BMSAutoPlayerInputTests
 
                 Assert.IsNull(firstPlayer.RealtimeScheduler,
                     "The next-song release must finish the old scheduler before dropping its session reference.");
-                Assert.ThrowsException<ObjectDisposedException>(() => _ = oldScheduler.CurrentSongFrame);
+                Assert.ThrowsExactly<ObjectDisposedException>(() => _ = oldScheduler.CurrentSongFrame);
                 Assert.AreEqual(baselinePlayerStreams, session.GetPlayerStreams().Count,
                     "The old scheduled voice handles must be released before the next song starts.");
                 Assert.AreEqual(baselineAdditionalStreams, session.AdditionalStreamHandles.Count,
@@ -836,7 +836,7 @@ public sealed class BMSAutoPlayerInputTests
 
     /// <summary>通常Disposeと次曲Disposeのどちらでも共有PCMを解除し、ロードだけでprototype native voiceを作らない。</summary>
     /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void ResourceDisposal_DropsSharedPcmWithoutCreatingPrototypeVoices(bool beforeNextSong)

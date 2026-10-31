@@ -25,7 +25,7 @@ public sealed class LibraryFolderTreeViewModelTests
     [TestMethod]
     public void Constructor_RequiresLiveUiDispatcher()
     {
-        Assert.ThrowsException<InvalidOperationException>(() => new LibraryFolderTreeViewModel(
+        Assert.ThrowsExactly<InvalidOperationException>(() => new LibraryFolderTreeViewModel(
             _ => true,
             _ => new ExplorerOpenResult(),
             new WpfUiScheduler(() => null!)));
@@ -473,7 +473,7 @@ public sealed class LibraryFolderTreeViewModelTests
             _ => new ExplorerOpenResult(),
             new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher));
 
-        Assert.ThrowsException<InvalidOperationException>(
+        Assert.ThrowsExactly<InvalidOperationException>(
             () => owner.ScheduleDeferredRefresh(operationToken: 42));
     }
 

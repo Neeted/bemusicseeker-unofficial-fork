@@ -88,7 +88,7 @@ public sealed class AudioFrameMathTests
     public void FloatFrameBytePositionUsesMixerChannelCount()
     {
         Assert.AreEqual(312L, AudioFrameMath.Float32FrameToBytePosition(13, 6));
-        Assert.ThrowsException<OverflowException>(
+        Assert.ThrowsExactly<OverflowException>(
             () => AudioFrameMath.Float32FrameToBytePosition(long.MaxValue, 2));
     }
 
@@ -98,19 +98,19 @@ public sealed class AudioFrameMathTests
     [TestMethod]
     public void InvalidRatesNegativeLengthsAndUnrepresentableResultsFailExplicitly()
     {
-        Assert.ThrowsException<ArgumentOutOfRangeException>(
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(
             () => AudioFrameMath.TimeToFrame(TimeSpan.Zero, 0));
-        Assert.ThrowsException<ArgumentOutOfRangeException>(
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(
             () => AudioFrameMath.FrameToTime(0, -1));
-        Assert.ThrowsException<ArgumentOutOfRangeException>(
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(
             () => AudioFrameMath.CeilingOutputFrameCount(-1, 44100, 48000));
-        Assert.ThrowsException<ArgumentOutOfRangeException>(
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(
             () => AudioFrameMath.SourceFrameFromMixerFrames(-1, 44100, 48000));
-        Assert.ThrowsException<ArgumentOutOfRangeException>(
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(
             () => AudioFrameMath.Float32FrameToBytePosition(0, 0));
-        Assert.ThrowsException<OverflowException>(
+        Assert.ThrowsExactly<OverflowException>(
             () => AudioFrameMath.TimeToFrame(TimeSpan.MaxValue, int.MaxValue));
-        Assert.ThrowsException<OverflowException>(
+        Assert.ThrowsExactly<OverflowException>(
             () => AudioFrameMath.FrameToTime(long.MaxValue, 1));
     }
 }

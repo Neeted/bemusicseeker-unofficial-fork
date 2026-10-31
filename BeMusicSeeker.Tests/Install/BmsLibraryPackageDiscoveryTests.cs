@@ -12,7 +12,7 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class BmsLibraryPackageInstallServiceTests
 {
     /// <summary>直接file指定から補助画像・明示PREVIEWの実在・相対範囲・音声互換を確認し、通常音声の参照数・不足とPREVIEW非保存を維持します。全選択や通常音源による偶然のfolder化を使いません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("stagefile", true)]
     [DataRow("backbmp", true)]
     [DataRow("banner", true)]
@@ -91,7 +91,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>直下のpreview・_preview音源だけを両発見入口の根拠とし、親直下の兄弟と子譜面を欠落・重複なく一式へ含めます。暗黙音源の要求化・PREVIEW保存と、非音声・中間一致・子階層・同名directoryによる誤昇格を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("_preview.wav", false, true)]
     [DataRow("_PrEvIeW_demo.FLAC", false, true)]
     [DataRow("preview.ogg", false, true)]
@@ -172,7 +172,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>資源なしの明示folderと中身全選択は非譜面の子を含む一式、A/B部分選択は二単体です。譜面childを含む差分集では親直下を単体化し、親資源があれば全一式を優先します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("folder", false, false)]
     [DataRow("all", false, false)]
     [DataRow("partial", false, false)]

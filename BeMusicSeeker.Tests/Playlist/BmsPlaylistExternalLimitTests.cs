@@ -34,7 +34,7 @@ public sealed partial class BmsPlaylistExternalLoadTests
             Assert.AreEqual("Bounded", result.name);
             Assert.AreEqual(0, result.entries.Count);
             using (var file = new FileStream(headerPath, FileMode.Append)) { file.WriteByte((byte)' '); }
-            await Assert.ThrowsExceptionAsync<InvalidDataException>(() => playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerPath)));
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerPath)));
         }
         finally { Directory.Delete(root, true); }
     }
@@ -60,7 +60,7 @@ public sealed partial class BmsPlaylistExternalLoadTests
         {
             await using var server = new SingleRequestHttpServer(compressed, additionalResponseHeaders: "Content-Encoding: gzip\r\n");
             var playlist = new TestBmsPlaylist(CreateTempSongDbPath(root), settings: testSettings);
-            await Assert.ThrowsExceptionAsync<InvalidDataException>(() => playlist.ExternalSyncOwner.LoadExternalTableAsync(server.Address));
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => playlist.ExternalSyncOwner.LoadExternalTableAsync(server.Address));
         }
         finally { Directory.Delete(root, true); }
     }

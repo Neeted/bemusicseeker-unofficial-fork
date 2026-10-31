@@ -501,7 +501,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
                 failedPaths.Add(path);
                 throw failure;
             });
-        InvalidOperationException observed = Assert.ThrowsException<InvalidOperationException>(() =>
+        InvalidOperationException observed = Assert.ThrowsExactly<InvalidOperationException>(() =>
             failingOwner.OpenRelatedDocument(@"C:\Songs\readme.txt"));
         Assert.AreSame(failure, observed);
         CollectionAssert.AreEqual(new[] { @"C:\Songs\readme.txt" }, failedPaths);

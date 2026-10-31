@@ -66,7 +66,7 @@ public sealed class PlaylistOperationNotificationOwnerTests
         Assert.AreEqual("parent-before", parentReceipt.Notifications[0].Message);
         Assert.AreEqual("parent-after", parentReceipt.Notifications[1].Message);
 
-        Assert.ThrowsException<InvalidOperationException>(() => otherOwner.QueueWarning("must fail"));
+        Assert.ThrowsExactly<InvalidOperationException>(() => otherOwner.QueueWarning("must fail"));
     }
 
     /// <summary>sessionなしの通知要求は失敗し、空sessionは空receiptを返すことで、通知の無所属受付と空通知を検出します。</summary>
@@ -75,7 +75,7 @@ public sealed class PlaylistOperationNotificationOwnerTests
     {
         var owner = new PlaylistOperationNotificationOwner();
 
-        Assert.ThrowsException<InvalidOperationException>(() => owner.QueueWarning("must fail"));
+        Assert.ThrowsExactly<InvalidOperationException>(() => owner.QueueWarning("must fail"));
         using PlaylistOperationNotificationOwner.OperationNotificationSession session = owner.BeginSession();
         PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = session.TakeReceipt();
 

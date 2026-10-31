@@ -27,7 +27,7 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
             "{\"status\":\"REJECTED\"}"));
         Assert.IsFalse(AppScoreViewerRegistrationGateway.ParseRegistrationStatusResponse(
             "{\"status\":null}"));
-        Assert.ThrowsException<FormatException>(() =>
+        Assert.ThrowsExactly<FormatException>(() =>
             AppScoreViewerRegistrationGateway.ParseRegistrationStatusResponse("{\"status\":1}"));
 
         ScoreViewerUploadResponse accepted = AppScoreViewerRegistrationGateway.ParseUploadResponse(
@@ -52,11 +52,11 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
     [TestMethod]
     public void AppGatewayJsonParsers_RejectMissingPropertiesAndTrailingDocuments()
     {
-        Assert.ThrowsException<FormatException>(() =>
+        Assert.ThrowsExactly<FormatException>(() =>
             AppScoreViewerRegistrationGateway.ParseRegistrationStatusResponse("{}"));
-        Assert.ThrowsException<FormatException>(() =>
+        Assert.ThrowsExactly<FormatException>(() =>
             AppScoreViewerRegistrationGateway.ParseUploadResponse("{\"status\":\"OK\"}"));
-        Assert.ThrowsException<JsonReaderException>(() =>
+        Assert.ThrowsExactly<JsonReaderException>(() =>
             AppScoreViewerRegistrationGateway.ParseRegistrationStatusResponse(
                 "{\"status\":\"OK\"} {\"status\":\"OK\"}"));
     }
@@ -376,12 +376,12 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
             new RecordingExternalShellGateway(),
             dialogs);
 
-        InvalidOperationException failed = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+        InvalidOperationException failed = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => interaction.ConfirmUploadAsync(CreateUploadPlan(), showSingleTargetConfirmation: true));
         StringAssert.Contains(failed.Message, "dialog failed");
 
         dialogs.ConfirmationResult = UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable);
-        InvalidOperationException unavailable = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+        InvalidOperationException unavailable = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => interaction.ConfirmUploadAsync(CreateUploadPlan(), showSingleTargetConfirmation: true));
         StringAssert.Contains(unavailable.Message, UiDialogStatus.OwnerUnavailable.ToString());
     }
@@ -428,7 +428,7 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
                 "hash",
                 "https://viewer/hash")]);
 
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => interaction.PresentResultAsync(result));
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => interaction.PresentResultAsync(result));
     }
 
     private static ScoreViewerRegistrationWorkflowOwner CreateOwner(

@@ -71,7 +71,7 @@ public sealed class WalkureRecommendationMathTests
     }
 
     /// <summary>表の正確な二進入力から得る推定星の小数丸めを上流Javascript期待へ揃え、境界値だけ互換性が崩れる誤りを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 星1.13と2.67の丸め境界を、同じthetaで異なる端点から確認します。
     [DataRow(-.125, .875, 1.13)]
     [DataRow(-1.675, -.675, 2.67)]
@@ -119,8 +119,8 @@ public sealed class WalkureRecommendationMathTests
         }
 
         Assert.IsFalse(raw.ContainsKey(unplayed));
-        Assert.ThrowsException<InvalidOperationException>(() => model.Estimate(ImmutableDictionary<string, WalkureLamp>.Empty));
-        Assert.ThrowsException<InvalidOperationException>(() => model.Estimate(ImmutableDictionary<string, WalkureLamp>.Empty.Add(model.Entries[0].Md5, WalkureLamp.Failed)));
+        Assert.ThrowsExactly<InvalidOperationException>(() => model.Estimate(ImmutableDictionary<string, WalkureLamp>.Empty));
+        Assert.ThrowsExactly<InvalidOperationException>(() => model.Estimate(ImmutableDictionary<string, WalkureLamp>.Empty.Add(model.Entries[0].Md5, WalkureLamp.Failed)));
     }
 
     private static string Read(string file) => File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestData", "Walkure", file));

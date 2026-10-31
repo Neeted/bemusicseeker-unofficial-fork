@@ -103,7 +103,7 @@ public sealed class ExternalAudioEncoderSmokeTests
 
     /// <summary>実BASSenc子processへPCMを送り同期停止した後に、ゼロ／非ゼロの終了値を所有handleから正確に回収する。</summary>
     /// <remarks>native encoderとWSH子processの実接続を検査するProcessIntegration区分。共有native状態を直列所有し、停止・handle回収・script削除まで行う。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0)]
     [DataRow(7)]
     [TestCategory("ProcessIntegration")]

@@ -171,7 +171,7 @@ public sealed partial class ApplicationCompositionTests
             using (LibraryFileMutationCapability authority = outer.CreateMutationCapability())
             {
                 Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive);
-                Assert.ThrowsException<InvalidOperationException>(() => secondPlaylist.AcquirePlaylistMutationLease("new-store-busy"));
+                Assert.ThrowsExactly<InvalidOperationException>(() => secondPlaylist.AcquirePlaylistMutationLease("new-store-busy"));
                 using (LibraryFileMutationLease borrowed = secondPlaylist.AcquirePlaylistMutationLease("same-operation", capability: authority))
                 {
                     Assert.IsNotNull(borrowed);
@@ -187,7 +187,7 @@ public sealed partial class ApplicationCompositionTests
                 BMSPlaylist otherPlaylist = otherComposition.CreateBmsPlaylist(secondProfile, otherLibrary);
                 try
                 {
-                    Assert.ThrowsException<InvalidOperationException>(() => otherPlaylist.AcquirePlaylistMutationLease("different-owner", capability: authority));
+                    Assert.ThrowsExactly<InvalidOperationException>(() => otherPlaylist.AcquirePlaylistMutationLease("different-owner", capability: authority));
                 }
                 finally { otherPlaylist.RequestShutdown("isolated-cleanup"); otherLibrary.RequestShutdown("isolated-cleanup"); }
             }
@@ -198,11 +198,11 @@ public sealed partial class ApplicationCompositionTests
             secondPlaylist.RequestShutdown("reconstructed-cleanup");
             secondLibrary.RequestShutdown("reconstructed-cleanup");
 
-            Assert.ThrowsException<ArgumentNullException>(
+            Assert.ThrowsExactly<ArgumentNullException>(
                 () => new BmsPlaylistLibraryBindings(null!));
-            Assert.ThrowsException<ArgumentNullException>(
+            Assert.ThrowsExactly<ArgumentNullException>(
                 () => composition.CreateBmsPlaylist(null!, library));
-            Assert.ThrowsException<ArgumentNullException>(
+            Assert.ThrowsExactly<ArgumentNullException>(
                 () => composition.CreateBmsPlaylist(profile, null!));
 
             var missingProfile = new LibraryProfile(
@@ -216,7 +216,7 @@ public sealed partial class ApplicationCompositionTests
                 canUseLr2Backup: false,
                 canUseLr2IrScore: false,
                 startupRequiredFileScanReason: "typed-playlist-binding-failure-test");
-            Assert.ThrowsException<ArgumentException>(
+            Assert.ThrowsExactly<ArgumentException>(
                 () => composition.CreateBmsPlaylist(missingProfile, library));
         }
         finally
@@ -276,7 +276,7 @@ public sealed partial class ApplicationCompositionTests
                 _ => { },
                 (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
             AttachImmediatePlaylistPresentationRouter(missingProviderWorkspace);
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 () => missingProviderWorkspace.CreatePlaylistAsync());
 
             MainChartListViewModel mainChartList = composition.CreateMainChartListViewModel(action => action(), _ => { });
@@ -507,7 +507,7 @@ public sealed partial class ApplicationCompositionTests
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog());
 
-            Assert.ThrowsException<FileNotFoundException>(
+            Assert.ThrowsExactly<FileNotFoundException>(
                 () => composition.CreateBmsPlayerForSettings(StartupSettingsSnapshot.CreateCurrent(values)));
             Assert.AreEqual(0, defaultFactoryCalls);
         }
@@ -553,7 +553,7 @@ public sealed partial class ApplicationCompositionTests
         var composition = new ApplicationComposition(
             settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
 
-        InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
+        InvalidOperationException exception = Assert.ThrowsExactly<InvalidOperationException>(
             () => composition.CreateBmsPlayerForSettings(
                 StartupSettingsSnapshot.CreateCurrent(testSettings)));
 

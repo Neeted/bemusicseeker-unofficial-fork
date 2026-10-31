@@ -168,9 +168,9 @@ public sealed class AudioSourceLoaderTests
             channelMask: 0x0000073F,
             validBits: 16));
 
-        AudioSourceLoadException nonFinite = Assert.ThrowsException<AudioSourceLoadException>(
+        AudioSourceLoadException nonFinite = Assert.ThrowsExactly<AudioSourceLoadException>(
             () => AudioSourceLoader.Load(nonFiniteWave.Path));
-        AudioSourceLoadException nineChannels = Assert.ThrowsException<AudioSourceLoadException>(
+        AudioSourceLoadException nineChannels = Assert.ThrowsExactly<AudioSourceLoadException>(
             () => AudioSourceLoader.Load(nineChannelWave.Path));
 
         Assert.AreEqual(AudioSourceLoadStage.DecodeWithBass, nonFinite.Stage);
@@ -207,7 +207,7 @@ public sealed class AudioSourceLoaderTests
 
         try
         {
-            Assert.ThrowsException<ObjectDisposedException>(() => input.OpenReadView());
+            Assert.ThrowsExactly<ObjectDisposedException>(() => input.OpenReadView());
             Assert.AreEqual((int)'R', view.ReadByte(), "An existing SafeBuffer view must retain its allocation.");
         }
         finally
@@ -222,15 +222,15 @@ public sealed class AudioSourceLoaderTests
     {
         string missing = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".wav");
 
-        AudioSourceLoadException failure = Assert.ThrowsException<AudioSourceLoadException>(
+        AudioSourceLoadException failure = Assert.ThrowsExactly<AudioSourceLoadException>(
             () => AudioSourceLoader.Load(missing));
 
         Assert.AreEqual(AudioSourceLoadStage.InspectContainer, failure.Stage);
         Assert.IsInstanceOfType<IOException>(failure.InnerException);
-        Assert.ThrowsException<IOException>(() => AudioInputFile.GetNativeAllocationSize(-1));
+        Assert.ThrowsExactly<IOException>(() => AudioInputFile.GetNativeAllocationSize(-1));
         if (IntPtr.Size == sizeof(int))
         {
-            Assert.ThrowsException<IOException>(
+            Assert.ThrowsExactly<IOException>(
                 () => AudioInputFile.GetNativeAllocationSize((long)int.MaxValue + 1));
         }
         else
@@ -249,7 +249,7 @@ public sealed class AudioSourceLoaderTests
         int openCount = 0;
         int allocationCount = 0;
 
-        AudioSourceLoadException failure = Assert.ThrowsException<AudioSourceLoadException>(
+        AudioSourceLoadException failure = Assert.ThrowsExactly<AudioSourceLoadException>(
             () => AudioInputFile.Read(
                 path,
                 _ =>
@@ -286,7 +286,7 @@ public sealed class AudioSourceLoaderTests
         int openCount = 0;
         int allocationCount = 0;
 
-        InvalidOperationException actual = Assert.ThrowsException<InvalidOperationException>(
+        InvalidOperationException actual = Assert.ThrowsExactly<InvalidOperationException>(
             () => AudioInputFile.Read(
                 path,
                 _ =>
@@ -316,7 +316,7 @@ public sealed class AudioSourceLoaderTests
         using var wave = new TemporaryWave(BuildWave(3, 1, 44100, 32, FloatBytes([0.5f, -0.25f])));
         var originalFailure = new IOException("Injected failure during the second read.");
 
-        AudioSourceLoadException failure = Assert.ThrowsException<AudioSourceLoadException>(
+        AudioSourceLoadException failure = Assert.ThrowsExactly<AudioSourceLoadException>(
             () => AudioSourceLoader.LoadWithSession(wave.Path, _ => new FailingReadStream(
                 File.ReadAllBytes(wave.Path), originalFailure)));
 
@@ -335,7 +335,7 @@ public sealed class AudioSourceLoaderTests
         int openCount = 0;
         var injectedReleaseFailure = new InvalidOperationException("Injected native release failure.");
 
-        AudioSourceFatalException failure = Assert.ThrowsException<AudioSourceFatalException>(
+        AudioSourceFatalException failure = Assert.ThrowsExactly<AudioSourceFatalException>(
             () => AudioSourceLoader.LoadWithSession(
                 wave.Path,
                 _ =>
@@ -358,7 +358,7 @@ public sealed class AudioSourceLoaderTests
         Assert.IsTrue(Bass.StreamFree(owned.Handle), "Explicit native cleanup should release the retained decoder.");
         session.ConfirmPlayerStreamReleased(owned.Handle);
         Assert.AreEqual(0, session.GetPlayerStreams().Count);
-        Assert.ThrowsException<ObjectDisposedException>(() => input.OpenReadView());
+        Assert.ThrowsExactly<ObjectDisposedException>(() => input.OpenReadView());
     }
 
     /// <summary>入力read中のsession交換では新sessionへ復号せず元session不一致を返し、新sessionにstreamを残さない。</summary>

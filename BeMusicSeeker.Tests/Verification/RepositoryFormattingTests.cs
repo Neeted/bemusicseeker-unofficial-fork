@@ -43,13 +43,15 @@ public sealed class RepositoryFormattingTests
     public void FormattingPrecedesBuildAndFailuresStopLaterStages()
     {
         using JsonDocument document = RunProbe("Pipeline");
-        Assert.AreEqual(8, document.RootElement.GetArrayLength());
+        Assert.AreEqual(10, document.RootElement.GetArrayLength());
         foreach (JsonElement result in document.RootElement.EnumerateArray())
         {
             string scenario = result.GetProperty("scenario").GetString() ?? throw new AssertFailedException("シナリオ名がありません。");
             string[] expectedEvents = scenario switch
             {
-                "Quick" => ["restore", "style", "whitespace", "git-whitespace", "test", "outputs"],
+                "Quick" => ["restore", "style", "whitespace", "git-whitespace", "build", "outputs", "test", "gate"],
+                "QuickBuildFailure" => ["restore", "style", "whitespace", "git-whitespace", "build"],
+                "QuickTestFailure" => ["restore", "style", "whitespace", "git-whitespace", "build", "outputs", "test"],
                 "Empty" => ["restore", "git-whitespace", "build", "outputs", "tests"],
                 "GitFailure" => ["restore"],
                 "StyleFailure" => ["restore", "style"],
@@ -64,13 +66,15 @@ public sealed class RepositoryFormattingTests
                 "GitFailure" => "probe-git-failure",
                 "StyleFailure" => "probe-style-failure",
                 "WhitespaceFailure" => "probe-whitespace-failure",
+                "QuickBuildFailure" => "probe-build-failure",
+                "QuickTestFailure" => "probe-test-failure",
                 _ => string.Empty
             };
             Assert.AreEqual(expectedError, result.GetProperty("error").GetString(), scenario);
             string[] expectedInputs = scenario switch
             {
                 "Empty" => ["unformatted"],
-                "Functional" or "Quick" or "Full" => ["formatted"],
+                "Functional" or "Quick" or "Full" or "QuickTestFailure" => ["formatted"],
                 _ => []
             };
             CollectionAssert.AreEqual(expectedInputs, ReadStrings(result.GetProperty("buildInputs")), scenario);

@@ -14,7 +14,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class RightClickActionSettingsEditorTests
 {
     /// <summary>選択行だけの差分・検証で確定と取消を判断し、別行の編集を混ぜず無効入力と新規行も取消できます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)] // Webの必須URL欄。
     [DataRow(false)] // Programの必須実行path欄。
     public void SelectedRecordAvailability_IgnoresOtherEditsAndAllowsInvalidAndNewCancellation(bool web)
@@ -46,7 +46,7 @@ public sealed class RightClickActionSettingsEditorTests
     }
 
     /// <summary>不正な保存rawから追加した選択行も取消で除去し、別種の新規行と保存エラーを保ちます。全取消後も不正な保存snapshotへ戻り、既定値へ修復しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void InvalidPersistedSnapshot_AllowsNewRecordCancellationWithoutRepairingSavedSnapshot(bool web)

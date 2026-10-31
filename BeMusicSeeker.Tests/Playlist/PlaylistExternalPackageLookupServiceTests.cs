@@ -91,7 +91,7 @@ public sealed class PlaylistExternalPackageLookupServiceTests
     }
 
     /// <summary>先頭候補の取得成功は返却直前に取消されてもパスとキーを保持し、後続提供元を照会しない。完了済み取得物の喪失と成功後の重複取得を検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task LookupService_StopsAtFirstProviderWhenDownloadSucceeds(bool cancelAfterCompletedDownload)
@@ -155,7 +155,7 @@ public sealed class PlaylistExternalPackageLookupServiceTests
     }
 
     /// <summary>利用者取消なしの照会タイムアウトは、診断故障の有無にかかわらず次提供元へ進む。通信タイムアウトや診断故障を全体取消・操作失敗に置換する誤りを検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task LookupService_TreatsProviderTimeoutAsFailureAndTriesNextProvider(bool failDiagnostic)
@@ -196,7 +196,7 @@ public sealed class PlaylistExternalPackageLookupServiceTests
     }
 
     /// <summary>内部故障・資源不足・回収不能を次候補への継続にせず、失敗済みURLとしても記録しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("lookup", "internal")]
     [DataRow("lookup", "resource")]
     [DataRow("download", "internal")]
@@ -351,7 +351,7 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         var service = new PlaylistExternalPackageLookupService([new CancelingProvider("A", packageUri, cancellation)]);
         bool downloadAttempted = false;
 
-        await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => service.DownloadFirstAvailablePackageAsync(
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => service.DownloadFirstAvailablePackageAsync(
             SampleMd5,
             (lookup, token) =>
             {

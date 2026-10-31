@@ -3,9 +3,6 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
-    <PackageVersion Include="MSTest.TestAdapter" Version="3.6.4" />
-    <PackageVersion Include="MSTest.TestFramework" Version="3.6.4" />
     <PackageVersion Include="LivetCask.Core" Version="4.0.2" />
     <PackageVersion Include="LivetCask.EventListeners" Version="4.0.2" />
     <PackageVersion Include="LivetCask.Mvvm" Version="4.0.2" />

@@ -9,7 +9,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class InstallEstimationMetadataNormalizerTests
 {
     /// <summary>片側一致・両側一致・Strongの境界を規則別に確認し、空作者Strongも維持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("abc", "xxx", "abd", "yyy", false, false)]
     [DataRow("xxx", "abc", "yyy", "abd", false, false)]
     [DataRow("abc", "abc", "abd", "abd", true, false)]
@@ -43,7 +43,7 @@ public sealed class InstallEstimationMetadataNormalizerTests
     }
 
     /// <summary>最後の区切り群・MIX終端・先頭保護を生TITLEへ一度だけ適用し、同じ小文字化前表記を表示に使う。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("Ark (remix/5keys)", "Ark (remix")]
     [DataRow("Ark (remix/10lines)", "Ark (remix")]
     [DataRow("Ark (mixed)", "Ark (mix")]
@@ -83,7 +83,7 @@ public sealed class InstallEstimationMetadataNormalizerTests
     }
 
     /// <summary>副役割の表記揺れを同じ主名義へ照合し、大小文字・複合区切り・日本語直結の違いを一致条件へ残さない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("", "")]
     [DataRow("obj: diffuser", "")]
     // NFKC・大小文字・複合区切りを同時に含んでも、名義のピリオドは削らない。
@@ -165,7 +165,7 @@ public sealed class InstallEstimationMetadataNormalizerTests
     }
 
     /// <summary>役割に似た名義・名義内の記号・共作者を短い別名義へ一致させず、過剰切断による偽一致を検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 曖昧な短語・一般名詞とASCII語中には、役割としての境界がない。
     [DataRow("Key Note Team", "Key")]
     [DataRow("Object", "")]
@@ -197,7 +197,7 @@ public sealed class InstallEstimationMetadataNormalizerTests
     }
 
     /// <summary>先行する副役割を除いて明示制作担当から照合を再開し、客演名・括弧位置・譜面担当だけの差を残さない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("Zris Remixed by Daily BG by Rosa1100", "Zris Remixed by Daily")]
     [DataRow("plastic / Remix: AYhaz / BGI: Loni", "plastic / Remix: AYhaz")]
     [DataRow("(C)Nintendo / Arranged by Y.W", "(C)Nintendo / Arranged by Y.W")]
@@ -240,7 +240,7 @@ public sealed class InstallEstimationMetadataNormalizerTests
     }
 
     /// <summary>実プロファイルからStrongを判定し、役割接尾の一致でTITLE条件や異なる名義・リミックス作者の区別を迂回しない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("Ice Festival", "Nota BGI:雪椿", "Ice Festival[札幌雪祭り]", "Nota/obj:みあ BGI:雪椿", true)]
     // ARTISTが一致しても、末尾点や別mix名によるTITLEの差は同じ閾値で判断する。
     [DataRow("I believe", "Gun string", "I believe...", "Gun string", true)]
@@ -323,7 +323,7 @@ public sealed class InstallEstimationMetadataNormalizerTests
     }
 
     /// <summary>正規化済みキーのDice境界、重複gram、UTF-16単位を確認し、再切断や集合化の誤りを検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("abcdefghijklmnopqrstuvw", "abcdefghijklmnopqrstuvwxyz012", 0.88)]
     [DataRow("abcdefghijklmnopqrstuvw", "abcdefghijklmnopqrstuvwxyz0123", 44d / 51d)]
     [DataRow("aaaaab", "aab", 4d / 7d)]
@@ -335,7 +335,7 @@ public sealed class InstallEstimationMetadataNormalizerTests
         Assert.AreEqual(expected, InstallEstimationMetadataNormalizer.ComputeTitleSimilarity(left, right), 1e-12);
     }
     /// <summary>最頻Strongの0.72境界とRelatedの0.50 OR、空TITLEと空ARTISTを独立した期待値で固定します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("abcdefghijklmnopqrs", "X", "abcdefghijklmnopqrstuvwxyz0123456", "X", (int)InstallEstimationMetadataRelation.Strong)]
     [DataRow("abcdefghijklmnopqrs", "X", "abcdefghijklmnopqrstuvwxyz01234567", "X", (int)InstallEstimationMetadataRelation.Related)]
     [DataRow("abc", "xxx", "abd", "yyy", (int)InstallEstimationMetadataRelation.Related)]
@@ -356,7 +356,7 @@ public sealed class InstallEstimationMetadataNormalizerTests
     }
 
     /// <summary>最頻以外の完全一致はRelated止まりとし、1,000番目の実在ペアも省略せず候補側の表示を返します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Classify_UsesAllUniquePairsAndKeepsMinorityExactMatchRelated(bool both)

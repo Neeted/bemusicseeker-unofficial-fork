@@ -12,7 +12,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class CatalogMaintenanceCurrentValueTests
 {
     /// <summary>初回BMSON正規化の既存tokenを値差分と分けて同receiptへ含め、warm候補と旧snapshotを保持する。通常の次upsertでは順序差分・全候補列挙を生じない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     [DataRow(128)]
     public void FirstUpsert_CommitsExistingBmsonOrderAndWarmCandidatesTogether(int backgroundCount)
@@ -58,7 +58,7 @@ public sealed class CatalogMaintenanceCurrentValueTests
     }
 
     /// <summary>単一・整列済みBMSONの初回正規化は背景16/128でも既存tokenを通知・再索引しない。実追加Zだけを候補へ追加し、旧捕捉と代表を維持する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16, true)]
     [DataRow(128, true)]
     [DataRow(16, false)]
@@ -100,7 +100,7 @@ public sealed class CatalogMaintenanceCurrentValueTests
     }
 
     /// <summary>raw c/b/aの位置不変bをwarmに残してc→Bへ移転しても、同current-path比較を左右で一致させる。次正規化の移動tokenだけを通知し、warm/freshと全ての旧捕捉を保つ。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void FirstUpsert_MixedWarmOrderKeysRemainConsistentAfterCaseDistinctRelocation(bool reverseTieInputs)
@@ -268,7 +268,7 @@ public sealed class CatalogMaintenanceCurrentValueTests
     }
 
     /// <summary>後続の候補変更が確定済みでも、receipt自身の候補と現在値を同じ版で局所解決し、旧rootを変更しない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     [DataRow(128)]
     public void ReceiptSnapshot_ResolvesCapturedCandidateAfterLaterCommit(int count)
@@ -315,7 +315,7 @@ public sealed class CatalogMaintenanceCurrentValueTests
         int handled = publisher.Version;
         ChartFile original = owner.BmsRows[0];
         var failure = new InvalidOperationException("after current apply");
-        InvalidOperationException actual = Assert.ThrowsException<InvalidOperationException>(() => owner.Commit(state =>
+        InvalidOperationException actual = Assert.ThrowsExactly<InvalidOperationException>(() => owner.Commit(state =>
         {
             state.ApplyCurrentChartValue(original with { Title = "committed" });
             throw failure;

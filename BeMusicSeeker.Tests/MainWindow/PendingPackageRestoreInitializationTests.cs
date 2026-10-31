@@ -159,7 +159,7 @@ public sealed class PendingPackageRestoreInitializationTests
 
     /// <summary>×・Escは登録を保持して当回失敗、Exitだけは親L/P・gate・UI抑止の解放後に通常Closeへ配送します。終了選択から成功・後続を公開しません。</summary>
     /// <remarks>実VMと実終了準備を使い、WindowのClose要求配送先だけを観測します。初期化Taskからその終了準備をawaitしないことを同じ起動Taskの完了で検出します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("close")]
     [DataRow("escape")]
     [DataRow("exit")]

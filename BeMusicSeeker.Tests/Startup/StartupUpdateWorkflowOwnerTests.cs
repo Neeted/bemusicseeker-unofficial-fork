@@ -670,7 +670,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
         {
             Assert.IsTrue(owner.Start());
             await TestUiDispatcherHost.AwaitNotificationAsync(checkStarted.Task, worker, nameof(worker));
-            Assert.ThrowsException<InvalidOperationException>(() => owner.BindShutdownPreparation(_ => Task.FromResult(new ShutdownPreparationResult("update", 2L, false, 0))));
+            Assert.ThrowsExactly<InvalidOperationException>(() => owner.BindShutdownPreparation(_ => Task.FromResult(new ShutdownPreparationResult("update", 2L, false, 0))));
 
             owner.NotifyClosing();
             checkCompletion.SetResult(CreateAvailableResult());

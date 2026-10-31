@@ -169,7 +169,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
                 using (var db = new LR2ScoreDBExtended(scorePath))
                 {
                     db.Execute("ALTER TABLE score RENAME TO retained_score");
-                    Assert.ThrowsException<SQLite.SQLiteException>(() => db.Table<BMSScore>().ToList());
+                    Assert.ThrowsExactly<SQLite.SQLiteException>(() => db.Table<BMSScore>().ToList());
                 }
                 library.InitializeScoresOnly(null);
                 PlaylistLampAggregationRequest afterFailure = await source.CaptureAsync(PlaylistLampViewerQuery.Latest("21"), default);

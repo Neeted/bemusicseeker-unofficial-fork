@@ -19,7 +19,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class CustomTableColumnFactoryTests
 {
     /// <summary>LR2/beatorajaの実履歴投影からMD5/SHA256/RAW列へ本来の値だけを渡し、所持譜面解決・未解決・SHA単独のmetadata取得でも表示/セルコピー/TSVを一致させます。metadata取得をローカル解決と混同し、SHAをMD5へ代用する誤りを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("lr2-resolved")]
     [DataRow("beatoraja-resolved")]
     [DataRow("lr2-unresolved")]
@@ -681,7 +681,7 @@ public sealed class CustomTableColumnFactoryTests
     }
 
     /// <summary>候補0・1・複数と導入先有無を同じ値で比較し、保留/全件確認だけ案内を出し、文脈なし/不可はpathだけにします。編集・コピー・TSVの生値と候補は保ちます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0, false)]
     [DataRow(0, true)]
     [DataRow(1, false)]
@@ -720,7 +720,7 @@ public sealed class CustomTableColumnFactoryTests
     }
 
     /// <summary>一度生成した両URL列を40→41→広幅→40へ変え、空値も含め種別・配置・再クリック・tooltipが現在幅に追随し、編集・セルコピー・TSVは元URLを保つことを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void CreateMainColumns_UsesCurrentWidthForUrlDisplayAndRawEditing(bool hasUrl)
@@ -973,7 +973,7 @@ public sealed class CustomTableColumnFactoryTests
     }
 
     /// <summary>一列の空セルも有効な行として先頭・中間・末尾・全空の順序と数を保ち、対象なしと空文字の成功を区別します。非表示列とnull行を除外し、入力を変更しないことも確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("leading", true, "\r\nSong")]
     [DataRow("middle", true, "Song\r\n\r\nEnd")]
     [DataRow("trailing", true, "Song\r\n")]

@@ -87,7 +87,7 @@ public sealed class ChartInfoInstallFailureRetryTests
 
     /// <summary>発見後に変わったBMSの導入後MD5で失敗を照合し、一致する現在失敗は再利用して発見時だけの失敗で新内容の解析を止める誤りを検出する。</summary>
     /// <remarks>本番ライブラリの導入・警告・受付を実DBへ接続する。設定と入力はcaseごとに所有し、保存・通知を計算値で代替しない。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)] // 導入後MD5に一致する現在失敗を再利用する。
     [DataRow(false)] // 発見時MD5だけの失敗で新内容の解析を止めない。
     public void InstallChartPackages_UsesInstalledSnapshotMd5ForFailureLookup(bool failureMatchesInstalledSnapshot)
@@ -431,7 +431,7 @@ public sealed class ChartInfoInstallFailureRetryTests
 
     /// <summary>現在失敗の明示削除では即時再予約せず、LR2連携・単独双方の次回起動で実解析と保存・同token適用を再開する保証の退行を検出する。</summary>
     /// <remarks>本番ライブラリの導入・警告・受付を実DBへ接続する。設定と入力はcaseごとに所有し、保存・通知を計算値で代替しない。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)] // 単独動作でも次回起動の実データ照合から再評価する。
     [DataRow(true)] // LR2連携の同期状態を解析済みの根拠にしない。
     public async Task RemoveChartInfoParseFailuresByMd5_RetriesOnNextStartupInBothModes(bool operationModeLr2Db)
@@ -867,7 +867,7 @@ public sealed class ChartInfoInstallFailureRetryTests
         string text = "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n";
         byte[] bytes = Encoding.ASCII.GetBytes(text);
 
-        ChartInfoParser.ChartInfoParseTimeoutException ex = Assert.ThrowsException<ChartInfoParser.ChartInfoParseTimeoutException>(delegate
+        ChartInfoParser.ChartInfoParseTimeoutException ex = Assert.ThrowsExactly<ChartInfoParser.ChartInfoParseTimeoutException>(delegate
         {
             ChartInfoParser.ParseBytesDetailed(bytes, ".bms", new string('a', 32), new string('b', 64), null, TimeSpan.Zero);
         });

@@ -160,7 +160,7 @@ public sealed class Lr2SongDbSyncServiceTests
     /// チャンク境界の1001件と順序枠上限を超える10001件を実更新し、順序回収・末尾・保存位置と利用者設定を保持する。
     /// </summary>
     /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(1001)]
     [DataRow(10001)]
     public void SyncService_RealSongUpdatesKeepFiniteRoleAcrossChunkCommits(int targetCount)
@@ -300,7 +300,7 @@ public sealed class Lr2SongDbSyncServiceTests
     /// 空入力の生成に成功しても有件数の段階通知を出さず、存在しない作業量を表示する誤りを検出する。
     /// </summary>
     /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void SyncService_EmptyInputOmitsCountedStages(bool withFolder)
@@ -750,7 +750,7 @@ public sealed class Lr2SongDbSyncServiceTests
             + " BEGIN SELECT RAISE(ABORT, 'fail_second_song_update'); END;");
 
         var currentFacts = new List<Lr2SongDbSyncCurrentFact>();
-        Assert.ThrowsException<SQLite.SQLiteException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        Assert.ThrowsExactly<SQLite.SQLiteException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             RunId = "rollback-fail-run",
             SongCurrentFactsCommitted = facts => currentFacts.AddRange(facts),
@@ -1147,7 +1147,7 @@ public sealed class Lr2SongDbSyncServiceTests
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
-        Assert.ThrowsException<OperationCanceledException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        Assert.ThrowsExactly<OperationCanceledException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             RunId = "run_cancel",
             CancellationToken = cancellation.Token
@@ -1188,7 +1188,7 @@ public sealed class Lr2SongDbSyncServiceTests
         using var cancellation = new CancellationTokenSource();
         bool shutdownRequested = false;
         bool transactionBarrierObserved = false;
-        Assert.ThrowsException<OperationCanceledException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        Assert.ThrowsExactly<OperationCanceledException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             RunId = "folder-commit-shutdown",
             RootDirectories = [rootDirectory],
@@ -1226,7 +1226,7 @@ public sealed class Lr2SongDbSyncServiceTests
     /// 解析保存後の終了flagとtoken取消の順にかかわらず、チャンクを巻き戻して正規の終了取消を返し、終了時の部分保存とFailed保存を防ぐ。
     /// </summary>
     /// <remarks>起動時と同じ既設スキーマ、同じ1譜面と実SQLite writerで、保存後のflag＋即時token取消／flagのみを分担する。flagのみではservice終端までtokenを取消せず、実transaction終端と必須確定callback不在を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void SyncService_ShutdownCancellationAtSongCommitRollsBackWholeChunk(bool cancelTokenImmediately)
@@ -1250,7 +1250,7 @@ public sealed class Lr2SongDbSyncServiceTests
         int chartInfoWriterCallCount = 0;
         int chartInfoRowsWrittenBeforeShutdown = 0;
         int committedCallbackCount = 0;
-        OperationCanceledException failure = Assert.ThrowsException<OperationCanceledException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        OperationCanceledException failure = Assert.ThrowsExactly<OperationCanceledException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             RunId = "song-commit-shutdown",
             SongRows = [file],
@@ -1316,7 +1316,7 @@ public sealed class Lr2SongDbSyncServiceTests
         using var cancellation = new CancellationTokenSource();
         var progressEvents = new List<Lr2SongDbSyncProgress>();
 
-        Assert.ThrowsException<OperationCanceledException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        Assert.ThrowsExactly<OperationCanceledException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             RunId = "cancel-run",
             RootDirectories = [rootDirectory],
@@ -1432,7 +1432,7 @@ public sealed class Lr2SongDbSyncServiceTests
         songDb.Execute("CREATE TRIGGER fail_song_cursor BEFORE INSERT ON lr2_song_db_sync_status "
             + "WHEN NEW.stage = 'song_rows' AND NEW.processed_cursor > 0 BEGIN SELECT RAISE(ABORT, 'chunk cursor failed'); END;");
 
-        Assert.ThrowsException<SQLite.SQLiteException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        Assert.ThrowsExactly<SQLite.SQLiteException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             RunId = "encoding-expiry-rollback",
             SongRows = [file],
@@ -2064,7 +2064,7 @@ public sealed class Lr2SongDbSyncServiceTests
 
     /// <summary>必須詳細/互換性callbackの失敗を元stack付きで返し、任意進捗・ログも故障している条件でもcommit済み行・利用者列・実cursorを保持する。</summary>
     /// <remarks>正常譜面の実詳細解析・SQLite書込みを通し、callback内の別readonly接続でcommit完了を観測する。callback内で表明しない。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("chart_info")]
     [DataRow("compatibility")]
     public void SyncService_RequiredCommittedCallbackFailureKeepsDurableFactsAndCursor(string failedFact)
@@ -2107,7 +2107,7 @@ public sealed class Lr2SongDbSyncServiceTests
         }
         try
         {
-            InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(() =>
+            InvalidOperationException failure = Assert.ThrowsExactly<InvalidOperationException>(() =>
                 Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
                 {
                     RunId = "required-callback",
@@ -2153,7 +2153,7 @@ public sealed class Lr2SongDbSyncServiceTests
 
     /// <summary>先着した所有取消は必須callback実故障を隠さず、先着した非所有取消は後発shutdownやcallback故障で置換せず、実確定prefixと利用者列を保持する。</summary>
     /// <remarks>実1001行・二つの正常譜面入力と別reader/callback gateを使い、prefixの実詳細解析・確定を通す。詳細／互換性の2条件はCPU1でも所有取消の先着とreader joinを観測し、第3条件はowner未取消時のreader OCE分類を終端まで保持する。非UIの同期fixtureでdefault接続の生成・解放threadとprocess lock所有を維持し、全Task回収とauthorizer解除後に同threadで接続を解放する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("chart_info", false)]
     [DataRow("compatibility", false)]
     [DataRow("chart_info", true)]
@@ -2383,7 +2383,7 @@ public sealed class Lr2SongDbSyncServiceTests
                 }
 
                 releaseTailReader.Set();
-                InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(() => operation.GetAwaiter().GetResult());
+                InvalidOperationException failure = Assert.ThrowsExactly<InvalidOperationException>(() => operation.GetAwaiter().GetResult());
                 Assert.AreEqual(expectedFailureMessage, failure.Message);
                 if (readerCancelsBeforeOwner)
                 {
@@ -2440,7 +2440,7 @@ public sealed class Lr2SongDbSyncServiceTests
 
     /// <summary>終了取消後のmanaged rollback故障は直接SQLの成功なら通常取消を保ち、両故障なら未解決transactionを実失敗として返して確定prefix/cursorを保持する。</summary>
     /// <remarks>authorizerでROLLBACKコンパイルだけ一回／二回拒否する。安全rollbackの即時token取消／flagのみでは全worker join後の末尾writerから終端進捗を観測し、flagのみの通知故障でも元OCEと確定prefixを保持する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(1, true)]
     [DataRow(2, true)]
     [DataRow(1, false)]

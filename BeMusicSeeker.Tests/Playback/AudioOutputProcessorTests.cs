@@ -117,11 +117,11 @@ public sealed class AudioOutputProcessorTests
     public void NonFinitePcmAndGainAreRejected()
     {
         var processor = new AudioOutputProcessor(48000, 1d);
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => processor.SetTargetGain(double.NaN));
-        AudioOutputProcessException exception = Assert.ThrowsException<AudioOutputProcessException>(
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => processor.SetTargetGain(double.NaN));
+        AudioOutputProcessException exception = Assert.ThrowsExactly<AudioOutputProcessException>(
             () => processor.Process([float.PositiveInfinity], 1));
         Assert.AreEqual(AudioOutputProcessFailure.NonFiniteInput, exception.Failure);
-        Assert.ThrowsException<ArgumentOutOfRangeException>(
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(
             () => AudioOutputProcessor.ApplyConstantGain([0f], double.PositiveInfinity));
     }
 

@@ -42,7 +42,7 @@ public sealed class PlaybackDialogServiceTests
 
         dialogs.ConfirmationResult = UiDialogResult.NotShown(UiDialogStatus.DispatcherUnavailable);
         StringAssert.Contains(
-            Assert.ThrowsException<InvalidOperationException>(() => service.ConfirmTemporaryInstallPlayback()).Message,
+            Assert.ThrowsExactly<InvalidOperationException>(() => service.ConfirmTemporaryInstallPlayback()).Message,
             UiDialogStatus.DispatcherUnavailable.ToString());
     }
 
@@ -56,7 +56,7 @@ public sealed class PlaybackDialogServiceTests
         var dialogs = new FakeUiDialogService { ConfirmationResult = UiDialogResult.Failed(failure) };
         var service = new WpfPlaybackDialogService(dialogs);
 
-        InvalidOperationException actual = Assert.ThrowsException<InvalidOperationException>(
+        InvalidOperationException actual = Assert.ThrowsExactly<InvalidOperationException>(
             () => service.ConfirmTemporaryInstallPlayback());
 
         Assert.AreSame(failure, actual);
@@ -98,7 +98,7 @@ public sealed class PlaybackDialogServiceTests
         Assert.AreEqual(MessageBoxResult.OK, request.DefaultResult);
 
         dialogs.MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.No);
-        Assert.ThrowsException<InvalidOperationException>(() => service.NotifyPlaybackFailure(playbackFailure));
+        Assert.ThrowsExactly<InvalidOperationException>(() => service.NotifyPlaybackFailure(playbackFailure));
 
         dialogs.MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel);
         service.NotifyPlaybackFailure(playbackFailure);
@@ -107,14 +107,14 @@ public sealed class PlaybackDialogServiceTests
 
         dialogs.MessageResult = UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable);
         StringAssert.Contains(
-            Assert.ThrowsException<InvalidOperationException>(() => service.NotifyPlaybackFailure(playbackFailure)).Message,
+            Assert.ThrowsExactly<InvalidOperationException>(() => service.NotifyPlaybackFailure(playbackFailure)).Message,
             UiDialogStatus.OwnerUnavailable.ToString());
 
         var displayFailure = new InvalidOperationException("message display failed");
         dialogs.MessageResult = UiDialogResult.Failed(displayFailure);
         Assert.AreSame(
             displayFailure,
-            Assert.ThrowsException<InvalidOperationException>(() => service.NotifyPlaybackFailure(playbackFailure)));
+            Assert.ThrowsExactly<InvalidOperationException>(() => service.NotifyPlaybackFailure(playbackFailure)));
     }
 
     /// <summary>残留通知は配置先とログ案内を含む翻訳リソースを使い、表示不能を成功や取消しへ置き換えません。通知失敗と元の再生結果の分離は再生所有者のテストが確認します。</summary>
@@ -138,10 +138,10 @@ public sealed class PlaybackDialogServiceTests
         Assert.AreEqual(MessageBoxResult.OK, request.DefaultResult);
 
         dialogs.MessageResult = UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable);
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => service.NotifyTemporaryFilesRemainAsync(directory));
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => service.NotifyTemporaryFilesRemainAsync(directory));
         var failure = new InvalidOperationException("通知の表示失敗");
         dialogs.MessageResult = UiDialogResult.Failed(failure);
-        Assert.AreSame(failure, await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+        Assert.AreSame(failure, await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => service.NotifyTemporaryFilesRemainAsync(directory)));
     }
 

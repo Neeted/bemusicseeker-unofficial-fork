@@ -14,7 +14,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class StartupPostInitializationWarmupOwnerTests
 {
     /// <summary>実schedulerの予約とowner完了を接続し、正常・予約拒否・開始前取消・失敗のどれもwarmup一段階だけを終端します。lease回収の細かな競合は既存ownerケースが担います。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("completed")]
     [DataRow("rejected")]
     [DataRow("cancelled")]
@@ -59,7 +59,7 @@ public sealed class StartupPostInitializationWarmupOwnerTests
     }
 
     /// <summary>準備なしでも他の4段階を終えて実sort段階を正常終了し、範囲外値はvirtual_orderの元例外を持つ失敗とlease終端になります。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0)]
     [DataRow(-1)]
     [DataRow(4)]

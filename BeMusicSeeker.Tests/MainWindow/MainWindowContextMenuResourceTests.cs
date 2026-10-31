@@ -249,7 +249,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void ChartOperationTargetSelectionResolver_RejectsNullRows()
     {
-        Assert.ThrowsException<ArgumentException>(() => ChartOperationTargetSelectionResolver.Resolve(new ChartOperationTargetSelectionRequest(
+        Assert.ThrowsExactly<ArgumentException>(() => ChartOperationTargetSelectionResolver.Resolve(new ChartOperationTargetSelectionRequest(
             [null!],
             ChartOperationSourceScope.Library)));
     }
@@ -258,16 +258,16 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void PackageCatalogRemovalRequest_RejectsEmptyAndMissingTargets()
     {
-        Assert.ThrowsException<ArgumentException>(() => PackageCatalogRemovalRequest.CreatePending([]));
-        Assert.ThrowsException<ArgumentException>(() => PackageCatalogRemovalRequest.CreateInstalled([null!]));
+        Assert.ThrowsExactly<ArgumentException>(() => PackageCatalogRemovalRequest.CreatePending([]));
+        Assert.ThrowsExactly<ArgumentException>(() => PackageCatalogRemovalRequest.CreateInstalled([null!]));
     }
 
     /// <summary>強制導入の空対象と手動導入の欠損対象を拒否することを確認し、対象不明の導入要求を受け付ける誤りを検出します。</summary>
     [TestMethod]
     public void PendingInstallPackageOperationRequest_RejectsEmptyAndMissingTargets()
     {
-        Assert.ThrowsException<ArgumentException>(() => PendingInstallPackageOperationRequest.CreateForceInstall([]));
-        Assert.ThrowsException<ArgumentException>(() => PendingInstallPackageOperationRequest.CreateManualInstall([null!]));
+        Assert.ThrowsExactly<ArgumentException>(() => PendingInstallPackageOperationRequest.CreateForceInstall([]));
+        Assert.ThrowsExactly<ArgumentException>(() => PendingInstallPackageOperationRequest.CreateManualInstall([null!]));
     }
 
     /// <summary>単独譜面を実パスのentryへ変換してパッケージ対象と区別し、不正要求拒否を保つことを確認し、探索対象の誤配送を検出します。</summary>
@@ -285,8 +285,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(0, installSearch.PackageTargets.Count);
         Assert.AreEqual(1, installSearch.LooseEntries.Count);
         Assert.AreEqual(target.Chart.Path, installSearch.LooseEntries[0].Chart.Path);
-        Assert.ThrowsException<ArgumentException>(() => PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([]));
-        Assert.ThrowsException<ArgumentException>(() => PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([null!]));
+        Assert.ThrowsExactly<ArgumentException>(() => PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([]));
+        Assert.ThrowsExactly<ArgumentException>(() => PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([null!]));
     }
 
     /// <summary>単独譜面を実パスのentryへ変換し空・欠損選択は解除要求を作らないことを確認し、対象変換漏れや空操作の受付を検出します。</summary>

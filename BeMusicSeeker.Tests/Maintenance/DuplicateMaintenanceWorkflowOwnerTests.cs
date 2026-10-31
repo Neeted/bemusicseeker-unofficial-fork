@@ -301,7 +301,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     /// 統合または後続保守の必須反映失敗では保存確定と元失敗・receiptを維持して非成功を返し、確定失敗の成功化や処理の二重呼出しを検出する。
     /// </summary>
     // falseは統合未適用、trueは統合適用後の必須反映失敗。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task RunFolderMergeAsync_DurableFinalizationFailurePublishesFailureWithoutSuccess(bool mergeApplied)
@@ -412,7 +412,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     /// 片付け・保守の異常を排他と活動の解放後に一回報告し、報告先の失敗でも保存確定・元原因・成功区分を保持して通知障害による事実の書換えを検出する。
     /// </summary>
     // 第一値は報告先の例外、第二値は必須保守失敗の有無。片付け失敗は全入力で保持する。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(false, true)]
@@ -469,7 +469,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         string destination = @"C:\Songs\Destination";
         DuplicateMaintenanceWorkflowOwner owner = CreateOwner([], new RecordingPresentation([]), AcceptedDialogs(), new RecordingStore([]));
 
-        Assert.ThrowsException<ArgumentException>(() => owner.RunFolderMergeAsync(
+        Assert.ThrowsExactly<ArgumentException>(() => owner.RunFolderMergeAsync(
             source,
             destination,
             new DuplicateGroup([], [source, @"C:\Songs\Other"])));
@@ -594,7 +594,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     /// <summary>
     /// 初回確認のCancelは失敗なしの未実行、表示不能は元原因付きで返し、folder確認・停止・出力開始を防ぎます。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("cancel")]
     [DataRow("failed")]
     [DataRow("unavailable")]
@@ -935,7 +935,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     /// </summary>
     /// <remarks>合成した祖先groupのprepared応答プロトコルを実store・小SQLiteへ接続する。通常UIのwhole-folder到達は保証せず、実解析のkeeper保持は別代表が担当する。</remarks>
     // 0は件数確認なし・フォルダYes、1は件数確認あり・フォルダNo、2は件数確認あり・未選択閉鎖。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0)]
     [DataRow(1)]
     [DataRow(2)]
@@ -1062,7 +1062,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     /// <summary>先行Yesの後も回答収集だけを行い、Cancelと既定Yes付きCloseは全要求を取消し、明示Noだけを一回の実行へ渡します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("no")]
     [DataRow("cancel")]
     [DataRow("close")]
@@ -1187,7 +1187,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     /// 先行フォルダのYesがあっても後続の表示失敗・null応答・例外では全変更を始めず元原因と入力を保ち、確認途中の部分実行を検出する。
     /// </summary>
     // 0は表示失敗結果、1はnull応答、2は確認portの例外。いずれも二件目で注入する。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0)]
     [DataRow(1)]
     [DataRow(2)]

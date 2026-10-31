@@ -77,7 +77,7 @@ public sealed class BMSAutoPlayWriterTests
 
     /// <summary>bmson継続ノートの挿入は昇降rateでも物理PCMとEOFを変えず、最初の継続指定と後続継続で二重発音しない。</summary>
     /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(48000, 48000, 100, 100, 120)]
     [DataRow(48000, 44100, 100, 92, 120)]
     [DataRow(44100, 48000, 92, 101, 120)]
@@ -194,7 +194,7 @@ public sealed class BMSAutoPlayWriterTests
 
     /// <summary>BMSの親参照と譜面側同名別音源、bmsonの通常参照で破損wavから正常oggへ代替した実保存が直接正常入力と全PCM・長さで一致する。</summary>
     /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void WriterFallbackMatchesDirectHealthySourcePcmAndFrames(bool bmson)
@@ -229,7 +229,7 @@ public sealed class BMSAutoPlayWriterTests
 
     /// <summary>BMS・bmsonとも同名directoryを出力ベース名として扱い、既存完成fileがある場合は親directory直下で採番し、入力と既存file・directoryを保全する。</summary>
     /// <remarks>実NULL_DEVICEの読込み・render・WAVE保存を通し、名前だけでなく既知入力のNONE増幅PCMと副作用を確認する。共有native状態は既存fixtureが直列所有・復元する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -315,7 +315,7 @@ public sealed class BMSAutoPlayWriterTests
 
     /// <summary>欠落・ゼロ・空窓の後続音を音声終端へ含めず、正常な再開始と別channelだけを延長し、全空入力はencoder作成前に拒否する。</summary>
     /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("missing", 480)]
     [DataRow("zero", 480)]
     [DataRow("empty-window", 480)]
@@ -379,7 +379,7 @@ public sealed class BMSAutoPlayWriterTests
         string output = directory.File("actual-output");
         if (expectedFrames == 0)
         {
-            Assert.ThrowsException<InvalidOperationException>(() => writer.Write(EncoderType.WAVE, 0.4f, output, BMSAutoPlayWriter.Normalization.NONE));
+            Assert.ThrowsExactly<InvalidOperationException>(() => writer.Write(EncoderType.WAVE, 0.4f, output, BMSAutoPlayWriter.Normalization.NONE));
             Assert.IsFalse(File.Exists(output + ".wav"), "0frameはencoder作成前に拒否します。");
             return;
         }
@@ -415,7 +415,7 @@ public sealed class BMSAutoPlayWriterTests
 
     /// <summary>UTF-8 BOM有無の先頭BPMを通常読込みし、2秒の初回発音を一回描画・peak正規化して、前方無音と可聴deviceの音量・muteを保つ。</summary>
     /// <remarks>PlaybackChart.Loadから実NULL_DEVICEの音源読込み・描画・encoder保存まで接続し、BOM補正が有限PCMの発音位置と保存長へ届くことを確認するため共有native状態を直列所有する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Write_RendersInitialNoteOnceAndIgnoresDeviceVolumeAndMute(bool includeBom)
@@ -481,7 +481,7 @@ public sealed class BMSAutoPlayWriterTests
 
     /// <summary>BGM・可視・LN開始の各音声groupを品質2～6で描画し、有限sourceの切上げ出力長と最終frameを残す。</summary>
     /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("01", 2)] // BGM。
     [DataRow("11", 3)] // 1P可視音符。
     [DataRow("21", 4)] // 2P可視音符。
@@ -591,7 +591,7 @@ public sealed class BMSAutoPlayWriterTests
 
     /// <summary>後続の欠落BGMやLN終端まで無音を保持し、正常初期PCMを残して保存長を早めない。</summary>
     /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("missing-bgm")]
     [DataRow("long-end-1p")]
     [DataRow("long-end-2p")]
@@ -666,7 +666,7 @@ public sealed class BMSAutoPlayWriterTests
 
     /// <summary>無音入力のpeak／RMS正規化をゼロのまま保存し、ゼロ除算による非有限PCMを作らない。</summary>
     /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(BMSAutoPlayWriter.Normalization.PEAK_LEVEL)]
     [DataRow(BMSAutoPlayWriter.Normalization.RMS_VALUE)]
     public void SilentInputRemainsSilentForPeakAndRmsNormalization(
@@ -698,7 +698,7 @@ public sealed class BMSAutoPlayWriterTests
         {
             writer.LoadResources();
             Assert.AreEqual(TimeSpan.Zero, writer.Duration);
-            Assert.ThrowsException<InvalidOperationException>(() => writer.Write(
+            Assert.ThrowsExactly<InvalidOperationException>(() => writer.Write(
                 EncoderType.WAVE,
                 quality: 0.4f,
                 directory.File("empty-output"),
@@ -723,13 +723,13 @@ public sealed class BMSAutoPlayWriterTests
         invalidWriter.LoadResources();
         Assert.IsTrue(invalidWriter.Duration > TimeSpan.Zero);
         string? existingEncoderCommand = BassAudioWriter.EncoderCommandLine;
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => invalidWriter.Write(
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => invalidWriter.Write(
             EncoderType.WAVE,
             0.4f,
             directory.File("negative-amplifier"),
             BMSAutoPlayWriter.Normalization.NONE,
             normalizationAmplifier: -0.1f));
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => invalidWriter.Write(
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => invalidWriter.Write(
             EncoderType.WAVE,
             0.4f,
             directory.File("non-finite-amplifier"),
@@ -756,7 +756,7 @@ public sealed class BMSAutoPlayWriterTests
         using var writer = new BMSAutoPlayWriter(new BMSFile(directory.File("chart.bms")));
         writer.LoadResources();
 
-        AudioOutputRangeException exception = Assert.ThrowsException<AudioOutputRangeException>(() => writer.Write(
+        AudioOutputRangeException exception = Assert.ThrowsExactly<AudioOutputRangeException>(() => writer.Write(
             EncoderType.WAVE,
             0.4f,
             directory.File("over-range"),

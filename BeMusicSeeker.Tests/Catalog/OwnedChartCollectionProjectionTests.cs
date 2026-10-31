@@ -99,10 +99,10 @@ public sealed class OwnedChartCollectionProjectionTests
         CollectionAssert.AreEqual(new[] { pathfulBmson.Path }, targets.BmsonCharts.Select(chart => chart.Path).ToArray());
         Assert.AreEqual(pathfulBmson.Md5, targets.BmsonCharts.Single().Md5);
         Assert.AreEqual(2, targets.Charts.Count);
-        Assert.ThrowsException<InvalidOperationException>(() => ChartStorageTargetSet.FromCharts([(pathfulBms with { Path = null })]));
-        Assert.ThrowsException<InvalidOperationException>(() => ChartStorageTargetSet.FromCharts([(pathfulBms with { Md5 = null })]));
-        Assert.ThrowsException<InvalidOperationException>(() => ChartStorageTargetSet.FromCharts([(pathfulBmson with { Path = null })]));
-        Assert.ThrowsException<InvalidOperationException>(() => ChartStorageTargetSet.FromCharts([(pathfulBmson with { Md5 = null })]));
+        Assert.ThrowsExactly<InvalidOperationException>(() => ChartStorageTargetSet.FromCharts([(pathfulBms with { Path = null })]));
+        Assert.ThrowsExactly<InvalidOperationException>(() => ChartStorageTargetSet.FromCharts([(pathfulBms with { Md5 = null })]));
+        Assert.ThrowsExactly<InvalidOperationException>(() => ChartStorageTargetSet.FromCharts([(pathfulBmson with { Path = null })]));
+        Assert.ThrowsExactly<InvalidOperationException>(() => ChartStorageTargetSet.FromCharts([(pathfulBmson with { Md5 = null })]));
     }
 
     /// <summary>

@@ -18,7 +18,7 @@ public sealed class LibraryChartRowCachePerformanceTests
     public TestContext? TestContext { get; set; }
 
     /// <summary>64可視行の10列hitと一行のmissから後続hitまでを各5回測ります。準備・warmup・結果検査を時間外へ置き、独自の性能閾値は設けません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void VisibleColumns_ReportWarmHitsAndChangedRowMisses(bool package)

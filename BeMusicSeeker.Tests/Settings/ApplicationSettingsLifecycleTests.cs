@@ -25,7 +25,7 @@ public sealed class ApplicationSettingsLifecycleTests
             settingsStore: store,
             normalizeSettings: () => throw expected);
 
-        Exception actual = Assert.ThrowsException<System.IO.IOException>(() => lifecycle.Initialize(
+        Exception actual = Assert.ThrowsExactly<System.IO.IOException>(() => lifecycle.Initialize(
             ["ja-JP", "en-US"], () => new SerializableVersion(1, 2, 3, 4)));
 
         Assert.AreSame(expected, actual);
@@ -202,7 +202,7 @@ public sealed class ApplicationSettingsLifecycleTests
     }
 
     /// <summary>実設定の正規化保存を阻止しても一回警告と同じ値・文化圏・テーマを利用します。警告先の通常完了・例外を分担し、排他読取り失敗では警告せず設定処理を止めます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ValidSaveBlockedInputWarnsAndMaterializesCanonicalValuesWhileReadFailureIsFatal(bool warningThrows)
@@ -245,7 +245,7 @@ public sealed class ApplicationSettingsLifecycleTests
                 warnSaveFailure: _ => readWarningCount++);
             using (var blocker = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
             {
-                Assert.ThrowsException<PortableSettingsException>(() => lifecycle.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)));
+                Assert.ThrowsExactly<PortableSettingsException>(() => lifecycle.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)));
             }
 
             Assert.AreEqual(0, readWarningCount);
@@ -261,7 +261,7 @@ public sealed class ApplicationSettingsLifecycleTests
     }
 
     /// <summary>実ファイルの再読込み失敗は警告せず致命的にし、公開だけの失敗は警告先が例外を返しても同じ値・文化圏・テーマで続行します。全条件で元bytesを保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true, false)]
     [DataRow(true, true)]
     [DataRow(false, false)]
@@ -296,7 +296,7 @@ public sealed class ApplicationSettingsLifecycleTests
 
             if (blockRead)
             {
-                PortableSettingsException failure = Assert.ThrowsException<PortableSettingsException>(() => lifecycle.Initialize(
+                PortableSettingsException failure = Assert.ThrowsExactly<PortableSettingsException>(() => lifecycle.Initialize(
                     ["ja-JP", "en-US"], () => new SerializableVersion(2, 0, 0, 0)));
                 Assert.AreEqual("Read", failure.Operation);
                 Assert.AreEqual(path, failure.FilePath);
@@ -419,7 +419,7 @@ public sealed class ApplicationSettingsLifecycleTests
                 backup = preserved;
                 Directory.CreateDirectory(path);
             }, saveWarnings.Add);
-            PortableSettingsException failure = Assert.ThrowsException<PortableSettingsException>(() =>
+            PortableSettingsException failure = Assert.ThrowsExactly<PortableSettingsException>(() =>
                 failed.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)));
             Assert.AreEqual("Create", failure.Operation);
             Assert.IsNotNull(backup);
@@ -476,7 +476,7 @@ public sealed class ApplicationSettingsLifecycleTests
                 normalizeSettings: () => lifecycle.MigrateLegacy(["ja-JP", "en-US"], "en-US"),
                 warnSaveFailure: _ => warnings++);
 
-            PortableSettingsException failure = Assert.ThrowsException<PortableSettingsException>(() =>
+            PortableSettingsException failure = Assert.ThrowsExactly<PortableSettingsException>(() =>
                 lifecycle.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)));
 
             Assert.AreEqual("Migrate", failure.Operation);

@@ -25,7 +25,7 @@ public sealed class AudioContractsTests
 
     /// <summary>実panelの変更停止portは、現曲の実readと先読みdecoder解放の実終端まで入力回収を待ち、同じL内では新試聴を予約しません。</summary>
     /// <remarks>NULL_DEVICEと実入力・decoder所有を使います。目録の対象確定・実削除・失敗保全はPackageCatalogWorkflowOwnerTests、停止の失敗集約は既存InternalClose系列が担当します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)] // 現曲LoadResourcesの実入力readを保持。
     [DataRow(true)] // 先読み準備の実decoder解放を保持。
     public async Task MutationPlaybackStop_JoinsCurrentReadAndPreloadDecoderBeforeInputCleanup(bool preload)
@@ -161,7 +161,7 @@ public sealed class AudioContractsTests
 
     /// <summary>現曲のcallback故障時に入力readまたはdecoder解放を保留し、取消だけでFreeせず実終端へ合流して主原因を維持する。</summary>
     /// <remarks>実NULL_DEVICEと入力・decoder・callbackを接続し、入力所有の解放とruntime Freeの実順序を検査する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)] // 実入力readを保持しcallback PCM故障を届ける。
     [DataRow(true)] // decoder解放を保持しscheduler再開故障を届ける。
     public async Task CompletionFailure_JoinsRealInputAndDecoderCleanupBeforeRuntimeFree(bool holdDecoderRelease)
@@ -278,7 +278,7 @@ public sealed class AudioContractsTests
             Assert.AreEqual(0, exits);
             Assert.IsTrue(events.IndexOf("prepare-terminal") < events.IndexOf("free"));
             Assert.IsTrue(events.IndexOf("source-ended") < events.IndexOf("free"));
-            if (holdDecoderRelease) { Assert.ThrowsException<ObjectDisposedException>(() => heldInput?.OpenReadView()); }
+            if (holdDecoderRelease) { Assert.ThrowsExactly<ObjectDisposedException>(() => heldInput?.OpenReadView()); }
         }
         catch (Exception failure) { failures.Add(failure); }
         finally
@@ -457,7 +457,7 @@ public sealed class AudioContractsTests
 
     /// <summary>イベント方式の変更後に通常Loadまたは準備済み採用で次曲へ進み、旧playerのStop終端と必要な先読み準備完了を待ち、次session自身の実callbackまでReadyと曲情報を公開しない。</summary>
     /// <remarks>実譜面Load／準備済み採用とsession callbackの通知を接続し、曲公開の境界を検査する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)] // 非イベント→イベント、通常Load。
     [DataRow(false, true)] // 非イベント→イベント、準備済み採用。
     [DataRow(true, false)] // イベント→非イベント、通常Load。
@@ -568,7 +568,7 @@ public sealed class AudioContractsTests
             await next.Ready;
             Assert.IsTrue(player.Duration > TimeSpan.Zero);
             Assert.IsFalse(next.Completion.IsCompleted, "Readyは長い曲の演奏cleanup完了を意味しません。");
-            if (prepared != null) { Assert.ThrowsException<InvalidOperationException>(() => prepared.TakeResources()); }
+            if (prepared != null) { Assert.ThrowsExactly<InvalidOperationException>(() => prepared.TakeResources()); }
             Assert.AreEqual(1, reads);
             Assert.AreEqual(usePreload ? 0 : 1, loads);
             Assert.IsTrue(physicalRuntime.WaitForOutputReadyAsync().IsCompletedSuccessfully);
@@ -613,8 +613,8 @@ public sealed class AudioContractsTests
         PlaybackStartOperation operation = player.BeginStart(path, null, false);
         try
         {
-            AggregateException failure = await Assert.ThrowsExceptionAsync<AggregateException>(() => operation.Ready);
-            Assert.AreSame(failure, await Assert.ThrowsExceptionAsync<AggregateException>(() => operation.Completion));
+            AggregateException failure = await Assert.ThrowsExactlyAsync<AggregateException>(() => operation.Ready);
+            Assert.AreSame(failure, await Assert.ThrowsExactlyAsync<AggregateException>(() => operation.Completion));
             Exception[] causes = failure.Flatten().InnerExceptions.ToArray();
             Assert.AreEqual(1, causes.OfType<TimeoutException>().Count());
             Assert.IsTrue(causes.Contains(disposeFailure)); Assert.IsTrue(causes.Contains(freeFailure));
@@ -669,7 +669,7 @@ public sealed class AudioContractsTests
             ReportRealOutputCallback(session);
             await operation.Ready;
             await close;
-            await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => operation.Completion);
+            await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => operation.Completion);
             Assert.AreEqual(1, events.Count(value => value == "free"));
         }
         finally
@@ -692,7 +692,7 @@ public sealed class AudioContractsTests
     }
 
     /// <summary>先読みfatal時に準備・現曲停止・runtime解放・通知の順を守り、解放成功と独立解放失敗のどちらでも主原因を一度通知する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task PreloadFatal_CloseJoinsPreparationAndNotifiesOnceWithIndependentCleanupFailure(bool failCleanup)
@@ -886,7 +886,7 @@ public sealed class AudioContractsTests
 
     /// <summary>旧playerのStopと一致先読み準備のどちらを先に終えても、Stop終端と準備完了が揃うまで次出力を初期化せず準備を再実行・取消しない。</summary>
     /// <remarks>実NULL_DEVICEとbmson準備を接続し、旧playerのStop終端と次曲の準備完了を待ち合わせることを検査する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public async Task InternalSwitch_WaitsForSourceReleaseAndMatchingPreparation(bool releaseFirst)
@@ -981,7 +981,7 @@ public sealed class AudioContractsTests
         Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
     /// <summary>Closeは準備取消の通知だけでFreeせず準備cleanupへ合流し、表示通知の失敗とnative回収を分け、現曲DisposeとFreeの実失敗を保持します。安全なclose後の次要求も受理します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)] // 正常な回収と次の明示開始。
     [DataRow(false, true)] // 表示通知の故障だけなら回収・次開始を維持。
     [DataRow(true, false)] // 実native回収の独立失敗を保持。
@@ -1382,7 +1382,7 @@ public sealed class AudioContractsTests
     }
 
     /// <summary>品質の下限未満と上限超過を保存設定から捕捉すると明示的に拒否し、再生・変換で既定品質へ隠して置換しない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(1)]
     [DataRow(7)]
     public void AudioResamplingQuality_RejectsUnsupportedPersistedValues(int quality)
@@ -1393,9 +1393,9 @@ public sealed class AudioContractsTests
         {
             settings.PlayerResamplingQuality = quality;
 
-            Assert.ThrowsException<ArgumentOutOfRangeException>(
+            Assert.ThrowsExactly<ArgumentOutOfRangeException>(
                 () => new SettingsAudioGateway(() => settings).CaptureEncodingSettings());
-            Assert.ThrowsException<ArgumentOutOfRangeException>(
+            Assert.ThrowsExactly<ArgumentOutOfRangeException>(
                 () => new SettingsPlayerSettingsGateway(() => settings).CaptureSnapshot());
         }
         finally
@@ -1405,7 +1405,7 @@ public sealed class AudioContractsTests
     }
 
     /// <summary>並列数の下限未満と上限超過を捕捉時に拒否し、不正保存値を有効要求として通さない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0)]
     [DataRow(5)]
     public void PlayerMixerThreadCount_RejectsUnsupportedPersistedValues(int threadCount)
@@ -1416,7 +1416,7 @@ public sealed class AudioContractsTests
         {
             settings.PlayerMixerThreadCount = threadCount;
 
-            Assert.ThrowsException<ArgumentOutOfRangeException>(
+            Assert.ThrowsExactly<ArgumentOutOfRangeException>(
                 () => new SettingsPlayerSettingsGateway(() => settings).CaptureSnapshot());
         }
         finally
@@ -1489,7 +1489,7 @@ public sealed class AudioContractsTests
 
     /// <summary>保存済み50を捕捉した次sessionの実初期化gate保持中にもpreview20のsetterが終端し、保存終端の前後どちらでも最終現在音量20を維持します。</summary>
     /// <remarks>実Panel・設定gateway・内蔵player・runtimeから本番exclusive gateまで接続し、機器だけを代替します。初期preview10から別Taskで20へ変更し、gate解放前のsetter自体の成功と次曲未終端を確認します。局所期限はロック待ちの誤りを検出するためだけに使い、finallyで同threadのlease解放、setter・次曲の回収、Panel終了とnative状態の復元を行います。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task InternalNextSession_VolumeCompletionKeepsLatestVolumeAcrossCapturedInitialization(bool completeBeforeNativeInitialization)
@@ -1616,7 +1616,7 @@ public sealed class AudioContractsTests
                 new SettingsPlayerSettingsGateway(() => testSettings),
                 runtime);
 
-            InvalidOperationException actual = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            InvalidOperationException actual = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 () => player.PlayStart(bmsFilePath));
 
             Assert.AreSame(startupFailure, actual);
@@ -1685,7 +1685,7 @@ public sealed class AudioContractsTests
             await ObserveSignalOrFailureAsync(prepareEntered.Task, newOperation.Completion);
             oldDelivery.TrySetResult();
 
-            await Assert.ThrowsExceptionAsync<OperationCanceledException>(
+            await Assert.ThrowsExactlyAsync<OperationCanceledException>(
                 () => oldStart);
 
             Assert.IsTrue(player.Duration > TimeSpan.Zero, "The old start's delayed cleanup must leave the new song active.");
@@ -1788,7 +1788,7 @@ public sealed class AudioContractsTests
                     "player-factory:2",
                 },
                 events);
-            await Assert.ThrowsExceptionAsync<OperationCanceledException>(
+            await Assert.ThrowsExactlyAsync<OperationCanceledException>(
                 () => oldStart);
             await newStart;
         }
@@ -1860,7 +1860,7 @@ public sealed class AudioContractsTests
             settings.PlayerSampleRate = SampleRate.SAMPLE_RATE_48000Hz;
 
             rejectedStart = player.PlayStart(invalidNextPath);
-            BassAudioPlaybackException actual = await Assert.ThrowsExceptionAsync<BassAudioPlaybackException>(
+            BassAudioPlaybackException actual = await Assert.ThrowsExactlyAsync<BassAudioPlaybackException>(
                 () => rejectedStart);
 
             Assert.AreSame(expectedFailure, actual);
@@ -2010,7 +2010,7 @@ public sealed class AudioContractsTests
         var runtime = new BassAudioPlaybackRuntime();
         PlayerSettingsSnapshot settings = CreatePlayerSettings(AudioDriver.NullDevice);
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => runtime.Initialize(settings));
 
         Assert.AreEqual(BassAudioPlayer.DeviceDriver.NULL_DEVICE, exception.RequestedBackend);
@@ -2065,7 +2065,7 @@ public sealed class AudioContractsTests
         {
             await accepted.Task;
 
-            AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+            AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
                 () => runtime.Initialize(settings));
 
             Assert.AreEqual("audio request busy", exception.Stage);
@@ -2158,7 +2158,7 @@ public sealed class AudioContractsTests
             AudioDriver.WasapiShared,
             sampleRateConversionQuality: 2,
             playerMixerThreadCount: 2);
-        Assert.ThrowsException<InvalidOperationException>(
+        Assert.ThrowsExactly<InvalidOperationException>(
             () => runtime.Initialize(savedSettingsForNextStart));
         Assert.AreSame(original, runtime.Initialize(originalSettings));
         Assert.AreEqual(1, initializedSessions.Count);
@@ -2191,7 +2191,7 @@ public sealed class AudioContractsTests
         confirmRelease = false;
         try
         {
-            Assert.ThrowsException<InvalidOperationException>(runtime.Free,
+            Assert.ThrowsExactly<InvalidOperationException>(runtime.Free,
                 "Unconfirmed native release must fail the stopping caller.");
             Assert.AreEqual(BassAudioSessionState.Active, initializedSessions[2].State);
             Assert.AreSame(parallelismReplacement, runtime.Initialize(parallelismOnlySettings),

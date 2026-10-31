@@ -19,7 +19,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryPackageLifecycleTests
 {
     /// <summary>局所確定値の反映、複数所属、旧購読の解除と未具体化列の非I/Oを同じownerで確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // BMS/BMSONの共通現在値を、同じ所属・退役条件で検査します。
     [DataRow(false)]
     [DataRow(true)]
@@ -238,7 +238,7 @@ public sealed class BmsLibraryPackageLifecycleTests
                 () => installedPackages,
                 packages => installedPackages = packages);
 
-            Assert.ThrowsException<InvalidOperationException>(() => applier.ApplyPendingPackageMutationDelta(
+            Assert.ThrowsExactly<InvalidOperationException>(() => applier.ApplyPendingPackageMutationDelta(
                 new PendingPackageMutationDelta
                 {
                     HasChanges = true,
@@ -283,7 +283,7 @@ public sealed class BmsLibraryPackageLifecycleTests
                 () => installedPackages,
                 packages => installedPackages = packages);
 
-            Assert.ThrowsException<InvalidOperationException>(() => applier.ApplyPendingPackageMutationDelta(
+            Assert.ThrowsExactly<InvalidOperationException>(() => applier.ApplyPendingPackageMutationDelta(
                 new PendingPackageMutationDelta
                 {
                     HasChanges = true,
@@ -326,7 +326,7 @@ public sealed class BmsLibraryPackageLifecycleTests
                 () => installedPackages,
                 packages => installedPackages = packages);
 
-            Assert.ThrowsException<SQLite.SQLiteException>(() => applier.ApplyPendingPackageMutationDelta(
+            Assert.ThrowsExactly<SQLite.SQLiteException>(() => applier.ApplyPendingPackageMutationDelta(
                 new PendingPackageMutationDelta
                 {
                     HasChanges = true,
@@ -376,7 +376,7 @@ public sealed class BmsLibraryPackageLifecycleTests
     /// <summary>共有UIキュー保持中に両集合状態を確定してscopeを返し、先行通知・診断先の失敗後も後続通知と実公開Taskの正常終端を保つことを確認します。</summary>
     /// <remarks>実ownerの公開操作と同priorityのdrainを捕捉して全Taskを回収し、同期UI待ち・後続通知の欠落・診断故障による公開Taskの失敗を検出します。共有キューを保持するため並列実行しません。</remarks>
     [DoNotParallelize]
-    [DataTestMethod]
+    [TestMethod]
     // falseは診断成功、trueは元通知原因を受け取った診断先も失敗する条件です。
     [DataRow(false)]
     [DataRow(true)]
@@ -660,7 +660,7 @@ public sealed class BmsLibraryPackageLifecycleTests
                 () => installedPackages,
                 packages => installedPackages = packages);
 
-            Assert.ThrowsException<SQLite.SQLiteException>(() => applier.ApplyPendingPackageMutationDelta(new PendingPackageMutationDelta
+            Assert.ThrowsExactly<SQLite.SQLiteException>(() => applier.ApplyPendingPackageMutationDelta(new PendingPackageMutationDelta
             {
                 HasChanges = true,
                 RemainingPackages = [],
@@ -708,7 +708,7 @@ public sealed class BmsLibraryPackageLifecycleTests
             };
             delta.EntryMutations.Add(new PendingPackageEntryMutation(package, [package.ChartEntries[0]]));
 
-            Assert.ThrowsException<SQLite.SQLiteException>(() => applier.ApplyPendingPackageMutationDelta(delta));
+            Assert.ThrowsExactly<SQLite.SQLiteException>(() => applier.ApplyPendingPackageMutationDelta(delta));
 
             Assert.AreEqual(2, package.ChartEntries.Count);
             Assert.AreSame(package, pendingPackages.Single());

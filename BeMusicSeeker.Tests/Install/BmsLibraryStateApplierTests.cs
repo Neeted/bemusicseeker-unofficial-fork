@@ -21,7 +21,7 @@ public sealed class BmsLibraryStateApplierTests
 {
     /// <summary>手動確定で残った入力元・所持先解決の診断を、確定DSTの統合追従でも保持し、全体削除によるDST解除では候補診断を消し、採用親参照のWARNINGは保持します。</summary>
     /// <remarks>実診断producer→実手動DST編集→merge参照facts生成→実applierを接続します。物理成功の認定とsession・公開は既存の実統合/削除系列へ分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(nameof(ChartWarningKind.UnsupportedResourcePath))] // 使用した親参照は、候補の評価結果とは独立した入力元診断です。
     [DataRow(nameof(ChartWarningKind.SourceSurfaceScanLimitExceeded))] // 入力面探索の上限診断は、手動DST確定でも消去しません。
     [DataRow(nameof(ChartWarningKind.InstalledDestinationResolveFailed))] // 所持先の解決失敗も、候補失効と区別して保持します。
@@ -166,7 +166,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     /// <summary>候補だけ・scope外確定DST・scope内確定DSTを区別し、実facts生成から候補順・相対配置・捕捉済み資源・推定時診断を保って追従することを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, 0)] // BMS: 候補だけ
     [DataRow(true, 1)] // BMSON: 確定DSTは別root
     [DataRow(false, 2)] // BMS: 確定DSTも移動する
@@ -228,7 +228,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     /// <summary>削除・統合scopeに触れた全候補を失効し、DST空だけ登録時健康度へ戻し、外側DSTの維持と統合元DSTの追従を区別します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, 0)] // 削除: 候補のみ
     [DataRow(false, 1)] // 削除: 確定DSTはscope外
     [DataRow(false, 2)] // 削除: 確定DSTもscope内
@@ -467,7 +467,7 @@ public sealed class BmsLibraryStateApplierTests
     /// 確定したexact削除集合をDB・storage・owned・packageへ同じ意味で反映し、移動先と非対象行を保護します。
     /// </summary>
     /// <remarks>旧DBの完全一致keyと物理パスの別名、両形式・maintenance・ユーザー列を実SQLiteの確定後に照合します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     // case-only・別名・dot別名、両対象削除、移転先保護、token指定削除を区別します。
     [DataRow("CHART", false, false, false)]
     [DataRow("other", false, false, false)]

@@ -154,7 +154,7 @@ public sealed class Lr2SongRowEnricherTests
     /// <summary>
     /// 値が00でも存在するレーンと空白区切りを読んで外部modeへ投影し、音符値だけで譜面種別を判断する誤りを検出します。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("#00118:00\r\n", 7)]
     [DataRow("#00121:00\r\n", 10)]
     [DataRow("#00129:00\r\n", 14)]
@@ -251,7 +251,7 @@ public sealed class Lr2SongRowEnricherTests
     /// 欠落・不正・正常difficultyの既存行投影と新規行補完を揃え、各行のmode・judgeを保って保存経路間の変換不一致を検出します。
     /// </summary>
     /// <remarks>null・-1・6はNormal補完、4は明示難度保持をDataRowで区別します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(null, 2)]
     [DataRow(-1, 2)]
     [DataRow(6, 2)]
@@ -319,7 +319,7 @@ public sealed class Lr2SongRowEnricherTests
     /// 未指定・負・範囲外のdifficultyをLR2のNormal整数2へ補完し、未定値を有効難度として保存する誤りを検出します。
     /// </summary>
     /// <remarks>DataRowのnull・-1・9は未指定・負値・範囲外です。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(null)]
     [DataRow(-1)]
     [DataRow(9)]

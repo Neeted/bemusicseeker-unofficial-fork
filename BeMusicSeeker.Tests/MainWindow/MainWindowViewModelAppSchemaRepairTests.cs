@@ -15,7 +15,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class MainWindowViewModelAppSchemaRepairTests
 {
     /// <summary>実旧DBの非同期検査・保留中の確認・取消を通り、schemaと保存行を変えず終了結果だけを返します。実Closeと受付解放はWindow接続の代表ケースへ分担します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(MessageBoxResult.Cancel)]
     [DataRow(MessageBoxResult.None)]
     public async Task PrepareSchemaAsync_CancelPreservesDatabaseAndReturnsExit(MessageBoxResult choice)
@@ -50,7 +50,7 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
     }
 
     /// <summary>実DBの承認後だけ適用へ進み、確認不要の初期準備と修復のみの不足は確認を増やしません。承認した同一セッションの再準備も確認を重ねません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("approval")]
     [DataRow("repair-only")]
     [DataRow("normal")]

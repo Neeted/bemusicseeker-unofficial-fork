@@ -11,7 +11,7 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class BmsLibraryPackageInstallServiceTests
 {
     /// <summary>実発見の全定義と最寄りchartdirで限定禁止を判定します。補助画像で元一式を捕捉し、分割の偶然で陰性にならない条件表です。通常Resourcesは既存の使用分投影と一致させます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("audio-bms", true)]
     [DataRow("audio-pms", true)]
     [DataRow("audio-alias", true)]

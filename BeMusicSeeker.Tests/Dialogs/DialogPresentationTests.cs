@@ -33,7 +33,7 @@ public sealed class DialogPresentationTests
 {
     /// <summary>6言語それぞれで実ボタンの4役割が現在の言語資源を表示し、固定英語や役割の取り違えを検出します。</summary>
     /// <remarks>実Contentへの接続を2つの代表構成で確認し、辞書とgetterの整合はLocalizationResourceParityTestsへ分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("en-US")]
     [DataRow("fr-FR")]
     [DataRow("ja-JP")]
@@ -80,7 +80,7 @@ public sealed class DialogPresentationTests
 
     /// <summary>翻訳済みの4構成で明示応答とEnter・Escが実ボタンを通り、文言変更で応答の意味を変えないことを確認します。</summary>
     /// <remarks>公開AccessKeyManagerからキーを配送します。純粋な既定値規則と全体削除の取消分岐は既存の専用テストへ分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(MessageBoxButton.OK, MessageBoxResult.OK, "enter")]
     [DataRow(MessageBoxButton.OKCancel, MessageBoxResult.OK, "click")]
     [DataRow(MessageBoxButton.OKCancel, MessageBoxResult.Cancel, "click")]
@@ -217,7 +217,7 @@ public sealed class DialogPresentationTests
     }
 
     /// <summary>各dialogの実表示で役割別styleと外部sentinel・Applicationへの非波及を確認します。設定の環境カードと通常ラジオを区別し、BMS/BMT・選択recordの確定はPrimary、取消とroot/scoreの再試行はQuietとして確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("SettingsWindow")]
     [DataRow("ReleaseNotesWindow")]
     [DataRow("UpdateAvailableDialog")]
@@ -298,7 +298,7 @@ public sealed class DialogPresentationTests
     }
 
     /// <summary>実更新buttonのshell失敗では正確なURLを一度だけ要求し、通知失敗でも成功で閉じず実イベント終端を待ちます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true, 0)] // 適用button、Failed通知。
     [DataRow(true, 1)] // 適用button、待機後に通知Taskが失敗。
     [DataRow(true, 2)] // 適用button、通知呼出しが同期失敗。
@@ -366,7 +366,7 @@ public sealed class DialogPresentationTests
     }
 
     /// <summary>リリースノートとschema削除画面を実表示し、内容と意味を持つ操作をclient内に保って切り取りを防ぎます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("ReleaseNotesWindow")]
     [DataRow("Lr2PlayHistorySchemaUninstallDialog")]
     public void NonExceptionNativeWindows_KeepSemanticContentInsideClientBounds(string dialogName)
@@ -393,7 +393,7 @@ public sealed class DialogPresentationTests
     }
 
     /// <summary>通常native画面の実本文を測り、本文余白の一回適用とviewerのclient端への到達を確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("ReleaseNotesWindow")]
     [DataRow("Lr2PlayHistorySchemaUninstallDialog")]
     public void OrdinaryNativeWindows_BodyViewportReachesClientEdgeAndOwnsSingleInset(string dialogName)

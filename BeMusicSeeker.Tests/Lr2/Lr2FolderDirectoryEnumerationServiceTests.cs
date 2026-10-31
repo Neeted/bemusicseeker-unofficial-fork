@@ -132,7 +132,7 @@ public sealed class Lr2FolderDirectoryEnumerationServiceTests
             ErrorReason = "bridge_contract_mismatch:test"
         };
 
-        InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(() =>
+        InvalidOperationException exception = Assert.ThrowsExactly<InvalidOperationException>(() =>
             Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedResult(
                 result,
                 [],

@@ -1,4 +1,6 @@
 using System;
+using System.Runtime.CompilerServices;
+using System.Text;
 using System.Threading;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -9,6 +11,13 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class MSTestSettings
 {
+    /// <summary>MTPの出力開始前にUTF-8を指定し、非表示ホストでも監視側のUTF-8読取りと日本語診断を一致させます。</summary>
+    [ModuleInitializer]
+    internal static void InitializeConsoleEncoding()
+    {
+        Console.OutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+    }
+
     /// <summary>
     /// テスト共通のランタイムとスレッドプール下限を初期化します。
     /// </summary>

@@ -252,7 +252,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>実recordボタンは選択行の差分へBindingし、別行だけの変更では無効、無効入力でも取消可となり、実取消は選択行だけを戻します。不正な保存rawから追加した両種の新規行も取消でき、実保存rawは変更しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void CompiledRecordButtons_TrackSelectedRecordAndCancelInvalidDraftWithoutChangingOtherRows(bool invalidPersisted)
@@ -499,7 +499,7 @@ public sealed partial class SettingDialogEditCompletionTests
 
     /// <summary>通常・ROOT・追加先の実compiled選択入口から保存し、picker取消・確認取消・確認中のP先着では候補と実二媒体を保持します。同値の通常・ROOT明示選択も共有拒否したXMLの再保存へ到達し、初期Bindingは保存しません。</summary>
     /// <remarks>確認中のP先着はWindowを開いたまま拒否後の実Binding復帰まで確認します。通常Closeの候補破棄とTask寿命はSettingsWindowPresentationTests、媒体失敗・実生成・整理はOutputConfirmationが分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("normal", "accept")]
     [DataRow("root", "accept")]
     [DataRow("additional", "accept")]
@@ -646,7 +646,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>初回LR2の両空値・両旧先欠落から、どちらの実pickerでも順に二媒体へ保存できます。未変更の要修復先へアクセスせず、別区分候補を混ぜず、空値の開始必須検査を維持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("normal", false)]
     [DataRow("root", false)]
     [DataRow("normal", true)]
@@ -739,7 +739,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>実画像controlの有効選択を自動保存し現在のPlaybackPanel画像へ届けます。実保存失敗は確定値と現画像を保持し、同値・別項目保存では再試行せず明示再試行だけで完了します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void CompiledImageSelection_AutomaticallySavesAndUpdatesCurrentArtworkOrKeepsFailure(bool failSave)
@@ -866,7 +866,7 @@ public sealed partial class SettingDialogEditCompletionTests
 
     /// <summary>各カテゴリの実compiled editorを変更して実保存し、専用providerの新reader、稼働側の設定窓口、新dialogの値を接続します。新しい取消編集は保存済み値へ戻し、別設定と別Web actionを保持します。</summary>
     /// <remarks>各副作用の条件表は既存設定・player・導入・playlist系列へ分担し、この実Window系列はBindingと保存の正常接続だけを補います。文化・テーマ・共有通知・Window一覧を準備から終端と復元まで所有します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("General", "Language")]
     [DataRow("Install", "FolderNameFormat")]
     [DataRow("Playlist", "OverwritePlaylistUrlsWithCompletion")]

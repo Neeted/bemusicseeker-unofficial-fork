@@ -154,7 +154,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
     }
 
     /// <summary>同groupの二表entry差分は参照版を一回進める。catalog resetと旧補助通知clearは独立参照範囲を削除しない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ReferenceQueue_PreservesGroupedCommitAcrossCatalogResetAndLegacyClear(bool resetFirst)
@@ -186,7 +186,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
     }
 
     /// <summary>背景entry/keyを16/128へ増やしても一件entry差分は一bucketだけを更新・表示生成し、全表entryを捕捉しない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     [DataRow(128)]
     public void ReferenceDelta_VisitsOnlyChangedEntryAndBucket(int count)

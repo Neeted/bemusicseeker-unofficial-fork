@@ -15,7 +15,7 @@ public sealed class NextSongPreloadOwnerTests
     /// <summary>
     /// 保証：新旧bmsonの先読み結果を一度だけ採用し、不正入力の失敗は採用まで保持して再解析や別入力への読み替えをしない。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task BmsonPreloadDispatchesModernOrLegacyAndKeepsInputFailureUntilAdoption(bool legacy)
@@ -32,9 +32,9 @@ public sealed class NextSongPreloadOwnerTests
         File.WriteAllText(path, "{\"info\":{\"init_bpm\":0}}");
         input = NextSongPreloadInput.Capture(path);
         Task<PreparedBmsSong> failing = owner.Request(input);
-        InvalidBmsonFileException failure = await Assert.ThrowsExceptionAsync<InvalidBmsonFileException>(() => failing);
+        InvalidBmsonFileException failure = await Assert.ThrowsExactlyAsync<InvalidBmsonFileException>(() => failing);
         Assert.IsTrue(NextSongPreloadOwner.IsInputFailure(failure));
-        Assert.AreSame(failure, await Assert.ThrowsExceptionAsync<InvalidBmsonFileException>(() => owner.TakeAsync(input)));
+        Assert.AreSame(failure, await Assert.ThrowsExactlyAsync<InvalidBmsonFileException>(() => owner.TakeAsync(input)));
         Assert.IsNull(await owner.TakeAsync(input));
     }
 
@@ -98,7 +98,7 @@ public sealed class NextSongPreloadOwnerTests
         Assert.AreSame(prepared, await owner.TakeAsync(input));
         Assert.AreEqual(1, preparations);
         Assert.IsNotNull(prepared.TakeResources());
-        Assert.ThrowsException<InvalidOperationException>(() => prepared.TakeResources());
+        Assert.ThrowsExactly<InvalidOperationException>(() => prepared.TakeResources());
     }
 
     /// <summary>
@@ -154,9 +154,9 @@ public sealed class NextSongPreloadOwnerTests
         });
         NextSongPreloadInput input = fixture.Input("next.bms");
         Task<PreparedBmsSong> preparation = owner.Request(input);
-        Ribbit.BMS.BMSFile.InvalidBmsFileException failure = await Assert.ThrowsExceptionAsync<Ribbit.BMS.BMSFile.InvalidBmsFileException>(() => preparation);
+        Ribbit.BMS.BMSFile.InvalidBmsFileException failure = await Assert.ThrowsExactlyAsync<Ribbit.BMS.BMSFile.InvalidBmsFileException>(() => preparation);
         Assert.IsTrue(failure.IsInputFailure);
-        Assert.AreSame(failure, await Assert.ThrowsExceptionAsync<Ribbit.BMS.BMSFile.InvalidBmsFileException>(() => owner.TakeAsync(input)));
+        Assert.AreSame(failure, await Assert.ThrowsExactlyAsync<Ribbit.BMS.BMSFile.InvalidBmsFileException>(() => owner.TakeAsync(input)));
         Assert.AreEqual(1, preparations);
     }
 
@@ -171,14 +171,14 @@ public sealed class NextSongPreloadOwnerTests
         var inputOwner = new NextSongPreloadOwner((input, token) =>
             PreparedBmsSong.Prepare(new Ribbit.BMS.BMSFile(input.Path), 0.4f, token));
         Task<PreparedBmsSong> inputTask = inputOwner.Request(fixture.Input("input.bms"));
-        await Assert.ThrowsExceptionAsync<Ribbit.BMS.BMSFile.InvalidBmsFileException>(() => inputTask);
+        await Assert.ThrowsExactlyAsync<Ribbit.BMS.BMSFile.InvalidBmsFileException>(() => inputTask);
         await inputOwner.InvalidateAsync();
 
         var fatal = new AudioSourceFatalException("decoderの解放を確認できません。");
         var fatalOwner = new NextSongPreloadOwner((_, _) => throw fatal);
         Task<PreparedBmsSong> fatalTask = fatalOwner.Request(fixture.Input("fatal.bms"));
-        await Assert.ThrowsExceptionAsync<AudioSourceFatalException>(() => fatalTask);
-        Assert.AreSame(fatal, await Assert.ThrowsExceptionAsync<AudioSourceFatalException>(() => fatalOwner.InvalidateAsync()));
+        await Assert.ThrowsExactlyAsync<AudioSourceFatalException>(() => fatalTask);
+        Assert.AreSame(fatal, await Assert.ThrowsExactlyAsync<AudioSourceFatalException>(() => fatalOwner.InvalidateAsync()));
     }
 
     /// <summary>

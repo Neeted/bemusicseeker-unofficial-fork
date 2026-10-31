@@ -71,7 +71,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
         Directory.Move(rootDirectoryB, temporarilyUnavailableRoot);
         try
         {
-            LibraryDirectoryPreflightException failure = Assert.ThrowsException<LibraryDirectoryPreflightException>(
+            LibraryDirectoryPreflightException failure = Assert.ThrowsExactly<LibraryDirectoryPreflightException>(
                 () => library.ReloadFileDiff());
             Assert.AreEqual(LibraryDirectoryPreflightUse.BmsRoot, failure.Use);
             StringAssert.Contains(failure.DirectoryPath, "BMS-B");
@@ -282,7 +282,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
         Directory.Move(rootDirectoryB, temporarilyUnavailableRoot);
         try
         {
-            LibraryDirectoryPreflightException failure = Assert.ThrowsException<LibraryDirectoryPreflightException>(
+            LibraryDirectoryPreflightException failure = Assert.ThrowsExactly<LibraryDirectoryPreflightException>(
                 () => library.Reinitialize());
             Assert.AreEqual(LibraryDirectoryPreflightUse.BmsRoot, failure.Use);
             StringAssert.Contains(failure.DirectoryPath, "BMS-B");
@@ -369,7 +369,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
         Directory.Move(rootDirectoryB, temporarilyUnavailableRoot);
         try
         {
-            Assert.ThrowsException<LibraryDirectoryPreflightException>(
+            Assert.ThrowsExactly<LibraryDirectoryPreflightException>(
                 () => library.ReloadFileDiff());
         }
         finally

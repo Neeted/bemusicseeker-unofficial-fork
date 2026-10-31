@@ -63,7 +63,7 @@ public sealed class Lr2SongDbSyncStatusMapperTests
     /// <summary>
     /// th-THでGregorian固定日時を保ち、保存済み位置と現在工程の件数を分けて表示し、進捗値と最大値を取り違える誤りを検出します。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(4)]
     [DataRow(50)]
     public void Create_RunningSeparatesSavedPositionFromStageProgress(int processedCount)
@@ -142,7 +142,7 @@ public sealed class Lr2SongDbSyncStatusMapperTests
     /// <summary>
     /// 既知の保存工程を役割ごとの表示文言へ変換し、保存位置と元の例外・パス・内部原因を保持して生の識別名の露出や診断切捨てを検出します。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("queued", nameof(Resources.Lr2_song_db_sync_stage_queued))]
     [DataRow("preparing", nameof(Resources.Lr2_song_db_sync_stage_preparing))]
     [DataRow("input_preparation", nameof(Resources.Lr2_song_db_sync_stage_preparing))]
@@ -230,7 +230,7 @@ public sealed class Lr2SongDbSyncStatusMapperTests
     /// <summary>
     /// 工程の総数が正の場合だけ進捗を確定値にし、未定・零を保存済み全体件数で埋めて誤った進捗を表示する処理を検出します。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(null)]
     [DataRow(0)]
     [DataRow(20)]
@@ -284,7 +284,7 @@ public sealed class Lr2SongDbSyncStatusMapperTests
     /// <summary>
     /// 空工程には表示を推測せず、未知工程と元診断を保持して不明な保存状態を別工程へ読み替える誤りを検出します。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(null, "")]
     [DataRow(" ", "")]
     [DataRow("future_saved_stage", "future_saved_stage")]
@@ -309,7 +309,7 @@ public sealed class Lr2SongDbSyncStatusMapperTests
     /// <summary>
     /// 既知工程でも異なる原因接頭辞と既定外の区切りを診断から削らず、工程名変換による元エラーの改変を検出します。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("future_error: original detail")]
     [DataRow("lr2_song_db_mode_upsert_failed:original detail")]
     public void Create_KnownStagePreservesNondefaultErrorPrefixes(string error)

@@ -143,7 +143,7 @@ public sealed class SQLiteProviderRuntimeTests
             using var connection = new LR2SongDBExtended(path);
             var failure = new InvalidOperationException("callback failure");
             var command = (LR2SongDBExtended.SQLiteCommandExtended)connection.CreateCommand("SELECT 1;");
-            Exception actual = Assert.ThrowsException<InvalidOperationException>(() => command.ForEachRawRow(_ => throw failure));
+            Exception actual = Assert.ThrowsExactly<InvalidOperationException>(() => command.ForEachRawRow(_ => throw failure));
             Assert.AreSame(failure, actual);
             connection.Execute("CREATE TABLE after_callback (value INTEGER);");
             connection.Execute("INSERT INTO after_callback VALUES (2);");
@@ -248,7 +248,7 @@ public sealed class SQLiteProviderRuntimeTests
                     Assert.AreEqual("prefix", reader.ExecuteScalar<string>("SELECT value FROM commit_probe WHERE id = 1;"));
                     writer.BeginTransaction();
                     writer.Execute("INSERT INTO commit_probe VALUES (2, 'uncommitted');");
-                    SQLite.SQLiteException failure = Assert.ThrowsException<SQLite.SQLiteException>(writer.Commit);
+                    SQLite.SQLiteException failure = Assert.ThrowsExactly<SQLite.SQLiteException>(writer.Commit);
                     Assert.AreEqual(SQLite.SQLite3.Result.Busy, failure.Result);
                 }
                 finally { reader.Rollback(); }
@@ -286,7 +286,7 @@ public sealed class SQLiteProviderRuntimeTests
             holder.Execute("BEGIN IMMEDIATE;");
             try
             {
-                SQLite.SQLiteException failure = Assert.ThrowsException<SQLite.SQLiteException>(() =>
+                SQLite.SQLiteException failure = Assert.ThrowsExactly<SQLite.SQLiteException>(() =>
                 {
                     if (replace) { contender.InsertOrReplace(new ContentionRow { Id = 1, Value = "replacement" }, typeof(ContentionRow)); }
                     else { contender.Delete<ContentionRow>(1); }

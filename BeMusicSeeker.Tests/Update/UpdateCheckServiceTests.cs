@@ -13,7 +13,7 @@ public sealed class UpdateCheckServiceTests
     [TestMethod]
     public void ParseManifest_MalformedJsonRetainsValidationCause()
     {
-        UpdateManifestValidationException failure = Assert.ThrowsException<UpdateManifestValidationException>(
+        UpdateManifestValidationException failure = Assert.ThrowsExactly<UpdateManifestValidationException>(
             () => UpdateCheckService.ParseManifest("{\"schemaVersion\": ["));
 
         Assert.IsInstanceOfType<JsonException>(failure.InnerException);
@@ -23,7 +23,7 @@ public sealed class UpdateCheckServiceTests
     /// <summary>
     /// 異文化でも空白・符号付きprotocolを含む公開manifestを受理し、通常版と同梱版の版・資産種別を保持する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DoNotParallelize]
     [DataRow("ja-JP")]
     [DataRow("en-US")]
@@ -112,7 +112,7 @@ public sealed class UpdateCheckServiceTests
             }
             """;
 
-        Assert.ThrowsException<UpdateManifestValidationException>(() => UpdateCheckService.ParseManifest(json));
+        Assert.ThrowsExactly<UpdateManifestValidationException>(() => UpdateCheckService.ParseManifest(json));
     }
 
     /// <summary>
@@ -144,7 +144,7 @@ public sealed class UpdateCheckServiceTests
             }
             """;
 
-        Assert.ThrowsException<UpdateManifestValidationException>(() => UpdateCheckService.ParseManifest(json));
+        Assert.ThrowsExactly<UpdateManifestValidationException>(() => UpdateCheckService.ParseManifest(json));
     }
 
     /// <summary>整数tokenのInt32/Int64範囲外だけを型付き検証失敗へ変換し、元OverflowExceptionと対象項目を保ちます。</summary>
@@ -160,7 +160,7 @@ public sealed class UpdateCheckServiceTests
     [DataRow("sizeBytes", "999999999999999999999999999999999999999999", "Int64")]
     public void ParseManifest_OutOfRangeIntegerRetainsValidationCause(string field, string value, string range)
     {
-        UpdateManifestValidationException failure = Assert.ThrowsException<UpdateManifestValidationException>(
+        UpdateManifestValidationException failure = Assert.ThrowsExactly<UpdateManifestValidationException>(
             () => UpdateCheckService.ParseManifest(CreateManifestWithInteger(field, value)));
 
         Assert.IsInstanceOfType<OverflowException>(failure.InnerException);
@@ -180,7 +180,7 @@ public sealed class UpdateCheckServiceTests
     [DataRow("sizeBytes", "0", "asset sizeBytes must be positive.")]
     public void ParseManifest_RepresentableIntegerKeepsSemanticValidation(string field, string value, string expectedMessage)
     {
-        UpdateManifestValidationException failure = Assert.ThrowsException<UpdateManifestValidationException>(
+        UpdateManifestValidationException failure = Assert.ThrowsExactly<UpdateManifestValidationException>(
             () => UpdateCheckService.ParseManifest(CreateManifestWithInteger(field, value)));
 
         Assert.IsNull(failure.InnerException);

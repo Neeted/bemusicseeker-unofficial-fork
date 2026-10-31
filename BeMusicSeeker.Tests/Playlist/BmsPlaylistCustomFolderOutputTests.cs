@@ -29,7 +29,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsPlaylistCustomFolderOutputTests
 {
     /// <summary>負小数のfloor・負整数・0・正値・未定義を実COMMANDと保存DBで選曲し、通常/RANDOMの集合とASCII名を地域によらず保ちます。明示再出力は旧不良本文も修復します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("sv-SE")]
     [DataRow("ar-SA")]
     public void ReOutputCustomFolderAndCommitToDB_LevelBucketsUseInvariantSqlAndRepairOldOutput(string cultureName)
@@ -103,7 +103,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     /// 通常・ROOT・追加通常の非空宛先へプロパティ保存で移行し、実列挙の更新時刻がある旧本文も現在の表定義へ置換します。
     /// 実本文と開き直したDBの選曲を照合し、DBだけが新しくなる退行と管理範囲外の削除を検出します。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("normal")]
     [DataRow("root")]
     [DataRow("additional")]
@@ -200,7 +200,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     }
 
     /// <summary>既存DBの未登録名は通常出力だけを止めて対象名を知らせ、正常な兄弟表とROOT出力を継続します。プロパティの未変更保存でも名を保ち、通常先の再選択で解消します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task UnregisteredOutputBase_PreservesNameAndStopsOnlyNormalOutputUntilReselected(bool useSummaryFlags)
@@ -291,7 +291,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     }
 
     /// <summary>実保存したFile/Folder方式の所属を局所出力と全体同期の実SQLで選曲し、Shift_JISで同化する한글/??と日本語・単引用符・接頭辞を区別します。準備後に本文だけを同mtimeの旧条件・別条件・空へ変えても、DBが確定定義を使い物理bytesを修復しないことを保証します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // Fileは指定hashだけ、Folderは同じsong.folderの兄弟も選曲します。各本文改変は生成本文の再parseへの退行を識別します。
     [DataRow(LR2SongDBExtended.playlist.EntryUnitType.File, 0)]
     [DataRow(LR2SongDBExtended.playlist.EntryUnitType.File, 1)]
@@ -551,13 +551,13 @@ public sealed class BmsPlaylistCustomFolderOutputTests
 
             Assert.AreSame(
                 expectedFailure,
-                Assert.ThrowsException<InvalidOperationException>(() => playlist.ReOutputCustomFolder(table)));
+                Assert.ThrowsExactly<InvalidOperationException>(() => playlist.ReOutputCustomFolder(table)));
 
             using (PlaylistOperationNotificationOwner.OperationNotificationSession session = playlist.OperationNotificationOwner.BeginSession())
             {
                 Assert.AreSame(
                     expectedFailure,
-                    Assert.ThrowsException<InvalidOperationException>(() => playlist.ReOutputCustomFolder(table)));
+                    Assert.ThrowsExactly<InvalidOperationException>(() => playlist.ReOutputCustomFolder(table)));
                 PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = session.TakeReceipt();
                 Assert.AreEqual(1, receipt.Notifications.Count);
                 Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, receipt.Notifications[0].Severity);
@@ -1003,7 +1003,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     /// migration/config行の待合せは空の通知結果でも到達する任意の購読処理、bmt行は必要なBMT出力を保持します。
     /// 購読処理の故障を実出力・保存の失敗へ加えず、下位移行の管理領域・モード網羅は既存移行テスト、画面の所有と表示はWPF代表へ分担します。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     // DB=B確定後、migrationは新先Bのディレクトリ生成、configは登録保存、bmtは台帳保存を失敗させる。bmt行だけ追加編集Cを行う。
     [DataRow("migration", false)]
     [DataRow("config", false)]
@@ -1106,9 +1106,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             }
             if (failurePoint == "bmt")
             {
-                await Assert.ThrowsExceptionAsync<PlaylistMutationPostCommitException>(async () => await dialog.SaveAndApplyAsync());
+                await Assert.ThrowsExactlyAsync<PlaylistMutationPostCommitException>(async () => await dialog.SaveAndApplyAsync());
             }
-            else { await Assert.ThrowsExceptionAsync<IOException>(async () => await dialog.SaveAndApplyAsync()); }
+            else { await Assert.ThrowsExactlyAsync<IOException>(async () => await dialog.SaveAndApplyAsync()); }
             using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual("B", db.Table<BMSTable>().Single(row => row.playlist_id == table.playlist_id).Output_dir);
@@ -1137,9 +1137,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             release.Set();
             if (failurePoint == "bmt")
             {
-                await Assert.ThrowsExceptionAsync<PlaylistMutationPostCommitException>(async () => await saving);
+                await Assert.ThrowsExactlyAsync<PlaylistMutationPostCommitException>(async () => await saving);
             }
-            else { await Assert.ThrowsExceptionAsync<IOException>(async () => await saving); }
+            else { await Assert.ThrowsExactlyAsync<IOException>(async () => await saving); }
             Assert.AreEqual(editAgain ? "C" : "B", dialog.output_dir);
             blocker?.Dispose();
             blocker = null;
@@ -1254,7 +1254,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 symbol = "NEW"
             };
 
-            InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            InvalidOperationException failure = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 async () => await dialog.SaveAndApplyAsync());
 
             Assert.AreSame(expectedFailure, failure);
@@ -1354,7 +1354,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 compat_prefix = "★"
             };
 
-            InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            InvalidOperationException failure = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 async () => await dialog.SaveAndApplyAsync());
 
             Assert.AreEqual("test remap presentation failure", failure.Message);
@@ -1445,7 +1445,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 compat_prefix = "★"
             };
 
-            InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            InvalidOperationException failure = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 async () => await dialog.SaveAndApplyAsync());
 
             Assert.AreEqual("test prefix rewrite notification failure", failure.Message);
@@ -1534,11 +1534,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 compat_prefix = "★"
             };
 
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 async () => await dialog.SaveAndApplyAsync());
             table.symbol = "CONCURRENT";
 
-            InvalidOperationException stale = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            InvalidOperationException stale = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 async () => await dialog.SaveAndApplyAsync());
 
             StringAssert.Contains(stale.Message, "changed after editing began");
@@ -1649,7 +1649,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
                 ?? throw new AssertFailedException("Playlist edit session was not created.");
             dialog = new PlaylistPropertyDialogViewModel(service, session);
-            Assert.ThrowsException<IOException>(() => dialog.is_external_sync = true);
+            Assert.ThrowsExactly<IOException>(() => dialog.is_external_sync = true);
             Assert.IsFalse(dialog.is_external_sync);
             Assert.IsFalse(table.is_external_sync);
             failConfirmation = false;
@@ -1751,7 +1751,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             dialog.is_external_sync = false;
             dialog.Header_url = new Uri(failedHeader);
             dialog.is_external_sync = true;
-            await Assert.ThrowsExceptionAsync<ArgumentException>(() => dialog.SaveAndApplyAsync());
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => dialog.SaveAndApplyAsync());
             Assert.IsNotNull(reportedFailure);
             Assert.IsInstanceOfType<ArgumentException>(reportedFailure.Exception);
             Assert.AreEqual("Saved", symbolAtFailure);
@@ -3652,7 +3652,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     }
 
     /// <summary>旧保存値の単一名化で衝突する場合、単独・一括出力、出力削除、表削除、検索root準備を副作用前に拒否し、正本と旧ファイル・DB行を保ちます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("single")]
     [DataRow("bulk")]
     [DataRow("remove")]
@@ -3730,17 +3730,17 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             parentTable.PropertyChanged += (_, _) => notices++;
             switch (operation)
             {
-                case "single": Assert.ThrowsException<InvalidOperationException>(() => playlist.ReOutputCustomFolderAndCommitToDB(parentTable)); break;
-                case "bulk": Assert.ThrowsException<InvalidOperationException>(() => playlist.ReOutputCustomFoldersAndCommitHeadersToDB([parentTable, childTable], "invalid_saved_layout")); break;
-                case "remove": Assert.ThrowsException<InvalidOperationException>(() => playlist.RemoveCustomFolder(parentTable)); break;
-                case "roots": Assert.ThrowsException<InvalidOperationException>(() => playlist.PrepareCustomFolderOutputSearchRoots(outputBaseDir, [], CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings))); break;
+                case "single": Assert.ThrowsExactly<InvalidOperationException>(() => playlist.ReOutputCustomFolderAndCommitToDB(parentTable)); break;
+                case "bulk": Assert.ThrowsExactly<InvalidOperationException>(() => playlist.ReOutputCustomFoldersAndCommitHeadersToDB([parentTable, childTable], "invalid_saved_layout")); break;
+                case "remove": Assert.ThrowsExactly<InvalidOperationException>(() => playlist.RemoveCustomFolder(parentTable)); break;
+                case "roots": Assert.ThrowsExactly<InvalidOperationException>(() => playlist.PrepareCustomFolderOutputSearchRoots(outputBaseDir, [], CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings))); break;
                 case "table":
                     var dialogs = new BlockingConfirmationDialogService();
                     dialogs.ReleaseConfirmation();
                     var removal = new PlaylistRemovalWorkflowOwner(dialogs, () => playlist, () => null!, () => null!,
                         () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings));
                     removal.OperationNotificationPresentationRequested += (_, _) => { };
-                    await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => removal.RemoveSummaryRowsAsync([new() { TableRef = parentTable }]));
+                    await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => removal.RemoveSummaryRowsAsync([new() { TableRef = parentTable }]));
                     break;
             }
             Assert.AreEqual(0, notices);

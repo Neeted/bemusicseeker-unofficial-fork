@@ -113,7 +113,7 @@ public sealed class SettingsControlPresentationTests
     }
 
     /// <summary>通常版と省スペース版の非編集の全幅と編集型の入力部・矢印を hit-test し、文字編集と幅変更を跨いで入力先・popup 幅追従が失われる誤りを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes(bool compact)

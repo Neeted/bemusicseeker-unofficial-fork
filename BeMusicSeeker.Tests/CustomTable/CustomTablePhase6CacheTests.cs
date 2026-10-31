@@ -152,7 +152,7 @@ public sealed class CustomTablePhase6CacheTests
     }
 
     /// <summary>実見出しresizeで40→41→広幅→40を描画し、URL値・tooltip・hit/actionとカーソルが追随することを確認します。未編集中は同じ列と他列の保持値を保ち、未表示行を追加評価しません。設定通知あり/直接Columnsの両入口を使います。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [DoNotParallelize]
@@ -348,7 +348,7 @@ public sealed class CustomTablePhase6CacheTests
     }
 
     /// <summary>非表示中の無通知変更と同じ行参照を含むソース交換から復帰しても、最新の文字・警告を表示することを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void CustomTableView_ShownAfterHiddenChangeUsesLatestValues(bool swapSource)
@@ -400,7 +400,7 @@ public sealed class CustomTablePhase6CacheTests
 
     /// <summary>範囲の重なりでは値を保持し、最後の参照の完全離脱後は再進入で最新の文字・警告へ更新することを確認します。</summary>
     /// <remarks>通知対応/非対応と0/5位置の重複参照を確認します。スクロール入口が実際の可視状態で購読寿命を判断するため実Windowを使い、表示と閉鎖は共通scopeへ任せます。可視になる前の値は読みません。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DoNotParallelize]
     [DataRow(false, false)]
     [DataRow(true, false)]
@@ -877,7 +877,7 @@ public sealed class CustomTablePhase6CacheTests
     }
 
     /// <summary>候補の印が長い導入先の省略後も、既定行高のセル内に描画されることを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0, false)]
     [DataRow(0, true)]
     [DataRow(1, false)]

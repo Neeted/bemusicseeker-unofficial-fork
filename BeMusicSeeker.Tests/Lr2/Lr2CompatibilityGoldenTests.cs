@@ -13,7 +13,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class Lr2CompatibilityGoldenTests
 {
     /// <summary>末尾区切りを一つにし、大小文字・日本語・既知相対表記・空親の意味を独立固定値で維持します。参照計算も固定値で照合します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(@"D:\", "ac06268")]
     [DataRow(@"D:\\", "ac06268")]
     [DataRow(@"C:\Library", "d04e1bd9")]
@@ -59,7 +59,7 @@ public sealed class Lr2CompatibilityGoldenTests
     /// <summary>
     /// 通常階層・ドライブ直下・UNC・日本語パスのフォルダと親CRCを独立値で照合し、パス別の互換誤りを検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(@"D:\BMS\Pack\Song\chart.bms", "f002e300", "a777506c")]
     [DataRow(@"D:\root.bms", "ac06268", "57d700a7")]
     [DataRow(@"\\server\share\Pack\chart.bms", "34521cee", "fcdbcd31")]

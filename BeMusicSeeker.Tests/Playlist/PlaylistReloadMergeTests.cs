@@ -13,7 +13,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class PlaylistReloadMergeTests
 {
     /// <summary>空行・全絶対URL行で本文hashが同じでもdata基準差を保存し、path/queryのcaseを捨てる比較と日時・entryの過剰保存を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("https://example.test/old/rows.json", "https://example.test/new/rows.json", false)]
     [DataRow("https://example.test/old/rows.json", "https://example.test/new/rows.json", true)]
     [DataRow("https://example.test/rows/A.json", "https://example.test/rows/a.json", true)]
@@ -45,7 +45,7 @@ public sealed class PlaylistReloadMergeTests
     }
 
     /// <summary>相対/絶対表記、scheme/host、fragmentとfile/UNCの同参照は保存を増やさず、HTTP専用化や文字列表現の比較への退行を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("https://example.test/defs/header.json", "rows.json", "https://example.test/defs/rows.json")]
     [DataRow("https://example.test/defs/header.json", "https://EXAMPLE.test/rows.json#before", "HTTPS://example.test/rows.json#after")]
     [DataRow("file:///C:/tables/defs/header.json", "../rows.json", "file:///C:/tables/rows.json")]
@@ -68,7 +68,7 @@ public sealed class PlaylistReloadMergeTests
     }
 
     /// <summary>絶対dataが同じ場合の無関係なpage/header差と、data文脈なしの手動・内蔵表は従来の保存判断へ委ね、URI三項全体の過剰比較を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("https://example.test/page", "https://elsewhere.test/page", true)]
     [DataRow(null, null, false)]
     [DataRow("bmseeker://recommendation/before", "bmseeker://recommendation/after", false)]
@@ -113,7 +113,7 @@ public sealed class PlaylistReloadMergeTests
     }
 
     /// <summary>表示名だけ・取得元名だけ・どちらも不変の条件でヘッダー保存を選び、譜面保存と更新日時の再採番を行わない。名前変更の保存漏れと日時の誤更新を検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 表示名だけの変更、取得元名だけの変更、両方不変でヘッダー保存判断を分ける。
     [DataRow(true, false)]
     [DataRow(false, true)]

@@ -262,7 +262,7 @@ public sealed class CatalogMutationOwnerTests
             var facts = new LibraryCatalogMutationFacts([], [new LibraryChartPathChange
             { Chart = selected, OldPath = oldPath, NewPath = newPath }], []);
 
-            Assert.ThrowsException<InvalidCastException>(() => owner.ApplyCatalogMutation(facts, () => durableNotifications++));
+            Assert.ThrowsExactly<InvalidCastException>(() => owner.ApplyCatalogMutation(facts, () => durableNotifications++));
 
             Assert.AreEqual(0, durableNotifications);
             Assert.AreEqual(version, collection.CatalogRevision);
@@ -516,7 +516,7 @@ public sealed class CatalogMutationOwnerTests
             FolderInfoFilePaths = [folderInfoPath],
             DirectoryLastWriteTimeUtcResolver = _ => new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         };
-        SQLite.SQLiteException failure = Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyLr2NormalFolderSync(request));
+        SQLite.SQLiteException failure = Assert.ThrowsExactly<SQLite.SQLiteException>(() => owner.ApplyLr2NormalFolderSync(request));
         Assert.AreEqual(SQLite.SQLite3.Result.Constraint, failure.Result);
         StringAssert.Contains(failure.Message, "forced folder rollback");
         Assert.AreEqual(snapshot.CatalogRevision, rows.CatalogRevision);
@@ -587,7 +587,7 @@ public sealed class CatalogMutationOwnerTests
             };
             LibraryCatalogMutationFacts catalogFacts = new(removeRequests, pathChanges, []);
 
-            Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyCatalogMutation(catalogFacts));
+            Assert.ThrowsExactly<SQLite.SQLiteException>(() => owner.ApplyCatalogMutation(catalogFacts));
 
             Assert.AreEqual(oldPath, movedBms.Path);
             Assert.AreEqual(initialRows.CatalogRevision, storageRowsOwner.CatalogRevision);
@@ -1248,7 +1248,7 @@ public sealed class CatalogMutationOwnerTests
     /// <summary>
     /// 全再読込みでtokenを再発行するときだけ新版へ進み、明示token継承の同値入力と識別実変更を区別する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ApplyStorageRowsReplacement_DistinguishesTokenInheritanceFromReload(bool inheritToken)
@@ -1394,7 +1394,7 @@ public sealed class CatalogMutationOwnerTests
     /// <summary>
     /// 導入済み追加では大小文字・別名・ドット別表記の完全一致keyを畳まず、未指定のBMS利用者列とbmson行を保存する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("CHART")]
     [DataRow("other")]
     [DataRow(".\\chart")]
@@ -1452,7 +1452,7 @@ public sealed class CatalogMutationOwnerTests
     }
 
     /// <summary>導入先の識別・digestの変更を保存前に拒否し、無関係なTitle・healthの確定だけなら導入を続行する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("title")]
     [DataRow("health")]
     [DataRow("target_replaced")]
@@ -1501,7 +1501,7 @@ public sealed class CatalogMutationOwnerTests
             else
             {
                 bool validationPassed = false;
-                Assert.ThrowsException<InvalidOperationException>(() => owner.ApplyInstalledTargetUpsert(request, () => validationPassed = true));
+                Assert.ThrowsExactly<InvalidOperationException>(() => owner.ApplyInstalledTargetUpsert(request, () => validationPassed = true));
                 Assert.IsFalse(validationPassed);
                 Assert.AreEqual(beforeApply, catalog.CatalogRevision);
                 Assert.AreNotEqual(replacement.Md5, catalog.BmsRows.Single(chart => chart.Path == replacement.Path).Md5);
@@ -1529,7 +1529,7 @@ public sealed class CatalogMutationOwnerTests
             var owner = new CatalogMutationOwner(storageRowsOwner, new BmsLibraryDbGateway(tempRootPath));
 
             CatalogInstalledTargetUpsertRequest request = owner.CreateInstalledTargetUpsertRequest([replacement], []);
-            Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyInstalledTargetUpsert(request));
+            Assert.ThrowsExactly<SQLite.SQLiteException>(() => owner.ApplyInstalledTargetUpsert(request));
 
             Assert.AreEqual(initialRows.CatalogRevision, storageRowsOwner.CatalogRevision);
             Assert.AreSame(original, storageRowsOwner.BmsRows.Single());
@@ -1688,7 +1688,7 @@ public sealed class CatalogMutationOwnerTests
     /// 後続UPDATE失敗または実Commit Busyで全件をrollbackし、DB・所有現在値・新規表示投影を旧値に保つ。次の明示保存へ失敗値を混ぜず、元例外と失敗factsを一度返す。
     /// </summary>
     /// <remarks>実DBの確定・読戻しと所有現在値を接続し、保存の成功前に公開する誤りや一部だけのrollbackを確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)] // 先行UPDATE後に後続行のtriggerで失敗します。
     [DataRow(true)] // UPDATEは通り、別readerの共有lockで実Commitを失敗させます。
     public void ApplyPlaylistLevelRows_RethrowsAndPublishesFailureFact(bool failCommit)
@@ -1731,7 +1731,7 @@ public sealed class CatalogMutationOwnerTests
                 }
                 try
                 {
-                    SQLite.SQLiteException failure = Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyPlaylistLevelRows(
+                    SQLite.SQLiteException failure = Assert.ThrowsExactly<SQLite.SQLiteException>(() => owner.ApplyPlaylistLevelRows(
                         songs.Select((song, index) => song with { Level = 20 + index, LevelText = (20 + index).ToString() })));
                     if (failCommit) { Assert.AreEqual(SQLite.SQLite3.Result.Busy, failure.Result); }
                 }
@@ -1851,7 +1851,7 @@ public sealed class CatalogMutationOwnerTests
                     [new ChartDigestBackfillEntry(stored.Md5, chartInfo.sha256)],
                     [chartInfo]));
 
-            Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyChartInfoStorageWrite(request));
+            Assert.ThrowsExactly<SQLite.SQLiteException>(() => owner.ApplyChartInfoStorageWrite(request));
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.song song = verify.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?;", stored.Path).Single();
@@ -1914,7 +1914,7 @@ public sealed class CatalogMutationOwnerTests
                     [chartInfo]),
                 [Lr2ChartInfoSongProjection.Create(stored.Path, stored.Md5, chartInfo)]);
 
-            Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyChartInfoStorageWrite(request));
+            Assert.ThrowsExactly<SQLite.SQLiteException>(() => owner.ApplyChartInfoStorageWrite(request));
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.song song = verify.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?;", stored.Path).Single();

@@ -21,7 +21,7 @@ public sealed class PlaylistSummaryOwnedHashTests
             using var cancellation = new CancellationTokenSource();
             cancellation.Cancel();
 
-            Assert.ThrowsException<OperationCanceledException>(() =>
+            Assert.ThrowsExactly<OperationCanceledException>(() =>
                 library.GetOwnedChartHashIndexSnapshot(cancellation.Token));
         });
     }

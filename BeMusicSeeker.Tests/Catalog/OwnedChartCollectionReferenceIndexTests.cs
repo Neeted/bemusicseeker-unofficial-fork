@@ -437,13 +437,13 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         ChartFile pathlessBmson = CreateBmsonSong(null, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         ChartFile md5lessBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "md5less.bmson"), null);
 
-        Assert.ThrowsException<InvalidOperationException>(() =>
+        Assert.ThrowsExactly<InvalidOperationException>(() =>
             ChartStorageTargetSet.FromCharts([(pathlessBms)]));
-        Assert.ThrowsException<InvalidOperationException>(() =>
+        Assert.ThrowsExactly<InvalidOperationException>(() =>
             ChartStorageTargetSet.FromCharts([(md5lessBms)]));
-        Assert.ThrowsException<InvalidOperationException>(() =>
+        Assert.ThrowsExactly<InvalidOperationException>(() =>
             ChartStorageTargetSet.FromCharts([(pathlessBmson)]));
-        Assert.ThrowsException<InvalidOperationException>(() =>
+        Assert.ThrowsExactly<InvalidOperationException>(() =>
             ChartStorageTargetSet.FromCharts([(md5lessBmson)]));
     }
 
@@ -810,7 +810,7 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
         bmsFile = bmsFile with { Path = null };
 
-        Assert.ThrowsException<InvalidOperationException>(() => state.ApplyPathChanges([
+        Assert.ThrowsExactly<InvalidOperationException>(() => state.ApplyPathChanges([
             new LibraryChartPathChange
             {
                 Chart = (bmsFile),
@@ -837,7 +837,7 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
         movedBms = movedBms with { Path = existingPath };
 
-        Assert.ThrowsException<InvalidOperationException>(() => state.ApplyPathChanges([
+        Assert.ThrowsExactly<InvalidOperationException>(() => state.ApplyPathChanges([
             new LibraryChartPathChange
             {
                 Chart = (movedBms),
@@ -926,14 +926,14 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         ChartFile crossKindBmson = CreateBmsonSong(existingBmsPath, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
         ChartFile crossKindBms = CreateFile("ffffffffffffffffffffffffffffffff", existingBmsonPath);
 
-        Assert.ThrowsException<InvalidOperationException>(() => state.UpsertCharts(ChartTestValues.Combine([pathlessBms], [])));
-        Assert.ThrowsException<InvalidOperationException>(() => state.UpsertCharts(ChartTestValues.Combine([md5lessBms], [])));
-        Assert.ThrowsException<InvalidOperationException>(() => state.UpsertCharts(ChartTestValues.Combine([], [pathlessBmson])));
-        Assert.ThrowsException<InvalidOperationException>(() => state.UpsertCharts(ChartTestValues.Combine([], [md5lessBmson])));
-        Assert.ThrowsException<InvalidOperationException>(() => state.UpsertCharts(ChartTestValues.Combine([duplicateBms, samePathBms], [])));
+        Assert.ThrowsExactly<InvalidOperationException>(() => state.UpsertCharts(ChartTestValues.Combine([pathlessBms], [])));
+        Assert.ThrowsExactly<InvalidOperationException>(() => state.UpsertCharts(ChartTestValues.Combine([md5lessBms], [])));
+        Assert.ThrowsExactly<InvalidOperationException>(() => state.UpsertCharts(ChartTestValues.Combine([], [pathlessBmson])));
+        Assert.ThrowsExactly<InvalidOperationException>(() => state.UpsertCharts(ChartTestValues.Combine([], [md5lessBmson])));
+        Assert.ThrowsExactly<InvalidOperationException>(() => state.UpsertCharts(ChartTestValues.Combine([duplicateBms, samePathBms], [])));
         state.UpsertCharts(ChartTestValues.Combine([caseOnlyPathBms], []));
-        Assert.ThrowsException<InvalidOperationException>(() => state.UpsertCharts(ChartTestValues.Combine([], [crossKindBmson])));
-        Assert.ThrowsException<InvalidOperationException>(() => state.UpsertCharts(ChartTestValues.Combine([crossKindBms], [])));
+        Assert.ThrowsExactly<InvalidOperationException>(() => state.UpsertCharts(ChartTestValues.Combine([], [crossKindBmson])));
+        Assert.ThrowsExactly<InvalidOperationException>(() => state.UpsertCharts(ChartTestValues.Combine([crossKindBms], [])));
     }
 
     /// <summary>

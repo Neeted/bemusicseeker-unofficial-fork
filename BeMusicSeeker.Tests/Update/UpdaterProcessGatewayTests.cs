@@ -115,7 +115,7 @@ public sealed class UpdaterProcessGatewayTests
 
             if (keepUnpublishedUntilDeadline)
             {
-                UpdaterLaunchFailureException failure = await Assert.ThrowsExceptionAsync<UpdaterLaunchFailureException>(async () =>
+                UpdaterLaunchFailureException failure = await Assert.ThrowsExactlyAsync<UpdaterLaunchFailureException>(async () =>
                 {
                     receipt = await launchTask;
                 });
@@ -232,7 +232,7 @@ public sealed class UpdaterProcessGatewayTests
     /// <summary>
     /// 異文化でも空白付きパスと固定整数のPIDを引用して渡し、作業ディレクトリ・非表示起動と引数の分割を保つ。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DoNotParallelize]
     [DataRow("ja-JP")]
     [DataRow("en-US")]
@@ -330,7 +330,7 @@ public sealed class UpdaterProcessGatewayTests
 
         try
         {
-            UpdaterLaunchFailureException exception = Assert.ThrowsException<UpdaterLaunchFailureException>(
+            UpdaterLaunchFailureException exception = Assert.ThrowsExactly<UpdaterLaunchFailureException>(
                 () => gateway.Prepare(request).Start());
             StringAssert.Contains(exception.Message, "ready handshake");
             Assert.IsInstanceOfType(exception.InnerException, typeof(InvalidOperationException));
@@ -413,7 +413,7 @@ public sealed class UpdaterProcessGatewayTests
             UpdaterLaunchReceipt receipt = gateway.Prepare(request).Start();
             string[] filesBeforePublication = Directory.GetFiles(root);
             UpdaterLaunchFailureException exception =
-                Assert.ThrowsException<UpdaterLaunchFailureException>(receipt.Abort);
+                Assert.ThrowsExactly<UpdaterLaunchFailureException>(receipt.Abort);
             StringAssert.Contains(exception.Message, "cancel handshake");
             Assert.IsNotNull(exception.InnerException, "The original decision publication failure must remain visible.");
             CollectionAssert.AreEquivalent(filesBeforePublication, Directory.GetFiles(root));
@@ -550,7 +550,7 @@ public sealed class UpdaterProcessGatewayTests
                 readyFilePath, decisionPath, Path.Combine(root, "BeMusicSeeker.exe"));
             UpdaterLaunchReceipt receipt = gateway.Prepare(request).Start();
             string[] filesBeforePublication = Directory.GetFiles(root);
-            AggregateException exception = Assert.ThrowsException<AggregateException>(() => receipt.Proceed());
+            AggregateException exception = Assert.ThrowsExactly<AggregateException>(() => receipt.Proceed());
             Assert.AreEqual(2, exception.InnerExceptions.Count);
             Assert.IsTrue(exception.InnerExceptions.Any(failure => failure.Message.Contains("proceed handshake", StringComparison.Ordinal)));
             Assert.IsTrue(exception.InnerExceptions.Any(failure => failure.Message.Contains("cancel handshake", StringComparison.Ordinal)));
@@ -639,7 +639,7 @@ public sealed class UpdaterProcessGatewayTests
             }
         });
 
-        Assert.ThrowsException<IOException>(receipt.Abort);
+        Assert.ThrowsExactly<IOException>(receipt.Abort);
         receipt.Abort();
 
         Assert.AreEqual(2, abortAttempts);
@@ -774,7 +774,7 @@ public sealed class UpdaterProcessGatewayTests
                 },
                 recoveryTimeout: TimeSpan.FromMilliseconds(50));
             UpdaterLaunchFailureException exception =
-                Assert.ThrowsException<UpdaterLaunchFailureException>(() =>
+                Assert.ThrowsExactly<UpdaterLaunchFailureException>(() =>
                     gateway.RecoverIncompleteTransaction(executablePath, root));
             StringAssert.Contains(exception.Message, "did not finish");
             // PIDの再取得失敗ではなく、所有した実processのExitと両EOFで期限超過後の停止を確認する。

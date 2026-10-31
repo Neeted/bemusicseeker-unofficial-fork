@@ -299,7 +299,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
     }
 
     /// <summary>保存範囲の直前・直後の旧クリア値は診断付きで履歴を利用不可にする。不正整数のカテゴリへの転用を検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 保存範囲0〜10の下側と上側を個別に確認する。
     [DataRow(-1)]
     [DataRow(11)]
@@ -386,7 +386,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
     }
 
     /// <summary>実モデル取得で履歴欠落・正常0件・playerだけ利用不可を区別し、ランプの最新/過去でも取得時診断を維持します。正常履歴はmode0だけを使い元DBを書き換えません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("missing")]
     [DataRow("empty")]
     [DataRow("rows-without-player")]
@@ -600,7 +600,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
     }
 
     /// <summary>LR2履歴トリガーの欠損と定義不一致は履歴を利用不可にし、読取りでDBを修復しない。信頼できない履歴の受理や書込みを検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 欠損と、同じ名前で定義が異なるトリガーの両方は履歴の信頼性を失わせる。
     [DataRow("missing")]
     [DataRow("mismatched")]

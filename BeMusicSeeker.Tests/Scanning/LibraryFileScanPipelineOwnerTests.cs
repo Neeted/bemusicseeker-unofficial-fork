@@ -117,7 +117,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             var injectedException = new InvalidOperationException("injected post-lease observer failure");
             int initialCatalogRevision = callbacks.CatalogOwnedCollectionOwner.CatalogRevision;
 
-            InvalidOperationException thrown = Assert.ThrowsException<InvalidOperationException>(
+            InvalidOperationException thrown = Assert.ThrowsExactly<InvalidOperationException>(
                 () => owner.ApplyFileScanDiff(
                     new BmsLibraryOptionsSnapshot
                     {
@@ -228,7 +228,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
     /// <summary>未採用scanの先行Task失敗を警告し、走査Taskの終端後に保存済み目録を保って次の明示要求を受理します。</summary>
     /// <remarks>先行Task fault→Resolveの旧null再走査を識別するため既存進捗口を代替に使います。通知耐性は保証せず、scanner取得例外は上位の新規DB起動ケースが保証します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)] // bridge不備の不完全結果を非採用にします。
     [DataRow(true)] // 失敗した実先行Taskも再走査せず非採用にします。
     public async Task ApplyActiveFileScan_IncompletePrefetchWarnsWithoutApplyingBeforeNextRequest(bool prefetchThrows)
@@ -353,7 +353,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
     /// 元SQLite原因と先行確定したDB・所持集合を保ち、失敗要求の目録・譜面情報・準備surfaceを公開しません。
     /// </summary>
     /// <remarks>実走査・保存とLR2準備を接続し、専用FSを列挙する依存だけで準備を保持します。falseは準備成功、trueは解放後の準備故障です。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ApplyActiveFileScan_CommitFailureJoinsLr2PreparationBeforeReleasingRequest(bool failPreparationAfterRelease)
@@ -719,7 +719,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
         var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
         LibraryFileScanPipelineOwner owner = CreateOwner(callbacks);
         long firstGeneration = owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_first");
-        Assert.ThrowsException<InvalidOperationException>(
+        Assert.ThrowsExactly<InvalidOperationException>(
             () => owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_overlap"));
 
         Lr2FolderFileDiffPreparationResult scan = owner.ApplyActiveFileScan(
@@ -744,7 +744,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
         owner.AbortActiveFileScan(abortedGeneration);
         long nextGeneration = owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_after_abort");
-        Assert.ThrowsException<InvalidOperationException>(
+        Assert.ThrowsExactly<InvalidOperationException>(
             () => owner.ApplyActiveFileScan(
                 abortedGeneration,
                 trackLibraryFileCheckProgress: true,
@@ -949,7 +949,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
     }
 
     /// <summary>Fastの事前確認とEverythingの実返却表記を登録側が採用し、raw面・resource indexを保持したまま同じOptionsでDB直前に保存します。取消・不完全・root消失・設定失敗は保存/公開せず、登録成立後のDB失敗は巻き戻しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("fast")]
     [DataRow("empty")]
     [DataRow("empty-protected")]

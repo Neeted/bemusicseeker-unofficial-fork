@@ -358,7 +358,7 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     /// <summary>各検索入口で実在する表示候補の空文字とnullを空欄として評価し、空白・文字ありと区別します。候補を除外したり、nullをそのままRegexへ渡す誤りを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(null, true)]
     [DataRow("", true)]
     [DataRow(" ", false)]
@@ -430,7 +430,7 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     /// <summary>単一バックスラッシュの文字クラスと補集合を通常一覧の表示行・source行で評価し、式全体の大小文字変換や二重escapeを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(@"title:re:^\d$", "1", "A")]
     [DataRow(@"title:re:^\D$", "A", "1")]
     [DataRow(@"title:re:^A\sB$", "A B", "AxB")]
@@ -582,7 +582,7 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     /// <summary>通常一覧の二入口と表詳細でRATEの数値・正規表現は0～1のinvariant文字列を使い、百分率と文化圏依存の小数カンマを受け付けません。表示百分率は列表示テストへ分担します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("en-US")]
     [DataRow("de-DE")]
     public void RateSearch_NumericAndRegexUseInvariantFractionAcrossRowSources(string cultureName)
@@ -620,7 +620,7 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     /// <summary>共通スコアのBP欠損と実績0・正数を3検索入口で同じように判定し、欠損の0扱いや特定の行投影だけ古い値を読む誤りを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(null)]
     [DataRow(0)]
     [DataRow(7)]
@@ -807,7 +807,7 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     /// <summary>両取得元のDATE正規表現を実列表示の秒まで評価し、同日内の時刻・秒差と否定を区別します。旧ハイフン・スラッシュ日付候補も維持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void MatchesPlayHistoryRow_DateRegexIncludesDisplayedTimestamp(bool beatoraja)

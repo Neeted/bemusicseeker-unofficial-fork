@@ -141,7 +141,7 @@ public sealed class BassAudioEffectTests
         }
 
         Assert.AreEqual(IntPtr.Zero, mix.ChannelsPointer);
-        Assert.ThrowsException<ObjectDisposedException>(() =>
+        Assert.ThrowsExactly<ObjectDisposedException>(() =>
         {
             using NativeEffectParameterLease lease = ManagedBassEffectParameters.CreateNativeScope(mix);
             lease.Dispose();

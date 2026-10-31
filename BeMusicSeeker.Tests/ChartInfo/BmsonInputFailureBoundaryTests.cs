@@ -16,7 +16,7 @@ public sealed class BmsonInputFailureBoundaryTests
     /// 配列や任意チャンネル自体のnullは別ケースで許容を確認し、未知の通常内部故障の非恒久な非採用はsnapshot評価テストが分担します。
     /// 捕捉したメモリ不足の即時終了は、ホストへ注入せず静的確認で扱います。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("42")]
     [DataRow("{\"info\":42}")]
     [DataRow("{\"info\":\"invalid\"}")]
@@ -47,7 +47,7 @@ public sealed class BmsonInputFailureBoundaryTests
     }
 
     /// <summary>旧0.21・versionless・現代形式の省略可能な配列・チャンネルのnullを全面拒否せず、有効ノートの解析結果を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("modern")]
     [DataRow("legacy")]
     [DataRow("versionless")]
@@ -72,7 +72,7 @@ public sealed class BmsonInputFailureBoundaryTests
     }
 
     /// <summary>最大int位置のイベントを、他種イベントの枯渇を示す番兵と混同して存在しない配列を参照しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("bpm_events", "bpm", "1000000000")]
     [DataRow("stop_events", "duration", "0")]
     [DataRow("scroll_events", "rate", "1")]
@@ -89,7 +89,7 @@ public sealed class BmsonInputFailureBoundaryTests
     }
 
     /// <summary>JSON例外に包まれた内部・引数契約故障は今回だけ非採用にし、形式不正の恒久失敗行を作りません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("internal")]
     [DataRow("argument")]
     [DataRow("null")]

@@ -110,7 +110,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     /// <summary>既存の祖先抑制条件をrootと子へ適用し、子の関連性が同等のときだけroot候補を抑制する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Estimate_AbsoluteDriveRootParticipatesInAncestorSuppression(bool strongChild)
@@ -247,7 +247,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     /// <summary>源側の元件数で90%を判定し、部分列挙の下限と完全性を独立させます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(100, 89, true, false)]
     [DataRow(1000, 899, true, false)]
     [DataRow(100, 90, true, true)]
@@ -296,7 +296,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     /// <summary>通常・限定・ハッシュの同じ入力から同じ規則を渡し、候補並列・設定閾値・保持モードに左右されません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(89, false)]
     [DataRow(90, true)]
     public void Estimate_SourceAudioRuleReachesAllCandidateEntrances(int supplied, bool both)
@@ -671,7 +671,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
     /// <summary>選択済みハッシュ候補にも共通Strongを要求し、不成立・比較不能で候補と代表表示を保ったまま停止する。資源条件や曖昧設定で救済しない。</summary>
     /// <remarks>サービスの判断境界を直接動かし、入口の接続・表示とTask終端はライブラリ側の代表ケースへ分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("Song [ANOTHER]", "Artist", "Song", "Artist", true)]
     [DataRow("Song", "", "Song", "", true)]
     [DataRow("Other", "Artist", "Song", "Artist", false)]
@@ -1556,7 +1556,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
     /// <summary>形式ごとの原題・作者入力を対象プロファイルへ渡し、BMSの合成作者採用とbmsonのRawArtist採用・空作者補完を検出する。</summary>
     /// <remarks>BMSは未知のSUBARTISTを実解析し、bmsonはchart役割を含むsubartistsを実解析した後にRawArtistが異なる現在値を渡し、空作者行ではArtistを空にする。副題・譜面名付きのTitleからRawTitleを補完しない。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(true, true)]
@@ -3149,7 +3149,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     /// <summary>背景譜面16・128件に一件の削除を加え、影響したハッシュだけを更新し、全索引走査や背景件数に比例する複製を検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 背景件数を増やしても一件の削除で全索引を走査しない。
     [DataRow(16)]
     [DataRow(128)]
@@ -3617,7 +3617,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     /// <summary>有効ペア欠如・非関連を通常では表示から除き、明示保持だけが候補と分類別警告を表示します。資源の候補解決と自動設定許可を混同しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true, false)]
     [DataRow(false, false)]
     [DataRow(true, true)]
@@ -3666,7 +3666,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
     /// <summary>副題・副役割を含む実BMSを解析して対象プロファイルへ渡し、完全な単一候補をStrongとして自動適用する。</summary>
     /// <remarks>Extreme Z4のMIX終端、From Megalopolis with LoveのSliced副役割、Oath:ReturnのSUBTITLEとfeat・複合副役割を別々の実入力で再現する。候補入力の形式選択はライブラリ接続テストへ分担する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("#TITLE Extreme Z4 (Aggressive HC mix) [Enterprising]\n#ARTIST remixed. by gmtn.\n#SUBARTIST Graphic : koavenit (invert colors) obj:ugd", "Extreme Z4 (Aggressive HC mix", "remixed. by gmtn.")]
     [DataRow("#TITLE From Megalopolis with Love [Z_style]\n#ARTIST 牧野\n#SUBARTIST Sliced by И / obj: zakoPeko", "From Megalopolis with Love", "牧野")]
     [DataRow("#TITLE Oath:Return\n#SUBTITLE [Citrine]\n#ARTIST MiKaDo feat. はらもりよしな\n#SUBARTIST Guitar:裸(ﾗｵｳ)王 BGA:MiKaDo Illust&obj:JURUMA", "Oath:Return", "MiKaDo")]
@@ -3702,7 +3702,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     /// <summary>実サービスの単一候補で、Dice閾値・空作者同値・再切断禁止を強一致と自動適用の必要条件として確認する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("abcdefghijklmnopqrs", "Artist", "abcdefghijklmnopqrstuvwxyz0123456", "Artist", true)]
     [DataRow("abcdefghijklmnopqrs", "Artist", "abcdefghijklmnopqrstuvwxyz01234567", "Artist", false)]
     [DataRow("Song", "", "Song", "", true)]
@@ -3733,7 +3733,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
     /// <summary>同リソースではStrong真偽だけでメタデータ優劣を決め、完全一致・類似度・支持数やハッシュ数でStrong偽を昇格しない。</summary>
     /// <remarks>bothは先頭Aが0.88一致、後続BがTITLE完全一致・支持3件でも双方Strongとして同順位を保つ。neitherは双方不成立、mixedは少数ハッシュのStrong候補が優先する。曖昧設定とハッシュ補助も同じ結果境界で観測する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("both", false, false)]
     [DataRow("both", true, false)]
     [DataRow("both", false, true)]
@@ -4626,7 +4626,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
 
     /// <summary>単純集合R/S/CからU・M・Jを検算します。同梱重複・残りだけの補完・候補単独80%不要・一致一件を同じ評価で確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(5, 4, 4, 1)]
     [DataRow(5, 4, 0, 5)]
     [DataRow(5, 5, 0, 1)]
@@ -4664,7 +4664,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     /// <summary>全候補の分類を通常は優先し、明示保持は資源優先にします。先頭が非Strongなら下位Strongへ自動乗換えしません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, 99, 98)]
     [DataRow(false, 97, 100)]
     [DataRow(true, 99, 98)]
@@ -4690,7 +4690,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     /// <summary>リソース順位の11位・170位にだけStrongがあっても発見します。表示三件へ切る前に全候補を分類します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(11)]
     [DataRow(170)]
     public void Estimate_ExaminesStrongBeyondFormerCandidateFrontier(int strongPosition)
@@ -4725,7 +4725,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     /// <summary>各譜面へ丸め前の90/97/100%閾値を適用します。Missingのまま許可した場合も一般欠損警告を保ち、自動設定見送り警告は出しません。不正保存値は丸めず拒否します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(90, 97, true, false)]
     [DataRow(90, 90, true, false)]
     [DataRow(100, 100, true, false)]
@@ -4774,7 +4774,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     /// <summary>再導入は無関係候補を除外し、唯一Strongだけを改善と各譜面閾値で確定します。Relatedは妨げず、異順位の複数Strongと同梱による不足の隠蔽を拒否します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(false, true)]
@@ -4835,7 +4835,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     /// <summary>祖先抑制は分類後に行い、関連性の弱い子をStrong親の抑制理由にしません。同じStrongなら自身の所有条件で子へ絞ります。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0, false)]
     [DataRow(1, false)]
     [DataRow(2, false)]

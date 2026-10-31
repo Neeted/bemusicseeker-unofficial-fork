@@ -22,7 +22,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryIrServiceTests
 {
     /// <summary>順位cacheの高得点/新規は入力notesとAAA・90%を採り、低得点/同点は旧成績を保ちながらclear・順位等の別更新を続けます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("new")]
     [DataRow("higher-zero-notes")]
     [DataRow("higher-other-notes")]
@@ -78,7 +78,7 @@ public sealed class BmsLibraryIrServiceTests
     }
 
     /// <summary>両IR上書きはnotes0を拒否や別notes補完にせず、旧AAA/90をINVALID/整数率0へ更新します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void BmsScoreOverwrite_ZeroNotesClearsStaleDerivedValues(bool rankingCache)
@@ -121,7 +121,7 @@ public sealed class BmsLibraryIrServiceTests
     }
 
     /// <summary>実保存成績と取得内容が一致しlastupdateだけ異なる場合、未記録・不一致のmetadataだけを保存し、全score列と返却lastupdateを保持する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void CommitPreparedIrScoreTable_MatchingScoresUpdatesOnlyMissingOrDifferentMetadata(bool missingMetadata)
@@ -352,7 +352,7 @@ public sealed class BmsLibraryIrServiceTests
     /// <summary>
     /// 固定タブ・LF文字列の独立SHA-256を異文化でも保ち、同じ得点のFAILEDとraw clear2/ASSISTを区別する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DoNotParallelize]
     [DataRow("ja-JP")]
     [DataRow("en-US")]
@@ -705,7 +705,7 @@ public sealed class BmsLibraryIrServiceTests
     /// <summary>
     /// LR2/beatorajaの選択DBが空でもLoadedと空scoreを返し、別接続での後続テーブル作成が成功する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void LoadScoreTable_EmptySelectedDatabaseIsLoaded(bool beatoraja)
@@ -742,7 +742,7 @@ public sealed class BmsLibraryIrServiceTests
     /// <summary>
     /// LR2/beatorajaどちらも選択パス未設定ならNotConfiguredと空scoreを返し、取得失敗や架空DBへ置き換えない。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void LoadScoreTable_NoSelectedDatabaseIsNotConfigured(bool beatoraja)
@@ -904,7 +904,7 @@ public sealed class BmsLibraryIrServiceTests
     /// <summary>
     /// 複数プレイヤーXMLから対象の成績/順位と全体の平均/標準偏差を算出し、更新/捕捉時刻を区別して保持する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DoNotParallelize]
     [DataRow("ja-JP")]
     [DataRow("en-US")]
@@ -1426,7 +1426,7 @@ public sealed class BmsLibraryIrServiceTests
     /// <summary>
     /// 初回の正常変更は全score列と対象metadataを保存し、同じ取得XMLの再処理では書込み接続を開かず保存値・時刻を保持して返す。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DoNotParallelize]
     [DataRow("ja-JP")]
     [DataRow("en-US")]
@@ -1568,7 +1568,7 @@ public sealed class BmsLibraryIrServiceTests
     /// 実取得の失敗・判別不能応答は再要求せず失敗を返し、成績全列と全IDのmetadata・保存時刻・構造を保持する。
     /// 正常0件との判別条件はここへ集約し、起動試験は非採用・独立cache・次要求の接続を分担する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("fetch_failure")]
     [DataRow("null_body")]
     [DataRow("empty_body")]
@@ -1627,7 +1627,7 @@ public sealed class BmsLibraryIrServiceTests
     /// <summary>
     /// 取得取消はcaller token取消時だけCancelled、未取消ならTimedOutへ分類し、終了取消と期限失敗を混同しない。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void PrefetchIrScoreTable_ClassifiesDeadlineAndShutdownSeparately(bool shutdown)
@@ -1649,7 +1649,7 @@ public sealed class BmsLibraryIrServiceTests
     /// 既知の空scorelist応答は実取得から採用し、空DBの未記録metadataを保存でき、旧成績があれば空へ置換して対象IDの履歴だけ更新する。
     /// 自己終了・内部空白・BOM/#/XML宣言/rivalnameの代表を分担し、外枠の違いを取得失敗と混同しない。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, "<scorelist/>")]
     [DataRow(true, "<scorelist> \r\n\t</scorelist>")]
     [DataRow(true, "\uFEFF \n#\n<?xml version=\"1.0\" encoding=\"Shift_JIS\"?>\n<scorelist/>\n<rivalname>Player</rivalname>\n\uFEFF")]
@@ -1717,7 +1717,7 @@ public sealed class BmsLibraryIrServiceTests
     /// 保存hashの実体化不能は更新失敗で全保存列とmetadata・構造を保持する。
     /// 未記録metadata＋正常空取得と、metadata digest一致＋正常非空取得の両経路で空成功への変換を検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void CommitPreparedIrScoreTable_SavedScoreReadFailurePreservesDatabase(bool matchingMetadata)

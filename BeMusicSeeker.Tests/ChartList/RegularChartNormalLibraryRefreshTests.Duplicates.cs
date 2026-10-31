@@ -20,7 +20,7 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class RegularChartNormalLibraryRefreshTests
 {
     /// <summary>実重複検索後に一件だけ文字コードを確定し、空検索/新語加入/旧語離脱で表示済み・検索外入力、Title順、再選択を更新します。空検索は通知配送前の再選択も固定し、文字コード確定時の健康度更新と、音源実追加後の再調査で両形式の健康度・固有警告を確認し、固有兄弟・旧snapshot・未訪問行も維持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("", false)]
     [DataRow("日本語", false)]
     [DataRow("old", false)]

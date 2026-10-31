@@ -16,7 +16,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BMSPlayerControlTests
 {
     /// <summary>bmsonの通常／LN衝突を登録順で数え、時刻境界の前後と後退seekでもcomboを二重加算・欠落させない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("normal-ln", new long[] { 4800000 })]
     [DataRow("ln-normal", new long[] { 4800000, 9600000 })]
     [DataRow("short-long", new long[] { 4800000, 9600000 })]
@@ -40,7 +40,7 @@ public sealed class BMSPlayerControlTests
     }
 
     /// <summary>初期位置の重複lineはmeasureを進めず正位置lineを進行へ反映し、ゼロ量子化と戻りseekでも最終measureを保つ。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0, false)]
     [DataRow(1, false)]
     [DataRow(2, false)]
@@ -96,7 +96,7 @@ public sealed class BMSPlayerControlTests
 
         try
         {
-            AggregateException exception = await Assert.ThrowsExceptionAsync<AggregateException>(() => player.Start());
+            AggregateException exception = await Assert.ThrowsExactlyAsync<AggregateException>(() => player.Start());
 
             Assert.AreSame(playbackFailure, exception.InnerExceptions[0]);
             Assert.AreSame(cleanupFailure, exception.InnerExceptions[1]);
@@ -128,7 +128,7 @@ public sealed class BMSPlayerControlTests
         {
             player.PlaybackRate = float.Epsilon;
 
-            InvalidOperationException actual = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            InvalidOperationException actual = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 () => player.Start());
 
             Assert.AreSame(cleanupFailure, actual);
@@ -235,7 +235,7 @@ public sealed class BMSPlayerControlTests
             new BMSFile(WriteChart(directory)),
             preparationFailure: preparationFailure);
 
-        InvalidOperationException actual = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+        InvalidOperationException actual = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => player.Start());
 
         Assert.AreSame(preparationFailure, actual);
@@ -268,7 +268,7 @@ public sealed class BMSPlayerControlTests
         }
 
         await stop;
-        await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => playback);
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => playback);
         Assert.AreEqual(1, player.CleanupCount);
         Assert.AreEqual(PlayState.Stopped, player.PlayState);
         Assert.AreEqual(TimeSpan.Zero, player.CurrentTime);
@@ -301,7 +301,7 @@ public sealed class BMSPlayerControlTests
         await worker;
         await stop;
         scheduler.ExecuteAll();
-        await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => playback);
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => playback);
 
         Assert.AreEqual(0, player.TickCount);
         Assert.AreEqual(1, player.CleanupCount);

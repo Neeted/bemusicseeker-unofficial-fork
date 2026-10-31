@@ -210,7 +210,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
     /// <summary>パッケージ全体の削除は指定されたごみ箱方針と再帰正規化で行い、失敗したパッケージの譜面・リソース・保存行を保持する。</summary>
     /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
     // falseは完全削除、trueはごみ箱指定。どちらも失敗したパッケージの部分削除を禁止する。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void RemovePendingCharts_WholePackagesHonorRecyclePolicyAndKeepFailedPackage(bool sendToRecycleBin)
@@ -291,7 +291,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
     /// <summary>一部の譜面削除ではパッケージとリソースを残し、最後の譜面ではフォルダ全体削除の指定に応じてリソースの保持を分ける。</summary>
     /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
     // falseは最後の譜面も単体削除、trueは最後の選択時だけパッケージ全体を削除する。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void RemovePendingCharts_PartialThenLastSelectionHonorsWholePackageOption(bool deleteWholePackage)
@@ -364,7 +364,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
     /// <summary>再帰探索の有無にかかわらず独立した単一譜面パッケージをすべて選択しても、親フォルダや未選択の説明ファイルを削除しない。</summary>
     /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
     // falseは直下探索、trueは再帰探索。探索方法によって親を削除する権限を広げない。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void RemovePendingCharts_SingleFilePackagesKeepParentEvenWhenAllSelected(bool recursiveDiscovery)

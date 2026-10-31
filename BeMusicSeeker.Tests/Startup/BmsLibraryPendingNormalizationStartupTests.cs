@@ -64,7 +64,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
             publications = 0;
             using (var held = new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None))
             {
-                PendingPackageRestoreException failure = Assert.ThrowsException<PendingPackageRestoreException>(() =>
+                PendingPackageRestoreException failure = Assert.ThrowsExactly<PendingPackageRestoreException>(() =>
                     owner.ReloadInstallTableWithoutPublishing(new BmsLibraryInitializationService(), gateway, [], _ => false, out _));
                 Assert.IsInstanceOfType<IOException>(failure.InnerException);
                 Assert.AreSame(previousPending, owner.PendingPackages);
@@ -105,7 +105,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
             var existing = new ChartPackage { path = good };
             owner.ReplacePendingPackages([existing]);
             object previous = owner.PendingPackages;
-            PendingPackageRestoreException failure = Assert.ThrowsException<PendingPackageRestoreException>(() =>
+            PendingPackageRestoreException failure = Assert.ThrowsExactly<PendingPackageRestoreException>(() =>
                 owner.ReloadInstallTableWithoutPublishing(new BmsLibraryInitializationService(), gateway, [], _ => false, out _));
             Assert.IsInstanceOfType<ArgumentException>(failure.InnerException);
             Assert.AreSame(previous, owner.PendingPackages);
@@ -138,7 +138,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
             int publications = 0;
             var owner = new PackageLifecycleOwner(gateway, new TestUiScheduler(() => null), _ => publications++,
                 packages => new ObservableCollection<ChartPackage>(packages ?? []), () => { }, _ => { });
-            PendingPackageRestoreException failure = Assert.ThrowsException<PendingPackageRestoreException>(() =>
+            PendingPackageRestoreException failure = Assert.ThrowsExactly<PendingPackageRestoreException>(() =>
                 owner.ReloadInstallTableWithoutPublishing(new BmsLibraryInitializationService(), gateway, [], _ => false, out _));
             Exception cause = failure.InnerException ?? throw new AssertFailedException("元のDB原因がありません。");
             Assert.IsInstanceOfType<SQLite.SQLiteException>(cause);
@@ -207,7 +207,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
                 {
                     if (abortLastDelete)
                     {
-                        PendingPackageRestoreException failure = Assert.ThrowsException<PendingPackageRestoreException>(() => owner.ResetPendingPackagesWithoutPublishing(gateway));
+                        PendingPackageRestoreException failure = Assert.ThrowsExactly<PendingPackageRestoreException>(() => owner.ResetPendingPackagesWithoutPublishing(gateway));
                         Exception cause = failure.InnerException ?? throw new AssertFailedException("元のDB原因がありません。");
                         Assert.IsInstanceOfType<SQLite.SQLiteException>(cause);
                         StringAssert.Contains(cause.Message, "reset-install");
@@ -259,7 +259,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
             var owner = new PackageLifecycleOwner(gateway, new TestUiScheduler(() => null), _ => throw expected,
                 packages => new ObservableCollection<ChartPackage>(packages ?? []), () => { }, _ => { });
             owner.ReloadInstallTableWithoutPublishing(new BmsLibraryInitializationService(), gateway, [], _ => false, out Action publication);
-            InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(() => publication());
+            InvalidOperationException failure = Assert.ThrowsExactly<InvalidOperationException>(() => publication());
             Assert.AreSame(expected, failure);
             Assert.AreEqual(pending, gateway.LoadInstallPackages().Single().path);
             Assert.AreEqual(pending, owner.PendingPackages.Single().path);
@@ -364,7 +364,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
             scheduler.Release.TrySetResult();
             if (fail)
             {
-                InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => stage);
+                InvalidOperationException failure = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => stage);
                 Assert.AreSame(expected, failure);
                 Assert.IsFalse(readiness.PendingPackagesRestored);
                 Assert.IsFalse(readiness.InstallReady);

@@ -48,7 +48,7 @@ public sealed class PortableSettingsPersistenceTests
         Settings settings = OpenSettings(files.Path);
         using (File.Open(files.Path, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
-            Assert.ThrowsException<PortableSettingsException>(() => settings.Commit(
+            Assert.ThrowsExactly<PortableSettingsException>(() => settings.Commit(
                 (nameof(Settings.Lang), "fr-FR"), (nameof(Settings.PlayerMixerThreadCount), 3)));
         }
         Assert.AreEqual("en-US", settings.Lang);
@@ -77,7 +77,7 @@ public sealed class PortableSettingsPersistenceTests
     }
 
     /// <summary>異文化でdouble/floatの精度と利用者の言語・品質・確認設定・全有効thread数を実保存し、新providerでの復元、未知キーと一時ファイル回収を確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("ja-JP", "de-DE")]
     [DataRow("de-DE", "fr-FR")]
     [DataRow("th-TH", "en-US")]
@@ -183,7 +183,7 @@ public sealed class PortableSettingsPersistenceTests
     }
 
     /// <summary>不正 XML と必須構造の欠損を外部編集として置き、読込みと保存を Read 失敗にし元 bytes を既定値で上書きしないことを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("<configuration>")]
     [DataRow("<other><userSettings><BeMusicSeeker.Properties.Settings /></userSettings></other>")]
     [DataRow("<configuration />")]
@@ -195,9 +195,9 @@ public sealed class PortableSettingsPersistenceTests
         settings.Lang = "fr-FR"; // Materialize while missing, then model an external edit before Save.
         File.WriteAllText(files.Path, input);
         byte[] before = File.ReadAllBytes(files.Path);
-        PortableSettingsException read = Assert.ThrowsException<PortableSettingsException>(() => _ = OpenSettings(files.Path).Lang);
+        PortableSettingsException read = Assert.ThrowsExactly<PortableSettingsException>(() => _ = OpenSettings(files.Path).Lang);
         AssertFailure(read, files.Path, "Read");
-        PortableSettingsException save = Assert.ThrowsException<PortableSettingsException>(() => settings.Save());
+        PortableSettingsException save = Assert.ThrowsExactly<PortableSettingsException>(() => settings.Save());
         AssertFailure(save, files.Path, "Read");
         CollectionAssert.AreEqual(before, File.ReadAllBytes(files.Path));
         Assert.AreEqual(1, Directory.GetFiles(files.Directory).Length);
@@ -212,7 +212,7 @@ public sealed class PortableSettingsPersistenceTests
         byte[] before = File.ReadAllBytes(files.Path);
         Settings settings = OpenSettings(files.Path);
         settings.Lang = "invalid XML character: \u0001";
-        AssertFailure(Assert.ThrowsException<PortableSettingsException>(() => settings.Save()), files.Path, "Save");
+        AssertFailure(Assert.ThrowsExactly<PortableSettingsException>(() => settings.Save()), files.Path, "Save");
         CollectionAssert.AreEqual(before, File.ReadAllBytes(files.Path));
         Assert.AreEqual(0, Directory.GetFiles(files.Directory, "*.tmp").Length);
     }
@@ -227,7 +227,7 @@ public sealed class PortableSettingsPersistenceTests
         settings.Lang = "fr-FR";
         byte[] before = File.ReadAllBytes(files.Path);
         File.SetAttributes(files.Path, FileAttributes.ReadOnly);
-        PortableSettingsException failure = Assert.ThrowsException<PortableSettingsException>(() => settings.Save());
+        PortableSettingsException failure = Assert.ThrowsExactly<PortableSettingsException>(() => settings.Save());
         AssertFailure(failure, files.Path, "Save");
         CollectionAssert.AreEqual(before, File.ReadAllBytes(files.Path));
         Assert.AreEqual(0, Directory.GetFiles(files.Directory, "*.tmp").Length);
@@ -244,8 +244,8 @@ public sealed class PortableSettingsPersistenceTests
         byte[] before = File.ReadAllBytes(files.Path);
         using (var blocker = new FileStream(files.Path, FileMode.Open, FileAccess.Read, FileShare.None))
         {
-            AssertFailure(Assert.ThrowsException<PortableSettingsException>(() => _ = OpenSettings(files.Path).Lang), files.Path, "Read");
-            AssertFailure(Assert.ThrowsException<PortableSettingsException>(() => settings.Save()), files.Path, "Read");
+            AssertFailure(Assert.ThrowsExactly<PortableSettingsException>(() => _ = OpenSettings(files.Path).Lang), files.Path, "Read");
+            AssertFailure(Assert.ThrowsExactly<PortableSettingsException>(() => settings.Save()), files.Path, "Read");
         }
         CollectionAssert.AreEqual(before, File.ReadAllBytes(files.Path));
     }
@@ -262,14 +262,14 @@ public sealed class PortableSettingsPersistenceTests
         // 直接書込みはできるが置換できない条件にし、元ファイルを壊す実装を区別します。
         using (var blocker = new FileStream(files.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
         {
-            AssertFailure(Assert.ThrowsException<PortableSettingsException>(() => settings.Save()), files.Path, "Save");
+            AssertFailure(Assert.ThrowsExactly<PortableSettingsException>(() => settings.Save()), files.Path, "Save");
             CollectionAssert.AreEqual(before, File.ReadAllBytes(files.Path));
             Assert.AreEqual(0, Directory.GetFiles(files.Directory, "*.tmp").Length);
         }
     }
 
     /// <summary>異なる暦の文化でもGregorianのUTC名で破損XMLを二回保全し、新規作成前の警告・原文保持・旧設定非移入を確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DoNotParallelize]
     [DataRow("th-TH")]
     [DataRow("ar-SA")]
@@ -317,7 +317,7 @@ public sealed class PortableSettingsPersistenceTests
     }
 
     /// <summary>XML として正常だが必須構造がない入力は Read 失敗とし、破損回復や旧設定輸入で元入力を置き換えないことを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("<configuration />")]
     [DataRow("<configuration><userSettings /></configuration>")]
     public void StartupStructureFailureDoesNotQuarantineOrImport(string input)
@@ -326,7 +326,7 @@ public sealed class PortableSettingsPersistenceTests
         using var files = new SettingsFiles();
         File.WriteAllText(files.Path, input);
         byte[] before = File.ReadAllBytes(files.Path);
-        PortableSettingsException failure = Assert.ThrowsException<PortableSettingsException>(() =>
+        PortableSettingsException failure = Assert.ThrowsExactly<PortableSettingsException>(() =>
             new PortableSettingsStartupFile(files.Path).Prepare(
                 () => Assert.Fail("Must not import."), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount)));
         AssertFailure(failure, files.Path, "Read");
@@ -348,7 +348,7 @@ public sealed class PortableSettingsPersistenceTests
         {
             using (var blocker = new FileStream(files.Path, FileMode.Open, FileAccess.Read, share))
             {
-                PortableSettingsException failure = Assert.ThrowsException<PortableSettingsException>(() =>
+                PortableSettingsException failure = Assert.ThrowsExactly<PortableSettingsException>(() =>
                     new PortableSettingsStartupFile(files.Path).Prepare(
                         () => Assert.Fail("Must not import."), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount)));
                 AssertFailure(failure, files.Path, share == FileShare.None ? "Read" : "Quarantine");
@@ -367,7 +367,7 @@ public sealed class PortableSettingsPersistenceTests
         File.WriteAllText(files.Path, "<configuration>");
         byte[] before = File.ReadAllBytes(files.Path);
         string? backup = null;
-        PortableSettingsException failure = Assert.ThrowsException<PortableSettingsException>(() =>
+        PortableSettingsException failure = Assert.ThrowsExactly<PortableSettingsException>(() =>
             new PortableSettingsStartupFile(files.Path).Prepare(() => Assert.Fail("Must not import."), preserved =>
             {
                 backup = preserved;
@@ -386,7 +386,7 @@ public sealed class PortableSettingsPersistenceTests
         using var files = new SettingsFiles();
         File.WriteAllText(files.Path, "<configuration>");
         byte[] concurrent = System.Text.Encoding.UTF8.GetBytes(Config("Lang", "fr-FR"));
-        PortableSettingsException failure = Assert.ThrowsException<PortableSettingsException>(() =>
+        PortableSettingsException failure = Assert.ThrowsExactly<PortableSettingsException>(() =>
             new PortableSettingsStartupFile(files.Path).Prepare(() => Assert.Fail(), _ => File.WriteAllBytes(files.Path, concurrent)));
         AssertFailure(failure, files.Path, "Create");
         CollectionAssert.AreEqual(concurrent, File.ReadAllBytes(files.Path));

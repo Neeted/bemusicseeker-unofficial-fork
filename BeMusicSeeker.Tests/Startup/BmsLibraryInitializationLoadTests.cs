@@ -19,7 +19,7 @@ public sealed class BmsLibraryInitializationLoadTests
     /// <summary>
     /// LR2の相対譜面の三列と親hashを保ち、folderの新規targetだけ通常adddateで作る。共存target自身の保持・削除をDBと返却面で揃え、maintenanceを混ぜない。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(true, true)]
@@ -836,7 +836,7 @@ public sealed class BmsLibraryInitializationLoadTests
     /// 同所a/Aの承認をraw keyごとに照合し、両承認の保存行を物理日時変更一回で修復します。
     /// 片方だけの承認・承認後の行変更や削除・物理変更失敗では対象を拡大せず、保存値を偽成功へ更新しません。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("both-approved")]
     [DataRow("primary-only")]
     [DataRow("alias-changed")]
@@ -932,7 +932,7 @@ public sealed class BmsLibraryInitializationLoadTests
     /// <summary>
     /// 閏日不具合の対象外である平年2月末と閏年3月2日のfolderには修復確認・日時更新・保存変更を行わない。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(2023, 2, 28, 12, 0, 0)] // 平年の2月末
     [DataRow(2024, 3, 2, 0, 0, 0)] // 閏年でも対象日より後
     public void LoadSongTable_DoesNotTreatNonTargetTimestampAsLeapYearBug(int year, int month, int day, int hour, int minute, int second)

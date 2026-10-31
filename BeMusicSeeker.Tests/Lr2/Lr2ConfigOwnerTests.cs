@@ -43,7 +43,7 @@ public sealed class Lr2ConfigOwnerTests
             Assert.AreEqual("original", config.Element("player")?.Element("id")?.Value);
             Assert.AreEqual(1, first.RegisteredRoots.Count);
             Assert.AreEqual(2, owner.Capture().RegisteredRoots.Count);
-            Assert.ThrowsException<NotSupportedException>(() => ((IList<string>)first.RegisteredRoots)[0] = "changed");
+            Assert.ThrowsExactly<NotSupportedException>(() => ((IList<string>)first.RegisteredRoots)[0] = "changed");
         });
     }
 
@@ -56,7 +56,7 @@ public sealed class Lr2ConfigOwnerTests
             IReadOnlyList<string> original = owner.Capture().RegisteredRoots;
             using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.None))
             {
-                Assert.ThrowsException<IOException>(() => owner.SaveRoots(new Lr2RootChange([], ["B"])));
+                Assert.ThrowsExactly<IOException>(() => owner.SaveRoots(new Lr2RootChange([], ["B"])));
             }
             CollectionAssert.AreEqual(original.ToArray(), owner.CaptureSaved().RegisteredRoots.ToArray());
             owner.SaveRoots(new Lr2RootChange([], ["G"]));
@@ -67,7 +67,7 @@ public sealed class Lr2ConfigOwnerTests
     }
 
     /// <summary>保存済みB（候補修正時C）・公開Aの途中でGだけ削除し、明示公開でも削除を巻き戻しません。登録と配置の捕捉値も不変です。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void PartialSavePublishesOnlyTheCompletedOperationAndKeepsCapturedPlacement(bool reviseCandidate)
@@ -104,7 +104,7 @@ public sealed class Lr2ConfigOwnerTests
         {
             var other = new Lr2ConfigOwner(new LR2Config(path));
             Lr2ConfigOwner.PreviewScope scope = owner.BeginPreview();
-            Assert.ThrowsException<ArgumentException>(() => other.RestorePreview(scope));
+            Assert.ThrowsExactly<ArgumentException>(() => other.RestorePreview(scope));
             owner.PublishPreview(scope, 800, 600, true, 75, true);
             owner.SaveRoots(new Lr2RootChange([], ["B"]));
             Assert.AreEqual("800", XDocument.Load(path).Element("config")?.Element("system")?.Element("windowsize_x")?.Value);
@@ -118,7 +118,7 @@ public sealed class Lr2ConfigOwnerTests
             owner.RestorePreview(scope);
             CollectionAssert.AreEquivalent(new[] { "B", "C" }, new LR2Config(path).GetBMSSearchDirectoriesForChangeTracking().Select(Path.GetFileName).ToArray());
             owner.EndPreview(scope);
-            Assert.ThrowsException<InvalidOperationException>(() => owner.RestorePreview(scope));
+            Assert.ThrowsExactly<InvalidOperationException>(() => owner.RestorePreview(scope));
         });
     }
 

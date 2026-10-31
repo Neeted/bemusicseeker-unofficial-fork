@@ -159,7 +159,7 @@ public sealed class MaintenanceTreeViewModelTests
     }
 
     /// <summary>同名・空名の次群を操作前の所属値で固定し、後の可変Foldersや順序・見出しの変化に置き換えません。末尾と退役した群は対象なしです。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("same")]
     [DataRow("")]
     public void NextDuplicateSelection_CapturesMembershipBeforeResultsChange(string header)

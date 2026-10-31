@@ -88,7 +88,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             Task<bool> operation = owner.NavigateMaintenanceAsync(MainViewUpdateMode.DuplicateFilterSelected);
             try
             {
-                Assert.AreSame(failure, Assert.ThrowsException<InvalidOperationException>(() => operation.GetAwaiter().GetResult()));
+                Assert.AreSame(failure, Assert.ThrowsExactly<InvalidOperationException>(() => operation.GetAwaiter().GetResult()));
                 Assert.IsTrue(operation.IsFaulted);
                 Assert.IsFalse(library.OperationAdmission.IsActive);
             }
@@ -267,7 +267,7 @@ public sealed class RegularChartCommitAndLifecycleTests
                 Assert.IsTrue(lateData.IsCompletedSuccessfully);
                 Assert.IsFalse(data.IsCompleted);
                 Assert.AreEqual(0, Volatile.Read(ref refreshCalls));
-                Assert.ThrowsException<ObjectDisposedException>(() =>
+                Assert.ThrowsExactly<ObjectDisposedException>(() =>
                 {
                     _ = owner.NavigateMaintenanceAsync(MainViewUpdateMode.DuplicateFilterSelected);
                 });
@@ -470,11 +470,11 @@ public sealed class RegularChartCommitAndLifecycleTests
         RegularChartListRequestLease lease = owner.BeginRequest();
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
 
-        Assert.ThrowsException<ArgumentException>(() => owner.TryCommit(lease, CreateVirtualTerminalInput(new List<object>())));
-        Assert.ThrowsException<ArgumentException>(() => owner.TryCommitVirtual(lease, CreateTerminalInput(build)));
+        Assert.ThrowsExactly<ArgumentException>(() => owner.TryCommit(lease, CreateVirtualTerminalInput(new List<object>())));
+        Assert.ThrowsExactly<ArgumentException>(() => owner.TryCommitVirtual(lease, CreateTerminalInput(build)));
         var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
         var stopwatch = Stopwatch.StartNew();
-        Assert.ThrowsException<ArgumentException>(() => RegularChartListPresentationResult.ForMaterialized(
+        Assert.ThrowsExactly<ArgumentException>(() => RegularChartListPresentationResult.ForMaterialized(
             build,
             new MainChartListRowsApplyRequest
             {
@@ -678,7 +678,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             CreateSourceRow("Folder B", "b.bms"));
 
         Assert.IsTrue(order.Indexes is IList<int> { IsReadOnly: true });
-        Assert.ThrowsException<NotSupportedException>(
+        Assert.ThrowsExactly<NotSupportedException>(
             () => ((IList<int>)order.Indexes)[0] = 1);
     }
 
@@ -1150,7 +1150,7 @@ public sealed class RegularChartCommitAndLifecycleTests
 
         Assert.IsTrue(lease.Token.IsCancellationRequested);
         Assert.IsFalse(owner.TryBeginRequest(out _));
-        Assert.ThrowsException<ObjectDisposedException>(() => owner.BeginRequest());
+        Assert.ThrowsExactly<ObjectDisposedException>(() => owner.BeginRequest());
     }
 
 
@@ -1447,7 +1447,7 @@ public sealed class RegularChartCommitAndLifecycleTests
         table.RowsReplacing += (_, _) => throw new InvalidOperationException("prepare failed");
         table.RowsReplacementCanceled += (_, _) => canceled++;
 
-        Assert.ThrowsException<InvalidOperationException>(() => table.ApplyRows(new MainChartListRowsApplyRequest
+        Assert.ThrowsExactly<InvalidOperationException>(() => table.ApplyRows(new MainChartListRowsApplyRequest
         {
             Rows = new List<object>(),
             ColumnsSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD),
@@ -1517,7 +1517,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             Visibility.Visible,
             new PlaylistSummaryColumnSettings());
 
-        Assert.ThrowsException<RegularChartListTerminalPublishException>(() => owner.TryCommit(lease, input));
+        Assert.ThrowsExactly<RegularChartListTerminalPublishException>(() => owner.TryCommit(lease, input));
         Assert.AreSame(build.Sort.RowsView, table.Rows);
         Assert.IsTrue(workspaceNotifications > 0);
     }
@@ -1641,7 +1641,7 @@ public sealed class RegularChartCommitAndLifecycleTests
         PlaylistSummaryColumnSettings summaryBefore = workspace.PlaylistSummaryColumnsSettings;
         Visibility visibilityBefore = workspace.ColumnSettingsVisibilityForPlaylist;
 
-        Assert.ThrowsException<InvalidOperationException>(() => owner.ResetCurrentColumnPresentation());
+        Assert.ThrowsExactly<InvalidOperationException>(() => owner.ResetCurrentColumnPresentation());
 
         Assert.AreSame(columnsBefore, table.ColumnsSettings);
         Assert.AreSame(summaryBefore, workspace.PlaylistSummaryColumnsSettings);

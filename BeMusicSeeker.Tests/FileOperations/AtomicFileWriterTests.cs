@@ -26,7 +26,7 @@ public sealed class AtomicFileWriterTests
             string[] siblingPathsBefore = Directory.GetFiles(tempDirectoryPath);
             var publishFailure = new IOException("publish failure");
 
-            IOException failure = Assert.ThrowsException<IOException>(() =>
+            IOException failure = Assert.ThrowsExactly<IOException>(() =>
                 AtomicFileWriter.Write(
                     destinationPath,
                     stream => WriteUtf8(stream, "replacement bytes"),
@@ -53,7 +53,7 @@ public sealed class AtomicFileWriterTests
             string[] siblingPathsBefore = Directory.GetFiles(tempDirectoryPath);
             var writeFailure = new IOException("staging write failure");
 
-            IOException failure = Assert.ThrowsException<IOException>(() =>
+            IOException failure = Assert.ThrowsExactly<IOException>(() =>
                 AtomicFileWriter.Write(
                     destinationPath,
                     stream =>
@@ -79,7 +79,7 @@ public sealed class AtomicFileWriterTests
             string[] siblingPathsBefore = Directory.GetFiles(tempDirectoryPath);
             var publishFailure = new IOException("initial publish failure");
 
-            IOException failure = Assert.ThrowsException<IOException>(() =>
+            IOException failure = Assert.ThrowsExactly<IOException>(() =>
                 AtomicFileWriter.Write(
                     destinationPath,
                     stream => WriteUtf8(stream, "candidate bytes"),
@@ -164,7 +164,7 @@ public sealed class AtomicFileWriterTests
             var publishFailure = new IOException("primary publish failure");
             var cleanupFailure = new IOException("stage cleanup failure");
 
-            IOException failure = Assert.ThrowsException<IOException>(() =>
+            IOException failure = Assert.ThrowsExactly<IOException>(() =>
                 AtomicFileWriter.Write(
                     destinationPath,
                     stream => WriteUtf8(stream, "unpublished"),

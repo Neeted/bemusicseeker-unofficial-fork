@@ -25,7 +25,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsPlaylistMigrationAndRegistrationTests
 {
     /// <summary>追加名の二表目で実DB保存を拒否しても全表の公開名とDB旧名を保ちます。拒否解除後の新要求だけで改名・削除を確定し、無関係表の未知名を保存します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void OutputSettings_HeaderFailureKeepsAllPublishedNames(bool remove)
@@ -49,7 +49,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 using (var db = new LR2SongDBExtended(songPath))
                 { db.Execute("CREATE TRIGGER fail_later_header BEFORE INSERT ON playlist WHEN NEW.playlist_id = 7602 BEGIN SELECT RAISE(ABORT, 'second header failed'); END;"); }
                 var renames = new Dictionary<string, string> { ["Old"] = "New" };
-                Assert.ThrowsException<SQLite.SQLiteException>(() => playlist.CommitCustomFolderOutputSettings(before, after, renames));
+                Assert.ThrowsExactly<SQLite.SQLiteException>(() => playlist.CommitCustomFolderOutputSettings(before, after, renames));
                 Assert.AreEqual("Old", tables[0].custom_folder_output_base_name);
                 Assert.AreEqual("Old", tables[1].custom_folder_output_base_name);
                 using (LR2SongDBExtended read = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
@@ -577,7 +577,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             using (var db = new LR2SongDBExtended(songDbPath))
             { db.Insert(new LR2SongDB.folder { path = childPath, title = "old child", type = 2 }); }
             string newParentDirectory = Path.Combine(outputBaseDir, "BulkMigrationParentMoved");
-            Assert.ThrowsException<InvalidOperationException>(() => playlist.MigrateCustomFolderOutputDirectory(
+            Assert.ThrowsExactly<InvalidOperationException>(() => playlist.MigrateCustomFolderOutputDirectory(
                 parentTable, oldParentDirectory, newParentDirectory));
             Assert.IsFalse(Directory.Exists(newParentDirectory));
             Assert.AreEqual("old child", File.ReadAllText(childPath));
@@ -1028,7 +1028,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
     }
 
     /// <summary>注入された新基点へ実移行し、旧先削除の成功・失敗を変えても新先statusを保持します。旧先失敗では元警告と残余を保ち、次の通常出力で旧先整理を再開する誤りを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [TestCategory("Playlist")]
@@ -1399,7 +1399,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
     }
 
     /// <summary>同一表の末尾区切りだけ異なる同一先と、旧親から新子への移行で、更新したファイルとDB行を保持します。旧先整理が成立した新出力を削除する誤りを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [TestCategory("Playlist")]
@@ -1677,7 +1677,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
 
     /// <summary>実JSONのUnicode実名とASCII tagから空になる出力名は、捕捉したLR2モードだけで拒否します。単表・一括の保存・公開・JSON意味値を保ち、LR2拒否では既存DB・出力・XMLを変えず次要求を受理します。</summary>
     /// <remarks>一般設定を捕捉モードと逆にして設定元の取り違えを検出します。スタンドアロン単表は実再読込みまで確認し、通常URL/JSON入口とBMT生成はWorkspaceの代表へ分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -1748,7 +1748,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
 
             if (lr2Mode)
             {
-                InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(RegisterAsync);
+                InvalidOperationException failure = await Assert.ThrowsExactlyAsync<InvalidOperationException>(RegisterAsync);
                 Assert.AreEqual(BeMusicSeeker.Properties.Resources.Error_OutputDirNameEmpty, failure.Message);
                 CollectionAssert.AreEqual(new[] { existing }, playlist.BMSTables.ToArray());
                 Assert.IsTrue(candidates.All(table => !table.playlist_id.HasValue));
@@ -1966,7 +1966,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
     }
 
     /// <summary>外部新規登録は既存表と全候補の配置を副作用前に検査し、一括の先頭が安全でも衝突時は全件を拒否します。終端後の安全な登録で受付解放を確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [TestCategory("Playlist")]
@@ -2020,11 +2020,11 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
 
             if (multiple)
             {
-                await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => playlist.ExternalSyncOwner.RegistrateExternalTablesAsync(candidates, false, "invalid_placement"));
+                await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => playlist.ExternalSyncOwner.RegistrateExternalTablesAsync(candidates, false, "invalid_placement"));
             }
             else
             {
-                await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => playlist.ExternalSyncOwner.RegistrateExternalTableAsync(conflicting, false, "invalid_placement"));
+                await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => playlist.ExternalSyncOwner.RegistrateExternalTableAsync(conflicting, false, "invalid_placement"));
             }
 
             Assert.AreEqual(0, notices);
@@ -2122,7 +2122,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 reason: "durable_before_visible");
 
             Assert.IsNotNull(rejectedRestore);
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => rejectedRestore!);
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => rejectedRestore!);
             Assert.IsTrue(visibleNotificationObserved);
             Assert.IsTrue(durableAtVisibleNotification);
             Assert.IsTrue(playlist.BMSTables.Contains(table));
@@ -2137,7 +2137,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
     }
 
     /// <summary>単表・複数表の一覧追加通知で取消を要求しても、DB確定を保持して必要参照とBMT出力を終端します。DB後取消による中途終端を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [TestCategory("Playlist")]
@@ -2385,7 +2385,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
     }
 
     /// <summary>実登録のDB確定からBMT・台帳まで同じPを保持し、後処理失敗でも確定した表・譜面を残します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 両条件で進捗・失敗通知を故障させる。false: 実BMT・台帳・config成功、true: 実台帳の読取り拒否。
     [DataRow(false)]
     [DataRow(true)]
@@ -2444,7 +2444,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             release.TrySetResult();
             if (outputFails)
             {
-                await Assert.ThrowsExceptionAsync<PlaylistMutationPostCommitException>(() => registration);
+                await Assert.ThrowsExactlyAsync<PlaylistMutationPostCommitException>(() => registration);
             }
             else
             {
@@ -2472,7 +2472,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
     }
 
     /// <summary>物理削除だけが失敗しても確定台帳のURL所有解除を公開し、元失敗の報告終端までPを保持します。通常削除の他表保全と無効全整理の終了回収を実媒体で確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)] // 通常削除: 他表を保持し、報告後は次のPを取得できる。
     [DataRow(true)] // 無効・保持OFFの全整理: 報告中の終了要求でも既受理Taskを回収する。
     public async Task BeatorajaBmtOwnershipRelease_PublishesCommittedUrlsDespiteDeleteFailure(bool cleanupAll)
@@ -2576,7 +2576,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 CollectionAssert.AreEqual(unmanagedUrls.Append(secondOwned.Url).ToArray(), BeatorajaConfigService.ReadTableUrls(directory).ToArray());
             }
             release.TrySetResult();
-            await Assert.ThrowsExceptionAsync<PlaylistMutationPostCommitException>(() => operation);
+            await Assert.ThrowsExactlyAsync<PlaylistMutationPostCommitException>(() => operation);
             await idle;
             Assert.IsFalse(playlist.HasShutdownBlockingWork);
             if (!cleanupAll)
@@ -2655,7 +2655,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             {
                 using LibraryFileMutationLease admission = playlist.AcquirePlaylistMutationLease("failure_contract");
                 using LibraryFileMutationCapability capability = admission.CreateMutationCapability();
-                await Assert.ThrowsExceptionAsync<PlaylistMutationPostCommitException>(() =>
+                await Assert.ThrowsExactlyAsync<PlaylistMutationPostCommitException>(() =>
                     failureKind.StartsWith("sync", StringComparison.Ordinal)
                         ? playlist.BmtOutput.SyncUrlsAsync("failure_contract", capability)
                         : playlist.BmtOutput.ExportAllAsync("failure_contract", capability: capability));

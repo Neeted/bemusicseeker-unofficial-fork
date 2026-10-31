@@ -105,7 +105,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
     }
 
     /// <summary>factory失敗はWindowを生成せず、prepare失敗は未表示Windowを実Closed・両集合除去まで回収する。元の生成失敗を呼出元へ返し、回収後の通常終了は成功する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0)] // factory自体がthrow。
     [DataRow(1)] // factory成功後のwindow準備がthrow。
     [DataRow(2)] // 未表示HWND作成後の準備がthrow。
@@ -497,7 +497,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
     /// 初回capture中のowner終了またはcaller取消は、取消に応じないcaptureも実終端まで所有します。
     /// gate解放後にopen/drain・未表示Windowの実Closed/両集合除去・capture回収を確認し、遅い表示や通知を禁止します。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("dispose", false)] // 同期owner終了、captureは取消を遵守。
     [DataRow("disposeAsync", false)] // 非同期owner終了、captureは取消を遵守。
     [DataRow("dispose", true)] // 同期owner終了でも取消を無視するcaptureの実終端を待つ。
@@ -565,7 +565,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
     /// 最新だけを返してもdrainを完了せず、旧captureまで回収し、遅いReady/Failedを再表示しません。
     /// </summary>
     /// <remarks>実WindowのClosed、VMの日付入口と別窓の表示/操作を観測するため、同じpresentation scopeを使います。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)] // 手動閉鎖後の遅い成功と別窓独立性。
     [DataRow(false, true)] // 手動閉鎖後の遅い失敗でも通知を再表示しません。
     [DataRow(true, false)] // owner終了後の遅い成功。
@@ -670,7 +670,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
     /// Dispatcher pulseを先に実行し、drainはcallback・captureの実終端まで待ちます。
     /// </summary>
     /// <remarks>UI外driverが実DispatcherOperationを期限付き観測し、旧同期Cancelでもfinallyからgateを解放できる構成です。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)] // 未表示初回窓への実Close。
     [DataRow(true)] // owner shutdown由来のlinked取消。
     public void Manager_initialCancellationCallbackDoesNotBlockNativeCloseOrDispatcher(bool shutdown)

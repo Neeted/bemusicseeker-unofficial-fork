@@ -187,7 +187,7 @@ public sealed class PlaylistImportDialogViewModelTests
     }
 
     /// <summary>空または空白だけの入力は既存選択と原文を保持し、入力案内を表示して受付を呼びません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("")]
     [DataRow(" \r\n\t")]
     public void UriInput_EmptyKeepsInputAndSelectionWithoutStarting(string input)
@@ -205,7 +205,7 @@ public sealed class PlaylistImportDialogViewModelTests
     }
 
     /// <summary>各絶対URI形式を空行と前後空白を除いて同じ取得元の選択へ追加し、全有効入力と案内を消去します。追加だけでは受付を呼びません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("https://example.test/table.json", "https://example.test/table.json")]
     [DataRow("bmseeker:table.recommended?base=failed", "bmseeker:table.recommended?base=failed")]
     [DataRow("custom-scheme:table", "custom-scheme:table")]

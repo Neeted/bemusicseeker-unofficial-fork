@@ -15,6 +15,18 @@ namespace BeMusicSeeker.Tests;
 [TestCategory("ProcessIntegration")]
 public sealed class VerificationRunnerContractTests
 {
+    /// <summary>実MTPへ選択設定を渡し、DataRow二行だけの実TRXを本番の結果ゲートで受理できることを確認します。</summary>
+    /// <remarks>小型の専有アプリを使い、filterの欠落による通常テストの再帰実行を防ぎます。</remarks>
+    [TestMethod]
+    public void MtpExecutionHonorsSelectionAndReportsEveryDataRow()
+    {
+        using JsonDocument result = ReadPowerShellJson(["-File", Path.Combine(FindRepositoryRoot(), "scripts", "test-fixtures", "verification-mtp-probe.ps1")]);
+        string[] names = GetProperty(result.RootElement, "Names").EnumerateArray().Select(GetRequiredString).ToArray();
+        CollectionAssert.AreEqual(new[] { "MtpFixture.SelectionTests.Selected", "MtpFixture.SelectionTests.Selected" }, names);
+        CollectionAssert.AreEqual(new[] { "Passed", "Passed" }, GetProperty(result.RootElement, "Outcomes").EnumerateArray().Select(GetRequiredString).ToArray());
+        Assert.AreEqual(2, GetProperty(result.RootElement, "TestIds").EnumerateArray().Select(GetRequiredString).Distinct(StringComparer.Ordinal).Count());
+    }
+
     /// <summary>
     /// 実DLLの通常対象を過不足なく割り当て、順序変更・無関係な追加削除・別プロセスで既存所属が変わる誤りを検出する。
     /// </summary>

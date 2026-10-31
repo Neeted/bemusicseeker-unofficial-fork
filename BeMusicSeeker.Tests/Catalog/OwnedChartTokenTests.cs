@@ -87,7 +87,7 @@ public sealed class OwnedChartTokenTests
     /// <summary>
     /// 保証：BMS・bmsonの直接解決と索引解決で退役トークンを拒否し、トークンなし完全一致だけを受理して物理パス比較と区別する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(false, true)]

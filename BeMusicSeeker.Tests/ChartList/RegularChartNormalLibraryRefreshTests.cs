@@ -22,7 +22,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     public TestContext? TestContext { get; set; }
 
     /// <summary>起動相当の同Title・同hash BMSON b/aへBMS Zを実導入し、順序だけの既存tokenを再投影せずa/b/Zへ収束します。選択・旧snapshot・代表aを保ち、次の局所保守と構築中候補にも同じ構造差分を渡します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void FirstBmsInstall_NormalizesExistingBmsonViewOrderAndKeepsSelection(bool referenceBoundary)
@@ -255,7 +255,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     }
 
     /// <summary>背景16/128件を温めて一件だけ実保守し、配送終端までの投影・確保を対象数へ限定します。未訪問行と無関係行・選択を保持し、旧捕捉値は変更しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16, false)]
     [DataRow(128, false)]
     [DataRow(16, true)]
@@ -381,7 +381,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     }
 
     /// <summary>候補捕捉後の正規保守を配送前で止め、旧値の採用を待機させます。配送後は同じ候補へ対象差分だけを反映し、全構築をやり直しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void CatalogCandidate_WaitsForUndeliveredCommitAndResumesOnlyAffectedRows(bool deliveryBeforeAdoption)
@@ -487,7 +487,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     }
 
     /// <summary>実SQLiteの追加・同folder内/別folderへの移転・削除から正規commitと実配送を通し、形式範囲とkeywordの各表示件数・folder数・生存選択を独立値で確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -830,7 +830,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     }
 
     /// <summary>表のsort・keyword・mode変更、別package、reset、情報不足を組み合わせ、現在表示へ影響する変更だけ再構築して不要再構築と必要更新漏れを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 通常タイトル・別packageは表示のみ。path・keyword・mode・reset・情報不足は再構築します。
     [DataRow("Title", "", false, false, false, false, false)]
     [DataRow("path", "", false, false, false, false, true)]

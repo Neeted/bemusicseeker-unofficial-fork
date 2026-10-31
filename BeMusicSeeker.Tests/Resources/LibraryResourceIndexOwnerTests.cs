@@ -160,7 +160,7 @@ public sealed class LibraryResourceIndexOwnerTests
         var owner = new LibraryResourceIndexOwner(CreateIndex(@"C:\Library\Existing"));
         LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
 
-        Assert.ThrowsException<InvalidOperationException>(() =>
+        Assert.ThrowsExactly<InvalidOperationException>(() =>
             owner.AddDirectory(@"C:\Library\Failing", new ThrowingFileNames()));
 
         LibraryResourceIndexSnapshot after = owner.CaptureSnapshot();
@@ -286,7 +286,7 @@ public sealed class LibraryResourceIndexOwnerTests
         var owner = new LibraryResourceIndexOwner(CreateIndex(source));
         LibraryResourceIndexSnapshot prior = owner.CaptureSnapshot();
 
-        Assert.ThrowsException<InvalidOperationException>(() =>
+        Assert.ThrowsExactly<InvalidOperationException>(() =>
             owner.ReplaceSourceDirectoryWithDirectories(
                 source,
                 new ThrowingDirectories(),
@@ -413,7 +413,7 @@ public sealed class LibraryResourceIndexOwnerTests
     /// <summary>
     /// 保証：一回の走査置換で全構築・遅延逆引きそれぞれの既存候補順を守り、旧snapshotの候補順と内容も保持する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ReplaceSourceDirectoryWithScan_PreservesEntryOrderForLazyAndFull(bool full)
@@ -447,7 +447,7 @@ public sealed class LibraryResourceIndexOwnerTests
     /// <summary>
     /// 保証：除去と追加が別の操作なら旧操作の空slotを再利用せず、残存候補の後ろへ追加し各世代の候補順を保持する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void RemoveThenAddScan_DiscardsPriorCommandFreeSlotsAndPreservesFinalOrder(bool full)
@@ -519,7 +519,7 @@ public sealed class LibraryResourceIndexOwnerTests
             throw failure;
         }
 
-        Assert.AreSame(failure, Assert.ThrowsException<InvalidOperationException>(() =>
+        Assert.AreSame(failure, Assert.ThrowsExactly<InvalidOperationException>(() =>
             owner.RemoveUnderSourceDirectories(FailingInput())));
 
         LibraryResourceIndexSnapshot after = owner.CaptureSnapshot();
@@ -555,7 +555,7 @@ public sealed class LibraryResourceIndexOwnerTests
     }
 
     /// <summary>移動hashの共有と祖先六分類の置換・削除を一世代へ集め、遅延/全構築reverseと旧snapshotを保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ApplyFolderChanges_PublishesSubtreeAndAncestorSixCategoriesTogether(bool full)
@@ -622,7 +622,7 @@ public sealed class LibraryResourceIndexOwnerTests
             throw failure;
         }
 
-        Assert.AreSame(failure, Assert.ThrowsException<InvalidOperationException>(() => owner.ApplyFolderChanges(
+        Assert.AreSame(failure, Assert.ThrowsExactly<InvalidOperationException>(() => owner.ApplyFolderChanges(
             [new LibraryFolderPathChange { OldFolderPath = source, NewFolderPath = parent + @"\Destination" }],
             [removed], FailingReplacements())));
 

@@ -299,7 +299,7 @@ public class ResourceHealthIndexOwnerTests
     /// <summary>
     /// 失効指定のない不成立差分は全件再構築し、入力の事前指定あり・なしに応じて取得回数を零・一回に保つ。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Apply_DeltaFailureWithoutInvalidationFallsBackToFullRebuild(bool inputAlreadySupplied)
@@ -340,7 +340,7 @@ public class ResourceHealthIndexOwnerTests
     /// <summary>
     /// 現在の表示が最新でも明示再構築は新しい表示を作り、指定済み入力の再取得を避ける。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Apply_FullRebuildAlwaysRebuildsEvenWhenSnapshotIsCurrent(bool inputAlreadySupplied)
@@ -380,7 +380,7 @@ public class ResourceHealthIndexOwnerTests
     /// <summary>
     /// 再構築指定の有無にかかわらず延期された差分では、全件取得をせず確定済み表示を保つ。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Apply_DeferLeavesCurrentSnapshotUntouched(bool rebuildFull)
@@ -414,7 +414,7 @@ public class ResourceHealthIndexOwnerTests
     /// <summary>
     /// 変更要求がnullまたは空なら、全件取得・失効・入力世代変更をせず現在の表示を保つ。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Apply_NoChangesLeavesCurrentSnapshotUntouched(bool nullMutation)
@@ -488,7 +488,7 @@ public class ResourceHealthIndexOwnerTests
     /// <summary>
     /// 全件入力の取得中に書込みが開始・完了した両条件で、取得済みの古い入力を公開しない。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Apply_FullInputOverlappingWriterIsNotPublished(bool writerCompletes)
@@ -608,7 +608,7 @@ public class ResourceHealthIndexOwnerTests
         ResourceMaintenanceTargetSet target = CreateTarget(chart, inputVersion: 0);
         var exposed = (IList<ChartFile>)target.Charts;
 
-        Assert.ThrowsException<NotSupportedException>(() => exposed.Add(CreateChart()));
+        Assert.ThrowsExactly<NotSupportedException>(() => exposed.Add(CreateChart()));
         Assert.AreEqual(1, target.Count);
     }
 

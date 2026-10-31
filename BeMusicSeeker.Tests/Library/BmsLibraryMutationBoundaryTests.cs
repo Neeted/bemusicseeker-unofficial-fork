@@ -69,7 +69,7 @@ public sealed class BmsLibraryMutationBoundaryTests
 
             using BMSLibrary.OperationDialogScope scope = library.BeginOperationDialogScope();
 
-            Assert.ThrowsException<InvalidOperationException>(() => library.ForceInstallPendingPackages([pendingPackage]));
+            Assert.ThrowsExactly<InvalidOperationException>(() => library.ForceInstallPendingPackages([pendingPackage]));
             Assert.AreEqual(0, dialogService.CallCount);
             Assert.AreSame(pendingPackage, library.ChartPackagesPending.Single());
         });
@@ -115,7 +115,7 @@ public sealed class BmsLibraryMutationBoundaryTests
     /// 保証：保存済み通常・追加・ルート形式の管理出力と移動元・移動先・祖先が交差する変更だけをP活動中に拒否し、非交差は確定する。
     /// </summary>
     /// <remarks>実ディレクトリ移動とDB更新を使い、交差拒否時の無副作用およびP解放後の明示再要求成功を観測する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("normal", "source")]
     [DataRow("normal", "destination")]
     [DataRow("normal", "ancestor")]

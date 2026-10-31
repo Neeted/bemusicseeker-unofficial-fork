@@ -10,7 +10,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class TemporaryCopyFilesTests
 {
     /// <summary>転送途中の故障では正式先を公開せず、所有stageを回収して元原因を保持します。公開直前の第三者ファイルも上書き・回収しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void CopyFailure_StagingNeverPublishesPartialOrOverwritesCollision(bool createCollision)
@@ -33,7 +33,7 @@ public sealed class TemporaryCopyFilesTests
                 if (createCollision) { File.WriteAllText(final, "third party"); }
                 else { throw failure; }
             });
-            AggregateException observed = Assert.ThrowsException<AggregateException>(() =>
+            AggregateException observed = Assert.ThrowsExactly<AggregateException>(() =>
             {
                 using (copies) { copies.CopyFiles([input], source, destination); }
             });
@@ -114,7 +114,7 @@ public sealed class TemporaryCopyFilesTests
             using (var held = new FileStream(files[0], FileMode.Open, FileAccess.Read, FileShare.None))
             {
                 var copies = new temporarilyCopyFiles();
-                Assert.ThrowsException<AggregateException>(() =>
+                Assert.ThrowsExactly<AggregateException>(() =>
                 {
                     using (copies) { copies.CopyFiles(files, source, destination); }
                 });

@@ -545,7 +545,7 @@ public sealed class SettingsWindowPresentationTests
 
     /// <summary>実同期ボタンの確認取消・実受付拒否・受理成功を分け、実受付前の画面/環境候補保持と、受理後閉鎖・強制要求・実Task終端の所有を確認します。</summary>
     /// <remarks>compiled buttonの接続をここで、実L/Pの競合と準備0をBmsLibraryLr2SongDbSyncTestsで分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("cancel")]
     [DataRow("busy")]
     [DataRow("accepted")]
@@ -898,7 +898,7 @@ public sealed class SettingsWindowPresentationTests
                 dialogs.FileResult = new UiFilePickerResult(
                     UiDialogStatus.Failed,
                     error: new InvalidOperationException("restore picker failed"));
-                Assert.ThrowsException<InvalidOperationException>(
+                Assert.ThrowsExactly<InvalidOperationException>(
                     () => window.HandlePlaylistRestoreAsync().GetAwaiter().GetResult());
 
                 window.HandleAddPlayHistoryFolderDisplayPreset();
@@ -941,7 +941,7 @@ public sealed class SettingsWindowPresentationTests
 
     /// <summary>出力への候補切替確認の表示不能をTaskの失敗として保ち、実Buttonでは一回通知して回収します。失敗では実設定・BMS候補・未受理出力を保持し、次の明示操作だけが保存します。</summary>
     /// <remarks>WindowとViewModelへ同じ確認サービスを構成し、OwnerUnavailableと元例外付きFailedを取消・承認から区別します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void SettingsWindow_OutputCandidateConfirmationFailurePreservesCauseAndAllowsNextExplicitClick(bool failedWithException)
@@ -1202,7 +1202,7 @@ public sealed class SettingsWindowPresentationTests
 
     /// <summary>実restoreボタンのL/P Busyと受付閉鎖ではdumpを読まず、必須UI完了失敗では確定DBを保持します。いずれも終了端末を呼ばず、次要求を自動再生しません。</summary>
     /// <remarks>Busyの入力を存在しないdumpにして副作用前の拒否を区別し、実DBとcompiledイベント・設定gridの実終端を観測します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("picker-cancel")]
     [DataRow("library-busy")]
     [DataRow("playlist-busy")]
@@ -1785,7 +1785,7 @@ public sealed class SettingsWindowPresentationTests
 
     /// <summary>通常／初期設定の同じRadioButtonカードが全言語・最小幅で等幅二列・同高・単一名称となり、全表面の入力先と選択不可条件を保つことを確認します。</summary>
     /// <remarks>実Windowの測定・hit-test・動的テーマ反映を観測します。明示した選択とClickからの確認一回・取消復元はOperationModeRadio系列へ分担し、標準キー接続は静的確認、実OS入力は実機推奨へ分けます。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void SettingsWindow_EnvironmentCardsFitAndKeepWholeSurfaceInputAcrossLanguages(bool initialEnvironment)
@@ -2383,7 +2383,7 @@ public sealed class SettingsWindowPresentationTests
 
     /// <summary>実MainWindow Closeは受理済み音声テストまたは一覧取得の実終端まで保存とruntime停止を待ち、閉じた設定画面へ結果を戻しません。</summary>
     /// <remarks>実shellのClose接続を観測し、native列挙自体のlease保証は既存音声runtimeテストに委ねます。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void MainWindow_OwnerShutdownWaitsForAcceptedAudioWorkBeforeRuntimeShutdown(bool enumerateDevices)
@@ -2881,13 +2881,13 @@ public sealed class SettingsWindowPresentationTests
             try
             {
                 resources[resourceKey] = "not a brush";
-                InvalidOperationException nonSolidError = Assert.ThrowsException<InvalidOperationException>(
+                InvalidOperationException nonSolidError = Assert.ThrowsExactly<InvalidOperationException>(
                     () => _ = resolveRequiredBrush(resourceKey));
                 StringAssert.Contains(nonSolidError.Message, "must be a SolidColorBrush");
                 StringAssert.Contains(nonSolidError.Message, resourceKey);
 
                 resources.Remove(resourceKey);
-                InvalidOperationException missingError = Assert.ThrowsException<InvalidOperationException>(
+                InvalidOperationException missingError = Assert.ThrowsExactly<InvalidOperationException>(
                     () => _ = resolveRequiredBrush(resourceKey));
                 StringAssert.Contains(missingError.Message, "is unavailable");
                 StringAssert.Contains(missingError.Message, resourceKey);
@@ -3296,7 +3296,7 @@ public sealed class SettingsWindowPresentationTests
 
     /// <summary>見出しの表示切替は入力名を保持し、非表示の占有領域だけを除き、説明と警告／エラーを残すことを確認します。</summary>
     /// <remarks>実テンプレートの測定が必要ですがWindowは不要です。Fieldと派生ListEditorを同じ条件で確認し、名前所有の詳細は既存の各ケースへ分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void SettingsField_HiddenHeaderPreservesMeaningDescriptionAndValidationWithoutEmptySpace(bool listEditor)
@@ -3349,7 +3349,7 @@ public sealed class SettingsWindowPresentationTests
     }
 
     /// <summary>Automation 名を持たない editor は可視／非表示のfield headerを名前に使い、その変更にも追従して古い名前を残さないことを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void SettingsField_UnnamedEditorFallbackTracksHeaderChanges(bool isHeaderVisible)
@@ -3369,7 +3369,7 @@ public sealed class SettingsWindowPresentationTests
     }
 
     /// <summary>editor 側の明示名と binding 名がある場合は field header を変更しても上書きせず、binding も保つことを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void SettingsField_ExplicitAndBoundEditorNamesAreNotClobbered(bool isHeaderVisible)
@@ -3399,7 +3399,7 @@ public sealed class SettingsWindowPresentationTests
     }
 
     /// <summary>呼出側が fallback と同じ値を明示名として引き取った後は、header 変更と detach でその明示値を消去しないことを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void SettingsField_CallerLocalTakeoverMatchingFallbackSurvivesHeaderChangeAndDetach(bool isHeaderVisible)
@@ -3425,7 +3425,7 @@ public sealed class SettingsWindowPresentationTests
     }
 
     /// <summary>呼出側が同じ表示値の別 binding へ置き換えた後は、header 変更と detach でもその binding を保持することを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void SettingsField_CallerBindingTakeoverMatchingFallbackSurvivesHeaderChangeAndDetach(bool isHeaderVisible)
@@ -3460,7 +3460,7 @@ public sealed class SettingsWindowPresentationTests
     }
 
     /// <summary>fallback と同値の明示名へ変更してすぐ detach しても、field が所有中と誤認して値を消去しないことを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void SettingsField_CallerLocalTakeoverMatchingFallbackSurvivesImmediateDetach(bool isHeaderVisible)
@@ -3480,7 +3480,7 @@ public sealed class SettingsWindowPresentationTests
     }
 
     /// <summary>fallback と同値の呼出側 binding へ変更してすぐ detach しても、その binding と名前を消去しないことを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void SettingsField_CallerBindingTakeoverMatchingFallbackSurvivesImmediateDetach(bool isHeaderVisible)
@@ -3508,7 +3508,7 @@ public sealed class SettingsWindowPresentationTests
     }
 
     /// <summary>DB／config の実 browse は警告確認の承認後だけ picker へ進み、取消では標準 pair を保ち、選択受理では対象だけを個別 path へ更新することを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 各対象で確認取消・picker 取消・選択成功を同じ実 button から分岐させる。
     [DataRow(nameof(SettingsDialogViewModel.LR2SongDBPath), false, false)]
     [DataRow(nameof(SettingsDialogViewModel.LR2SongDBPath), true, false)]
@@ -3732,7 +3732,7 @@ public sealed class SettingsWindowPresentationTests
     }
 
     /// <summary>確認／picker の表示失敗を一回だけ通知し、通知自体の失敗もログへ分けて dispatcher に未処理例外や再帰通知を出さないことを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 確認／picker 失敗の両段階で、失敗通知の成立／不成立を比較する。
     [DataRow(false, false, 1)]
     [DataRow(false, true, 2)]
@@ -4810,7 +4810,7 @@ public sealed class SettingsWindowPresentationTests
                 owner!.UpdateLayout();
                 Visibility previousOverlayVisibility = owner!.PlaybackOverlayVisibility;
 
-                InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(
+                InvalidOperationException failure = Assert.ThrowsExactly<InvalidOperationException>(
                     () => viewModel.SettingDialog.OpenCommand.Execute());
 
                 StringAssert.Contains(failure.Message, "Settings window failed: Failed");
@@ -4905,7 +4905,7 @@ public sealed class SettingsWindowPresentationTests
     }
 
     /// <summary>通常Close/Escは未確定BMT候補を破棄して保存済み項目を保ち、実Windowの閉鎖・再表示でも同じ未完了Taskと操作制限を維持します。実MainWindow接続はFileDiff系列が分担します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [DoNotParallelize]

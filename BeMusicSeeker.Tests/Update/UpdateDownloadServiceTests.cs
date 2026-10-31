@@ -192,7 +192,7 @@ public sealed class UpdateDownloadServiceTests
                 ApplicationPathSnapshot.FromExecutablePath(applicationPath),
                 new RecordingUpdaterProcessGateway());
 
-            UpdateFailureReceiptException exception = Assert.ThrowsException<UpdateFailureReceiptException>(
+            UpdateFailureReceiptException exception = Assert.ThrowsExactly<UpdateFailureReceiptException>(
                 () => service.CleanupPreviousWorkDirectory());
 
             StringAssert.Contains(exception.Message, "updater failure details");
@@ -234,7 +234,7 @@ public sealed class UpdateDownloadServiceTests
                 ApplicationPathSnapshot.FromExecutablePath(applicationPath),
                 new RecordingUpdaterProcessGateway());
 
-            UpdateFailureReceiptException exception = Assert.ThrowsException<UpdateFailureReceiptException>(
+            UpdateFailureReceiptException exception = Assert.ThrowsExactly<UpdateFailureReceiptException>(
                 () => service.CleanupPreviousWorkDirectory());
 
             StringAssert.Contains(exception.Message, "temporary updater failure details");
@@ -419,7 +419,7 @@ public sealed class UpdateDownloadServiceTests
                 ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
                 new RecordingUpdaterProcessGateway());
 
-            Assert.ThrowsException<InvalidOperationException>(() => service.PrepareUpdaterLaunch(Path.Combine(root, "update_work", "downloads", "app.zip")));
+            Assert.ThrowsExactly<InvalidOperationException>(() => service.PrepareUpdaterLaunch(Path.Combine(root, "update_work", "downloads", "app.zip")));
             Assert.AreEqual("external-sentinel", File.ReadAllText(Path.Combine(externalDirectory, "sentinel.txt")));
         }
         finally
@@ -455,7 +455,7 @@ public sealed class UpdateDownloadServiceTests
                 ApplicationPathSnapshot.FromExecutablePath(applicationPath),
                 new RecordingUpdaterProcessGateway());
 
-            Assert.ThrowsException<InvalidOperationException>(() => service.PrepareUpdaterLaunch(Path.Combine(root, "outside.zip")));
+            Assert.ThrowsExactly<InvalidOperationException>(() => service.PrepareUpdaterLaunch(Path.Combine(root, "outside.zip")));
         }
         finally
         {

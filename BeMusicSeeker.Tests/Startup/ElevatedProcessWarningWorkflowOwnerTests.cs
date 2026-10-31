@@ -105,7 +105,7 @@ public sealed class ElevatedProcessWarningWorkflowOwnerTests
     {
         ElevatedProcessWarningWorkflowOwner owner = new(() => true);
 
-        Assert.ThrowsException<ArgumentNullException>(() => owner.Start((Func<bool>)null!));
+        Assert.ThrowsExactly<ArgumentNullException>(() => owner.Start((Func<bool>)null!));
         Assert.IsTrue(owner.Start(() => false));
         Assert.AreEqual(ElevatedProcessWarningWorkflowOutcome.Suppressed, await owner.Completion);
     }

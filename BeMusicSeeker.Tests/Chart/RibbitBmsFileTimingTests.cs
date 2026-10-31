@@ -20,7 +20,7 @@ public sealed class RibbitBmsFileTimingTests
     /// <summary>
     /// AA/aaの両定義は明示62と従来推測のどちらでも別音源として発音し、16/36宣言で強制的に同一視する誤りも検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("#BASE 62\n")]
     [DataRow("#BASE 16\n")]
     [DataRow("#BASE 36\n")]
@@ -35,7 +35,7 @@ public sealed class RibbitBmsFileTimingTests
     /// 明示62ではLNOBJと大小文字だけ異なる通常音を2秒に残し、3秒の終端自身は鳴らさない。
     /// 両定義と通常音だけの定義を両方向で通し、定義件数に依存した同一視と通常音の誤除去を検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("#WAVAA upper.wav\n#WAVaa lower.wav\n", "AA", "aa", "upper.wav")]
     [DataRow("#WAVAA upper.wav\n#WAVaa lower.wav\n", "aa", "AA", "lower.wav")]
     [DataRow("#WAVAA upper.wav\n", "AA", "aa", "upper.wav")]
@@ -50,7 +50,7 @@ public sealed class RibbitBmsFileTimingTests
     /// <summary>
     /// 宣言なしのAA/aaとGG/ggは単一定義へ従来どおり同一視し、拡張IDの+/も受理して、明示62対応の互換性退行を検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("AA", "AAaa", true)] // 16進推測でも大小文字の両ノートを残します。
     [DataRow("GG", "GGgg", true)] // 36進推測でも大小文字の両ノートを残します。
     [DataRow("+/", "+/", false)] // 既存の拡張IDを標準62文字だけへ制限しません。
@@ -66,7 +66,7 @@ public sealed class RibbitBmsFileTimingTests
     /// 最後の有効BASEを宣言前の定義・LNOBJ・ノートにも適用し、62なら通常音だけ一回、従来推測ならLNOBJと同一視して無音にする。
     /// 不正宣言での上書き、16/36への復帰漏れと、整数書式の過剰な拒否を検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     // 62の強制は後続16/36で解除し、逆順なら宣言前の通常音を残します。
     [DataRow("#BASE 62\n", "#BASE 36\n", false)]
     [DataRow("#BASE 62\n", "#BASE 16\n", false)]
@@ -91,7 +91,7 @@ public sealed class RibbitBmsFileTimingTests
     /// 採用62は宣言前の通常音を残し、採用36は同一視へ戻す。採用64は先頭62を保持し、先頭指示の欠落を識別する。
     /// 全条件でENDIF後の8秒の共通音を一回残す。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(36, 62, 36, true, false, false)]
     [DataRow(36, 62, 36, true, true, false)]
     [DataRow(36, 62, 36, true, false, true)]
@@ -141,7 +141,7 @@ public sealed class RibbitBmsFileTimingTests
     }
 
     /// <summary>実在する親階層のBMPと譜面側同名画像を置き、slash・backslashの親参照がBmpArrayでも意図した参照先を保つ。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("../../images/art.bmp")]
     [DataRow("..\\..\\images\\art.bmp")]
     public void BmpParentResourceReferenceKeepsTheIntendedHierarchy(string reference)
@@ -173,7 +173,7 @@ public sealed class RibbitBmsFileTimingTests
     /// 先頭のBPM・TITLE・WAVをUTF-8 BOM有無で通常読込みと監査準備へ渡し、指示の欠落と001小節の発音時刻の変化を検出する。
     /// 通常読込みのhashは元bytesから独立に求め、BOM有無を同じ本文のhashへ置き換える誤りも検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("BPM", false)]
     [DataRow("BPM", true)]
     [DataRow("TITLE", false)]
@@ -209,7 +209,7 @@ public sealed class RibbitBmsFileTimingTests
     /// <summary>
     /// 既存判別でUTF-8となる本文のU+FEFFはBOM有無によらず曲名へ残し、先頭以外まで削除する過剰な補正を検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Utf8BomRemovalPreservesByteOrderMarkInsideTheBody(bool includeBom)
@@ -281,7 +281,7 @@ public sealed class RibbitBmsFileTimingTests
     /// <summary>
     /// 指数表記と末尾符号の受理を直接BPM・拡張BPMそれぞれの規則で保ち、チャンネル間の字句規則の混同を検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("1e2", 100L, 120L)]
     [DataRow("120+", 120L, 120L)]
     [DataRow("240+", 120L, 240L)]
@@ -301,7 +301,7 @@ public sealed class RibbitBmsFileTimingTests
     /// <summary>
     /// 同じen-US数値文字列を異なる地域設定で読み、桁区切り、小数、符号、整数分岐と発音・STOP・終端tickを一定に保つ。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("ja-JP")]
     [DataRow("en-US")]
     [DataRow("de-DE")]
@@ -384,7 +384,7 @@ public sealed class RibbitBmsFileTimingTests
     /// <summary>
     /// 次小節の位置ゼロで直接・拡張BPMを正値へ戻せば発音と終端が進み、位置を進める前の復旧を拒否する誤りを検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("03", "78")]
     [DataRow("08", "01")]
     public void NextMeasureStartCanRestorePositiveBpmBeforeAnyPositionAdvance(string channel, string data)
@@ -407,7 +407,7 @@ public sealed class RibbitBmsFileTimingTests
     [TestMethod]
     public void ZeroBpmStillFailsWhenTheNextMeasureNeedsNonzeroPositionAdvance()
     {
-        Assert.ThrowsException<BMSFile.InvalidBmsFileException>(() =>
+        Assert.ThrowsExactly<BMSFile.InvalidBmsFileException>(() =>
             WithChart("#BPM 120\n#00003:000\n#00011:01\n#00111:01\n", _ => { }));
     }
 
@@ -437,7 +437,7 @@ public sealed class RibbitBmsFileTimingTests
     /// <summary>
     /// 明示無限BPMの時間係数をゼロとして未使用・使用STOPも受理し、巨大な有限値との分類混同を検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("ja-JP")]
     [DataRow("en-US")]
     [DataRow("de-DE")]
@@ -487,20 +487,20 @@ public sealed class RibbitBmsFileTimingTests
     /// <summary>
     /// 直接・拡張のテンポ変更後には開始時の巨大有限BPMのSTOP分類を引き継がず、無限STOPを誤受理する誤りを検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("03", "78")]
     [DataRow("08", "01")]
     public void TempoChangeReplacesTheInitialInfiniteStopInputClassification(string channel, string value)
     {
         string infinity = CultureInfo.GetCultureInfo("en-US").NumberFormat.PositiveInfinitySymbol;
-        Assert.ThrowsException<BMSFile.InvalidBmsFileException>(() =>
+        Assert.ThrowsExactly<BMSFile.InvalidBmsFileException>(() =>
             WithChart($"#BPM 1e400\n#BPM01 120\n#STOP01 {infinity}\n#000{channel}:{value}00\n#00009:0001\n#00011:01\n", _ => { }));
     }
 
     /// <summary>
     /// 参照する無限小節長と有限BPMの無限STOPは入力失敗とし、無限値の不正な時間計算を成功させる誤りを検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("120", "02")]
     [DataRow("explicit-infinity", "02")]
     [DataRow("1e400", "02")]
@@ -514,7 +514,7 @@ public sealed class RibbitBmsFileTimingTests
         }
 
         string definition = channel == "02" ? $"#00002:{infinity}\n" : $"#STOP01 {infinity}\n#00009:01\n";
-        Assert.ThrowsException<BMSFile.InvalidBmsFileException>(() =>
+        Assert.ThrowsExactly<BMSFile.InvalidBmsFileException>(() =>
             WithChart("#BPM " + bpm + "\n" + definition + "#00011:01\n", _ => { }));
     }
 
@@ -522,7 +522,7 @@ public sealed class RibbitBmsFileTimingTests
     /// IF・二つのELSEIF・ELSEを固定選択し、採用枝の定義とイベントだけを一回反映して後続枝の混入・上書きを検出する。
     /// 未選択枝も含む全資源pathの収集と、選択監査の一回通知は選択結果と別に確認する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(1, "if", 0)]
     [DataRow(2, "elseif1", 1)]
     [DataRow(3, "elseif2", 2)]
@@ -545,7 +545,7 @@ public sealed class RibbitBmsFileTimingTests
     /// 同一RANDOMをIF側・ELSE側の入れ子へ引き継ぎ、内IF・二つのELSEIF・ELSEの一枝だけを採用する。
     /// 別RANDOMの既存選択と、内側を飛ばす場合の全資源path・未使用乱数・後続乱数の一回記録も維持する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(1, 2, "inner-elseif", 1, true, true, false)]
     [DataRow(2, 3, "outer-else", 3, false, true, false)]
     [DataRow(1, 1, "inner-if", 0, true, false, false)] // 成立する内IFのELSEを採用しません。
@@ -667,7 +667,7 @@ public sealed class RibbitBmsFileTimingTests
     /// <summary>
     /// 次の乱数選択が故障したら完了した選択だけを通知し、元原因を実装故障として保持して入力不良へ読み替える誤りを検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void AuditKeepsOnlyCompletedRandomChoicesWhenTheNextSelectionFails(bool argumentOutOfRange)
@@ -679,7 +679,7 @@ public sealed class RibbitBmsFileTimingTests
             RandomSource = new FailOnUnspecifiedRandom(cause),
             RandomChoice = choice => observed.Add((choice.Range, choice.Value, choice.Used))
         };
-        BMSFile.InvalidBmsFileException failure = Assert.ThrowsException<BMSFile.InvalidBmsFileException>(() =>
+        BMSFile.InvalidBmsFileException failure = Assert.ThrowsExactly<BMSFile.InvalidBmsFileException>(() =>
             WithChart("#BPM 120\n#RANDOM 2\n#IF 2\n#RANDOM 3\n#ENDIF\n#RANDOM 4\n#00011:01\n", _ => { },
                 options: options, choices: new Queue<int>([1, 2])));
         Assert.AreSame(cause, failure.InnerException);

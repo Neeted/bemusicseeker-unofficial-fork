@@ -18,7 +18,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryPendingPackageRegroupTests
 {
     /// <summary>単一・一括の実再推定でhash候補が異なる場合と解決不能の場合の確定DSTを守り、混合既所持警告だけは更新します。資源未取得の対象元を排他openし不要な再読取りを検出、要求外entryを保持し、解放・全クリア後だけ再推定します。hash/資源枝前のskip制御は静的確認、候補条件表は既存推定テストへ分担します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(false, true)]
@@ -111,7 +111,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     /// <summary>同pathの所持/保留要求を分離し、所持は一譜面だけ、保留は全項目へ適用します。実推定の保留理由は所持編集で維持し、保留編集だけで解除します。親参照診断・失効保留拒否・新所持要求を保ちます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void SetPendingDestination_OriginSeparatesOwnedChartFromSamePathPendingGroup(bool bmson)
@@ -248,7 +248,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     /// <summary>源側80/90%をroot/子の正しい同梱配置で数え、親・兄弟の同名や配置先込み100%を混ぜません。推定・選択・空編集・再選択では捕捉結果を使い、全DST明示クリア後だけ後続の入力元変更を再推定します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(8, "abc", false)]
     [DataRow(9, "abd", false)]
     [DataRow(8, "abc", true)]
@@ -345,7 +345,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
     /// <summary>手動編集は解決済みのパッケージ同梱を使い、パッケージクリアは対象の現在配置へ戻します。別の保留パッケージや通常所持の投影は変更しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("packages")]
     [DataRow("pending")]
     [DataRow("correct")]
@@ -715,7 +715,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     /// <summary>複合入口と再導入の実入口で設定97を一回捕捉します。先頭反映で100へ変更しても、後続の独立譜面を含む兄弟は97%の候補を同じ判断で自動設定します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void SearchInstallationDirectory_CombinedAndReinstallKeepCapturedAudioThreshold(bool reinstall)
@@ -800,7 +800,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
     /// <summary>混在の対象は未所持群だけの最頻ペアとし、所持群を混ぜた逆転や全譜面一致の要求を検出する。使用音源が完全な候補だけをStrongで設定する。</summary>
     /// <remarks>実譜面・実保留DBから個別入口を通します。Strongの文字列条件表はサービス側へ分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void SearchEstimatedInstallationDirectory_HashCandidateUsesMissingGroupDominantPairWithCompleteAudio(bool strong)
@@ -884,7 +884,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     /// <summary>単独bmsonの一意ハッシュ先でも所持フォルダの実在最頻ペアを比較し、異なる代表が多数なら候補・表示・警告を保って拒否する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void SearchEstimatedInstallationDirectory_StandaloneBmsonHashRequiresFolderStrong(bool strong)
@@ -1069,7 +1069,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     {
 
         var observer = new ThrowingInstallEstimationExecutionObserver();
-        InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(() =>
+        InvalidOperationException failure = Assert.ThrowsExactly<InvalidOperationException>(() =>
             WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
             {
                 ChartPackage firstPackage = CreatePendingSingleFilePackage(
@@ -1791,7 +1791,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
     /// <summary>リソースの単一候補でも別題・別作者または片側空作者なら確定せず、空作者の候補もTITLEを表示して不一致専用警告を渡す。</summary>
     /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void SearchEstimatedInstallationDirectory_MetadataMismatchLeavesInstallDestinationEmptyAndShowsSingleSuggestion(bool emptyArtist)
@@ -1906,7 +1906,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
     /// <summary>Bmsonの所持ハッシュから結合先を解決し、非空RawArtistに引きずられずArtistを正規化して代表表示へ渡す。空Artistも補完しない。</summary>
     /// <remarks>chart役割付きsubartistsを実解析し、対象と所持のRawArtistを異なる現在値へ替え、空作者行ではArtistを空にして、RawArtistを誤採用した一致・補完を検出する。実SQLiteと所持索引を接続し、falseは主作者、trueは空作者のStrongによる自動適用を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void SearchEstimatedInstallationDirectory_ResolvesBmsonFromInstalledBmsonHash(bool emptyArtist)

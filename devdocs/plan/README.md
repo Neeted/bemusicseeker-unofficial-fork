@@ -4,6 +4,7 @@
 
 | 計画 | 内容 |
 | --- | --- |
+| [テスト基盤移行の残作業](test-platform-migration.md) | MTPを使うプロジェクト分割、C#入口と資源所有への統合、旧runnerの退役。 |
 | [既知の課題・未採用の任意改善](release-follow-up-candidates.md) | 今回着手しない改善・検討項目。共有URLのBMTと標準偏差0のT-SCOREを含む。 |
 
 ## 運用

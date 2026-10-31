@@ -1055,7 +1055,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
                 throw new InvalidOperationException("rows binding failed");
             }
         };
-        Assert.ThrowsException<PlaylistSummaryPublishException>(() => workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
+        Assert.ThrowsExactly<PlaylistSummaryPublishException>(() => workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
         {
             Rows = rows,
             SummaryText = "committed",
@@ -1339,7 +1339,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         for (int attempt = 0; attempt < 2; attempt++)
         {
             long generation = workspace.BeginPlaylistSummaryPresentationGeneration();
-            PlaylistSummaryPublishException failure = Assert.ThrowsException<PlaylistSummaryPublishException>(() =>
+            PlaylistSummaryPublishException failure = Assert.ThrowsExactly<PlaylistSummaryPublishException>(() =>
                 workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
                 {
                     Rows = new ObservableCollection<PlaylistSummaryRow> { new() { PlaylistId = attempt + 1 } },
@@ -1350,7 +1350,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             CollectionAssert.AreEquivalent(new[] { "rows binding failed", "selection completion failed" }, aggregate.InnerExceptions.Select(value => value.Message).ToArray());
         }
         source.SelectionUpdateStarting += (_, _) => throw new InvalidOperationException("selection start failed");
-        PlaylistSummaryPublishException startFailure = Assert.ThrowsException<PlaylistSummaryPublishException>(() =>
+        PlaylistSummaryPublishException startFailure = Assert.ThrowsExactly<PlaylistSummaryPublishException>(() =>
             workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
             {
                 Rows = new ObservableCollection<PlaylistSummaryRow>(),

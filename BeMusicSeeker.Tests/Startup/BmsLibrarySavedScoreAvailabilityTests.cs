@@ -83,7 +83,7 @@ public sealed class BmsLibrarySavedScoreAvailabilityTests
     }
 
     /// <summary>同じLR2・beatoraja DBのSELECT失敗は旧成績を流用せず、一度警告してNO PLAYへ投影します。次の正常空を採用し、旧実体のsetterを再購読しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void InitializeScoresOnly_FailedReloadDropsOldResultAndNextSuccessAdoptsEmpty(bool beatoraja)
@@ -331,11 +331,11 @@ public sealed class BmsLibrarySavedScoreAvailabilityTests
             using var db = new SQLiteConnection(scorePath);
             db.Execute("ALTER TABLE score RENAME TO retained_score");
             // 本番と同じ対象SELECTが実際に失敗する状態を確認し、単なる正常空を故障入力にしません。
-            if (beatoraja) { Assert.ThrowsException<SQLiteException>(() => new BeatorajaScoreDbLoader().LoadModeZeroScores(scorePath)); }
+            if (beatoraja) { Assert.ThrowsExactly<SQLiteException>(() => new BeatorajaScoreDbLoader().LoadModeZeroScores(scorePath)); }
             else
             {
                 using var read = new LR2ScoreDBExtended(scorePath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
-                Assert.ThrowsException<SQLiteException>(() => read.Table<BMSScore>().ToList());
+                Assert.ThrowsExactly<SQLiteException>(() => read.Table<BMSScore>().ToList());
             }
         }
 

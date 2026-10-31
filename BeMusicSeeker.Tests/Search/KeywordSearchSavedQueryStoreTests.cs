@@ -218,7 +218,7 @@ public sealed class KeywordSearchSavedQueryStoreTests
     {
         TestSettingsStore historyStore = new();
 
-        Assert.ThrowsException<ArgumentNullException>(() => new KeywordSearchSavedQueryOwner(
+        Assert.ThrowsExactly<ArgumentNullException>(() => new KeywordSearchSavedQueryOwner(
             KeywordSearchSavedQueryScope.Normal,
             historyStore,
             null));

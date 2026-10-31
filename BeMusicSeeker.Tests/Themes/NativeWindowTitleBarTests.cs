@@ -53,7 +53,7 @@ public sealed class NativeWindowTitleBarTests
         var gateway = new RecordingGateway();
         var controller = new NativeWindowTitleBarController(gateway, themeSource);
 
-        InvalidOperationException error = Assert.ThrowsException<InvalidOperationException>(() => controller.Attach(new IntPtr(42)));
+        InvalidOperationException error = Assert.ThrowsExactly<InvalidOperationException>(() => controller.Attach(new IntPtr(42)));
 
         Assert.AreEqual("Theme resources are unavailable.", error.Message);
         Assert.AreEqual(0, themeSource.SubscriberCount);
@@ -82,7 +82,7 @@ public sealed class NativeWindowTitleBarTests
         var gateway = new RecordingGateway { ThrowOnApply = true };
         var controller = new NativeWindowTitleBarController(gateway, themeSource);
 
-        InvalidOperationException error = Assert.ThrowsException<InvalidOperationException>(() => controller.Attach(new IntPtr(42)));
+        InvalidOperationException error = Assert.ThrowsExactly<InvalidOperationException>(() => controller.Attach(new IntPtr(42)));
 
         Assert.AreEqual("Unexpected native failure.", error.Message);
         Assert.AreEqual(0, themeSource.SubscriberCount);
@@ -115,7 +115,7 @@ public sealed class NativeWindowTitleBarTests
         controller.Attach(new IntPtr(42));
         gateway.ThrowOnApply = true;
 
-        InvalidOperationException error = Assert.ThrowsException<InvalidOperationException>(themeSource.RaiseThemeChanged);
+        InvalidOperationException error = Assert.ThrowsExactly<InvalidOperationException>(themeSource.RaiseThemeChanged);
 
         Assert.AreEqual("Unexpected native failure.", error.Message);
         Assert.AreEqual(1, themeSource.SubscriberCount);

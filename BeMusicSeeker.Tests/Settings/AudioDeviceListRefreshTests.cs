@@ -19,7 +19,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class AudioDeviceListRefreshTests
 {
     /// <summary>可視通知の到着順によらず初回だけ取得し、列挙中の編集とCloseを許可し、旧結果を閉画面へ通知しません。再表示は確定値から開始し、その表示での新しい候補を同じ取得Taskへ接続します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(false, true)]
@@ -168,7 +168,7 @@ public sealed class AudioDeviceListRefreshTests
     }
 
     /// <summary>音声未訪問・取得中・取得失敗でも他設定を実保存し、新readerで未知方式/未接続機器と音声条件を保持します。失敗の再訪問は再取得せず、明示テストは再び受付可能になります。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0, false)]
     [DataRow(0, true)]
     [DataRow(1, false)]

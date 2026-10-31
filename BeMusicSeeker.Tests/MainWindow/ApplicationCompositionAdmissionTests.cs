@@ -404,7 +404,7 @@ public sealed partial class ApplicationCompositionTests
     }
 
     /// <summary>実差分走査の受付保持中でも独立した表登録と対応出力を確定し、LR2全体同期が競合する条件では確定差分を保って見送ることを確認し、非交差操作の過剰排他や確定結果の破棄を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)] // standalone: 表正本を登録しLR2出力は行いません。
     [DataRow(true, false)] // LR2: 表出力と差分後の全体同期まで確定します。
     [DataRow(true, true)] // LR2: 表受付が競合する全体同期だけ見送り、確定済み結果は残します。

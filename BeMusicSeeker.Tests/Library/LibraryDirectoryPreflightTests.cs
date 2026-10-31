@@ -128,7 +128,7 @@ public sealed class LibraryDirectoryPreflightTests
         try
         {
             LibraryDirectoryPreflightService service = new();
-            LibraryDirectoryPreflightException missingFailure = Assert.ThrowsException<LibraryDirectoryPreflightException>(
+            LibraryDirectoryPreflightException missingFailure = Assert.ThrowsExactly<LibraryDirectoryPreflightException>(
                 () => service.EnsureAvailable(
                     service.CreateRequest([missing], [missing], new BmsLibraryOptionsSnapshot()),
                     probeOutputBases: false));
@@ -136,7 +136,7 @@ public sealed class LibraryDirectoryPreflightTests
             Assert.AreEqual(LibraryDirectoryPreflightUse.BmsRoot, missingFailure.Use);
             Assert.AreEqual(Path.GetFullPath(missing), missingFailure.DirectoryPath);
 
-            LibraryDirectoryPreflightException fileFailure = Assert.ThrowsException<LibraryDirectoryPreflightException>(
+            LibraryDirectoryPreflightException fileFailure = Assert.ThrowsExactly<LibraryDirectoryPreflightException>(
                 () => service.EnsureAvailable(
                     service.CreateRequest([filePath], [filePath], new BmsLibraryOptionsSnapshot()),
                     probeOutputBases: false));
@@ -163,7 +163,7 @@ public sealed class LibraryDirectoryPreflightTests
                 EnumerationFailure = new UnauthorizedAccessException("enumeration denied")
             };
             LibraryDirectoryPreflightService service = new(fileSystem);
-            LibraryDirectoryPreflightException failure = Assert.ThrowsException<LibraryDirectoryPreflightException>(
+            LibraryDirectoryPreflightException failure = Assert.ThrowsExactly<LibraryDirectoryPreflightException>(
                 () => service.EnsureAvailable(
                     service.CreateRequest([root], [root], new BmsLibraryOptionsSnapshot()),
                     probeOutputBases: false));
@@ -194,7 +194,7 @@ public sealed class LibraryDirectoryPreflightTests
                 LR2CustomFolderAdditionalOutputBaseDirsSerialized = "{malformed-json"
             };
 
-            LibraryDirectoryPreflightException failure = Assert.ThrowsException<LibraryDirectoryPreflightException>(
+            LibraryDirectoryPreflightException failure = Assert.ThrowsExactly<LibraryDirectoryPreflightException>(
                 () => new LibraryDirectoryPreflightService().CreateRequest([root], [root], options));
 
             Assert.AreEqual(LibraryDirectoryPreflightUse.Lr2OutputBase, failure.Use);
@@ -228,7 +228,7 @@ public sealed class LibraryDirectoryPreflightTests
                 [normal],
                 options);
 
-            LibraryDirectoryPreflightException failure = Assert.ThrowsException<LibraryDirectoryPreflightException>(
+            LibraryDirectoryPreflightException failure = Assert.ThrowsExactly<LibraryDirectoryPreflightException>(
                 () => service.EnsureAvailable(request, probeOutputBases: true));
 
             Assert.AreEqual(LibraryDirectoryPreflightUse.Lr2OutputBase, failure.Use);
@@ -377,7 +377,7 @@ public sealed class LibraryDirectoryPreflightTests
                 OpenFailure = new IOException("write denied")
             };
             LibraryDirectoryPreflightService service = new(fileSystem);
-            LibraryDirectoryPreflightException failure = Assert.ThrowsException<LibraryDirectoryPreflightException>(
+            LibraryDirectoryPreflightException failure = Assert.ThrowsExactly<LibraryDirectoryPreflightException>(
                 () => service.EnsureAvailable(
                     service.CreateRequest(
                         [],
@@ -417,7 +417,7 @@ public sealed class LibraryDirectoryPreflightTests
                 DeleteFailure = new UnauthorizedAccessException("cleanup denied")
             };
             LibraryDirectoryPreflightService service = new(fileSystem);
-            LibraryDirectoryPreflightException failure = Assert.ThrowsException<LibraryDirectoryPreflightException>(
+            LibraryDirectoryPreflightException failure = Assert.ThrowsExactly<LibraryDirectoryPreflightException>(
                 () => service.EnsureAvailable(
                     service.CreateRequest(
                         [],

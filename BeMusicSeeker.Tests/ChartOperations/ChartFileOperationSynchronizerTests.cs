@@ -70,14 +70,14 @@ public sealed class ChartFileOperationSynchronizerTests
         using LibraryFileMutationCapability capability = owner.CreateMutationCapability(lease);
         try
         {
-            Assert.ThrowsException<ArgumentNullException>(() => owner.Borrow(null));
-            Assert.ThrowsException<InvalidOperationException>(() => foreign.Borrow(capability));
+            Assert.ThrowsExactly<ArgumentNullException>(() => owner.Borrow(null));
+            Assert.ThrowsExactly<InvalidOperationException>(() => foreign.Borrow(capability));
             using (owner.Borrow(capability)) { Assert.IsTrue(owner.IsActive); }
             Assert.IsTrue(owner.IsActive, "借用した内側scopeは外側受付を解放しません。");
             capability.Validate(owner);
         }
         finally { lease.Dispose(); }
-        Assert.ThrowsException<InvalidOperationException>(() => owner.Borrow(capability));
+        Assert.ThrowsExactly<InvalidOperationException>(() => owner.Borrow(capability));
         Assert.IsTrue(owner.TryEnter(out IDisposable next));
         try { lease.Dispose(); Assert.IsTrue(owner.IsActive); }
         finally { next.Dispose(); }

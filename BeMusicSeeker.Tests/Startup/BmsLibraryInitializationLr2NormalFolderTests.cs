@@ -369,7 +369,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
     /// Fullの補正後全件結果またはReloadの全行一括結果を再利用し、ASCII/CP932 Greekの旧raw keyとexact存続行を比較へ渡す。
     /// mtime同一でも旧exactを退役し、削除譜面とcustom-onlyの必要親をcurrent scanから確定して、親CRC・利用者列・score・残存譜面を保ち二周期で収束する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false, false)]
     [DataRow(true, false, false)]
     [DataRow(false, true, false)]

@@ -58,8 +58,8 @@ public sealed class RegularChartListFilterServiceTests
     [TestMethod]
     public void ApplyFilters_RejectNullSourceRows()
     {
-        Assert.ThrowsException<ArgumentNullException>(() => RegularChartListFilterService.ApplyKeywordFilter(null, "alpha").ToList());
-        Assert.ThrowsException<ArgumentNullException>(() => RegularChartListFilterService.ApplyModeFilter(null, ChartModeFilter._7KEYS).ToList());
+        Assert.ThrowsExactly<ArgumentNullException>(() => RegularChartListFilterService.ApplyKeywordFilter(null, "alpha").ToList());
+        Assert.ThrowsExactly<ArgumentNullException>(() => RegularChartListFilterService.ApplyModeFilter(null, ChartModeFilter._7KEYS).ToList());
     }
 
     private static LibraryChartRow CreateRow(string path, string title, int? mode)

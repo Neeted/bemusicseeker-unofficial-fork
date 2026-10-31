@@ -89,7 +89,7 @@ public sealed class RegularChartNavigationTests
         });
     }
     /// <summary>編集可否のpure probeを区分/出自で限定し、文脈なしの能力を拡大しません。別installed package・playlistと不整合scopeは拒否し、両形式の通常所持だけ全件確認で受理します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void InstallDestinationPermission_UsesCurrentSectionAndSourceWithoutBeginningEdit(bool bmson)
@@ -116,7 +116,7 @@ public sealed class RegularChartNavigationTests
     public TestContext? TestContext { get; set; }
 
     /// <summary>通常と保留の必要導入先反映を、16/128行の同じ一対象へ実ownerから配送します。全source・順序buffer・未訪問行の生成を増やさず、現在値と既実体化の背景行を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16, false)]
     [DataRow(128, false)]
     [DataRow(16, true)]
@@ -177,7 +177,7 @@ public sealed class RegularChartNavigationTests
     }
 
     /// <summary>全件確認の所持一譜面と保留項目の編集を同じ判定から実ownerへ配送し、出自・入力先と所持だけの一時投影通知を保ちます。実modelの適用範囲はRegroup系列へ分担します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task InstlDstCellEdit_UsesPendingOwnerWithExactChartTargetAndText(bool owned)
@@ -520,7 +520,7 @@ public sealed class RegularChartNavigationTests
     }
 
     /// <summary>履歴keyword callbackの遅着を新しい通常ツリー／完成済み重複一覧の構築中に配送し、受付の有効性だけでなく実表示Taskの終端と非空の対象行を維持します。要求置換・古い結果の拒否自体は履歴owner系列へ分担します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [DoNotParallelize]
@@ -648,7 +648,7 @@ public sealed class RegularChartNavigationTests
 
     /// <summary>初回解析のロック解放後の通知を保留し、通常、保守、導入、履歴、プレイリストへの後発移動を行います。解析完了後も後発画面の対象行、表示モード、サマリーを保ち、明示した重複画面への再訪では最新結果を表示することを確認します。</summary>
     /// <remarks>履歴は確定batchで要求が置き換わるため、要求参照ではなく、非既定の期間境界・検索・表示対象と現在要求の有効性を確認します。このconstructor-only fixtureは成績取得組を公開しないため、履歴は規定の取得失敗表示を維持します。正常0件の期間集計を作らず、0件や最終モードだけでも意味上の選択維持を判定しません。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("directory")]
     [DataRow("artist")]
     [DataRow("maintenance")]
@@ -871,7 +871,7 @@ public sealed class RegularChartNavigationTests
     }
 
     /// <summary>初期画面、別の保守画面、解析中のフォルダ選択、解析済み0件、表示失敗を分担します。データ確定と必要警告、選択対象の行集合、実表示の失敗と通知を、それぞれ観測します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("initial")]
     [DataRow("maintenance")]
     [DataRow("folder")]
@@ -1149,7 +1149,7 @@ public sealed class RegularChartNavigationTests
     }
 
     /// <summary>現在選択を保ったライブラリ交換で、旧一覧候補と旧解析結果を採用しないことを確認します。旧一覧の構築中と旧重複解析中を分担し、開始済みTaskの回収、新ライブラリの通常ルート表示、重複画面への再訪を確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("oldRows")]
     [DataRow("oldDupData")]
     [DoNotParallelize]
@@ -1278,7 +1278,7 @@ public sealed class RegularChartNavigationTests
                 {
                     RegularChartNavigationRequest current = vm.RegularChartList.CaptureNavigation();
                     string keyword = vm.ChartFilters.KeywordFilter;
-                    Assert.ThrowsException<InvalidOperationException>(() => ((IStartupLibraryApplicationPort)vm).AttachStartupLibrary(newLibrary));
+                    Assert.ThrowsExactly<InvalidOperationException>(() => ((IStartupLibraryApplicationPort)vm).AttachStartupLibrary(newLibrary));
                     Assert.AreSame(current, vm.RegularChartList.CaptureNavigation());
                     Assert.AreEqual(keyword, vm.ChartFilters.KeywordFilter);
                     Assert.IsNull(newLibrary.DuplicateChartGroups);
@@ -1976,24 +1976,12 @@ public sealed class RegularChartNavigationTests
         internal PendingTargetPhaseLog(TestContext context)
         {
             this.context = context;
-            // MSTest 3.6.4ではTestRunDirectoryが配置先、ResultsDirectoryとTestResultsDirectoryがその配下のInを指す。
-            // 配置先はアダプターの後片付けで削除されるため、診断原本は標準結果ディレクトリへ保存する。
-            // 上記の配置関係を検査して保存先を決め、逐次書込みで失敗直前の記録を残す。
-            string? runDirectory = context.TestRunDirectory;
-            string? testDirectory = context.TestResultsDirectory;
+            // 配置ディレクトリの名前から逆算せず、MTPが提供する結果保存先へ逐次記録し、終了時に添付する。
             string? resultsDirectory = context.ResultsDirectory;
-            if (string.IsNullOrWhiteSpace(runDirectory) || !Path.IsPathFullyQualified(runDirectory)
-                || string.IsNullOrWhiteSpace(testDirectory) || !Path.IsPathFullyQualified(testDirectory)
-                || string.IsNullOrWhiteSpace(resultsDirectory) || !Path.IsPathFullyQualified(resultsDirectory))
+            if (string.IsNullOrWhiteSpace(resultsDirectory) || !Path.IsPathFullyQualified(resultsDirectory))
             { throw new AssertFailedException("標準test結果directoryを取得できません。"); }
-            string deploymentRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(runDirectory));
-            string deploymentInput = Path.Combine(deploymentRoot, "In");
-            if (!Path.GetFileName(deploymentRoot).StartsWith("Deploy_", StringComparison.Ordinal)
-                || !string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(testDirectory)), deploymentInput, StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(resultsDirectory)), deploymentInput, StringComparison.OrdinalIgnoreCase))
-            { throw new AssertFailedException("標準MSTest deploymentと結果directoryの対応を確認できません。"); }
-            string directory = Path.GetDirectoryName(deploymentRoot)
-                ?? throw new AssertFailedException("標準run結果directoryを取得できません。");
+            string directory = Path.GetFullPath(resultsDirectory);
+            Directory.CreateDirectory(directory);
             path = Path.Combine(directory, "duplicate-navigation-order-accepted-target-" + Guid.NewGuid().ToString("N") + ".phase.log");
             writer = new StreamWriter(path, append: false, encoding: new System.Text.UTF8Encoding(false)) { AutoFlush = true };
             try

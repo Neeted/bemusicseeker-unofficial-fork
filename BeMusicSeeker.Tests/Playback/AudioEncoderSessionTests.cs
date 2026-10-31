@@ -37,7 +37,7 @@ public sealed class AudioEncoderSessionTests
         FakeNative native = new() { NextHandle = 0, LastError = Errors.FileOpen };
         using AudioEncoderSession session = CreateSession(native);
 
-        AudioEncoderException exception = Assert.ThrowsException<AudioEncoderException>(session.Start);
+        AudioEncoderException exception = Assert.ThrowsExactly<AudioEncoderException>(session.Start);
 
         Assert.AreEqual(AudioEncoderFailureStage.Start, exception.Stage);
         Assert.AreEqual(Errors.FileOpen, exception.NativeError);
@@ -52,7 +52,7 @@ public sealed class AudioEncoderSessionTests
         FakeNative native = new() { NotifySucceeds = false, LastError = Errors.Parameter };
         using AudioEncoderSession session = CreateSession(native);
 
-        AudioEncoderException exception = Assert.ThrowsException<AudioEncoderException>(session.Start);
+        AudioEncoderException exception = Assert.ThrowsExactly<AudioEncoderException>(session.Start);
 
         Assert.AreEqual(AudioEncoderFailureStage.NotifyRegistration, exception.Stage);
         Assert.AreEqual(1, native.StopCalls);
@@ -69,7 +69,7 @@ public sealed class AudioEncoderSessionTests
         using AudioEncoderSession session = CreateSession(native);
         session.Start();
 
-        AudioEncoderException exception = Assert.ThrowsException<AudioEncoderException>(session.Stop);
+        AudioEncoderException exception = Assert.ThrowsExactly<AudioEncoderException>(session.Stop);
 
         Assert.AreEqual(AudioEncoderFailureStage.Stop, exception.Stage);
         Assert.AreEqual(Errors.Handle, exception.NativeError);
@@ -88,7 +88,7 @@ public sealed class AudioEncoderSessionTests
         AudioEncoderSession session = CreateSession(native);
         session.Start();
 
-        AudioEncoderException exception = Assert.ThrowsException<AudioEncoderException>(session.Dispose);
+        AudioEncoderException exception = Assert.ThrowsExactly<AudioEncoderException>(session.Dispose);
 
         Assert.AreEqual(AudioEncoderFailureStage.Dispose, exception.Stage);
         Assert.AreEqual(AudioEncoderSessionState.Started, session.State);
@@ -112,7 +112,7 @@ public sealed class AudioEncoderSessionTests
         native.NotifyProcedure(7, EncodeNotifyStatus.EncoderDied, IntPtr.Zero);
 
         Assert.AreEqual(EncodeNotifyStatus.EncoderDied, session.LastNotifyStatus);
-        AudioEncoderException exception = Assert.ThrowsException<AudioEncoderException>(session.Stop);
+        AudioEncoderException exception = Assert.ThrowsExactly<AudioEncoderException>(session.Stop);
         Assert.AreEqual(AudioEncoderFailureStage.Stop, exception.Stage);
         Assert.AreEqual(AudioEncoderSessionState.Faulted, session.State);
         Assert.AreEqual(0, session.EncoderHandle);
@@ -170,7 +170,7 @@ public sealed class AudioEncoderSessionTests
         using AudioEncoderSession session = CreateSession(native);
         session.Start();
 
-        AudioEncoderException exception = Assert.ThrowsException<AudioEncoderException>(
+        AudioEncoderException exception = Assert.ThrowsExactly<AudioEncoderException>(
             () => session.EncodeWrite([0.5f, -0.25f], sampleOffset: 0, sampleCount: 2));
 
         Assert.AreEqual(AudioEncoderFailureStage.Write, exception.Stage);
@@ -186,7 +186,7 @@ public sealed class AudioEncoderSessionTests
         using AudioEncoderSession session = CreateSession(native);
         session.Start();
 
-        Assert.ThrowsException<ArgumentException>(
+        Assert.ThrowsExactly<ArgumentException>(
             () => session.EncodeWrite([0.5f], sampleOffset: 0, sampleCount: 1));
         Assert.AreEqual(0, native.LastWriteSamples.Length);
         Assert.AreEqual(AudioEncoderSessionState.Started, session.State);
@@ -204,7 +204,7 @@ public sealed class AudioEncoderSessionTests
         Assert.AreEqual(0, samples % channelCount);
         Assert.IsTrue(byteLength <= int.MaxValue);
         Assert.IsTrue(samples + channelCount > int.MaxValue / sizeof(float));
-        Assert.ThrowsException<ArgumentOutOfRangeException>(
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(
             () => AudioEncoderSession.GetMaxSamplesPerWrite(int.MaxValue));
     }
 
@@ -341,7 +341,7 @@ public sealed class AudioEncoderSessionTests
         using AudioEncoderSession session = CreateSession(native);
         session.Start();
 
-        AudioEncoderException failure = Assert.ThrowsException<AudioEncoderException>(session.Stop);
+        AudioEncoderException failure = Assert.ThrowsExactly<AudioEncoderException>(session.Stop);
 
         Assert.AreEqual(AudioEncoderFailureStage.ProcessExit, failure.Stage);
         Assert.AreEqual((uint)7, failure.ProcessExitCode);
@@ -359,12 +359,12 @@ public sealed class AudioEncoderSessionTests
         AudioEncoderSession session = CreateSession(native);
         session.Start();
 
-        AudioEncoderException failure = Assert.ThrowsException<AudioEncoderException>(session.Stop);
+        AudioEncoderException failure = Assert.ThrowsExactly<AudioEncoderException>(session.Stop);
         Assert.AreEqual((uint)259, failure.ProcessExitCode);
         Assert.AreEqual(0, session.EncoderHandle);
         Assert.IsTrue(session.OwnsProcessHandle);
         Assert.IsFalse(native.LastProcessHandle.IsDisposed);
-        Assert.ThrowsException<AudioEncoderException>(session.Dispose);
+        Assert.ThrowsExactly<AudioEncoderException>(session.Dispose);
         Assert.IsTrue(session.OwnsProcessHandle);
 
         native.ProcessExitCode = 0;
@@ -373,7 +373,7 @@ public sealed class AudioEncoderSessionTests
         Assert.AreEqual(AudioEncoderSessionState.Disposed, session.State);
         Assert.IsFalse(session.OwnsProcessHandle);
         Assert.AreSame(failure, session.OutputFailure);
-        Assert.AreSame(failure, Assert.ThrowsException<AudioEncoderException>(session.ThrowPendingOutputFailure));
+        Assert.AreSame(failure, Assert.ThrowsExactly<AudioEncoderException>(session.ThrowPendingOutputFailure));
     }
 
     /// <summary>終了値照会のWin32失敗を保持して所有を残し、明示再照会の成功後も主失敗を置換しない。</summary>
@@ -384,13 +384,13 @@ public sealed class AudioEncoderSessionTests
         AudioEncoderSession session = CreateSession(native);
         session.Start();
 
-        AudioEncoderException failure = Assert.ThrowsException<AudioEncoderException>(session.Stop);
+        AudioEncoderException failure = Assert.ThrowsExactly<AudioEncoderException>(session.Stop);
 
         Assert.AreEqual(AudioEncoderFailureStage.ProcessExit, failure.Stage);
         Assert.IsNull(failure.ProcessExitCode);
         Assert.AreEqual(5, failure.ProcessWin32Error);
         Assert.IsTrue(session.OwnsProcessHandle);
-        Assert.ThrowsException<AudioEncoderException>(session.Dispose);
+        Assert.ThrowsExactly<AudioEncoderException>(session.Dispose);
         Assert.IsFalse(native.LastProcessHandle.IsDisposed);
 
         native.ProcessExitQuerySucceeds = true;
@@ -415,13 +415,13 @@ public sealed class AudioEncoderSessionTests
         };
         AudioEncoderSession session = CreateSession(native);
 
-        AudioEncoderException failure = Assert.ThrowsException<AudioEncoderException>(session.Start);
+        AudioEncoderException failure = Assert.ThrowsExactly<AudioEncoderException>(session.Start);
 
         Assert.AreEqual(AudioEncoderFailureStage.NotifyRegistration, failure.Stage);
         Assert.AreEqual(7, session.EncoderHandle);
         Assert.IsTrue(session.OwnsProcessHandle);
         Assert.IsFalse(native.LastProcessHandle.IsDisposed);
-        Assert.ThrowsException<AudioEncoderException>(session.Dispose);
+        Assert.ThrowsExactly<AudioEncoderException>(session.Dispose);
         Assert.AreEqual(7, session.EncoderHandle);
         Assert.IsTrue(session.OwnsProcessHandle);
 
@@ -448,13 +448,13 @@ public sealed class AudioEncoderSessionTests
         };
         AudioEncoderSession session = CreateSession(native);
 
-        AudioEncoderException failure = Assert.ThrowsException<AudioEncoderException>(session.Start);
+        AudioEncoderException failure = Assert.ThrowsExactly<AudioEncoderException>(session.Start);
 
         Assert.AreEqual(AudioEncoderFailureStage.ProcessHandleDuplicate, failure.Stage);
         Assert.AreEqual(6, failure.ProcessWin32Error);
         Assert.AreEqual(7, session.EncoderHandle);
         Assert.IsFalse(session.OwnsProcessHandle);
-        Assert.ThrowsException<AudioEncoderException>(session.Dispose);
+        Assert.ThrowsExactly<AudioEncoderException>(session.Dispose);
         Assert.AreEqual(7, session.EncoderHandle);
 
         native.StopSucceeds = true;
@@ -475,7 +475,7 @@ public sealed class AudioEncoderSessionTests
         };
         using AudioEncoderSession session = CreateSession(native);
 
-        AudioEncoderException failure = Assert.ThrowsException<AudioEncoderException>(session.Start);
+        AudioEncoderException failure = Assert.ThrowsExactly<AudioEncoderException>(session.Start);
 
         Assert.AreEqual(AudioEncoderFailureStage.NotifyRegistration, failure.Stage);
         Assert.AreEqual(Errors.Parameter, failure.NativeError);
@@ -496,7 +496,7 @@ public sealed class AudioEncoderSessionTests
         using AudioEncoderSession session = CreateSession(native);
         session.Start();
 
-        AudioEncoderException exception = Assert.ThrowsException<AudioEncoderException>(
+        AudioEncoderException exception = Assert.ThrowsExactly<AudioEncoderException>(
             session.EnsureActiveAfterRender);
 
         Assert.AreEqual(AudioEncoderFailureStage.EncoderDied, exception.Stage);
@@ -513,7 +513,7 @@ public sealed class AudioEncoderSessionTests
         session.Start();
         native.NotifyProcedure(7, EncodeNotifyStatus.EncoderDied, IntPtr.Zero);
 
-        AudioEncoderException exception = Assert.ThrowsException<AudioEncoderException>(
+        AudioEncoderException exception = Assert.ThrowsExactly<AudioEncoderException>(
             session.EnsureActiveAfterRender);
 
         Assert.AreEqual(AudioEncoderFailureStage.EncoderDied, exception.Stage);
@@ -533,10 +533,10 @@ public sealed class AudioEncoderSessionTests
         };
         AudioEncoderSession session = CreateSession(native);
         session.Start();
-        Assert.ThrowsException<AudioEncoderException>(session.EnsureActiveAfterRender);
+        Assert.ThrowsExactly<AudioEncoderException>(session.EnsureActiveAfterRender);
 
         native.StopSucceeds = false;
-        Assert.ThrowsException<AudioEncoderException>(session.Dispose);
+        Assert.ThrowsExactly<AudioEncoderException>(session.Dispose);
 
         Assert.AreEqual(AudioEncoderSessionState.Faulted, session.State);
         Assert.AreEqual(7, session.EncoderHandle);
@@ -556,9 +556,9 @@ public sealed class AudioEncoderSessionTests
         using AudioEncoderSession session = CreateSession(native);
         session.Start();
 
-        Assert.ThrowsException<InvalidOperationException>(session.Start);
+        Assert.ThrowsExactly<InvalidOperationException>(session.Start);
         session.Stop();
-        Assert.ThrowsException<InvalidOperationException>(session.Stop);
+        Assert.ThrowsExactly<InvalidOperationException>(session.Stop);
     }
 
     /// <summary>開始前に利用者のタグを差し替えると実encoderコマンドへ反映し、古いmetadataを送らない。</summary>
@@ -605,7 +605,7 @@ public sealed class AudioEncoderSessionTests
         using AudioEncoderSession session = CreateSession(native);
         session.Start();
 
-        AudioEncoderException failure = Assert.ThrowsException<AudioEncoderException>(session.Stop);
+        AudioEncoderException failure = Assert.ThrowsExactly<AudioEncoderException>(session.Stop);
 
         Assert.AreEqual(AudioEncoderFailureStage.Stop, failure.Stage);
         Assert.AreEqual((EncodeNotifyStatus)0x10003, failure.NotifyStatus);

@@ -12,8 +12,8 @@ public sealed class ExternalShellGatewayTests
     [TestMethod]
     public void RequestFactoriesRejectEmptyTargets()
     {
-        Assert.ThrowsException<ArgumentException>(() => ExternalShellRequest.OpenUrl(string.Empty));
-        Assert.ThrowsException<ArgumentException>(() => ExternalShellRequest.OpenAssociatedFile("  "));
+        Assert.ThrowsExactly<ArgumentException>(() => ExternalShellRequest.OpenUrl(string.Empty));
+        Assert.ThrowsExactly<ArgumentException>(() => ExternalShellRequest.OpenAssociatedFile("  "));
     }
 
     /// <summary>関連文書の操作を注入gatewayへ関連付けファイル要求として渡し、対象pathや操作種別を取り違えません。</summary>

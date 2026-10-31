@@ -783,7 +783,7 @@ public sealed class ChartListVirtualViewTests
         };
         mainChartList.OperationContextChanged += (_, _) => operationContextNotifications++;
 
-        Assert.ThrowsException<AggregateException>(() => mainChartList.ApplyRows(
+        Assert.ThrowsExactly<AggregateException>(() => mainChartList.ApplyRows(
             new MainChartListRowsApplyRequest
             {
                 Rows = new List<object> { new() },
@@ -859,7 +859,7 @@ public sealed class ChartListVirtualViewTests
         var propertyNames = new List<string>();
         mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName!);
 
-        Assert.ThrowsException<InvalidOperationException>(() => mainChartList.ApplyRows(new MainChartListRowsApplyRequest
+        Assert.ThrowsExactly<InvalidOperationException>(() => mainChartList.ApplyRows(new MainChartListRowsApplyRequest
         {
             Rows = nextRows,
             ColumnsSettings = nextSettings,
@@ -998,16 +998,16 @@ public sealed class ChartListVirtualViewTests
 
         MainChartListRowsTransition canceled = mainChartList.PrepareRowsTransition(CreateRequest());
         canceled.Cancel();
-        Assert.ThrowsException<InvalidOperationException>(canceled.Cancel);
-        Assert.ThrowsException<InvalidOperationException>(canceled.CommitOwnership);
+        Assert.ThrowsExactly<InvalidOperationException>(canceled.Cancel);
+        Assert.ThrowsExactly<InvalidOperationException>(canceled.CommitOwnership);
 
         MainChartListRowsTransition committed = mainChartList.PrepareRowsTransition(CreateRequest());
-        Assert.ThrowsException<InvalidOperationException>(() => committed.Complete());
+        Assert.ThrowsExactly<InvalidOperationException>(() => committed.Complete());
         committed.CommitOwnership();
-        Assert.ThrowsException<InvalidOperationException>(committed.CommitOwnership);
+        Assert.ThrowsExactly<InvalidOperationException>(committed.CommitOwnership);
         committed.Complete();
-        Assert.ThrowsException<InvalidOperationException>(() => committed.Complete());
-        Assert.ThrowsException<InvalidOperationException>(committed.Cancel);
+        Assert.ThrowsExactly<InvalidOperationException>(() => committed.Complete());
+        Assert.ThrowsExactly<InvalidOperationException>(committed.Cancel);
     }
 
     /// <summary>確定後の行通知失敗では候補行を保持し、取消でなく確定後失敗の後片付けへ配送することを確認します。</summary>
@@ -1032,7 +1032,7 @@ public sealed class ChartListVirtualViewTests
             }
         };
 
-        Assert.ThrowsException<AggregateException>(() => mainChartList.ApplyRows(new MainChartListRowsApplyRequest
+        Assert.ThrowsExactly<AggregateException>(() => mainChartList.ApplyRows(new MainChartListRowsApplyRequest
         {
             Rows = candidateRows,
             ColumnsSettings = mainChartList.ColumnsSettings,
@@ -1318,7 +1318,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     /// <summary>source退役ログが失敗しても実履歴行・旧行回収・後続公開を保ち、必須公開失敗だけを所有権移譲済みで返します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)] // 任意ログだけの故障は適用成功。
     [DataRow(true)] // 必須の列公開も故障しても確定行は保持。
     public void PlayHistoryWorkflowOwner_ApplySortedRowsKeepsCommittedRowsAfterPublishFailure(bool failPublication)
@@ -1404,7 +1404,7 @@ public sealed class ChartListVirtualViewTests
 
         if (failPublication)
         {
-            PlayHistoryTerminalPublishException exception = Assert.ThrowsException<PlayHistoryTerminalPublishException>(() => Apply());
+            PlayHistoryTerminalPublishException exception = Assert.ThrowsExactly<PlayHistoryTerminalPublishException>(() => Apply());
             Assert.IsTrue(exception.OwnershipTransferred);
         }
         else { Assert.AreEqual(PlayHistorySortedRowsApplyStatus.Applied, Apply().Status); }
@@ -1428,7 +1428,7 @@ public sealed class ChartListVirtualViewTests
         state.RequestGeneration = 1;
         table.AppliedColumnModeCommitted += _ => throw new InvalidOperationException("column mode commit failed");
 
-        PlayHistoryTerminalPublishException exception = Assert.ThrowsException<PlayHistoryTerminalPublishException>(
+        PlayHistoryTerminalPublishException exception = Assert.ThrowsExactly<PlayHistoryTerminalPublishException>(
             () => owner.TryApply(CreatePlayHistoryTerminalRequest(
                 new List<object> { new object() },
                 "committed",
@@ -1777,7 +1777,7 @@ public sealed class ChartListVirtualViewTests
         PlayHistoryTerminalRequest request = CreatePlayHistoryTerminalRequest(candidateRows, "committed", requestId: 1);
         request.SummaryCards = [new PlayHistorySummaryCard("Label", "Value")];
 
-        PlayHistoryTerminalPublishException exception = Assert.ThrowsException<PlayHistoryTerminalPublishException>(
+        PlayHistoryTerminalPublishException exception = Assert.ThrowsExactly<PlayHistoryTerminalPublishException>(
             () => owner.TryApply(request));
 
         Assert.IsTrue(exception.OwnershipTransferred);
@@ -1846,7 +1846,7 @@ public sealed class ChartListVirtualViewTests
             requestId: 1);
         request.DetailSourceRetirement = workspace.PrepareDetailSourceRetirementWithoutPublishing();
 
-        Assert.ThrowsException<AggregateException>(
+        Assert.ThrowsExactly<AggregateException>(
             () => workspace.PublishDetailSourceRetirement(request.DetailSourceRetirement));
         PlayHistoryTerminalCommitResult result = owner.TryApply(request);
 
@@ -1884,7 +1884,7 @@ public sealed class ChartListVirtualViewTests
         PlayHistoryTerminalRequest request = CreatePlayHistoryTerminalRequest(new List<object> { new object() }, "committed", requestId: 1);
         request.SummaryCards = [new PlayHistorySummaryCard("Label", "Value")];
 
-        PlayHistoryTerminalPublishException exception = Assert.ThrowsException<PlayHistoryTerminalPublishException>(
+        PlayHistoryTerminalPublishException exception = Assert.ThrowsExactly<PlayHistoryTerminalPublishException>(
             () => owner.TryApply(request));
 
         Assert.IsTrue(exception.OwnershipTransferred);
@@ -1918,7 +1918,7 @@ public sealed class ChartListVirtualViewTests
         request.SummaryCards = [new PlayHistorySummaryCard("Label", "Value")];
         request.DiagnosticText = "diagnostic";
 
-        PlayHistoryTerminalPublishException exception = Assert.ThrowsException<PlayHistoryTerminalPublishException>(
+        PlayHistoryTerminalPublishException exception = Assert.ThrowsExactly<PlayHistoryTerminalPublishException>(
             () => owner.TryApply(request));
 
         Assert.IsTrue(exception.OwnershipTransferred);
@@ -2358,8 +2358,8 @@ public sealed class ChartListVirtualViewTests
             Assert.AreEqual(descriptors.Length, descriptors.Select(descriptor => (descriptor.ColumnName, descriptor.Direction)).Distinct().Count());
             Assert.IsFalse(descriptors.Any(descriptor => descriptor.ColumnName == "rank"));
         }
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => RegularChartListOwner.CreateVirtualOrderPrewarmDescriptors(-1));
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => RegularChartListOwner.CreateVirtualOrderPrewarmDescriptors(4));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => RegularChartListOwner.CreateVirtualOrderPrewarmDescriptors(-1));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => RegularChartListOwner.CreateVirtualOrderPrewarmDescriptors(4));
     }
 
     /// <summary>本番が選んだ全予備sortをsourceだけで構築し、件数確認でも実体行を生成しないことで予備計算の全件生成を検出します。</summary>
@@ -3345,7 +3345,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     /// <summary>昇降順とも副キーTitleは昇順・同値は元添字順を保つcacheだけを受理し、順序を保つ値変更・空入力も再利用できます。旧値の順序と全値同値化での不安定順序を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(ListSortDirection.Ascending)]
     [DataRow(ListSortDirection.Descending)]
     public void CapturedOrder_CurrentValuesRespectDirectionTitleAndStableTies(ListSortDirection direction)

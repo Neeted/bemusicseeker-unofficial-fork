@@ -12,7 +12,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class RootFileEnumerationTests
 {
     /// <summary>実返却面の同所prefixを採用し、drive/UNC/root自身・兄弟境界と、親子双方の確認表記が登録順によらず残ることを確認する。実共有やdrive列挙は行わない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(@"c:\Songs", @"C:\Songs\Pack", @"C:\Songs", false, false)]
     [DataRow(@"c:\", @"C:\Song", @"C:\", false, false)]
     [DataRow(@"\\host\share\songs", @"\\HOST\SHARE\Songs", @"\\HOST\SHARE\Songs", false, false)]
@@ -79,7 +79,7 @@ public sealed class RootFileEnumerationTests
     }
 
     /// <summary>要求・復号と共通のsource-root正規化で照会し、絶対drive rootと通常/UNCの従来canonicalを保持する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(@"C:\", @"C:\")]
     [DataRow("C:/", @"C:\")]
     [DataRow(@"C:\Songs", @"C:\Songs")]
@@ -188,7 +188,7 @@ public sealed class RootFileEnumerationTests
     /// <summary>
     /// 高速・上限付き列挙ともに初めから存在しないルートを成功や権威ある完了にせず、完全な空結果へ置き換える誤りを検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void OsEnumerator_MissingRootIsIncompleteAndNotSuccessful(bool bounded)
@@ -618,7 +618,7 @@ public sealed class RootFileEnumerationTests
     /// <summary>
     /// 高速列挙と上限付き列挙では実列挙時間だけを測り、ディレクトリ問い合わせ時間と取り違える誤りを検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void OsEnumerator_MeasuresEnumerationWithoutInventingDirectoryQuery(bool bounded)
@@ -651,7 +651,7 @@ public sealed class RootFileEnumerationTests
     /// <summary>
     /// 高速・上限付き・Everythingの測定入力を引き継ぎ、問い合わせ未測定とゼロを区別してバックエンド情報の混同を検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("fast", null, false)]
     [DataRow("bounded_fast_source_surface", null, false)]
     [DataRow(EverythingNative.GroupedEnumerationBackendName, null, true)]

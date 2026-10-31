@@ -22,7 +22,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
     /// 実移動だけで管理出力との交差を判定し、診断だけなら再生を止めず、実交差のBusyではFS・DBを変更せず、解放後の新規要求で確定することで予約や交差誤判定を検出する。
     /// </summary>
     /// <remarks>実計画・本番port・共通受付からFS移動とSQLite保存、通知終端まで接続する。局所portでは実交差判定と保存の接続を代用できない。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     // mixedは正常移動と管理範囲内の診断が混在、diagnosticsは診断のみ、intersectionは実移動が管理範囲へ交差する。
     [DataRow("mixed")]
     [DataRow("diagnostics")]
@@ -732,7 +732,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
     /// 保存確定後の必須反映失敗では元receiptと片付け原因・回復パスを保ち、失敗通知終端まで受付を保持して、成功通知や早期受付解放を検出する。
     /// </summary>
     // falseは元の必須反映失敗、trueは表示抑制解除の失敗も加える。両方で保存確定事実を維持する。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task AllRequest_DurableFinalizationFailurePublishesFailureWithoutSuccessCompletion(bool failSuppressionCleanup)
@@ -928,7 +928,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 dialogs: dialogs);
             owner.AttachLibrary(library);
 
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => owner.RequestStartAllAsync(root));
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => owner.RequestStartAllAsync(root));
 
             Assert.AreEqual(1, dialogs.ConfirmationCalls);
             Assert.AreEqual(0, executorCalls);

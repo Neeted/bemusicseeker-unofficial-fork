@@ -35,7 +35,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
     }
 
     /// <summary>保留・導入済み両区画の全解除で確認を要求し、指定区画の変更を一つの活動・抑制内で実行して、区画誤転送や解放順序の欠落を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow((int)PackageCatalogSection.Pending)]
     [DataRow((int)PackageCatalogSection.Installed)]
     public async Task ClearAllAsync_PreservesConfirmationAndMutationBoundaryOrder(int sectionValue)
@@ -370,7 +370,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
 
     /// <summary>管理入力の単独・選択・全解除は停止の実終端を待ち、同じLで競合要求を拒否します。停止失敗・終了取消では入力bytesと主失敗を保ち、次の明示要求だけを受け付けます。</summary>
     /// <remarks>実owner→本番store→実SQLite/FSを動かし、停止portだけを制御します。管理外・導入済み・無関係な管理入力への削除拡大も検出します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     // 同一test processの独立compositionが共通session markerを初期公開するfixture都合で非並列とします。本番の同一Lによる直列化と、下記のL競合判定は維持します。
     [DoNotParallelize]
     [DataRow("package", "success")]
@@ -475,7 +475,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
     }
 
     /// <summary>借用保留だけの全解除と導入済み記録の解除は、再生停止へ入らず実体を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow((int)PackageCatalogSection.Pending)]
     [DataRow((int)PackageCatalogSection.Installed)]
     public async Task RecordOnlyRemoval_DoesNotStopPlayback(int sectionValue)

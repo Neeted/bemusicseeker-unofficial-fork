@@ -36,7 +36,7 @@ public sealed class BmsRootRegistrationTests
             IReadOnlyList<string> before = store.CaptureUserRoots();
             CollectionAssert.AreEqual(new[] { parent, child, retained }, before.ToArray());
             using (File.Open(config, FileMode.Open, FileAccess.Read, FileShare.Read))
-            { Assert.ThrowsException<PortableSettingsException>(() => store.SaveUserRoots([retained])); }
+            { Assert.ThrowsExactly<PortableSettingsException>(() => store.SaveUserRoots([retained])); }
             CollectionAssert.AreEqual(before.ToArray(), store.CaptureUserRoots().ToArray());
             settings.Commit((nameof(Settings.StartupSortCachePrewarmPriority), 3));
             store.SaveUserRoots([retained]);
@@ -86,7 +86,7 @@ public sealed class BmsRootRegistrationTests
     }
 
     /// <summary>実XML/configの片側失敗、最新別入力・同値入力の明示再保存を共通保存主体で保証します。UIの候補捕捉と差分終端は既存Settings接続へ分担します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("xml-failure")]
     [DataRow("latest-input")]
     [DataRow("same-input")]
@@ -137,12 +137,12 @@ public sealed class BmsRootRegistrationTests
             if (scenario == "same-input")
             {
                 using (File.Open(xml.ConfigFilePath, FileMode.Open, FileAccess.Read, FileShare.Read))
-                { Assert.ThrowsException<IOException>(() => store.SaveUserRoots([target], target)); }
+                { Assert.ThrowsExactly<IOException>(() => store.SaveUserRoots([target], target)); }
             }
             if (scenario == "runtime-equal")
             {
                 using (File.Open(configPath, FileMode.Open, FileAccess.Read, FileShare.Read))
-                { Assert.ThrowsException<PortableSettingsException>(() => store.SaveUserRoots([target], target)); }
+                { Assert.ThrowsExactly<PortableSettingsException>(() => store.SaveUserRoots([target], target)); }
             }
             store.SaveUserRoots([target], target);
             CollectionAssert.AreEqual(new[] { target }, store.CaptureUserRoots().ToArray());
@@ -159,7 +159,7 @@ public sealed class BmsRootRegistrationTests
     }
 
     /// <summary>確認済みprefixを元順序の登録・管理先・関連導入先へ限定適用し、未確認suffix・無関係な導入先・他操作の保存済み未公開rootを保持します。保存失敗では通知しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -201,13 +201,13 @@ public sealed class BmsRootRegistrationTests
             if (linked)
             {
                 using (File.Open(owner.ConfigFilePath, FileMode.Open, FileAccess.Read, FileShare.Read))
-                { Assert.ThrowsException<IOException>(() => store.SaveRootChanges(input, confirmed)); }
+                { Assert.ThrowsExactly<IOException>(() => store.SaveRootChanges(input, confirmed)); }
                 Assert.AreEqual(0, notices);
                 CollectionAssert.AreEqual(new[] { before, nested, missing }, store.CaptureUserRoots().ToArray());
             }
             {
                 using (File.Open(configPath, FileMode.Open, FileAccess.Read, FileShare.Read))
-                { Assert.ThrowsException<PortableSettingsException>(() => store.SaveRootChanges(input, confirmed)); }
+                { Assert.ThrowsExactly<PortableSettingsException>(() => store.SaveRootChanges(input, confirmed)); }
                 Assert.AreEqual(0, notices);
                 CollectionAssert.AreEqual(new[] { before, nested, missing }, store.CaptureUserRoots().ToArray());
             }
@@ -234,7 +234,7 @@ public sealed class BmsRootRegistrationTests
     }
 
     /// <summary>保存だけ成功したBと公開Aを分離し、同所補正A′は公開側だけへ反映します。実providerの読取失敗は公開・通知を止めます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void RootSpellingChange_DoesNotReAddReplacedSavedRootOrPublishUnrelatedPlacement(bool readFailure)
@@ -264,7 +264,7 @@ public sealed class BmsRootRegistrationTests
             if (readFailure)
             {
                 using (File.Open(settingsPath, FileMode.Open, FileAccess.Read, FileShare.None))
-                { Assert.ThrowsException<PortableSettingsException>(() => store.SaveRootChanges(input, confirmed)); }
+                { Assert.ThrowsExactly<PortableSettingsException>(() => store.SaveRootChanges(input, confirmed)); }
             }
             else { store.SaveRootChanges(input, confirmed); }
             CollectionAssert.AreEqual(new[] { other }, owner.CaptureSaved().RegisteredRoots.ToArray());

@@ -70,7 +70,7 @@ dotnet build BeMusicSeeker.sln --no-restore -c Release --disable-build-servers \
 
 次は既存の`FractionTests`を実行する再現例です。現在のクラスには4テストがありますが、件数を固定した成功条件にはしません。実際の変更では関連する既存テストを選び直し、検出・実行された名前と範囲を確認します。この例だけで無関係な変更の検証を完了しません。
 
-`.tmp/linux-tests/`がこの例専用であることを確認してから実行します。プロジェクト・ロック・出力・TRXはすべて一時領域に置き、Gitへ追加しません。パッケージ版はルートの[中央管理ファイル](../Directory.Packages.props)を継承します。
+`.tmp/linux-tests/`がこの例専用であることを確認してから実行します。プロジェクト・ロック・出力・TRXはすべて一時領域に置き、Gitへ追加しません。テストSDK版はルートの[global.json](../global.json)を継承し、SDKがframework・adapter・MTPの依存版を管理します。
 
 ```bash
 (
@@ -78,19 +78,17 @@ dotnet build BeMusicSeeker.sln --no-restore -c Release --disable-build-servers \
   test_project=.tmp/linux-tests/Existing.Tests.csproj
   mkdir -p .tmp/linux-tests
   cat > "$test_project" <<'XML'
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="MSTest.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <LangVersion>14.0</LangVersion>
     <Nullable>enable</Nullable>
-    <IsTestProject>true</IsTestProject>
+    <TestingExtensionsProfile>None</TestingExtensionsProfile>
+    <EnableMicrosoftTestingExtensionsTrxReport>true</EnableMicrosoftTestingExtensionsTrxReport>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" />
-    <PackageReference Include="MSTest.TestAdapter" />
-    <PackageReference Include="MSTest.TestFramework" />
     <Compile Include="../../BeMusicSeeker/Ribbit/Math/Fraction.cs" Link="Fraction.cs" />
     <Compile Include="../../BeMusicSeeker.Tests/Chart/FractionTests.cs" Link="FractionTests.cs" />
   </ItemGroup>
@@ -103,8 +101,9 @@ XML
   dotnet restore "$test_project" --locked-mode -p:Configuration=Release -p:Platform=x64
   dotnet build "$test_project" --no-restore -c Release -p:Platform=x64
   rm -f -- .tmp/linux-tests/results/existing.trx
-  dotnet test "$test_project" --no-build --no-restore -c Release -p:Platform=x64 \
-    --logger 'trx;LogFileName=existing.trx' --results-directory "$PWD/.tmp/linux-tests/results"
+  dotnet run --project "$test_project" --no-build --no-restore -c Release -p:Platform=x64 -- \
+    --report-trx --report-trx-filename existing.trx --minimum-expected-tests 1 \
+    --results-directory "$PWD/.tmp/linux-tests/results"
   python3 - <<'PY'
 import sys
 import xml.etree.ElementTree as ET
@@ -121,7 +120,7 @@ PY
 )
 ```
 
-`dotnet test`の非ゼロ終了、テスト0件、TRX欠落、`Skipped` / `Inconclusive` / `NotExecuted`を含む`Passed`以外は成功ではありません。前回のTRXを再利用しないよう、実行前に当該ファイルを除去しています。ソース選択や中央管理の依存関係を変えた場合は、この一時プロジェクトのロックだけを内容確認の上で作り直します。追跡対象のロック不一致をこの手順で解消しません。
+`dotnet run`の非ゼロ終了、テスト0件、TRX欠落、`Skipped` / `Inconclusive` / `NotExecuted`を含む`Passed`以外は成功ではありません。前回のTRXを再利用しないよう、実行前に当該ファイルを除去しています。ソース選択や中央管理の依存関係を変えた場合は、この一時プロジェクトのロックだけを内容確認の上で作り直します。追跡対象のロック不一致をこの手順で解消しません。
 
 ## 残る確認と引継ぎ
 

@@ -127,7 +127,7 @@ public sealed class FileDiffReloadWorkflowOwnerTests
             CreateSyncOwner(runtime),
             _ => { events.Add("playlist"); return Task.CompletedTask; });
 
-        IOException thrown = await Assert.ThrowsExceptionAsync<IOException>(
+        IOException thrown = await Assert.ThrowsExactlyAsync<IOException>(
             () => owner.ReloadAsync(new FileDiffReloadRequest("ReloadFileDiff", 43L)));
 
         Assert.AreSame(failure, thrown);
@@ -164,7 +164,7 @@ public sealed class FileDiffReloadWorkflowOwnerTests
             Assert.AreSame(capability, runtime.LastCapability);
             capability.Validate(admission);
             terminal.SetException(failure);
-            InvalidOperationException thrown = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => operation);
+            InvalidOperationException thrown = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => operation);
             Assert.AreSame(failure, thrown);
             CollectionAssert.AreEqual(new[] { "reload", "lr2" }, events);
         }
@@ -198,7 +198,7 @@ public sealed class FileDiffReloadWorkflowOwnerTests
             });
 
         InvalidOperationException thrown =
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 () => owner.ReloadAsync(new FileDiffReloadRequest("ReloadFileDiff", 45L)));
 
         Assert.AreSame(failure, thrown);
@@ -225,7 +225,7 @@ public sealed class FileDiffReloadWorkflowOwnerTests
             _ => { events.Add("playlist"); return Task.CompletedTask; });
 
         OperationCanceledException thrown =
-            await Assert.ThrowsExceptionAsync<OperationCanceledException>(
+            await Assert.ThrowsExactlyAsync<OperationCanceledException>(
                 () => owner.ReloadAsync(new FileDiffReloadRequest("ReloadFileDiff", 46L)));
 
         Assert.AreSame(cancellation, thrown);
@@ -241,11 +241,11 @@ public sealed class FileDiffReloadWorkflowOwnerTests
         var runtime = new RecordingRuntime(new List<string>());
         Lr2SongDbSyncWorkflowOwner syncOwner = CreateSyncOwner(runtime);
 
-        Assert.ThrowsException<ArgumentNullException>(
+        Assert.ThrowsExactly<ArgumentNullException>(
             () => new FileDiffReloadWorkflowOwner(null, syncOwner, _ => Task.CompletedTask));
-        Assert.ThrowsException<ArgumentNullException>(
+        Assert.ThrowsExactly<ArgumentNullException>(
             () => new FileDiffReloadWorkflowOwner(_ => Task.FromResult(new LibraryFileInitializationResult()), null, _ => Task.CompletedTask));
-        Assert.ThrowsException<ArgumentNullException>(
+        Assert.ThrowsExactly<ArgumentNullException>(
             () => new FileDiffReloadWorkflowOwner(_ => Task.FromResult(new LibraryFileInitializationResult()), syncOwner, null));
     }
 

@@ -16,7 +16,7 @@ public sealed class ResourceBearingNestedReinitializeTests
 {
     /// <summary>実VMの同一起動中の再初期化で、修正済み入力を新しい元packageとして再捕捉します。管理入力でも修正完了時点のpath・bytes・install行を保ち、成功導入は要求しません。</summary>
     /// <remarks>Windowは作らず実起動Task・scheduler終端・DBを使います。fixtureの終了準備だけを待ち、Application終端のRemoveAllは呼ばず、当該入力rootだけ回収します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ReinitializeLibraryAsync_ResourceBearingNestedChartsAreReevaluatedWithoutConsumingInput(bool managed)

@@ -97,7 +97,7 @@ public sealed class PlayHistoryReadModelTests
     /// 通常・30分の0時欠落・前日から続く欠落・0時重複・丸日欠落で、固定UTC期待値と隣接日の共有境界を検証する。
     /// </summary>
     /// <remarks>期待値は時刻帯変換で生成せずUTC literalから求め、欠落幅加算、遅い重複境界、丸日欠落の非空化を検出する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     // scenario順に通常日、0時開始の欠落、前日23:50からの欠落、重複、基準オフセット変更による丸日欠落。
     [DataRow(0, "2024-03-01", "2024-02-28T15:00:00Z", "2024-02-29T15:00:00Z", "2024-03-01T15:00:00Z")]
     [DataRow(1, "2024-03-01", "2024-02-29T00:00:00Z", "2024-03-01T00:00:00Z", "2024-03-01T23:30:00Z")]
@@ -244,7 +244,7 @@ public sealed class PlayHistoryReadModelTests
     }
 
     /// <summary>実UTC行を欠落・重複するローカル日へまとめ、年・月・日requestを構築する。同日重複の二ノード化とツリー全体の変換失敗を検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 欠落日は最初の有効時刻00:20、重複日は早い0時と遅い0時を同じ日にまとめる。
     [DataRow(2, "2024-03-01T23:50:00Z", "2024-03-02T12:00:00Z", "2024/03", "2024/03/02", "2024-03-01T00:00:00Z", "2024-03-31T23:30:00Z", "2024-03-01T23:50:00Z", "2024-03-02T23:30:00Z")]
     [DataRow(3, "2024-09-30T23:30:00Z", "2024-10-01T00:00:00Z", "2024/10", "2024/10/01", "2024-09-30T23:30:00Z", "2024-11-01T00:00:00Z", "2024-09-30T23:30:00Z", "2024-10-02T00:00:00Z")]
@@ -438,7 +438,7 @@ public sealed class PlayHistoryReadModelTests
     /// 必須triggerがmissing/mismatchedなら厳密要求は履歴0件とエラーを返し、DBバイトを変更しない。
     /// </summary>
     /// <remarks>実SQLiteのtrigger欠落・不一致を作り、厳密要求の診断・履歴0件と読取り前後のDBバイト一致を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("missing")]
     [DataRow("mismatched")]
     public void Lr2Reader_StrictHistoryTriggerDefectReturnsErrorWithoutReadingRows(string defect)
@@ -485,7 +485,7 @@ public sealed class PlayHistoryReadModelTests
     /// missing/mismatched triggerは厳密要求なら停止し、非厳密なら警告付きで読む。索引修復許可をtrigger要求の代用にしない。
     /// </summary>
     /// <remarks>実SQLiteのtriggerを欠落・不一致にし、要求条件別の診断・履歴件数と読取り前後のDBバイト一致を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("missing", true, false)]
     [DataRow("mismatched", true, false)]
     [DataRow("missing", false, true)]
@@ -560,7 +560,7 @@ public sealed class PlayHistoryReadModelTests
     /// missing/mismatched triggerの厳密検査は、照会すれば失敗する履歴表を問い合わせずschema診断で停止する。
     /// </summary>
     /// <remarks>実SQLiteの履歴表定義とtriggerを壊し、行照会より前のschema診断とDBバイトの非変更を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("missing")]
     [DataRow("mismatched")]
     public void Lr2Reader_StrictHistoryTriggerPolicyStopsBeforeMalformedRowQuery(string defect)
@@ -738,7 +738,7 @@ public sealed class PlayHistoryReadModelTests
     }
 
     /// <summary>実SQLiteの通常・未所持単曲を残し、短長・連結hashとbeatoraja非通常modeを行と日索引から除外します。読取り後も元DBのID・hash・値は維持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void HistoryReader_SingleChartsAndPeriodIndexPreserveSourceRows(bool beatoraja)
@@ -784,7 +784,7 @@ public sealed class PlayHistoryReadModelTests
     public sealed class HistorySourceValue { public string value { get; set; } = string.Empty; }
 
     /// <summary>各取得元の5001件を許可取得から表示・検索へ通し、最古の未所持単曲まで欠落なく表示します。日索引は全確定日を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void BuildReadView_AllRowsBeyondFiveThousandRemainSearchable(bool beatoraja)
@@ -1249,7 +1249,7 @@ public sealed class PlayHistoryReadModelTests
                 string.Empty,
                 PlayHistoryDisplayTargetItem.All.Identity,
                 owner.DisplayTargetRevision);
-            Assert.ThrowsException<OperationCanceledException>(() => owner.BuildReadView(
+            Assert.ThrowsExactly<OperationCanceledException>(() => owner.BuildReadView(
                 new PlayHistoryReadWorkflowRequest(
                     thirdRequest,
                     historySource,
@@ -1591,7 +1591,7 @@ public sealed class PlayHistoryReadModelTests
         var owner = new PlayHistoryWorkflowOwner();
         IReadOnlyList<PlayHistoryRow> rows = [CreateProjectedRow(HashA, initialFolderLabels: "SAT")];
 
-        Assert.ThrowsException<OperationCanceledException>(() => owner.ApplyDisplayTarget(
+        Assert.ThrowsExactly<OperationCanceledException>(() => owner.ApplyDisplayTarget(
             rows,
             PlayHistoryDisplayTargetItem.FromPlaylist(new BMSTable()),
             requestId: 1L,
@@ -2778,14 +2778,14 @@ public sealed class PlayHistoryReadModelTests
 
         try
         {
-            Assert.ThrowsException<InvalidOperationException>(() => regularOwner.QueueSort(
+            Assert.ThrowsExactly<InvalidOperationException>(() => regularOwner.QueueSort(
                 new MainChartListSortRequestedEventArgs(
                     nameof(ChartFile.Title),
                     ListSortDirection.Ascending,
                     MainChartListSortTarget.Regular)));
             await regularRefreshed.Task;
 
-            Assert.ThrowsException<InvalidOperationException>(() => playHistoryOwner.QueueSort(
+            Assert.ThrowsExactly<InvalidOperationException>(() => playHistoryOwner.QueueSort(
                 new MainChartListSortRequestedEventArgs(
                     nameof(PlayHistoryRow.Title),
                     ListSortDirection.Ascending,
@@ -2834,12 +2834,12 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsTrue(view.Contains(projected.Rows[0]));
         Assert.AreEqual(0, view.IndexOf(projected.Rows[0]));
         Assert.AreEqual(3, view.DistinctFolderCount);
-        Assert.ThrowsException<NotSupportedException>(() => view.Add(projected.Rows[0]));
-        Assert.ThrowsException<NotSupportedException>(() => view[0] = projected.Rows[0]);
-        Assert.ThrowsException<NotSupportedException>(() => view.Clear());
-        Assert.ThrowsException<NotSupportedException>(() => view.Insert(0, projected.Rows[0]));
-        Assert.ThrowsException<NotSupportedException>(() => view.Remove(projected.Rows[0]));
-        Assert.ThrowsException<NotSupportedException>(() => view.RemoveAt(0));
+        Assert.ThrowsExactly<NotSupportedException>(() => view.Add(projected.Rows[0]));
+        Assert.ThrowsExactly<NotSupportedException>(() => view[0] = projected.Rows[0]);
+        Assert.ThrowsExactly<NotSupportedException>(() => view.Clear());
+        Assert.ThrowsExactly<NotSupportedException>(() => view.Insert(0, projected.Rows[0]));
+        Assert.ThrowsExactly<NotSupportedException>(() => view.Remove(projected.Rows[0]));
+        Assert.ThrowsExactly<NotSupportedException>(() => view.RemoveAt(0));
     }
 
     /// <summary>
@@ -4125,7 +4125,7 @@ public sealed class PlayHistoryReadModelTests
     }
 
     /// <summary>選択したpresetの保存成功だけが希望識別を新名へ移し、filter/FOLDERのモードと実行集合を保つ。別preset改名は現在選択を変えず、空白・大小文字・連続改名も同じ論理選択になる。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("set:")]
     [DataRow("set-folder:")]
     public void WorkflowOwner_ConfirmedPresetRenameKeepsLogicalSelection(string prefix)
@@ -4268,7 +4268,7 @@ public sealed class PlayHistoryReadModelTests
         System.Threading.CancellationToken firstToken = owner.GetCancellationToken(first.RequestId);
 
         owner.PeriodRequestActivated += (_, _) => throw new InvalidOperationException("selection failed");
-        Assert.ThrowsException<InvalidOperationException>(() => owner.ActivatePeriod(
+        Assert.ThrowsExactly<InvalidOperationException>(() => owner.ActivatePeriod(
             PlayHistoryPeriodRequest.All(),
             string.Empty));
 
@@ -4283,7 +4283,7 @@ public sealed class PlayHistoryReadModelTests
             displayTargetRevision: 0);
         System.Threading.CancellationToken nextToken = owner.GetCancellationToken(next.RequestId);
         bool lockHeldDuringDeactivateSelection = false;
-        Assert.ThrowsException<InvalidOperationException>(() => owner.Deactivate(
+        Assert.ThrowsExactly<InvalidOperationException>(() => owner.Deactivate(
             () =>
             {
                 lockHeldDuringDeactivateSelection =
@@ -4325,7 +4325,7 @@ public sealed class PlayHistoryReadModelTests
             "SetTreeViewFilterSelection",
             BindingFlags.Instance | BindingFlags.NonPublic)!;
 
-        Assert.ThrowsException<TargetInvocationException>(() => setSelection.Invoke(
+        Assert.ThrowsExactly<TargetInvocationException>(() => setSelection.Invoke(
             viewModel,
             new object[] { MainViewUpdateMode.FolderFilterSelected, null!, null! }));
 
@@ -4458,7 +4458,7 @@ public sealed class PlayHistoryReadModelTests
         });
         Assert.AreEqual(1, keywordReservations);
         owner.CompleteKeywordRefresh(concurrentRequest!.KeywordFilterRevision);
-        Assert.ThrowsException<InvalidOperationException>(() => owner.CompleteKeywordRefresh(concurrentRequest.KeywordFilterRevision));
+        Assert.ThrowsExactly<InvalidOperationException>(() => owner.CompleteKeywordRefresh(concurrentRequest.KeywordFilterRevision));
         await owner.WaitForRefreshQueuesIdleAsync();
 
         Assert.IsTrue(owner.TryBeginKeywordRefresh("stale-current", advanceRevision: true, out PlayHistoryViewRequest staleRequest));
@@ -4937,7 +4937,7 @@ public sealed class PlayHistoryReadModelTests
     /// keyword/表示対象のA→B→Aは同じ期間要求IDでも版で区別し、正常な最新Aへ古いAの失敗案内や未取得終端を適用しない。
     /// </summary>
     /// <remarks>実readerの失敗から表示dispatchまで進め、その直前に実ownerのrefresh受付と正常Aの採用を接続して順序を固定する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("keyword")]
     [DataRow("display-target")]
     [DoNotParallelize]
@@ -5373,7 +5373,7 @@ public sealed class PlayHistoryReadModelTests
             () => throw new InvalidOperationException("snapshot failed"),
             _ => { });
 
-        Assert.ThrowsException<InvalidOperationException>(() => owner.RefreshDisplayTargetSetsFromSettings(
+        Assert.ThrowsExactly<InvalidOperationException>(() => owner.RefreshDisplayTargetSetsFromSettings(
             PlayHistoryDisplayTargetSetStore.Serialize(
             [
                 new PlayHistoryDisplayTargetSet { Name = "Configured" }
@@ -5408,7 +5408,7 @@ public sealed class PlayHistoryReadModelTests
             () => [],
             _ => { });
 
-        Assert.ThrowsException<InvalidOperationException>(() => owner.RefreshDisplayTargetSetsFromSettings(
+        Assert.ThrowsExactly<InvalidOperationException>(() => owner.RefreshDisplayTargetSetsFromSettings(
             "not-json",
             queueRefreshWhenSelectionChanges: false));
 

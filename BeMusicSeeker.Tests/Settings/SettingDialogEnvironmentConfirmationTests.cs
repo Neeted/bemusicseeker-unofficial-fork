@@ -22,7 +22,7 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class SettingDialogEditCompletionTests
 {
     /// <summary>初回・非初回修復中の未設定モード保存は再起動せず、実明示開始と保存物の次回通常起動は必須不足へ終端します。モデル工場・LR2 DB・出力へ進まないことをWindowなしで確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void UnconfiguredLr2ModeSave_ExplicitStartAndFreshStartupRequireSettings(bool firstStartup)
@@ -223,7 +223,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>初回root選択と修復時の詳細XML確定から履歴対象を更新し、候補・保存失敗では旧対象を保ち、保存後のschema操作が新playerのDBだけへ届くことを確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void Lr2EnvironmentConfirmation_RefreshesHistoryTargetOnlyAfterSaving(bool initialRootSelection)
@@ -381,7 +381,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>Pは未設定standaloneからLR2、Lは有効LR2からstandaloneの実UIで許可される入力を使い、確認中の先着拒否・候補保持と次の明示選択だけによる確定組保存を確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void Lr2AutomaticSelection_OperationAcceptedDuringConfirmationRejectsWithoutDeferredRestart(bool playlistOperation)
@@ -702,7 +702,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>確定スコア使用がONなら、有効rootでも解決player/score.dbが無効な局所組を保存・出力前に拒否し、スコアを無効化しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)] // playerは存在しますが、そのscore.dbがありません。
     [DataRow(true)] // 構成にplayer名があっても、playerディレクトリがありません。
     public void BeatorajaSelection_InvalidResolvedScoreDatabaseRejectsBeforeSideEffects(bool missingPlayer)
@@ -841,7 +841,7 @@ public sealed partial class SettingDialogEditCompletionTests
 
     /// <summary>実root pickerの同値選択は保存済み表記・候補を保ち、有効な別rootの選択は旧root前提候補を確認し、確定方針でplayer・派生先だけ保存して関係候補を破棄します。</summary>
     /// <remarks>configured採用と一覧先頭の既存解決、保存失敗後の明示修復を確認します。同値での保存・処理要求0は狭いBMT方針検査も分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true, false)]
     [DataRow(false, false)]
     [DataRow(true, true)] // 実providerの保存拒否では組を公開せず、同じ局所候補を明示再試行できます。

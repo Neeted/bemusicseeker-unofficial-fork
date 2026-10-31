@@ -12,7 +12,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class OwnedChartCollectionRefreshTests
 {
     /// <summary>純移転の不完全なpath要求を導入済みentryへ再適用せず、同確定receiptのAfterを共有して両形式の表示・利用者属性を維持する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void RenameInstalledFolder_SharesCommittedCurrentInsteadOfPartialPathRequest(bool bmson)

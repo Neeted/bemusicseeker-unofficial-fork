@@ -536,7 +536,7 @@ public sealed partial class BmsPlaylistExternalLoadTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
 
-            Assert.ThrowsException<PlaylistHeaderUriNotFoundException>(() => playlist.ExternalSyncOwner.LoadExternalTable(new Uri(htmlPath)));
+            Assert.ThrowsExactly<PlaylistHeaderUriNotFoundException>(() => playlist.ExternalSyncOwner.LoadExternalTable(new Uri(htmlPath)));
         }
         finally
         {
@@ -716,7 +716,7 @@ public sealed partial class BmsPlaylistExternalLoadTests
     }
 
     /// <summary>外部ヘッダーに接頭辞がない再取得でも既存の空・通常・非CP932接頭辞を維持し、その接頭辞でfolderを作成します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [TestCategory("Playlist")]
     [DataRow("", "1")]
     [DataRow("LEVEL ", "LEVEL 1")]
@@ -756,7 +756,7 @@ public sealed partial class BmsPlaylistExternalLoadTests
     }
 
     /// <summary>外部ヘッダーの接頭辞より既存の空または利用者指定接頭辞を優先し、folderの利用者設定を上書きしません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [TestCategory("Playlist")]
     [DataRow("", "1")]
     [DataRow("LOCAL ", "LOCAL 1")]
@@ -979,7 +979,7 @@ public sealed partial class BmsPlaylistExternalLoadTests
                 BMSTables = new ObservableCollection<BMSTable>(new[] { new BMSTable { name = "DuplicateImport" } })
             };
 
-            PlaylistAlreadyExistsException ex = await Assert.ThrowsExceptionAsync<PlaylistAlreadyExistsException>(async delegate
+            PlaylistAlreadyExistsException ex = await Assert.ThrowsExactlyAsync<PlaylistAlreadyExistsException>(async delegate
             {
                 await playlist.ExternalSyncOwner.RegistrateExternalTableAsync(new Uri(headerJsonPath));
             });

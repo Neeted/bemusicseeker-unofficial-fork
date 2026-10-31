@@ -25,7 +25,7 @@ public sealed class PlaylistEntryCommitTests
     private const string MixedSha256 = MixedMd5 + MixedMd5;
 
     /// <summary>画面を経由しない保存入口でもURL1/2の非空無効URIは拒否し、正本・補完・DBと版を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(nameof(BMSTableEntry.Url))]
     [DataRow(nameof(BMSTableEntry.Url_diff))]
     public void CommitDraft_InvalidUrlPreservesCurrentValues(string propertyName)
@@ -39,7 +39,7 @@ public sealed class PlaylistEntryCommitTests
             new Uri("https://example.com/runtime-diff"), overwriteExisting: true);
         int revision = table.PlaylistEntriesRevision;
         int receipts = fixture.Receipts.Count;
-        Assert.ThrowsException<UriFormatException>(() => fixture.Commit(entry, propertyName, "not a URI"));
+        Assert.ThrowsExactly<UriFormatException>(() => fixture.Commit(entry, propertyName, "not a URI"));
         Assert.AreEqual(revision, table.PlaylistEntriesRevision);
         Assert.AreEqual(receipts, fixture.Receipts.Count);
         Assert.AreEqual(new Uri("https://example.com/saved-main"), entry.Url);
@@ -53,7 +53,7 @@ public sealed class PlaylistEntryCommitTests
 
     /// <summary>raw NULL生存行をstartup readerから正規ownerへ渡し、編集とfreshな削除を別fixtureで読戻します。</summary>
     /// <remarks>NULLと0だけを同じ生存単位へ揃え、removed・同hash別folder/title・別表の行を保持します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void CommitEntry_NullRemovedStateRoundTripsThroughStartupReader(bool remove)
@@ -93,7 +93,7 @@ public sealed class PlaylistEntryCommitTests
     }
 
     /// <summary>prefixとheaderを同じwriterで候補化し、少数folderだけの捕捉・SQL・不変差分と順序・日時保持を確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     [DataRow(128)]
     public void CommitHeader_PrefixTouchesOnlyAffectedFolderAndPreservesCurrentEntryValues(int background)
@@ -156,7 +156,7 @@ public sealed class PlaylistEntryCommitTests
         };
         Dictionary<BMSTable, Func<IPlaylistEntryMutationWorkObserver, BMSTable.EntryMutation>> requests = fixture.Tables.ToDictionary(table => table,
             table => new Func<IPlaylistEntryMutationWorkObserver, BMSTable.EntryMutation>(observer => table.PrepareHeaderMutation(edit, observer)));
-        Assert.ThrowsException<SQLite.SQLiteException>(() => fixture.Owner.CommitEntryMutations(requests, fixture.Receipts.Add));
+        Assert.ThrowsExactly<SQLite.SQLiteException>(() => fixture.Owner.CommitEntryMutations(requests, fixture.Receipts.Add));
         for (int index = 0; index < fixture.Tables.Length; index++)
         {
             BMSTable table = fixture.Tables[index];
@@ -215,7 +215,7 @@ public sealed class PlaylistEntryCommitTests
     }
 
     /// <summary>固定dot表示の往復・Float全体・空nullを実owner/DBで確認し、装飾・カンマ・部分数値・非有限値は保存前に拒否します。非編集値・日時・版・配送を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("fr-FR", 1.5, null, 1.5, "1.5", false)]
     [DataRow("de-DE", -1.5, null, -1.5, "-1.5", false)]
     [DataRow("th-TH", 1.5000000000000002, null, 1.5000000000000002, "1.5000000000000002", false)]
@@ -260,7 +260,7 @@ public sealed class PlaylistEntryCommitTests
             int receiptsBefore = fixture.Receipts.Count;
             if (rejected)
             {
-                Assert.ThrowsException<FormatException>(() => fixture.Commit(entry, "Level", text));
+                Assert.ThrowsExactly<FormatException>(() => fixture.Commit(entry, "Level", text));
                 Assert.AreEqual(initialLevel, entry.level);
                 Assert.AreEqual(old.Revision, table.PlaylistEntriesRevision);
                 Assert.AreEqual(lookupVersion, table.EntryLookupRevision);
@@ -306,7 +306,7 @@ public sealed class PlaylistEntryCommitTests
         DateTime oldDate = table.last_update;
         int oldVersion = table.PlaylistEntriesRevision;
         fixture.Execute("CREATE TRIGGER fail_entry BEFORE INSERT ON playlist_entry BEGIN SELECT RAISE(ABORT, 'entry failure'); END;");
-        Assert.ThrowsException<SQLite.SQLiteException>(() => fixture.Commit(entry, "memo", "draft"));
+        Assert.ThrowsExactly<SQLite.SQLiteException>(() => fixture.Commit(entry, "memo", "draft"));
         Assert.AreEqual("memo before", entry.memo);
         Assert.AreEqual(oldDate, table.last_update);
         Assert.AreEqual(oldVersion, table.PlaylistEntriesRevision);
@@ -314,7 +314,7 @@ public sealed class PlaylistEntryCommitTests
         fixture.Execute("DROP TRIGGER fail_entry;");
         BMSTableEntry stale = entry.CreatePlaylistReloadSnapshot();
         stale.parent = table;
-        Assert.ThrowsException<InvalidOperationException>(() => fixture.Commit(stale, "memo", "wrong"));
+        Assert.ThrowsExactly<InvalidOperationException>(() => fixture.Commit(stale, "memo", "wrong"));
         PlaylistEntryCommitReceipt receipt = fixture.Commit(entry, "memo", "saved");
         Assert.AreSame(entry, receipt.Changes.Single().Entry);
         Assert.AreEqual("memo before", receipt.Changes.Single().Before.Memo);
@@ -379,7 +379,7 @@ public sealed class PlaylistEntryCommitTests
         fixture.Execute("CREATE TRIGGER fail_second BEFORE INSERT ON playlist WHEN NEW.playlist_id = 9202 BEGIN SELECT RAISE(ABORT, 'second failure'); END;");
         Dictionary<BMSTable, Func<IPlaylistEntryMutationWorkObserver, BMSTable.EntryMutation>> requests = fixture.Tables.ToDictionary(table => table,
             table => new Func<IPlaylistEntryMutationWorkObserver, BMSTable.EntryMutation>(observer => table.PrepareEntryMutation([table.entries[0]], [], observer)));
-        Assert.ThrowsException<SQLite.SQLiteException>(() => fixture.Owner.CommitEntryMutations(requests, fixture.Receipts.Add));
+        Assert.ThrowsExactly<SQLite.SQLiteException>(() => fixture.Owner.CommitEntryMutations(requests, fixture.Receipts.Add));
         for (int index = 0; index < fixture.Tables.Length; index++)
         {
             BMSTable table = fixture.Tables[index];
@@ -395,7 +395,7 @@ public sealed class PlaylistEntryCommitTests
     }
 
     /// <summary>同じ一件削除・追加で背景を増やし、実捕捉・参照取得・所属列変更と SQL 対象が背景件数へ比例しないことを測ります。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     [DataRow(128)]
     public void CommitLocalChanges_WorkIsLimitedToAffectedEntries(int background)
@@ -453,7 +453,7 @@ public sealed class PlaylistEntryCommitTests
     }
 
     /// <summary>明示追加は同じ所属キーの削除履歴を入力値へ置換し、別hash・別folderの履歴を保持します。DB前失敗では元所属と全履歴を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void CommitLocalChanges_AddToRemovedDestinationReplacesHistoryAtomically(bool failInsert)
@@ -486,7 +486,7 @@ public sealed class PlaylistEntryCommitTests
             { [table] = observer => table.PrepareEntryMutation([source], [(input, "destination")], observer) }, fixture.Receipts.Add);
         if (failInsert)
         {
-            Assert.ThrowsException<SQLite.SQLiteException>(Commit);
+            Assert.ThrowsExactly<SQLite.SQLiteException>(Commit);
             CollectionAssert.AreEqual(before, table.entries.Select(entry => entry.CaptureValue()).ToArray());
             CollectionAssert.AreEquivalent(before, fixture.FreshStartupEntries().Where(entry => entry.playlist_id == table.playlist_id).Select(entry => entry.CaptureValue()).ToArray());
             Assert.AreEqual(updated, table.last_update);
@@ -535,7 +535,7 @@ public sealed class PlaylistEntryCommitTests
     }
 
     /// <summary>少数 folder の名称変更・ルート統合は対象候補だけを読み書きし、背景 entry と順序を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16, "renamed")]
     [DataRow(128, "renamed")]
     [DataRow(128, "")]
@@ -616,7 +616,7 @@ public sealed class PlaylistEntryCommitTests
 
     /// <summary>同表・同folder・NULL titleの背景だけを増やし、正規memo保存の候補SELECTの実VM_STEPが全件走査へ増えないことを確認します。</summary>
     /// <remarks>SEARCHによる広い索引範囲走査はFULLSCAN_STEPや変更行triggerだけでは検出できないため、PROFILEの実VM_STEPを比較します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("md5")]
     [DataRow("sha256")]
     [DataRow("none")]
@@ -679,7 +679,7 @@ public sealed class PlaylistEntryCommitTests
 
     /// <summary>実DBのNULL/空/Unicode blank/大小文字と従来受理する最終LFを、setterと同じ意味の保存キーで扱います。</summary>
     /// <remarks>非blankをTrimしてLF付きhashを通常hashへ統合する誤りと、blankの旧行が残る誤りを検出します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(null, null, null, null)]
     [DataRow("", "", null, null)]
     [DataRow("unicode-blank", "unicode-blank", null, null)]
@@ -724,7 +724,7 @@ public sealed class PlaylistEntryCommitTests
     }
 
     /// <summary>索引追加は生の非blank値を変えず、従来拒否される前後空白・不正hashの読込み判定も変えません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(" " + LowerMd5)]
     [DataRow(LowerMd5 + " ")]
     [DataRow("not-a-hash")]
@@ -739,12 +739,12 @@ public sealed class PlaylistEntryCommitTests
         {
             Assert.AreEqual(rawMd5, db.ExecuteScalar<string>("SELECT md5 FROM playlist_entry WHERE playlist_id = 9201;"));
         }
-        Assert.ThrowsException<FormatException>(() => fixture.Repository.LoadStartupPlaylistEntries());
+        Assert.ThrowsExactly<FormatException>(() => fixture.Repository.LoadStartupPlaylistEntries());
     }
 
     /// <summary>通常readerのNULL title→空とraw startupのNULL保持の両方から、同値候補だけを保存・削除します。</summary>
     /// <remarks>NULL/空titleは同じentry identityです。最後の実entry削除はfolder用dummyを残し、削除済み・別表は保持します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void CommitDraft_NullTitleReaderRoutesConvergeForSaveAndRemoval(bool rawStartup)

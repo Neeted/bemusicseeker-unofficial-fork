@@ -16,7 +16,7 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class RegularChartNormalLibraryRefreshTests
 {
     /// <summary>背景16/128件の通常/専用元集合で別表headerを実確定し、参照検索の非表示加入・参照順序・選択を局所更新します。旧入力と未訪問行、同条件の次要求も確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16, false)]
     [DataRow(128, false)]
     [DataRow(16, true)]
@@ -90,7 +90,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     }
 
     /// <summary>初回参照capture後・source公開前に実header差分を配送し、依存登録前から受けたrangeで同じ構築候補の検索と順序を採用します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ReferenceCommit_DuringInitialCaptureIsAppliedBeforeAdoption(bool subset)

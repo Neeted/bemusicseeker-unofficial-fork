@@ -191,7 +191,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     /// 実改名/別親移動で旧新親と共通祖先の六分類を最終FSへ揃え、兄弟・移動hash・旧snapshotを保持します。
     /// 背景Entryと同一親の譜面を別々に増やしても、必要祖先の取得・置換を譜面数倍にしません。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, 0, 1)]
     [DataRow(true, 0, 1)]
     [DataRow(true, 4096, 1)]
@@ -306,7 +306,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     /// <summary>必要祖先のfalse/incomplete/取得例外は必須反映失敗とし、成功FS・確定DB・成功集合と旧索引世代を同時に保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0)] // Success=false、例外なし
     [DataRow(1)] // Success=trueでもIsComplete=false
     [DataRow(2)] // 列挙の元例外
@@ -1125,7 +1125,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     /// </summary>
     /// <remarks>実フォルダ改名後のSQLite保存パス・利用者列を読み戻し、対象範囲の訪問数と所持索引の更新を確認します。</remarks>
     /// <param name="autoRename">手動改名と書式による自動改名の二入口を通します。</param>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16, false)]
     [DataRow(16, true)]
     public void RenameIngress_CapturesOnlyLocalBmsRangeFacts(int backgroundChartCount, bool autoRename)
@@ -1758,7 +1758,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     /// </summary>
     /// <remarks>実フォルダ移動の二件目を失敗させ、SQLiteの保存行を読み戻して成功分と未処理分を区別します。</remarks>
     /// <param name="reportAtTerminal">trueは上位終端へ報告を委ね、falseは下位入口の報告を確認します。</param>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ApplyAutoRenamePlans_UnexpectedMoveFailureCommitsConfirmedPrefixAndStopsSuffix(bool reportAtTerminal)
@@ -2127,7 +2127,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     /// </summary>
     /// <remarks>SQLite適用を拒否するtriggerを使い、移動済み実ファイルと保持された元保存行を別々に確認します。</remarks>
     /// <param name="reportAtTerminal">trueは上位終端へ報告を委ね、falseは下位入口の報告を確認します。</param>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void MoveLibraryRootFolder_DatabaseApplyFailureKeepsConfirmedPhysicalMoves(bool reportAtTerminal)
@@ -2223,7 +2223,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     /// </summary>
     /// <remarks>実フォルダ移動の二件目を失敗させ、SQLiteを読み戻して成功分の新登録と残る元登録を確認します。</remarks>
     /// <param name="reportAtTerminal">trueは上位終端へ報告を委ね、falseは下位入口の報告を確認します。</param>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void MoveLibraryRootFolder_PhysicalFailureCommitsConfirmedPrefixAndStopsSuffix(bool reportAtTerminal)
@@ -2584,7 +2584,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     /// </summary>
     /// <remarks>SQLite適用を拒否するtriggerを使い、移動済み実ファイルと保持された元保存行を別々に確認します。</remarks>
     /// <param name="bmson">BMSとBMSONの保存表・所持集合をそれぞれ観測します。</param>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void FixInstallationDirectoryCharts_CatalogApplyFailureKeepsPhysicalMoveAndReportsSession(bool bmson)
@@ -2797,7 +2797,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     /// </summary>
     /// <remarks>実ファイルの衝突内容を確認し、選択された別名パスが所持集合とSQLite保存行に反映されることを観測します。</remarks>
     /// <param name="bmson">BMSとBMSONの保存表・所持集合をそれぞれ観測します。</param>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void FixInstallationDirectoryCharts_UsesCollisionPathForOwnerAndDb(bool bmson)
@@ -2898,7 +2898,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     /// <remarks>実資源を移動先で再評価し、SQLite保守行の読戻しと通知時の受付・健全性状態を確認します。</remarks>
     /// <param name="bmson">BMSとBMSONの保存表・所持集合をそれぞれ観測します。</param>
     /// <param name="failMaintenance">移動後の保守保存だけを拒否する条件です。</param>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(false, true)]

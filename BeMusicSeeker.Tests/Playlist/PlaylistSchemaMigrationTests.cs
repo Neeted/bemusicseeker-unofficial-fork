@@ -17,7 +17,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class PlaylistSchemaMigrationTests
 {
     /// <summary>異なるカルチャーでdump・復元し、数値風TEXT・空白・引用符・日本語・NULLとINTEGER/REALを型ごと保持する。制御文字と途中SQL失敗時の旧3表・対象外保全も確認し、文字列損失・型変換・部分復元を検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // fr-FRからの復元はNUL・垂直TAB・CRLFも含む。en-USからは同じ保存型を別カルチャーで確認する。
     [DataRow("fr-FR", "ja-JP")]
     [DataRow("en-US", "fr-FR")]
@@ -93,7 +93,7 @@ public sealed class PlaylistSchemaMigrationTests
             string separator = "\v" + Environment.NewLine;
             string partial = string.Join(separator,
                 [dump.Split(separator)[0], "INSERT INTO missing_backup_table VALUES (1);", ""]);
-            SQLite.SQLiteException failure = Assert.ThrowsException<SQLite.SQLiteException>(() => repository.LoadPlaylistDump(partial));
+            SQLite.SQLiteException failure = Assert.ThrowsExactly<SQLite.SQLiteException>(() => repository.LoadPlaylistDump(partial));
             StringAssert.Contains(failure.Message, "missing_backup_table");
             VerifyDumpRows(path, values, ticks, hasNulMemo);
         }

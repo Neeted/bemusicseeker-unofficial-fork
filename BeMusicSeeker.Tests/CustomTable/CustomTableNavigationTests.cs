@@ -17,7 +17,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class CustomTableNavigationTests
 {
     /// <summary>実Ctrl+Cが実履歴列の現在行の値を使い、複数選択の副行や交換前sourceを使わないことを確認します。factoryの生値を記録した専用例外でClipboard前に止め、キー配送と値投影を分担します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("Hash")]
     [DataRow("Sha256")]
     public void PlayHistoryCopyCurrentCell_UsesLatestSelectedRowAndReplacementSource(string columnId)
@@ -52,7 +52,7 @@ public sealed class CustomTableNavigationTests
                     object[] selection = [.. table.GetSelectedRowsSnapshot()];
                     int primary = table.SelectedIndex;
                     int count = visits.Count;
-                    Assert.AreSame(sentinel, Assert.ThrowsException<InvalidOperationException>(() => table.HandleKeyDown(Key.C, ModifierKeys.Control)));
+                    Assert.AreSame(sentinel, Assert.ThrowsExactly<InvalidOperationException>(() => table.HandleKeyDown(Key.C, ModifierKeys.Control)));
                     Assert.AreEqual(count + 1, visits.Count); Assert.AreSame(rows[expected], visits[^1].Row);
                     Assert.AreEqual(columnId == "Hash" ? hashes[expected] : sha256[expected], visits[^1].Text);
                     Assert.AreEqual(primary, table.SelectedIndex); CollectionAssert.AreEqual(selection, table.GetSelectedRowsSnapshot().ToArray());
@@ -96,7 +96,7 @@ public sealed class CustomTableNavigationTests
                 int selectionNotifications = 0;
                 table.SelectionChanged += (_, _) => selectionNotifications++;
 
-                InvalidOperationException thrown = Assert.ThrowsException<InvalidOperationException>(
+                InvalidOperationException thrown = Assert.ThrowsExactly<InvalidOperationException>(
                     () => table.HandleKeyDown(Key.C, ModifierKeys.Control | ModifierKeys.Shift));
 
                 Assert.AreSame(clipboardSentinel, thrown);
@@ -154,7 +154,7 @@ public sealed class CustomTableNavigationTests
     }
 
     /// <summary>Ctrl+A後のShift下と末尾クリックは同じ集合の主行変更を一回通知し、通知内の現在セルも同期することを確認します。反復と列だけの移動は無通知で、次のShift上は先頭基点から縮みます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void RangeSelection_AfterSelectAllNotifiesCurrentRowOnceAndPreservesAnchor(bool mouseInput)

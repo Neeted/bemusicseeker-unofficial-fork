@@ -312,7 +312,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     }
 
     /// <summary>登録済み詳細投影は要求の失効・取消後も同じ現役sourceへ反映し、退役後には新source・viewを変えません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("stale")]
     [DataRow("cancel")]
     [DataRow("retired")]
@@ -363,7 +363,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                 workspace.DetailViewState.View.Rows = replacementView;
             }
             release.TrySetResult();
-            if (outcome == "cancel") { await Assert.ThrowsExceptionAsync<OperationCanceledException>(async () => await patch); }
+            if (outcome == "cancel") { await Assert.ThrowsExactlyAsync<OperationCanceledException>(async () => await patch); }
             else { Assert.IsFalse(await patch, "失効した要求は成功へ戻しません。"); }
             if (outcome == "retired")
             {
@@ -422,7 +422,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         cancellation.Cancel();
         string cancellationStage = string.Empty;
 
-        Assert.ThrowsException<OperationCanceledException>(() => workspace.BuildDetailSourceRows(
+        Assert.ThrowsExactly<OperationCanceledException>(() => workspace.BuildDetailSourceRows(
             table,
             null,
             cancellation.Token,
@@ -1259,7 +1259,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             failureRelease.TrySetResult(true);
             try
             {
-                InvalidOperationException actualFailure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                InvalidOperationException actualFailure = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                     async () => await requestCompletion);
                 Assert.AreSame(originalFailure, actualFailure, "後発の選択変更で実failureを隠しません。");
                 await workerIdle.ConfigureAwait(false);

@@ -101,7 +101,7 @@ public sealed class PlaylistSummaryBulkEditTests
     }
 
     /// <summary>六つの実反映入口で全件退役と無変更対象を含む一部退役を拒否し、実DB・管理BMT・生存正本と入力を保持します。別storeはBMTで代表確認し、同ID別参照は実再同期ケースへ分担します。通信前拒否は外部headerを削除して識別します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("bmt")]
     [DataRow("sync")]
     [DataRow("root")]
@@ -166,7 +166,7 @@ public sealed class PlaylistSummaryBulkEditTests
             File.Delete(fixture.HeaderPath);
             try
             {
-                await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => ApplyBulkDraftAsync(draft, operation), operation + "/" + staleKind);
+                await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => ApplyBulkDraftAsync(draft, operation), operation + "/" + staleKind);
                 CollectionAssert.AreEqual(beforeModel, fixture.Playlist.BMSTables.Select(CaptureBulkHeader).ToArray());
                 using var db = new LR2SongDBExtended(fixture.SongDb);
                 CollectionAssert.AreEqual(beforeDb, db.Table<BMSTable>().OrderBy(table => table.playlist_id).Select(CaptureBulkHeader).ToArray());
@@ -203,7 +203,7 @@ public sealed class PlaylistSummaryBulkEditTests
         string root = Path.GetDirectoryName(fixture.BmtManifestPath) ?? throw new AssertFailedException();
         Dictionary<string, byte[]> before = Directory.GetFiles(root, "*", SearchOption.AllDirectories).ToDictionary(path => path, File.ReadAllBytes);
         Assert.IsTrue(before.Keys.Any(path => path.EndsWith(".bmt", StringComparison.OrdinalIgnoreCase)));
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(draft.ApplyBmtOutputAsync);
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(draft.ApplyBmtOutputAsync);
         Assert.IsTrue(current.is_bmt_output);
         using (var db = new LR2SongDBExtended(fixture.SongDb)) { Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT is_bmt_output FROM playlist WHERE playlist_id = ?", current.playlist_id)); }
         foreach (KeyValuePair<string, byte[]> file in before) { CollectionAssert.AreEqual(file.Value, File.ReadAllBytes(file.Key)); }
@@ -231,7 +231,7 @@ public sealed class PlaylistSummaryBulkEditTests
     };
 
     /// <summary>実外部属性初期化のprefix候補をDBと詳細へ配送し、全体/folder選択と次sort要求の終端を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task BulkExternalPrefix_UsesCommittedEntryReceiptForExistingDetail(bool selectedFolder)
@@ -265,7 +265,7 @@ public sealed class PlaylistSummaryBulkEditTests
     }
 
     /// <summary>bulk prefixの実DB前拒否と確定後通知故障を分け、旧状態維持/確定差分配送を実DBと既存詳細で確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task BulkExternalPrefix_FailuresRespectDatabaseCommitBoundary(bool afterCommit)
@@ -304,7 +304,7 @@ public sealed class PlaylistSummaryBulkEditTests
     }
 
     /// <summary>実BMT台帳の読取り故障をDB確定後に発生させ、概要コピー/候補または採用済み詳細を確定値へ進めます。二次通知故障を重ねても出力原因を保ち、Pと進捗・receiptの終端を実Taskで確認します。DB前の旧状態は既存DurableFailureとprefix境界ケースが担当します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true, false)]
     [DataRow(true, true)]
     [DataRow(false, true)]
@@ -392,7 +392,7 @@ public sealed class PlaylistSummaryBulkEditTests
             await TestUiDispatcherHost.AwaitNotificationAsync(receiptEntered.Task, operation, "bulk external properties terminal receipt");
             Assert.IsFalse(operation.IsCompleted);
             Assert.IsFalse(fixture.Playlist.WaitForPlaylistMutationIdleAsync().IsCompleted);
-            Assert.ThrowsException<InvalidOperationException>(() =>
+            Assert.ThrowsExactly<InvalidOperationException>(() =>
             {
                 using LibraryFileMutationLease conflicting = fixture.Playlist.AcquirePlaylistMutationLease("bulk-notification-busy");
             });
@@ -649,7 +649,7 @@ public sealed class PlaylistSummaryBulkEditTests
     }
 
     /// <summary>未登録名から通常・追加先への一覧再選択で実DBと必要出力を確定し、通常先の無関係なファイル・管理行を保ちます。外部名初期化では未登録名を維持して出力だけを停止します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("normal")]
     [DataRow("additional")]
     [DataRow("external-name")]
@@ -744,7 +744,7 @@ public sealed class PlaylistSummaryBulkEditTests
     }
 
     /// <summary>BMT・外部同期・root・出力mask・基点の保存を実DB triggerで失敗させ、同じ表と保存値を戻し、同じdraftの次の明示反映を保存します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 各条件は別の保存列を変更し、同じdraftで失敗後の再保存を観測します。
     [DataRow("bmt")]
     [DataRow("sync")]

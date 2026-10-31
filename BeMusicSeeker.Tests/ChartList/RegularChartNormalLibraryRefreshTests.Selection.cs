@@ -18,7 +18,7 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class RegularChartNormalLibraryRefreshTests
 {
     /// <summary>通常/専用一覧の実score配送で副選択だけを移し、主添字が不変でも選択識別とShift基点を復元します。16/128件で選択二件以外を実体化しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16, false)]
     [DataRow(128, false)]
     [DataRow(16, true)]
@@ -53,7 +53,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     }
 
     /// <summary>通常/専用一覧のscore絞込みから主行・基点・全選択が離脱しても、残選択の先頭または解除へ収束し、未選択行を代わりに採用しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(false, true)]
@@ -90,7 +90,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     }
 
     /// <summary>別表headerの実確定通知も通常/専用一覧の選択捕捉境界を通り、参照順で副選択だけが動いても元の譜面集合を返します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ReferenceReorder_ActualTablePreservesSelectedIdentities(bool subset)
@@ -122,7 +122,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     }
 
     /// <summary>実catalogのpath確定で通常/重複subsetの副選択だけが末尾へ移っても、実表から旧二譜面を返し、主添字だけの復元では別譜面を選ぶ誤りを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void CatalogPathChange_ActualTablePreservesSelectedIdentities(bool subset)
@@ -154,7 +154,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     }
 
     /// <summary>実解析・詳細DB確定から通常/専用一覧のノーツ順を局所更新し、主行不動の副選択と未訪問行を保持します。背景16/128件で復元の全行実体化を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16, false)]
     [DataRow(128, false)]
     [DataRow(16, true)]

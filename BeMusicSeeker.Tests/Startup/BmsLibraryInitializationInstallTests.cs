@@ -562,7 +562,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
         string missingSongDbPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_MissingInitTests_" + Guid.NewGuid().ToString("N"), "song.db");
         var service = new BmsLibraryInitializationService();
 
-        Assert.ThrowsException<SQLite.SQLiteException>(() => service.LoadInstallTable(new BmsLibraryDbGateway(missingSongDbPath), []));
+        Assert.ThrowsExactly<SQLite.SQLiteException>(() => service.LoadInstallTable(new BmsLibraryDbGateway(missingSongDbPath), []));
     }
 
     /// <summary>
@@ -1056,7 +1056,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
     /// 起動と全再初期化で両受付中に安定候補だけを修復し、受付解放後の通知再入を許し、確認中の終了では物理・DBを変更しない。
     /// </summary>
     /// <remarks>実ライブラリの起動入口・DB・物理入力・通知を接続し、処理段階を跨ぐ確定と受付の保証を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(BMSLibrary.LibraryInitializeMode.Startup, false)] // 通常起動で修復
     [DataRow(BMSLibrary.LibraryInitializeMode.FullReinitialize, false)] // 全再初期化で修復
     [DataRow(BMSLibrary.LibraryInitializeMode.Startup, true)] // 通常起動の確認中に終了
@@ -1247,7 +1247,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
     /// No・Cancel・未選択の修復確認は非承認として続行し、日時と保存列を保って両受付解放後に検出警告を通知する。
     /// </summary>
     /// <remarks>実ライブラリの起動入口・DB・物理入力・通知を接続し、処理段階を跨ぐ確定と受付の保証を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow((int)MessageBoxResult.No)]
     [DataRow((int)MessageBoxResult.Cancel)]
     [DataRow((int)MessageBoxResult.None)]
@@ -1291,7 +1291,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
     /// 一部と全件の日時修復失敗を区別し、成功対象だけを保存して元対象・原因を両受付解放後に通知する。
     /// </summary>
     /// <remarks>実ライブラリの起動入口・DB・物理入力・通知を接続し、処理段階を跨ぐ確定と受付の保証を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Initialize_LeapYearPartialRepairPreservesSuccessAndNotifiesOriginalFailureAfterBothAdmissions(bool allFail)
@@ -1385,7 +1385,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
                 Assert.IsFalse(library.IsWriteLockHeldInitializeAll);
                 Assert.IsFalse(library.IsWriteLockHeldInitializeMin);
             };
-            SQLite.SQLiteException failure = Assert.ThrowsException<SQLite.SQLiteException>(() => library.InitializeStartup(null));
+            SQLite.SQLiteException failure = Assert.ThrowsExactly<SQLite.SQLiteException>(() => library.InitializeStartup(null));
             StringAssert.Contains(failure.Message, "song");
             Assert.AreEqual(1, mutation.TimestampCalls.Count);
             Assert.AreNotEqual(sentinel, Directory.GetLastWriteTime(folder));

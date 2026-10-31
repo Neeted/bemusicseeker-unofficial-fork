@@ -134,7 +134,7 @@ public sealed class ApplicationDataUninstallWorkflowOwnerTests
         var store = new RecordingStore(dialogs.Events);
         var owner = new ApplicationDataUninstallWorkflowOwner(dialogs, store);
 
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => owner.ConfirmAsync(new ApplicationDataUninstallRequest(
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => owner.ConfirmAsync(new ApplicationDataUninstallRequest(
             isWorkspaceReady: true,
             isLibraryOperationInProgress: false)));
 

@@ -19,7 +19,7 @@ public sealed class BassAsioNegotiationTests
         (input, channel, buffer, length, user) => length;
 
     /// <summary>ASIO float engineとcallbackを構成し、指定並列数1～4の設定・読戻しと実latencyを結果へ反映する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(1)]
     [DataRow(2)]
     [DataRow(3)]
@@ -46,7 +46,7 @@ public sealed class BassAsioNegotiationTests
     }
 
     /// <summary>並列数の設定失敗・読戻し失敗・不一致を別の初期化失敗として返し、未確認mixerを採用しない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("set")]
     [DataRow("get")]
     [DataRow("mismatch")]
@@ -68,7 +68,7 @@ public sealed class BassAsioNegotiationTests
             native.ReportedMixerThreadCount = BassMixerThreadConfigurator.RealtimeDefaultThreadCount + 1;
         }
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => Initialize(native, SampleRate.AUTO, SampleFormat.AUTO));
 
         Assert.AreEqual(
@@ -90,7 +90,7 @@ public sealed class BassAsioNegotiationTests
         var native = new RecordingAsioBoundary();
         native.AcceptedFormats.Remove(AsioSampleFormat.Float);
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => Initialize(
                 native,
                 SampleRate.SAMPLE_RATE_48000Hz,
@@ -103,7 +103,7 @@ public sealed class BassAsioNegotiationTests
     }
 
     /// <summary>旧整数形式の再生要求をfloat engine／callbackへ正規化し、指定との差を理由に残してbyte幅不一致を防ぐ。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(SampleFormat.SAMPLE_INT_8BIT)]
     [DataRow(SampleFormat.SAMPLE_INT_24BIT)]
     [DataRow(SampleFormat.SAMPLE_INT_32BIT)]
@@ -128,7 +128,7 @@ public sealed class BassAsioNegotiationTests
     }
 
     /// <summary>整数native endpointの容器幅・有効bitを区別し、float callbackにTPDF flagを付けて実精度を診断へ残す。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16, SampleFormat.SAMPLE_INT_16BIT, 16, 16)]
     [DataRow(17, SampleFormat.SAMPLE_INT_24BIT, 24, 24)]
     [DataRow(18, SampleFormat.SAMPLE_INT_32BIT, 32, 32)]
@@ -174,7 +174,7 @@ public sealed class BassAsioNegotiationTests
     }
 
     /// <summary>DSD・未知・未対応native形式をmixer作成前に拒否し、取得済みASIO／core所有はcleanup用に保持する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(32)]
     [DataRow(33)]
     [DataRow(-1)]
@@ -187,7 +187,7 @@ public sealed class BassAsioNegotiationTests
         };
         BassAudioSession session = CreateSession();
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => new BassAsioNegotiator(native).Initialize(
                 CreateRequest(SampleRate.AUTO, SampleFormat.AUTO),
                 session,
@@ -211,7 +211,7 @@ public sealed class BassAsioNegotiationTests
         };
         BassAudioSession session = CreateSession();
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => new BassAsioNegotiator(native).Initialize(
                 CreateRequest(SampleRate.AUTO, SampleFormat.AUTO),
                 session,
@@ -234,7 +234,7 @@ public sealed class BassAsioNegotiationTests
             ReportedChannelFormat = AsioSampleFormat.Bit16
         };
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => Initialize(native, SampleRate.AUTO, SampleFormat.AUTO));
 
         Assert.AreEqual("BASS_ASIO_ChannelGetFormat", exception.Stage);
@@ -247,7 +247,7 @@ public sealed class BassAsioNegotiationTests
     }
 
     /// <summary>float・整数endpointに対応するcallback raw値とdither flagを完全一致で読み戻し、設定診断を結果へ残す。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(19, 0x13)]
     [DataRow(16, 0x113)]
     public void FloatCallbackReadback_AcceptsOnlyTheSameRawValue(int endpointNativeFormat, int expectedRaw)
@@ -268,7 +268,7 @@ public sealed class BassAsioNegotiationTests
     }
 
     /// <summary>callback raw値の必要flag欠落・余分flag・整数形式を拒否し、基底形式だけの一致を成功と扱わない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0x13, 16, 0x113)]
     [DataRow(0x113, 19, 0x13)]
     [DataRow(0x213, 16, 0x113)]
@@ -284,7 +284,7 @@ public sealed class BassAsioNegotiationTests
             ReportedChannelFormat = (AsioSampleFormat)reportedRaw
         };
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => Initialize(native, SampleRate.AUTO, SampleFormat.AUTO));
 
         Assert.AreEqual("BASS_ASIO_ChannelGetFormat", exception.Stage);
@@ -306,7 +306,7 @@ public sealed class BassAsioNegotiationTests
             ChannelFormatError = Errors.Init
         };
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => Initialize(native, SampleRate.AUTO, SampleFormat.AUTO));
 
         Assert.AreEqual("BASS_ASIO_ChannelGetFormat", exception.Stage);
@@ -469,7 +469,7 @@ public sealed class BassAsioNegotiationTests
             SampleFormat.AUTO,
             AudioOutputPurpose.DeviceTest);
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => new BassAsioNegotiator(native).Initialize(request, CreateSession(), Callback));
 
         Assert.AreEqual("BASS_ASIO_SetRate", exception.Stage);
@@ -491,7 +491,7 @@ public sealed class BassAsioNegotiationTests
             SampleFormat.SAMPLE_INT_16BIT,
             AudioOutputPurpose.DeviceTest);
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => new BassAsioNegotiator(native).Initialize(request, CreateSession(), Callback));
 
         Assert.AreEqual("BASS_ASIO_ChannelGetInfo", exception.Stage);
@@ -511,7 +511,7 @@ public sealed class BassAsioNegotiationTests
             10f,
             purpose: AudioOutputPurpose.DeviceTest);
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => new BassAsioNegotiator(native).Initialize(request, CreateSession(), Callback));
 
         Assert.AreEqual("BASS_ASIO_GetDeviceInfos", exception.Stage);
@@ -553,7 +553,7 @@ public sealed class BassAsioNegotiationTests
         BassAudioSession session = CreateSession();
         BassAudioNegotiationRequest request = CreateRequest(SampleRate.AUTO, SampleFormat.AUTO);
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => new BassAsioNegotiator(native).Initialize(request, session, Callback));
 
         Assert.AreEqual("BASSASIO", exception.NativeErrorSource);
@@ -575,7 +575,7 @@ public sealed class BassAsioNegotiationTests
         };
         BassAudioSession session = CreateSession();
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => new BassAsioNegotiator(native).Initialize(
                 CreateRequest(SampleRate.AUTO, SampleFormat.AUTO),
                 session,
@@ -599,7 +599,7 @@ public sealed class BassAsioNegotiationTests
         };
         BassAudioSession session = CreateSession();
 
-        Assert.ThrowsException<AudioInitializationException>(
+        Assert.ThrowsExactly<AudioInitializationException>(
             () => new BassAsioNegotiator(native).Initialize(
                 CreateRequest(SampleRate.AUTO, SampleFormat.AUTO),
                 session,
@@ -648,7 +648,7 @@ public sealed class BassAsioNegotiationTests
         };
         BassAudioSession session = CreateSession();
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => new BassAsioNegotiator(native).Initialize(
                 CreateRequest(SampleRate.AUTO, SampleFormat.AUTO),
                 session,
@@ -672,7 +672,7 @@ public sealed class BassAsioNegotiationTests
         };
         BassAudioSession session = CreateSession();
 
-        AudioInitializationException exception = Assert.ThrowsException<AudioInitializationException>(
+        AudioInitializationException exception = Assert.ThrowsExactly<AudioInitializationException>(
             () => new BassAsioNegotiator(native).Initialize(
                 CreateRequest(SampleRate.AUTO, SampleFormat.AUTO),
                 session,
@@ -692,7 +692,7 @@ public sealed class BassAsioNegotiationTests
         using var cancellation = new CancellationTokenSource();
         var native = new RecordingAsioBoundary { OnCheckRate = cancellation.Cancel };
         BassAudioSession session = CreateSession();
-        Assert.ThrowsException<OperationCanceledException>(() => new BassAsioNegotiator(native)
+        Assert.ThrowsExactly<OperationCanceledException>(() => new BassAsioNegotiator(native)
             .QueryCapabilities(CreateCapabilityRequest(), session, cancellation.Token));
         Assert.AreEqual(1, native.CheckedRates.Count);
         Assert.IsTrue(session.CoreInitialized);

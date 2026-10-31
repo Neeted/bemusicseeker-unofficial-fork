@@ -425,7 +425,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             importCompletion = playlist.WaitForPlaylistMutationIdleAsync();
             await Task.WhenAny(server.HeadersSent.Task, importCompletion);
             Assert.IsTrue(server.HeadersSent.Task.IsCompleted, "URI取込みの実通信へ到達しませんでした。");
-            Assert.ThrowsException<InvalidOperationException>(() => playlist.AcquirePlaylistMutationLease("uri-import-communication-busy"));
+            Assert.ThrowsExactly<InvalidOperationException>(() => playlist.AcquirePlaylistMutationLease("uri-import-communication-busy"));
             Assert.AreEqual(PlaylistImportStartStatus.Busy,
                 workspace.TryStartPlaylistImport([new Uri(secondUri)]).Status, "通信中の追加要求を予約しません。");
             await Task.Run(() =>
@@ -615,7 +615,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             importCompletion = workspace.StartBeatorajaTableUrlImport(beatorajaRoot);
             // 実Startが返す取込みTaskで、通信から出力・通知・受付解放までを回収します。
             await TestUiDispatcherHost.AwaitNotificationAsync(server.HeadersSent.Task, importCompletion, "new table import HTTP headers");
-            Assert.ThrowsException<InvalidOperationException>(() => playlist.AcquirePlaylistMutationLease("beatoraja-import-communication-busy"));
+            Assert.ThrowsExactly<InvalidOperationException>(() => playlist.AcquirePlaylistMutationLease("beatoraja-import-communication-busy"));
             Assert.IsFalse(importCompletion.IsCompleted);
             server.ReleaseBody.TrySetResult();
             await TestUiDispatcherHost.AwaitNotificationAsync(summaryReady.Task, importCompletion, "new table import summary");
@@ -1264,7 +1264,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         };
 
         workspace.RefreshPlaylistTreeTables(null);
-        Assert.ThrowsException<InvalidOperationException>(() => presentationQueue.Dequeue()());
+        Assert.ThrowsExactly<InvalidOperationException>(() => presentationQueue.Dequeue()());
 
         workspace.RefreshPlaylistTreeTables(null);
         Assert.AreEqual(1, presentationQueue.Count);
@@ -1392,7 +1392,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
 
     /// <summary>en-USで通常名・外部空表名と固定旧日付を通常新規取込みへ通し、不正な実採用追加日は一表保存前に止め、訂正後の成功通知・所属・fresh DBを照合します。外部空表名は実BMT出力終端まで無通知でスキップし、名前なしフォルダと項目を保持します。</summary>
     /// <remarks>条件網羅と実serializer往復はBMSTableLoadTestsへ分担し、ここでは実workspaceと保存の接続を一表で確認します。共有通知の寿命を所有するため単独実行します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("Four digit year import")]
     [DataRow("")]
     [DoNotParallelize]
@@ -1894,7 +1894,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
     }
 
     /// <summary>空の正常応答と取得失敗を別の状態にし、取得失敗を空の成功として公開しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ExternalTableListCatalog_DistinguishesEmptySuccessFromFailure(bool fails)
@@ -1919,7 +1919,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
     }
 
     /// <summary>終了が受付前なら後着fetchを開始せず、登録後のUI待機中ならfetch前に終端し、実fetch中ならtokenへ取消を届けます。どの順序も実Taskを回収し、終了後の後発要求と表示更新を拒否します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("before_registration")]
     [DataRow("before_fetch")]
     [DataRow("during_fetch")]
@@ -2115,7 +2115,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
     }
 
     /// <summary>通常初回入口でURL転送後のheader/dataを互換読取りし、local JSONのheader/dataはHTTP参照でもStrictに保ちます。local HTMLの分類も本文で決めます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("url")]
     [DataRow("local-header")]
     [DataRow("local-data")]

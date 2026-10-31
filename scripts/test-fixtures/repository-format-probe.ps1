@@ -110,7 +110,8 @@ try {
     function Invoke-BudgetedCommand {
         param($Stopwatch, $BudgetSeconds, $Label, $CommandPath, [string[]]$Arguments, $DiagnosticsDirectory)
         [void]$events.Add($Arguments[0])
-        if ($Arguments[0] -in @('build', 'test')) {
+        if ($failure -eq $Arguments[0]) { throw "probe-$failure-failure" }
+        if ($Arguments[0] -eq 'build') {
             [void]$buildInputs.Add([IO.File]::ReadAllText((Join-Path $repoRoot 'Changed.cs')))
         }
     }
@@ -127,19 +128,29 @@ try {
         param($Filter, $DiagnosticsDirectory)
         return @('test')
     }
+    function Get-VerificationTestMetadata {
+        param($AssemblyPath)
+        return [pscustomobject]@{ FullyQualifiedName = 'Fixture.Selected' }
+    }
+    function Assert-VerificationTestOutcomes {
+        param($ResultPaths, $KnownFqns)
+        [void]$events.Add('gate')
+    }
 
     $results = @(
-        foreach ($scenario in @('Functional', 'Quick', 'Full', 'Empty', 'GitFailure', 'StyleFailure', 'WhitespaceFailure', 'Manual')) {
+        foreach ($scenario in @('Functional', 'Quick', 'Full', 'Empty', 'GitFailure', 'StyleFailure', 'WhitespaceFailure', 'Manual', 'QuickBuildFailure', 'QuickTestFailure')) {
             $commands.Clear()
             $events.Clear()
             $buildInputs.Clear()
             Write-TestFile 'Changed.cs' 'unformatted'
-            $Mode = if ($scenario -in @('Quick', 'Full')) { $scenario } else { 'Functional' }
+            $Mode = if ($scenario.StartsWith('Quick')) { 'Quick' } elseif ($scenario -eq 'Full') { 'Full' } else { 'Functional' }
             $gitOutput = if ($scenario -eq 'Empty') { '' } else { "Changed.cs`0" }
             $failure = switch ($scenario) {
                 'GitFailure' { 'git' }
                 'StyleFailure' { 'style' }
                 'WhitespaceFailure' { 'whitespace' }
+                'QuickBuildFailure' { 'build' }
+                'QuickTestFailure' { 'test' }
                 default { '' }
             }
             $errorMessage = ''

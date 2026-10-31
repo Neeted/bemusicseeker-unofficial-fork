@@ -21,7 +21,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
 {
     /// <summary>保留復元失敗後の選択条件を実復元ステージで検証します。Retryはfresh取得、Resetは全登録削除、削除失敗は再承認、閉鎖は失敗、Exitだけが終了要求です。</summary>
     /// <remarks>表示応答だけを代替し、実SQLite・ファイルreadlock・実判断主体を使います。DB/モデル保護外の待機と実VM接続は代表フロー、実ボタンはWindowテストへ分担します。DB・設定・入力・モデル・表示応答はケースごとに所有し、共有Windowや通知購読を差し替えません。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("retry")]
     [DataRow("reset")]
     [DataRow("reset-failure")]
@@ -73,7 +73,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
             Task<bool> operation = owner.RestorePendingPackagesAsync(library, accepted.Capability, options, dialogs);
             if (scenario is "close" or "escape")
             {
-                PendingPackageRestoreException failure = await Assert.ThrowsExceptionAsync<PendingPackageRestoreException>(() => operation);
+                PendingPackageRestoreException failure = await Assert.ThrowsExactlyAsync<PendingPackageRestoreException>(() => operation);
                 Assert.IsInstanceOfType<IOException>(failure.InnerException);
             }
             else { Assert.AreEqual(scenario == "exit", await operation); }
@@ -129,7 +129,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
             Assert.IsTrue(readiness.DestinationResourceIndexReady);
             Assert.IsFalse(readiness.PendingPackagesRestored);
             library.PropertyChanged += failNotification;
-            IOException actual = await Assert.ThrowsExceptionAsync<IOException>(() =>
+            IOException actual = await Assert.ThrowsExactlyAsync<IOException>(() =>
                 owner.RestorePendingPackagesAsync(library, accepted.Capability, files.Options, dialogs));
             Assert.AreSame(expected, actual);
             Assert.AreEqual(1, notifications);
@@ -149,7 +149,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
 
     /// <summary>表示障害とアプリ終了は再選択・Resetへ変換しません。未表示状態や配送例外も元の全登録を保ち、復元だけを再実行しません。</summary>
     /// <remarks>実復元が未確定で失敗した後の表示境界だけに故障を置きます。固有DB・設定・入力とWindowを作らない表示代替を使い、共有表示状態を変更しません。確定後のモデル通知障害は、モデルの必須通知終端テストと実VMの代表接続へ分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("failed")]
     [DataRow("unavailable")]
     [DataRow("appclosing")]
@@ -191,11 +191,11 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
         try
         {
             Task<bool> operation = owner.RestorePendingPackagesAsync(library, accepted.Capability, options, dialogs, () => shutdown);
-            if (scenario is "shutdown" or "already-closing") { await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => operation); }
-            else if (scenario == "throw") { Assert.AreSame(expected, await Assert.ThrowsExceptionAsync<IOException>(() => operation)); }
+            if (scenario is "shutdown" or "already-closing") { await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => operation); }
+            else if (scenario == "throw") { Assert.AreSame(expected, await Assert.ThrowsExactlyAsync<IOException>(() => operation)); }
             else
             {
-                InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => operation);
+                InvalidOperationException failure = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => operation);
                 Assert.AreSame(expected, failure.InnerException);
             }
             Assert.AreEqual(scenario == "already-closing" ? 0 : 1, dialogs.PendingRestoreCount);

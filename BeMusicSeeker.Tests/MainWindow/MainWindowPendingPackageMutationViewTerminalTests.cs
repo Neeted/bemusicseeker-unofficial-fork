@@ -189,7 +189,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
                 return Task.FromResult(true);
             }, dialogs);
 
-        AggregateException exception = await Assert.ThrowsExceptionAsync<AggregateException>(
+        AggregateException exception = await Assert.ThrowsExactlyAsync<AggregateException>(
             () => terminal.ApplyAsync(
                 PendingPackageMutationResult.FailedAfterMutation(
                     mutationFailure,
@@ -216,7 +216,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
             () => 0,
             _ => Task.FromException<bool>(navigationFailure), dialogs);
 
-        AggregateException exception = await Assert.ThrowsExceptionAsync<AggregateException>(
+        AggregateException exception = await Assert.ThrowsExactlyAsync<AggregateException>(
             () => terminal.ApplyAsync(
                 PendingPackageMutationResult.FailedAfterMutation(
                     mutationFailure,
@@ -239,7 +239,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
             () => 1,
             _ => Task.FromResult(true));
 
-        InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+        InvalidOperationException exception = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => terminal.ApplyAsync(
                 PendingPackageMutationResult.Completed,
                 PackageCatalogSection.Pending,
@@ -252,7 +252,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
     }
 
     /// <summary>後片付け失敗と終端失敗の有無・通知先例外の各条件でも表示反映とreceipt通知を一回行いcommitを保持することを確認し、画面移動不要時の通知漏れや通知失敗によるcommit取消扱いを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(true, true)]

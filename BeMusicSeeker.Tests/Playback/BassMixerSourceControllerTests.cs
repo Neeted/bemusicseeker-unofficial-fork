@@ -38,7 +38,7 @@ public sealed class BassMixerSourceControllerTests
     }
 
     /// <summary>異なるrateのsourceへ指定品質2～6を設定・読戻した後に明示行列を適用し、未確認SRCの再開を防ぐ。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(2)]
     [DataRow(3)]
     [DataRow(4)]
@@ -112,7 +112,7 @@ public sealed class BassMixerSourceControllerTests
         };
         var controller = new BassMixerSourceController(native);
 
-        BassAudioPlaybackException exception = Assert.ThrowsException<BassAudioPlaybackException>(
+        BassAudioPlaybackException exception = Assert.ThrowsExactly<BassAudioPlaybackException>(
             () => controller.ConfigurePausedSource(
                 77,
                 12,
@@ -137,7 +137,7 @@ public sealed class BassMixerSourceControllerTests
         };
         var controller = new BassMixerSourceController(native);
 
-        BassAudioPlaybackException exception = Assert.ThrowsException<BassAudioPlaybackException>(
+        BassAudioPlaybackException exception = Assert.ThrowsExactly<BassAudioPlaybackException>(
             () => controller.ConfigurePausedSource(
                 77,
                 12,
@@ -163,7 +163,7 @@ public sealed class BassMixerSourceControllerTests
         };
         var controller = new BassMixerSourceController(native);
 
-        BassAudioPlaybackException exception = Assert.ThrowsException<BassAudioPlaybackException>(
+        BassAudioPlaybackException exception = Assert.ThrowsExactly<BassAudioPlaybackException>(
             () => controller.ConfigurePausedSource(
                 77,
                 12,
@@ -191,7 +191,7 @@ public sealed class BassMixerSourceControllerTests
         };
         var controller = new BassMixerSourceController(native);
 
-        BassAudioPlaybackException exception = Assert.ThrowsException<BassAudioPlaybackException>(
+        BassAudioPlaybackException exception = Assert.ThrowsExactly<BassAudioPlaybackException>(
             () => controller.ConfigurePausedSource(
                 77,
                 12,
@@ -208,7 +208,7 @@ public sealed class BassMixerSourceControllerTests
     }
 
     /// <summary>不正品質の上下限をnative設定前に拒否し、無効値のままsourceを構成しない。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(1)]
     [DataRow(7)]
     public void ConfigurePausedSource_RejectsUnsupportedQualityBeforeNativeCalls(int quality)
@@ -216,7 +216,7 @@ public sealed class BassMixerSourceControllerTests
         var native = new FakeNativeBoundary { MixerHandle = 77 };
         var controller = new BassMixerSourceController(native);
 
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => controller.ConfigurePausedSource(
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => controller.ConfigurePausedSource(
             77,
             12,
             AudioChannelLayout.CreateStandard(2),
@@ -241,7 +241,7 @@ public sealed class BassMixerSourceControllerTests
         };
         var controller = new BassMixerSourceController(native);
 
-        BassAudioPlaybackException exception = Assert.ThrowsException<BassAudioPlaybackException>(
+        BassAudioPlaybackException exception = Assert.ThrowsExactly<BassAudioPlaybackException>(
             () => controller.ConfigurePausedSource(
                 77,
                 12,
@@ -324,7 +324,7 @@ public sealed class BassMixerSourceControllerTests
     {
         var topFrontCenter = new AudioChannelLayout([AudioSpeakerPosition.TopFrontCenter]);
 
-        Assert.ThrowsException<ArgumentException>(
+        Assert.ThrowsExactly<ArgumentException>(
             () => AudioChannelMatrix.Create(topFrontCenter, AudioChannelLayout.CreateBassOutput(2)));
     }
 
@@ -451,7 +451,7 @@ public sealed class BassMixerSourceControllerTests
         var native = new FakeNativeBoundary { MixerHandle = 88 };
         var controller = new BassMixerSourceController(native);
 
-        BassAudioPlaybackException exception = Assert.ThrowsException<BassAudioPlaybackException>(
+        BassAudioPlaybackException exception = Assert.ThrowsExactly<BassAudioPlaybackException>(
             () => controller.EnsureAttachedPaused(77, 12, "test.wav"));
 
         Assert.AreEqual(BassAudioPlaybackStage.MixerMembership, exception.Stage);
@@ -474,7 +474,7 @@ public sealed class BassMixerSourceControllerTests
         var native = new FakeNativeBoundary { MixerHandle = 88 };
         var controller = new BassMixerSourceController(native, () => session);
 
-        BassAudioPlaybackException exception = Assert.ThrowsException<BassAudioPlaybackException>(
+        BassAudioPlaybackException exception = Assert.ThrowsExactly<BassAudioPlaybackException>(
             () => controller.EnsureAttachedPaused(77, 12, "test.wav"));
 
         Assert.AreEqual(BassAudioPlayer.DeviceDriver.WASAPI_SHARED, exception.Backend);
@@ -519,7 +519,7 @@ public sealed class BassMixerSourceControllerTests
         native.ErrorReads.Enqueue(Errors.Handle);
         var controller = new BassMixerSourceController(native);
 
-        BassAudioPlaybackException exception = Assert.ThrowsException<BassAudioPlaybackException>(
+        BassAudioPlaybackException exception = Assert.ThrowsExactly<BassAudioPlaybackException>(
             () => controller.EnsureAttachedPaused(77, 12, "test.wav"));
 
         Assert.AreEqual(BassAudioPlaybackStage.MixerAttach, exception.Stage);
@@ -540,7 +540,7 @@ public sealed class BassMixerSourceControllerTests
         native.ErrorReads.Enqueue(Errors.Handle);
         var controller = new BassMixerSourceController(native);
 
-        BassAudioPlaybackException exception = Assert.ThrowsException<BassAudioPlaybackException>(
+        BassAudioPlaybackException exception = Assert.ThrowsExactly<BassAudioPlaybackException>(
             () => controller.EnsureAttachedPaused(77, 12, "test.wav"));
 
         Assert.AreEqual(BassAudioPlaybackStage.MixerAttach, exception.Stage);
@@ -563,7 +563,7 @@ public sealed class BassMixerSourceControllerTests
 
         native.FlagsResult = unchecked((BassFlags)(-1));
         native.Error = Errors.Handle;
-        BassAudioPlaybackException exception = Assert.ThrowsException<BassAudioPlaybackException>(
+        BassAudioPlaybackException exception = Assert.ThrowsExactly<BassAudioPlaybackException>(
             () => controller.Resume(77, 12, "test.wav"));
         Assert.AreEqual(BassAudioPlaybackStage.MixerResume, exception.Stage);
         Assert.AreEqual(Errors.Handle, exception.NativeErrorCode);
@@ -580,7 +580,7 @@ public sealed class BassMixerSourceControllerTests
         };
         var controller = new BassMixerSourceController(native);
 
-        BassAudioPlaybackException exception = Assert.ThrowsException<BassAudioPlaybackException>(
+        BassAudioPlaybackException exception = Assert.ThrowsExactly<BassAudioPlaybackException>(
             () => controller.SetPosition(12, 4096, "test.wav", 77));
 
         Assert.AreEqual(PositionFlags.Bytes, native.LastPositionFlags);

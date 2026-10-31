@@ -69,7 +69,7 @@ public sealed class PlaylistTablesReloadWorkflowOwnerTests
         var failure = new InvalidOperationException("table reload failed");
         PlaylistTablesReloadWorkflowOwner owner = new(_ => Task.FromException(failure),
             _ => { syncCalls++; return Task.CompletedTask; });
-        InvalidOperationException actual = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+        InvalidOperationException actual = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => owner.ReloadAsync(new PlaylistTablesReloadRequest(23L)));
         Assert.AreSame(failure, actual);
         Assert.AreEqual(0, syncCalls);
@@ -83,7 +83,7 @@ public sealed class PlaylistTablesReloadWorkflowOwnerTests
         var failure = new InvalidOperationException("external sync failed");
         PlaylistTablesReloadWorkflowOwner owner = new(
             _ => { reloadCalls++; return Task.CompletedTask; }, _ => Task.FromException(failure));
-        InvalidOperationException actual = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+        InvalidOperationException actual = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => owner.ReloadAsync(new PlaylistTablesReloadRequest(29L)));
         Assert.AreSame(failure, actual);
         Assert.AreEqual(1, reloadCalls);
@@ -98,7 +98,7 @@ public sealed class PlaylistTablesReloadWorkflowOwnerTests
         int syncCalls = 0;
         PlaylistTablesReloadWorkflowOwner owner = new(_ => Task.FromCanceled(cancellation.Token),
             _ => { syncCalls++; return Task.CompletedTask; });
-        await Assert.ThrowsExceptionAsync<TaskCanceledException>(() => owner.ReloadAsync(new PlaylistTablesReloadRequest(31L)));
+        await Assert.ThrowsExactlyAsync<TaskCanceledException>(() => owner.ReloadAsync(new PlaylistTablesReloadRequest(31L)));
         Assert.AreEqual(0, syncCalls);
     }
 }

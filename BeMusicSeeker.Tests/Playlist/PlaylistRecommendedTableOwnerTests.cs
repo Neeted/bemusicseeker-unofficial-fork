@@ -138,7 +138,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
     }
 
     /// <summary>4推定方針はスコアなしでモデル保存★を使い、通常譜面すべてと両分類・未定義nullを生成して手動名を保持する。段位の混入・再換算・スコア要求を検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // モデル保存値を再換算しない。FCだけ正常な未定義nullも確認する。
     [DataRow("easy", .73)]
     [DataRow("normal", 2.56)]
@@ -171,7 +171,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
     }
 
     /// <summary>非bmseeker・未対応経路・未対応推定種類・排他的方針の同時指定はスコア読取り前に拒否する。不正要求での読取りと方針の暗黙置換を検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // URI種別、経路、推定種類、同時指定できない方針の順に拒否条件を分ける。
     [DataRow("https://example.invalid/table.json")]
     [DataRow("bmseeker:table.unsupported")]
@@ -181,12 +181,12 @@ public sealed class PlaylistRecommendedTableOwnerTests
     {
         int reads = 0;
         PlaylistRecommendedTableOwner owner = CreateOwner(_ => { reads++; throw new InvalidOperationException(); });
-        await Assert.ThrowsExceptionAsync<ArgumentException>(() => owner.LoadWalkureTableAsync(new Uri(uri)));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => owner.LoadWalkureTableAsync(new Uri(uri)));
         Assert.AreEqual(0, reads);
     }
 
     /// <summary>未設定・読取り失敗・正常だが観測なしの3状態では推薦生成を失敗させる。架空の実力や古いスコアへの置換を検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 正常な空DBも未設定・読取り障害とは別入力として失敗を確認する。
     [DataRow(ScoreTableLoadStatus.NotConfigured)]
     [DataRow(ScoreTableLoadStatus.Failed)]
@@ -195,7 +195,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
     {
         var status = (ScoreTableLoadStatus)statusValue;
         PlaylistRecommendedTableOwner owner = CreateOwner(_ => Task.FromResult(new WalkureScoreInput(status, ImmutableDictionary<string, WalkureLamp>.Empty)));
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => owner.LoadWalkureTableAsync(new Uri("bmseeker:table.recommended")));
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => owner.LoadWalkureTableAsync(new Uri("bmseeker:table.recommended")));
     }
 
     /// <summary>旧mode・id・filter・nameと未知パラメーターを受理して同じ推薦を生成し、保存prefixを完成所属・明示順へ一度適用して出力設定を保ち、名称を自動名へ戻す。URI互換の誤拒否と属性だけのprefix復元を検出する。</summary>
@@ -568,7 +568,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
     }
 
     /// <summary>既存クリア別名を推薦用の5段階へ集約し、未プレイは観測から除く。補助・EXHARD・満点の意味を誤分類する変換を検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 未プレイは観測なし、FAILEDの別名・HARDの別名・FCの別名は同じ推薦ランプへ集約する。
     [DataRow(ClearType.NO_PLAY, null)]
     [DataRow(ClearType.FAILED, WalkureLamp.Failed)]
@@ -700,7 +700,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
     }
 
     /// <summary>読取り例外は対象失敗、利用者取消は操作失敗に分け、旧DB・メモ・正本参照と通知なしを維持して更新状態を解除する。部分反映と失敗・取消の隠蔽を検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 読取りgate中の利用者取消と通信に依存しないローカルIOExceptionを分ける。
     [DataRow(true)]
     [DataRow(false)]
@@ -781,7 +781,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
     }
 
     /// <summary>fr-FRでも取得元名の★数値と差分を固定表記で表示し、増減して通知設定ONの推薦だけ一回通知する。同値表記・比較不能・設定OFF・推定表は通知せず、手動名や更新日時を通知判断へ混ぜる誤りを検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 増加・減少は通知し、同値表記・比較不能・OFF・推定表では通知しない。
     [DataRow("旧方針 ★10.00", "新方針 ★10.75", 10.75, .75, true, "bmseeker:table.recommended", 1)]
     [DataRow("旧方針 ★10.75", "新方針 ★10.00", 10.00, -.75, true, "bmseeker:table.recommended", 1)]

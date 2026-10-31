@@ -185,7 +185,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     /// <summary>drive root・通常directory・UNCの取得済み索引を正負とも照会し、末尾除去によるcache missと実FS fallbackを検出する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(@"C:\")]
     [DataRow(@"C:\root-identity")]
     [DataRow(@"\\server\share")]
@@ -538,7 +538,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     /// <summary>
     /// 資源不足を無視済みの譜面を強制保守すると無視を解除して変更ありを返し、明示再評価で古い無視が残る誤りを検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void EvaluateMaintenanceForInline_ForceUpdateReportsChangedWhenIgnoredFlagIsReset(bool bmson)
@@ -1440,7 +1440,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     /// </summary>
     /// <remarks>実ライブラリの保存・所持現在値・表示通知の接続を確認するため独立したSQLite DBを用いる。</remarks>
     // 16件と128件の背景を使い、二対象の更新を全件列挙で代用する反例を見分ける。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     [DataRow(128)]
     public void RescanResourceHealthCharts_UpdatesCurrentResourceHealthIndexByDelta(int backgroundCount)
@@ -2824,7 +2824,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> noOpWriter = _ => CatalogMaintenanceWriteReceipt.NotApplied;
             file = ChartFileProjection.WithMaintenance(file, new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5, Encoding = "shift_jis" });
 
-            Assert.ThrowsException<InvalidOperationException>(() =>
+            Assert.ThrowsExactly<InvalidOperationException>(() =>
                 new BmsLibraryMaintenanceService(1).UpdateMaintenanceInfo(
                     [(file)],
                     forceUpdate: true,
@@ -3303,7 +3303,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             File.SetLastWriteTimeUtc(path, song.LastWriteTimeUtc.AddMinutes(1));
             int writeCount = 0;
 
-            Assert.ThrowsException<InvalidOperationException>(() =>
+            Assert.ThrowsExactly<InvalidOperationException>(() =>
                 new BmsLibraryMaintenanceService(1).UpdateMaintenanceInfo(
                     [(song)],
                     forceUpdate,
@@ -3847,7 +3847,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     /// <summary>
     /// GB2312・Big5・韓国語CP949の実入力を利用者指定文字コードで再読解し、題名・artist・修正済み状態と保存対象へ反映して、指定無視や非ASCII文字の破損を検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("gb2312", "\u7b80\u4f53\u6807\u9898", "\u7b80\u4f53\u4f5c\u8005")]
     [DataRow("big5", "\u7e41\u9ad4\u6a19\u984c", "\u7e41\u9ad4\u4f5c\u8005")]
     [DataRow("ks_c_5601-1987", "\ud55c\uad6d\uc5b4\uc81c\ubaa9", "\ud55c\uad6d\uc5b4\uc791\uac00")]

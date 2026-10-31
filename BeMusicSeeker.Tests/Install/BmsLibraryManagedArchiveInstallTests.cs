@@ -18,7 +18,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
 {
     /// <summary>単体化する根と資源付き子、後続作品を通常フォルダ・管理ZIP・借用ZIPから実導入し、導入と保留の和に入力全譜面を各一回残します。</summary>
     /// <remarks>実非同期入口からFS・SQLite・所持への一回反映、重なるフォルダ入力と保留元の寿命を確認します。複数子・孫と全体package条件は探索境界、取消・失敗は既存workflow系列へ分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("folder")]
     [DataRow("managed")]
     [DataRow("borrowed")]
@@ -101,7 +101,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
 
     /// <summary>実ZIPから別々に保留されたa/bのうちaを導入しても、独立所持のあるbを追加整理で消さず、aの通常消費とDB・所持・導入済み表示の確定を保ちます。</summary>
     /// <remarks>実取込みから推定先導入への入力保護の接続を確認します。bを選択しない場合と導入先なしで後続見送りの場合を分担し、残存の種類・設定OFF・確定失敗は既存ケースを維持します。専用DB・設定・固定scannerを使い、初期化の背景処理と本体をawaitし、fixtureが当該展開と所有終端を回収します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task InstallPendingPackagesToEstimatedDestinations_SplitZipKeepsOtherPendingInput(bool requestBoth)
@@ -199,7 +199,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
 
     /// <summary>既存の音源不足7z・RAR・LZHを借用入力として実native展開から共通導入へ渡し、三譜面の実bytes、install DBと保留正本、借用元と対象外ファイルの保全を確認します。入れ子構造はZIPの共有経路代表へ分担します。</summary>
     /// <remarks>実アーカイブのnative展開、実FSとSQLiteへの確定を通す。管理入力の消費と借用元の保持は、展開portの成功応答だけでは確認できない。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("fixture.7z")]
     [DataRow("fixture.rar")]
     [DataRow("fixture.lzh")]
@@ -291,7 +291,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// 充足時のFS・DB・所持への導入と、不足時の保留行・入力保持・実候補への推定を確認し、全形態の等価な失敗を成功と扱いません。
     /// </summary>
     /// <remarks>実アーカイブのnative展開、実FSとSQLiteへの確定を通す。管理入力の消費と借用元の保持は、展開portの成功応答だけでは確認できない。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("managed", true)]
     [DataRow("borrowed", true)]
     [DataRow("folder", true)]
@@ -401,7 +401,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// <summary>必須日時復元の未知故障による全失敗と壊れZIP・正常ZIP混在で、対象と原因を終端診断へ残し、非致命的警告のまま正常独立対象だけを確定します。</summary>
     /// <remarks>実アーカイブのnative展開、実FSとSQLiteへの確定を通す。管理入力の消費と借用元の保持は、展開portの成功応答だけでは確認できない。</remarks>
     // trueは必須日時復元の全失敗、falseは壊れZIPと正常ZIPの混在による部分成功。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public async Task AutoInstall_ArchiveWarningsSurviveEmptyOrMixedPreparation(bool timestampFailure)

@@ -73,7 +73,7 @@ public sealed class Lr2SynchronizationArchitectureTests
             Assert.AreEqual(0u, bmsFiles.LockingWriteCount);
             capability.Validate(boundary);
             capability.Dispose();
-            Assert.ThrowsException<InvalidOperationException>(() => capability.Validate(boundary));
+            Assert.ThrowsExactly<InvalidOperationException>(() => capability.Validate(boundary));
             scope.Dispose();
             scope = null;
 
@@ -160,7 +160,7 @@ public sealed class Lr2SynchronizationArchitectureTests
             };
             if (failBody)
             {
-                InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(executeBody);
+                InvalidOperationException exception = Assert.ThrowsExactly<InvalidOperationException>(executeBody);
                 Assert.AreEqual("folder snapshot body failure", exception.Message);
                 StringAssert.Contains(exception.StackTrace, nameof(ThrowFolderMoveSnapshotBodyFailure));
             }
@@ -398,7 +398,7 @@ public sealed class Lr2SynchronizationArchitectureTests
             null,
             () => null);
 
-        Assert.ThrowsException<InvalidOperationException>(() => owner.Capture());
+        Assert.ThrowsExactly<InvalidOperationException>(() => owner.Capture());
     }
 
     /// <summary>

@@ -30,7 +30,7 @@ public sealed class TaskLoggingTests
     {
         var failure = new InvalidOperationException("workflow failed");
 
-        InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+        InvalidOperationException exception = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => Task.FromException(failure).LoggingAndPropagate());
 
         Assert.AreSame(failure, exception);
@@ -45,7 +45,7 @@ public sealed class TaskLoggingTests
 
         Task propagated = Task.FromCanceled(cancellation.Token).LoggingAndPropagate();
 
-        await Assert.ThrowsExceptionAsync<TaskCanceledException>(() => propagated);
+        await Assert.ThrowsExactlyAsync<TaskCanceledException>(() => propagated);
 
         Assert.IsTrue(propagated.IsCanceled);
         Assert.IsFalse(propagated.IsFaulted);
@@ -97,7 +97,7 @@ public sealed class TaskLoggingTests
     {
         var failure = new InvalidOperationException("workflow failed");
 
-        InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+        InvalidOperationException exception = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => RibbitTaskEx.LoggingAndPropagate(
                 Task.FromException<int>(failure),
                 (Task _, string _, string _, int _) => throw new InvalidOperationException("logger failed")));
@@ -116,14 +116,14 @@ public sealed class TaskLoggingTests
             Task.FromCanceled<int>(cancellation.Token),
             (Task _, string _, string _, int _) => throw new InvalidOperationException("logger failed"));
 
-        await Assert.ThrowsExceptionAsync<TaskCanceledException>(() => propagated);
+        await Assert.ThrowsExactlyAsync<TaskCanceledException>(() => propagated);
 
         Assert.IsTrue(propagated.IsCanceled);
         Assert.IsFalse(propagated.IsFaulted);
     }
 
     /// <summary>Faultedの取消型例外をCanceledへ読み替えず、元Taskの終端後に一度だけ診断し、診断失敗でも元例外を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -146,7 +146,7 @@ public sealed class TaskLoggingTests
             Assert.IsFalse(propagated.IsCompleted);
             Assert.AreEqual(0, logged.Count);
             source.SetException(failure);
-            TaskCanceledException observed = await Assert.ThrowsExceptionAsync<TaskCanceledException>(() => propagated);
+            TaskCanceledException observed = await Assert.ThrowsExactlyAsync<TaskCanceledException>(() => propagated);
             Assert.AreSame(failure, observed);
             Assert.IsTrue(source.Task.IsFaulted);
             Assert.IsTrue(propagated.IsFaulted);
@@ -164,7 +164,7 @@ public sealed class TaskLoggingTests
     }
 
     /// <summary>診断を挟んでも元Taskの複数失敗を最初の一件へ切り詰めず、独自の再集約をせずに同じ原因を返します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task LoggingAndPropagate_PreservesSourceFailureSet(bool generic)
@@ -175,7 +175,7 @@ public sealed class TaskLoggingTests
         Task propagated = generic ? source.Task.LoggingAndPropagate() : ((Task)source.Task).LoggingAndPropagate();
         source.SetException(new Exception[] { first, second });
 
-        IOException observed = await Assert.ThrowsExceptionAsync<IOException>(() => propagated);
+        IOException observed = await Assert.ThrowsExactlyAsync<IOException>(() => propagated);
 
         Assert.AreSame(first, observed);
         Assert.IsTrue(propagated.IsFaulted);
@@ -184,7 +184,7 @@ public sealed class TaskLoggingTests
     }
 
     /// <summary>アプリ用の転送でもFaultedの取消型例外を実ログへ出し、真の取消Taskはエラー記録しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [DoNotParallelize]
@@ -204,7 +204,7 @@ public sealed class TaskLoggingTests
             Task<int> source = Task.FromException<int>(failure);
             Task propagated = generic ? source.LoggingAndPropagate() : ((Task)source).LoggingAndPropagate();
 
-            TaskCanceledException observed = await Assert.ThrowsExceptionAsync<TaskCanceledException>(() => propagated);
+            TaskCanceledException observed = await Assert.ThrowsExactlyAsync<TaskCanceledException>(() => propagated);
             Assert.AreSame(failure, observed);
             Assert.IsTrue(propagated.IsFaulted);
             LogManager.Flush();
@@ -215,7 +215,7 @@ public sealed class TaskLoggingTests
             cancellation.Cancel();
             Task<int> cancelledSource = Task.FromCanceled<int>(cancellation.Token);
             Task cancelled = generic ? cancelledSource.LoggingAndPropagate() : ((Task)cancelledSource).LoggingAndPropagate();
-            TaskCanceledException cancelledException = await Assert.ThrowsExceptionAsync<TaskCanceledException>(() => cancelled);
+            TaskCanceledException cancelledException = await Assert.ThrowsExactlyAsync<TaskCanceledException>(() => cancelled);
             Assert.IsTrue(cancelled.IsCanceled);
             Assert.AreEqual(cancellation.Token, cancelledException.CancellationToken);
             LogManager.Flush();

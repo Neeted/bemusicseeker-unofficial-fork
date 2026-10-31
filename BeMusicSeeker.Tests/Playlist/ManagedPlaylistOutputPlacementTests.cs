@@ -18,7 +18,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class ManagedPlaylistOutputPlacementTests
 {
     /// <summary>同一・包含は方向や表記差によらず拒否し、接頭辞が似る兄弟・別基点は許可します。条件網羅は副作用を持たない共通判定へ集約します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(@"C:\Output\Parent", @"C:\Output\Parent\Child", false)]
     [DataRow(@"C:\Output\Parent\Child", @"C:\Output\Parent", false)]
     [DataRow(@"C:\Output\Parent", "c:/output/parent/./", false)]
@@ -33,7 +33,7 @@ public sealed class ManagedPlaylistOutputPlacementTests
     }
 
     /// <summary>編集セッションからの名前・出力名・基点・ルート型変更と新規登録を、DB・正本通知・物理出力前に拒否します。画面の事前検査だけに依存する誤りを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("name")]
     [DataRow("directory")]
     [DataRow("base")]
@@ -94,7 +94,7 @@ public sealed class ManagedPlaylistOutputPlacementTests
     }
 
     /// <summary>一括ルート切替では対象同士、一括基点変更では未選択表との衝突を検査し、ヘッダーを変更する前に全件拒否します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public async Task BulkPlacement_RejectsSelectedAndUnselectedConflicts(bool rootSwitch)
@@ -123,7 +123,7 @@ public sealed class ManagedPlaylistOutputPlacementTests
             int notices = 0;
             first.PropertyChanged += (_, _) => notices++;
             second.PropertyChanged += (_, _) => notices++;
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => rootSwitch
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => rootSwitch
                 ? workspace.ApplyPlaylistSummaryRootFolder([new() { TableRef = first }, new() { TableRef = second }], true)
                 : workspace.ApplyPlaylistSummaryOutputBase([new() { TableRef = second }], null!));
             Assert.AreEqual(0, notices);

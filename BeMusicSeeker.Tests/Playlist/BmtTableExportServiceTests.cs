@@ -24,7 +24,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmtTableExportServiceTests
 {
     /// <summary>実metadataが本文hash・日時・同期元だけでURI差を落とさず、HTTP path/queryのcaseと予約文字の別参照を投影指紋へ反映します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("https://data.test/old/rows.json", "https://data.test/new/rows.json")]
     [DataRow("https://data.test/A.json", "https://data.test/a.json")]
     [DataRow("https://data.test/rows.json?Key=1", "https://data.test/rows.json?key=1")]
@@ -46,7 +46,7 @@ public sealed class BmtTableExportServiceTests
     }
 
     /// <summary>相対/絶対、scheme/host/既定port/fragmentとWindows file/UNCの同参照は同じ投影入力になり、表現だけによる再生成を増やしません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("https://data.test/defs/header.json", "../rows.json", "https://data.test/rows.json")]
     [DataRow("https://data.test/header.json", "HTTPS://DATA.test:443/rows.json#before", "https://data.test/rows.json#after")]
     [DataRow("file:///C:/Tables/Defs/header.json", "../Rows.json", "file:///c:/tables/rows.json")]
@@ -63,7 +63,7 @@ public sealed class BmtTableExportServiceTests
     }
 
     /// <summary>実data参照が同じ場合の無関係page/header差と、文脈なしの内蔵/手動表へ入力差を広げません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true, false)]
     [DataRow(false, false)]
     [DataRow(false, true)]
@@ -351,7 +351,7 @@ public sealed class BmtTableExportServiceTests
     }
 
     /// <summary>一つ目の進捗 callback 保留中に二つ目の publish が完了しても callback は同時実行せず、保留解除後に 1→2 を配送することを実 Task で確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)] // 先行通知が失敗しても次の完了通知を順序どおり試みる。
     public void OrderedProjectionProgressPublisherSerializesCallbacksInCompletionOrder(bool failFirstNotification)

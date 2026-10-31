@@ -15,7 +15,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class Lr2FolderRowGeneratorTests
 {
     /// <summary>通常・ドライブ・UNCの実ルートを停止境界と区別し、直下の子のparentをルートCRCへ揃えます。重なる実ルートも祖先包含で落としません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 字句上の階層判定だけを使い、実ドライブの割当や共有サーバーへ依存しません。
     [DataRow(@"D:\BMS")]
     [DataRow(@"D:\")]
@@ -79,7 +79,7 @@ public sealed class Lr2FolderRowGeneratorTests
     /// <summary>
     /// folderinfoのタイトルを採用し、exact存続だけ追加時刻を保持する。別case旧行からの値継承と共存時の上書きを防ぐ。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true, false)]
     [DataRow(false, true)]
     [DataRow(true, true)]
@@ -393,7 +393,7 @@ public sealed class Lr2FolderRowGeneratorTests
     /// <summary>
     /// 末尾区切りが欠けた保存キーを削除して正規キーを更新し、正規化一致だけで不正な実キーが残る誤りを検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void PlanNormalDirectorySync_RepairsNormalRowExactKeyDriftWithDeleteAndUpsert(bool caseOnly)

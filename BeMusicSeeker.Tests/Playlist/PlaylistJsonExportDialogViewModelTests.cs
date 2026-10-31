@@ -10,7 +10,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class PlaylistJsonExportDialogViewModelTests
 {
     /// <summary>未入力・case・相対成分の同一先は拒否し、別名・別ディレクトリ同名は許可します。ファイルの存在で判定は変わりません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("", "data.json", false)]
     [DataRow("header.json", " ", false)]
     [DataRow("header.json", "header.json", false)]

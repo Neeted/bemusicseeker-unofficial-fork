@@ -122,7 +122,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     }
 
     /// <summary>Content-Disposition、対応する最終URI名、Location名、元名の優先とfallbackを実保存で確認します。queryへの依存、無効名の即採用、復号の退行をbasename・拡張子・完全bytesと一回の取得・書込みで検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("/download?id=42", "/song.zip", "chart.bmson", "/other.7z", "chart.bmson")]
     [DataRow("/download/123", "/song.zip", null, null, "song.zip")]
     [DataRow("/download/123?id=42", "/song.zip", null, null, "song.zip")]
@@ -175,7 +175,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     }
 
     /// <summary>共有HTMLのリンクを譜面・archive双方の直接URIへ解決し、ページ→実体の順に一回ずつ取得してbytesを保存します。HTML本文の誤保存と再帰取得の誤配送を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 譜面本体とarchiveの双方を、同じ共有HTML解決経路で確認する。
     [DataRow("chart.bms")]
     [DataRow("package.zip")]
@@ -531,7 +531,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     }
 
     /// <summary>本体・差分の単体右クリックは自動導入設定によらず元の共有URLをUI配送で一度開きます。取得失敗後の代替でも同じ見た目になる誤接続を、通信・保存・導入・確認・進捗・展開がないことで検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false, "https://drive.google.com/file/d/main-id/view", "https://drive.google.com/file/d/main-id/view")]
     [DataRow(false, true, "https://drive.google.com/file/d/main-id/view", "https://drive.google.com/file/d/main-id/view")]
     [DataRow(true, false, "https://www.dropbox.com/scl/fi/diff-id/diff.zip?dl=0", "https://www.dropbox.com/scl/fi/diff-id/diff.zip?dl=0")]
@@ -719,7 +719,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     }
 
     /// <summary>自動導入なしでもfile・共有サイト風の独自schemeを通信、導入、ブラウザへ配送しません。ブラウザ経路で入口拒否を迂回する誤りを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("file:///C:/secret.zip")]
     [DataRow("custom+scheme://drive.google.com/file/d/id/package.zip")]
     public async Task WorkspaceDoesNotOpenOrInstallUnsupportedInitialSchemeWhenAutoInstallIsDisabled(string uriText)
@@ -805,7 +805,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     }
 
     /// <summary>通信の内部故障はブラウザー代替に変換せず、所有する進捗と受付を終えます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task WorkspaceInternalAcquisitionFailureDoesNotOpenBrowser(bool resourceFailure)
@@ -828,7 +828,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     }
 
     /// <summary>読取り・応答破棄の失敗で未引渡しファイルを回収し、回収不能だけは通常失敗へ変換しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("read", false)]
     [DataRow("read", true)]
     [DataRow("dispose", false)]
@@ -891,7 +891,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     }
 
     /// <summary>セルクリックと単体右クリックのブラウザsink例外を要求Taskへ返します。表示先の失敗を成功扱いする誤りを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task BrowserFallbackSinkExceptionIsNotSuppressed(bool contextMenu)
@@ -900,13 +900,13 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             action => action(),
             browserSink: _ => throw new InvalidOperationException("browser sink failure"));
 
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => contextMenu
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => contextMenu
             ? workspace.RunPlaylistUrlActionAsync([CreatePlaylistUrlRow("https://example.invalid/folder/", null)], false)
             : workspace.RunSinglePlaylistUrlAsync(new Uri("https://example.invalid/folder/")));
     }
 
     /// <summary>セルクリックと単体右クリックの表示scheduler失敗を要求Taskの終端まで伝播します。非同期配送を待たず成功を返す誤りを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task BrowserFallbackPresentationFailureIsPropagatedThroughAwaitableScheduler(bool contextMenu)
@@ -916,7 +916,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             presentationScheduler: _ => Task.FromException(
                 new InvalidOperationException("presentation dispatch failure")));
 
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => contextMenu
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => contextMenu
             ? workspace.RunPlaylistUrlActionAsync([CreatePlaylistUrlRow("https://example.invalid/folder/", null)], false)
             : workspace.RunSinglePlaylistUrlAsync(new Uri("https://example.invalid/folder/")));
     }
@@ -1039,7 +1039,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
 
         dialogs.ConfirmationResult = UiDialogResult.Failed(
             new InvalidOperationException("dialog unavailable"));
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => workspace.RunPlaylistUrlBatchAsync(
                 [new Uri("https://example.invalid/failed-dialog/")],
                 isDiffUrl: false));
@@ -1315,7 +1315,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
 
     /// <summary>セルの自動導入ONと設定非依存の複数行本体取得で、初回要求からDriveのキーを保持し、完全な保存bytesを一回だけ導入へ渡すことを確認します。</summary>
     /// <remarks>実workspaceの行解決・取得・保存・引渡しを接続し、通信だけを固定応答へ置換します。四URL形式の条件網羅と実WPF配送は既存の専用ケースへ分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)] // セルは自動導入と起動時ファイル検査を有効にします。
     [DataRow(true)] // 複数行は両設定が無効でも本体URLを取得します。
     public async Task GoogleDriveResourceKey_FirstRequestSavesAndHandsOffFromSingleAndBulk(bool bulk)
@@ -1404,7 +1404,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     }
 
     /// <summary>queryなしURLから実HTTP転送した最終名とbytesを一回だけ変更不能なpathsでsinkへ渡し、その後tree展開します。進捗・診断故障の有無によらず進捗終端と受理後の入力保持を確認し、名前・本文の喪失と順序の逆転を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task SingleRedirectedPackage_UsesFinalNameAndInstallSinkBeforeTreeExpansionPresentation(bool failNotifications)
@@ -1497,7 +1497,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     }
 
     /// <summary>同じoriginのpath caseだけ違う二URLを実HTTPで取得し、別本文を変更不能なpathsで一回sinkへ渡します。通知故障の有無によらずsink→tree展開→結果表示、進捗終端、受理後の本文保持を確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task BulkDownloadedPackages_UsesCopiedInstallSnapshotBeforeTreeExpansionAndSummary(bool failNotifications)
@@ -1609,7 +1609,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
 
 
     /// <summary>通常/API双方でquery値のcaseだけ違う二本文を保存し、二件目の応答解放中の取消でも実終端後に一回渡します。三件目の開始、本文喪失、早すぎる引渡しを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("api")]
     [DataRow("url")]
     public async Task DownloadedPackages_CancellationDuringResponseDisposalHandsOffCompletedDownloadsOnce(string ingress)
@@ -1702,7 +1702,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     /// 警告で終わり、導入・tree 展開・ブラウザ fallback・後続の自動再実行を行いません。
     /// 通信段階ではライブラリ変更受付を占有しない契約を、実 queue への引渡しで検証します。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     // 単独列、本体一括、差分一括、外部API検索で同じBusy引渡しを確認する。
     [DataRow("single")]
     [DataRow("url")]
@@ -1822,7 +1822,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     }
 
     /// <summary>実導入ownerへの一回引渡しと入力使用終端を通し、P中の読取り取得と開始後のstaging保持を確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task DownloadedInput_HoldsStagingUntilActualInstallTerminalWhilePlaylistIsBusy(bool failAfterStart)
@@ -1895,7 +1895,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     }
 
     /// <summary>URLが作った所有要求を実queueへ挿入し、worker開始前の取消・世代退役で入力回収と実idleを待ちます。所有情報の付与漏れと早いidleを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task DownloadedInput_CancellationBeforeStartReclaimsOwnedSourceBeforeIdle(bool retireGeneration)
@@ -1974,7 +1974,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     }
 
     /// <summary>未受理と受理前故障は要求自身が一回だけ回収し、取得Taskが実削除を待ちます。元故障と回収失敗を両方保持し、自動再試行しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task DownloadedInput_UnacceptedWaitsForCleanupAndPreservesBothFailures(bool failHandoffAndCleanup)
@@ -2036,7 +2036,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
 
     /// <summary>単体・一括・APIの実取得と実導入・推定を通し、保留の正本、DB行、bytesを取得終端後も保ち、後の明示導入を成立させます。</summary>
     /// <remarks>HTTPとAPI候補だけを固定します。空TITLEによる実推定の保留を必須とし、推定結果を注入しません。管理sessionの初期化を共有するため非並列です。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("single")]
     [DataRow("url")]
     [DataRow("api")]
@@ -2239,7 +2239,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     }
 
     /// <summary>queryキー/値、共有IDのcase差は二本文を保存し、同一実体のhost/fragment・共有別表記・resourcekeyや揮発tokenの差は二重保存しません。要求履歴と実FSで成功集合の誤分離を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("https://example.invalid/package.zip?Token=a", "https://example.invalid/package.zip?token=a", false)]
     [DataRow("https://example.invalid/package.zip?token=Song", "https://example.invalid/package.zip?token=song", false)]
     [DataRow("https://drive.google.com/file/d/AbC/view", "https://drive.google.com/open?id=abc", false)]
@@ -2294,7 +2294,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     }
 
     /// <summary>MediaFireのcase別遷移は保存へ進み、fragmentだけ変えて元へ戻る循環は二要求で止めます。深さ上限による終了と誤同一視を要求順で区別します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task DownloadCandidate_SharedPageDistinguishesCaseAndStopsFragmentCycle(bool cycle)

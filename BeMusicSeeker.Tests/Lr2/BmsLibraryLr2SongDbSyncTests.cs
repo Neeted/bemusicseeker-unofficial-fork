@@ -325,7 +325,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     /// 実取込み後の譜面削除で該当songと通常フォルダを消し、残存譜面のフォルダ・祖先を保持して削除範囲の誤りを検出する。
     /// </summary>
     /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     // 依存なし、譜面だけ削除してcustomが残る、フォルダごとcustomも消える条件を同じ実入口で比較します。
     [DataRow(false, false)]
     [DataRow(true, false)]
@@ -1517,7 +1517,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 { Volatile.Write(ref failPreflight, true); }
             };
 
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => runtime.QueueAsync(
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => runtime.QueueAsync(
                 "test_late_full_preflight_failure",
                 force: true,
                 prepareGeneratedData: true));
@@ -1567,7 +1567,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings);
             Exception originalException = new InvalidOperationException("forced playlist folder failure");
 
-            InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
+            InvalidOperationException exception = Assert.ThrowsExactly<InvalidOperationException>(
                 () => InvokeWithMutationCapability(
                     library,
                     mutationCapability => library.Lr2PlaylistFolderSynchronization.SyncPlaylistLr2FolderFileRows(
@@ -1639,7 +1639,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             }
             var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings);
 
-            SQLite.SQLiteException exception = Assert.ThrowsException<SQLite.SQLiteException>(
+            SQLite.SQLiteException exception = Assert.ThrowsExactly<SQLite.SQLiteException>(
                 () => InvokeWithMutationCapability(
                     library,
                     mutationCapability => library.Lr2PlaylistFolderSynchronization.SyncPlaylistLr2FolderFileRows(
@@ -1725,7 +1725,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     /// <summary>
     /// ライブラリ・playlistの競合/受付閉鎖は、直接要求と通常の手動同期ownerの両方で準備・保存前に拒否します。実受付結果のfalse通知・部分権限解放・自動再実行0を確認します。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(false, true)]
@@ -1794,7 +1794,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         var owner = new Lr2SongDbSyncWorkflowOwner(runtime);
         try
         {
-            InvalidOperationException actual = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+            InvalidOperationException actual = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
                 owner.RequestManualResyncAsync(value => { admitted = value; throw failure; }));
             Assert.AreSame(failure, actual);
             Assert.AreEqual(true, admitted);
@@ -1955,7 +1955,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             };
             var expectedFailure = new InvalidOperationException("expected preparation failure");
 
-            InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => library.QueueLr2SongDbSyncAsync(
+            InvalidOperationException failure = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => library.QueueLr2SongDbSyncAsync(
                 "test_prepare_failure",
                 force: false,
                 (_, _) =>
@@ -2630,7 +2630,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             library.PropertyChanged += progressObserver;
             try
             {
-                SQLite.SQLiteException exception = Assert.ThrowsException<SQLite.SQLiteException>(
+                SQLite.SQLiteException exception = Assert.ThrowsExactly<SQLite.SQLiteException>(
                     () => library.ReloadFileDiff());
                 Assert.AreEqual("forced lr2 folder-file apply failure", exception.Message);
             }
@@ -2670,7 +2670,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     /// 確定済み取込み入力を同期へ渡し、準備中に譜面と定義FSが変わっても旧タイトル・作者を保存して後発定義を混入させない。
     /// </summary>
     /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。全件除外でも不完全folderと完了保存DB故障は非成功を保つ。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("completed")]
     [DataRow("incomplete_folder")]
     [DataRow("completed_status_failure")]
@@ -4646,7 +4646,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     /// 旧Incompleteの途中位置から先頭実行し、Completedへの手動forceでは有効形式の誤CRCを修復し、新解析・現行cacheともUI排出前にLevel/LevelTextを譜面由来へ戻します。利用者列と保存・終端を維持します。
     /// </summary>
     /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(true, true)]
@@ -5060,7 +5060,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             library.PropertyChanged += timelineSubscriber;
             try
             {
-                await Assert.ThrowsExceptionAsync<SQLite.SQLiteException>(() => library.QueueLr2SongDbSyncAsync("folder_reconciliation_failure", initializationResult: initializationInput, preparedSurface: preparedInput));
+                await Assert.ThrowsExactlyAsync<SQLite.SQLiteException>(() => library.QueueLr2SongDbSyncAsync("folder_reconciliation_failure", initializationResult: initializationInput, preparedSurface: preparedInput));
 
                 Lr2SongDbSyncStatusSnapshot latest = library.GetLr2SongDbSyncStatusSnapshot();
                 Assert.AreEqual(Lr2SongDbSyncStatusKind.Failed, latest.Status);
@@ -5312,7 +5312,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             await TestUiDispatcherHost.AwaitNotificationAsync(inputSurfaceEntered.Task, queuedOperation, "lr2.shutdown.worker-entered");
             library.RequestShutdown("test_preflight_shutdown");
             inputSurfaceGate.Set();
-            await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => queuedOperation);
+            await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => queuedOperation);
 
             Assert.IsFalse(library.Lr2SongDbSyncRunning);
             Lr2SongDbSyncStatusSnapshot runtimeStatus = library.GetLr2SongDbSyncStatusSnapshot();
@@ -7198,7 +7198,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
     /// <summary>必須終端投影の待機中は実確定行/cursorとRunningを保ち、実投影・所有取消確認・状態保存の後だけCompletedにする。終了要求に続く投影故障、失敗保存の故障でも先行確定と実要求終端を保持する。</summary>
     /// <remarks>正常譜面の実詳細解析と実モデル/DataPort/Catalog/SQLite/投影を通し、既存投影portの入口gateを別readonly接続から観測する。成功、通常完了側で部分投影・終了要求後に故障する条件、終了取消の捕捉側で投影が故障する条件、投影成功後の所有終了、Failed保存だけを拒否する実triggerを分担する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("completed")]
     [DataRow("projection_failure_with_shutdown")]
     [DataRow("cancel_then_projection_failure")]
@@ -7295,14 +7295,14 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             projectionRelease.Set();
             if (projectionFails)
             {
-                InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                InvalidOperationException failure = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                     async () => await operation);
                 Assert.AreEqual("required compatibility projection fault", failure.Message);
                 StringAssert.Contains(failure.StackTrace ?? string.Empty, nameof(GatedCompatibilityProjection.ThrowCompatibilityProjectionFault));
             }
             else if (interrupted)
             {
-                await Assert.ThrowsExceptionAsync<OperationCanceledException>(async () => await operation);
+                await Assert.ThrowsExactlyAsync<OperationCanceledException>(async () => await operation);
             }
             else
             {

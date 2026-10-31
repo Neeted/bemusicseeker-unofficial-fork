@@ -20,7 +20,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class OwnedChartCollectionLibraryMutationTests
 {
     /// <summary>物理成功scope内の確認済み親子だけを解除し、catalogと登録保存の4終端を独立して回収します。失敗・未処理・scope外の登録を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -96,7 +96,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     }
 
     /// <summary>最後・現在導入先のYesは譜面削除へ読み替えず保護し、現在導入先は登録0でも保護します。混在する独立folderだけを続行し、明示Noは従来の譜面のみ削除を保ちます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("last")]
     [DataRow("install")]
     [DataRow("install-without-roots")] // モデル境界の登録0条件であり、実UIの稼働profileへの到達は保証しません。
@@ -152,7 +152,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     }
 
     /// <summary>保護祖先Aは直下groupだけ拒否し、明示選択の安全子Freeは自身のYes/Noどおり処理して、祖先・兄弟の管理外資源を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void RemoveLibraryCharts_ProtectedAncestorPreservesExplicitChildDecision(bool wholeChild)
@@ -285,7 +285,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     }
 
     /// <summary>登録rootの物理削除成功を実媒体の登録解除へ接続し、独立した導入先と残存rootを保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void RemoveLibraryCharts_WholeRegisteredRootUnregistersOnlyAfterPhysicalSuccess(bool lr2)
@@ -369,7 +369,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     /// 永久削除・ごみ箱指定の両条件で、成功subtreeと外側親Entryを一世代へ反映し、失敗対象・兄弟・旧snapshotを保持する。
     /// </summary>
     /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void RemoveLibraryCharts_PublishesOneResourceGenerationForConfirmedFoldersOnly(bool recycle)
@@ -663,7 +663,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     /// 子の成功・フォルダ失敗・欠落・譜面だけの削除失敗に応じて承認済み親の再帰削除を制限し、失敗対象とリソースを保つ。
     /// </summary>
     /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0, false)] // 子の全体削除成功、永久削除。
     [DataRow(1, true)] // 子フォルダの削除失敗、ごみ箱指定。
     [DataRow(2, false)] // 子フォルダが既に欠落、永久削除。
@@ -836,7 +836,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     /// パスだけの選択と同tokenの捕捉値を本番の現在所有へ解決し、指定の削除方針で物理フォルダとDB行を除く。
     /// </summary>
     /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void RemoveLibraryCharts_ResolvesSelectionThroughProductionOwner(bool pathOnly)
@@ -928,7 +928,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     /// 大小文字またはドット別表記で同じ物理譜面を指す選択を個別削除するとき、物理削除は一回だけ行い両完全一致行を除く。
     /// </summary>
     /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void RemoveLibraryCharts_PhysicalAliasExactRowsAreBothRemovedWithoutWholeFolderDelete(bool useDotAlias)
@@ -1069,7 +1069,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     /// 未登録・同hash別パス・パス喪失・未登録のドットと大小文字別表記は解決不能とし、実ファイルとDB行を削除しない。
     /// </summary>
     /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0)] // 未登録の別パス。
     [DataRow(1)] // 同じhashだが未登録の別パス。
     [DataRow(2)] // 捕捉後にパスを失った所有。
@@ -1130,7 +1130,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     /// 古いhashの選択は現在値へ解決する一方、移転・形式不一致・退役token・大小文字の別パスを救済せず物理処理を拒否する。
     /// </summary>
     /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0)] // hashだけが更新済み。
     [DataRow(1)] // 実ファイルと現在値が移転済み。
     [DataRow(2)] // 同tokenでも選択の種別が不一致。
@@ -1254,8 +1254,8 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 OwnedChartHashIndexSnapshot hashes = owner.Collection.CreateOwnedHashIndexSnapshot();
                 var prepared = new LibraryChartRemovalPreflight([first, retired], [], [], 2, 0);
 
-                ArgumentException deleteFailure = Assert.ThrowsException<ArgumentException>(() => library.RemoveLibraryCharts(prepared, false, []));
-                ArgumentException renameFailure = Assert.ThrowsException<ArgumentException>(() => library.RenameBMSFilesExtensionsWithReceipt(
+                ArgumentException deleteFailure = Assert.ThrowsExactly<ArgumentException>(() => library.RemoveLibraryCharts(prepared, false, []));
+                ArgumentException renameFailure = Assert.ThrowsExactly<ArgumentException>(() => library.RenameBMSFilesExtensionsWithReceipt(
                     [new LibraryFileExtensionRenameBatch([first], ".bmx"), new LibraryFileExtensionRenameBatch([retired], ".pmx")]));
 
                 StringAssert.Contains(deleteFailure.Message, BeMusicSeeker.Properties.Resources.Error_PreparedChartTargetMismatch);
@@ -1343,7 +1343,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     /// 最後の譜面削除で全体削除の確認を一度行い、拒否ならリソースを残し承認ならフォルダごと削除してDBから譜面を除く。
     /// </summary>
     /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void RemoveLibraryCharts_LastChartHonorsExplicitWholeFolderDecision(bool deleteWholeFolder)
@@ -1507,8 +1507,8 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             };
 
             Assert.AreEqual(2, InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library).Count);
-            Assert.ThrowsException<NotSupportedException>(() => ((IList<ChartFile>)library.BmsCharts).Add(CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "Other", "chart.bms"))));
-            Assert.ThrowsException<NotSupportedException>(() => ((IList<ChartFile>)library.BmsonCharts).Clear());
+            Assert.ThrowsExactly<NotSupportedException>(() => ((IList<ChartFile>)library.BmsCharts).Add(CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "Other", "chart.bms"))));
+            Assert.ThrowsExactly<NotSupportedException>(() => ((IList<ChartFile>)library.BmsonCharts).Clear());
             Assert.AreEqual(1, library.BmsCharts.Count);
             Assert.AreEqual(1, library.BmsonCharts.Count);
             List<ChartFile> initialSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
@@ -1615,7 +1615,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     /// 背景16譜面を残して同じライブラリで二回実削除しても、各hash索引を全件再構築せず共有hashの残存所有と旧snapshotを保持する。
     /// </summary>
     /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     public void RemoveLibraryCharts_TwoWarmOperationsPreserveRemainingOwnersWithoutFullRebuild(int backgroundCount)
     {

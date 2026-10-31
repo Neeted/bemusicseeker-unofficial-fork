@@ -237,7 +237,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         Assert.IsTrue(owner.IsShutdownPreparationRunning);
         Assert.IsFalse(preparation.IsCompleted);
         regularChartStopRelease.SetResult(true);
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => preparation);
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => preparation);
 
         Assert.IsTrue(owner.IsShutdownRequested);
         Assert.IsTrue(owner.IsShutdownPrepared);
@@ -683,7 +683,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
             action => action(),
             _ => throw new InvalidOperationException("coordinated mark failed"));
 
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => owner.PrepareForStartupUpdateAsync("update"));
 
         Assert.IsTrue(owner.IsShutdownRequested);
@@ -1244,7 +1244,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
             Assert.IsFalse(output.IsCompleted);
             Assert.IsFalse(playlist.WaitForPlaylistMutationIdleAsync().IsCompleted);
             release.TrySetResult();
-            await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => output);
+            await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => output);
             Assert.IsTrue((await close).CloseAllowed);
             Assert.IsTrue(playlist.WaitForPlaylistMutationIdleAsync().IsCompleted);
             Assert.IsFalse(playlist.TryEnterPlaylistMutation(out _), "Close後は出力終端のPにも新規要求を受理しません。");

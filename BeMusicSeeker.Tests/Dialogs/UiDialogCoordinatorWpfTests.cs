@@ -277,7 +277,7 @@ public sealed class UiDialogCoordinatorWpfTests
     }
 
     /// <summary>3択の実modalからNo/Cancel/Close/Escを生産し、既定Yes付きCloseと明示Yesの区別を受信ownerへ渡します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("no")]
     [DataRow("cancel")]
     [DataRow("close")]

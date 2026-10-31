@@ -298,7 +298,7 @@ public sealed class AudioEncoderCommandFactoryTests
             AudioTagInfo.Empty) with
         { SampleRate = 0 };
 
-        Assert.ThrowsException<System.ArgumentOutOfRangeException>(
+        Assert.ThrowsExactly<System.ArgumentOutOfRangeException>(
             () => AudioEncoderCommandFactory.Create(request));
     }
 

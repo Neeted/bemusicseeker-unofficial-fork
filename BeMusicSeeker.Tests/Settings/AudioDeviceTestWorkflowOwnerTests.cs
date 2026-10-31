@@ -19,7 +19,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class AudioDeviceTestWorkflowOwnerTests
 {
     /// <summary>保存側と候補側の既定機器null/空表現が違っても同義として扱い、実保存や保存失敗の再試行を発生させません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(null, "")]
     [DataRow("", null)]
     public void OutputSelection_DefaultRepresentationsDoNotSaveOrRequireRetry(string? saved, string? candidate)
@@ -76,7 +76,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
             await TestUiDispatcherHost.AwaitNotificationAsync(started.Task, first, "audio-device.query-start");
             Assert.IsTrue(owner.IsRunning);
             owner.CancelCurrentQuery();
-            await Assert.ThrowsExceptionAsync<OperationCanceledException>(async () => await first);
+            await Assert.ThrowsExactlyAsync<OperationCanceledException>(async () => await first);
         }
         finally
         {
@@ -120,7 +120,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
             AudioDeviceCapabilityResult query = BassAudioPlayer.QueryAudioDeviceCapabilities(CreateCapabilityRequest());
             Assert.AreEqual(AudioDeviceCapabilityStatus.Busy, query.Status);
             AudioDeviceTestRequest request = CreateRequest();
-            AudioInitializationException busy = Assert.ThrowsException<AudioInitializationException>(() =>
+            AudioInitializationException busy = Assert.ThrowsExactly<AudioInitializationException>(() =>
                 BassAudioPlayer.InitializeOwned(request.AudioOutputRequest, 50, out _));
             Assert.AreEqual("audio request busy", busy.Stage);
             Assert.AreEqual("BassAudioOperationGate", busy.NativeErrorSource);
@@ -773,7 +773,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
     }
 
     /// <summary>許容速度比の下限・上限は成功、その直外は失敗にし、境界の不等号や測定比の誤りを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 許容下限・上限と、その直外を比較する。
     [DataRow(0.75, true)]
     [DataRow(1.25, true)]

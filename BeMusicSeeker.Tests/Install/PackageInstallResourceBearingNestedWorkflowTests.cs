@@ -12,7 +12,7 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class PackageInstallWorkflowOwnerTests
 {
     /// <summary>実発見から初段・推定後自動の両方を通し、資源付き親子一式だけを保留します。独立正常入力の導入、所持・SQLite・元bytes、論理受付終端を一緒に観測します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ProductionImport_ResourceBearingNestedChartsRemainPendingWhileIndependentInputInstalls(bool keepNewPending)

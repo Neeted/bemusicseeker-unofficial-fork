@@ -15,7 +15,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class Lr2FolderFileDbSyncServiceTests
 {
     /// <summary>登録実ルートと停止境界を分け、通常差分と未変更custom再利用の両方で実ルートを生成し子の親CRCを修復します。字句上のdrive・UNC条件も実SQLiteで保存します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // 物理列挙は不要な保存境界です。未変更再利用でも親生成を省略しないことと、custom既存列の保持を確認します。
     [DataRow(@"D:\BMS", false)]
     [DataRow(@"D:\BMS", true)]
@@ -695,7 +695,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     /// 大文字小文字がずれた実保存キーを削除し、現在キーを通常の新規追加日時で保存して別名行の残留を防ぐ。
     /// </summary>
     /// <remarks>ASCII/CP932 Greekの旧表記を追加読取りだけへ渡し、現在の物理scopeを広げず実SQLiteの旧キーを退役させる。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("Output", "OUTPUT")]
     [DataRow("αOutput", "ΑOutput")]
     public void Sync_ReplacesCaseDriftedExistingPath(string currentName, string previousName)
@@ -786,7 +786,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     /// 明示された新曲・ライバル・コースのLR2保存種別3・4・6を維持して、通常カスタム種別への読み替えを防ぐ。
     /// </summary>
     /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(3)]
     [DataRow(4)]
     [DataRow(6)]
@@ -921,7 +921,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     /// 組込み定義の相対保存キーへタイトルを更新して追加時刻・ROOT親を保持し、物理絶対パスの別行を作る誤りを防ぐ。
     /// </summary>
     /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(12345)]
     [DataRow(null)]
     public void Sync_MatchesExistingKnownRelativeLr2FolderRow(int? addDate)
@@ -969,7 +969,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     /// 旧絶対キーは削除し、相対キーの新規行は通常adddateで作る。相対exact共存時はtarget値を保持し、preserve-onlyでも旧絶対キーを退役する。
     /// </summary>
     /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(true, true)]

@@ -10,7 +10,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class WindowPlacementCalculatorTests
 {
     /// <summary>中央、端の補正、片軸縮小を区別し、収まる軸まで縮めたり縮小時の左上を取り違える誤りを検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(200, 100, 800, 600, 600, 400, 300, 200, 600, 400)]
     [DataRow(900, 700, 200, 200, 600, 400, 400, 400, 600, 400)]
     [DataRow(200, 100, 800, 600, 1100, 400, 0, 0, 1000, 400)]
@@ -74,8 +74,8 @@ public sealed class WindowPlacementCalculatorTests
     public void Placement_rejectsInvalidGeometryAndDpi()
     {
         Rect work = new(0, 0, 1000, 800);
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => WindowPlacementCalculator.Calculate(work, work, new Size(0, 400), 1));
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => WindowPlacementCalculator.Calculate(work, work, new Size(600, 400), double.NaN));
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => WindowPlacementCalculator.Calculate(Rect.Empty, work, new Size(600, 400), 1));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => WindowPlacementCalculator.Calculate(work, work, new Size(0, 400), 1));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => WindowPlacementCalculator.Calculate(work, work, new Size(600, 400), double.NaN));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => WindowPlacementCalculator.Calculate(Rect.Empty, work, new Size(600, 400), 1));
     }
 }

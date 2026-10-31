@@ -27,7 +27,7 @@ public sealed class VorbisDecoderTests
 
     /// <summary>固定mono／stereo Oggをpinしたfloat参照PCMとbit単位で比較し、フレーム欠落・レート／配置変更・過大レベルのクリップを検出する。</summary>
     /// <remarks>配布するnative Vorbis bridgeの接続を検査し、初期化・shutdownの共有状態を直列所有する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("nvorbis-1test.ogg", "nvorbis-1test-reference.f32", 1, 17318L)]
     [DataRow("nvorbis-3test.ogg", "nvorbis-3test-reference.f32", 2, 288094L)]
     public void DecodeOgg_UsesPinnedFloatReferenceWithoutClipping(
@@ -94,7 +94,7 @@ public sealed class VorbisDecoderTests
         string chainedPath = WriteTemporaryOgg(CreateChain(mono, stereo));
         try
         {
-            AudioSourceLoadException failure = Assert.ThrowsException<AudioSourceLoadException>(
+            AudioSourceLoadException failure = Assert.ThrowsExactly<AudioSourceLoadException>(
                 () => VorbisDecoder.Decode(chainedPath));
             Assert.AreEqual(AudioSourceLoadStage.DecodeVorbis, failure.Stage);
             StringAssert.Contains(failure.Message, "sample rate or channel layout");
@@ -110,7 +110,7 @@ public sealed class VorbisDecoderTests
     [TestMethod]
     public void DecodeOgg_PreservesEncodedInputArrayLimitWithoutAllocatingTheInput()
     {
-        AudioSourceLoadException failure = Assert.ThrowsException<AudioSourceLoadException>(
+        AudioSourceLoadException failure = Assert.ThrowsExactly<AudioSourceLoadException>(
             () => VorbisDecoder.ValidateEncodedLength("oversized.ogg", (long)Array.MaxLength + 1));
 
         Assert.AreEqual(AudioSourceLoadStage.DecodeVorbis, failure.Stage);

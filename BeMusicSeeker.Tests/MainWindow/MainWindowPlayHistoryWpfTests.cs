@@ -24,7 +24,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class MainWindowPlayHistoryWpfTests
 {
     /// <summary>playlistとpresetの同対象更新を実queueと項目完了接続からcompiled表へ届け、同譜面の別プレイを区別して選択を保つ。明示切替とその直後の依存更新は旧対象の選択を運ばない。一般表の選択組合せはCustomTable系列へ分担する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void PlayHistoryDependencyRefresh_PreservesSelectedRawRecordThroughCompiledTable(bool usePreset)

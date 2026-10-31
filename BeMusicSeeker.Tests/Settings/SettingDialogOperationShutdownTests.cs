@@ -24,7 +24,7 @@ public sealed partial class SettingDialogEditCompletionTests
 {
     /// <summary>実ownerは設定担当から準備中・必須UI待ち・局所BMT待ちのTaskを直接取得し、実終端前に保存・runtime終了へ進みません。</summary>
     /// <remarks>実MainWindow・モーダル・compiled開始/BMTボタンとCloseを使用します。BMT物理媒体の整合は局所BMT系列が分担し、ここは実P内のport終端を保持します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("preparation")]
     [DataRow("required-ui")]
     [DataRow("local-bmt")]

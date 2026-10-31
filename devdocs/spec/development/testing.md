@@ -8,7 +8,7 @@
 
 [共通用語集](../glossary.md)を参照します。コードの識別子は原表記を使います。
 
-**テストプロセス**は実際の `dotnet test` と、そのテストホストを指します。**完全修飾名（FQN）**は名前空間・クラス・メソッドまでを含むテスト識別子です。**判定記録**は実行結果を機械的に確認するTRXやJSONです。
+**テストプロセス**はMTPテストアプリと、その所有するテストホストを指します。**完全修飾名（FQN）**は名前空間・クラス・メソッドまでを含むテスト識別子です。**判定記録**は実行結果を機械的に確認するTRXやJSONです。
 
 **実機確認**は、実環境で人またはエージェントが操作・観察する確認です。画面、実OS入力・フォーカス・IME、DPI・実モニター、音声機器、担当の起動・設定適用・入力継承などを含みます。実アプリや外部プロセスを起動して結果を自動判定する既存の検証は、自動検証として扱います。
 
@@ -45,6 +45,16 @@
 ### 標準入口
 
 PowerShell 7から、リポジトリのルートで実行します。
+
+テストは `global.json` で指定する `MSTest.Sdk` と native Microsoft.Testing.Platform（MTP）を使います。SDKがframework・adapter・MTPの版を所有し、`packages.lock.json` とlocked restoreで実際の依存を固定します。TRX・CrashDump・HangDump拡張を有効にし、coverageは明示選択時だけ追加します。自動retryは導入しません。
+
+標準入口はビルド済みMTP実行ファイルを直接起動し、専有結果ディレクトリ、TRX出力、`--minimum-expected-tests 1`、必要なfilterとrunsettingsを渡します。実行ファイル相対の言語・native資産を使うため、`dotnet <dll>` で別の実行ファイルの場所を参照する起動にはしません。フィルター付きQuickも整形後にsolutionを一回ビルドし、出力検査後に同じ予算内でMTPを起動します。旧分割計画とPowerShell入口の統合先は[テスト基盤移行の残作業](../../plan/test-platform-migration.md)に示します。
+
+テストプロジェクト単体を直接実行する場合も、MTPの標準filterを使えます。次は小範囲の実行例で、標準入口の整形・出力検査・全Passedの結果ゲートを代替しません。
+
+```powershell
+dotnet run --project BeMusicSeeker.Tests -c Release -p:Platform=x64 -- --filter 'FullyQualifiedName~FractionTests' --report-trx --minimum-expected-tests 1
+```
 
 標準入口はWindows上で使います。Linuxで実装を変更した場合は、[Linuxの構築手順](../../setup-linux.md)に従い、変更に関連する既存テストのうちLinuxで実行可能なものを実行し、Windows向けクロスビルドの成功も確認します。実行した範囲・結果と、Linuxで実行できないテスト・未実施のWindows検証を明示して報告します。Linuxの結果を `Functional` / `Full` の成功へ置き換えません。
 
@@ -96,7 +106,7 @@ C# の正規形は [`.editorconfig`](../../../.editorconfig) を正本とし、�
 
 ### 実行期限と失敗分類
 
-通常の機能テストは、ポータブル設定用の `dotnet test` 開始直前から、全テストプロセスの実際の `ExitTime` までを一つの実行範囲とします。準備・復元・ビルド・出力確認・結果回収・環境復元・差分確認は、この時間に含めません。
+通常の機能テストは、ポータブル設定用のMTPプロセス開始直前から、全テストプロセスの実際の `ExitTime` までを一つの実行範囲とします。準備・復元・ビルド・出力確認・結果回収・環境復元・差分確認は、この時間に含めません。
 
 `FunctionalTimeoutSeconds` による既定の実行期限は360秒です。一つの期限をポータブル設定、残りの起動、全プロセスの終了まで共有し、プロセスや段階ごとに作り直しません。失敗後の停止と出力読取りには、この期限から追加10秒までの共通期限を使います。
 

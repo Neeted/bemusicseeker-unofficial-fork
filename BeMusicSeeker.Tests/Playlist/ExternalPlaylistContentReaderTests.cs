@@ -13,7 +13,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class ExternalPlaylistContentReaderTests
 {
     /// <summary>BOM、空白、先頭文字を別readに分けても種別を維持し、BOMと空白を含むexactを許可し+1を拒否します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("\ufeff \n{}", true)]
     [DataRow("\ufeff \n[]", true)]
     [DataRow("\ufeff <html>", false)]
@@ -27,19 +27,19 @@ public sealed class ExternalPlaylistContentReaderTests
         Assert.AreEqual(isJson, result.IsJson);
         Assert.AreEqual(text.TrimStart('\ufeff'), result.Text);
         using var excess = new ChunkStream([.. bytes, (byte)' '], 1);
-        await Assert.ThrowsExceptionAsync<InvalidDataException>(() => ExternalPlaylistContentReader.ReadAsync(
+        await Assert.ThrowsExactlyAsync<InvalidDataException>(() => ExternalPlaylistContentReader.ReadAsync(
             excess, true, CancellationToken.None, isJson ? 4 : bytes.Length, bytes.Length));
         Assert.AreEqual(bytes.Length + 1, excess.BytesRead);
     }
 
     /// <summary>種別不明な空白はJSON上限で止まり、長い空白後のHTML判定では累積量を戻さず次のreadを始めません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("                     ", 13)]
     [DataRow("      <meta>", 7)]
     public async Task UnknownOrHtmlPrefix_StopsAtApplicableCumulativeBound(string text, int readBytes)
     {
         using var source = new ChunkStream(Encoding.UTF8.GetBytes(text), 1);
-        await Assert.ThrowsExceptionAsync<InvalidDataException>(() => ExternalPlaylistContentReader.ReadAsync(
+        await Assert.ThrowsExactlyAsync<InvalidDataException>(() => ExternalPlaylistContentReader.ReadAsync(
             source, true, CancellationToken.None, htmlLimitBytes: 4, jsonLimitBytes: 12));
         Assert.AreEqual(readBytes, source.BytesRead);
     }
@@ -49,7 +49,7 @@ public sealed class ExternalPlaylistContentReaderTests
     public async Task FixedJson_ReadsAtMostRemainingPlusOne()
     {
         using var source = new ChunkStream(Encoding.UTF8.GetBytes("<html> extra"), 100);
-        await Assert.ThrowsExceptionAsync<InvalidDataException>(() => ExternalPlaylistContentReader.ReadAsync(
+        await Assert.ThrowsExactlyAsync<InvalidDataException>(() => ExternalPlaylistContentReader.ReadAsync(
             source, false, CancellationToken.None, htmlLimitBytes: 2, jsonLimitBytes: 8));
         Assert.AreEqual(9, source.BytesRead);
     }

@@ -21,7 +21,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryInitializationFileScanTests
 {
     /// <summary>同内容のBMS/BMSON更新は無視bitだけを新資源評価へ引き継ぎ、本文変更では解除します。実差分保存・現在値・不足対象索引を照合し、古い充足件数の復元を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(false, true)]
@@ -1958,7 +1958,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     /// <summary>
     /// 壊れた新規bmsonは登録せずparse失敗を診断へ記録し、同じ走査の正常譜面は登録して両対象を進捗の処理済み数へ含める。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("{\"version\":\"1.0.0\",\"info\":")]
     [DataRow("{\"info\":{\"level\":9223372036854775807}}")]
     [DataRow("{\"info\":{\"init_bpm\":120},\"bpm_events\":[null]}")]
@@ -2900,7 +2900,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     /// <summary>
     /// 同MD5の一対一移動は通常path・caseだけの変更でも利用者列をDB・memoryへ引き継ぐ。mtime同一の旧folder表記と末尾区切り欠落も一回で退役し、新folderの通常adddateと二回目の収束を確認する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(true, true)]
@@ -3103,7 +3103,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     /// <summary>
     /// 移動先に同MD5の現行行があれば通常path・caseだけの変更でも旧sourceの利用者列で上書きせず、現行行を維持する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ApplyFileScanDiff_MovedBmsWithExistingDestinationPreservesDestinationUserColumns(bool caseOnlyPathChange)
@@ -3212,7 +3212,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     /// <summary>
     /// 同MD5の旧候補が複数ある移動ではcase候補が混在しても利用者列を選ばず、旧行を退役して現在pathだけを保存する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ApplyFileScanDiff_MovedBmsWithAmbiguousSourceMd5DoesNotPreserveUserSongColumns(bool includeCaseOnlySourceCandidate)
@@ -3307,7 +3307,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     /// <summary>
     /// 同MD5の新候補が複数ある移動ではcase候補が混在しても旧利用者列を移植せず、全新pathをDB・memoryへ反映する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ApplyFileScanDiff_MovedBmsWithAmbiguousDestinationMd5DoesNotPreserveUserSongColumns(bool includeCaseOnlyDestinationCandidate)

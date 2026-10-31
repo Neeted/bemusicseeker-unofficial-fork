@@ -17,7 +17,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
 {
     /// <summary>バックアップ・修復・完了案内の独立した通知を全て試み、表示のIO失敗と所有していない取消しを初期化へ再送出しません。</summary>
     /// <remarks>Windowを作らず、実通知管理主体と表示依存だけを用います。失敗位置と例外種類を変えて後続通知の欠落も検査します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0, false)]
     [DataRow(1, false)]
     [DataRow(0, true)]
@@ -56,7 +56,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
 
     /// <summary>通知待機後に終了または新要求が先着した場合は、それ以降の旧要求の案内を開始しません。</summary>
     /// <remarks>表示は実Taskで待ち、終了だけを取消しとして区別します。新要求では旧要求を静穏に終えます。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task CompletionNotifications_ShutdownOrStaleRequestStopsSubsequentNotices(bool shutdown)
@@ -80,7 +80,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
             Assert.IsFalse(operation.IsCompleted);
             stopped = true;
             release.TrySetResult();
-            if (shutdown) { await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => operation); }
+            if (shutdown) { await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => operation); }
             else { await operation; }
             Assert.AreEqual(1, count);
         }
@@ -147,12 +147,12 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
         bool callbackAfterFailureRan = false;
         using CancellationTokenRegistration callbackAfterFailure = coordinator.ShutdownToken.Register(() => callbackAfterFailureRan = true);
         using CancellationTokenRegistration failingCallback = coordinator.ShutdownToken.Register(() => throw cancellationCallbackFailure);
-        AggregateException shutdownFailure = Assert.ThrowsException<AggregateException>(() => coordinator.RequestShutdown("test"));
+        AggregateException shutdownFailure = Assert.ThrowsExactly<AggregateException>(() => coordinator.RequestShutdown("test"));
         Assert.AreSame(cancellationCallbackFailure, shutdownFailure.Flatten().InnerExceptions[0]);
         Assert.IsTrue(callbackAfterFailureRan);
         Assert.IsTrue(capturedRequiredReadiness.IsCanceled);
         Assert.IsTrue(capturedInstallEstimationReadiness.IsCanceled);
-        await Assert.ThrowsExceptionAsync<TaskCanceledException>(() => readinessWaiter);
+        await Assert.ThrowsExactlyAsync<TaskCanceledException>(() => readinessWaiter);
     }
 
     /// <summary>
@@ -166,7 +166,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
         Task readinessWaiter = coordinator.WaitForRequiredPlaylistReadinessAsync();
         var failure = new InvalidOperationException("playlist initialization failed");
         coordinator.FailRequiredPlaylistReadiness(failure);
-        Exception observed = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => readinessWaiter);
+        Exception observed = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => readinessWaiter);
         Assert.AreSame(failure, observed);
         Assert.IsFalse(coordinator.IsRequiredPlaylistReady);
     }
@@ -181,7 +181,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
         using var semaphore = new SemaphoreSlim(1, 1);
         var failure = new InvalidOperationException("initialization continuation failed");
 
-        AggregateException exception = Assert.ThrowsException<AggregateException>(() =>
+        AggregateException exception = Assert.ThrowsExactly<AggregateException>(() =>
             service.RunInitialization(
                 [
                     () =>

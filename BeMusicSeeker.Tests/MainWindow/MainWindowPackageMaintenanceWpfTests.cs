@@ -31,7 +31,7 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class MainWindowPackageMaintenanceWpfTests
 {
     /// <summary>三つの実treeから候補/手入力・取消・再表示保持をcompiled編集へ接続し、確定だけでは物理処理しません。全件条件は同path保留との分離と明示修復のfile/DB終端も確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0)]
     [DataRow(1)]
     [DataRow(2)]
@@ -514,7 +514,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     }
 
     /// <summary>実自動改名のDB終端失敗を通知し、通知側が失敗しても確定済み移動・receiptを失わず、通知完了後に受付を解放します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)] // 選択フォルダの改名後にDB終端が失敗。
     [DataRow(true, false)] // 全フォルダ要求でも同じ失敗receiptを観測。
     [DataRow(false, true)] // 失敗通知そのものが例外になっても変更事実を保持。
@@ -629,7 +629,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         });
     }
     /// <summary>外部ドロップの実導入で、成功・原本後片付け失敗・DB反映失敗をpackage件数と区別し、receiptと通知に確定済み変更と失敗を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0)] // 導入・原本の後片付けとも成功。
     [DataRow(1)] // 導入を確定した後の原本削除が失敗。
     [DataRow(2)] // 導入先songへのDB反映が失敗。
@@ -1924,7 +1924,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     }
 
     /// <summary>packageと選択譜面の手動・強制導入クリックが同じreceipt通知へ接続し、後片付け失敗と確定済み変更を報告します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)] // packageの強制導入。
     [DataRow(false, true)] // packageの手動導入。
     [DataRow(true, false)] // 選択譜面の強制導入。
@@ -2160,7 +2160,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     }
 
     /// <summary>初回解析中の後発プレイリスト選択とBindingを保ち、現在の重複選択では解析前の文脈更新と準備済みツリー展開を確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("later")]
     [DataRow("current")]
     [DataRow("busy")]
@@ -3222,7 +3222,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     }
 
     /// <summary>カタログ・保留メニューの同期例外と待機後のTask失敗を一回の一般通知で扱い、通知失敗でも操作を再実行せず実イベントの終端を待ちます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]

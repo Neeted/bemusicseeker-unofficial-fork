@@ -157,7 +157,7 @@ public sealed partial class MainWindowViewHostTests
     }
 
     /// <summary>実Closeは変更した画面幅を一回保存してからアプリ終了へ進み、終了受付前後の設定表示要求を抑止し、終了callback失敗はClose終端の元例外として返します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)] // 終了受付後の即時設定表示を拒否します。
     [DataRow(true, false)] // 終了前にqueueした遅延表示も実行時に拒否します。
     [DataRow(false, true)] // 終了callback失敗をCloseCompletionへ伝え、保存を繰り返しません。
@@ -230,7 +230,7 @@ public sealed partial class MainWindowViewHostTests
                 if (failShutdownNotification)
                 {
                     Assert.AreSame(notificationFailure,
-                        Assert.ThrowsException<InvalidOperationException>(() => ownership.Dispose()));
+                        Assert.ThrowsExactly<InvalidOperationException>(() => ownership.Dispose()));
                     Assert.IsFalse(applicationLifetime.ShutdownRequested.Task.IsCompleted);
                     Assert.IsTrue(window.CloseCompletion.IsFaulted);
                     Assert.AreEqual(capturedTreeViewWidth, settingsSession.TreeViewWidthAtSave);

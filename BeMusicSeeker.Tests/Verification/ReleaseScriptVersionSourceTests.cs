@@ -106,7 +106,7 @@ public sealed class ReleaseScriptVersionSourceTests
     /// 既存manifestが同じreleaseなら公開時刻を保持し、別releaseなら更新することで、再実行による時刻の改変と別版の時刻流用を検出する。
     /// </summary>
     /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void CreateDraftPublishedAtIsReusedOnlyForTheSameRelease(bool sameRelease)
@@ -183,7 +183,7 @@ public sealed class ReleaseScriptVersionSourceTests
     /// tag・HEAD・ZIPの内容・manifest・remote資産が一致しない各入力で公開とmain更新を止め、未確認資産を正式配信へ進める誤りを検出する。
     /// </summary>
     /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("head")]
     [DataRow("remote-tag")]
     [DataRow("zip")]

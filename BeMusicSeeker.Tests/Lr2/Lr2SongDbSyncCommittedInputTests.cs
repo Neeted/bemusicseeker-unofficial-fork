@@ -100,7 +100,7 @@ public sealed class Lr2SongDbSyncCommittedInputTests
     /// </summary>
     /// <remarks>実SQLiteの保存と結果読戻しを観測し、保存・カーソル更新を代替しません。</remarks>
     /// <param name="rowCount">単件と複数の全件除外を確認します。実チャンクと順序枠の保証は非除外の実更新テストが担います。</param>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(1)]
     [DataRow(3)]
     public void CommittedInputSongRows_ExcludeAllAndKeepFoldersWithoutSongStages(int rowCount)

@@ -49,7 +49,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     private const string NativeModalFixturePlaylistName = "Native modal fixture";
 
     /// <summary>実表見出しと実子folderのheaderからOSファイルをrouted Dropし、既存導入ownerの一回受付・保留登録とDBを確認します。プレイリストへ取り込む誤配線も検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void PlaylistTreeFileDrop_ReachesInstallOwnerOnceWithoutChangingPlaylist(bool childFolder)
@@ -159,7 +159,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     }
 
     /// <summary>正規の内部行DataObjectを実headerへ配送し、表rootの分類と空名実folderの所属を分けます。Dropはhoverを解除し、受理時のP実終端とasyncイベントを回収してからDBを読みます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void PlaylistTreeRowDrop_UsesHitNodeAndClearsHover(bool childFolder)
@@ -1565,7 +1565,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
     /// <summary>無変更/変更Escape後も原値・表示Bindingを保ち、実scrollで再利用した見出しから名前を外して、そのfolderだけを名前なしへ一回保存します。</summary>
     /// <remarks>実compiled入力とMainWindow/DBへの接続を担当します。保存失敗・拒否・選択復元の条件差は既存owner/構造テストに分担し、OS入力・物理focus成功は要求しません。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void PlaylistFolderEdit_CancelKeepsBindingAndRecycledControlRenamesCurrentFolder(bool changeBeforeEscape)
@@ -2589,7 +2589,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
     /// <summary>実出力名Bindingの未反映パス入力をOKで拒否し、専用理由・候補保持・DB不変を確認して、同画面の訂正保存または不正入力のまま取消できることを確認します。</summary>
     /// <remarks>raw条件網羅はモデルへ分担し、実control・確定ゲート・所有モーダルと閉鎖の接続だけを確認します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void PlaylistPropertyOutputName_InvalidBindingKeepsDraftAndAllowsCorrectionOrCancel(bool cancel)
@@ -3111,7 +3111,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     }
 
     /// <summary>全再読込み・単独同期・property保存から推薦表の自動名をDBと実ツリーへ反映し、名前の変更だけでは通知せず数値skill差だけを所有Windowへ通知します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("All", false)] // 全体再読込み、skill数値が変化。
     [DataRow("All", true)] // 全体再読込み、名だけ変化しskillは同値。
     [DataRow("Single", false)] // 単独同期、skill数値が変化。
@@ -3252,7 +3252,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     /// 同じ所有プロパティ画面の実Bindingと保存ボタンから、外部置換後の実BMT失敗、
     /// 実Warningの本文・ownerと採用後のHand通知、両表示失敗後も正常終了する待機Task、画面維持、旧失敗を含まない再保存成功とCloseを確認します。出力失敗点の組合せは保存サービス群へ分担します。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)] // 実BMT Warningと最終Hand通知が正常に終了。
     [DataRow(true)] // 実BMT Warningと最終Handの表示も失敗するが、保存済み状態と次の明示操作を妨げない。
     public void PlaylistPropertyDialog_ExternalReplacementBmtFailureKeepsOwnedDialogAndResavesSameId(bool failNotification)
@@ -4458,7 +4458,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     }
 
     /// <summary>compiled表再読込みクリックは未完了Taskでも処理済みにし、通常失敗と所有されない取消を一回通知し、終了取消・既通知警告を静穏に終えます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("success")] // 成功の既存接続と即時Handledを維持します。
     [DataRow("failure")] // 非同期の普通の失敗は既存通知へ一回渡します。
     [DataRow("cancellation")] // 終了要求のない取消を実失敗として通知します。
@@ -4550,7 +4550,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     }
 
     /// <summary>プレイリストルートの実コンテキストメニューは所有モーダルを開き、取消・Escape・native Close・親終了でDataContextと全購読を回収します。再表示は入力・検索・選択が空で既定フィルターへ戻ります。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("cancel")]
     [DataRow("escape")]
     [DataRow("native")]

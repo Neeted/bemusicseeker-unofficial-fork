@@ -208,7 +208,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             }
             if (abortAfterInsert)
             {
-                SQLite.SQLiteException failure = Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyPendingPackageMutationDelta(delta, group.Packages, group.Packages));
+                SQLite.SQLiteException failure = Assert.ThrowsExactly<SQLite.SQLiteException>(() => owner.ApplyPendingPackageMutationDelta(delta, group.Packages, group.Packages));
                 StringAssert.Contains(failure.Message, "normalization-insert");
                 CollectionAssert.AreEqual(originals, owner.PendingPackages.ToArray());
                 Assert.AreEqual(0, publications);

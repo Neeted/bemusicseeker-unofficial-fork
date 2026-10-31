@@ -139,7 +139,7 @@ public sealed class ChartInfoBackfillStorageTests
 
     /// <summary>保存済み成功行の22・23を本番の現在行検索から再利用し、hashの相違だけで再読込み・再解析・版更新する誤りを検出する。</summary>
     /// <remarks>実SQLiteに保存した行を本番の現在行検索で採用し、実補完の読取り件数と保存済みの版・hashを観測する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(22)]
     [DataRow(23)]
     public void BackfillChartInfos_ReusesSavedSuccessAtCurrentOrFutureParserVersion(int savedParserVersion)
@@ -349,7 +349,7 @@ public sealed class ChartInfoBackfillStorageTests
 
     /// <summary>song行が消えた候補でも詳細・digest対応と必須公開を確定し、診断先が失敗してもsongを再挿入せず完了します。</summary>
     /// <remarks>実SQLiteの確定・rollbackと本番補完経路を観測し、保存前の計算結果だけで成功としない。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void BackfillChartInfos_MissingSongRowCommitsFactsWithoutInsertingSong(bool failDiagnostics)
@@ -586,7 +586,7 @@ public sealed class ChartInfoBackfillStorageTests
 
     /// <summary>旧・現代BMSONの実解析から版22を保存し、TOTAL省略/明示100の表示・検索、旧21再解析と現在版の読取り省略を確認します。BMS専用表は生成しません。</summary>
     /// <remarks>実SQLiteの確定・rollbackと本番補完経路を観測し、保存前の計算結果だけで成功としない。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("modern", false)]
     [DataRow("modern", true)]
     [DataRow("legacy", true)]
@@ -668,7 +668,7 @@ public sealed class ChartInfoBackfillStorageTests
 
     /// <summary>未知のread/parse故障は今回だけ非採用にして正常対象・成功digest・旧基本値を確定し、次の通常補完で故障対象も評価できる。</summary>
     /// <remarks>実BMS・SQLite・CatalogMutationOwnerを使う。writerが待機へ到達したことを確認してからcollector/writerの解放順を両方確認し、進捗・警告の普通故障でも全開始Task終端と保存を保つ。finallyで全gate解放・操作終端後にfixtureを解放する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task BackfillChartInfos_UnknownInputFailureSkipsAndNextOpportunityEvaluates(bool releaseWriterFirst)
@@ -870,7 +870,7 @@ public sealed class ChartInfoBackfillStorageTests
             }
             var mutationOwner = new CatalogMutationOwner(new CatalogOwnedCollectionOwner(), gateway);
 
-            AggregateException exception = Assert.ThrowsException<AggregateException>(() =>
+            AggregateException exception = Assert.ThrowsExactly<AggregateException>(() =>
                 service.BackfillChartInfos(
                     gateway,
                     CreateChartSnapshot([file], []),
@@ -919,7 +919,7 @@ public sealed class ChartInfoBackfillStorageTests
             }
             var mutationOwner = new CatalogMutationOwner(new CatalogOwnedCollectionOwner(), gateway);
 
-            Assert.ThrowsException<AggregateException>(() =>
+            Assert.ThrowsExactly<AggregateException>(() =>
                 service.BackfillChartInfos(
                     gateway,
                     CreateChartSnapshot([firstFile, secondFile], []),

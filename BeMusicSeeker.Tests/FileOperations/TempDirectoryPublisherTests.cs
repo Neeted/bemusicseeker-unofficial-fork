@@ -91,7 +91,7 @@ public sealed class TempDirectoryPublisherTests
 
     /// <summary>非Gregorian文化でも固定UTC形式のsession名で管理ディレクトリを作り、実在・所有判定と回収を確認する。</summary>
     /// <remarks>実ファイルと所有markerの削除境界を確認し、管理外の利用者データ保持を分担する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DoNotParallelize]
     [DataRow("th-TH")]
     public void GetCreatesManagedDirectory(string cultureName)

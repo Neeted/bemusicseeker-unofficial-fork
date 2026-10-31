@@ -28,7 +28,7 @@ public sealed class PlaylistCatalogViewChangeTests
     public TestContext? TestContext { get; set; }
 
     /// <summary>実配送Taskが未終端ならdraft/Pと次編集の開始拒否を保持し、整列延期flag解除・選択復元中もgateを保ちます。成功と配送失敗の実終端後は同値を含む次の明示編集を受理します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task DetailEdit_WaitsForRequiredDeliveryAndCleansUpOnFailure(bool failPresentation)
@@ -78,7 +78,7 @@ public sealed class PlaylistCatalogViewChangeTests
                 rejected?.Dispose();
             }
             finally { gate = false; release.TrySetResult(); }
-            if (failPresentation) { Assert.AreSame(failure, await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => edit)); }
+            if (failPresentation) { Assert.AreSame(failure, await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => edit)); }
             else { await edit; }
             Assert.IsTrue(cleanupObserved);
             Assert.IsTrue(fixture.Workspace.CanBeginDetailEdit(nextContext));
@@ -186,7 +186,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>旧編集の保存後配送中に別表を表示し、旧cleanup後も新表示を保ちます。summary経由ではsourceの編集flagを解除して通常score整列を進め、保存gateだけは旧Task終端まで維持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task DetailEdit_ReplacedDisplayKeepsNewTableRows(bool viaSummary)
@@ -357,7 +357,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>初回参照捕捉後・依存索引構築前の更新を実投影gateで配送し、採用時に同じ差分を反映します。採用前中止では候補を公開しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ReferenceCommit_DuringInitialProjectionIsBufferedBeforeDependencyRegistration(bool cancel)
@@ -451,7 +451,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>同条件要求でも未配送参照を待ち、配送callbackと実Completionを区別します。要求取消は共有drainを取り消しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ReferenceCommit_SameViewWaitsForActualDeliveryAndCancellationKeepsSharedDrain(bool cancel)
@@ -558,7 +558,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>背景16/128件のwarm一件保守で未変更行・Rows・選択・未訪問行を保持し、旧入力は変えず対象値と専門警告を配送します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16, false)]
     [DataRow(128, false)]
     [DataRow(16, true)]
@@ -598,7 +598,7 @@ public sealed class PlaylistCatalogViewChangeTests
 
     /// <summary>入力捕捉後の実保守を配送前で止め、旧入力へ新版を付けず、配送後に同じ候補へ局所差分だけを反映します。</summary>
     /// <remarks>Windowを作らず共有Dispatcherへ採用を配送し、RowsReplacingのUI所属と、現役sourceへの合法なUI配送を候補のworker追随から分けます。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task BuildingCandidate_WaitsForCommitDeliveryAndResumesWithoutRebuild(bool deliverBeforeAdoption)
@@ -686,7 +686,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>MEMO空欄とその否定の初回集合を、実MEMO保存後の局所更新でも維持します。空欄への戻しで再加入・離脱することとDB確定を確認します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task MemoBlankRegex_InitialAndCommittedUpdatesUseSamePredicate(bool negated)
@@ -712,7 +712,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>TITLE正規表現の実表示後にMEMOをDB確定しても集合を変えず、実題名確定では同じ要求式から離脱・再加入します。MEMOだけ一致する非表示行の混入と局所更新時の式変質を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(@"title:re:^\d$", "1", "A")]
     [DataRow(@"title:re:^\D$", "A", "1")]
     public async Task TitleRegex_EntryMemoCommitsPreserveMembershipAndMetadataChangesReevaluate(
@@ -759,7 +759,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>背景件数・実体化済み件数を増やしても、一件の題名移動は順序木の探索経路だけを訪問します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     [DataRow(128)]
     public async Task MetadataSortMove_PreservesRealizedEntriesWithLogarithmicOrderWork(int count)
@@ -798,7 +798,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>実score ownerのA/B変更で対象行を更新し、memo draftと旧順序を保ってCompleteDetailEditのfinally後だけB/U/Aへ再配置します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     [DataRow(128)]
     public async Task ScoreChanges_PatchDependentEntriesAndDeferPositionUntilDraftEnds(int count)
@@ -844,7 +844,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>正常なscore再読込みで記録が消えた所持/未所持行は全成績を消去し、draftと位置を編集終端まで保持します。旧Chart.Scoreの再利用を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public async Task ScoreReload_MissingRecordClearsScoresAndDefersOrderUntilDraftEnds(bool owned)
@@ -901,7 +901,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>実DBの記録消去をscore-only通知から適用し、所持/未所持の未プレイ検索加入と旧score検索離脱を確認します。非表示sourceの旧成績保持も検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true, true)]
     [DataRow(true, false)]
     [DataRow(false, true)]
@@ -926,7 +926,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>非所持entryの詳細独立通知を実解析・DB確定から配送し、全source再構築なしでノーツ数一件だけを反映します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     [DataRow(128)]
     public async Task ChartInfoChange_PatchesOnlyUnownedDependentEntry(int count)
@@ -1118,7 +1118,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>少数削除のsource位置更新は末尾一件だけで、表示の明示sortと同値EntryOrderを維持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     [DataRow(128)]
     public async Task EntryRemoval_ChangesOnlyAffectedSourcePositions(int count)
@@ -1146,7 +1146,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>大文字小文字と数値表記が既存比較器で同値ならEntryOrderを保ち、実キー変更時だけ対象参照を移動します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(nameof(PlaylistDetailRow.Title))]
     [DataRow(nameof(PlaylistDetailRow.Folder))]
     public void LocalSort_UsesSemanticEqualityAndConfirmedEntryOrder(string column)
@@ -1176,7 +1176,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>正規セル保存のLevel確定差分は同じRowsで並びを変え、memo確定差分は依存keyword所属だけを外します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     [DataRow(128)]
     public async Task EntryEdits_UpdateLevelOrderAndMemoFilterLocally(int count)
@@ -1222,7 +1222,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>実改名操作の公開後にroot表示を再構築せず、選択folder自身の改名時だけ新選択を評価します。明示folder順はtree、詳細Folder列は自然順です。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16, false)]
     [DataRow(128, false)]
     [DataRow(16, true)]
@@ -1284,7 +1284,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>実delete/dropを局所反映し、同表移動後の新entryでMEMO保存しても参照だけに一致するfilterと表示を保持します。16→128の背景では移動・保存を別区間で観測します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16, false)]
     [DataRow(128, false)]
     [DataRow(16, true)]
@@ -1506,7 +1506,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>A/Bの別キー確定後、片方のpure wakeを止めても単一drainが全rangeを覆い、同条件要求は混合入力をreuseしません。旧同キー逆順保証もここへ移管します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16, false)]
     [DataRow(128, false)]
     [DataRow(16, true)]
@@ -1592,7 +1592,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>実folderのfilter前全entryを同じbaselineで構築し、非表示Aの加入・Bの離脱も一件ずつ更新します。Uと未訪問背景は維持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16, false)]
     [DataRow(128, false)]
     [DataRow(16, true)]
@@ -1626,7 +1626,7 @@ public sealed class PlaylistCatalogViewChangeTests
 
     /// <summary>初回A投影後/B投影前の実更新をworkerでrange適用し、rootではUI採用待ち中の別key差分も最初のRows公開へ含めます。</summary>
     /// <remarks>folderは初回投影中の差分、rootは準備後のC差分も保証します。Windowなしの共有Dispatcherで、候補投影・scoreコピーのworker所属とRowsReplacing・Rows公開のUI所属を分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ScoreRanges_CommittedDuringInitialProjectionAreAppliedBeforeAdoption(bool folder)
@@ -1720,7 +1720,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>実drainのfanout失敗、正常配送だがworkspace未反映、port欠落を要求失敗へ収束させ、score新版のreuseと永久待機を防ぎます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("apply_failure")]
     [DataRow("uncovered")]
     [DataRow("no_port")]
@@ -1750,7 +1750,7 @@ public sealed class PlaylistCatalogViewChangeTests
                 // 拒否時は受理operationが存在しません。portが返した同じTaskの失敗を観測し、再配送を要求しません。
                 Task delivery = fixture.RequestedLibraryDelivery
                     ?? throw new AssertFailedException("配送portの実終端Taskが捕捉されていません。");
-                await Assert.ThrowsExceptionAsync<InvalidOperationException>(async () => await delivery);
+                await Assert.ThrowsExactlyAsync<InvalidOperationException>(async () => await delivery);
                 Assert.AreEqual(0, fixture.DeliveryScheduler.Count);
             }
             else
@@ -1760,8 +1760,8 @@ public sealed class PlaylistCatalogViewChangeTests
             }
         }
         if (failure == "abort")
-        { await Assert.ThrowsExceptionAsync<TaskCanceledException>(async () => await refresh); }
-        else { await Assert.ThrowsExceptionAsync<InvalidOperationException>(async () => await refresh); }
+        { await Assert.ThrowsExactlyAsync<TaskCanceledException>(async () => await refresh); }
+        else { await Assert.ThrowsExactlyAsync<InvalidOperationException>(async () => await refresh); }
         Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
         Assert.AreEqual(before, fixture.Workspace.DetailViewState.Source.LastBuiltScoreSnapshotVersion);
         Assert.AreEqual(failure == "no_port" ? 0 : 1, fixture.DeliveryRequests, "同じ必要位置で配送要求を再試行しません。");
@@ -1769,7 +1769,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>Δ=1のwarm変更はAだけを投影し、Uの参照・選択・背景未実体化を保持します。lookup列挙/複写と全source索引・順序bufferは作りません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     [DataRow(128)]
     public async Task ScoreRange_OneKeyKeepsBackgroundWorkIndependent(int count)
@@ -1802,7 +1802,7 @@ public sealed class PlaylistCatalogViewChangeTests
     }
 
     /// <summary>callback実行と実Completionを分け、要求取消/接続交換は他consumerの共有drainを取消さず、旧結果を再採用しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ScoreRange_CancelOrReplaceRequestDoesNotCancelSharedDelivery(bool replace)

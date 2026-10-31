@@ -223,7 +223,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
         {
             string outputPath = Path.Combine(tempRootPath, "chart-info-metadata.db");
 
-            Assert.ThrowsException<InvalidDataException>(() => ChartInfoExportRunner.Export(new ChartInfoExportOptions
+            Assert.ThrowsExactly<InvalidDataException>(() => ChartInfoExportRunner.Export(new ChartInfoExportOptions
             {
                 SourceSongDbPath = songDbPath,
                 OutputDbPath = outputPath
@@ -306,7 +306,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             }
 
             string outputPath = Path.Combine(tempRootPath, "chart-info-metadata.db");
-            Assert.ThrowsException<ArgumentException>(() => ChartInfoExportRunner.Export(new ChartInfoExportOptions
+            Assert.ThrowsExactly<ArgumentException>(() => ChartInfoExportRunner.Export(new ChartInfoExportOptions
             {
                 SourceSongDbPath = songDbPath,
                 OutputDbPath = outputPath,
@@ -328,7 +328,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
                 BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
             }
 
-            Assert.ThrowsException<FileNotFoundException>(() => ChartInfoExportRunner.Export(new ChartInfoExportOptions
+            Assert.ThrowsExactly<FileNotFoundException>(() => ChartInfoExportRunner.Export(new ChartInfoExportOptions
             {
                 SourceSongDbPath = songDbPath,
                 OutputDbPath = Path.Combine(tempRootPath, "chart-info-metadata.db"),
@@ -433,7 +433,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             }
             var gateway = new BmsLibraryDbGateway(songDbPath);
 
-            Assert.ThrowsException<InvalidDataException>(() => gateway.ImportChartInfoMetadataBundle(bundlePath, ChartFileContentReader.ComputeSha256(bundlePath)));
+            Assert.ThrowsExactly<InvalidDataException>(() => gateway.ImportChartInfoMetadataBundle(bundlePath, ChartFileContentReader.ComputeSha256(bundlePath)));
         });
     }
 

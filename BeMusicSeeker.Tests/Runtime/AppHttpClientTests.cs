@@ -122,7 +122,7 @@ public sealed class AppHttpClientTests
     /// 非ASCII名は元のUTF-8バイトで、ASCII名は従来の名前で送信し、名前のMIME符号化・置換とバイナリ本文の変化を検出します。
     /// 実HTTPのPOSTと応答BOMだけを除く保証も同じ経路で維持します。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("譜面-é😀.bms")]
     [DataRow("score.bms")]
     [TestCategory("Http")]
@@ -178,7 +178,7 @@ public sealed class AppHttpClientTests
     }
 
     /// <summary>各同期・非同期取得でヘッダーから本文へ進んでも元の期限を共有し、保留本文を取消して応答streamを解放します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("GetStringAsync")]
     [DataRow("PostFormAsync")]
     [DataRow("GetString")]
@@ -234,7 +234,7 @@ public sealed class AppHttpClientTests
     }
 
     /// <summary>GET・form POSTのヘッダー直後と本文途中で外部取消し、fixture解放前に実peer切断まで観測して待ち手だけの取消を防ぎます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("GetStringAsync", false)]
     [DataRow("PostFormAsync", false)]
     [DataRow("GetStringAsync", true)]
@@ -288,7 +288,7 @@ public sealed class AppHttpClientTests
     }
 
     /// <summary>同期・非同期GETの実応答で日本語と記号を保持してBOMだけを除き、取得経路の復号不一致を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("GetStringAsync")]
     [DataRow("GetString")]
     [TestCategory("Http")]
@@ -303,7 +303,7 @@ public sealed class AppHttpClientTests
     }
 
     /// <summary>同期・非同期form POSTで日本語・空値・同名複数値を実peerへ保持して渡し、応答BOMを除去します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [TestCategory("Http")]

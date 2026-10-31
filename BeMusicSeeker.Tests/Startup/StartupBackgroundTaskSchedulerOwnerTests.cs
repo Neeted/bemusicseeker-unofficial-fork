@@ -280,7 +280,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     /// <summary>
     /// scoreとrankingのworkerを再利用しても各受付の世代・tokenを保ち、実行reporterとschedulerの通知を重複せず依存処理まで終える。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("score_hydration_deferred")]
     [DataRow("ranking_refresh_deferred")]
     public async Task ExecutionReporter_UsesAcceptanceIdentityAcrossWorkerReuseWithoutDuplicatePresentation(string name)
@@ -354,7 +354,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     /// <summary>
     /// 進捗observerの失敗を局所診断し、警告先の通常完了・例外の双方で他observerへ開始・終端を届けます。要求identityと成功集計を終端まで維持します。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ProgressChanged_CapturesRequestIdentityAndIsolatesObserverFailure(bool warningThrows)
@@ -459,7 +459,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     /// 実playlist URL補完の受付を新旧ExecutionContextから呼び、捕捉世代を保ちながら現行要求だけを独立行へ表示する。
     /// </summary>
     /// <remarks>実playlist受付と進捗hubへの接続を使い、scheduler単体では観測できない世代捕捉と表示選別を確認する。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task PlaylistUrlCompletion_RealAcceptanceCapturesIndependentCurrentGenerationOrRetainsOldContext(bool oldContext)
@@ -983,7 +983,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     /// <summary>
     /// folder treeと補完の後続処理中も必須idleは成立し、後続の実終端までは全体idleが成立しない。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("library_folder_tree_refresh", "post_initialization_folder_tree_refresh")]
     [DataRow("chart_info_backfill", "post_initialization_default")]
     public async Task PostInitializationOwnerWorkUsesItsLaneWithoutBlockingRequiredIdle(string name, string lane)
@@ -1334,7 +1334,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     /// <summary>
     /// 登録終了の前後いずれの終了要求でも未開始folder修復を一度だけ破棄し、受理済み保守を実終端まで回収する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ShutdownDiscardsUnstartedCustomFolderRepairExactlyOnceWhileRequiredMaintenanceDrains(bool schedulingCompleted)
@@ -1968,7 +1968,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     /// <summary>
     /// 一般受付・予約・予約受付・scheduler開始・work開始の各診断失敗が受理を取り消さず、実workを一回実行して全件・laneの終端と成功集計へ到達することを確認します。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("queue", false)]
     [DataRow("reservation", true)]
     [DataRow("reserved_submit", true)]
@@ -2034,7 +2034,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     /// <summary>
     /// 完了ログの失敗を実work失敗へ変換せず、同じlaneの依存後続と成功集計を維持します。所有側で処理した期待取消も正常完了として分担します。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task DoneDiagnosticFailurePreservesSuccessAndDependentExecution(bool consumeExpectedCancellation)
@@ -2091,7 +2091,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     /// <summary>
     /// 通常例外とworkから外へ出た取消例外を失敗として計上し、警告先の通常完了・例外の双方で後続処理の並列枠と依存を解放します。終端後の同じlaneも実行でき、保持中は全idleにせずfinallyで全workを待ちます。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -2166,7 +2166,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     /// <summary>
     /// 終了・破棄診断の通常完了と例外を分担し、任意補完をlock外で一回破棄します。再終了要求でも破棄を繰り返さず、新規受付を拒否し、必須workの実終端までdrainを待ちます。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("external_playlist_sync", false)]
     [DataRow("external_playlist_sync", true)]
     [DataRow("chart_info_backfill", false)]

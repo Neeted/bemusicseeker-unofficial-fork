@@ -12,7 +12,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
 {
     /// <summary>実起動からIR通信中・保存L待ちで撤去終了を要求し、通信・受付の真の終端前にはdropせず、終了後に新規接続でschema不在を確認します。</summary>
     /// <remarks>LR2・未知schemaの保全はLR2SongDBExtendedUninstallTestsに分担し、ここでは停止したworkerによる再作成を検出します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task Uninstall_WaitsForActualIrAndAdmissionBeforeDroppingSchema(bool waitingForAdmission)
@@ -66,7 +66,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
     }
 
     /// <summary>撤去失敗の通知が完了するまで終了せず、表示不能・通知例外でも停止済みownerを再開せず一回だけ終了します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("shown")]
     [DataRow("unshown")]
     [DataRow("throw")]

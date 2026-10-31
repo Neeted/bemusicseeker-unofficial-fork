@@ -119,7 +119,7 @@ public sealed class PlaylistUrlCompletionTests
     [TestCategory("Playlist")]
     public void ParseStellaUploadFullJson_RejectsTrailingDocument()
     {
-        Assert.ThrowsException<JsonReaderException>(
+        Assert.ThrowsExactly<JsonReaderException>(
             () => PlaylistUrlCompletionSupport.ParseStellaUploadFullJson("[]{}"));
     }
 
@@ -142,7 +142,7 @@ public sealed class PlaylistUrlCompletionTests
     [TestCategory("Playlist")]
     public void BMSTableSimple_InvalidUrlPreservesFailureContract()
     {
-        Assert.ThrowsException<UriFormatException>(
+        Assert.ThrowsExactly<UriFormatException>(
             () => new BMSTableSimple(JObject.Parse("{\"name\":\"Table\",\"url\":\"http://[broken\"}")));
     }
 
@@ -263,7 +263,7 @@ public sealed class PlaylistUrlCompletionTests
     }
 
     /// <summary>URL1/2それぞれでHTTPのpath・queryの大小文字を反映し、percent表記と非HTTPを含む従来の同値では元候補を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     // HTTP の通常文字は path、query キー、query 値でそれぞれ有意です。
     [DataRow("https://example.com/Song.zip", "https://example.com/song.zip", true)]
     [DataRow("https://example.com/song?Key=value", "https://example.com/song?key=value", true)]
@@ -393,7 +393,7 @@ public sealed class PlaylistUrlCompletionTests
     }
 
     /// <summary>通常の取得失敗は旧補完を保持し、内部故障は失敗した作業として返します。次の明示要求では再取得できます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("http")]
     [DataRow("io")]
     [DataRow("timeout")]
@@ -547,7 +547,7 @@ public sealed class PlaylistUrlCompletionTests
     }
 
     /// <summary>独立した設定入力で実TSVの適用を確認し、通信中の退役ではモデルtokenを取り消して旧行へ適用しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [TestCategory("Playlist")]
@@ -826,7 +826,7 @@ public sealed class PlaylistUrlCompletionTests
 
     /// <summary>URL1/2の空文字・空白だけは当該補完ごと解除し、有効入力は置換します。他方の補完材料化・保存値保持をDBと実効表示で確認します。</summary>
     /// <remarks>実編集Taskと別属性保存を終端まで待ち、旧補完の復活と両URL一括消去を検出します。実セルの空欄配送とEscapeは既存WPF系列が分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(nameof(PlaylistDetailRow.Url), "", false)]
     [DataRow(nameof(PlaylistDetailRow.Url), "", true)]
     [DataRow(nameof(PlaylistDetailRow.Url), " \t ", false)]
@@ -1139,7 +1139,7 @@ public sealed class PlaylistUrlCompletionTests
     /// 保証：通常ローカル表の5編集属性を実保存Taskの終端まで待ち、entry・編集/同期/再作成row・新DB・新playlistへ反映する。
     /// Aの未編集属性と識別子、B全属性を保持する。実効URLの確定と必要LR2出力は既存ケースへ分担する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(nameof(PlaylistDetailRow.Level), "12.5", 12.5)]
     [DataRow(nameof(PlaylistDetailRow.Level), "2", 2d)]
     [DataRow(nameof(PlaylistDetailRow.Level), "", null)]
@@ -1278,7 +1278,7 @@ public sealed class PlaylistUrlCompletionTests
     /// 保存済みの現行項目へ無効URIを確定要求し、実Taskの終端後も編集行・source・正本・新DBが元URLと未編集属性を保ち、編集状態を解放することを確認します。
     /// </summary>
     /// <remarks>URI検査前の受付を実playlistへ通し、早期例外による見かけの非保存を除きます。正常保存とURL材料化は既存の実保存系列、取消時の解放はPlaylistViewPipelineTestsが分担します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(nameof(PlaylistDetailRow.Url))]
     [DataRow(nameof(PlaylistDetailRow.Url_diff))]
     public async Task DetailEdit_InvalidUriPreservesSavedEntryAndReleasesEditing(string propertyName)
@@ -1385,7 +1385,7 @@ public sealed class PlaylistUrlCompletionTests
     }
 
     /// <summary>memo編集中の正規URL補完を保存へ反映し、ローカルURL1/2の空欄解除と別属性保存後にも明示の新候補を適用できます。外部同期表はURLを材料化しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task DetailDraft_NormalUrlCompletionThenMemoCommitUsesLatestInput(bool external)

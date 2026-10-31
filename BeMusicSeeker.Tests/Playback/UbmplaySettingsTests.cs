@@ -12,7 +12,7 @@ public sealed class UbmplaySettingsTests
     /// <summary>
     /// 保証：LF/CRLF・末尾改行の有無、Shift_JISと無関係な文字列を保って一時値を公開し、復元時には元のバイト列へ戻す。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -107,7 +107,7 @@ public sealed class UbmplaySettingsTests
     /// <summary>
     /// 保証：外部プレイヤーへ渡す指定音量は範囲内なら保持し、負数と100超過だけを下限・上限へ制限する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(-1, "Volume=0")]
     [DataRow(37, "Volume=37")]
     [DataRow(101, "Volume=100")]

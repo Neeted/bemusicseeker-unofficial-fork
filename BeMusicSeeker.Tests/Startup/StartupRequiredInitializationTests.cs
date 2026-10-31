@@ -179,7 +179,7 @@ public sealed class StartupRequiredInitializationTests
         using (StartupRequiredOperationLease accepted = owner.AcquireRequiredOperation(fixture.Library.OperationAdmission,
             fixture.Library.Lr2Synchronization.PlaylistOperationAdmission))
         {
-            await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => owner.InitializeRequiredAsync(fixture.Library, fixture.Playlist,
+            await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => owner.InitializeRequiredAsync(fixture.Library, fixture.Playlist,
                 new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_score_cancellation"), accepted.Capability, new MainWindowViewModelStartupProgressTests.CompletionDialogs(), origin, leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification));
             Assert.IsFalse(runtime.Entered.Task.IsCompleted);
             Assert.AreEqual(0, fixture.Playlist.PlaylistEntriesHydrationRequestedVersion);
@@ -210,7 +210,7 @@ public sealed class StartupRequiredInitializationTests
         using (StartupRequiredOperationLease accepted = owner.AcquireRequiredOperation(fixture.Library.OperationAdmission,
             fixture.Library.Lr2Synchronization.PlaylistOperationAdmission))
         {
-            PlaylistMutationPostCommitException failure = await Assert.ThrowsExceptionAsync<PlaylistMutationPostCommitException>(() => owner.InitializeRequiredAsync(fixture.Library, fixture.Playlist,
+            PlaylistMutationPostCommitException failure = await Assert.ThrowsExactlyAsync<PlaylistMutationPostCommitException>(() => owner.InitializeRequiredAsync(fixture.Library, fixture.Playlist,
                 new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_startup"), accepted.Capability, new MainWindowViewModelStartupProgressTests.CompletionDialogs(), origin, leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification));
             Assert.IsInstanceOfType<IOException>(failure.InnerException);
             Assert.IsFalse(runtime.Entered.Task.IsCompleted);
@@ -340,7 +340,7 @@ public sealed class StartupRequiredInitializationTests
             Assert.IsFalse(fixture.Playlist.TryEnterPlaylistMutation(out _));
             fixture.Library.RequestShutdown("controlled_required_lr2_shutdown");
             releaseInput.Set();
-            await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => operation);
+            await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => operation);
         }
         finally
         {
@@ -423,7 +423,7 @@ public sealed class StartupRequiredInitializationTests
             Assert.IsFalse(fixture.Library.OperationAdmission.TryEnter(out _));
             Assert.IsFalse(fixture.Playlist.TryEnterPlaylistMutation(out _));
             releaseFiles.Set();
-            IOException thrown = await Assert.ThrowsExceptionAsync<IOException>(() => operation);
+            IOException thrown = await Assert.ThrowsExactlyAsync<IOException>(() => operation);
             Assert.AreSame(headerFailure, thrown);
             Assert.IsFalse(runtime.Entered.Task.IsCompleted);
         }
@@ -501,7 +501,7 @@ public sealed class StartupRequiredInitializationTests
 
     /// <summary>起動と許可されたScoreOnlyの採用を本体で完了し、純通知の故障と採用後の継続失敗でも、解放・元原因・次の明示要求を保持します。</summary>
     /// <remarks>保存済み実scoreを使い、補完しない診断とlookupで採用を観測します。通知先は状態を記録して失敗し、表明は処理後に行います。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(BMSLibrary.LibraryInitializeMode.Startup, "Ready")]
     [DataRow(BMSLibrary.LibraryInitializeMode.ScoreOnly, "Version")]
     [DataRow(BMSLibrary.LibraryInitializeMode.ScoreOnly, "Changed")]

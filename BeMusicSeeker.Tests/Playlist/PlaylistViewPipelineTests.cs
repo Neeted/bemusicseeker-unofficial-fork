@@ -451,7 +451,7 @@ public sealed class PlaylistViewPipelineTests
             }
         };
         workspace.PropertyChanged += (_, _) => workspaceNotifications++;
-        PlaylistDetailTerminalPublishException exception = Assert.ThrowsException<PlaylistDetailTerminalPublishException>(
+        PlaylistDetailTerminalPublishException exception = Assert.ThrowsExactly<PlaylistDetailTerminalPublishException>(
             () => workspace.ApplyDetailTerminal(
                 CreatePlaylistTerminalRequest(candidateRows, requestVersion: 1)));
 
@@ -524,7 +524,7 @@ public sealed class PlaylistViewPipelineTests
             }
         };
         workspace.PropertyChanged += (_, _) => workspaceNotifications++;
-        PlaylistDetailTerminalPublishException exception = Assert.ThrowsException<PlaylistDetailTerminalPublishException>(
+        PlaylistDetailTerminalPublishException exception = Assert.ThrowsExactly<PlaylistDetailTerminalPublishException>(
             () => workspace.ApplyDetailTerminal(
                 CreatePlaylistTerminalRequest(candidateRows, requestVersion: 1)));
 
@@ -1046,7 +1046,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     /// <summary>実factoryの文字クラスと補集合を順次要求し、同じ式だけが合流し、初回表示が各式の一行を選ぶことを確認します。式全体の大文字化による誤合流を検出します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(@"title:re:^\d$", @"title:re:^\D$", "1", "A")]
     [DataRow(@"title:re:^A\sB$", @"title:re:^A\SB$", "A B", "AxB")]
     [DataRow(@"title:re:^\w$", @"title:re:^\W$", "A", "!")]
@@ -2792,7 +2792,7 @@ public sealed class PlaylistViewPipelineTests
         Task commitTask = workspace.CompleteDetailEdit(
             new MainChartListCellEditEndedEventArgs(context, "after", commit: true));
 
-        InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+        InvalidOperationException exception = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => commitTask);
 
         Assert.AreEqual("durable detail failure", exception.Message);

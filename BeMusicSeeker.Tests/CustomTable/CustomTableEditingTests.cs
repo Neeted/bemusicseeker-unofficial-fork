@@ -21,7 +21,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class CustomTableEditingTests
 {
     /// <summary>実URL列の40 DIPは通常/反復クリックで取得し、広幅は初回選択と再クリック編集を使います。両幅のF2/文字入力は元URLと開始判定を通し、外部同期の拒否を幅で回避しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("Url1", true, false)]
     [DataRow("Url2", true, false)]
     [DataRow("Url1", false, false)]
@@ -113,7 +113,7 @@ public sealed class CustomTableEditingTests
     }
 
     /// <summary>URLまたは候補付き導入先の編集中に列幅を変えると、旧行・属性・手入力を一回確定し、editorと候補Popupを閉じます。モデルの候補を保ち、旧候補を後から確定しません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void UrlWidth_ChangeCommitsExistingUrlOrDestinationEditorOnce(bool editDestination)
@@ -208,7 +208,7 @@ public sealed class CustomTableEditingTests
     }
 
     /// <summary>外部主行変更では旧Aの属性と入力を一回渡してからBの同列へ移し、自動editorを作らず、次の明示F2/文字入力だけがBを編集します。同値入力と表示更新は旧候補を保ちます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ExternalSelection_CommitsOldCellBeforeMovingAndAcceptsExplicitEdit(bool typeToEdit)

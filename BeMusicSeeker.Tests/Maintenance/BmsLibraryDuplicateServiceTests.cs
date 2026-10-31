@@ -178,7 +178,7 @@ public sealed class BmsLibraryDuplicateServiceTests
 
     /// <summary>実統合とsource後片付けの終端で旧新祖先の六分類・reverseを揃え、cleanup失敗時の実残存資源も親へ反映します。</summary>
     /// <remarks>本番session・小実DB・実FSを使い、cleanupだけを既存物理portで制御します。既存の確定/保守失敗行列は別caseに維持します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void MergeChartDirectory_RefreshesAncestorResourcesAfterSourceCleanup(bool cleanupFails)
@@ -517,7 +517,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>直接の重複警告writerが追加・解除した同receiptを全排他解放後に配送し、通知先失敗でも確定値を維持する。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(false, true)]
@@ -724,7 +724,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     /// <param name="bmson">falseはBMS、trueはBMSONの保存と通知を確認します。</param>
     /// <param name="maintenanceOutcome">0は正常、1は移動先の保守保存だけを拒否します。</param>
     /// <param name="useOuterAdmission">trueは実storeへ生存する外側受付を渡します。</param>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, 0, false)]
     [DataRow(true, 0, true)]
     [DataRow(false, 1, false)]
@@ -964,7 +964,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     /// <param name="bmson">BMSとBMSONの各保存表を確認します。</param>
     /// <param name="caseVariant">同じ物理ファイルの大文字小文字違い、または別ファイルを元行にします。</param>
     /// <param name="destinationExists">既存宛先と利用者列を保持する条件です。</param>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false, false)]
     [DataRow(false, true, false)]
     [DataRow(false, false, true)]
@@ -1217,7 +1217,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     /// <param name="bmson">BMSとBMSONの旧保存行を確認します。</param>
     /// <param name="includePlainRow">ドットを含む旧パスに通常表記の行も併存させます。</param>
     /// <param name="dotFirst">二表記が併存する場合の保存順を反転します。</param>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false, false)]
     [DataRow(false, true, false)]
     [DataRow(false, true, true)]
@@ -1464,7 +1464,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     /// 統合のDB確定を拒否すると成功公開を行わず、元登録・コピー済み両実体・復旧候補を保持し、物理変更を隠す失敗結果を検出します。
     /// </summary>
     /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void MergeChartDirectory_CatalogFailureRetainsPreparedFilesAndSessionFacts(bool bmson)
@@ -2096,7 +2096,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     /// 対象譜面のない統合では実体と登録を保ち、冷えた索引の先行構築や温めた索引の無用な更新・再列挙を検出します。
     /// </summary>
     /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void MergeChartDirectory_NoSourceChartsDoesNotBuildLookups(bool sourceExists)
@@ -2213,7 +2213,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     /// 二回の実統合で重複群・実体・DB・温めた各索引を差分更新し、旧スナップショットの変更と全所持の再列挙を検出します。
     /// </summary>
     /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(16)]
     public void MergeChartDirectory_TwoWarmOperationsKeepIndexesCurrentWithoutFullRebuild(int backgroundCount)
     {

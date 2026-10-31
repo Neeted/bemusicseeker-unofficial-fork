@@ -111,7 +111,7 @@ public sealed class MainWindowViewModelStartupProgressTests
 
     /// <summary>範囲外の保存値でも実必須起動は成功・操作解禁し、後続warmupだけをvirtual_orderの元例外付きFailedとして終えます。</summary>
     /// <remarks>保守との本番順序は対象外とし、既存受付portで保守要求を登録前に保持します。warmup観測後・失敗時finallyに元schedulerへ一度だけ渡して実workを回収し、実必須起動とdescriptor失敗の接続を観測します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(-1)]
     [DataRow(4)]
     [DoNotParallelize]
@@ -423,7 +423,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     /// <summary>実入口のUI失敗を親解放後に通知し、通知失敗でも元原因・cleanupを保持して次の明示初期化を受理します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)] // 元の必須UI失敗を通常の通知先へ渡します。
     [DataRow(true)] // 通知先の二次失敗でも元原因と再受付を保ちます。
     [DoNotParallelize]
@@ -467,7 +467,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     /// <summary>実Score処理・親解放後の必須UIの失敗をOperationFailedで返し、設定不備や成功にせず、元原因・解放・次の明示要求を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)] // 実モデルへ渡した設定snapshot読取りが処理段階で失敗します。
     [DataRow(true)] // ローカル処理成功後の必須UI Taskが失敗します。
     [DoNotParallelize]
@@ -550,7 +550,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 Assert.IsFalse(reload.IsCompleted);
                 Assert.IsFalse(fixture.Composition.PlaylistOperationAdmission.IsActive);
                 fixture.Ui.Release.TrySetException(failure);
-                IOException actual = Assert.ThrowsException<IOException>(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(reload, "reload-tables-safety-terminal"));
+                IOException actual = Assert.ThrowsExactly<IOException>(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(reload, "reload-tables-safety-terminal"));
                 Assert.AreSame(failure, actual);
                 Assert.IsTrue(fixture.Owner.ProgressHub.StartupProgress.IsFailed);
                 Assert.IsFalse(fixture.Owner.ProgressHub.StartupProgress.IsRetryableFailure);
@@ -652,7 +652,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     /// <summary>親解放後のUI待機で終了が先着した場合だけ取消へ分類します。実UI障害の原因通知と登録済み表示Taskの終端を待ち、古い表示を含む反映後も失敗原因を保持します。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)] // 終了による取消だけなら進捗を実失敗へ分類しません。
     [DataRow(true)] // 終了中に生じた実UI失敗は取消へ置換しません。
     [DoNotParallelize]
@@ -1470,7 +1470,7 @@ public sealed class MainWindowViewModelStartupProgressTests
 
     /// <summary>バックアップ項目の保存通知故障は保存済み値を保ち、有効な実beatoraja DBへの使用切替で起こるScore確定の必須UI失敗後は次の有効入力を確定できます。Score成功・必須UI失敗・次入力確定はURL補完を登録せず、通常の共通score入口でも同じ契約を保ちます。</summary>
     /// <remarks>履歴要求は取得前に消さず、新取得の実batch配送で置き換わります。必須UI gateでは取得組の公開と意味上の選択を、配送後にはUI成否によらない旧要求の取消・拒否と新要求の条件維持を確認します。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)] // 必須UI失敗後も次の入力を確定し、URL workを開始しません。
     [DataRow(false)] // 別項目の保存通知故障はScore成功を変えず、起動・全再初期化のURL補完契機は保ちます。
     [DoNotParallelize]
@@ -2241,7 +2241,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             .Invoke(wrapper, null)!;
     }
     /// <summary>各操作は実行中と操作可能時の名称を保ち、失敗では操作名と原因詳細を分けて空原因でも名称を失いません。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(StartupProgressOperationKind.Startup, "Statusbar_progress_startup")]
     [DataRow(StartupProgressOperationKind.ReloadFileDiff, "Statusbar_progress_reload_files")]
     [DataRow(StartupProgressOperationKind.ScoreOnly, "Statusbar_progress_reload_scores")]

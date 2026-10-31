@@ -234,7 +234,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             },
             lease);
 
-        Assert.ThrowsException<AudioSourceFatalException>(
+        Assert.ThrowsExactly<AudioSourceFatalException>(
             () => executor.ReleaseConversionSession(session, primaryException: null));
         Assert.AreSame(session, lease.Session);
         CollectionAssert.AreEqual(new[] { "encoder" }, events);
@@ -445,7 +445,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                 sessionLease);
             SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, playback, executor, events);
 
-            AudioSourceFatalException failure = await Assert.ThrowsExceptionAsync<AudioSourceFatalException>(
+            AudioSourceFatalException failure = await Assert.ThrowsExactlyAsync<AudioSourceFatalException>(
                 () => owner.RunAsync(new SelectedChartAudioConversionRequest([
                     CreateTarget(firstPath, ChartOperationCapabilities.ConvertToAudio),
                     CreateTarget(secondPath, ChartOperationCapabilities.ConvertToAudio)
@@ -542,7 +542,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                 sessionLease);
             SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, playback, executor, events);
 
-            AudioSourceFatalException failure = await Assert.ThrowsExceptionAsync<AudioSourceFatalException>(
+            AudioSourceFatalException failure = await Assert.ThrowsExactlyAsync<AudioSourceFatalException>(
                 () => owner.RunAsync(new SelectedChartAudioConversionRequest([
                     CreateTarget(firstPath, ChartOperationCapabilities.ConvertToAudio),
                     CreateTarget(secondPath, ChartOperationCapabilities.ConvertToAudio)
@@ -643,7 +643,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                 "44100Hz",
                 "16bit");
 
-            AudioSourceFatalException failure = Assert.ThrowsException<AudioSourceFatalException>(() => executor.Execute(
+            AudioSourceFatalException failure = Assert.ThrowsExactly<AudioSourceFatalException>(() => executor.Execute(
                 [
                     (ChartTestValues.Empty() with { Path = firstPath }),
                     (ChartTestValues.Empty() with { Path = secondPath }),
@@ -971,7 +971,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
 
     /// <summary>fr-FRでもdB・割合・安全な0.1刻みの助言を固定表記で表示し、最小値境界を越える入力で実行不能を隠す誤りを検出します。</summary>
     /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     // 通常の減衰、増幅済み、最小0.5で成立する境界、その直外の実行不能を分けます。
     [DataRow(1.349858d, "2.61", 1f, "74%", "0.7", false)]
     [DataRow(2d, "6.02", 1.5f, "50%", "0.7", false)]
@@ -1228,7 +1228,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                 CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
             ]);
 
-            await Assert.ThrowsExceptionAsync<DirectoryNotFoundException>(
+            await Assert.ThrowsExactlyAsync<DirectoryNotFoundException>(
                 () => owner.RunAsync(request));
 
             Assert.AreEqual(0, playback.StopCalls);
@@ -1285,7 +1285,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             };
             SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, playback, executor, events);
 
-            await Assert.ThrowsExceptionAsync<DirectoryNotFoundException>(
+            await Assert.ThrowsExactlyAsync<DirectoryNotFoundException>(
                 () => owner.RunAsync(new SelectedChartAudioConversionRequest([
                     CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
                 ])));
@@ -1323,7 +1323,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             };
             SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
 
-            InvalidOperationException observed = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            InvalidOperationException observed = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 () => owner.RunAsync(new SelectedChartAudioConversionRequest([
                     CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
                 ])));
@@ -1340,7 +1340,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
 
     /// <summary>実worker保持中は次要求をBusyで拒否し、worker終端後には再実行できることから早期開放と受付残留を検出します。</summary>
     /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)] // 任意Busy通知がthrowしても実workerと次受付を維持。
     public async Task RunAsync_AcceptedWorkerRejectsConcurrentRequestAndGateReopensAfterCompletion(bool busyNoticeThrows)
@@ -1450,7 +1450,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             Assert.AreEqual(2, dialogs.PickerCalls);
 
             releaseWorker.Set();
-            InvalidOperationException observed = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            InvalidOperationException observed = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 async () => await first);
             Assert.AreSame(progressFailure, observed);
 
@@ -1481,7 +1481,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
 
     /// <summary>未表示・Failed・throwの任意完了通知でも実変換の対象・件数・結果を保持し、通知を変換故障へ合成する誤りを検出します。</summary>
     /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0)] // owner不在の未表示。
     [DataRow(1)] // 表示窓口がFailedを返す。
     [DataRow(2)] // 表示呼出しが同期throwする。
@@ -1559,7 +1559,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             };
             SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
 
-            InvalidOperationException observed = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            InvalidOperationException observed = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 () => owner.RunAsync(new SelectedChartAudioConversionRequest([
                     CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
                 ])));

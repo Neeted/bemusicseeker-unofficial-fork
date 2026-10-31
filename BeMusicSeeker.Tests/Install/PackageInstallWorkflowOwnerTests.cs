@@ -18,7 +18,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
 {
     /// <summary>再生停止の実Task終端まで導入の書込みと受付解放を止め、停止失敗なら元例外だけを通知して書込みを行わない。</summary>
     // falseは停止正常終端後の書込み、trueは停止失敗による導入中止。
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task AutomaticInstall_WaitsForPlaybackStopAndDoesNotWriteOnStopFailure(bool failStop)

@@ -31,7 +31,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
     /// 原因一覧外の実NULパス失敗と起動schedulerの実work Taskも同じ混在入力で確認します。
     /// HTTPは既存loopback fixture、JSONは実ファイルを使い、WPF Windowや外部ネットワークは使いません。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(404, "http", true, (int)PlaylistSyncStatusKind.Http404, false)]
     [DataRow(403, "http", true, (int)PlaylistSyncStatusKind.Http403, false)]
     [DataRow(400, "http", true, (int)PlaylistSyncStatusKind.HttpError, false)]
@@ -278,7 +278,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
     /// HTTPと不正ヘッダーの実取得で、取得境界が元例外・取得元を診断し、STATUSへ分類だけを渡します。
     /// 診断先が失敗する行でも元原因を置き換えません。Workspaceの表示・参照・DB保持は実再取得テストへ分担します。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(403, "", false, (int)PlaylistSyncStatusKind.Http403)]
     [DataRow(403, "", true, (int)PlaylistSyncStatusKind.Http403)]
     [DataRow(200, "{", false, (int)PlaylistSyncStatusKind.HeaderParseError)]
@@ -305,13 +305,13 @@ public sealed class PlaylistExternalFailureBoundaryTests
         Exception failure;
         if (statusCode == (int)HttpStatusCode.OK)
         {
-            failure = await Assert.ThrowsExceptionAsync<PlaylistHeaderParseException>(
+            failure = await Assert.ThrowsExactlyAsync<PlaylistHeaderParseException>(
                 () => owner.LoadExternalTableAsync(server.Address));
             Assert.IsInstanceOfType(failure.InnerException, typeof(JsonReaderException));
         }
         else
         {
-            failure = await Assert.ThrowsExceptionAsync<HttpRequestException>(
+            failure = await Assert.ThrowsExactlyAsync<HttpRequestException>(
                 () => owner.LoadExternalTableAsync(server.Address));
         }
 
@@ -413,7 +413,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
     }
 
     /// <summary>登録済みfile/HTTPの通常同期・手動再取得で任意日時だけを省略し、全行・旧adddate/memo・DB・非失敗STATUS/receipt・次受付を保ちます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
@@ -505,7 +505,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
     }
 
     /// <summary>実readerから既存owner診断窓口へsource・文書URI・field・row・原値を渡し、診断故障でも日時省略の表成功を保ちます。</summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ExternalLoad_CompatibleDateWarningsUseExistingPortWithoutFailure(bool failLogging)

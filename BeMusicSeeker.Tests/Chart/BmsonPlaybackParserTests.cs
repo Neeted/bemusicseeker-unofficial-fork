@@ -163,7 +163,7 @@ public sealed class BmsonPlaybackParserTests
     /// <summary>
     /// 解像度の欠落・null・ゼロ・負値・数値文字列でも四分音符時刻とBGM扱いを保ち、正規化で発音時刻がずれる誤りを検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("")]
     [DataRow(",\"resolution\":null")]
     [DataRow(",\"resolution\":0")]
@@ -299,7 +299,7 @@ public sealed class BmsonPlaybackParserTests
             warnings.Logs.Clear();
             Assert.AreEqual(3, Parse(LayeredPlayableInput()).TotalNoteCount);
             Assert.AreEqual(0, warnings.Logs.Count);
-            InvalidBmsonFileException failure = Assert.ThrowsException<InvalidBmsonFileException>(() =>
+            InvalidBmsonFileException failure = Assert.ThrowsExactly<InvalidBmsonFileException>(() =>
                 Parse(conflicts.Replace("\"init_bpm\":125", "\"init_bpm\":125,\"total\":\"NaN\"", StringComparison.Ordinal)));
             Assert.IsInstanceOfType<FormatException>(failure.InnerException);
             Assert.AreEqual(0, warnings.Logs.Count, "解析を正常完了する前は競合WARNを出しません。");
@@ -347,7 +347,7 @@ public sealed class BmsonPlaybackParserTests
     /// <summary>
     /// 非正・非数・構文不正・表現不能の開始BPMを元原因とファイル名付きの入力失敗にし、正常時計の捏造を検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("0")]
     [DataRow("-1")]
     [DataRow("\"NaN\"")]
@@ -356,7 +356,7 @@ public sealed class BmsonPlaybackParserTests
     [DataRow("1e-1000")]
     public void InvalidOrUnrepresentableInitialBpmIsClassifiedWithOriginalInputFailure(string bpm)
     {
-        InvalidBmsonFileException failure = Assert.ThrowsException<InvalidBmsonFileException>(() => Parse(Chart(bpm, "[{\"y\":1}]")));
+        InvalidBmsonFileException failure = Assert.ThrowsExactly<InvalidBmsonFileException>(() => Parse(Chart(bpm, "[{\"y\":1}]")));
         Assert.IsNotNull(failure.InnerException);
         Assert.IsFalse(string.IsNullOrWhiteSpace(failure.FileName));
     }
@@ -368,11 +368,11 @@ public sealed class BmsonPlaybackParserTests
     public void FiniteDecimalOutsideDoubleRangeIsNotRejectedAndMissingBpmIsNotInvented()
     {
         Assert.AreEqual(1, Parse(Chart("1e1000", "[{\"y\":1}]")).AudioEvents.Count);
-        Assert.ThrowsException<InvalidBmsonFileException>(() => Parse("{\"info\":{},\"sound_channels\":[]}"));
-        Assert.ThrowsException<InvalidBmsonFileException>(() => Parse(Chart("120", "[{\"y\":-1}]")));
-        Assert.ThrowsException<InvalidBmsonFileException>(() => Parse(Chart("120", "[{\"y\":0,\"l\":0.5}]")));
-        Assert.ThrowsException<InvalidBmsonFileException>(() => Parse(Chart("120", "[]").Replace("\"1.0.0\"", "null")));
-        Assert.ThrowsException<InvalidBmsonFileException>(() => Parse(Chart("NaN", "[]")));
+        Assert.ThrowsExactly<InvalidBmsonFileException>(() => Parse("{\"info\":{},\"sound_channels\":[]}"));
+        Assert.ThrowsExactly<InvalidBmsonFileException>(() => Parse(Chart("120", "[{\"y\":-1}]")));
+        Assert.ThrowsExactly<InvalidBmsonFileException>(() => Parse(Chart("120", "[{\"y\":0,\"l\":0.5}]")));
+        Assert.ThrowsExactly<InvalidBmsonFileException>(() => Parse(Chart("120", "[]").Replace("\"1.0.0\"", "null")));
+        Assert.ThrowsExactly<InvalidBmsonFileException>(() => Parse(Chart("NaN", "[]")));
     }
 
     private static string Chart(string bpm, string notes, string extra = "", string info = "") =>
@@ -381,7 +381,7 @@ public sealed class BmsonPlaybackParserTests
     /// <summary>
     /// 引用有無の両方で係数4096桁までは符号と小数点を除いて受理し、超過は元原因付き失敗として桁数判定の誤りを検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void DecimalCoefficientLimitCountsZerosButExcludesSignAndPoint(bool quoted)
@@ -399,7 +399,7 @@ public sealed class BmsonPlaybackParserTests
 
         foreach (string value in new[] { "1" + new string('0', 4096), "0." + new string('0', 4096), "-1" + new string('0', 4096) })
         {
-            InvalidBmsonFileException failure = Assert.ThrowsException<InvalidBmsonFileException>(() =>
+            InvalidBmsonFileException failure = Assert.ThrowsExactly<InvalidBmsonFileException>(() =>
                 Parse(Chart("120", "[]", ",\"bpm_events\":[{\"y\":0,\"bpm\":" + Token(value) + "}]")));
             Assert.IsInstanceOfType<InvalidDataException>(failure.InnerException);
         }
@@ -408,7 +408,7 @@ public sealed class BmsonPlaybackParserTests
     /// <summary>
     /// 引用有無の両方で指数4096の相殺と先頭ゼロを受理し、指数超過は元原因付きで拒否して有効範囲との混同を検出する。
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ExplicitExponentLimitAllowsScaleAndResolutionToCancelBeyondEffectiveRange(bool quoted)
@@ -425,7 +425,7 @@ public sealed class BmsonPlaybackParserTests
         Assert.AreEqual(6000000L, leadingZeros.AudioEvents.Single().Start.ToTimeSpan().Ticks);
         foreach (string value in new[] { "1e4097", "1e-4097", "0e5000" })
         {
-            InvalidBmsonFileException failure = Assert.ThrowsException<InvalidBmsonFileException>(() =>
+            InvalidBmsonFileException failure = Assert.ThrowsExactly<InvalidBmsonFileException>(() =>
                 Parse(Chart("120", "[]", ",\"bpm_events\":[{\"y\":0,\"bpm\":" + Token(value) + "}]")));
             Assert.IsInstanceOfType<InvalidDataException>(failure.InnerException);
         }

@@ -23,8 +23,8 @@ public sealed class FractionTests
         Assert.AreEqual(new Fraction(2, 6).GetHashCode(), new Fraction(1, 3).GetHashCode());
         Assert.AreEqual(zero.GetHashCode(), new Fraction(0).GetHashCode());
         Assert.IsTrue(new Fraction(-1, 3) < zero);
-        Assert.ThrowsException<DivideByZeroException>(() => new Fraction(1, 0));
-        Assert.ThrowsException<DivideByZeroException>(() => new Fraction(1) / zero);
+        Assert.ThrowsExactly<DivideByZeroException>(() => new Fraction(1, 0));
+        Assert.ThrowsExactly<DivideByZeroException>(() => new Fraction(1) / zero);
     }
 
     /// <summary>
@@ -38,7 +38,7 @@ public sealed class FractionTests
         Assert.AreEqual(new Fraction(1, BigInteger.One << 63), new Fraction(-1, long.MinValue));
         Assert.AreEqual(long.MaxValue, new Fraction(2 * (BigInteger)long.MaxValue + 1, 2).ToInt64());
         Assert.AreEqual(-1L, new Fraction(-3, 2).ToInt64());
-        Assert.ThrowsException<OverflowException>(() => new Fraction((BigInteger)long.MaxValue + 1, 1).ToInt64());
+        Assert.ThrowsExactly<OverflowException>(() => new Fraction((BigInteger)long.MaxValue + 1, 1).ToInt64());
     }
 
     /// <summary>
