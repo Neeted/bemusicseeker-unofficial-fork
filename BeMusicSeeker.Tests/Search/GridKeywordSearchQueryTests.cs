@@ -581,6 +581,31 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:MAX dj:MAX").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
+    /// <summary>通常一覧の二入口と表詳細でRATEの数値・正規表現は0～1のinvariant文字列を使い、百分率と文化圏依存の小数カンマを受け付けません。表示百分率は列表示テストへ分担します。</summary>
+    [DataTestMethod]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    public void RateSearch_NumericAndRegexUseInvariantFractionAcrossRowSources(string cultureName)
+    {
+        CultureInfo previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo(cultureName, useUserOverride: false);
+            ChartFile file = ChartFileProjection.WithScore(CreateFile(), ChartTestValues.Score(ClearType.HARD, RankType.AAA, 900, 100, 1000, 1200, 5, 0, false));
+            var library = LibraryChartRow.FromChartFile(file);
+            ChartListSourceRow source = CreateSourceRow(file);
+            var detail = new PlaylistDetailSourceRow(new BMSTableEntry(file), file);
+            foreach ((string text, bool expected) in new[] { ("rate:0.95", true), ("rate:>=0.9", true), ("rate:re:^0[.]95$", true), ("rate:95", false), ("rate:re:^95$", false), ("rate:re:^0,95$", false) })
+            {
+                var query = GridKeywordSearchQuery.Parse(text);
+                Assert.AreEqual(expected, query.MatchesLibraryChartRow(library), text + " library");
+                Assert.AreEqual(expected, query.MatchesChartListSourceRow(source), text + " source");
+                Assert.AreEqual(expected, query.MatchesPlaylistDetail(detail), text + " detail");
+            }
+        }
+        finally { CultureInfo.CurrentCulture = previous; }
+    }
+
     /// <summary>未登録成績のランク・スコア・率・コンボ・BPは欠損別名に一致し、クリアの既定状態は定義済みとなることを確認し、成績項目の欠損区分を一律にする誤りを検出します。</summary>
     [TestMethod]
     public void MatchesChartList_ScoreFieldsSupportUndefinedTerms()

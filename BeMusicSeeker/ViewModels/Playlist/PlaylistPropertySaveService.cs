@@ -124,7 +124,7 @@ internal sealed class PlaylistPropertySaveService
             && GetPlaylistStore().BMSTables?.Cast<BMSTable>().Any(candidate => ReferenceEquals(candidate, table)) == true;
     }
 
-    /// <summary>表示用の配置・URL条件と、新規または変更した出力名の生入力条件を検査します。</summary>
+    /// <summary>手動編集する表名の必須条件、表示用の配置・URL条件と、新規または変更した出力名の生入力条件を検査します。</summary>
     internal bool IsValid(PlaylistPropertyEditSession session, PlaylistPropertyValues values)
     {
         if (session == null)
@@ -227,6 +227,7 @@ internal sealed class PlaylistPropertySaveService
             {
                 return (null, PlaylistPropertyValidationError.OutputDirectoryNameMustBeSingleName);
             }
+            if (string.IsNullOrWhiteSpace(values.Name)) { return (null, null); }
             if (session.PendingOutput != null)
             {
                 var continuation = new PlaylistPropertySaveCommit(null, session.Table, session.Settings, session.IsNewTable)
@@ -823,6 +824,7 @@ internal sealed class PlaylistPropertySaveService
         PlaylistPropertyValues values,
         IEnumerable<string> otherOutputDirectories)
     {
+        if (string.IsNullOrWhiteSpace(values.Name)) { return false; }
         if ((values.PageUrl != null && (!IsUrlValid(values.PageUrl) || !values.PageUrl.IsAbsoluteUri))
             || !IsUrlValid(values.HeaderUrl)
             || !IsUrlValid(values.DataUrl))

@@ -272,9 +272,9 @@ public sealed class PlayHistoryReadModelTests
     }
 
     /// <summary>
-    /// 実履歴の期間・確定条件と上限をSQL読取りへ適用し、未確定を含める要求では時刻降順の先頭を返す。
+    /// 実履歴の期間・確定条件をSQL読取りへ適用し、未確定を含める要求でも対象全行を時刻降順で返す。
     /// </summary>
-    /// <remarks>実SQLiteの履歴行を読み、期間・確定条件・上限で選ばれるIDと降順を確認する。</remarks>
+    /// <remarks>実SQLiteの履歴行を読み、期間・確定条件で選ばれるIDと降順を確認する。</remarks>
     [TestMethod]
     public void Lr2Reader_ReadsFinalizedRowsByRangeDescendingAndExcludesUnfinalized()
     {
@@ -311,13 +311,13 @@ public sealed class PlayHistoryReadModelTests
                 IsLr2LinkedProfile = true,
                 IncludeUnfinalized = true,
                 PlayedAtFromInclusive = 1000,
-                PlayedAtToExclusive = 3000,
-                Limit = 2
+                PlayedAtToExclusive = 3000
             });
 
-            Assert.AreEqual(2, withUnfinalized.Rows.Count);
+            Assert.AreEqual(3, withUnfinalized.Rows.Count);
             Assert.AreEqual(3L, withUnfinalized.Rows[0].history_id);
             Assert.AreEqual(2L, withUnfinalized.Rows[1].history_id);
+            Assert.AreEqual(1L, withUnfinalized.Rows[2].history_id);
         });
     }
 
@@ -342,8 +342,7 @@ public sealed class PlayHistoryReadModelTests
             {
                 ScoreDbPath = scoreDbPath,
                 IsLr2LinkedProfile = true,
-                FinalizationFilter = Lr2PlayHistoryFinalizationFilter.UnfinalizedOnly,
-                Limit = 10
+                FinalizationFilter = Lr2PlayHistoryFinalizationFilter.UnfinalizedOnly
             });
 
             CollectionAssert.AreEqual(new long[] { 3L, 2L }, result.Rows.Select(row => row.history_id).ToArray());
@@ -374,8 +373,7 @@ public sealed class PlayHistoryReadModelTests
                 ScoreDbPath = scoreDbPath,
                 IsLr2LinkedProfile = true,
                 PlayedAtFromInclusive = 1000,
-                PlayedAtToExclusive = 2000,
-                Limit = 10
+                PlayedAtToExclusive = 2000
             });
 
             CollectionAssert.AreEqual(new long[] { 3L, 2L }, result.Rows.Select(row => row.history_id).ToArray());
@@ -466,8 +464,7 @@ public sealed class PlayHistoryReadModelTests
                 ScoreDbPath = scoreDbPath,
                 IsLr2LinkedProfile = true,
                 AllowRepairableIndexRead = true,
-                RequireCompleteHistoryTriggers = true,
-                DisableLimit = true
+                RequireCompleteHistoryTriggers = true
             });
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Repairable, result.SchemaStatus);
@@ -519,8 +516,7 @@ public sealed class PlayHistoryReadModelTests
                 ScoreDbPath = scoreDbPath,
                 IsLr2LinkedProfile = true,
                 AllowRepairableIndexRead = allowRepairableIndexRead,
-                RequireCompleteHistoryTriggers = requireCompleteHistoryTriggers,
-                DisableLimit = true
+                RequireCompleteHistoryTriggers = requireCompleteHistoryTriggers
             });
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Repairable, result.SchemaStatus);
@@ -606,8 +602,7 @@ public sealed class PlayHistoryReadModelTests
                 ScoreDbPath = scoreDbPath,
                 IsLr2LinkedProfile = true,
                 AllowRepairableIndexRead = true,
-                RequireCompleteHistoryTriggers = true,
-                DisableLimit = true
+                RequireCompleteHistoryTriggers = true
             });
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Repairable, result.SchemaStatus);
@@ -653,8 +648,7 @@ public sealed class PlayHistoryReadModelTests
                 ScoreDbPath = scoreDbPath,
                 IsLr2LinkedProfile = true,
                 AllowRepairableIndexRead = true,
-                RequireCompleteHistoryTriggers = true,
-                DisableLimit = true
+                RequireCompleteHistoryTriggers = true
             });
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Repairable, result.SchemaStatus);
@@ -743,104 +737,102 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
-    /// <summary>
-    /// 上限未指定・0・負値は有限の既定上限を実履歴へ適用し、最新行を保持して全件読取りへ広げない。
-    /// </summary>
-    /// <remarks>実SQLiteに既定上限を超える履歴を保存し、未指定・非正上限で返る件数と最新IDを確認する。</remarks>
-    [TestMethod]
-    public void Lr2Reader_DefaultAndNonPositiveLimitUseDefaultLimit()
+    /// <summary>実SQLiteの通常・未所持単曲を残し、短長・連結hashとbeatoraja非通常modeを行と日索引から除外します。読取り後も元DBのID・hash・値は維持します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void HistoryReader_SingleChartsAndPeriodIndexPreserveSourceRows(bool beatoraja)
     {
-        WithScoreDb(delegate (string scoreDbPath)
+        WithScoreDb(scoreDbPath =>
         {
-            CreateInstalledScoreDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            string logPath = Path.Combine(Path.GetDirectoryName(scoreDbPath) ?? string.Empty, "scorelog.db");
+            if (beatoraja) { CreateBeatorajaPlayerDb(scoreDbPath); CreateBeatorajaScoreLogDb(logPath); SetBeatorajaScoreNotes(scoreDbPath, 100); }
+            else { CreateInstalledScoreDb(scoreDbPath); }
+            string source = beatoraja ? logPath : scoreDbPath;
+            string hash = beatoraja ? ShaA : HashA;
+            long day = UtcEpoch(2026, 1, 1);
+            // 長さ以外を厳格化しない。hexでない同長の未所持単曲も取得対象。
+            string[] hashes = [hash, new string('z', hash.Length), hash[..^1], hash + "a", hash + hash, hash];
+            using (var db = new SQLiteConnection(source))
             {
-                db.BeginTransaction();
-                try
+                for (int index = 0; index < hashes.Length; index++)
                 {
-                    for (int index = 1; index <= Lr2PlayHistoryReader.DefaultReadLimit + 1; index++)
-                    {
-                        InsertHistory(db, historyId: index, hash: HashA, playedAt: index, finalized: true, newExscore: 200);
-                    }
-                    db.Commit();
-                }
-                catch
-                {
-                    db.Rollback();
-                    throw;
+                    if (beatoraja) { InsertBeatorajaScoreLog(db, hashes[index], index == 5 ? 10000 : 0, day + index * 86400L, 4, 5, 100, 120, 10, 12, 4, 3); }
+                    else { InsertHistory(db, index + 1, hashes[index], day + index * 86400L, true, 120 + index); }
                 }
             }
-
-            var reader = new Lr2PlayHistoryReader();
-            Lr2PlayHistoryReadResult defaultResult = reader.Read(new Lr2PlayHistoryReadRequest
+            string sql = beatoraja ? "SELECT rowid || ':' || sha256 || ':' || score || ':' || mode AS value FROM scorelog ORDER BY rowid" : "SELECT history_id || ':' || hash || ':' || new_exscore AS value FROM bms_lr2_play_history ORDER BY history_id";
+            string[] before;
+            using (var db = new SQLiteConnection(source)) { before = db.Query<HistorySourceValue>(sql).Select(row => row.value).ToArray(); }
+            ScorePlayHistorySnapshot captured = AcquireHistorySnapshot(scoreDbPath, beatoraja).PlayHistorySnapshot;
+            var cache = new PlayHistoryReadCache();
+            if (beatoraja)
             {
-                ScoreDbPath = scoreDbPath,
-                IsLr2LinkedProfile = true
-            });
-            Lr2PlayHistoryReadResult zeroResult = reader.Read(new Lr2PlayHistoryReadRequest
+                CollectionAssert.AreEqual(new long[] { 2, 1 }, captured.Beatoraja.Rows.Select(row => row.history_id).ToArray());
+                CollectionAssert.AreEqual(new[] { day + 86400, day }, cache.ReadBeatorajaPeriodIndex(captured, new(), CancellationToken.None, out _).PlayedAtUnixSeconds.ToArray());
+            }
+            else
             {
-                ScoreDbPath = scoreDbPath,
-                IsLr2LinkedProfile = true,
-                Limit = 0
-            });
-            Lr2PlayHistoryReadResult negativeResult = reader.Read(new Lr2PlayHistoryReadRequest
-            {
-                ScoreDbPath = scoreDbPath,
-                IsLr2LinkedProfile = true,
-                Limit = -1
-            });
-
-            Assert.AreEqual(Lr2PlayHistoryReader.DefaultReadLimit, defaultResult.Rows.Count);
-            Assert.AreEqual(Lr2PlayHistoryReader.DefaultReadLimit + 1L, defaultResult.Rows[0].history_id);
-            Assert.AreEqual(Lr2PlayHistoryReader.DefaultReadLimit, zeroResult.Rows.Count);
-            Assert.AreEqual(Lr2PlayHistoryReader.DefaultReadLimit + 1L, zeroResult.Rows[0].history_id);
-            Assert.AreEqual(Lr2PlayHistoryReader.DefaultReadLimit, negativeResult.Rows.Count);
-            Assert.AreEqual(Lr2PlayHistoryReader.DefaultReadLimit + 1L, negativeResult.Rows[0].history_id);
+                CollectionAssert.AreEqual(new long[] { 6, 2, 1 }, captured.Lr2.Rows.Select(row => row.history_id).ToArray());
+                CollectionAssert.AreEqual(new[] { day + 5 * 86400, day + 86400, day }, cache.ReadLr2PeriodIndex(captured, new(), CancellationToken.None, out _).PlayedAtUnixSeconds.ToArray());
+            }
+            using (var db = new SQLiteConnection(source)) { CollectionAssert.AreEqual(before, db.Query<HistorySourceValue>(sql).Select(row => row.value).ToArray()); }
         });
     }
 
-    /// <summary>
-    /// 期間索引は一覧上限を超える確定履歴も読み、未確定の時刻を日付候補へ混ぜない。
-    /// </summary>
-    /// <remarks>実SQLiteに一覧上限を超える履歴を保存し、期間索引に含まれる確定時刻の件数と降順を確認する。</remarks>
-    [TestMethod]
-    public void Lr2Reader_ReadPeriodIndexReadsFinalizedRowsWithoutDefaultLimit()
+    /// <summary>元DBを文字列へ投影して読取り前後の全行を比較する、SQLite用の受取型です。</summary>
+    public sealed class HistorySourceValue { public string value { get; set; } = string.Empty; }
+
+    /// <summary>各取得元の5001件を許可取得から表示・検索へ通し、最古の未所持単曲まで欠落なく表示します。日索引は全確定日を保持します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void BuildReadView_AllRowsBeyondFiveThousandRemainSearchable(bool beatoraja)
     {
-        WithScoreDb(delegate (string scoreDbPath)
+        WithScoreDb(scoreDbPath =>
         {
-            CreateInstalledScoreDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            const int count = 5001;
+            string logPath = Path.Combine(Path.GetDirectoryName(scoreDbPath) ?? string.Empty, "scorelog.db");
+            if (beatoraja) { CreateBeatorajaPlayerDb(scoreDbPath); CreateBeatorajaScoreLogDb(logPath); SetBeatorajaScoreNotes(scoreDbPath, 100); }
+            else { CreateInstalledScoreDb(scoreDbPath); }
+            long day = UtcEpoch(2020, 1, 1);
+            string oldestHash = beatoraja ? new string('f', 64) : HashB;
+            using (var db = new SQLiteConnection(beatoraja ? logPath : scoreDbPath))
             {
-                db.BeginTransaction();
-                try
+                db.RunInTransaction(() =>
                 {
-                    long baseEpoch = UtcEpoch(2020, 1, 1);
-                    for (int index = 1; index <= Lr2PlayHistoryReader.DefaultReadLimit + 1; index++)
+                    for (int index = 1; index <= count; index++)
                     {
-                        InsertHistory(db, historyId: index, hash: HashA, playedAt: baseEpoch + (index * 86400L), finalized: true, newExscore: 200);
+                        string hash = index == 1 ? oldestHash : beatoraja ? ShaA : HashA;
+                        if (beatoraja) { InsertBeatorajaScoreLog(db, hash, 0, day + index * 86400L, 4, 5, 100, 120, 10, 12, 4, 3); }
+                        else { InsertHistory(db, index, hash, day + index * 86400L, true, 120); }
                     }
-                    InsertHistory(db, historyId: 99999, hash: HashB, playedAt: 99999, finalized: false, newExscore: 999);
-                    db.Commit();
-                }
-                catch
-                {
-                    db.Rollback();
-                    throw;
-                }
+                });
             }
-
-            Lr2PlayHistoryPeriodIndexResult result = new PlayHistoryReadCache().ReadLr2PeriodIndex(
-                AcquireHistorySnapshot(scoreDbPath).PlayHistorySnapshot,
-                new Lr2PlayHistoryPeriodIndexRequest
-                {
-                    ScoreDbPath = scoreDbPath,
-                    IsLr2LinkedProfile = true
-                },
-                CancellationToken.None, out _);
-
-            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, result.SchemaStatus);
-            Assert.AreEqual(Lr2PlayHistoryReader.DefaultReadLimit + 1, result.PlayedAtUnixSeconds.Count);
-            Assert.IsTrue(result.PlayedAtUnixSeconds[0] > result.PlayedAtUnixSeconds[result.PlayedAtUnixSeconds.Count - 1]);
+            TestBmsLibrary library = CreateHistoryLibrary(scoreDbPath);
+            var playlist = new TestBmsPlaylist(Path.Combine(Path.GetDirectoryName(scoreDbPath) ?? string.Empty, "song.db"));
+            BMSLibrary.ScoreSnapshot acquired = AcquireHistorySnapshot(scoreDbPath, beatoraja);
+            Assert.AreEqual(count, beatoraja ? acquired.PlayHistorySnapshot.Beatoraja.Rows.Count : acquired.PlayHistorySnapshot.Lr2.Rows.Count);
+            var source = PlayHistoryReadSourceContext.FromSnapshot(acquired);
+            var owner = new PlayHistoryWorkflowOwner();
+            PlayHistoryReadWorkflowResult Build(string keyword)
+            {
+                PlayHistoryViewRequest request = owner.BeginRequest(PlayHistoryPeriodRequest.All(), keyword, PlayHistoryDisplayTargetItem.All.Identity, owner.DisplayTargetRevision);
+                return owner.BuildReadView(new PlayHistoryReadWorkflowRequest(request, source, keyword, PlayHistoryDisplayTargetItem.All, summaryFilterTexts: null), library, playlist);
+            }
+            PlayHistoryReadWorkflowResult all = Build(string.Empty);
+            Assert.IsTrue(all.Built);
+            Assert.AreEqual(count, all.Read.RowCount);
+            Assert.AreEqual(count, all.Projection.RawCount);
+            Assert.AreEqual(count, all.Presentation.SortedRows.Count);
+            Assert.AreEqual(count, all.PeriodIndex.DayCount);
+            Assert.AreEqual(count, all.Presentation.SortedRows[0].HistoryId);
+            Assert.AreEqual(1L, all.Presentation.SortedRows[^1].HistoryId);
+            File.Delete(beatoraja ? logPath : scoreDbPath);
+            PlayHistoryReadWorkflowResult searched = Build("hash:" + oldestHash);
+            Assert.IsTrue(searched.Built);
+            Assert.AreEqual(1, searched.Presentation.SortedRows.Count);
+            Assert.AreEqual(1L, searched.Presentation.SortedRows.Single().HistoryId);
         });
     }
 
@@ -884,6 +876,10 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, first.SchemaCheckResult.Status);
             CollectionAssert.AreEqual(new long[] { 1L }, first.Rows.Select(row => row.history_id).ToArray());
 
+            Lr2PlayHistoryReadResult all = cache.ReadLr2(captured, new Lr2PlayHistoryReadRequest
+            { FinalizationFilter = Lr2PlayHistoryFinalizationFilter.All }, CancellationToken.None, out _);
+            Assert.AreSame(captured.Lr2.Rows, all.Rows);
+            Assert.AreSame(captured.Lr2.Rows.Single(row => row.history_id == 1), first.Rows[0]);
             File.Delete(scoreDbPath);
 
             Lr2PlayHistoryReadResult second = cache.ReadLr2(
@@ -947,74 +943,6 @@ public sealed class PlayHistoryReadModelTests
     }
 
     /// <summary>
-    /// 同じ全件cacheでも通常一覧は上限を保ち、明示DisableLimitだけ全件を返す。暖まった読取りで条件を失わない。
-    /// </summary>
-    /// <remarks>実SQLiteから捕捉した全件cacheへ異なる上限条件を適用し、cache利用状態と返却件数を確認する。</remarks>
-    [TestMethod]
-    public void PlayHistoryReadCache_Lr2KeepsDefaultLimitUnlessDisabled()
-    {
-        WithScoreDb(delegate (string scoreDbPath)
-        {
-            CreateInstalledScoreDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreDbPath))
-            {
-                db.BeginTransaction();
-                try
-                {
-                    for (int index = 1; index <= Lr2PlayHistoryReader.DefaultReadLimit + 1; index++)
-                    {
-                        InsertHistory(db, historyId: index, hash: HashA, playedAt: index, finalized: true, newExscore: 200);
-                    }
-                    db.Commit();
-                }
-                catch
-                {
-                    db.Rollback();
-                    throw;
-                }
-            }
-
-            ScorePlayHistorySnapshot captured = AcquireHistorySnapshot(scoreDbPath).PlayHistorySnapshot;
-            var cache = new PlayHistoryReadCache();
-            Lr2PlayHistoryReadResult defaultLimited = cache.ReadLr2(
-                captured,
-                new Lr2PlayHistoryReadRequest
-                {
-                    ScoreDbPath = scoreDbPath,
-                    IsLr2LinkedProfile = true,
-                    FinalizationFilter = Lr2PlayHistoryFinalizationFilter.FinalizedOnly
-                },
-                CancellationToken.None,
-                out bool firstCacheHit);
-
-            Lr2PlayHistoryReadResult unlimited = cache.ReadLr2(
-                captured,
-                new Lr2PlayHistoryReadRequest
-                {
-                    ScoreDbPath = scoreDbPath,
-                    IsLr2LinkedProfile = true,
-                    FinalizationFilter = Lr2PlayHistoryFinalizationFilter.FinalizedOnly,
-                    DisableLimit = true
-                },
-                CancellationToken.None,
-                out bool secondCacheHit);
-
-            Assert.IsTrue(firstCacheHit);
-            Assert.IsTrue(secondCacheHit);
-            Assert.AreEqual(Lr2PlayHistoryReader.DefaultReadLimit, defaultLimited.Rows.Count);
-            Assert.AreEqual(Lr2PlayHistoryReader.DefaultReadLimit + 1, unlimited.Rows.Count);
-            Lr2PlayHistoryReadResult all = cache.ReadLr2(captured, new Lr2PlayHistoryReadRequest
-            {
-                ScoreDbPath = scoreDbPath,
-                FinalizationFilter = Lr2PlayHistoryFinalizationFilter.All,
-                DisableLimit = true
-            }, CancellationToken.None, out _);
-            Assert.AreSame(captured.Lr2.Rows, all.Rows);
-            Assert.AreSame(captured.Lr2.Rows[0], defaultLimited.Rows[0]);
-        });
-    }
-
-    /// <summary>
     /// beatorajaの履歴とplayer面を一度取得し、DB削除後も期間・日索引を返す。未確定診断は空、次回取得で不在へ更新する。
     /// </summary>
     /// <remarks>実モデル取得後にbeatoraja DBを削除し、取得済みの履歴・player面・日索引と次回取得後の不在診断を確認する。</remarks>
@@ -1064,6 +992,10 @@ public sealed class PlayHistoryReadModelTests
             Assert.IsTrue(first.PlayerSnapshotsAvailable);
             Assert.AreEqual(3, first.PlayerSnapshots.Count);
 
+            BeatorajaPlayHistoryReadResult all = cache.ReadBeatoraja(captured, new BeatorajaPlayHistoryReadRequest
+            { FinalizationFilter = Lr2PlayHistoryFinalizationFilter.All }, CancellationToken.None, out _);
+            Assert.AreSame(captured.Beatoraja.Rows, all.Rows);
+            Assert.AreSame(captured.Beatoraja.Rows.Single(row => row.played_at == day1), first.Rows[0]);
             File.Delete(scoreLogDbPath);
 
             BeatorajaPlayHistoryReadResult second = cache.ReadBeatoraja(

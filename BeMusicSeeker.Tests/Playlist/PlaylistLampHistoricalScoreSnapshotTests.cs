@@ -73,7 +73,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             CreateLr2ScoreDb(scoreDbPath);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed,
                 new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true).Status);
-            const string hash = "skipped-day-chart";
+            const string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             long boundary = DateTimeOffset.Parse("2024-06-01T12:00:00Z", CultureInfo.InvariantCulture).ToUnixTimeSeconds();
             using (SQLiteConnection db = new(scoreDbPath))
             {
@@ -348,7 +348,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             {
                 db.Execute(
                     "INSERT INTO bms_lr2_play_history (hash, played_at, finalized, score_write_type, new_playcount, playcount_delta) VALUES (?, ?, ?, ?, ?, ?);",
-                    "lr2-finalized",
+                    "dddddddddddddddddddddddddddddddd",
                     1_700_000_000L,
                     1,
                     "update",
@@ -356,7 +356,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
                     1);
                 db.Execute(
                     "INSERT INTO bms_lr2_play_history (hash, played_at, finalized, score_write_type, new_playcount, playcount_delta) VALUES (?, ?, ?, ?, ?, ?);",
-                    "lr2-unfinalized",
+                    "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
                     1_700_000_001L,
                     0,
                     "update",
@@ -369,8 +369,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             {
                 ScoreDbPath = scoreDbPath,
                 IsLr2LinkedProfile = true,
-                FinalizationFilter = Lr2PlayHistoryFinalizationFilter.All,
-                DisableLimit = true
+                FinalizationFilter = Lr2PlayHistoryFinalizationFilter.All
             });
 
             Assert.IsFalse(result.HasErrors);
@@ -618,7 +617,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             DateTime selectedDate = new(2026, 8, 28);
             long playedAt = Change(
                 ActiveScoreSource.Lr2,
-                "schema-chart",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                 1,
                 selectedDate,
                 3,
@@ -634,7 +633,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
                         "CREATE TRIGGER " + Lr2PlayHistorySchemaService.ScoreInsertTriggerName
                         + " AFTER INSERT ON score BEGIN SELECT 1; END;");
                 }
-                InsertLr2History(db, 1, "schema-chart", playedAt, oldPlayCount: 1, oldClear: 3, oldOperationHistory: 0, oldExScore: 100, oldTotalNotes: 100);
+                InsertLr2History(db, 1, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", playedAt, oldPlayCount: 1, oldClear: 3, oldOperationHistory: 0, oldExScore: 100, oldTotalNotes: 100);
             }
             byte[] before = File.ReadAllBytes(scoreDbPath);
 
@@ -644,7 +643,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             Assert.AreEqual(1, ordinary.Rows.Count);
             PlaylistLampHistoricalScoreSnapshotResult result = new PlaylistLampHistoricalScoreSnapshotReader().Read(
                 captured,
-                CurrentLr2("schema-chart", ClearType.CLEAR, 180, 100),
+                CurrentLr2("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", ClearType.CLEAR, 180, 100),
                 selectedDate);
 
             Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Unavailable, result.Status);
@@ -673,7 +672,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             DateTime selectedDate = new(2026, 8, 28);
             long firstPlayedAt = Change(
                 ActiveScoreSource.Lr2,
-                "index-only-chart",
+                "cccccccccccccccccccccccccccccccc",
                 1,
                 selectedDate,
                 3,
@@ -682,7 +681,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
                 100).PlayedAtUnixSeconds;
             long secondPlayedAt = Change(
                 ActiveScoreSource.Lr2,
-                "index-only-chart",
+                "cccccccccccccccccccccccccccccccc",
                 2,
                 selectedDate.AddDays(1),
                 3,
@@ -691,8 +690,8 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
                 100).PlayedAtUnixSeconds;
             using (SQLiteConnection db = new(scoreDbPath))
             {
-                InsertLr2History(db, 1, "index-only-chart", firstPlayedAt, oldPlayCount: 1, oldClear: 3, oldOperationHistory: 0, oldExScore: 100, oldTotalNotes: 100);
-                InsertLr2History(db, 2, "index-only-chart", secondPlayedAt, oldPlayCount: 1, oldClear: 3, oldOperationHistory: 0, oldExScore: 150, oldTotalNotes: 100);
+                InsertLr2History(db, 1, "cccccccccccccccccccccccccccccccc", firstPlayedAt, oldPlayCount: 1, oldClear: 3, oldOperationHistory: 0, oldExScore: 100, oldTotalNotes: 100);
+                InsertLr2History(db, 2, "cccccccccccccccccccccccccccccccc", secondPlayedAt, oldPlayCount: 1, oldClear: 3, oldOperationHistory: 0, oldExScore: 150, oldTotalNotes: 100);
                 db.Execute("DROP INDEX " + Lr2PlayHistorySchemaService.TimeIndexName + ";");
             }
             byte[] before = File.ReadAllBytes(scoreDbPath);
@@ -703,11 +702,11 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             Assert.AreEqual(0, ordinary.Rows.Count);
             PlaylistLampHistoricalScoreSnapshotResult result = new PlaylistLampHistoricalScoreSnapshotReader().Read(
                 captured,
-                CurrentLr2("index-only-chart", ClearType.CLEAR, 180, 100),
+                CurrentLr2("cccccccccccccccccccccccccccccccc", ClearType.CLEAR, 180, 100),
                 selectedDate);
 
             Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Available, result.Status);
-            Assert.AreEqual(150, result.ScoreSnapshot.ScoresByHash["index-only-chart"].ExScore);
+            Assert.AreEqual(150, result.ScoreSnapshot.ScoresByHash["cccccccccccccccccccccccccccccccc"].ExScore);
             CollectionAssert.AreEqual(before, File.ReadAllBytes(scoreDbPath));
         }
         finally

@@ -1390,11 +1390,13 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         await settingsPort.CompleteBeatorajaBmtSettingsAsync(preparation, null);
     }
 
-    /// <summary>en-USで固定旧日付を通常新規取込みへ通し、不正な実採用追加日は一表保存前に止め、訂正後の成功通知・所属・fresh DBを照合します。</summary>
+    /// <summary>en-USで通常名・外部空表名と固定旧日付を通常新規取込みへ通し、不正な実採用追加日は一表保存前に止め、訂正後の成功通知・所属・fresh DBを照合します。外部空表名は実BMT出力終端まで無通知でスキップし、名前なしフォルダと項目を保持します。</summary>
     /// <remarks>条件網羅と実serializer往復はBMSTableLoadTestsへ分担し、ここでは実workspaceと保存の接続を一表で確認します。共有通知の寿命を所有するため単独実行します。</remarks>
-    [TestMethod]
+    [DataTestMethod]
+    [DataRow("Four digit year import")]
+    [DataRow("")]
     [DoNotParallelize]
-    public async Task TryStartPlaylistImport_NewExternalTablePreservesFourDigitAddDateInDatabase()
+    public async Task TryStartPlaylistImport_NewExternalTablePreservesFourDigitAddDateInDatabase(string tableName)
     {
         string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceExternalSourceTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -1412,16 +1414,15 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             string databasePath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
             PlaylistPersistenceRepository.EnsureSchema(databasePath);
             string headerPath = Path.Combine(directory, "header.json");
-            const string tableName = "Four digit year import";
             string hash = new('e', 32);
             DateTime expected = new DateTime(2024, 12, 31, 13, 24, 35).AddTicks(1);
-            File.WriteAllText(headerPath, "{\"name\":\"Four digit year import\",\"symbol\":\"D\",\"data_url\":\"./data.json\"}");
+            File.WriteAllText(headerPath, new JObject { ["name"] = tableName, ["symbol"] = "D", ["data_url"] = "./data.json" }.ToString());
             File.WriteAllText(Path.Combine(directory, "data.json"),
                 "[{\"md5\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"title\":\"Date song\",\"adddate\":\"invalid initial date\"}]");
             var sourceUri = new Uri(headerPath);
             playlist = new TestBmsPlaylist(databasePath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
-                () => new BeatorajaBmtOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = Path.Combine(directory, "bmt") },
                 () => new CustomFolderOutputSettingsSnapshot())
             { BMSTables = [] };
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
@@ -1429,6 +1430,8 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 auxiliaryWork.Enqueue(Task.Run(work));
                 return true;
             };
+            int bmtFailures = 0;
+            playlist.BmtOutput.FailureReporter = _ => bmtFailures++;
             library = new TestBmsLibrary(databasePath);
             workspace = CreateDetailWorkspace(out _,
                 playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
@@ -1475,6 +1478,17 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             Assert.AreEqual(table.playlist_id, saved.playlist_id);
             Assert.AreEqual(hash, saved.md5);
             Assert.AreEqual(expected, saved.adddate);
+            if (tableName.Length == 0)
+            {
+                Assert.AreEqual(string.Empty, entry.folder);
+                Assert.AreEqual(string.Empty, saved.folder);
+                await playlist.BmtOutput.ExportAllAsync("external-empty-name", forceProjection: true);
+                await playlist.WaitForPlaylistMutationIdleAsync();
+                Assert.AreEqual(0, bmtFailures);
+                Assert.AreEqual(0, Directory.GetFiles(Path.Combine(directory, "bmt"), "*.bmt").Length);
+                Assert.AreEqual(string.Empty, playlist.BMSTables.Single().name);
+                Assert.AreEqual(hash, playlist.BMSTables.Single().entries.Single().md5);
+            }
         }
         catch (Exception failure)
         {

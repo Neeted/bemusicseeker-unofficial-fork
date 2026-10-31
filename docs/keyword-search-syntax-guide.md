@@ -225,6 +225,8 @@ title:alpha|beta
 | `memo` | Memo; Playlist detail only |
 | `comment` | Comment; Playlist detail only |
 
+`RATE` is displayed as a percentage, but numeric conditions and regular expressions use a value from 0 to 1. `rate:>=0.8` matches 80% or higher; `rate:re:^0[.]8$` matches 80%. Regular expressions also use `.` as the decimal separator.
+
 Without a field, the main chart list searches TITLE, ARTIST, GENRE, TAG, PATH, playlist display symbols, MD5, and SHA256. Playlist detail also searches memo and comment.
 
 ### Playlist List

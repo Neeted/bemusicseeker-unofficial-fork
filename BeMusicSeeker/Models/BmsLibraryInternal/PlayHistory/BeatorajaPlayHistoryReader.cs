@@ -8,15 +8,15 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class BeatorajaPlayHistoryReader
 {
-    internal const int DefaultReadLimit = 5000;
-
     private const int NormalScoreMode = 0;
 
+    /// <summary>beatorajaの通常モード・SHA-256長64の単曲更新履歴を一覧・日付索引用に読み取り専用で全件取得します。件数上限は設けません。</summary>
     internal BeatorajaPlayHistoryReadResult Read(BeatorajaPlayHistoryReadRequest request)
     {
         return Read(request, CancellationToken.None);
     }
 
+    /// <summary>beatorajaの通常モード・SHA-256長64の単曲更新履歴を一覧・日付索引用に読み取り専用で全件取得し、取消しを観測します。件数上限は設けません。</summary>
     internal BeatorajaPlayHistoryReadResult Read(BeatorajaPlayHistoryReadRequest request, CancellationToken cancellationToken)
     {
         request = ResolveRequestPaths(request);
@@ -115,9 +115,10 @@ internal sealed class BeatorajaPlayHistoryReader
         return false;
     }
 
+    /// <summary>通常モードの単曲ハッシュを期間内で全件読みます。player累計の取得条件は変えません。</summary>
     private static string BuildScoreLogReadSql(BeatorajaPlayHistoryReadRequest request, List<object> args)
     {
-        var where = new List<string> { "mode = ?" };
+        var where = new List<string> { "mode = ?", "length(sha256) = 64" };
         args.Add(NormalScoreMode);
         if (request.PlayedAtFromInclusive.HasValue)
         {
@@ -133,14 +134,6 @@ internal sealed class BeatorajaPlayHistoryReader
         string sql = "SELECT rowid AS history_id, sha256, mode, clear, oldclear, score, oldscore, combo, oldcombo, minbp, oldminbp, date FROM scorelog WHERE "
             + string.Join(" AND ", where)
             + " ORDER BY date DESC, rowid DESC";
-        int limit = request.Limit.HasValue && request.Limit.Value > 0
-            ? request.Limit.Value
-            : DefaultReadLimit;
-        if (!request.DisableLimit && limit > 0)
-        {
-            sql += " LIMIT ?";
-            args.Add(limit);
-        }
         return sql + ";";
     }
 

@@ -676,6 +676,8 @@ rate:>=0.8
 playlist:"Satellite Sub"
 ```
 
+`RATE` is displayed as a percentage. Numeric searches and regular expressions in the chart list and playlist detail use 0 to 1: `rate:>=0.8` matches 80% or higher, and `rate:re:^0[.]8$` matches 80%.
+
 ### Completion, History, and Favorites
 
 Choose search fields, playlist names, and values from the search-box suggestions. Select with Up / Down and apply with Enter or Tab. The 20 most recent searches are saved. Buttons in history rows add a search to favorites or delete it; favorites have no count limit.
@@ -911,6 +913,8 @@ All three types can be registered together. Reload the relevant tables after pla
 Turn on `Show Recommend update messages` to see the new skill and signed change when estimated skill changes after a reload.
 
 ### Playlist Properties
+
+When creating a playlist or saving its properties manually, enter a name containing at least one non-whitespace character. This applies in both LR2-linked and standalone modes.
 
 Right-click a playlist and open `Properties` to view and edit the playlist name, display symbol, external sync settings, page URI, header URI, and data URI.
 
@@ -1297,6 +1301,8 @@ For beatoraja, only rows where a best value was updated are shown. Plays without
 ### Display Target and FOLDER
 
 The drop-down menu at the top-right of the Play Log view switches the display target and how the FOLDER column is projected. `All` shows all history rows in the range selected in the period tree. `Preset: <name>` filters the rows to charts included in the playlists selected in `Play Log FOLDER Display Presets`, and the FOLDER column shows each playlist symbol plus level. `FOLDER: <name>` does not filter rows; it keeps the rows selected by the period tree and search box, and only projects the FOLDER column using that preset. Charts outside the preset have an empty FOLDER value. Selecting a single playlist filters to charts in that playlist and shows the playlist folder name in the FOLDER column. The last selected display target is saved and automatically selected again on the next startup when the same item is available.
+
+History and archived dates cover single charts, including charts you do not own. All matching records in the selected period can be displayed and searched without a row limit.
 
 ### Play Log Context Menu
 

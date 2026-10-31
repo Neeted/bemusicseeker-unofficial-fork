@@ -14,17 +14,17 @@ LR2の導入後のプレイ履歴と、beatorajaのスコア更新履歴を、�
 
 通常成績の取得操作が選んだ取得元を履歴・集計にも使います。`UseBeatorajaScoreDb` が有効ならbeatoraja、それ以外はLR2です。通常成績が失敗しても別の情報源へ代替せず、通常成績と履歴の利用可否を独立して保持します。取得後の外部ファイル移動・消失で表示時の取得元を変更せず、同じ画面で両者を合算しません。
 
-LR2は現在の連携プロファイルのスコアDBを読みます。非連携は `SkippedProfile`、パス未設定・欠落・読取不能は `Unreadable` です。履歴の記録構造と明示的な導入・修復は[LR2履歴スキーマ](lr2-history-schema.md)に従います。導入前のスコアから日時を推測して履歴を作りません。
+LR2は現在の連携プロファイルのスコアDBを読みます。非連携は `SkippedProfile`、パス未設定・欠落・読取不能は `Unreadable` です。履歴の記録構造と明示的な導入・修復は[LR2履歴スキーマ](lr2-history-schema.md)に従います。導入前のスコアから日時を推測して履歴を作りません。ハッシュ長が32の単曲行だけを読み、未所持の単曲も残します。両取得元とも16進文字の追加検査はせず、元DBのコース記録や構造は変更しません。
 
-beatorajaは選択プレイヤーの `scorelog.db` を読み取り専用で使います。これはベスト更新ログで、全プレイ履歴ではありません。通常譜面は `mode=0` だけとし、コース等を混ぜません。`scoredatalog.db` はハッシュとモードに対する最新詳細で、追記履歴として使いません。取得失敗を `score.date` 等へ置き換えません。
+beatorajaは選択プレイヤーの `scorelog.db` を読み取り専用で使います。これはベスト更新ログで、全プレイ履歴ではありません。通常譜面は `mode=0` かつSHA-256の長さが64の行だけとし、コース等を混ぜません。`scoredatalog.db` はハッシュとモードに対する最新詳細で、追記履歴として使いません。取得失敗を `score.date` 等へ置き換えません。
 
 ### 読取り要求と索引
 
-LR2要求はDBパス、連携プロファイルかどうか、開始を含み終了を含まない時刻範囲、確定状態、件数上限を持ちます。通常期間は `FinalizedOnly`、診断は `UnfinalizedOnly` です。通常成績と同時に所有する全履歴には `All` と `DisableLimit=true` を使います。
+LR2要求はDBパス、連携プロファイルかどうか、開始を含み終了を含まない時刻範囲、確定状態を持ちます。通常期間は `FinalizedOnly`、診断は `UnfinalizedOnly` です。通常成績と同時に所有する全履歴には `All` を使います。読取り・期間投影・表示・検索に件数上限は設けず、通常の仮想化表示を使います。
 
 スキーマ検査を先に行い、読めない状態では行を問い合わせず診断を返します。`AllowRepairableIndexRead` が`false` なら不足・不一致の索引で停止し、`true` なら警告付きで読めます。通常履歴・期間索引の投影は索引不備で停止します。取得操作は通常履歴とランプの用途和集合として `AllowRepairableIndexRead=true`、`RequireCompleteHistoryTriggers=false` で一度読み、捕捉した同じスキーマ検査結果へ各用途の条件を適用します。`RequireCompleteHistoryTriggers` は独立した条件で、`true` ならトリガー不足・不一致で行照会前に停止します。読込み中に修復しません。
 
-期間索引は日別の代表時刻で、通常一覧の件数上限に影響されません。UIでは全件キャッシュの確定行をローカル日付別にまとめ、各日の最大時刻を使います。beatorajaでは「未確定／診断」期間の履歴行は空で、通常の更新履歴を未確定扱いにしません。この期間の扱いは、取得失敗の診断表示を抑止する意味ではありません。
+期間索引は同じ取得結果の単曲行による日別の代表時刻で、コース行しかない日を候補に残しません。UIでは全件キャッシュの確定行をローカル日付別にまとめ、各日の最大時刻を使います。beatorajaでは「未確定／診断」期間の履歴行は空で、通常の更新履歴を未確定扱いにしません。この期間の扱いは、取得失敗の診断表示を抑止する意味ではありません。
 
 履歴行の読取りと、全履歴からの期間索引・過去日付ツリーの生成は採否を分けます。索引・ツリーだけが失敗しても、正常な選択期間の行・集計は表示します。過去日付の項目を外して利用不可にし、索引の取得失敗を示します。旧日付ツリーの保存・取得元照合は行わず、固定期間の選択は続けられます。
 
@@ -36,7 +36,7 @@ LR2要求はDBパス、連携プロファイルかどうか、開始を含み終
 
 正常0件、利用不可、読取り失敗を区別し、失敗結果も今回の取得組に保持します。期間操作では再読取りせず、次の許可取得後にだけ新結果へ更新します。beatorajaのplayer時系列だけが利用不可なら、正常なscorelog行は維持します。取得時点のraw行・player時系列・ノーツ・スキーマ診断を後の成績値や外部DBから再計算しません。
 
-`PlayHistoryReadCache` は期間・確定状態・上限・日索引の純投影であり、DB接続、取得元選択、rawの所有、読取り待機や取得世代を持ちません。同じ取得組の期間変更では最新一件の日索引結果だけを再利用し、全rawから日索引を毎回作り直しません。期間投影は同じraw record参照を返し、全範囲・全確定状態・上限なしではrawリストをそのまま再利用します。取消しは表示投影を止めるだけで、共有する取得組を破棄しません。
+`PlayHistoryReadCache` は期間・確定状態・日索引の純投影であり、DB接続、取得元選択、rawの所有、読取り待機や取得世代を持ちません。同じ取得組の期間変更では最新一件の日索引結果だけを再利用し、全rawから日索引を毎回作り直しません。期間投影は同じraw record参照を返し、全範囲・全確定状態ではrawリストをそのまま再利用します。取消しは表示投影を止めるだけで、共有する取得組を破棄しません。
 
 `PlayHistoryProjectionIndex` が生の記録を現在の所持譜面とプレイリストへ解決します。候補索引から表示用ChartFileを取得せず、MD5/SHA-256の候補解決と現在値を共通カタログ読取り区間で一括捕捉します。履歴自体の値と取得元別のスコアは独立した記録として維持します。古い要求・取消で構築が中断したら表示を更新しません。譜面を解決できない行は生のハッシュと診断を持つ未解決行として残せます。これはスキーマ不備や取得失敗を成功へ変える意味ではありません。
 
@@ -143,7 +143,7 @@ DB読取り、LR2スキーマ検査、期間実績の取得で例外を結果へ
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| 通常成績と履歴の一括取得、表示版と取得世代、全再初期化の保持 | `BmsLibraryInitializationService.LoadScoreTable`、`BMSLibrary.ScoreSnapshot` | `BmsLibrarySavedScoreAvailabilityTests.InitializeStartup_AcquiresHistoryBeforeViewAndFullReinitializeKeepsCapturedBatch` と成否独立性、`ScoreSnapshotPublicationTests` の既存版・購読・非複製検証。取得済みrawの期間・上限・確定状態・日索引とノーツ固定は `PlayHistoryReadModelTests`、DB変更・移動後もランプが捕捉組を使うことは `BmsLibraryPlaylistLampDataSourceTests` で分担する。 |
+| 通常成績と履歴の一括取得、表示版と取得世代、全再初期化の保持 | `BmsLibraryInitializationService.LoadScoreTable`、`BMSLibrary.ScoreSnapshot` | `BmsLibrarySavedScoreAvailabilityTests.InitializeStartup_AcquiresHistoryBeforeViewAndFullReinitializeKeepsCapturedBatch` と成否独立性、`ScoreSnapshotPublicationTests` の既存版・購読・非複製検証。取得済みrawの期間・確定状態・日索引とノーツ固定は `PlayHistoryReadModelTests`、DB変更・移動後もランプが捕捉組を使うことは `BmsLibraryPlaylistLampDataSourceTests` で分担する。 |
 | 取得元・期間・確定状態・未解決行・累計差分 | [`Lr2PlayHistoryReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistoryReader.cs)、[`BeatorajaPlayHistoryReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/BeatorajaPlayHistoryReader.cs) | [`PlayHistoryReadModelTests`](../../../BeMusicSeeker.Tests/PlayHistory/PlayHistoryReadModelTests.cs)、[`BmsLibrarySavedScoreAvailabilityTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibrarySavedScoreAvailabilityTests.cs) |
 | beatoraja旧新BPの未記録値と更新種別 | `BeatorajaPlayHistoryReader`、[`ScoreValueCalculator.NormalizeMinBp`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Score/ScoreValueCalculator.cs)、`PlayHistoryRow` | `PlayHistoryReadModelTests.BeatorajaReader_TreatsMaxValueOldMinBpAsUnplayed` で実scorelogの旧特殊値→実績10と旧新特殊値のクリア更新を読み、reader・表示行のnull、初回BP表示、BP更新なしとクリア更新の保持を確認する。 |
 | 日付境界の通常・欠落・重複・丸日欠落、相対期間と過去日付ツリー | [`LocalDateBoundary`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/LocalDateBoundary.cs)、[`PlayHistoryPeriodRequest`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryPeriodRequest.cs)、[`PlayHistoryPeriodTreeItem`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryPeriodTreeItem.cs) | `PlayHistoryReadModelTests.PlayHistoryPeriodRequest_DayBoundaryTransitionsShareAdjacentUtcEndpoints` は `CreateDay` から固定UTC期待値と隣接境界を確認する。`PlayHistoryPeriodRequest_RelativePeriodsUseMissingMidnightBoundary` は今日・昨日・最近7日／30日、`PlayHistoryPeriodTreeItem_TransitionDatesBuildOneDayWithUsableRequests` は実UTC行から年・月・日requestと同日重複の統合を確認する。既存のUTC・UTC+09・年月・表示名・確定条件とreader/cacheの半開範囲検査を維持する。 |
@@ -164,6 +164,7 @@ DB読取り、LR2スキーマ検査、期間実績の取得で例外を結果へ
 | 保存成功のプリセット改名と希望識別の追従 | `SettingsDialogViewModel.TryApplyPlayHistoryFolderDisplayPresetEditSession`、`PlayHistoryWorkflowOwner.RefreshDisplayTargetSetsFromSettings` | `PlayHistoryReadModelTests.WorkflowOwner_ConfirmedPresetRenameKeepsLogicalSelection` が両モード・空白・大小文字・連続改名・別プリセットの選択不変を確認する。実providerの保存成功・失敗・取消は既存Settings系列へ分担する。 |
 | 履歴中だけキー数UIを隠す | MainWindowのキー数ボタン・メニューBinding | `MainWindowPlayHistoryWpfTests.PlayHistoryDisplayTargetDropdown_BindsToPlayHistoryViewState` が履歴への遷移と通常復帰、保存条件の不変を確認する。 |
 | DATE表示と正規表現の秒・互換候補 | 共通DATE表示、履歴のdate検索候補 | `GridKeywordSearchQueryTests.MatchesPlayHistoryRow_DateRegexIncludesDisplayedTimestamp` がLR2/beatorajaの実DATE GetText、秒・否定・旧日付候補を確認する。 |
+| 単曲の取得条件、元DBの保持と5001件以上の表示・検索 | 両reader、`PlayHistoryReadCache`、`PlayHistoryWorkflowOwner` | `HistoryReader_SingleChartsAndPeriodIndexPreserveSourceRows` は実SQLiteの長さ・mode・未所持条件、元行保持と日索引を、`BuildReadView_AllRowsBeyondFiveThousandRemainSearchable` は両取得元の許可取得から全件表示と最古hash検索までを確認する。 |
 
 ## 関連資料
 

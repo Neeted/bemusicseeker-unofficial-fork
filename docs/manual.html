@@ -1463,6 +1463,7 @@ level:12
 rate:&gt;=0.8
 playlist:"Satellite Sub"
 </code></pre></div>
+<p><code>RATE</code> is displayed as a percentage. Numeric searches and regular expressions in the chart list and playlist detail use 0 to 1: <code>rate:&gt;=0.8</code> matches 80% or higher, and <code>rate:re:^0[.]8$</code> matches 80%.</p>
 <h3 id="completion-history-and-favorites">Completion, History, and Favorites</h3>
 <p>Choose search fields, playlist names, and values from the search-box suggestions. Select with Up / Down and apply with Enter or Tab. The 20 most recent searches are saved. Buttons in history rows add a search to favorites or delete it; favorites have no count limit.
 For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword Search Syntax Guide</a>.</p>
@@ -1671,6 +1672,7 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <p>All three types can be registered together. Reload the relevant tables after playing. Recommendation names are generated from the type and estimated skill on every reload, replacing any manual name. Display symbols, output settings, and memos are retained.</p>
 <p>Turn on <code>Show Recommend update messages</code> to see the new skill and signed change when estimated skill changes after a reload.</p>
 <h3 id="playlist-properties">Playlist Properties</h3>
+<p>When creating a playlist or saving its properties manually, enter a name containing at least one non-whitespace character. This applies in both LR2-linked and standalone modes.</p>
 <p>Right-click a playlist and open <code>Properties</code> to view and edit the playlist name, display symbol, external sync settings, page URI, header URI, and data URI.</p>
 <p>For an externally synced playlist, changing and saving its page URI (or header URI when no page URI is set) reloads it from the new source. Saving a change from external sync OFF to ON also reloads the playlist. Saving the same source again or changing only the data URI does not trigger a reload unless you also turn external sync ON.</p>
 <p>Properties such as the playlist name and folder settings are saved in the in-app DB even in standalone mode. Only in LR2 linked mode is LR2 custom folder output also updated after saving.</p>
@@ -2018,6 +2020,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p>For beatoraja, only rows where a best value was updated are shown. Plays without an update, including interrupted plays, do not become list rows.</p>
 <h3 id="display-target-and-folder">Display Target and FOLDER</h3>
 <p>The drop-down menu at the top-right of the Play Log view switches the display target and how the FOLDER column is projected. <code>All</code> shows all history rows in the range selected in the period tree. <code>Preset: &lt;name&gt;</code> filters the rows to charts included in the playlists selected in <code>Play Log FOLDER Display Presets</code>, and the FOLDER column shows each playlist symbol plus level. <code>FOLDER: &lt;name&gt;</code> does not filter rows; it keeps the rows selected by the period tree and search box, and only projects the FOLDER column using that preset. Charts outside the preset have an empty FOLDER value. Selecting a single playlist filters to charts in that playlist and shows the playlist folder name in the FOLDER column. The last selected display target is saved and automatically selected again on the next startup when the same item is available.</p>
+<p>History and archived dates cover single charts, including charts you do not own. All matching records in the selected period can be displayed and searched without a row limit.</p>
 <h3 id="play-log-context-menu">Play Log Context Menu</h3>
 <p>The play-log context menu uses the same configured <code>Open web pages</code> entries, order, and chart-kind rules as the normal list. Hash-only rows expose those entries; rows resolved to a local chart can use <code>Open with a program</code>. Explorer and chart viewer operations are also available. To copy MD5 or SHA256, show the <code>MD5 HASH</code> / <code>SHA256</code> columns from the header context menu, then use <code>Ctrl + C</code> for the current cell or <code>Ctrl + Shift + C</code> for the selected rows.</p>
 <p>Play-log rows that resolve to owned charts can be dragged onto a non-externally-synced playlist body or folder to add them. If the selection includes unresolved rows, that drag is not accepted as a playlist add operation.</p>

@@ -67,6 +67,7 @@ internal sealed class PlayHistorySourceProfile
     }
 }
 
+/// <summary>単曲履歴の取得元と期間・確定状態を指定します。件数上限は設けません。</summary>
 internal sealed class BeatorajaPlayHistoryReadRequest
 {
     internal string ScoreDbPath { get; set; }
@@ -78,10 +79,6 @@ internal sealed class BeatorajaPlayHistoryReadRequest
     internal long? PlayedAtFromInclusive { get; set; }
 
     internal long? PlayedAtToExclusive { get; set; }
-
-    internal int? Limit { get; set; }
-
-    internal bool DisableLimit { get; set; }
 
     internal Lr2PlayHistoryFinalizationFilter FinalizationFilter { get; set; } = Lr2PlayHistoryFinalizationFilter.FinalizedOnly;
 }
@@ -268,6 +265,7 @@ internal enum Lr2PlayHistoryFinalizationFilter
     All
 }
 
+/// <summary>単曲履歴の取得元と期間・確定状態を指定します。件数上限は設けません。</summary>
 internal sealed class Lr2PlayHistoryReadRequest
 {
     internal string ScoreDbPath { get; set; }
@@ -285,10 +283,6 @@ internal sealed class Lr2PlayHistoryReadRequest
         get => FinalizationFilter != Lr2PlayHistoryFinalizationFilter.FinalizedOnly;
         set => FinalizationFilter = value ? Lr2PlayHistoryFinalizationFilter.All : Lr2PlayHistoryFinalizationFilter.FinalizedOnly;
     }
-
-    internal int? Limit { get; set; }
-
-    internal bool DisableLimit { get; set; }
 
     /// <summary>
     /// Allows a read-only consumer to read when only the performance indexes are

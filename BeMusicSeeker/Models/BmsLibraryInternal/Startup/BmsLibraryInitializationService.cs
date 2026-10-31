@@ -1843,8 +1843,7 @@ internal sealed class BmsLibraryInitializationService
             {
                 ScoreDbPath = result.ScoreDbPath,
                 ScoresBySha256 = result.BeatorajaScoresBySha256,
-                FinalizationFilter = Lr2PlayHistoryFinalizationFilter.All,
-                DisableLimit = true
+                FinalizationFilter = Lr2PlayHistoryFinalizationFilter.All
             });
             result.PlayHistorySnapshot = new(result.ActiveScoreSource, result.ScoreDbPath, beatoraja: history);
         }
@@ -1855,7 +1854,6 @@ internal sealed class BmsLibraryInitializationService
                 ScoreDbPath = result.ScoreDbPath,
                 IsLr2LinkedProfile = options?.OperationModeLR2DB ?? true,
                 FinalizationFilter = Lr2PlayHistoryFinalizationFilter.All,
-                DisableLimit = true,
                 AllowRepairableIndexRead = true,
                 RequireCompleteHistoryTriggers = false
             });

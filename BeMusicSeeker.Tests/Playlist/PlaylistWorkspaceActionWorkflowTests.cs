@@ -2203,6 +2203,116 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         };
     }
 
+    /// <summary>新規/既存・LR2/単独・手動外部同期表の空名を実sessionで拒否し、DB・正本・別項目・出力を保ちます。同sessionの既存VM経路で訂正後の通常名を保存します。</summary>
+    /// <remarks>LR2は明示出力名を与えて配置検査による偶然の拒否を避けます。BindingとOK接続は変更せず既存WPF系列へ分担します。</remarks>
+    [DataTestMethod]
+    [DataRow(false, false, false)]
+    [DataRow(false, true, false)]
+    [DataRow(true, false, false)]
+    [DataRow(true, true, false)]
+    [DataRow(false, false, true)]
+    [DataRow(false, true, true)]
+    [DataRow(true, false, true)]
+    [DataRow(true, true, true)]
+    public async Task PlaylistPropertySave_BlankNamesRejectWithoutMutationAndAllowCorrection(bool lr2, bool isNew, bool external)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceActionWorkflowTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        try
+        {
+            string path = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(path);
+            string normal = Path.Combine(directory, "normal"), bmt = Path.Combine(directory, "bmt");
+            var output = new CustomFolderOutputSettingsSnapshot
+            { OperationModeLR2DB = lr2, LR2RootPath = directory, LR2CustomFolderOutputBaseDir = normal, LR2CustomFolderOutputBaseDirRootType = Path.Combine(directory, "root") };
+            LR2Config config = BmsPlaylistTestSupport.CreateLr2Config(directory, normal);
+            var owner = new Lr2ConfigOwner(config); owner.SetPlacement(output);
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => { values.OperationModeLR2DB = lr2; values.EnablePlaylistUrlCompletion = false; });
+            library = new TestBmsLibrary(path, owner, null, null, () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
+            playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), path, () => output, owner,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmt }, settings: settings);
+            string header = Path.Combine(directory, "header.json"), data = Path.Combine(directory, "data.json");
+            const string corrected = "Saved table";
+            File.WriteAllText(header, "{\"name\":\"Saved table\",\"symbol\":\"S\",\"data_url\":\"data.json\"}");
+            File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Keep song\"}]");
+            var table = new BMSTable
+            {
+                playlist_id = isNew ? null : 7480,
+                name = "Original",
+                symbol = "Old",
+                Output_dir = "ExplicitOutput",
+                is_external_sync = external,
+                Header_url = new Uri(header),
+                Data_url = new Uri(data),
+                entries = [new BMSTableEntry { md5 = new string('a', 32), title = "Keep song", folder = string.Empty, memo = "Keep memo" }]
+            };
+            var sibling = new BMSTable { playlist_id = 7481, name = "Sibling", Output_dir = "Sibling", entries = [] };
+            playlist.BMSTables = new ObservableCollection<BMSTable>(isNew ? [sibling] : [table, sibling]);
+            foreach (BMSTable current in playlist.BMSTables) { playlist.CommitBMSTableWithEntriesToDB(current); }
+            var service = new PlaylistPropertySaveService(() => playlist, () => library, () => owner, () => output);
+            workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library, propertySaveService: service, dispatchPresentation: action => action());
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+            workspace.PlaylistSyncProgressChanged += (_, _) => { };
+            using PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table, isNew) ?? throw new AssertFailedException();
+            string[] filesBefore = Directory.GetFiles(directory, "*", SearchOption.AllDirectories).OrderBy(value => value).ToArray();
+            byte[] configBefore = File.ReadAllBytes(config.ConfigFilePath);
+            foreach (string? name in new string?[] { null, string.Empty, " ", "\t\r\n", "\u3000\u00a0" })
+            {
+                session.Values.Name = name;
+                session.Values.Symbol = "Must not save";
+                Assert.IsFalse(service.IsValid(session, session.Values), "空白名は明示出力名があっても無効です。");
+                Assert.IsNull((await service.TrySaveAsync(session, session.Values)).Commit);
+                Assert.AreEqual("Original", table.name); Assert.AreEqual("Old", table.symbol);
+                using LR2SongDBExtended verify = new BmsLibraryDbGateway(path).OpenSongDbReadOnly();
+                Assert.AreEqual(isNew ? 1 : 2, verify.Table<BMSTable>().Count());
+                Assert.AreEqual("Sibling", verify.Table<BMSTable>().Single(row => row.playlist_id == sibling.playlist_id).name);
+                if (!isNew)
+                {
+                    BMSTable saved = verify.Table<BMSTable>().Single(row => row.playlist_id == table.playlist_id);
+                    Assert.AreEqual("Original", saved.name); Assert.AreEqual("Old", saved.symbol);
+                    Assert.AreEqual("Keep memo", verify.Table<BMSTableEntry>().Single().memo);
+                }
+                CollectionAssert.AreEqual(filesBefore, Directory.GetFiles(directory, "*", SearchOption.AllDirectories).OrderBy(value => value).ToArray());
+                CollectionAssert.AreEqual(configBefore, File.ReadAllBytes(config.ConfigFilePath));
+                Assert.IsFalse(Directory.Exists(normal)); Assert.IsFalse(Directory.Exists(bmt));
+            }
+            session.Values.Name = " " + corrected + " ";
+            Assert.IsTrue(service.IsValid(session, session.Values));
+            Assert.AreEqual(" " + corrected + " ", session.Values.Name, "追加した検査は生入力を正規化しません。");
+            using var dialog = new PlaylistPropertyDialogViewModel(service, session);
+            dialog.name = "\u3000";
+            Assert.IsFalse(dialog.CheckValidation());
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.ValidationFailed, await dialog.SaveAndApplyAsync());
+            dialog.name = " " + corrected + " ";
+            Assert.IsTrue(dialog.CheckValidation());
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+            BMSTable currentTable = playlist.BMSTables.Single(row => row.playlist_id != sibling.playlist_id);
+            Assert.AreEqual(corrected, currentTable.name, "既存VMの前後空白の取扱いを維持します。");
+            using LR2SongDBExtended read = new BmsLibraryDbGateway(path).OpenSongDbReadOnly();
+            Assert.AreEqual(2, read.Table<BMSTable>().Count());
+            Assert.AreEqual(corrected, read.Table<BMSTable>().Single(row => row.playlist_id == currentTable.playlist_id).name);
+            Assert.AreEqual("Sibling", read.Table<BMSTable>().Single(row => row.playlist_id == sibling.playlist_id).name);
+        }
+        finally
+        {
+            if (workspace != null)
+            {
+                workspace.CancelDetailBuilds();
+                await workspace.WaitForDetailBuildIdleAsync();
+                await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                await workspace.WaitForPlaylistReloadCleanupIdleAsync();
+                workspace.Dispose();
+            }
+            if (playlist != null) { await playlist.WaitForPlaylistMutationIdleAsync(); playlist.RequestShutdown("blank-name-test"); }
+            library?.RequestShutdown("blank-name-test");
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     /// <summary>同期OFFのnull解除・相対Header/Dataと、同期ONの必須URL・絶対base・bmseeker例外を実sessionで判定し、相対Pageの拒否とPageなし同期設定の保存を新DB接続で確認します。</summary>
     /// <remarks>文字列からUriへの変換失敗とOKのBinding反映は実WPFケースへ分担し、到達根拠のない不正なtyped Uriは作りません。</remarks>
     [TestMethod]

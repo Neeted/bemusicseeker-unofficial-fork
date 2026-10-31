@@ -43,7 +43,7 @@ internal sealed class PlayHistoryReadCache
         return FilterBeatoraja(snapshot?.Beatoraja, request);
     }
 
-    /// <summary>一覧の件数上限によらず、取得済み確定行から日索引を作ります。</summary>
+    /// <summary>取得済みの単曲確定行から日索引を作ります。</summary>
     internal Lr2PlayHistoryPeriodIndexResult ReadLr2PeriodIndex(ScorePlayHistorySnapshot snapshot, Lr2PlayHistoryPeriodIndexRequest request, CancellationToken cancellationToken, out bool cacheHit)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -57,8 +57,7 @@ internal sealed class PlayHistoryReadCache
             Lr2PlayHistoryReadResult read = ReadLr2(snapshot, new Lr2PlayHistoryReadRequest
             {
                 ScoreDbPath = request?.ScoreDbPath,
-                IsLr2LinkedProfile = request?.IsLr2LinkedProfile ?? true,
-                DisableLimit = true
+                IsLr2LinkedProfile = request?.IsLr2LinkedProfile ?? true
             }, cancellationToken, out _);
             Lr2PlayHistoryPeriodIndexResult result;
             try
@@ -74,7 +73,7 @@ internal sealed class PlayHistoryReadCache
         }
     }
 
-    /// <summary>同じ取得組のbeatoraja全行から、件数上限と独立した日索引を作ります。</summary>
+    /// <summary>同じ取得組のbeatoraja単曲行から日索引を作ります。</summary>
     internal BeatorajaPlayHistoryPeriodIndexResult ReadBeatorajaPeriodIndex(ScorePlayHistorySnapshot snapshot, BeatorajaPlayHistoryPeriodIndexRequest request, CancellationToken cancellationToken, out bool cacheHit)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -88,8 +87,7 @@ internal sealed class PlayHistoryReadCache
             BeatorajaPlayHistoryReadResult read = ReadBeatoraja(snapshot, new BeatorajaPlayHistoryReadRequest
             {
                 ScoreDbPath = request?.ScoreDbPath,
-                ScoreLogDbPath = request?.ScoreLogDbPath,
-                DisableLimit = true
+                ScoreLogDbPath = request?.ScoreLogDbPath
             }, cancellationToken, out _);
             BeatorajaPlayHistoryPeriodIndexResult result = BuildBeatorajaPeriodIndex(read);
             periodIndex = new(new(snapshot), Beatoraja: result);
@@ -102,14 +100,9 @@ internal sealed class PlayHistoryReadCache
         IEnumerable<Lr2PlayHistoryRecord> rows = source?.Rows ?? [];
         rows = rows.Where(row => MatchesFinalization(row.finalized != 0, request.FinalizationFilter)
             && MatchesPeriod(row.played_at, request.PlayedAtFromInclusive, request.PlayedAtToExclusive));
-        int? limit = ResolveLimit(request.Limit, request.DisableLimit, Lr2PlayHistoryReader.DefaultReadLimit);
-        if (limit.HasValue)
-        {
-            rows = rows.Take(limit.Value);
-        }
         return new Lr2PlayHistoryReadResult(
             source?.SourceProfile ?? PlayHistorySourceProfile.Lr2(request.ScoreDbPath),
-            IsUnfiltered(request.FinalizationFilter, request.PlayedAtFromInclusive, request.PlayedAtToExclusive, request.DisableLimit) ? source?.Rows ?? [] : [.. rows],
+            IsUnfiltered(request.FinalizationFilter, request.PlayedAtFromInclusive, request.PlayedAtToExclusive) ? source?.Rows ?? [] : [.. rows],
             source?.Diagnostics ?? [],
             source?.SchemaStatus ?? Lr2PlayHistorySchemaStatus.Unreadable,
             source?.SchemaCheckResult);
@@ -123,14 +116,9 @@ internal sealed class PlayHistoryReadCache
             rows = [];
         }
         rows = rows.Where(row => MatchesPeriod(row.played_at, request.PlayedAtFromInclusive, request.PlayedAtToExclusive));
-        int? limit = ResolveLimit(request.Limit, request.DisableLimit, BeatorajaPlayHistoryReader.DefaultReadLimit);
-        if (limit.HasValue)
-        {
-            rows = rows.Take(limit.Value);
-        }
         return new BeatorajaPlayHistoryReadResult(
             source?.SourceProfile ?? PlayHistorySourceProfile.Beatoraja(request?.ScoreLogDbPath),
-            IsUnfiltered(request.FinalizationFilter, request.PlayedAtFromInclusive, request.PlayedAtToExclusive, request.DisableLimit) ? source?.Rows ?? [] : [.. rows],
+            IsUnfiltered(request.FinalizationFilter, request.PlayedAtFromInclusive, request.PlayedAtToExclusive) ? source?.Rows ?? [] : [.. rows],
             source?.Diagnostics ?? [],
             source?.SchemaStatus ?? Lr2PlayHistorySchemaStatus.Unreadable,
             source?.PlayerSnapshots ?? [],
@@ -151,17 +139,6 @@ internal sealed class PlayHistoryReadCache
     {
         return (!fromInclusive.HasValue || playedAt >= fromInclusive.Value)
             && (!toExclusive.HasValue || playedAt < toExclusive.Value);
-    }
-
-    private static int? ResolveLimit(int? requestedLimit, bool disableLimit, int defaultLimit)
-    {
-        if (disableLimit)
-        {
-            return null;
-        }
-        return requestedLimit.HasValue && requestedLimit.Value > 0
-            ? requestedLimit.Value
-            : defaultLimit;
     }
 
     private static IReadOnlyList<long> BuildPeriodIndex(IEnumerable<long> playedAtUnixSeconds)
@@ -206,6 +183,7 @@ internal sealed class PlayHistoryReadCache
         };
     }
 
-    private static bool IsUnfiltered(Lr2PlayHistoryFinalizationFilter finalization, long? from, long? to, bool disableLimit)
-        => finalization == Lr2PlayHistoryFinalizationFilter.All && !from.HasValue && !to.HasValue && disableLimit;
+    /// <summary>期間・確定状態の絞込みがない要求はrawリストを共有します。</summary>
+    private static bool IsUnfiltered(Lr2PlayHistoryFinalizationFilter finalization, long? from, long? to)
+        => finalization == Lr2PlayHistoryFinalizationFilter.All && !from.HasValue && !to.HasValue;
 }

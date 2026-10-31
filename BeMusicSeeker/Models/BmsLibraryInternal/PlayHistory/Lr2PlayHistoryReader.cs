@@ -10,13 +10,13 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class Lr2PlayHistoryReader
 {
-    internal const int DefaultReadLimit = 5000;
-
+    /// <summary>LR2のハッシュ長32の単曲履歴を一覧・日付索引用に読み取り専用で全件取得します。件数上限は設けません。</summary>
     internal Lr2PlayHistoryReadResult Read(Lr2PlayHistoryReadRequest request)
     {
         return Read(request, CancellationToken.None);
     }
 
+    /// <summary>LR2のハッシュ長32の単曲履歴を一覧・日付索引用に読み取り専用で全件取得し、取消しを観測します。件数上限は設けません。</summary>
     internal Lr2PlayHistoryReadResult Read(Lr2PlayHistoryReadRequest request, CancellationToken cancellationToken)
     {
         request ??= new Lr2PlayHistoryReadRequest();
@@ -113,9 +113,10 @@ internal sealed class Lr2PlayHistoryReader
         return new(captured.SourceProfile, available && !captured.HasErrors ? captured.Rows : [], diagnostics, captured.SchemaStatus, captured.SchemaCheckResult);
     }
 
+    /// <summary>単曲のハッシュ長と期間・確定条件だけで絞り、対象行を件数制限なく時刻降順に読みます。</summary>
     private static string BuildReadSql(Lr2PlayHistoryReadRequest request, List<object> args)
     {
-        var where = new List<string>();
+        var where = new List<string> { "length(hash) = 32" };
         if (request.FinalizationFilter == Lr2PlayHistoryFinalizationFilter.FinalizedOnly)
         {
             where.Add("finalized = 1");
@@ -141,14 +142,6 @@ internal sealed class Lr2PlayHistoryReader
             sql += " WHERE " + string.Join(" AND ", where);
         }
         sql += " ORDER BY played_at DESC, history_id DESC";
-        int limit = request.Limit.HasValue && request.Limit.Value > 0
-            ? request.Limit.Value
-            : DefaultReadLimit;
-        if (!request.DisableLimit && limit > 0)
-        {
-            sql += " LIMIT ?";
-            args.Add(limit);
-        }
         sql += ";";
         return sql;
     }

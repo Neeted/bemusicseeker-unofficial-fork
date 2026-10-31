@@ -12,6 +12,8 @@
 
 ### 有効条件と場所
 
+空表名の外部データは保存可能ですが、BMT出力は警告や補名を行わずスキップします。表の名前なしフォルダはそのまま保持します。外部LR2表の既存配置条件は変更しません。`PlaylistWorkspaceExternalSourceTests.TryStartPlaylistImport_NewExternalTablePreservesFourDigitAddDateInDatabase` の空表名条件が実インポート・DB・項目保持と実出力要求終端での非生成・失敗通知なしを確認します。
+
 `EnableBeatorajaBmtOutput` が有効で、ルートに `config_sys.json` と `beatoraja.jar` または `beatoraja.exe` がある場合に出力します。出力先は `tablepath` から求め、相対ならbeatorajaルートを基準にします。派生値の `BeatorajaBmtTablePath` は画面から直接編集しません。スコアは確定ルートの `playerpath` と選択IDから独立して解決し、スコア操作からBMT出力先を解決・保存しません。
 
 対象は `is_bmt_output=true` の表です。全出力では対象外の管理ファイルとURLを除きます。これは、全体設定を無効にしたとき既存出力を残す `KeepBeatorajaBmtFilesWhenOutputDisabled` とは別です。
