@@ -21,6 +21,81 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class SelectedChartMutationWorkflowOwnerTests
 {
+    /// <summary>実LR2のroot削除と出力内file削除を同時に受理し、実親L/Pの保持から解放後の保留画面通知まで接続します。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void DeleteAsync_RootPendingPublicationWaitsForActualLibraryAndPlaylistRelease()
+    {
+        WithTemporarySongDb(songDbPath => TestUiDispatcherHost.Invoke(() =>
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException();
+            string removed = Directory.CreateDirectory(Path.Combine(root, "Removed")).FullName;
+            string retained = Directory.CreateDirectory(Path.Combine(root, "Retained")).FullName;
+            string managed = Directory.CreateDirectory(Path.Combine(root, "ManagedOutput")).FullName;
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config"));
+            settings.OperationModeLR2DB = true;
+            settings.LR2RootPath = Path.Combine(root, "LR2");
+            settings.LR2CustomFolderOutputBaseDir = managed;
+            settings.LR2ConfigXmlPath = BmsPlaylistTestSupport.CreateLr2Config(settings.LR2RootPath, removed, retained, managed).ConfigFilePath;
+            settings.BMSRootPath = removed;
+            settings.BMSInstallDir = retained;
+            settings.Save();
+            ChartFile[] charts = [CreateFile(new string('a', 32), Path.Combine(removed, "chart.bms")),
+                CreateFile(new string('b', 32), Path.Combine(managed, "managed.bms"))];
+            foreach (ChartFile chart in charts) { File.WriteAllText(chart.Path, "#TITLE Owned\n#BPM 120\n"); }
+            var playlist = new ChartFileOperationSynchronizer();
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new FileDbReportRecordingDialogs(),
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
+                playlistOperationAdmission: playlist, settings: settings)
+            { BmsCharts = [.. charts], BmsonCharts = [] };
+            new BmsLibraryDbGateway(songDbPath).UpsertSongs(charts);
+            using var observation = RootPendingPublicationObservation.Seed(library, songDbPath, retained, Path.Combine(root, "Unrelated"), playlist);
+            var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseStop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var presentation = new RecordingPresentation { BeforeStop = () => { stopped.TrySetResult(); return releaseStop.Task; } };
+            var dialogs = new FakeUiDialogService
+            {
+                ConfirmationHandler = request => Task.FromResult(UiDialogResult.FromMessageBoxResult(
+                    request.Button != MessageBoxButton.YesNoCancel ? MessageBoxResult.OK :
+                    request.MessageBoxText.Contains(managed, StringComparison.Ordinal) ? MessageBoxResult.No : MessageBoxResult.Yes))
+            };
+            var owner = new SelectedChartMutationWorkflowOwner(() => library, library.OperationAdmission,
+                new ChartMutationActivityOwner(), presentation, dialogs, dialogs, new BmsLibrarySelectedChartMutationStore());
+            ChartOperationTarget[] targets = charts.Select(chart => new ChartOperationTarget(chart, null,
+                ChartOperationSourceScope.Library, true, false, false, ChartOperationCapabilities.RemoveFromLibrary)).ToArray();
+            Task<SelectedChartMutationResult>? operation = null;
+            try
+            {
+                operation = owner.DeleteAsync(new SelectedChartDeleteRequest(targets, targets[0], MainViewOperationSection.Library));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(stopped.Task, operation, "root-delete-stop"), "root-delete-stop");
+                Assert.IsFalse(operation.IsCompleted);
+                Assert.IsTrue(library.OperationAdmission.IsActive);
+                Assert.IsTrue(playlist.IsActive);
+                Assert.AreEqual(0, observation.Count);
+                releaseStop.TrySetResult();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "root-delete-terminal");
+                SelectedChartMutationResult result = operation.GetAwaiter().GetResult();
+                Assert.AreEqual(2, result.RemovalOutcome.ConfirmedChartCount);
+                Assert.IsFalse(result.RemovalOutcome.HasError);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(observation.Received, operation, "root-delete-publication"), "root-delete-publication");
+                observation.AssertPublishedAfterParentRelease();
+                Assert.IsFalse(Directory.Exists(removed));
+                Assert.IsTrue(Directory.Exists(managed));
+                Assert.IsFalse(File.Exists(charts[1].Path));
+                CollectionAssert.AreEqual(new[] { retained }, new BmsRootRegistrationStore(settings, () => library.FixtureLr2Owner).CaptureUserRoots().ToArray());
+                Assert.AreEqual(0, library.BmsCharts.Count);
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                Assert.AreEqual(0, db.Table<LR2SongDB.song>().Count());
+            }
+            finally
+            {
+                releaseStop.TrySetResult();
+                try { if (operation != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "root-delete-cleanup"); } }
+                finally { library.RequestStop("root-delete-publication-test"); }
+            }
+        }));
+    }
+
     /// <summary>通常削除の実prepared入口で登録解除を確認し、Yes/No/保護を実FS・SQLite・設定へ接続します。保護だけなら停止も物理対象も持たず、catalog反映も未実施として報告します。</summary>
     [DataTestMethod]
     [DataRow("yes")]
@@ -2199,8 +2274,9 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         internal LibraryChartRemovalOutcome RemovalOutcome { get; set; } = null!;
 
-        public LibraryChartRemovalOutcome RemoveLibraryCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderDeletePaths)
+        public LibraryChartRemovalOutcome RemoveLibraryCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderDeletePaths, out Action? publication)
         {
+            publication = null;
             IReadOnlyList<LibraryChartRef> charts = prepared.Targets.Select(chart => LibraryChartRef.FromChartFile(chart)).ToArray();
             ThrowIfConfigured();
             LibraryDeleteCalls++;

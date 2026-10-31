@@ -1239,6 +1239,7 @@ public partial class BMSLibrary
 
     /// <summary>
     /// 指定されたBMSパッケージに対して、最適な導入先ディレクトリへの推論処理をキューイングします。
+    /// 既所持の混合警告は更新し、確定DSTを持つ対象群は宛先候補の再評価を省略します。
     /// （UIからのドラッグ＆ドロップ登録時などに呼び出されます）
     /// </summary>
     /// <param name="package">推定を行う chart package オブジェクト</param>
@@ -1269,6 +1270,8 @@ public partial class BMSLibrary
                         List<PackageChartEntry> alreadyInstalledEntries = partition.AlreadyInstalledEntries;
                         List<PackageChartEntry> targetEntries = partition.ManualEstimationEntries;
                         ApplyPackageMixedInstallWarningsToEntries(alreadyInstalledEntries);
+                        // 分類後の混合警告は更新し、確定済みDSTによる省略はhash照合・資源評価だけに適用します。
+                        if (HasConfirmedInstallDestination(targetEntries)) { return; }
 
                         foreach (PackageChartEntry entry in targetEntries)
                         {
@@ -1446,6 +1449,10 @@ public partial class BMSLibrary
         }
     }
 
+    /// <summary>既存の推定対象群に確定DSTが残る間は、hash照合・資源取得を含む宛先候補評価と適用を省略します。既所持分類・警告更新は別に行います。</summary>
+    private static bool HasConfirmedInstallDestination(IEnumerable<PackageChartEntry> targetEntries)
+        => targetEntries.Any(entry => !string.IsNullOrWhiteSpace(entry.Chart.InstallDestination));
+
     private void ProcessManualPackageEstimateBatch(IReadOnlyList<ChartPackage> packageList, InstallEstimationCandidatePolicy candidatePolicy, BmsLibraryOptionsSnapshot optionsSnapshot)
     {
         if (packageList == null || packageList.Count == 0)
@@ -1495,6 +1502,7 @@ public partial class BMSLibrary
                 ClearDeferredEstimateReasonForEntriesUnsafe([chartEntry]);
             }
         }
+        if (!fixMode && !string.IsNullOrWhiteSpace(chartEntry.Chart.InstallDestination)) { return; }
         bool resolvedInstalledDirectory = false;
         if (!fixMode && chartEntry.Chart.Kind == ChartFileKind.Bmson)
         {
@@ -3254,6 +3262,14 @@ public partial class BMSLibrary
         {
             ExceptionDispatchInfo.Capture(primaryFailure).Throw();
         }
+    }
+
+    /// <summary>受理済み設定操作で確定後の実走査rootへ保留一覧を揃え、実ファイルは維持します。</summary>
+    internal void ReevaluatePendingPackagesForSearchRoots(LibraryFileMutationCapability capability, out Action publication)
+    {
+        List<Action> notifications = [];
+        publication = () => FlushPostLeaseEffects(notifications, []);
+        libraryMutationOwner.ReevaluatePendingPackagesForSearchRoots(capability, notifications);
     }
 
     private Action RemovePendingPackagesFromPendingListAndInstallRows(

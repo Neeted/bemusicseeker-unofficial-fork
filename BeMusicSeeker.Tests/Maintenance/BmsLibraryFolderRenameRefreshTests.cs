@@ -24,6 +24,44 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryFolderRenameRefreshTests
 {
+    /// <summary>所持再導入の消失DSTは元譜面・保存行・現在値を保ち、旧先を再作成せず案内し、再選択した既存先へ成功します。BMS/BMSONの成功時保存差分は既存ケースへ分担します。</summary>
+    [TestMethod]
+    public void FixInstallationDirectoryCharts_MissingDestinationRetainsOwnedChartAndAllowsReselection()
+    {
+        WithTemporarySongDb(database =>
+        {
+            string root = Path.GetDirectoryName(database) ?? throw new InvalidOperationException();
+            string sourceDirectory = Directory.CreateDirectory(Path.Combine(root, "Source")).FullName;
+            string destination = Directory.CreateDirectory(Path.Combine(root, "Destination")).FullName;
+            string source = Path.Combine(sourceDirectory, "chart.bms");
+            File.WriteAllText(source, "#PLAYER 1\n#TITLE Owned\n#BPM 120\n");
+            byte[] bytes = File.ReadAllBytes(source);
+            ChartFile chart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(source)) with { Token = new OwnedChartToken() };
+            using (var db = new LR2SongDBExtended(database)) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song)); }
+            var dialogs = new RecordingDialogService();
+            var library = new TestBmsLibrary(database, null, null, new TestFileMutationService(), dialogs) { BmsCharts = [chart], BmsonCharts = [] };
+            ChartFile target = ChartFileProjection.WithPackageState(chart, destination, string.Empty, string.Empty, []);
+            Directory.Move(destination, destination + "-renamed");
+            try
+            {
+                LibraryFixInstallationResult refused = library.FixInstallationDirectoryCharts([target]);
+                Assert.IsFalse(refused.SessionReceipt.DurableCommit);
+                Assert.AreEqual(source, CurrentOwnedChart(library, chart).Path);
+                Assert.IsFalse(Directory.Exists(destination)); CollectionAssert.AreEqual(bytes, File.ReadAllBytes(source));
+                Assert.IsInstanceOfType<DirectoryNotFoundException>(refused.Failure);
+                StringAssert.Contains(refused.Failure.Message, Resources.Error_InstallDestinationMissing);
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(database).OpenSongDbReadOnly())
+                { Assert.AreEqual(source, db.Table<LR2SongDB.song>().Single().path); }
+                target = ChartFileProjection.WithPackageState(CurrentOwnedChart(library, chart), destination + "-renamed", string.Empty, string.Empty, []);
+                LibraryFixInstallationResult accepted = library.FixInstallationDirectoryCharts([target]);
+                Assert.IsTrue(accepted.SessionReceipt.DurableCommit, accepted.SessionReceipt.PrimaryFailure?.ToString());
+                Assert.AreEqual(Path.Combine(destination + "-renamed", "chart.bms"), CurrentOwnedChart(library, chart).Path);
+                CollectionAssert.AreEqual(bytes, File.ReadAllBytes(CurrentOwnedChart(library, chart).Path));
+            }
+            finally { library.RequestShutdown("missing-owned-destination-test"); }
+        });
+    }
+
     /// <summary>空の登録子を持つ祖先を改名から除外してから集約し、順序によらず独立選択した通常子と同prefix兄弟を残します。</summary>
     [TestMethod]
     public void PrepareRename_ProtectsRegisteredAncestorsBeforeAggregation()

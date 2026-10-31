@@ -1,4 +1,5 @@
 {
+  "Error_InstallDestinationMissing": "目标文件夹已不存在。请重新选择 INSTL DST。",
   "Error_OutputFolderNameMustBeSingleName": "请输入不含路径的单个输出文件夹名称。",
   "DialogButtonOk": "确定",
   "DialogButtonYes": "是",

@@ -2759,6 +2759,7 @@ public partial class BMSLibrary : ObservableObject
             rwlockBMSFilesInitializedMin,
             rwlockPendingInstallCharts,
             rwlockBMSFiles,
+            rwlockSongDBInstall,
             new CatalogFileOperationMutationBoundary(catalogFileMutationAdmissionOwner));
         libraryMutationOwner = new(
             libraryFileOperationSynchronization,
@@ -3575,6 +3576,10 @@ public partial class BMSLibrary : ObservableObject
         {
             return result;
         }
+        if (HasConfirmedInstallDestination(request.TargetEntries))
+        {
+            return result;
+        }
         foreach (PackageChartEntry entry in request.TargetEntries)
         {
             entry.AcquireResources();
@@ -3755,7 +3760,7 @@ public partial class BMSLibrary : ObservableObject
         {
             return false;
         }
-        if (currentTargetEntries.Any(entry => !string.IsNullOrWhiteSpace(entry.Chart.InstallDestination)))
+        if (HasConfirmedInstallDestination(currentTargetEntries))
         {
             return false;
         }
@@ -9897,10 +9902,27 @@ public partial class BMSLibrary : ObservableObject
     internal LibraryChartRemovalPreflight PrepareLibraryChartRemoval(IEnumerable<LibraryChartRef> charts)
         => libraryMutationOwner.PrepareLibraryChartRemoval(charts);
 
-    /// <summary>確認前に固定した同じ要求を、本受付後の鮮度検査と削除へ渡します。</summary>
+    /// <summary>確認前に固定した同じ要求を自己受付で削除し、自己所有L/Pの解放後に今回root保留通知を公開します。</summary>
     internal LibraryChartRemovalOutcome RemoveLibraryCharts(LibraryChartRemovalPreflight prepared,
-        bool sendToRecycleBin, IEnumerable<string> approvedWholeFolderDeletePaths, LibraryFileMutationCapability capability = null)
-        => libraryMutationOwner.RemoveLibraryCharts(prepared, sendToRecycleBin, approvedWholeFolderDeletePaths, capability);
+        bool sendToRecycleBin, IEnumerable<string> approvedWholeFolderDeletePaths)
+    {
+        Action publication = null;
+        try { return libraryMutationOwner.RemoveLibraryCharts(prepared, sendToRecycleBin, approvedWholeFolderDeletePaths, null, out publication); }
+        finally { publication?.Invoke(); }
+    }
+
+    /// <summary>実親受付を借用して削除し、今回root再評価の純保留通知だけを親終端へ返します。例外時も捕捉済み通知を親が回収します。</summary>
+    /// <param name="prepared">確認前に固定した削除要求。</param>
+    /// <param name="sendToRecycleBin">ごみ箱へ送る場合はtrue。</param>
+    /// <param name="approvedWholeFolderDeletePaths">承認済みのwhole削除scope。</param>
+    /// <param name="capability">解放まで親が所有する生存権限。</param>
+    /// <param name="publication">親L/P解放後に実行する今回の純通知。scope・guard・DB更新を保持しません。</param>
+    internal LibraryChartRemovalOutcome RemoveLibraryCharts(LibraryChartRemovalPreflight prepared,
+        bool sendToRecycleBin, IEnumerable<string> approvedWholeFolderDeletePaths, LibraryFileMutationCapability capability, out Action publication)
+    {
+        ArgumentNullException.ThrowIfNull(capability);
+        return libraryMutationOwner.RemoveLibraryCharts(prepared, sendToRecycleBin, approvedWholeFolderDeletePaths, capability, out publication);
+    }
 
     /// <summary>拡張子変更の確認前に生存tokenの現在値と安全属性を固定します。</summary>
     internal LibraryFileExtensionRenameBatch PrepareLibraryFileExtensionRenameBatch(IEnumerable<ChartFile> charts, string newExtension)

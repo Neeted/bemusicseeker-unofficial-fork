@@ -22,6 +22,77 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class DuplicateMaintenanceWorkflowOwnerTests
 {
+    /// <summary>実在親folderのHash整理で登録子rootだけを削除し、cleanup中の親L保持と解放後の実保留通知を確認します。Pは取得しません。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void RunHashCleanupAsync_RootPendingPublicationWaitsForActualLibraryRelease()
+    {
+        WithTemporarySongDb(songDbPath => TestUiDispatcherHost.Invoke(() =>
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException();
+            string parent = Directory.CreateDirectory(Path.Combine(root, "Parent")).FullName;
+            string child = Directory.CreateDirectory(Path.Combine(parent, "Child")).FullName;
+            Settings settings = TestBmsFactory.CreateRootSettings([parent, child]);
+            settings.BMSInstallDir = parent;
+            ChartFile keeper = CreateFile(new string('a', 32), Path.Combine(parent, "a.bms"));
+            ChartFile duplicate = CreateFile(new string('a', 32), Path.Combine(child, "long-duplicate.bms"));
+            foreach (ChartFile chart in new[] { keeper, duplicate }) { File.WriteAllText(chart.Path, "#TITLE Duplicate\n#BPM 120\n"); }
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new FileDbReportRecordingDialogs(),
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => BmsLibraryOptionsSnapshot.CreateCurrent(settings), settings: settings)
+            { BmsCharts = [keeper, duplicate], BmsonCharts = [] };
+            new BmsLibraryDbGateway(songDbPath).UpsertSongs([keeper, duplicate]);
+            using var observation = RootPendingPublicationObservation.Seed(library, songDbPath, parent, Path.Combine(root, "Unrelated"));
+            var dialogs = new FakeUiDialogService
+            {
+                ConfirmationHandler = request => Task.FromResult(UiDialogResult.FromMessageBoxResult(
+                    request.Button == MessageBoxButton.YesNoCancel ? MessageBoxResult.Yes : MessageBoxResult.OK))
+            };
+            var activity = new ChartMutationActivityOwner();
+            var owner = new DuplicateMaintenanceWorkflowOwner(() => library, library.OperationAdmission, activity,
+                new RecordingPresentation([]), dialogs, () => true, Directory.Exists, _ => new ExplorerOpenResult(),
+                _ => null, new BmsLibraryDuplicateMaintenanceStore());
+            var cleanupReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var releaseCleanup = new ManualResetEventSlim();
+            void HoldActualCleanup(object? sender, EventArgs args)
+            {
+                if (!activity.IsActive) { cleanupReached.TrySetResult(); releaseCleanup.Wait(); }
+            }
+            activity.ActivityChanged += HoldActualCleanup;
+            Task<DuplicateMaintenanceMutationResult>? operation = null;
+            try
+            {
+                operation = owner.RunHashCleanupAsync(new DuplicateGroup([keeper, duplicate], [parent, child]), parent);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(cleanupReached.Task, operation, "root-hash-cleanup"), "root-hash-cleanup");
+                Assert.IsFalse(operation.IsCompleted);
+                Assert.IsTrue(library.OperationAdmission.IsActive);
+                Assert.AreEqual(0, observation.Count);
+                releaseCleanup.Set();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "root-hash-terminal");
+                DuplicateMaintenanceMutationResult result = operation.GetAwaiter().GetResult();
+                Assert.IsTrue(result.Succeeded, result.Failure?.ToString());
+                Assert.AreEqual(1, result.RemovedChartCount);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(observation.Received, operation, "root-hash-publication"), "root-hash-publication");
+                observation.AssertPublishedAfterParentRelease();
+                Assert.IsFalse(Directory.Exists(child));
+                Assert.IsTrue(File.Exists(keeper.Path));
+                CollectionAssert.AreEqual(new[] { parent }, new BmsRootRegistrationStore(settings, () => null).CaptureUserRoots().ToArray());
+                Assert.AreEqual(keeper.Path, library.BmsCharts.Single().Path);
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                Assert.AreEqual(keeper.Path, db.Table<LR2SongDB.song>().Single().path);
+            }
+            finally
+            {
+                releaseCleanup.Set();
+                try { if (operation != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "root-hash-recovery"); } }
+                finally
+                {
+                    activity.ActivityChanged -= HoldActualCleanup;
+                    library.RequestStop("root-hash-publication-test");
+                }
+            }
+        }));
+    }
+
     /// <summary>空の登録子を含む統合元の拒否を本番storeへ通し、停止後も実体とDBを保ち、終端後の通常統合を新規に受け付けます。</summary>
     /// <remarks>判断・物理処理・SQLiteは実装を使い、再生・確認・表示だけを既存portで記録します。</remarks>
     [TestMethod]
@@ -1422,12 +1493,13 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             observations.PrepareCount++;
             return observations.Prepared = inner.PrepareChartRemoval(library, charts);
         }
-        public LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths)
+        public LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths, out Action? publication)
         {
+            publication = null;
             observations.ExecuteCount++;
             Assert.AreSame(observations.Prepared, prepared);
             observations.ApprovedPaths = approvedWholeFolderPaths;
-            return inner.RemoveCharts(library, prepared, approvedWholeFolderPaths);
+            return inner.RemoveCharts(library, prepared, approvedWholeFolderPaths, out publication);
         }
         public DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(BMSLibrary library, string sourceDirectory, string destinationDirectory, long operationId)
             => inner.MergeFolderWithReceipt(library, sourceDirectory, destinationDirectory, operationId);
@@ -1474,8 +1546,9 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         public LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary library, IReadOnlyList<ChartFile> charts)
             => new(charts, WholeFolderCandidates, [], charts.Count, 0, registeredUserRoots: RegisteredUserRoots);
 
-        public LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths)
+        public LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths, out Action? publication)
         {
+            publication = null;
             IReadOnlyList<ChartFile> charts = prepared.Targets;
             events.Add("store-remove");
             ApprovedPaths = approvedWholeFolderPaths;

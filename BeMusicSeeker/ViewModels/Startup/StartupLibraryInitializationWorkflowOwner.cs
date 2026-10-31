@@ -124,64 +124,17 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
         return BeMusicSeeker.Properties.Resources.AppSchemaRepairWarningMessage;
     }
 
-    /// <summary>
-    /// 起動前修復の承認を確認し、承認済みの場合だけ修復処理を開始します。
-    /// 警告が不要な修復は確認を挟まず開始し、警告を承認した事実はこの起動セッションで共有します。
-    /// </summary>
-    /// <param name="preflightResult">修復前のスキーマ検査結果。</param>
-    /// <param name="approvedForSession">この起動セッションで警告を承認済みかどうか。</param>
-    /// <param name="confirmWarning">警告が必要なときに確認を表示する処理。</param>
-    /// <param name="startStartupRepair">承認後に修復処理を開始する処理。</param>
-    /// <param name="shutdown">確認を取り消したときに終了を要求する処理。</param>
-    /// <returns>修復を開始して起動を続ける場合は true。</returns>
-    internal static bool TryStartAppSchemaRepairForStartup(
-        AppSchemaPreflightResult preflightResult,
-        ref bool approvedForSession,
-        Func<string, bool?> confirmWarning,
-        Action startStartupRepair,
-        Action shutdown)
-    {
-        if (preflightResult == null)
-        {
-            throw new ArgumentNullException(nameof(preflightResult));
-        }
-        if (startStartupRepair == null)
-        {
-            throw new ArgumentNullException(nameof(startStartupRepair));
-        }
-        if (shutdown == null)
-        {
-            throw new ArgumentNullException(nameof(shutdown));
-        }
-        if (preflightResult.WarnRequired && !approvedForSession)
-        {
-            if (confirmWarning == null)
-            {
-                throw new ArgumentNullException(nameof(confirmWarning));
-            }
-            if (confirmWarning(BuildAppSchemaRepairWarningMessage(preflightResult)) != true)
-            {
-                shutdown();
-                return false;
-            }
-            approvedForSession = true;
-        }
-        startStartupRepair();
-        return true;
-    }
-
     private bool schemaRepairApprovedForSession;
 
-    /// <summary>親受付前にschemaの検査と既存の確認を終え、承認済み検査結果を局所で返します。終了中は新規確認を開始しません。</summary>
-    internal async Task<AppSchemaPreflightResult> PrepareSchemaAsync(StartupSettingsSnapshot settings, IUiDialogService dialogs,
-        Func<bool> isShutdownRequested, Action shutdown)
+    /// <summary>親受付前にschemaの検査と既存の確認を終えます。取消は修復せず終了要求として返し、呼出元が受付解放後の既存Closeへ渡します。終了中は新規確認を開始しません。</summary>
+    internal async Task<(AppSchemaPreflightResult Approval, bool ExitRequested)> PrepareSchemaAsync(StartupSettingsSnapshot settings, IUiDialogService dialogs,
+        Func<bool> isShutdownRequested)
     {
         void CheckShutdown() { if (isShutdownRequested()) { throw new OperationCanceledException(); } }
         CheckShutdown();
         var service = new AppSchemaPreflightService();
         AppSchemaPreflightResult preflight = await Task.Run(() => service.Inspect(settings.LR2SongDBPath)).ConfigureAwait(false);
         CheckShutdown();
-        bool approved = true;
         if (preflight.WarnRequired && !schemaRepairApprovedForSession)
         {
             CheckShutdown();
@@ -190,11 +143,10 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
             if (confirmation?.Status == UiDialogStatus.AppClosing && isShutdownRequested()) { throw new OperationCanceledException(); }
             UiDialogRoute.ThrowIfNotShown(confirmation, "App schema repair startup confirmation");
             CheckShutdown();
-            approved = confirmation.IsAccepted;
+            if (!confirmation.IsAccepted) { return (null, true); }
+            schemaRepairApprovedForSession = true;
         }
-        bool proceed = TryStartAppSchemaRepairForStartup(preflight, ref schemaRepairApprovedForSession, _ => approved,
-            () => { }, shutdown);
-        return proceed ? preflight : null;
+        return (preflight, false);
     }
 
     /// <summary>親L/P取得後に再検査し、受付前に承認した修復範囲でDB準備を終えます。新たに警告が必要な変更は受付外で再判断するため失敗させます。</summary>

@@ -1646,6 +1646,12 @@ internal sealed partial class BmsLibraryPackageInstallService
                     exception);
             }
 
+            if (!isAutoNaming && !LongPathFileSystem.DirectoryExists(destinationDirectory))
+            {
+                isPreflightRefusal = true;
+                throw new DirectoryNotFoundException(Resources.Error_InstallDestinationMissing + Environment.NewLine + destinationDirectory);
+            }
+
             if (onMutationScopePrepared != null && !onMutationScopePrepared(sourcePath, destinationDirectory))
             {
                 isPreflightRefusal = true;

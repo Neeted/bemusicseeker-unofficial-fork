@@ -50,6 +50,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
             ChartFile added = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourcePath));
             Assert.AreNotEqual(a.Md5, added.Md5);
             string destination = Path.Combine(installedRoot, "Z");
+            Directory.CreateDirectory(destination);
             ChartPackage package = ChartPackageTestExtensions.CreatePackage(
                 ChartPackageTestExtensions.CreateEntryWithInstallDestination(added, destination));
             package.path = pending;

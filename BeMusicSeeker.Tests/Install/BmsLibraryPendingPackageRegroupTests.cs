@@ -17,6 +17,99 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryPendingPackageRegroupTests
 {
+    /// <summary>単一・一括の実再推定でhash候補が異なる場合と解決不能の場合の確定DSTを守り、混合既所持警告だけは更新します。資源未取得の対象元を排他openし不要な再読取りを検出、要求外entryを保持し、解放・全クリア後だけ再推定します。hash/資源枝前のskip制御は静的確認、候補条件表は既存推定テストへ分担します。</summary>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public void SearchEstimatedInstallationDirectory_PreservesExplicitDestinationUntilAllCleared(bool batch, bool unresolved)
+    {
+        WithTemporaryLibrary((root, database, library) =>
+        {
+            string knownDirectory = Path.Combine(root, "HashKnown");
+            string manualDirectory = Path.Combine(root, "Manual");
+            ChartFile known = ReadChart(CreateBmsFile(knownDirectory, "known.bms", "Known"));
+            ChartFile manual = ReadChart(CreateBmsFile(manualDirectory, "manual.bms", "Manual"));
+            library.BmsCharts = [known, manual];
+            SetLibraryResourceIndex(library, BuildDirectoryLookupCache(knownDirectory, manualDirectory));
+            ChartPackage[] packages = Enumerable.Range(0, 2).Select(index =>
+            {
+                string source = Path.Combine(root, "Pending" + index);
+                string knownSource = CreateBmsFile(unresolved ? Path.Combine(source, "Sub") : source, "known.bms", "Known");
+                var missing = PackageChartEntry.FromChart(ReadChart(CreateBmsFile(source, "new.bms", "New" + index)));
+                var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ReadChart(knownSource)), missing]);
+                package.path = source;
+                return package;
+            }).ToArray();
+            string unrelatedSource = Path.Combine(root, "Unrequested");
+            var unrelatedEntry = PackageChartEntry.FromChart(ReadChart(CreateBmsFile(unrelatedSource, "known.bms", "Known")));
+            var unrelatedPackage = ChartPackage.FromChartEntries([unrelatedEntry]);
+            unrelatedPackage.path = unrelatedSource;
+            SeedPendingPackages(library, database, packages.Append(unrelatedPackage).ToArray());
+            foreach (ChartPackage package in packages)
+            {
+                Assert.IsTrue(library.SetPendingInstallDestination(package.ChartEntries[1], manualDirectory, false));
+                Assert.AreEqual(known.Md5, package.ChartEntries[0].Chart.Md5);
+                Assert.IsFalse(package.ChartEntries[0].Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled),
+                    "新parseの既所持hash entryは、再推定前にはまだ既所持警告を持ちません。");
+            }
+            Assert.AreEqual(known.Md5, unrelatedEntry.Chart.Md5);
+            Assert.IsFalse(unrelatedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
+            string unrelatedDestinationBefore = unrelatedEntry.Chart.InstallDestination;
+            (ChartWarningKind Kind, string Message)[] unrelatedWarningsBefore = unrelatedEntry.Chart.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray();
+            var sourceHandles = new List<FileStream>();
+            try
+            {
+                foreach (ChartPackage package in packages)
+                {
+                    PackageChartEntry target = package.ChartEntries[1];
+                    target.ApplyCurrentChart(target.Chart with { Resources = null });
+                    Assert.IsNull(target.Chart.Resources, "資源参照を解放した正常な未取得状態から再推定します。");
+                    sourceHandles.Add(File.Open(target.Chart.Path, FileMode.Open, FileAccess.Read, FileShare.None));
+                }
+                if (batch) { library.SearchEstimatedInstallationDirectory(packages); }
+                else { foreach (ChartPackage package in packages) { library.SearchEstimatedInstallationDirectory(package); } }
+            }
+            finally
+            {
+                foreach (FileStream handle in sourceHandles) { handle.Dispose(); }
+            }
+            foreach (ChartPackage package in packages)
+            {
+                Assert.AreEqual(manualDirectory, package.ChartEntries[1].Chart.InstallDestination);
+                Assert.IsTrue(package.ChartEntries[0].Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled),
+                    "確定DSTの全clear前でも、実再推定で既所持分類の警告を更新します。");
+                Assert.IsFalse(package.ChartEntries[1].Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled),
+                    "未所持entryへ既所持警告を付けません。");
+            }
+            AssertUnrequestedEntryUnchanged();
+            foreach (ChartPackage package in packages)
+            {
+                library.RemoveInstallDestination(package.ChartEntries, package);
+                Assert.IsTrue(package.ChartEntries.All(entry => string.IsNullOrWhiteSpace(entry.Chart.InstallDestination)));
+            }
+            if (batch) { library.SearchEstimatedInstallationDirectory(packages); }
+            else { foreach (ChartPackage package in packages) { library.SearchEstimatedInstallationDirectory(package); } }
+            foreach (ChartPackage package in packages)
+            {
+                Assert.AreNotEqual(manualDirectory, package.ChartEntries[1].Chart.InstallDestination);
+                Assert.IsTrue(unresolved
+                    ? package.DeferredEstimateReason == PendingEstimateDeferredReason.InstalledDestinationResolveFailed
+                    : package.ChartEntries[1].Chart.InstallDestinationSuggestions.Contains(knownDirectory));
+            }
+            AssertUnrequestedEntryUnchanged();
+
+            void AssertUnrequestedEntryUnchanged()
+            {
+                Assert.AreEqual(unrelatedDestinationBefore, unrelatedEntry.Chart.InstallDestination);
+                CollectionAssert.AreEqual(unrelatedWarningsBefore,
+                    unrelatedEntry.Chart.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray(),
+                    "要求外の新parse既所持hash entryは警告もDSTも更新しません。");
+            }
+        });
+    }
+
     /// <summary>同pathの所持/保留要求を分離し、所持は一譜面だけ、保留は全項目へ適用します。実推定の保留理由は所持編集で維持し、保留編集だけで解除します。親参照診断・失効保留拒否・新所持要求を保ちます。</summary>
     [DataTestMethod]
     [DataRow(false)]

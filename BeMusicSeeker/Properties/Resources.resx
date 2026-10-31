@@ -4102,4 +4102,5 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Validation_Lr2BuiltinCustomFolderReservedFormat" xml:space="preserve"><value>{0}には、LR2組込みカスタムフォルダの予約領域を指定できません。
 指定先: {1}
 組込みフォルダ: {2}</value></data>
+  <data name="Error_InstallDestinationMissing" xml:space="preserve"><value>導入先フォルダーが見つかりません。INSTL DSTを選び直してください。</value></data>
 </root>

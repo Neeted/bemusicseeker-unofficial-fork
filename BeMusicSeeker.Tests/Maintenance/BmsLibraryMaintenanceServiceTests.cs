@@ -538,17 +538,20 @@ public sealed class BmsLibraryMaintenanceServiceTests
     /// <summary>
     /// 資源不足を無視済みの譜面を強制保守すると無視を解除して変更ありを返し、明示再評価で古い無視が残る誤りを検出する。
     /// </summary>
-    [TestMethod]
-    public void EvaluateMaintenanceForInline_ForceUpdateReportsChangedWhenIgnoredFlagIsReset()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void EvaluateMaintenanceForInline_ForceUpdateReportsChangedWhenIgnoredFlagIsReset(bool bmson)
     {
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
-        string chartPath = Path.Combine(tempDirectoryPath, "chart.bms");
+        string chartPath = Path.Combine(tempDirectoryPath, bmson ? "chart.bmson" : "chart.bms");
         try
         {
-            File.WriteAllText(chartPath, "#TITLE test\r\n#WAV01 missing.wav\r\n#00101:01\r\n", Encoding.ASCII);
+            File.WriteAllText(chartPath, bmson ? "{\"version\":\"1.0.0\",\"info\":{\"title\":\"test\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[{\"name\":\"missing.wav\",\"notes\":[{\"x\":1,\"y\":0,\"l\":0}]}]}"
+                : "#TITLE test\r\n#WAV01 missing.wav\r\n#00101:01\r\n", Encoding.UTF8);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            ChartFile file = BmsChartFileParser.ParseSnapshot(snapshot);
+            ChartFile file = bmson ? BmsonChartFileParser.ParseSnapshot(snapshot) : BmsChartFileParser.ParseSnapshot(snapshot);
             file = BmsLibraryMaintenanceService.EvaluateMaintenanceForInline(file, snapshot, lookupContext: null, forceUpdate: true).CurrentChart;
             file = ChartFileProjection.WithMaintenance(file, file.ResourceHealthMaintenanceSnapshot with { FilesWarningIgnored = true });
 

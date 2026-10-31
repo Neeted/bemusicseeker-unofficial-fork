@@ -1,4 +1,5 @@
 {
+  "Error_InstallDestinationMissing": "目標資料夾已不存在。請重新選擇 INSTL DST。",
   "Error_OutputFolderNameMustBeSingleName": "請輸入不含路徑的單一輸出資料夾名稱。",
   "DialogButtonOk": "確定",
   "DialogButtonYes": "是",

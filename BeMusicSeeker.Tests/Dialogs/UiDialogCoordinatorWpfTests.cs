@@ -282,8 +282,13 @@ public sealed class UiDialogCoordinatorWpfTests
     [DataRow("cancel")]
     [DataRow("close")]
     [DataRow("escape")]
+    [DataRow("schema-cancel")]
+    [DataRow("schema-close")]
+    [DataRow("schema-escape")]
     public void WholeFolderConfirmation_RealMessageProducesDistinctNoCancelAndClose(string operationKind)
     {
+        bool schema = operationKind.StartsWith("schema-", StringComparison.Ordinal);
+        operationKind = schema ? operationKind.Substring(7) : operationKind;
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             Window owner = CreateTestWindow("whole-folder-owner");
@@ -311,16 +316,16 @@ public sealed class UiDialogCoordinatorWpfTests
                         {
                             Assert.AreSame(owner, window.Owner);
                             Button[] buttons = EnumerateButtons(window).ToArray();
-                            Button yes = buttons.Single(button => AutomationProperties.GetAutomationId(button) == "ThemedMessageBoxYes");
-                            Button no = buttons.Single(button => AutomationProperties.GetAutomationId(button) == "ThemedMessageBoxNo");
+                            Button yes = buttons.Single(button => AutomationProperties.GetAutomationId(button) == (schema ? "ThemedMessageBoxOK" : "ThemedMessageBoxYes"));
+                            Button? no = buttons.SingleOrDefault(button => AutomationProperties.GetAutomationId(button) == "ThemedMessageBoxNo");
                             Button cancel = buttons.Single(button => AutomationProperties.GetAutomationId(button) == "ThemedMessageBoxCancel");
-                            Assert.IsTrue(yes.IsDefault);
-                            Assert.IsFalse(no.IsCancel);
+                            Assert.AreEqual(!schema, yes.IsDefault);
+                            if (no != null) { Assert.IsFalse(no.IsCancel); }
                             Assert.IsTrue(cancel.IsCancel);
                             cancel.Click += (_, _) => cancelClicks++;
                             switch (operationKind)
                             {
-                                case "no": no.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); break;
+                                case "no": (no ?? throw new AssertFailedException()).RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); break;
                                 case "cancel": cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); break;
                                 case "close": window.Close(); break;
                                 case "escape":
@@ -350,8 +355,8 @@ public sealed class UiDialogCoordinatorWpfTests
                 return UiDialogOwnerResolver.PushActiveModal(window);
             });
             Task<UiDialogResult> operation = Task.Run(() => coordinator.ConfirmAsync(new UiConfirmationRequest(
-                "Delete this whole folder?", "Confirm", MessageBoxButton.YesNoCancel, MessageBoxImage.Question,
-                MessageBoxResult.Yes, owner: owner)));
+                "Delete this whole folder?", "Confirm", schema ? MessageBoxButton.OKCancel : MessageBoxButton.YesNoCancel, MessageBoxImage.Question,
+                schema ? MessageBoxResult.Cancel : MessageBoxResult.Yes, owner: owner)));
             Exception? primaryFailure = null;
             try
             {
@@ -363,7 +368,7 @@ public sealed class UiDialogCoordinatorWpfTests
                 UiDialogResult result = operation.GetAwaiter().GetResult();
                 Assert.AreEqual(operationKind == "no" ? UiDialogStatus.Rejected : operationKind == "close"
                     ? UiDialogStatus.ClosedByUser : UiDialogStatus.CancelledByUser, result.Status);
-                Assert.AreEqual(operationKind == "no" ? MessageBoxResult.No : operationKind == "close"
+                Assert.AreEqual(operationKind == "no" ? MessageBoxResult.No : operationKind == "close" && !schema
                     ? MessageBoxResult.Yes : MessageBoxResult.Cancel, result.MessageBoxResult);
                 Assert.AreEqual(operationKind is "cancel" or "escape" ? 1 : 0, cancelClicks);
                 Assert.IsNull(result.Exception);

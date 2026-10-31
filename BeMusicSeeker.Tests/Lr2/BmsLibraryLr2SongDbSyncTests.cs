@@ -512,6 +512,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.WriteAllText(sourceChartPath, "#TITLE Added\r\n#00111:01\r\n", Encoding.ASCII);
             ChartFile sourceFile = CreateSyncTestFile(sourceChartPath, ChartFileContentReader.ReadSnapshot(sourceChartPath));
             string destinationDirectory = Path.Combine(rootDirectory, "Pack", "Song");
+            Directory.CreateDirectory(destinationDirectory);
             string destinationChartPath = Path.Combine(destinationDirectory, "chart.bms");
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
@@ -1069,6 +1070,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.WriteAllText(sourceChartPath, "#TITLE Catalog failure\r\n#00111:01\r\n", Encoding.ASCII);
             ChartFile sourceFile = CreateSyncTestFile(sourceChartPath, ChartFileContentReader.ReadSnapshot(sourceChartPath));
             string destinationDirectory = Path.Combine(rootDirectory, "Pack", "Song");
+            Directory.CreateDirectory(destinationDirectory);
             string destinationChartPath = Path.Combine(destinationDirectory, "fixture.bms");
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {

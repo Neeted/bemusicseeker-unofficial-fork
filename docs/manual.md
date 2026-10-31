@@ -558,7 +558,7 @@ Right-clicking a chart row or playlist row opens operations for the selected row
 
 - `Chart properties`: Check the [resource details](#checking-chart-properties) in a read-only window.
 - `Fix character encoding`: Specifies the character encoding from options such as Japanese Shift_JIS, UTF-8, Korean KS_C_5601, Simplified Chinese GB2312, and Traditional Chinese Big5. Resource names in the chart are read again using the same encoding, and chart health is updated. `Mark as fixed` treats the current estimated result as confirmed.
-- `File scan`: Re-scans the selected chart and resets chart health information that can be checked in places such as the full resource scan screen. `Rescan all charts` targets all charts in the library. `Add to ignore list` / `Remove from ignore list` are settings used to exclude or include charts in displays such as the full resource scan.
+- `File scan`: Re-scans the selected chart and resets chart health information that can be checked in places such as the full resource scan screen. `Rescan all charts` targets all charts in the library. `Add to ignore list` / `Remove from ignore list` are settings used to exclude or include charts in displays such as the full resource scan. Saving the same chart content again preserves the ignore choice. A content change or an explicit forced scan clears it.
 
 #### Installation and Destination Correction
 
@@ -1131,6 +1131,10 @@ When the bundled files alone verifiably cover at least 90% of the used audio, ca
 Automatic confirmation of `INSTL DST` requires a strong TITLE / ARTIST match and each chart’s used-audio coverage from the package and candidate together to meet the configured threshold (100% by default). If audio is missing, you can still inspect and select a candidate manually. Missing images or videos alone do not prevent automatic confirmation. Enabling automatic selection among multiple candidates keeps the same audio requirement.
 
 With automatic installation during import enabled, packages whose destinations were determined by that import’s automatic estimation are installed after estimation completes successfully. Manually started estimation only sets destinations. If charts from the same source folder are grouped into one package and any unowned chart was not automatically assigned a destination by this import, the entire package remains pending.
+
+An explicit `INSTL DST` selects an existing folder. If that folder is renamed or deleted before installation, the chart stays at its source; select the destination again. Re-estimation preserves a package’s confirmed destinations. Clear all destinations first to estimate the package again.
+
+Confirming search roots removes pending inputs beneath those roots from Pending so they do not overlap with owned charts. Their source files remain in place.
 
 `Install to estimated install destination` installs pending packages whose `INSTL DST` is set into their estimated destinations, one package at a time in list order. Check results in New after installation. Packages whose charts all have an empty `INSTL DST` remain in Pending. Same-name collisions among bundled files are handled according to [Smart Overwrite](#smart-overwrite) in the settings dialog.
 

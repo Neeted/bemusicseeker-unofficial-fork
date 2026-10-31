@@ -178,8 +178,9 @@ internal sealed partial class PackageLifecycleOwner
     /// 同期公開と入れ子scopeの既存の通知・例外伝播は維持します。
     /// </summary>
     /// <param name="queuePublication">最外scopeの通知をUIキューへ投稿する場合は true。false はscope完了時の同期公開です。</param>
-    /// <returns>入れ子順に完了して延期した通知を引き渡すscope。</returns>
-    internal IDisposable BeginCollectionMutationScope(bool queuePublication = false)
+    /// <param name="deferPublication">最外scopeを同期区間で閉じた後の純通知を受け取ります。指定時はqueuePublicationより優先し、通知はscope・guard・ExecutionContextの寿命を保持しません。入れ子では従来どおり親scopeへ集約します。</param>
+    /// <returns>作成元の実行contextで入れ子順に完了して延期した通知を引き渡すscope。</returns>
+    internal IDisposable BeginCollectionMutationScope(bool queuePublication = false, Action<Action> deferPublication = null)
     {
         CollectionMutationDeferral previous = collectionMutationDeferral.Value;
         if (previous?.IsCompleted == true)
@@ -188,7 +189,7 @@ internal sealed partial class PackageLifecycleOwner
         }
         CollectionMutationDeferral current = new();
         collectionMutationDeferral.Value = current;
-        return new CollectionMutationScopeLease(this, current, previous, queuePublication);
+        return new CollectionMutationScopeLease(this, current, previous, queuePublication, deferPublication);
     }
 
     internal StartupInstallReadinessState StartupReadiness => startupReadiness;
@@ -614,7 +615,8 @@ internal sealed partial class PackageLifecycleOwner
     private void CompleteCollectionMutationScope(
         CollectionMutationDeferral current,
         CollectionMutationDeferral previous,
-        bool queuePublication)
+        bool queuePublication,
+        Action<Action> deferPublication)
     {
         if (!ReferenceEquals(collectionMutationDeferral.Value, current))
         {
@@ -631,6 +633,14 @@ internal sealed partial class PackageLifecycleOwner
                     InvokeOnUi(mutation);
                 }
             }
+            return;
+        }
+        if (deferPublication != null)
+        {
+            deferPublication(() =>
+            {
+                foreach (Action mutation in mutations) { InvokeOnUi(mutation); }
+            });
             return;
         }
         if (!queuePublication)
@@ -804,25 +814,28 @@ internal sealed partial class PackageLifecycleOwner
         private readonly CollectionMutationDeferral previous;
 
         private readonly bool queuePublication;
+        private readonly Action<Action> deferPublication;
         private int disposed;
 
         internal CollectionMutationScopeLease(
             PackageLifecycleOwner owner,
             CollectionMutationDeferral current,
             CollectionMutationDeferral previous,
-            bool queuePublication)
+            bool queuePublication,
+            Action<Action> deferPublication)
         {
             this.owner = owner;
             this.current = current;
             this.previous = previous;
             this.queuePublication = queuePublication;
+            this.deferPublication = deferPublication;
         }
 
         public void Dispose()
         {
             if (Interlocked.Exchange(ref disposed, 1) == 0)
             {
-                owner.CompleteCollectionMutationScope(current, previous, queuePublication);
+                owner.CompleteCollectionMutationScope(current, previous, queuePublication, deferPublication);
             }
         }
     }

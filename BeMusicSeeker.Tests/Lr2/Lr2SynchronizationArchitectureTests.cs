@@ -37,7 +37,7 @@ public sealed class Lr2SynchronizationArchitectureTests
                 initializedAll,
                 initializedMin,
                 pendingInstall,
-                bmsFiles);
+                bmsFiles, new ReaderWriterLockSlimWrapper());
 
             scope = synchronization.EnterFolderMoveWriteScope();
 
@@ -139,7 +139,7 @@ public sealed class Lr2SynchronizationArchitectureTests
         try
         {
             var synchronization = new LibraryFileOperationSynchronization(
-                boundary, initializedAll, initializedMin, pendingInstall, bmsFiles);
+                boundary, initializedAll, initializedMin, pendingInstall, bmsFiles, new ReaderWriterLockSlimWrapper());
             bool bodyReached = false;
             Action executeBody = () =>
             {
@@ -227,7 +227,7 @@ public sealed class Lr2SynchronizationArchitectureTests
                 initializedAll,
                 initializedMin,
                 pendingInstall,
-                bmsFiles);
+                bmsFiles, new ReaderWriterLockSlimWrapper());
 
             LibraryFileMutationLease? scope = synchronization.EnterFolderMoveWriteScope();
 

@@ -3265,4 +3265,6 @@ public class Resources
     public static string ChartPropertiesCp932AlternativeInterpretation => ResourceManager.GetString("ChartPropertiesCp932AlternativeInterpretation", resourceCulture);
     /// <summary>設定受理時に組込み予約領域へのBMS登録・出力基点を拒否する理由の書式です。{0}は用途、{1}は指定先、{2}は組込みフォルダで、設定訂正を案内します。</summary>
     public static string Validation_Lr2BuiltinCustomFolderReservedFormat => ResourceManager.GetString("Validation_Lr2BuiltinCustomFolderReservedFormat", resourceCulture);
+    /// <summary>消失した明示導入先の再選択を案内します。</summary>
+    public static string Error_InstallDestinationMissing => ResourceManager.GetString("Error_InstallDestinationMissing", resourceCulture);
 }

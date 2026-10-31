@@ -20,6 +20,64 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryInitializationFileScanTests
 {
+    /// <summary>同内容のBMS/BMSON更新は無視bitだけを新資源評価へ引き継ぎ、本文変更では解除します。実差分保存・現在値・不足対象索引を照合し、古い充足件数の復元を検出します。</summary>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public void ApplyFileScanDiff_PreservesOnlyIgnoredChoiceForUnchangedContent(bool bmson, bool contentChanged)
+    {
+        WithTemporaryLr2SongDb((root, database) =>
+        {
+            string directory = Directory.CreateDirectory(Path.Combine(root, "Ignored")).FullName;
+            string path = Path.Combine(directory, bmson ? "chart.bmson" : "chart.bms");
+            string text = bmson
+                ? "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Original\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[{\"name\":\"first.wav\",\"notes\":[{\"x\":1,\"y\":0,\"l\":0}]},{\"name\":\"missing.wav\",\"notes\":[{\"x\":2,\"y\":240,\"l\":0}]}]}"
+                : "#PLAYER 1\n#TITLE Original\n#BPM 120\n#WAV01 first.wav\n#WAV02 missing.wav\n#00111:0102\n";
+            File.WriteAllText(path, text, Encoding.UTF8);
+            var oldTime = new DateTime(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(path, oldTime);
+            ChartFileSnapshot input = ChartFileContentReader.ReadSnapshot(path);
+            ChartFile previous = bmson ? BmsonChartFileParser.ParseSnapshot(input) : BmsChartFileParser.ParseSnapshot(input);
+            previous = BmsLibraryMaintenanceService.EvaluateMaintenanceForInline(previous, input, null).CurrentChart;
+            previous = ChartFileProjection.WithMaintenance(previous, previous.ResourceHealthMaintenanceSnapshot with { FilesWarningIgnored = true });
+            previous = previous with { Token = new OwnedChartToken() };
+            var gateway = new BmsLibraryDbGateway(database);
+            gateway.EnsureLibraryStartupSchema();
+            ExecuteSongDbFixtureTransaction(database, db =>
+            {
+                db.CreateTable<LR2SongDB.song>(); BmsLibraryDbGateway.EnsureBmsonSchema(db);
+                if (bmson) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(previous), typeof(LR2SongDBExtended.bmson_song)); }
+                else { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(previous), typeof(LR2SongDB.song)); }
+                db.InsertOrReplace(MaintenanceStorageMapping.ToStorage(previous.ResourceHealthMaintenanceSnapshot), typeof(LR2SongDBExtended.maintenance));
+            });
+            File.WriteAllText(Path.Combine(directory, "first.wav"), "new resource");
+            if (contentChanged) { File.WriteAllText(path, text.Replace("Original", "Changed", StringComparison.Ordinal), Encoding.UTF8); }
+            File.SetLastWriteTimeUtc(path, oldTime.AddDays(1));
+            ChartScanResult scan = CreateScanResult([path], new Dictionary<string, IEnumerable<string>>
+            { [directory] = ["first.wav"] });
+            var execution = new ChartScanExecutionResult { Success = true, Result = scan };
+            SongTableFileCheckResult result = new BmsLibraryInitializationService().ApplyFileScanDiff(gateway,
+                new EverythingNative(ApplicationPathPolicy.Current), new BmsLibraryOptionsSnapshot(), bmson ? [] : [previous],
+                bmson ? new ChartScanExecutionResult { Success = true, Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>()) } : execution,
+                0L, () => null, null, currentBmsonSongs: bmson ? [previous] : [], executeBmsonScan: bmson ? () => execution : null);
+            ProjectCatalogState(result, bmson ? [] : [previous], bmson ? [previous] : []);
+            ChartFile current = (bmson ? result.NextBmsonSongs : result.NextFiles).Single();
+            // 同内容BMSの日時のみ更新は再評価しない既存最適化を維持します。BMSONと本文更新だけが新件数です。
+            Assert.AreEqual(bmson || contentChanged ? 1 : 0, current.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
+            Assert.AreEqual(2, current.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
+            Assert.AreEqual(!contentChanged, current.ResourceHealthMaintenanceSnapshot.FilesWarningIgnored);
+            using LR2SongDBExtended db = gateway.OpenSongDbReadOnly();
+            ResourceHealthMaintenanceSnapshot saved = MaintenanceStorageMapping.ToCommon(db.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == path));
+            Assert.AreEqual(current.ResourceHealthMaintenanceSnapshot.WavFilesExisting, saved.WavFilesExisting);
+            Assert.AreEqual(!contentChanged, saved.FilesWarningIgnored);
+            var index = ResourceHealthIndexSnapshot.Build([current], new BmsLibraryMaintenanceService(), 1);
+            Assert.AreEqual(contentChanged ? 1 : 0, index.ActiveTargets.Count);
+            Assert.AreEqual(contentChanged ? 0 : 1, index.IgnoredTargets.Count);
+        });
+    }
+
     /// <summary>
     /// 起動scanの確定をmodel guard解放後に通知し、親受付を保ったままsubscriber失敗を隔離してDBと所持譜面を公開する。
     /// </summary>

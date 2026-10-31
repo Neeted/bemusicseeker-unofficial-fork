@@ -253,15 +253,20 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <param name="playlistLease">同じ操作のP。両受付の実終端解放後に専用preflight警告を提示します。</param>
     /// <param name="completionResult">親受付解放後の必須表示・通知へ渡す今回の結果。</param>
     /// <param name="primaryFailure">採用済みBMT等の先行失敗。後続のscore・必須UIを回収してから伝播し、二次失敗でも保持します。</param>
+    /// <param name="postAdmission">処理の成否にかかわらず親L/P解放後、結果・失敗提示前に実行するモデル通知。</param>
     /// <returns>実処理終端、受付解放と失敗通知までを表すTask。</returns>
-    private async Task CompleteAcceptedSettingsOperationAsync(IDisposable lease, Func<LibraryFileMutationCapability, Task> operation, LibraryFileMutationCapability playlistCapability = null, IDisposable playlistLease = null, Func<StartupInitializationResult> completionResult = null, Func<Exception> primaryFailure = null)
+    private async Task CompleteAcceptedSettingsOperationAsync(IDisposable lease, Func<LibraryFileMutationCapability, Task> operation, LibraryFileMutationCapability playlistCapability = null, IDisposable playlistLease = null, Func<StartupInitializationResult> completionResult = null, Func<Exception> primaryFailure = null, Action postAdmission = null)
     {
         try
         {
-            using (playlistLease)
-            using (lease)
-            using (LibraryFileMutationCapability primaryCapability = operationAdmission.CreateMutationCapability(lease))
-            using (LibraryFileMutationCapability capability = primaryCapability.WithPlaylistCapability(playlistCapability)) { await operation(capability); }
+            try
+            {
+                using (playlistLease)
+                using (lease)
+                using (LibraryFileMutationCapability primaryCapability = operationAdmission.CreateMutationCapability(lease))
+                using (LibraryFileMutationCapability capability = primaryCapability.WithPlaylistCapability(playlistCapability)) { await operation(capability); }
+            }
+            finally { postAdmission?.Invoke(); }
             StartupInitializationResult result = completionResult?.Invoke();
             if (result != null)
             {

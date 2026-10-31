@@ -219,6 +219,9 @@ public partial class MainWindowViewModel : ViewModel,
     Task<StartupInitializationResult> ISettingsDialogStatePort.ReloadFileDiffAsync(LibraryFileMutationCapability capability)
         => ReloadFileDiffUnderAdmissionAsync(capability);
 
+    void ISettingsDialogStatePort.ReevaluatePendingPackagesForSearchRoots(LibraryFileMutationCapability capability, out Action publication)
+        => files.ReevaluatePendingPackagesForSearchRoots(capability, out publication);
+
     Task ISettingsDialogStatePort.PresentLibraryDirectoryWarningAsync(LibraryDirectoryPreflightException failure)
         => PresentLibraryDirectoryWarningAsync(failure, LibraryDirectoryWarningPhase.Late, "Settings reload directory preflight warning");
 
@@ -3504,9 +3507,10 @@ public partial class MainWindowViewModel : ViewModel,
         {
             if (startupSettings.OperationModeLR2DB)
             {
-                schemaApproval = await startupLibraryInitializationWorkflowOwner.PrepareSchemaAsync(startupSettings, FileDbMutationDialogs,
-                    () => IsRequiredInitializationShutdownRequested, applicationLifetime.RequestShutdown);
-                if (schemaApproval == null) { return new(StartupInitializationOutcome.ShutdownRequested); }
+                (AppSchemaPreflightResult approval, bool exitRequested) = await startupLibraryInitializationWorkflowOwner.PrepareSchemaAsync(startupSettings, FileDbMutationDialogs,
+                    () => IsRequiredInitializationShutdownRequested);
+                if (exitRequested) { return new(StartupInitializationOutcome.ExitRequested, startupSettings); }
+                schemaApproval = approval;
             }
         }
         catch (OperationCanceledException) when (IsRequiredInitializationShutdownRequested) { throw; }

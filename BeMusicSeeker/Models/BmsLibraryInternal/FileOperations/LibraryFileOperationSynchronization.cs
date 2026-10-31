@@ -135,6 +135,8 @@ internal sealed class LibraryFileOperationSynchronization
 
     private readonly ReaderWriterLockSlimWrapper bmsFiles;
 
+    private readonly ReaderWriterLockSlimWrapper songDbInstall;
+
     /// <summary>
     /// Creates the file-operation synchronization owner with separate raw and
     /// catalog-gated mutation admission. The catalog boundary defaults to the
@@ -145,6 +147,7 @@ internal sealed class LibraryFileOperationSynchronization
     /// <param name="bmsFilesInitializedMin">Lock protecting the minimal initialized chart catalog.</param>
     /// <param name="pendingInstallCharts">Lock protecting pending installation charts.</param>
     /// <param name="bmsFiles">Lock protecting the canonical chart collection.</param>
+    /// <param name="songDbInstall">保留記録のDB反映を保護する既存ロック。</param>
     /// <param name="catalogMutationBoundary">Catalog-dependent mutation boundary; omitted only by fixtures that intentionally use raw admission.</param>
     internal LibraryFileOperationSynchronization(
         ILibraryFileOperationMutationBoundary mutationBoundary,
@@ -152,6 +155,7 @@ internal sealed class LibraryFileOperationSynchronization
         ReaderWriterLockSlimWrapper bmsFilesInitializedMin,
         ReaderWriterLockSlimWrapper pendingInstallCharts,
         ReaderWriterLockSlimWrapper bmsFiles,
+        ReaderWriterLockSlimWrapper songDbInstall,
         CatalogFileOperationMutationBoundary catalogMutationBoundary = null)
     {
         this.mutationBoundary = mutationBoundary ?? throw new ArgumentNullException(nameof(mutationBoundary));
@@ -160,6 +164,7 @@ internal sealed class LibraryFileOperationSynchronization
         this.bmsFilesInitializedMin = bmsFilesInitializedMin ?? throw new ArgumentNullException(nameof(bmsFilesInitializedMin));
         this.pendingInstallCharts = pendingInstallCharts ?? throw new ArgumentNullException(nameof(pendingInstallCharts));
         this.bmsFiles = bmsFiles ?? throw new ArgumentNullException(nameof(bmsFiles));
+        this.songDbInstall = songDbInstall ?? throw new ArgumentNullException(nameof(songDbInstall));
     }
 
     /// <summary>対象の物理変更に必要な共通受付を取得、または受理済み権限で借用します。呼出元が後片付け後に解放します。</summary>
@@ -216,6 +221,13 @@ internal sealed class LibraryFileOperationSynchronization
         return AcquireScopes(
             () => pendingInstallCharts.GetReaderGuard());
     }
+
+    /// <summary>保留差分の作成からDB・一覧反映まで、既存の保留更新と同じ順序で短いモデル保護を取得します。通知の公開は解放後に行います。</summary>
+    internal IDisposable EnterPendingPackageMutationScope()
+        => AcquireScopes(
+            () => bmsFilesInitializedAll.GetReaderGuard(),
+            () => pendingInstallCharts.GetWriterGuard(),
+            () => songDbInstall.GetWriterGuard());
 
     /// <summary>対象の物理変更に必要な共通受付を取得、または受理済み権限で借用します。呼出元が後片付け後に解放します。</summary>
     /// <param name="capability">同じ共通受付ownerの生存権限。nullは新規の非待機受付で、借用終端では外側leaseを解放しません。</param>

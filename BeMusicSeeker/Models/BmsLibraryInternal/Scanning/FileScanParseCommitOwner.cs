@@ -159,13 +159,13 @@ internal sealed class FileScanParseCommitOwner
         stopwatchBmsTargets.Stop();
         result.DiffBmsTargetMs = stopwatchBmsTargets.ElapsedMilliseconds;
 
-        List<string> addedOrUpdatedBmsonPaths = [];
+        List<FileDiffParseTarget> bmsonParseTargets = [];
         var stopwatchBmsonTargets = Stopwatch.StartNew();
         foreach (string path in scannedBmsonPaths)
         {
             if (!currentBmsonByPath.TryGetValue(path, out ChartFile existing))
             {
-                addedOrUpdatedBmsonPaths.Add(path);
+                bmsonParseTargets.Add(new FileDiffParseTarget(FileDiffChartKind.Bmson, path, existing));
                 continue;
             }
 
@@ -176,7 +176,7 @@ internal sealed class FileScanParseCommitOwner
                 isBmson: true);
             if (lastWriteTimeUtc != DateTime.MinValue && existing.LastWriteTimeUtc != lastWriteTimeUtc)
             {
-                addedOrUpdatedBmsonPaths.Add(path);
+                bmsonParseTargets.Add(new FileDiffParseTarget(FileDiffChartKind.Bmson, path, existing));
             }
         }
         stopwatchBmsonTargets.Stop();
@@ -185,15 +185,15 @@ internal sealed class FileScanParseCommitOwner
         result.DiffMs = stopwatchDiff.ElapsedMilliseconds;
         result.BmsAddedTargetCount = bmsParseTargets.Count;
         result.BmsDeletedTargetCount = result.DeletedPaths.Count;
-        result.BmsonUpsertTargetCount = addedOrUpdatedBmsonPaths.Count;
+        result.BmsonUpsertTargetCount = bmsonParseTargets.Count;
         result.BmsonDeletedTargetCount = result.DeletedBmsonPaths.Count;
         result.FileDiffParserDegree = ResolveFileDiffParserDegree();
         result.ParseReadBytesEstimate = SaturatingAdd(
             EstimateCurrentFileDiffReadBytes(bmsParseTargets.Select(target => target.Path)),
-            EstimateCurrentFileDiffReadBytes(addedOrUpdatedBmsonPaths));
+            EstimateCurrentFileDiffReadBytes(bmsonParseTargets.Select(target => target.Path)));
 
 
-        int parseTargetCount = bmsParseTargets.Count + addedOrUpdatedBmsonPaths.Count;
+        int parseTargetCount = bmsParseTargets.Count + bmsonParseTargets.Count;
         int parseProcessedCount = 0;
         if (parseTargetCount > 0)
         {
@@ -216,7 +216,7 @@ internal sealed class FileScanParseCommitOwner
             inlineChartInfoRowsCommitted);
         FileDiffParsePipelineResult pipelineResult = RunFileDiffParsePipeline(
             bmsParseTargets,
-            addedOrUpdatedBmsonPaths,
+            bmsonParseTargets,
             dbGateway,
             currentChartInfoParseFailures,
             result,
@@ -286,7 +286,7 @@ internal sealed class FileScanParseCommitOwner
 
     private FileDiffParsePipelineResult RunFileDiffParsePipeline(
         IReadOnlyList<FileDiffParseTarget> bmsTargets,
-        IReadOnlyList<string> bmsonPaths,
+        IReadOnlyList<FileDiffParseTarget> bmsonTargets,
         BmsLibraryDbGateway dbGateway,
         IDictionary<string, BeMusicSeeker.Models.ChartParseFailure> currentChartInfoParseFailures,
         SongTableFileCheckResult result,
@@ -316,10 +316,10 @@ internal sealed class FileScanParseCommitOwner
                 "owner_started",
                 "targets=" + parseTargetCount
                 + " bmsTargets=" + (bmsTargets?.Count ?? 0)
-                + " bmsonTargets=" + (bmsonPaths?.Count ?? 0));
+                + " bmsonTargets=" + (bmsonTargets?.Count ?? 0));
         }
 
-        List<FileDiffParseTarget> parseTargets = [.. EnumerateFileDiffTargets(bmsTargets, bmsonPaths)];
+        List<FileDiffParseTarget> parseTargets = [.. EnumerateFileDiffTargets(bmsTargets, bmsonTargets)];
         int configuredParserDegree = Math.Max(1, result.FileDiffParserDegree);
         int parserDegree = Math.Max(1, Math.Min(configuredParserDegree, parseTargets.Count));
         int configuredPostParseWorkerDegree = ResolveFileDiffPostParseWorkerDegree(configuredParserDegree);
@@ -735,7 +735,7 @@ internal sealed class FileScanParseCommitOwner
         return rows;
     }
 
-    private static IEnumerable<FileDiffParseTarget> EnumerateFileDiffTargets(IReadOnlyList<FileDiffParseTarget> bmsTargets, IReadOnlyList<string> bmsonPaths)
+    private static IEnumerable<FileDiffParseTarget> EnumerateFileDiffTargets(IReadOnlyList<FileDiffParseTarget> bmsTargets, IReadOnlyList<FileDiffParseTarget> bmsonTargets)
     {
         foreach (FileDiffParseTarget target in bmsTargets ?? [])
         {
@@ -744,9 +744,9 @@ internal sealed class FileScanParseCommitOwner
                 yield return target;
             }
         }
-        foreach (string path in bmsonPaths ?? [])
+        foreach (FileDiffParseTarget target in bmsonTargets ?? [])
         {
-            yield return new FileDiffParseTarget(FileDiffChartKind.Bmson, path);
+            yield return target;
         }
     }
 
@@ -853,11 +853,11 @@ internal sealed class FileScanParseCommitOwner
         }
         catch (Exception ex) when (IsIndependentChartInputFailure(ex))
         {
-            return FileDiffReadCandidate.CreateFailure(target.Kind, target.Path, target.ExistingBmsFile, target.TextFlag, ex);
+            return FileDiffReadCandidate.CreateFailure(target.Kind, target.Path, target.ExistingFile, target.TextFlag, ex);
         }
         stopwatch.Stop();
         Interlocked.Add(ref readTicks, stopwatch.ElapsedTicks);
-        return FileDiffReadCandidate.CreateSuccess(target.Kind, target.Path, buffer, target.ExistingBmsFile, target.TextFlag);
+        return FileDiffReadCandidate.CreateSuccess(target.Kind, target.Path, buffer, target.ExistingFile, target.TextFlag);
     }
 
     private static FileDiffParsedCandidate ParseFileDiffCandidate(
@@ -887,8 +887,8 @@ internal sealed class FileScanParseCommitOwner
             ChartFile file;
             try
             {
-                string fixedEncoding = BmsChartFileParser.GetConcreteFixedEncoding(candidate.ExistingBmsFile);
-                if (fixedEncoding != null && string.Equals(candidate.ExistingBmsFile.Md5, snapshot.Md5, StringComparison.OrdinalIgnoreCase))
+                string fixedEncoding = BmsChartFileParser.GetConcreteFixedEncoding(candidate.ExistingFile);
+                if (fixedEncoding != null && string.Equals(candidate.ExistingFile.Md5, snapshot.Md5, StringComparison.OrdinalIgnoreCase))
                 {
                     detection = null;
                     file = BmsChartFileParser.ParseSnapshot(snapshot, fixedEncoding);
@@ -912,13 +912,13 @@ internal sealed class FileScanParseCommitOwner
             {
                 Date = Lr2SongRowEnricher.ToLr2UnixSeconds(snapshot.LastWriteTimeUtc),
                 Txt = candidate.TextFlag,
-                Favorite = candidate.ExistingBmsFile?.Favorite,
-                AddDate = candidate.ExistingBmsFile?.AddDate,
-                Tag = candidate.ExistingBmsFile?.Tag
+                Favorite = candidate.ExistingFile?.Favorite,
+                AddDate = candidate.ExistingFile?.AddDate,
+                Tag = candidate.ExistingFile?.Tag
             };
             stopwatch.Stop();
             Interlocked.Add(ref bmsParseTicks, stopwatch.ElapsedTicks);
-            return FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateSuccess(candidate.Path, snapshot, file, candidate.ExistingBmsFile, detection));
+            return FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateSuccess(candidate.Path, snapshot, file, candidate.ExistingFile, detection));
         }
 
         var bmsonStopwatch = Stopwatch.StartNew();
@@ -933,7 +933,7 @@ internal sealed class FileScanParseCommitOwner
         }
         bmsonStopwatch.Stop();
         Interlocked.Add(ref bmsonParseTicks, bmsonStopwatch.ElapsedTicks);
-        return FileDiffParsedCandidate.FromBmson(InlineBmsonParseCandidate.CreateSuccess(candidate.Path, snapshot, song));
+        return FileDiffParsedCandidate.FromBmson(InlineBmsonParseCandidate.CreateSuccess(candidate.Path, snapshot, song, candidate.ExistingFile));
     }
 
     /// <summary>未採用の基本入力だけを今回の失敗へ閉じ、取消とメモリ不足は既存の所有境界へ伝播させます。</summary>
@@ -947,7 +947,7 @@ internal sealed class FileScanParseCommitOwner
     private static FileDiffParsedCandidate CreateFileDiffInputFailure(FileDiffReadCandidate candidate, Exception exception, string stage)
     {
         return candidate.Kind == FileDiffChartKind.Bms
-            ? FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateFailure(candidate.Path, candidate.ExistingBmsFile, exception, stage))
+            ? FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateFailure(candidate.Path, candidate.ExistingFile, exception, stage))
             : FileDiffParsedCandidate.FromBmson(InlineBmsonParseCandidate.CreateFailure(candidate.Path, exception, stage));
     }
 
@@ -1382,7 +1382,7 @@ internal sealed class FileScanParseCommitOwner
                 results[index] = BuildInlineBmsMaintenance(file, candidate.Snapshot, CreateInlineResourceLookupScope(lookupContext), candidate.Detection);
                 if (results[index].CurrentChart != null)
                 {
-                    candidate.File = results[index].CurrentChart;
+                    candidate.File = PreserveUnchangedWarningChoice(candidate.ExistingFile, results[index].CurrentChart);
                 }
             }
         });
@@ -1409,13 +1409,22 @@ internal sealed class FileScanParseCommitOwner
                 results[index] = BuildInlineBmsonMaintenance(song, candidates[index].Snapshot, CreateInlineResourceLookupScope(lookupContext));
                 if (results[index].CurrentChart != null)
                 {
-                    candidates[index].Song = results[index].CurrentChart;
+                    candidates[index].Song = PreserveUnchangedWarningChoice(candidates[index].ExistingFile, results[index].CurrentChart);
                 }
             }
         });
         LogInlineMaintenanceWarnings(results, logInstallPerformanceWarn);
         return results;
     }
+
+    /// <summary>同path・同内容の利用者無視指定だけを、新しく評価した資源情報へ引き継ぎます。</summary>
+    private static ChartFile PreserveUnchangedWarningChoice(ChartFile previous, ChartFile current)
+        => previous != null && string.Equals(previous.Path, current.Path, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(previous.Md5, current.Md5, StringComparison.OrdinalIgnoreCase)
+            && current.ResourceHealthMaintenanceSnapshot is { } health
+                ? ChartFileProjection.WithMaintenance(current, health with
+                { FilesWarningIgnored = BmsLibraryMaintenanceService.AreResourceHealthWarningsIgnored(previous) })
+                : current;
 
     private static ResourceHealthLookupContext CreateInlineResourceLookupScope(ResourceHealthLookupContext lookupContext)
     {
@@ -2767,25 +2776,26 @@ internal sealed class FileScanParseCommitOwner
         Bmson
     }
 
-    internal sealed class FileDiffParseTarget(FileScanParseCommitOwner.FileDiffChartKind kind, string path, ChartFile existingBmsFile = null, int textFlag = 0)
+    /// <summary>共通の差分解析入力です。既存BMS/BMSONの同内容判定と利用者指定の引継ぎに同じ既存値を渡します。</summary>
+    internal sealed class FileDiffParseTarget(FileScanParseCommitOwner.FileDiffChartKind kind, string path, ChartFile existingFile = null, int textFlag = 0)
     {
         public FileDiffChartKind Kind { get; } = kind;
 
         public string Path { get; } = path ?? string.Empty;
 
-        public ChartFile ExistingBmsFile { get; } = existingBmsFile;
+        public ChartFile ExistingFile { get; } = existingFile;
 
         public int TextFlag { get; } = textFlag == 0 ? 0 : 1;
     }
 
     private sealed class FileDiffReadCandidate
     {
-        private FileDiffReadCandidate(FileDiffChartKind kind, string path, ChartFileReadBuffer buffer, ChartFile existingBmsFile, int textFlag, Exception exception)
+        private FileDiffReadCandidate(FileDiffChartKind kind, string path, ChartFileReadBuffer buffer, ChartFile existingFile, int textFlag, Exception exception)
         {
             Kind = kind;
             Path = path ?? string.Empty;
             Buffer = buffer;
-            ExistingBmsFile = existingBmsFile;
+            ExistingFile = existingFile;
             TextFlag = textFlag == 0 ? 0 : 1;
             Exception = exception;
         }
@@ -2796,20 +2806,20 @@ internal sealed class FileScanParseCommitOwner
 
         public ChartFileReadBuffer Buffer { get; }
 
-        public ChartFile ExistingBmsFile { get; }
+        public ChartFile ExistingFile { get; }
 
         public int TextFlag { get; }
 
         public Exception Exception { get; }
 
-        public static FileDiffReadCandidate CreateSuccess(FileDiffChartKind kind, string path, ChartFileReadBuffer buffer, ChartFile existingBmsFile, int textFlag)
+        public static FileDiffReadCandidate CreateSuccess(FileDiffChartKind kind, string path, ChartFileReadBuffer buffer, ChartFile existingFile, int textFlag)
         {
-            return new FileDiffReadCandidate(kind, path, buffer, existingBmsFile, textFlag, null);
+            return new FileDiffReadCandidate(kind, path, buffer, existingFile, textFlag, null);
         }
 
-        public static FileDiffReadCandidate CreateFailure(FileDiffChartKind kind, string path, ChartFile existingBmsFile, int textFlag, Exception exception)
+        public static FileDiffReadCandidate CreateFailure(FileDiffChartKind kind, string path, ChartFile existingFile, int textFlag, Exception exception)
         {
-            return new FileDiffReadCandidate(kind, path, null, existingBmsFile, textFlag, exception);
+            return new FileDiffReadCandidate(kind, path, null, existingFile, textFlag, exception);
         }
     }
 
@@ -3153,11 +3163,12 @@ internal sealed class FileScanParseCommitOwner
 
     private sealed class InlineBmsonParseCandidate
     {
-        private InlineBmsonParseCandidate(string path, ChartFileSnapshot snapshot, ChartFile song, Exception exception, string failureStage)
+        private InlineBmsonParseCandidate(string path, ChartFileSnapshot snapshot, ChartFile song, Exception exception, string failureStage, ChartFile existingFile = null)
         {
             Path = path ?? string.Empty;
             Snapshot = snapshot;
             Song = song;
+            ExistingFile = existingFile;
             Exception = exception;
             FailureStage = failureStage ?? string.Empty;
         }
@@ -3168,13 +3179,15 @@ internal sealed class FileScanParseCommitOwner
 
         public ChartFile Song { get; set; }
 
+        public ChartFile ExistingFile { get; }
+
         public Exception Exception { get; }
 
         public string FailureStage { get; }
 
-        public static InlineBmsonParseCandidate CreateSuccess(string path, ChartFileSnapshot snapshot, ChartFile song)
+        public static InlineBmsonParseCandidate CreateSuccess(string path, ChartFileSnapshot snapshot, ChartFile song, ChartFile existingFile)
         {
-            return new InlineBmsonParseCandidate(path, snapshot, song, null, string.Empty);
+            return new InlineBmsonParseCandidate(path, snapshot, song, null, string.Empty, existingFile);
         }
 
         public static InlineBmsonParseCandidate CreateFailure(string path, Exception exception, string failureStage)

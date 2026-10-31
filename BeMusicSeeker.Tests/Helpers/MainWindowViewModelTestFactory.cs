@@ -223,6 +223,9 @@ internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
         => ((ISettingsDialogStatePort)owner).PresentLibraryDirectoryWarningAsync(failure);
 
     /// <summary>受理済みの実差分継続だけ同じ生存権限を渡し、純fakeは局所依存のまま実終端を返します。</summary>
+    public void ReevaluatePendingPackagesForSearchRoots(LibraryFileMutationCapability capability, out Action publication)
+        => ((ISettingsDialogStatePort)owner).ReevaluatePendingPackagesForSearchRoots(capability, out publication);
+
     public async Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null)
     {
         Task operation = reloadFileDiff(capability);

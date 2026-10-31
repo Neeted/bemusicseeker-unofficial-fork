@@ -663,7 +663,8 @@ internal sealed partial class LibraryMutationOwner
         bool sendToRecycleBin,
         IEnumerable<string> approvedWholeFolderDeletePaths,
         LibraryFileMutationCapability mutationCapability,
-        ICollection<Action> postLeaseNotifications)
+        ICollection<Action> postLeaseNotifications,
+        ICollection<Action> rootPendingPublications)
     {
         LibraryCatalogMutationFacts catalogFacts = ExecuteLibraryChartRemovalAfterAdmission(
             prepared,
@@ -715,6 +716,7 @@ internal sealed partial class LibraryMutationOwner
                 IReadOnlyList<string> remaining = bmsRootRegistrations.CaptureUserRoots()
                     .Where(root => !unregistered.Contains(root, StringComparer.OrdinalIgnoreCase)).ToArray();
                 bmsRootRegistrations.SaveUserRoots(remaining);
+                ReevaluatePendingPackagesForSearchRoots(mutationCapability, rootPendingPublications);
                 invalidateParentFolderListCache();
                 postLeaseNotifications.Add(notifyParentFolderListCacheChanged);
             }
@@ -1813,9 +1815,14 @@ internal sealed partial class LibraryMutationOwner
     /// <param name="prepared">最初の確認前に作成した不変要求。</param>
     /// <param name="sendToRecycleBin">ごみ箱へ送るか。</param>
     /// <param name="approvedWholeFolderDeletePaths">UIで判断済みの候補。全体削除を承認しない場合も空列を明示します。</param>
+    /// <param name="capability">実親受付の生存権限。direct自己受付の場合だけnullです。</param>
+    /// <param name="publication">今回のroot再評価による純保留通知。変更前に捕捉し、実親L/P解放後に必ず呼び出します。scopeやDB更新を保持しません。</param>
     internal LibraryChartRemovalOutcome RemoveLibraryCharts(
-        LibraryChartRemovalPreflight prepared, bool sendToRecycleBin, IEnumerable<string> approvedWholeFolderDeletePaths, LibraryFileMutationCapability capability = null)
+        LibraryChartRemovalPreflight prepared, bool sendToRecycleBin, IEnumerable<string> approvedWholeFolderDeletePaths,
+        LibraryFileMutationCapability capability, out Action publication)
     {
+        List<Action> rootPendingPublications = [];
+        publication = () => InvokePostLeaseNotificationsBestEffort(rootPendingPublications);
         ArgumentNullException.ThrowIfNull(prepared);
         ArgumentNullException.ThrowIfNull(approvedWholeFolderDeletePaths);
         if (TryBlockCatalogMutation(nameof(BMSLibrary.RemoveLibraryCharts), showMessage: true, capability: capability)) { return null; }
@@ -1834,7 +1841,7 @@ internal sealed partial class LibraryMutationOwner
             using (LibraryFileMutationCapability playlistCapability = playlistLease?.CreateMutationCapability())
             using (LibraryFileMutationCapability combinedCapability = mutationCapability.WithPlaylistCapability(playlistCapability))
             {
-                outcome = RemoveLibraryChartsCore(prepared, sendToRecycleBin, approvedPaths, combinedCapability, postLeaseNotifications);
+                outcome = RemoveLibraryChartsCore(prepared, sendToRecycleBin, approvedPaths, combinedCapability, postLeaseNotifications, rootPendingPublications);
             }
         }, capability);
         InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
@@ -1964,6 +1971,27 @@ internal sealed partial class LibraryMutationOwner
             InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
         }
         return result;
+    }
+
+    /// <summary>確定後の実走査root配下を保留参照とinstall記録から解除します。元の実体や管理入力は削除しません。</summary>
+    internal void ReevaluatePendingPackagesForSearchRoots(LibraryFileMutationCapability capability, ICollection<Action> postLeaseNotifications)
+    {
+        capability.Validate(lr2SynchronizationOwner.OperationAdmission);
+        BmsLibraryOptionsSnapshot options = lr2SynchronizationOwner.CurrentOptionsSnapshot;
+        IReadOnlyList<string> roots = new Lr2SearchRootSnapshotOwner(null, () => options).CaptureForUpdate(options).Roots;
+        using (synchronization.EnterPendingPackageMutationScope())
+        {
+            List<ChartPackage> removed = [.. packageLifecycleOwner.PendingPackages.Where(package => roots.Any(root =>
+                LongPathFileSystem.IsSameOrDescendantDirectoryPath(package.path, root)))];
+            if (removed.Count == 0) { return; }
+            PendingPackageMutationDelta delta = packageInstallService.BuildPendingPackageMutationDelta(
+                packageLifecycleOwner.PendingPackages, packagesToRemove: removed);
+            // AsyncLocalのscopeは同じ同期区間で閉じ、親受付の終端へはcontextに依存しない純通知だけを渡します。
+            using (packageLifecycleOwner.BeginCollectionMutationScope(deferPublication: postLeaseNotifications.Add))
+            {
+                packageLifecycleOwner.ApplyPendingPackageMutationDelta(delta);
+            }
+        }
     }
 
     /// <summary>

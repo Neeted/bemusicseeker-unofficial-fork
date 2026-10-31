@@ -40,6 +40,21 @@ public sealed partial class SettingDialogEditCompletionTests
                 Lr2ConfigOwner configOwner = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
                 SetPrivateField(owner, "lr2config", configOwner);
                 SetActiveLibraryProfile(owner, true);
+                var library = new TestBmsLibrary(values.LR2SongDBPath, configOwner, null, null, null,
+                    new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), optionsSnapshotProvider: null, operationAdmission: composition.OperationAdmission,
+                    playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: values);
+                SetPrivateField(owner, "files", library);
+                owner.InstallTree.AttachLibrary(library);
+                string pendingPath = Path.Combine(values.BMSInstallDir, "pending.bms");
+                File.WriteAllText(pendingPath, "#PLAYER 1\n#TITLE Pending adopted root\n#BPM 120\n");
+                string unrelatedPath = Path.Combine(Directory.CreateDirectory(Path.Combine(root, "UnrelatedPending")).FullName, "pending.bms");
+                File.WriteAllText(unrelatedPath, "#TITLE Unrelated\n#BPM 120\n");
+                var adopted = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(pendingPath)))]); adopted.path = values.BMSInstallDir;
+                var unrelated = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(unrelatedPath)))]); unrelated.path = Path.GetDirectoryName(unrelatedPath) ?? throw new InvalidOperationException();
+                library.ChartPackagesPending = new ObservableCollection<ChartPackage>([adopted, unrelated]);
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(values.LR2SongDBPath, db =>
+                { db.CreateTable<LR2SongDBExtended.install>(); db.InsertOrReplace(adopted, typeof(LR2SongDBExtended.install)); db.InsertOrReplace(unrelated, typeof(LR2SongDBExtended.install)); });
+
                 var table = new BMSTable
                 {
                     playlist_id = 7198,
@@ -84,7 +99,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     using (LR2SongDBExtended reader = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly())
                     {
                         Assert.AreEqual(1, reader.Table<BMSTable>().Count());
-                        Assert.AreEqual(0L, reader.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'folder'"));
+                        Assert.AreEqual(0, reader.Table<LR2SongDB.folder>().Count(), "実library準備済みfolder表へ、拒否操作から行を追加しません。");
                     }
                     owner.SettingDialog.SelectBmsInstallDirectoryAsync(alternative).GetAwaiter().GetResult();
                     oldSettings = File.ReadAllBytes(settingsPath);
@@ -113,7 +128,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         LR2SongDBExtended.playlist currentHeader = reader.Table<LR2SongDBExtended.playlist>().Single();
                         Assert.AreEqual(previousHeader.output_dir, currentHeader.output_dir);
                         Assert.AreEqual(previousHeader.custom_folder_output_base_name, currentHeader.custom_folder_output_base_name);
-                        Assert.AreEqual(0L, reader.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'folder'"));
+                        Assert.AreEqual(0, reader.Table<LR2SongDB.folder>().Count(), "実library準備済みfolder表へ、拒否操作から行を追加しません。");
                     }
                     AssertOutputUnchanged();
                     Assert.AreEqual(1, dialogs.ConfirmationCount);
@@ -131,6 +146,11 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.AreEqual(alternative, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BMSInstallDir);
                     Assert.IsTrue(File.Exists(Path.Combine(install, "Table", "0000.lr2folder")));
                     Assert.IsFalse(File.Exists(oldFile));
+                    CollectionAssert.AreEqual(new[] { unrelated.path }, library.ChartPackagesPending.Select(package => package.path).ToArray());
+                    CollectionAssert.AreEqual(new[] { unrelated.path }, owner.InstallTree.ChartPackagesPending.Select(package => package.path).ToArray());
+                    Assert.IsTrue(File.Exists(pendingPath)); Assert.IsTrue(File.Exists(unrelatedPath));
+                    using (LR2SongDBExtended pendingDb = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly())
+                    { CollectionAssert.AreEqual(new[] { unrelated.path }, pendingDb.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray()); }
                     Assert.IsTrue(owner.SettingDialog.CheckValidationForInitialization(out string error), error);
                 }
                 finally
@@ -138,6 +158,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     releaseConfirmation.TrySetResult();
                     confirmationLease?.Dispose();
                     if (rejectedOutput != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(rejectedOutput, "output-adoption-rejection-cleanup"); }
+                    library.RequestShutdown("install-directory-output-fixture");
                     playlist.RequestShutdown("install-directory-output-fixture");
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "install-directory-output-owner-cleanup");
                     owner.SettingDialog.Dispose();
@@ -174,6 +195,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Lr2ConfigOwner configOwner = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
                 SetPrivateField(owner, "lr2config", configOwner);
                 SetActiveLibraryProfile(owner, true);
+                SetPrivateField(owner.SettingDialog, "statePort", new ActiveSettingsDialogStatePort());
                 var parent = new BMSTable { playlist_id = 7196, name = "Parent" };
                 var child = new BMSTable { playlist_id = 7197, name = "Child", Output_dir = "Parent", custom_folder_output_base_name = "Extra" };
                 var playlist = new TestBmsPlaylist(values.LR2SongDBPath, configOwner, null, null,
@@ -369,6 +391,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     Lr2ConfigOwner config = composition.ResolveLr2Config(settings.LR2ConfigXmlPath);
                     SetPrivateField(owner, "lr2config", config);
                     SetActiveLibraryProfile(owner, true);
+                    SetPrivateField(owner.SettingDialog, "statePort", new ActiveSettingsDialogStatePort());
                     var playlist = new TestBmsPlaylist(settings.LR2SongDBPath, config, null, null,
                         () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(settings), () => BeatorajaBmtOptionsSnapshot.CreateCurrent(settings),
                         composition.CustomFolderOutputSettingsProvider,
@@ -491,6 +514,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Lr2ConfigOwner configOwner = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
                 SetPrivateField(owner, "lr2config", configOwner);
                 SetActiveLibraryProfile(owner, true);
+                SetPrivateField(owner.SettingDialog, "statePort", new ActiveSettingsDialogStatePort());
                 var table = new BMSTable
                 {
                     playlist_id = 7198,

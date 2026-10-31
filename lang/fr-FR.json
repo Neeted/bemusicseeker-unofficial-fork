@@ -1,4 +1,5 @@
 {
+  "Error_InstallDestinationMissing": "Le dossier de destination n’existe plus. Sélectionnez à nouveau INSTL DST.",
   "Error_OutputFolderNameMustBeSingleName": "Saisissez un seul nom de dossier de sortie, sans chemin.",
   "DialogButtonOk": "OK",
   "DialogButtonYes": "Oui",

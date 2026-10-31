@@ -315,6 +315,23 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             ChartFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), settings: settings)
             { BmsCharts = [chart], BmsonCharts = [] };
+            string retainedSource = Path.Combine(retained, "pending.bms"); File.WriteAllText(retainedSource, "#TITLE Retained pending");
+            string unrelatedSource = Path.Combine(Directory.CreateDirectory(Path.Combine(root, "UnrelatedPending")).FullName, "pending.bms");
+            File.WriteAllText(unrelatedSource, "#TITLE Unrelated pending");
+            var stale = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(retainedSource)))]); stale.path = retained;
+            var unrelated = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(unrelatedSource)))]); unrelated.path = Path.GetDirectoryName(unrelatedSource) ?? throw new InvalidOperationException();
+            library.ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([stale, unrelated]);
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+            { db.CreateTable<LR2SongDBExtended.install>(); db.InsertOrReplace(stale, typeof(LR2SongDBExtended.install)); db.InsertOrReplace(unrelated, typeof(LR2SongDBExtended.install)); });
+            var publishedPendingPaths = new List<string[]>();
+            var publicationFailures = new List<Exception>();
+            void ObservePendingPublication(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName != nameof(BMSLibrary.ChartPackagesPending)) { return; }
+                try { publishedPendingPaths.Add(library.ChartPackagesPending.Select(package => package.path).ToArray()); }
+                catch (Exception failure) { publicationFailures.Add(failure); }
+            }
+            library.PropertyChanged += ObservePendingPublication;
             try
             {
                 using (var db = new LR2SongDBExtended(songDbPath))
@@ -332,8 +349,19 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 }
                 else { CollectionAssert.AreEqual(new[] { retained }, StandaloneBmsRootPathSettings.Deserialize(fresh.StandaloneBmsRootPaths, fresh.BMSRootPath).ToArray()); }
                 Assert.AreEqual(retained, fresh.BMSInstallDir);
+                CollectionAssert.AreEqual(new[] { unrelated.path }, library.ChartPackagesPending.Select(package => package.path).ToArray());
+                Assert.IsTrue(File.Exists(retainedSource)); Assert.IsTrue(File.Exists(unrelatedSource));
+                using LR2SongDBExtended verifyPending = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                CollectionAssert.AreEqual(new[] { unrelated.path }, verifyPending.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
+                Assert.AreEqual(0, publicationFailures.Count, string.Join(Environment.NewLine, publicationFailures));
+                Assert.IsTrue(publishedPendingPaths.Count > 0, "direct自己受付の終端でも保留通知を公開します。");
+                foreach (string[] paths in publishedPendingPaths) { CollectionAssert.AreEqual(new[] { unrelated.path }, paths); }
             }
-            finally { library.RequestStop("registered-root-test"); }
+            finally
+            {
+                library.PropertyChanged -= ObservePendingPublication;
+                library.RequestStop("registered-root-test");
+            }
         });
     }
 

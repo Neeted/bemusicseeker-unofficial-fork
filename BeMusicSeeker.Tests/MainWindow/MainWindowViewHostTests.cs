@@ -1775,8 +1775,9 @@ public sealed partial class MainWindowViewHostTests
         internal RecordingApplicationLifetime(
             List<string>? events = null,
             Action? onShutdown = null,
-            Func<Task>? restartApplication = null)
+            Func<Task>? restartApplication = null, bool firstStartup = false)
         {
+            IsFirstStartup = firstStartup;
             this.events = events;
             this.onShutdown = onShutdown;
             this.restartApplication = restartApplication;
@@ -1791,10 +1792,11 @@ public sealed partial class MainWindowViewHostTests
 
         internal int CoordinatedShutdownStartCount { get; private set; }
 
-        public bool IsFirstStartup => false;
+        public bool IsFirstStartup { get; private set; }
 
         public void CompleteFirstStartup()
         {
+            IsFirstStartup = false;
         }
 
         public void MarkCoordinatedShutdownStarted(string reason)

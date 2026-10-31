@@ -72,11 +72,11 @@ internal interface ISelectedChartMutationStore
         BMSLibrary library,
         IReadOnlyList<LibraryChartRef> charts);
 
-    /// <summary>確認前の同じ固定対象を実行し、観測した削除事実を終端へ返します。</summary>
+    /// <summary>確認前の同じ固定対象を実行し、削除事実と今回root保留通知を返します。通知は例外時も実親L/P解放後finallyで公開します。</summary>
     LibraryChartRemovalOutcome RemoveLibraryCharts(
         BMSLibrary library,
         LibraryChartRemovalPreflight prepared,
-        IReadOnlyList<string> approvedWholeFolderDeletePaths);
+        IReadOnlyList<string> approvedWholeFolderDeletePaths, out Action publication);
 
     void RemovePendingCharts(
         BMSLibrary library,
@@ -383,33 +383,42 @@ internal sealed class SelectedChartMutationWorkflowOwner
             LibraryChartRemovalOutcome removalOutcome = null;
             IReadOnlyList<string> approvedFolderPaths = prepared?.GetExecutableWholeFolderPaths(approvedWholeFolderDeletePaths) ?? [];
             prepared = prepared?.ExcludeProtectedWholeFolderApprovals(approvedWholeFolderDeletePaths);
-            SelectedChartMutationResult result = await Task.Run(() => ExecuteMutation(
-                resolution.Route == ChartDeleteRoute.Pending
-                ? SelectedChartMutationRefreshScope.Pending
-                : SelectedChartMutationRefreshScope.Library,
-                (library, operationStore) =>
-                {
-                    if (resolution.Route == ChartDeleteRoute.Pending)
+            Action pendingPublication = null;
+            SelectedChartMutationResult result;
+            try
+            {
+                result = await Task.Run(() => ExecuteMutation(
+                    resolution.Route == ChartDeleteRoute.Pending
+                    ? SelectedChartMutationRefreshScope.Pending
+                    : SelectedChartMutationRefreshScope.Library,
+                    (library, operationStore) =>
                     {
-                        operationStore.RemovePendingCharts(
-                            library,
-                            pendingCharts,
-                            sendToRecycleBin: true,
-                            deleteContainingPackageFoldersWhenNoBms);
-                        return;
-                    }
+                        if (resolution.Route == ChartDeleteRoute.Pending)
+                        {
+                            operationStore.RemovePendingCharts(
+                                library,
+                                pendingCharts,
+                                sendToRecycleBin: true,
+                                deleteContainingPackageFoldersWhenNoBms);
+                            return;
+                        }
 
-                    removalOutcome = operationStore.RemoveLibraryCharts(
-                        library,
-                        prepared,
-                        approvedFolderPaths);
-                },
-                acquiredOperationGate: operationGate,
-                physicalPaths: resolution.Route == ChartDeleteRoute.Library
-                    ? prepared.Targets.Select(chart => chart.Path).Concat(approvedFolderPaths)
-                    : pendingCharts.Select(chart => deleteContainingPackageFoldersWhenNoBms ? Path.GetDirectoryName(chart.Path) : chart.Path),
-                recursivePhysicalPaths: true,
-                stopPlayback: resolution.Route == ChartDeleteRoute.Pending || prepared.Targets.Count > 0)).ConfigureAwait(false);
+                        removalOutcome = operationStore.RemoveLibraryCharts(
+                            library,
+                            prepared,
+                            approvedFolderPaths, out pendingPublication);
+                    },
+                    acquiredOperationGate: operationGate,
+                    physicalPaths: resolution.Route == ChartDeleteRoute.Library
+                        ? prepared.Targets.Select(chart => chart.Path).Concat(approvedFolderPaths)
+                        : pendingCharts.Select(chart => deleteContainingPackageFoldersWhenNoBms ? Path.GetDirectoryName(chart.Path) : chart.Path),
+                    recursivePhysicalPaths: true,
+                    stopPlayback: resolution.Route == ChartDeleteRoute.Pending || prepared.Targets.Count > 0)).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (pendingPublication != null) { FileDbMutationReport.NotifyBestEffort(pendingPublication); }
+            }
             operationGateTransferred = true;
             if (removalOutcome != null)
             {
@@ -892,16 +901,16 @@ internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutat
         return library.PrepareLibraryChartRemoval(charts);
     }
 
-    /// <summary>確認前に固定した要求を再確定せずモデルへ渡し、終端へ削除事実を返します。</summary>
+    /// <summary>確認前の固定要求と生存権限をモデルへ渡し、削除事実と親解放後の純root保留通知を返します。</summary>
     public LibraryChartRemovalOutcome RemoveLibraryCharts(
         BMSLibrary library,
         LibraryChartRemovalPreflight prepared,
-        IReadOnlyList<string> approvedWholeFolderDeletePaths)
+        IReadOnlyList<string> approvedWholeFolderDeletePaths, out Action publication)
     {
         return library.RemoveLibraryCharts(
             prepared,
             sendToRecycleBin: true,
-            approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths, capability: capability);
+            approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths, capability: capability, publication: out publication);
     }
 
     public void RemovePendingCharts(

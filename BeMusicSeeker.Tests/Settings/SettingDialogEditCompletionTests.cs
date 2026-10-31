@@ -1783,12 +1783,13 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
-    /// <summary>BMS一覧の局所確定は同じL/Pで実差分を完了し、実score取得後も登録公開のcache失効・通知を維持します。DBと画面へ今回の譜面を反映するまで閉鎖を要求しません。</summary>
+    /// <summary>BMS一覧の局所確定は同じL/Pで実差分を完了し、実score取得後も登録公開のcache失効・通知を維持します。成功時はDBと画面へ今回の譜面を反映し、走査失敗でも確定rootの保留解除通知を親L/P・モデル保護の解放後に完了します。</summary>
     /// <remarks>初期化後の独立保守と区別し、当該確定Taskの実終端でDBと必須UIを観測します。</remarks>
     [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void BmsConfirmation_CompletesRealFileDiffBeforeClosing(bool lr2)
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void BmsConfirmation_CompletesRealFileDiffBeforeClosing(bool lr2, bool failScan)
     {
         string root = CreateTemporaryRoot();
         string initialRoot = Path.Combine(root, "Songs");
@@ -1809,6 +1810,15 @@ public sealed partial class SettingDialogEditCompletionTests
                 values.StartupSelectInstallPending = false;
                 var session = new CountingSettingsEditSession(values);
                 var failures = new List<Exception>();
+                var scanFailure = new IOException("controlled root-confirmation scan failure");
+                var scanWarningReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var scanWarnings = new List<string>();
+                var dialogs = new RecordingRootDialogService();
+                dialogs.MessageObserved = () =>
+                {
+                    scanWarnings.Add(dialogs.LastMessageText);
+                    if (dialogs.LastMessageText.Contains(scanFailure.Message, StringComparison.Ordinal)) { scanWarningReceived.TrySetResult(); }
+                };
                 var scanner = new SettingsChartFileScanner(CapturedChartFileScanner.FromFixture([chartA],
                     new Dictionary<string, IEnumerable<string>> { [initialRoot] = [] }, [initialRoot]));
                 var ui = new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher);
@@ -1816,7 +1826,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 var composition = new ApplicationComposition(settingsEditSession: session, reportSettingsApplyFailure: failures.Add,
                     uiScheduler: ui, applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(), applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
-                    chartFileScanner: scanner, rootFileEnumerator: new FastRootFileEnumerator(),
+                    chartFileScanner: scanner, rootFileEnumerator: new FastRootFileEnumerator(), fileDbMutationDialogService: dialogs,
                     defaultBmsPlayerFactory: () => { defaultPlayerCount++; return new RecordingPlaybackPlayer(); });
                 var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []);
                 var owner = new MainWindowViewModel(composition, factory);
@@ -1835,6 +1845,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 };
                 owner.SettingDialog.AttachPresentationPort(presentation);
                 Task? apply = null;
+                Action? detachPendingNotifications = null;
                 try
                 {
                     Task<bool> initialize = owner.InitializeAsync();
@@ -1861,9 +1872,69 @@ public sealed partial class SettingDialogEditCompletionTests
                         "実score取得後も、譜面差分を伴わない登録公開がモデルのcacheを失効させます。");
                     Assert.IsTrue(Volatile.Read(ref parentCacheNotices) > 0, "同じ登録公開を既存UI schedulerのcache通知へ接続します。");
                     File.WriteAllText(chartB, "#PLAYER 1\n#TITLE Folder B\n#BPM 120\n#00111:01\n");
+                    string unrelatedPath = Path.Combine(Directory.CreateDirectory(Path.Combine(root, "UnrelatedPending")).FullName, "pending.bms");
+                    File.WriteAllText(unrelatedPath, "#TITLE Unrelated\n#BPM 120\n");
+                    var becameOwned = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartB)))]);
+                    becameOwned.path = addedRoot;
+                    var unrelated = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(unrelatedPath)))]);
+                    unrelated.path = Path.GetDirectoryName(unrelatedPath) ?? throw new InvalidOperationException();
+                    library.ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([becameOwned, unrelated]);
+                    string pendingDatabase = lr2 ? values.LR2SongDBPath : composition.ApplicationPathSnapshot.StandaloneSongDbPath;
+                    BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(pendingDatabase, db =>
+                    { db.InsertOrReplace(becameOwned, typeof(LR2SongDBExtended.install)); db.InsertOrReplace(unrelated, typeof(LR2SongDBExtended.install)); });
+                    byte[] chartBefore = File.ReadAllBytes(chartB);
+                    byte[] unrelatedBefore = File.ReadAllBytes(unrelatedPath);
+                    // getterの直読だけでは通知欠落を検出できないため、実presentationと必須PropertyChangedの受信内容を捕捉します。
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    var presentationReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    var propertyReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    var notificationFailures = new List<Exception>();
+                    var notifications = new List<(string Kind, bool Dispatcher, bool AdmissionsReleased, bool GuardsReleased,
+                        string[] Current, string[] Persisted, string[] Presented, string[] ReadPaths)>();
+                    ReaderWriterLockSlimWrapper[] modelGuards = new[] { "rwlockBMSFilesInitializedAll", "rwlockPendingInstallCharts", "rwlockSongDBInstall" }
+                        .Select(name => typeof(BMSLibrary).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(library)
+                            as ReaderWriterLockSlimWrapper ?? throw new InvalidOperationException("Missing model guard: " + name)).ToArray();
+                    void RecordPendingNotification(string kind, TaskCompletionSource received)
+                    {
+                        try
+                        {
+                            bool guardsReleased = modelGuards.All(guard => guard.LockingReadCount == 0 && guard.LockingWriteCount == 0 && !guard.IsUpgradeableReadLockHeld);
+                            using LR2SongDBExtended pendingDb = new BmsLibraryDbGateway(pendingDatabase).OpenSongDbReadOnly();
+                            notifications.Add((kind, TestUiDispatcherHost.Dispatcher.CheckAccess(),
+                                !composition.OperationAdmission.IsActive && !composition.PlaylistOperationAdmission.IsActive, guardsReleased,
+                                library.ChartPackagesPending.Select(package => package.path).ToArray(),
+                                pendingDb.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray(),
+                                owner.InstallTree.ChartPackagesPending.Select(package => package.path).ToArray(),
+                                guardsReleased ? library.GetPendingBmsFormatChartFilesSnapshot().Select(chart => chart.Path).ToArray() : []));
+                        }
+                        catch (Exception failure) { notificationFailures.Add(failure); }
+                        finally { received.TrySetResult(); }
+                    }
+                    EventHandler<InstallTreePresentationChangedEventArgs> presentationHandler = (_, args) =>
+                    {
+                        if ((args.Sections & InstallTreePresentationSection.Pending) != 0) { RecordPendingNotification("presentation", presentationReceived); }
+                    };
+                    PropertyChangedEventHandler propertyHandler = (_, args) =>
+                    {
+                        if (args.PropertyName == nameof(InstallTreeViewModel.ChartPackagesPending)) { RecordPendingNotification("property", propertyReceived); }
+                    };
+                    owner.InstallTree.PresentationChanged += presentationHandler;
+                    owner.InstallTree.PropertyChanged += propertyHandler;
+                    detachPendingNotifications = () =>
+                    {
+                        owner.InstallTree.PresentationChanged -= presentationHandler;
+                        owner.InstallTree.PropertyChanged -= propertyHandler;
+                    };
                     var next = CapturedChartFileScanner.FromFixture([chartA, chartB],
                         new Dictionary<string, IEnumerable<string>> { [initialRoot] = [], [addedRoot] = [] }, [initialRoot]);
-                    next.ScanObserved = () => { settingsLibraryTerminal = composition.OperationAdmission.WaitForIdleAsync(); settingsPlaylistTerminal = composition.PlaylistOperationAdmission.WaitForIdleAsync(); entered.TrySetResult(); release.Wait(); };
+                    next.ScanObserved = () =>
+                    {
+                        settingsLibraryTerminal = composition.OperationAdmission.WaitForIdleAsync();
+                        settingsPlaylistTerminal = composition.PlaylistOperationAdmission.WaitForIdleAsync();
+                        entered.TrySetResult();
+                        release.Wait();
+                        if (failScan) { throw scanFailure; }
+                    };
                     scanner.Current = next;
                     var capturedRoots = new List<IReadOnlyList<string>>();
                     scanner.RootsObserved = roots => capturedRoots.Add(roots);
@@ -1875,6 +1946,9 @@ public sealed partial class SettingDialogEditCompletionTests
                     apply = owner.SettingDialog.CommitBmsRootsAsync();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, apply, "folder-settings-scan"), "folder-settings-scan");
                     Assert.IsFalse(apply.IsCompleted);
+                    Assert.IsTrue(composition.BmsRootRegistrations.CaptureUserRoots().Contains(candidateRoot, StringComparer.OrdinalIgnoreCase),
+                        "走査が保留中でも検索rootは保存・公開済みです。");
+                    if (lr2) { Assert.IsTrue(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking().Contains(candidateRoot, StringComparer.OrdinalIgnoreCase)); }
                     Assert.IsTrue(composition.OperationAdmission.IsActive);
                     Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive);
                     CollectionAssert.DoesNotContain(presentation.Requests, "close");
@@ -1884,26 +1958,61 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.IsFalse(settingsPlaylistTerminal.IsCompleted);
                     release.Set();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "folder-settings-terminal");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(
+                        Task.WhenAll(presentationReceived.Task, propertyReceived.Task), apply, "folder-settings-pending-notifications"), "folder-settings-pending-notifications");
+                    Assert.AreEqual(0, notificationFailures.Count, string.Join(Environment.NewLine, notificationFailures));
+                    Assert.IsTrue(notifications.Any(notice => notice.Kind == "presentation"));
+                    Assert.IsTrue(notifications.Any(notice => notice.Kind == "property"));
+                    foreach ((string Kind, bool Dispatcher, bool AdmissionsReleased, bool GuardsReleased, string[] Current, string[] Persisted, string[] Presented, string[] ReadPaths) notice in notifications)
+                    {
+                        Assert.IsTrue(notice.Dispatcher, notice.Kind);
+                        Assert.IsTrue(notice.AdmissionsReleased, notice.Kind + ": 親L/Pの解放後に通知します。");
+                        Assert.IsTrue(notice.GuardsReleased, notice.Kind + ": モデル保護の解放後に同期読取りできます。");
+                        CollectionAssert.AreEqual(new[] { unrelated.path }, notice.Current, notice.Kind);
+                        CollectionAssert.AreEqual(new[] { unrelated.path }, notice.Persisted, notice.Kind);
+                        CollectionAssert.AreEqual(new[] { unrelated.path }, notice.Presented, notice.Kind);
+                        CollectionAssert.AreEqual(new[] { unrelatedPath }, notice.ReadPaths, notice.Kind);
+                    }
                     Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
-                    CollectionAssert.Contains(owner.SettingDialog.ConfirmedBMSDirectories.ToArray(), addedRoot);
-                    Assert.AreEqual(addedRoot, owner.SettingDialog.BMSInstallDir);
+                    if (failScan)
+                    {
+                        // scanner例外は既存の不完全走査結果へ変換されます。必須警告の実受信で元原因の伝達を確認します。
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(
+                            scanWarningReceived.Task, apply, "folder-settings-incomplete-scan-warning"), "folder-settings-incomplete-scan-warning");
+                        StringAssert.Contains(scanWarnings.Single(message => message.Contains(scanFailure.Message, StringComparison.Ordinal)),
+                            "chart_file_scan_failed:" + scanFailure.Message);
+                    }
+                    Assert.IsTrue(owner.SettingDialog.ConfirmedBMSDirectories.Contains(addedRoot, StringComparer.OrdinalIgnoreCase));
+                    Assert.AreEqual(failScan ? candidateRoot : addedRoot, owner.SettingDialog.BMSInstallDir);
                     CollectionAssert.Contains(owner.SettingDialog.BmsRootPathList.ToArray(), candidateRoot);
                     Assert.AreEqual(1, defaultPlayerCount, "Folder段階はplayerの再構築を追加しません。");
-                    Assert.AreEqual("Folder B", library.BmsCharts.Single(chart => chart.Path == chartB).RawTitle);
+                    if (!failScan) { Assert.AreEqual("Folder B", library.BmsCharts.Single(chart => chart.Path == chartB).RawTitle); }
+                    CollectionAssert.AreEqual(new[] { unrelated.path }, library.ChartPackagesPending.Select(package => package.path).ToArray());
+                    CollectionAssert.AreEqual(new[] { unrelated.path }, owner.InstallTree.ChartPackagesPending.Select(package => package.path).ToArray());
+                    CollectionAssert.AreEqual(chartBefore, File.ReadAllBytes(chartB));
+                    CollectionAssert.AreEqual(unrelatedBefore, File.ReadAllBytes(unrelatedPath));
+                    using (LR2SongDBExtended pendingDb = new BmsLibraryDbGateway(pendingDatabase).OpenSongDbReadOnly())
+                    { CollectionAssert.AreEqual(new[] { unrelated.path }, pendingDb.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray()); }
+
                     using (LR2SongDBExtended db = new BmsLibraryDbGateway(lr2 ? values.LR2SongDBPath : composition.ApplicationPathSnapshot.StandaloneSongDbPath).OpenSongDbReadOnly())
-                    { Assert.AreEqual("Folder B", db.Table<LR2SongDB.song>().Single(row => row.path == chartB).title); }
+                    {
+                        if (failScan) { Assert.IsFalse(db.Table<LR2SongDB.song>().Any(row => row.path == chartB)); }
+                        else { Assert.AreEqual("Folder B", db.Table<LR2SongDB.song>().Single(row => row.path == chartB).title); }
+                    }
                     if (lr2)
                     {
                         BMSPlaylist playlist = factory.CreatedPlaylist ?? throw new InvalidOperationException("Actual playlist is unavailable.");
                         Assert.IsTrue(capturedRoots.Any(roots => roots.Contains(addedRoot, StringComparer.OrdinalIgnoreCase)), "同じ確定操作の実走査へ新登録を渡します。");
-                        CollectionAssert.Contains(composition.ResolveLr2Config(values.LR2ConfigXmlPath).Capture().RegisteredRoots.ToArray(), addedRoot);
-                        CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), addedRoot);
+                        Assert.IsTrue(composition.ResolveLr2Config(values.LR2ConfigXmlPath).Capture().RegisteredRoots.Contains(addedRoot, StringComparer.OrdinalIgnoreCase));
+                        Assert.IsTrue(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking().Contains(addedRoot, StringComparer.OrdinalIgnoreCase));
                     }
-                    Assert.IsTrue(owner.MainChartList.Rows.OfType<LibraryChartRow>().Any(row => row.Title == "Folder B"));
+                    Assert.AreEqual(!failScan, owner.MainChartList.Rows.OfType<LibraryChartRow>().Any(row => row.Title == "Folder B"));
                     Assert.IsTrue(settingsLibraryTerminal.IsCompletedSuccessfully);
                     Assert.IsTrue(settingsPlaylistTerminal.IsCompletedSuccessfully);
-                    if (lr2)
+                    if (lr2 && !failScan)
                     {
+                        detachPendingNotifications();
+                        detachPendingNotifications = null;
                         next.ScanObserved = null;
                         capturedRoots.Clear();
                         File.WriteAllText(values.LR2ConfigXmlPath, "<external-broken");
@@ -1921,7 +2030,12 @@ public sealed partial class SettingDialogEditCompletionTests
                 {
                     release.Set();
                     try { if (apply != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "folder-settings-cleanup-task"); } }
-                    finally { TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "folder-settings-cleanup"); owner.SettingDialog.Dispose(); }
+                    finally
+                    {
+                        detachPendingNotifications?.Invoke();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "folder-settings-cleanup");
+                        owner.SettingDialog.Dispose();
+                    }
                 }
             });
         }
@@ -5036,6 +5150,8 @@ public sealed partial class SettingDialogEditCompletionTests
         public Task<StartupInitializationResult> ReloadScoresOnlyAsync(LibraryFileMutationCapability capability) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
 
         public Task PresentLibraryDirectoryWarningAsync(BeMusicSeeker.Models.BmsLibraryInternal.LibraryDirectoryPreflightException failure) => Task.CompletedTask;
+
+        public void ReevaluatePendingPackagesForSearchRoots(LibraryFileMutationCapability capability, out Action publication) { publication = () => { }; }
 
         public Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
 

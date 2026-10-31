@@ -71,8 +71,8 @@ internal interface IDuplicateMaintenanceStore
     /// <summary>最初の件数確認前に、モデルの現在値と安全属性を固定します。</summary>
     LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary library, IReadOnlyList<ChartFile> charts);
 
-    /// <summary>固定対象と全確認後の明示的な承認候補を渡し、モデル内で再確認せず削除します。</summary>
-    LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths);
+    /// <summary>固定対象と承認scopeを渡して削除し、今回root保留通知だけを返します。実親L解放後finallyが例外時も通知を公開します。</summary>
+    LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths, out Action publication);
 }
 
 internal sealed class DuplicateMaintenanceMutationResult
@@ -595,15 +595,21 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             prepared = prepared.ExcludeProtectedWholeFolderApprovals(approvedFolders);
 
             LibraryChartRemovalOutcome removalOutcome = null;
+            Action pendingPublication = null;
             Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
                 plan.SelectionContext,
-                (library, operationStore) => removalOutcome = operationStore.RemoveCharts(library, prepared, approvedPaths),
+                (library, operationStore) => removalOutcome = operationStore.RemoveCharts(library, prepared, approvedPaths, out pendingPublication),
                 removedChartCount: 0,
                 acquiredOperationGate: operationGate,
                 physicalPaths: prepared.Targets.Select(chart => chart.Path).Concat(approvedPaths),
                 stopPlayback: prepared.Targets.Count > 0));
             operationGateTransferred = true;
-            DuplicateMaintenanceMutationResult result = await mutationTask;
+            DuplicateMaintenanceMutationResult result;
+            try { result = await mutationTask; }
+            finally
+            {
+                if (pendingPublication != null) { FileDbMutationReport.NotifyBestEffort(pendingPublication); }
+            }
             result = DuplicateMaintenanceMutationResult.FromRemoval(plan.SelectionContext, removalOutcome, result.Failure);
             await LibraryChartRemovalReport.ShowAsync(dialogs, removalOutcome, result.Failure);
             return result;
@@ -911,10 +917,10 @@ internal sealed class BmsLibraryDuplicateMaintenanceStore : IDuplicateMaintenanc
     public LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary library, IReadOnlyList<ChartFile> charts)
         => library.PrepareLibraryChartRemoval((charts ?? []).Select(chart => LibraryChartRef.FromChartFile(chart)));
 
-    /// <summary>全UI確認後の承認候補と同じownerの生存権限をモデルへ渡し、固定対象を再確認せず削除します。</summary>
-    public LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths)
+    /// <summary>全UI確認後の承認scopeと生存権限をモデルへ渡し、削除事実と実親解放後の今回root保留通知を返します。</summary>
+    public LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths, out Action publication)
     {
         ArgumentNullException.ThrowIfNull(approvedWholeFolderPaths);
-        return library.RemoveLibraryCharts(prepared, sendToRecycleBin: true, approvedWholeFolderDeletePaths: approvedWholeFolderPaths, capability: capability);
+        return library.RemoveLibraryCharts(prepared, sendToRecycleBin: true, approvedWholeFolderDeletePaths: approvedWholeFolderPaths, capability: capability, publication: out publication);
     }
 }

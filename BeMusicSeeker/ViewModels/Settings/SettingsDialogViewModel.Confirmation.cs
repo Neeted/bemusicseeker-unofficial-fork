@@ -205,8 +205,8 @@ public partial class SettingsDialogViewModel
         finally { SetEnvironmentTransitionInProgress(false); IsEditCompletionInProgress = false; }
     }
 
-    /// <summary>局所操作のライブラリ受付・処理・cleanup・受付外通知を同じTaskで追跡します。</summary>
-    private async Task<bool> RunLibrarySettingsOperationAsync(Func<LibraryFileMutationCapability, Task<StartupInitializationResult>> operation, Func<Exception> primaryFailure = null)
+    /// <summary>局所操作のライブラリ受付・処理・cleanup・受付外通知を同じTaskで追跡し、処理の成否にかかわらず親L/P解放後にモデル通知を実行します。</summary>
+    private async Task<bool> RunLibrarySettingsOperationAsync(Func<LibraryFileMutationCapability, Task<StartupInitializationResult>> operation, Func<Exception> primaryFailure = null, Action postAdmission = null)
     {
         if (!TryBeginBothSettingsAdmissions(out IDisposable lease, out LibraryFileMutationLease playlistLease))
         {
@@ -218,7 +218,7 @@ public partial class SettingsDialogViewModel
         try
         {
             Task CompleteSection() => CompleteAcceptedSettingsOperationAsync(lease, async capability => result = await operation(capability),
-                playlistCapability, playlistLease, () => result, primaryFailure);
+                playlistCapability, playlistLease, () => result, primaryFailure, postAdmission);
             if (workspacePort.HasPlaylistTables)
             { await workspacePort.RunWithPlaylistOperationNotificationsAsync(CompleteSection, "settings library section terminal"); }
             else { await CompleteSection(); }
@@ -572,6 +572,7 @@ public partial class SettingsDialogViewModel
         }
         if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Lr2Details) || !IsSectionCompletionEnabled || statePort.IsLibraryOperationInProgress) { return; }
         IsEditCompletionInProgress = true;
+        Action pendingPublication = null;
         try
         {
             async Task<StartupInitializationResult> SaveAndReload(LibraryFileMutationCapability capability)
@@ -587,11 +588,12 @@ public partial class SettingsDialogViewModel
                 ReplacementBmsInstallDir = null;
                 if (statePort.HasActiveLibraryProfile)
                 {
+                    statePort.ReevaluatePendingPackagesForSearchRoots(capability, out pendingPublication);
                     return await ReloadFileDiffAsync(capability);
                 }
                 return null;
             }
-            if (statePort.HasActiveLibraryProfile) { await RunLibrarySettingsOperationAsync(SaveAndReload); }
+            if (statePort.HasActiveLibraryProfile) { await RunLibrarySettingsOperationAsync(SaveAndReload, postAdmission: () => pendingPublication?.Invoke()); }
             else { await SaveAndReload(null); }
         }
         catch (Exception exception) { if (!operationAdmission.IsAdmissionClosed) { reportApplyFailure(exception); } }
@@ -1038,79 +1040,85 @@ public partial class SettingsDialogViewModel
                 }
                 async Task CompleteAcceptedSection()
                 {
-                    using (lease)
-                    using (playlistLease)
-                    using (LibraryFileMutationCapability capability = playlistLease.CreateMutationCapability())
+                    Action pendingPublication = null;
+                    try
                     {
-                        if (!ValidateTarget()) { return; }
-                        try
+                        using (lease)
+                        using (playlistLease)
+                        using (LibraryFileMutationCapability capability = playlistLease.CreateMutationCapability())
                         {
-                            if (target.OperationModeLR2DB)
+                            if (!ValidateTarget()) { return; }
+                            try
                             {
-                                foreach ((string path, string label) in new[]
+                                if (target.OperationModeLR2DB)
                                 {
+                                    foreach ((string path, string label) in new[]
+                                    {
                                     (validationTarget.LR2CustomFolderOutputBaseDir, Resources.Label_NormalOutputBase),
                                     (validationTarget.LR2CustomFolderOutputBaseDirRootType, Resources.Label_RootOutputBase)
                                 }.Concat(GetOutputAdditionalPaths(validationTarget).Select(path => (path, Resources.Label_AdditionalOutputBaseFolder))))
-                                { CustomFolderOutputBaseSearchRootSyncService.ValidateOutsideBuiltinCustomFolder(path, target.LR2RootPath, label, isOutputBase: true); }
+                                    { CustomFolderOutputBaseSearchRootSyncService.ValidateOutsideBuiltinCustomFolder(path, target.LR2RootPath, label, isOutputBase: true); }
+                                }
                             }
-                        }
-                        catch (ArgumentException failure) { ShowSettingValidationError(failure.Message); return; }
-                        IReadOnlyDictionary<string, string> renames = section is null or "additional"
-                            ? requestedRenames : new Dictionary<string, string>();
-                        if (statePort.HasActiveLibraryProfile) { customFolderOutputPort.ValidateCustomFolderOutputRegistration(target, renames); }
-                        DiscardConflictingCandidates(ConflictingCandidates.Bms | ConflictingCandidates.Lr2Details);
-                        accepted = true;
-                        var selectedValues = new List<(string Name, object Value)>();
-                        if (section is null or "normal") { selectedValues.Add((nameof(Settings.LR2CustomFolderOutputBaseDir), target.LR2CustomFolderOutputBaseDir)); }
-                        if (section is null or "root") { selectedValues.Add((nameof(Settings.LR2CustomFolderOutputBaseDirRootType), target.LR2CustomFolderOutputBaseDirRootType)); }
-                        if (section is null or "additional") { selectedValues.Add((nameof(Settings.LR2CustomFolderAdditionalOutputBaseDirs), target.LR2CustomFolderAdditionalOutputBaseDirs)); }
-                        (string Name, object Value)[] values = selectedValues.ToArray();
-                        ApplicationSettings.Persist(values);
-                        Lr2RootChange rootChange = null;
-                        if (ApplicationSettings.OperationModeLR2DB)
-                        {
-                            try
+                            catch (ArgumentException failure) { ShowSettingValidationError(failure.Message); return; }
+                            IReadOnlyDictionary<string, string> renames = section is null or "additional"
+                                ? requestedRenames : new Dictionary<string, string>();
+                            if (statePort.HasActiveLibraryProfile) { customFolderOutputPort.ValidateCustomFolderOutputRegistration(target, renames); }
+                            DiscardConflictingCandidates(ConflictingCandidates.Bms | ConflictingCandidates.Lr2Details);
+                            accepted = true;
+                            var selectedValues = new List<(string Name, object Value)>();
+                            if (section is null or "normal") { selectedValues.Add((nameof(Settings.LR2CustomFolderOutputBaseDir), target.LR2CustomFolderOutputBaseDir)); }
+                            if (section is null or "root") { selectedValues.Add((nameof(Settings.LR2CustomFolderOutputBaseDirRootType), target.LR2CustomFolderOutputBaseDirRootType)); }
+                            if (section is null or "additional") { selectedValues.Add((nameof(Settings.LR2CustomFolderAdditionalOutputBaseDirs), target.LR2CustomFolderAdditionalOutputBaseDirs)); }
+                            (string Name, object Value)[] values = selectedValues.ToArray();
+                            ApplicationSettings.Persist(values);
+                            Lr2RootChange rootChange = null;
+                            if (ApplicationSettings.OperationModeLR2DB)
                             {
-                                Lr2ConfigOwner owner = GetConfirmedLr2Owner() ?? throw new InvalidOperationException(Resources.Error_InvalidLR2SongDbOrConfigPath);
-                                if (!statePort.HasActiveLibraryProfile)
+                                try
                                 {
-                                    rootChange = owner.SaveRoots(PrepareCorrectedOutputRootChange(owner, previous, target, section), publish: false, forceSave: true);
+                                    Lr2ConfigOwner owner = GetConfirmedLr2Owner() ?? throw new InvalidOperationException(Resources.Error_InvalidLR2SongDbOrConfigPath);
+                                    if (!statePort.HasActiveLibraryProfile)
+                                    {
+                                        rootChange = owner.SaveRoots(PrepareCorrectedOutputRootChange(owner, previous, target, section), publish: false, forceSave: true);
+                                    }
+                                    else
+                                    {
+                                        IReadOnlyList<string> before = owner.Capture().RegisteredRoots;
+                                        var latest = LR2Config.CreateRootPlanningDocument(owner.ConfigFilePath, before);
+                                        CustomFolderOutputBaseSearchRootSyncPlan plan = CustomFolderOutputBaseSearchRootSyncService.PrepareNormalOutputBaseRoots(latest,
+                                            previous.LR2CustomFolderOutputBaseDir, target.LR2CustomFolderOutputBaseDir,
+                                            previous.LR2CustomFolderAdditionalOutputBaseDirs, target.LR2CustomFolderAdditionalOutputBaseDirs, []);
+                                        CustomFolderOutputBaseSearchRootSyncService.CompleteAdditionalOutputBaseRootSync(latest, plan);
+                                        latest.SetBMSSearchDirectories(customFolderOutputPort.PrepareCustomFolderOutputSearchRoots(
+                                            previous.LR2CustomFolderOutputBaseDirRootType, target, latest.GetBMSSearchDirectoriesForChangeTracking(), renames));
+                                        rootChange = owner.SaveRoots(new Lr2RootChange(before, latest.GetBMSSearchDirectoriesForChangeTracking()), publish: false, forceSave: true);
+                                    }
                                 }
-                                else
-                                {
-                                    IReadOnlyList<string> before = owner.Capture().RegisteredRoots;
-                                    var latest = LR2Config.CreateRootPlanningDocument(owner.ConfigFilePath, before);
-                                    CustomFolderOutputBaseSearchRootSyncPlan plan = CustomFolderOutputBaseSearchRootSyncService.PrepareNormalOutputBaseRoots(latest,
-                                        previous.LR2CustomFolderOutputBaseDir, target.LR2CustomFolderOutputBaseDir,
-                                        previous.LR2CustomFolderAdditionalOutputBaseDirs, target.LR2CustomFolderAdditionalOutputBaseDirs, []);
-                                    CustomFolderOutputBaseSearchRootSyncService.CompleteAdditionalOutputBaseRootSync(latest, plan);
-                                    latest.SetBMSSearchDirectories(customFolderOutputPort.PrepareCustomFolderOutputSearchRoots(
-                                        previous.LR2CustomFolderOutputBaseDirRootType, target, latest.GetBMSSearchDirectoriesForChangeTracking(), renames));
-                                    rootChange = owner.SaveRoots(new Lr2RootChange(before, latest.GetBMSSearchDirectoriesForChangeTracking()), publish: false, forceSave: true);
-                                }
+                                catch (Exception failure) { throw new PartialSettingsSaveException(ApplicationSettings.LR2ConfigXmlPath, failure); }
                             }
-                            catch (Exception failure) { throw new PartialSettingsSaveException(ApplicationSettings.LR2ConfigXmlPath, failure); }
-                        }
-                        IReadOnlyList<PlaylistCustomFolderOutputMaintenanceOwner.PreviousOutputLocation> previousLocations = [];
-                        if (statePort.HasActiveLibraryProfile)
-                        {
-                            previousLocations = await Task.Run(() => customFolderOutputPort.CommitCustomFolderOutputSettings(previous, target, renames, capability));
-                        }
-                        ApplicationSettings.Publish(values);
-                        AdoptPublishedOutputCandidates(section, target);
-                        if (rootChange != null) { GetConfirmedLr2Owner().Publish(rootChange, target); }
-                        publishOutputPlacement(target);
-                        CancelBmsRoots();
-                        RaiseConfirmedBmsSelectionChanged();
-                        if (statePort.HasActiveLibraryProfile)
-                        {
-                            await Task.Run(() => customFolderOutputPort.RegenerateCustomFolderOutputs(previousLocations, target, capability));
-                            using LibraryFileMutationCapability primary = operationAdmission.CreateMutationCapability(lease);
-                            await lr2SongDbSyncWorkflow.SyncExternalFolderRowsAfterCustomFolderOutputBaseSettingsChangeAsync(
-                                "output settings confirmation", primary, capability);
+                            IReadOnlyList<PlaylistCustomFolderOutputMaintenanceOwner.PreviousOutputLocation> previousLocations = [];
+                            if (statePort.HasActiveLibraryProfile)
+                            {
+                                previousLocations = await Task.Run(() => customFolderOutputPort.CommitCustomFolderOutputSettings(previous, target, renames, capability));
+                            }
+                            ApplicationSettings.Publish(values);
+                            AdoptPublishedOutputCandidates(section, target);
+                            if (rootChange != null) { GetConfirmedLr2Owner().Publish(rootChange, target); }
+                            publishOutputPlacement(target);
+                            CancelBmsRoots();
+                            RaiseConfirmedBmsSelectionChanged();
+                            if (statePort.HasActiveLibraryProfile)
+                            {
+                                using LibraryFileMutationCapability primary = operationAdmission.CreateMutationCapability(lease);
+                                statePort.ReevaluatePendingPackagesForSearchRoots(primary, out pendingPublication);
+                                await Task.Run(() => customFolderOutputPort.RegenerateCustomFolderOutputs(previousLocations, target, capability));
+                                await lr2SongDbSyncWorkflow.SyncExternalFolderRowsAfterCustomFolderOutputBaseSettingsChangeAsync(
+                                    "output settings confirmation", primary, capability);
+                            }
                         }
                     }
+                    finally { pendingPublication?.Invoke(); }
                 }
                 if (statePort.HasActiveLibraryProfile)
                 { await workspacePort.RunWithPlaylistOperationNotificationsAsync(CompleteAcceptedSection, "settings section terminal"); }

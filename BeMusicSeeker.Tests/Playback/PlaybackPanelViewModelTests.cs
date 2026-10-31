@@ -6638,8 +6638,9 @@ public sealed class PlaybackPanelViewModelTests
         public LibraryFileExtensionRenameBatch PrepareLibraryFileExtensionRenameBatch(
             BMSLibrary library, IReadOnlyList<ChartFile> charts, string newExtension) => throw new NotSupportedException();
         public LibraryChartRemovalOutcome RemoveLibraryCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared,
-            IReadOnlyList<string> approvedWholeFolderDeletePaths)
+            IReadOnlyList<string> approvedWholeFolderDeletePaths, out Action? publication)
         {
+            publication = null;
             IReadOnlyList<LibraryChartRef> charts = prepared.Targets.Select(chart => LibraryChartRef.FromChartFile(chart)).ToArray();
             Mutations++;
             foreach (LibraryChartRef chart in charts) { File.Delete(chart.Path); }

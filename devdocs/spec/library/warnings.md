@@ -12,6 +12,8 @@
 
 ## 仕様
 
+同path・同内容のBMS/BMSONを差分再読込みした場合は、利用者の警告無視bitを新しく評価した資源情報へ引き継ぎます。旧評価の件数・充足値全体を復元しません。BMSの日時のみ更新で再評価を省く既存最適化は維持し、本文が変わる場合と明示強制再調査は無視指定を解除します。
+
 ### 状態の正本
 
 警告は不変の `ChartWarning` の集合です。所持カタログの共通現在値、保留の `PackageChartEntry`、一時的な `ChartFile` の投影が、それぞれ担当する種類を保持します。自由文や表示用の別名プロパティ、DB保存行を状態の正本にしません。BMS・BMSONとも共通値と専門状態の投影から表示します。
@@ -132,6 +134,7 @@ LR2用パスを表現できないことを理由にBMS行を削除しません�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 同path・同内容のBMS/BMSON差分更新は無視bitだけを保持し、新しい資源件数を採用 | [`FileScanParseCommitOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/FileScanParseCommitOwner.cs) の既存値受渡し・`PreserveUnchangedWarningChoice`、`BmsLibraryMaintenanceService` | [`BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_PreservesOnlyIgnoredChoiceForUnchangedContent`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationFileScanTests.cs) はBMS/BMSON×同内容/本文変更で実差分保存・現在値・Active/Ignored対象の一致を確認し、BMSONと本文更新は新資源件数、同内容BMSは日時のみ最適化を確認する。[`BmsLibraryMaintenanceServiceTests.EvaluateMaintenanceForInline_ForceUpdateReportsChangedWhenIgnoredFlagIsReset`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryMaintenanceServiceTests.cs) はBMS/BMSONの明示強制再調査による無視解除を分担する。 |
 | 確定DSTの存続時は候補評価だけ失効し、非候補診断三種のkind/Messageを保持 | `PackageChartEntry.ApplyLibraryFolderChange`、既存の診断生成・手動DST設定、`PackageStateMutationApplier` | [`BmsLibraryStateApplierTests.ApplyPackageReferenceFacts_ConfirmedDestinationPreservesSourceDiagnostics`](../../../BeMusicSeeker.Tests/Install/BmsLibraryStateApplierTests.cs) が三診断の実producer→実手動確定→merge参照facts→実applierを通し、統合先DST/配置・健康度・診断保持、scope外不変、次の全体削除scopeでは従来全clearを確認する。候補MetadataMismatchの解除は既存 `ApplyPackageReferenceFacts_InvalidationPrioritizesConfirmedDestination`、実上限・入力元不備・所持先解決失敗の生産判断は既存推定系列、明示全clearは `ClearInstallDestinations_ClearsResolveFailedWarning` と元健康度系列が分担する。候補metadata・曖昧・音源等の既存kindと選択規則の対応は静的照合を併用する。 |
 | 成功した改名・純移動の現在配置path追従と推定時診断保持、候補失効時の元健康度復元 | `PackageChartEntry.ApplyLibraryFolderChange`、`ChartResourcePlacement.Relocate`、`BmsLibraryPackageInstallService.ClearPendingInstallDestination` | [`BmsLibraryStateApplierTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryStateApplierTests.cs) の `ApplyPackageReferenceFacts_FolderMovePreservesCandidatePlacementAndDiagnostics` がkind/Message不変と新配置を、`ApplyPackageReferenceFacts_InvalidationPrioritizesConfirmedDestination` が確定DST優先・登録時復元・他分類保持を確認する。復元12値の条件表は既存の明示クリア系列、物理成功scopeの接続は[変更操作の対応表](mutations.md#実装とテストの対応)へ分担する。 |
 | 再復号のメタデータ限定保存と詳細未付与の起動状態 | `CatalogMaintenanceOwner`、`CatalogMutationOwner`、`SongMetadataUpdate` | [LR2楽曲DBの対応表](../integration/lr2-song-db.md#実装とテストの対応)の `ApplyEncoding_RealStoreAfterDbLoadPreservesUnchangedSongColumns` と `RescanAsync_RealStoreAfterDbLoadPreservesUnchangedSongColumns` が、本番操作・実DB読込み・詳細hydrate後の更新5列/dateと対象外全列の保持を確認する。 |

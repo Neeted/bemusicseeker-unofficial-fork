@@ -70,6 +70,9 @@ internal interface ISettingsDialogStatePort
     /// <summary>呼出元の共通受付内で差分再読込みと後片付けを終え、処理失敗は通知せず元原因を伴うOperationFailedで返します。専用警告も親解放後に呼出元が通知します。</summary>
     Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability capability);
 
+    /// <summary>検索rootの確定後に保留参照だけを実走査rootへ揃え、受付解放後に呼ぶ通知を返します。物理削除や全走査はしません。</summary>
+    void ReevaluatePendingPackagesForSearchRoots(LibraryFileMutationCapability capability, out Action publication);
+
     /// <summary>呼出元の後片付けと共通受付解放後に、再試行可能なディレクトリ失敗を一度通知します。</summary>
     /// <param name="failure">差分再読込みから伝播した元のディレクトリ検査失敗。</param>
     /// <returns>通知が終端するTask。通知から新しい明示操作を受け付けられます。</returns>

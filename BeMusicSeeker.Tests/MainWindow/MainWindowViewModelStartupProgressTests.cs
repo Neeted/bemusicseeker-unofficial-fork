@@ -2137,6 +2137,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     {
         internal Func<UiMessageRequest, Task>? MessageObservedAsync { get; set; }
         internal MessageBoxResult ConfirmationResult { get; set; } = MessageBoxResult.Yes;
+        internal Func<UiConfirmationRequest, Task<UiDialogResult>>? ConfirmationObservedAsync { get; set; }
         internal int ConfirmationCount { get; private set; }
         internal Func<Task<UiWindowDialogResult<PendingPackageRestoreChoice>>>? PendingRestoreObservedAsync { get; set; }
         internal int PendingRestoreCount { get; private set; }
@@ -2148,7 +2149,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
         {
             ConfirmationCount++;
-            return Task.FromResult(UiDialogResult.FromMessageBoxResult(ConfirmationResult));
+            return ConfirmationObservedAsync?.Invoke(request) ?? Task.FromResult(UiDialogResult.FromMessageBoxResult(ConfirmationResult));
         }
         public async Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(UiWindowDialogRequest<TWindow, TResult> request, CancellationToken cancellationToken = default) where TWindow : Window
         {

@@ -526,51 +526,10 @@ internal sealed partial class LibraryMutationOwner
                 }
             }
 
-            if (hasInstallChanges)
+            if (finalizationFailure == null)
             {
-                if (finalizationFailure == null && installedResourceDirectories.Count > 0)
-                {
-                    try
-                    {
-                        if (ChartDirectoryScanBuilder.TryBuildFromRoots(
-                            installedResourceDirectories,
-                            out ChartScanResult scan,
-                            out string scanFailureReason))
-                        {
-                            applyCounts = applyCounts with { ReverseLookupApplyCount = applyCounts.ReverseLookupApplyCount + 1 };
-                            reverseLookupMutation = owner.resourceIndexOwner.AddScanDirectories(scan).MutationResult;
-                        }
-                        else
-                        {
-                            try
-                            {
-                                owner.LogInstallPerformanceWarning(
-                                    reason + " resource_cache_update skipped reason=incomplete_scan detail="
-                                    + (scanFailureReason ?? "unknown")
-                                    + " dirs=" + installedResourceDirectories.Count);
-                            }
-                            catch (Exception)
-                            {
-                                // 不完全走査の性能診断だけの失敗を必須反映失敗へ昇格させません。
-                            }
-                        }
-                    }
-                    catch (Exception exception)
-                    {
-                        finalizationFailure = exception;
-                    }
-                }
-            }
-            else if (finalizationFailure == null)
-            {
-                try
-                {
-                    reverseLookupMutation = ApplyFolderResourceChanges();
-                }
-                catch (Exception exception)
-                {
-                    finalizationFailure = exception;
-                }
+                try { reverseLookupMutation = ApplyFolderResourceChanges(); }
+                catch (Exception exception) { finalizationFailure = exception; }
             }
 
             if (hasInstallChanges && finalizationFailure == null)
@@ -633,6 +592,7 @@ internal sealed partial class LibraryMutationOwner
             {
                 changedScopes.Add(Lr2FolderPath.NormalizeDirectoryPath(removed));
             }
+            changedScopes.UnionWith(installedResourceDirectories.Select(Lr2FolderPath.NormalizeDirectoryPath));
             changedScopes.Remove(null);
             if (changedScopes.Count == 0)
             {
@@ -672,34 +632,67 @@ internal sealed partial class LibraryMutationOwner
             {
                 replacements.Add(ancestor, ancestorScan.ChartDirectories.Contains(ancestor) ? ancestorScan : null);
             }
-            var removedScopes = new List<string>(resourceDirectoryRemovals);
-            foreach (LibraryFolderPathChange merge in mergedFolders)
+            HashSet<string> installedScopes = new(installedResourceDirectories.Select(Lr2FolderPath.NormalizeDirectoryPath), StringComparer.OrdinalIgnoreCase);
+            HashSet<string> optionalInstallRoots = DirectoryResourceLookupCache.NormalizeSourceRoots(
+                installedScopes.Where(path => !IsWithinScopes(path, scanRoots)));
+            ChartScanResult installScan = null;
+            if (optionalInstallRoots.Count > 0)
             {
+                TryScanOptional(optionalInstallRoots, out installScan);
+            }
+            AddInstalledReplacements(ancestorScan);
+            AddInstalledReplacements(installScan);
+
+            var removedScopes = new List<string>(resourceDirectoryRemovals);
+            // 同じ成功先へ統合した旧scopeを一度だけまとめ、対象ごとの全merge再検索を避けます。
+            foreach (IGrouping<string, LibraryFolderPathChange> merges in mergedFolders.GroupBy(
+                change => Lr2FolderPath.NormalizeDirectoryPath(change.NewFolderPath), StringComparer.OrdinalIgnoreCase))
+            {
+                string destination = merges.Key;
                 ChartScanResult scan;
-                if (IsWithinScopes(Lr2FolderPath.NormalizeDirectoryPath(merge.NewFolderPath), scanRoots))
+                if (IsWithinScopes(destination, scanRoots))
                 {
                     scan = ancestorScan;
                 }
-                else if (!ChartDirectoryScanBuilder.TryBuildFromRoots([merge.NewFolderPath], out scan, out string optionalScanFailureReason))
+                else if (installScan != null && IsWithinScopes(destination, optionalInstallRoots))
                 {
-                    try
-                    {
-                        owner.LogInstallPerformanceWarning(reason + " resource_cache_update skipped reason=incomplete_scan detail=" + optionalScanFailureReason);
-                    }
-                    catch (Exception)
-                    {
-                        // 必須祖先に含まれない従来の任意scanは、診断失敗でも必須失敗へ昇格させません。
-                    }
+                    scan = installScan;
+                }
+                else if (!TryScanOptional([destination], out scan))
+                {
                     continue;
                 }
-                removedScopes.Add(merge.OldFolderPath);
+                // 任意scanの失敗時には従来どおり旧scopeも保持します。
+                removedScopes.AddRange(merges.Select(change => change.OldFolderPath));
                 foreach (string directory in scan.ChartDirectories)
                 {
-                    if (Lr2FolderPath.IsSameOrDescendant(directory, merge.NewFolderPath))
+                    if (Lr2FolderPath.IsSameOrDescendant(directory, destination))
                     {
                         replacements[directory] = scan;
                     }
                 }
+            }
+
+            void AddInstalledReplacements(ChartScanResult scan)
+            {
+                if (scan == null || installedScopes.Count == 0) { return; }
+                foreach (string directory in scan.ChartDirectories)
+                {
+                    if (IsWithinScopes(Lr2FolderPath.NormalizeDirectoryPath(directory), installedScopes))
+                    { replacements[directory] = scan; }
+                }
+            }
+
+            bool TryScanOptional(IEnumerable<string> roots, out ChartScanResult scan)
+            {
+                if (ChartDirectoryScanBuilder.TryBuildFromRoots(roots, out scan, out string optionalFailureReason)) { return true; }
+                scan = null;
+                try { owner.LogInstallPerformanceWarning(reason + " resource_cache_update skipped reason=incomplete_scan detail=" + optionalFailureReason); }
+                catch (Exception)
+                {
+                    // 従来の任意scanは、診断失敗でも必須失敗へ昇格させません。
+                }
+                return false;
             }
             if (movedFolders.Count == 0 && removedScopes.Count == 0 && replacements.Count == 0)
             {
