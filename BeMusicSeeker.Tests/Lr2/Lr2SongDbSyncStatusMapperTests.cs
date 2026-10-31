@@ -12,28 +12,36 @@ namespace BeMusicSeeker.Tests;
 public sealed class Lr2SongDbSyncStatusMapperTests
 {
     /// <summary>
-    /// 再同期が必要な状態は警告として表示し、保存位置・工程・前回エラーを詳細に残して状態名との混同や原因の欠落を検出します。
+    /// ar-SAで再同期が必要な状態を警告表示し、Gregorian固定日時・保存位置・工程・前回エラーを保ち、暦の変化や原因の欠落を検出します。
     /// </summary>
     [TestMethod]
     public void Create_NeededBuildsWarningStatus()
     {
-        Lr2SongDbSyncRuntimeStatus status = Lr2SongDbSyncStatusMapper.Create(new Lr2SongDbSyncStatusSnapshot
+        CultureInfo previousCulture = System.Globalization.CultureInfo.CurrentCulture;
+        try
         {
-            Status = Lr2SongDbSyncStatusKind.Needed,
-            StoredStatus = Lr2SongDbSyncStatusKind.Failed,
-            Stage = "song_rows",
-            LastError = "failed before",
-            ProcessedCursor = 12,
-            TotalCount = 100
-        }, new DateTime(2026, 6, 5, 12, 0, 0));
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo("ar-SA");
+            Lr2SongDbSyncRuntimeStatus status = Lr2SongDbSyncStatusMapper.Create(new Lr2SongDbSyncStatusSnapshot
+            {
+                Status = Lr2SongDbSyncStatusKind.Needed,
+                StoredStatus = Lr2SongDbSyncStatusKind.Failed,
+                Stage = "song_rows",
+                LastError = "failed before",
+                ProcessedCursor = 12,
+                TotalCount = 100
+            }, new DateTime(2026, 6, 5, 12, 0, 0));
 
-        Assert.AreEqual(Lr2SongDbSyncStatusKind.Needed, status.Kind);
-        Assert.AreEqual(Resources.Lr2_song_db_sync_status_needed, status.StatusText);
-        Assert.IsTrue(status.HasWarningStatus);
-        StringAssert.Contains(status.Detail, "[12/100]");
-        StringAssert.Contains(status.Detail, Resources.Lr2_song_db_sync_stage_song_rows);
-        StringAssert.Contains(status.Detail, "failed before");
-        Assert.IsFalse(status.Detail.Contains(Resources.Lr2_song_db_sync_status_needed));
+            StringAssert.Contains(status.Detail, "2026-06-05 12:00:00");
+            Assert.AreEqual(new DateTime(2026, 6, 5, 12, 0, 0), status.CheckedAt);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Needed, status.Kind);
+            Assert.AreEqual(Resources.Lr2_song_db_sync_status_needed, status.StatusText);
+            Assert.IsTrue(status.HasWarningStatus);
+            StringAssert.Contains(status.Detail, "[12/100]");
+            StringAssert.Contains(status.Detail, Resources.Lr2_song_db_sync_stage_song_rows);
+            StringAssert.Contains(status.Detail, "failed before");
+            Assert.IsFalse(status.Detail.Contains(Resources.Lr2_song_db_sync_status_needed));
+        }
+        finally { System.Globalization.CultureInfo.CurrentCulture = previousCulture; }
     }
 
     /// <summary>
@@ -53,32 +61,40 @@ public sealed class Lr2SongDbSyncStatusMapperTests
     }
 
     /// <summary>
-    /// 処理中は保存済み位置と現在工程の件数を分けて表示し、途中・最終件数で進捗値と最大値を取り違える誤りを検出します。
+    /// th-THでGregorian固定日時を保ち、保存済み位置と現在工程の件数を分けて表示し、進捗値と最大値を取り違える誤りを検出します。
     /// </summary>
     [DataTestMethod]
     [DataRow(4)]
     [DataRow(50)]
     public void Create_RunningSeparatesSavedPositionFromStageProgress(int processedCount)
     {
-        Lr2SongDbSyncRuntimeStatus status = Lr2SongDbSyncStatusMapper.Create(new Lr2SongDbSyncStatusSnapshot
+        CultureInfo previousCulture = System.Globalization.CultureInfo.CurrentCulture;
+        try
         {
-            Status = Lr2SongDbSyncStatusKind.Running,
-            Stage = "song_rows",
-            ProcessedCursor = 12,
-            TotalCount = 100,
-            StageProcessedCount = processedCount,
-            StageTotalCount = 50
-        }, new DateTime(2026, 6, 5, 12, 0, 0));
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo("th-TH");
+            Lr2SongDbSyncRuntimeStatus status = Lr2SongDbSyncStatusMapper.Create(new Lr2SongDbSyncStatusSnapshot
+            {
+                Status = Lr2SongDbSyncStatusKind.Running,
+                Stage = "song_rows",
+                ProcessedCursor = 12,
+                TotalCount = 100,
+                StageProcessedCount = processedCount,
+                StageTotalCount = 50
+            }, new DateTime(2026, 6, 5, 12, 0, 0));
 
-        Assert.AreEqual(Lr2SongDbSyncStatusKind.Running, status.Kind);
-        Assert.AreEqual(Resources.Lr2_song_db_sync_status_running, status.StatusText);
-        Assert.IsTrue(status.HasWarningStatus);
-        StringAssert.Contains(status.Detail, "[12/100]");
-        StringAssert.Contains(status.Detail, Resources.Lr2_song_db_sync_stage_song_rows);
-        Assert.AreEqual(Resources.Lr2_song_db_sync_stage_song_rows + " [" + processedCount + "/50]", status.ProgressText);
-        Assert.IsTrue(status.HasProgress);
-        Assert.AreEqual((double)processedCount, status.ProgressValue);
-        Assert.AreEqual(50.0, status.ProgressMaximum);
+            StringAssert.Contains(status.Detail, "2026-06-05 12:00:00");
+            Assert.AreEqual(new DateTime(2026, 6, 5, 12, 0, 0), status.CheckedAt);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Running, status.Kind);
+            Assert.AreEqual(Resources.Lr2_song_db_sync_status_running, status.StatusText);
+            Assert.IsTrue(status.HasWarningStatus);
+            StringAssert.Contains(status.Detail, "[12/100]");
+            StringAssert.Contains(status.Detail, Resources.Lr2_song_db_sync_stage_song_rows);
+            Assert.AreEqual(Resources.Lr2_song_db_sync_stage_song_rows + " [" + processedCount + "/50]", status.ProgressText);
+            Assert.IsTrue(status.HasProgress);
+            Assert.AreEqual((double)processedCount, status.ProgressValue);
+            Assert.AreEqual(50.0, status.ProgressMaximum);
+        }
+        finally { System.Globalization.CultureInfo.CurrentCulture = previousCulture; }
     }
 
     /// <summary>

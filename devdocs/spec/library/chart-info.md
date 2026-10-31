@@ -10,6 +10,8 @@
 
 ## 仕様
 
+導入時のinline保存・公開でも `LevelText` は負号を含めInvariantで生成します。負PLAYLEVELの表示をENTRY LEVELの初期文字列へ渡したとき、無変更の確定を固定文法で受理できる表記に揃え、数値の保存値は変えません。
+
 ### 識別と共通詳細値
 
 BMSは `song.hash` のMD5と `chart_digest_map` のSHA-256を結び、`chart_info.sha256` を参照します。BMSONは `bmson_song.sha256` を優先し、`chart_digest_map` を作りません。
@@ -123,6 +125,7 @@ bmsonのオブジェクト欄にある数値・文字列などの変換不能値
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| inline導入後の負LEVEL表示と無変更確定 | `ChartInfoStorageApplication.CreateCurrentValue`、`PlaylistDetailSourceRow` | `ChartInfoInlineHydrationTests.InlinePublication_NegativeLevelCanBeCommittedFromDetailRowWithoutEditing` はsv-SEで実保存・公開後のASCII負号から詳細行・実保存ownerへの接続を確認する。実F2/Enter/Escape、拒否通知と次保存は `MainWindowPlaylistWorkspaceWpfTests.EntryLevel_CurrentCultureRoundTripAndCancelKeepSavedNumber` が分担する。 |
 | 旧BMSONの通常フォルダ導入による詳細保存 | `BMSLibrary.InstallChartPackagesAutoWithProgressAsync`、`ChartInfoInlineBuildService`、共通JSON境界 | [`BmsLibraryPackageInstallServiceTests.InstallChartPackagesAuto_BmsonFolderPreservesLegacyResourceAndStorageContracts`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) は旧0.21・versionless・現代形式の実導入から実配置・所持を確認し、新しい読取り専用DB接続でbmson_songのpath/hashと詳細のliteral版21・BPM120～240・3ノート・最終1000msを観測する。音源欠損は元入力保持・不足警告付き保留・未導入を確認し、キー優先・数値字句の条件網羅と通常補完のcache再利用は別の境界へ分担する。 |
 | 旧BMSONの新規保存・旧20再解析・同hash21再利用 | `BmsonJsonParser`、`ChartInfoBuildService`、`BmsLibraryDbGateway` | [`ChartInfoBackfillStorageTests.BackfillChartInfos_AppliesChartInfoToBmsonStorageOwner`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoBackfillStorageTests.cs) は旧0.21・versionless・現代形式を実SQLiteへ保存し、新接続でliteral21・詳細値を確認する。旧20の一回読取り・再解析、同hash21の読取り0・識別可能な保存hash保持とBMS専用表の非生成も確認する。 |
 | 再復号のメタデータ限定保存と詳細未付与の起動状態 | `CatalogMaintenanceOwner`、`CatalogMutationOwner`、`SongMetadataUpdate` | [LR2楽曲DBの対応表](../integration/lr2-song-db.md#実装とテストの対応)の `ApplyEncoding_RealStoreAfterDbLoadPreservesUnchangedSongColumns` と `RescanAsync_RealStoreAfterDbLoadPreservesUnchangedSongColumns` が、本番操作・実DB読込み・詳細hydrate後の更新5列/dateと対象外全列の保持を確認する。 |

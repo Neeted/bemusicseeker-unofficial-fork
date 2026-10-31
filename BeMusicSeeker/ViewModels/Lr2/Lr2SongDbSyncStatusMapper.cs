@@ -24,7 +24,7 @@ internal static class Lr2SongDbSyncStatusMapper
         };
     }
 
-    /// <summary>実処理の状態を表示へ投影します。既知の旧段階も翻訳し、未知の保存済み識別子は診断に残します。</summary>
+    /// <summary>実処理の状態を表示へ投影します。検査日時はGregorianの固定書式に揃え、既知の旧段階は翻訳し、未知の保存済み識別子は診断に残します。</summary>
     internal static Lr2SongDbSyncRuntimeStatus Create(Lr2SongDbSyncStatusSnapshot snapshot, DateTime checkedAt, OperationProgressRequest request = null)
     {
         if (snapshot == null)
@@ -73,7 +73,7 @@ internal static class Lr2SongDbSyncStatusMapper
 
     private static string BuildDetail(Lr2SongDbSyncStatusSnapshot snapshot, DateTime checkedAt, OperationProgressRequest request = null)
     {
-        string timestampText = checkedAt == DateTime.MinValue ? string.Empty : checkedAt.ToString("yyyy/MM/dd HH:mm:ss");
+        string timestampText = checkedAt == DateTime.MinValue ? string.Empty : DateTimeDisplayFormatter.FormatTimestamp(checkedAt);
         string stageText = GetStageText(snapshot.Stage);
         string countText = snapshot.TotalCount.GetValueOrDefault() > 0
             ? string.Format(Resources.Lr2_song_db_sync_saved_position, snapshot.ProcessedCursor.GetValueOrDefault(), snapshot.TotalCount.GetValueOrDefault())

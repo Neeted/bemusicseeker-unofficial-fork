@@ -1616,7 +1616,8 @@ public partial class BMSPlaylist : ObservableObject
         List<Tuple<string, string>> levelScopes = [.. (from e in bmsTable.entries
                                                        where !e.is_removed && e.level.HasValue
                                                        select (int)Math.Floor(e.level.Value)).Distinct().OrderBy(e => e)
-            .Select(level => Tuple.Create("LEVEL " + level, levelBucketExpression + " = " + level))];
+            .Select(level => level.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            .Select(levelText => Tuple.Create("LEVEL " + levelText, levelBucketExpression + " = " + levelText))];
         if (bmsTable.entries.Any(e => !e.is_removed && !e.level.HasValue))
         {
             levelScopes.Add(Tuple.Create("LEVEL ???", columnNameLevel + " IS NULL"));

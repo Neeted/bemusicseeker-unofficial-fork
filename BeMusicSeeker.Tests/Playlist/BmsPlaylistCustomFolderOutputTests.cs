@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -27,6 +28,77 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsPlaylistCustomFolderOutputTests
 {
+    /// <summary>負小数のfloor・負整数・0・正値・未定義を実COMMANDと保存DBで選曲し、通常/RANDOMの集合とASCII名を地域によらず保ちます。明示再出力は旧不良本文も修復します。</summary>
+    [DataTestMethod]
+    [DataRow("sv-SE")]
+    [DataRow("ar-SA")]
+    public void ReOutputCustomFolderAndCommitToDB_LevelBucketsUseInvariantSqlAndRepairOldOutput(string cultureName)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistCustomFolderOutputTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        CultureInfo previous = System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo(cultureName);
+            string outputBase = Path.Combine(directory, "Output");
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBase;
+            string dbPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(dbPath);
+            double?[] levels = [-1.25, -2, -1, 0, 1.25, null];
+            var table = new BMSTable
+            {
+                playlist_id = 7319,
+                name = "Invariant levels",
+                Output_dir = "Levels",
+                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.LevelFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.RandomFolder,
+                entries = [.. levels.Select((level, i) => new BMSTableEntry
+                {
+                    md5 = (i + 1).ToString("x32"), title = "row-" + i, level = level, folder = ""
+                })]
+            };
+            using (var seed = new LR2SongDBExtended(dbPath))
+            {
+                seed.RunInTransaction(() =>
+                {
+                    foreach (BMSTableEntry entry in table.entries)
+                    { seed.Insert(new LR2SongDB.song { hash = entry.md5, path = entry.title + ".bms", title = entry.title }); }
+                });
+            }
+            var playlist = new TestBmsPlaylist(dbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(dbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+            { BMSTables = new ObservableCollection<BMSTable>([table]) };
+            playlist.ReOutputCustomFolderAndCommitToDB(table);
+            string[] paths = Directory.GetFiles(Path.Combine(outputBase, "Levels"), "*.lr2folder", SearchOption.AllDirectories);
+            // 旧地域の負号で壊れた出力は、同じ表を明示保存したときだけ現在定義へ置き換えます。
+            File.WriteAllText(paths[0], "#TITLE LEVEL -2\r\n#COMMAND broken_regional_minus\r\n", Encoding.GetEncoding("shift_jis"));
+            playlist.ReOutputCustomFolderAndCommitToDB(table);
+
+            (string Title, int[] Rows)[] expected = [("LEVEL -2", [1, 2]), ("LEVEL -1", [3]), ("LEVEL 0", [4]), ("LEVEL 1", [5]), ("LEVEL ???", [6])];
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+            LR2SongDB.folder[] saved = db.Table<LR2SongDB.folder>().Where(f => f.type == 2).ToArray();
+            Assert.AreEqual(10, saved.Length);
+            foreach ((string title, int[] rows) in expected)
+            {
+                string[] hashes = rows.Select(n => n.ToString("x32")).ToArray();
+                foreach (string name in new[] { title, title + " RANDOM" })
+                {
+                    LR2SongDB.folder folder = saved.Single(f => f.title == name);
+                    string text = ReadShiftJisText(folder.path);
+                    StringAssert.Contains(text, "#TITLE " + name);
+                    string command = ReadCustomFolderCommand(text);
+                    Assert.AreEqual(folder.command, command);
+                    CollectionAssert.AreEquivalent(hashes,
+                        db.Query<LR2SongDB.song>("SELECT song.* FROM song WHERE " + command).Select(s => s.hash).ToArray());
+                    CollectionAssert.AreEquivalent(hashes,
+                        db.Query<LR2SongDB.song>("SELECT song.* FROM song WHERE " + folder.command).Select(s => s.hash).ToArray());
+                }
+            }
+        }
+        finally { System.Globalization.CultureInfo.CurrentCulture = previous; Directory.Delete(directory, recursive: true); }
+    }
+
     /// <summary>
     /// 通常・ROOT・追加通常の非空宛先へプロパティ保存で移行し、実列挙の更新時刻がある旧本文も現在の表定義へ置換します。
     /// 実本文と開き直したDBの選曲を照合し、DBだけが新しくなる退行と管理範囲外の削除を検出します。

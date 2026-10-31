@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -779,7 +780,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
         }
     }
 
-    /// <summary>取得元名の★数値が増減して通知設定ONの推薦だけ一回通知する。同値表記・比較不能・設定OFF・推定表は通知せず、手動名や更新日時を通知判断へ混ぜる誤りを検出する。</summary>
+    /// <summary>fr-FRでも取得元名の★数値と差分を固定表記で表示し、増減して通知設定ONの推薦だけ一回通知する。同値表記・比較不能・設定OFF・推定表は通知せず、手動名や更新日時を通知判断へ混ぜる誤りを検出する。</summary>
     [DataTestMethod]
     // 増加・減少は通知し、同値表記・比較不能・OFF・推定表では通知しない。
     [DataRow("旧方針 ★10.00", "新方針 ★10.75", 10.75, .75, true, "bmseeker:table.recommended", 1)]
@@ -791,26 +792,32 @@ public sealed class PlaylistRecommendedTableOwnerTests
     public void AppliedSkillNotification_UsesOrgNameNumbersAndSettingWithoutDate(
         string previousName, string currentName, double newSkill, double difference, bool enabled, string uri, int expectedCount)
     {
-        var notifications = new PlaylistOperationNotificationOwner();
-        PlaylistRecommendedTableOwner owner = CreateOwner(notifications: notifications, showSkillUpdates: enabled);
-        using PlaylistOperationNotificationOwner.OperationNotificationSession session = notifications.BeginSession();
-        owner.NotifyAppliedSkillChange(previousName, new BMSTable
+        CultureInfo previousCulture = System.Globalization.CultureInfo.CurrentCulture;
+        try
         {
-            Page_url = new Uri(uri),
-            org_name = currentName,
-            name = "異なる手動名 ★999.00",
-            last_update = new DateTime(2024, 6, 1, 10, 20, 30)
-        });
-        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = session.TakeReceipt();
-        Assert.AreEqual(expectedCount, receipt.Notifications.Count);
-        if (expectedCount != 0)
-        {
-            PlaylistOperationNotificationOwner.OperationNotification notification = receipt.Notifications.Single();
-            Assert.AreEqual(Resources.Recommend_SkillUpdatedTitle, notification.Caption);
-            Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information, notification.Severity);
-            Assert.AreEqual(string.Format(Resources.Recommend_SkillUpdatedMessage, newSkill.ToString("F2"),
-                difference.ToString(" (+#0.00); (-#0.00);")), notification.Message);
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo("fr-FR");
+            var notifications = new PlaylistOperationNotificationOwner();
+            PlaylistRecommendedTableOwner owner = CreateOwner(notifications: notifications, showSkillUpdates: enabled);
+            using PlaylistOperationNotificationOwner.OperationNotificationSession session = notifications.BeginSession();
+            owner.NotifyAppliedSkillChange(previousName, new BMSTable
+            {
+                Page_url = new Uri(uri),
+                org_name = currentName,
+                name = "異なる手動名 ★999.00",
+                last_update = new DateTime(2024, 6, 1, 10, 20, 30)
+            });
+            PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = session.TakeReceipt();
+            Assert.AreEqual(expectedCount, receipt.Notifications.Count);
+            if (expectedCount != 0)
+            {
+                PlaylistOperationNotificationOwner.OperationNotification notification = receipt.Notifications.Single();
+                Assert.AreEqual(Resources.Recommend_SkillUpdatedTitle, notification.Caption);
+                Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information, notification.Severity);
+                Assert.AreEqual(string.Format(Resources.Recommend_SkillUpdatedMessage, newSkill == 10.75 ? "10.75" : "10.00",
+                    difference > 0 ? " (+0.75)" : " (-0.75)"), notification.Message);
+            }
         }
+        finally { System.Globalization.CultureInfo.CurrentCulture = previousCulture; }
     }
 
     private static PlaylistExternalSyncOwner External(PlaylistRecommendedTableOwner owner)

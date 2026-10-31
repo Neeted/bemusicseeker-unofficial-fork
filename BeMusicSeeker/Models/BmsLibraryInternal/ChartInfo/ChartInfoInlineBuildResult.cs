@@ -61,7 +61,7 @@ internal sealed class ChartInfoStorageApplication(
 
     internal BeMusicSeeker.Models.ChartDetails Row { get; } = row;
 
-    /// <summary>捕捉したファイル識別と確定した詳細値を持つ共通値を作成します。</summary>
+    /// <summary>捕捉したファイル識別と確定した詳細値を持つ共通値を作成します。LEVELは負号を含め地域非依存の編集可能な表記に揃えます。</summary>
     internal ChartFile CreateCurrentValue(ChartFile current = null)
     {
         ChartFile source = current ?? Chart;
@@ -76,7 +76,7 @@ internal sealed class ChartInfoStorageApplication(
         return next with
         {
             Level = Row.level,
-            LevelText = Row.level?.ToString(System.Globalization.CultureInfo.CurrentCulture) ?? string.Empty,
+            LevelText = Row.level?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
             Difficulty = Lr2ChartInfoSongProjection.NormalizeDifficulty(Row.difficulty),
             Mode = Row.mode
         };

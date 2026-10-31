@@ -10,6 +10,8 @@
 
 ## 仕様
 
+実力更新通知の実力値と差分は、表名・一覧と同じInvariantの小数2桁で表示します。例えば `10.75` と ` (+0.75)`、`10.00` と ` (-0.75)` とし、数値の保存・計算や通知条件を変えません。
+
 ### モデルと難度推定表
 
 取込み元は [walkure-offline の固定コミット](https://github.com/naktazdim/walkure-offline/tree/3836d501cd05da8fd8fd4fdc1881b3115399c55b)です。`assets/data/recommendation-model-entries.json` と `recommendation-star-rating-mapping.json` を未改変のままアセンブリへ埋め込みます。モデルの自動取得、更新、学習は行いません。`Copyright (c) 2026 walkure.net` と [MIT 全文](../../../third_party/licenses/21-Walkure-MIT.txt)をモデル・固定テスト入力に添付します。モデル欠落を通信や代替値で補いません。
@@ -69,6 +71,7 @@ LR2 はモデルキーへ照合し、モデル収録の LR2 段位複合キー12
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 地域に依存しない実力更新通知 | `PlaylistRecommendedTableOwner.NotifyAppliedSkillChange` | `PlaylistRecommendedTableOwnerTests.AppliedSkillNotification_UsesOrgNameNumbersAndSettingWithoutDate` はfr-FRで増減の固定表記と既存の通知・無通知条件を確認する。 |
 | 実埋込みモデル、GRM、換算、確率、三方針 | [WalkureRecommendationModel](../../../BeMusicSeeker/Models/Playlist/WalkureRecommendationModel.cs) | [WalkureRecommendationMathTests](../../../BeMusicSeeker.Tests/Playlist/WalkureRecommendationMathTests.cs)。独立上流の θ差≤1e-9、二桁★、通常譜面649候補、混合ランプ、補充・除外、20%境界、null、外挿、推定不能。 |
 | 四種類の元★・両所属・段位非表示・URI互換 | [PlaylistRecommendedTableOwner](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistRecommendedTableOwner.cs) | [PlaylistRecommendedTableOwnerTests](../../../BeMusicSeeker.Tests/Playlist/PlaylistRecommendedTableOwnerTests.cs)。スコア不要、保存値/null、未対応の拒否、未知mode等の受理、三方針の自動名・推定表の手動名と設定保持。 |
 | 完成集合の共通取込みと実保存・新主体のhydration | [BMSTable](../../../BeMusicSeeker/Models/Playlist/BMSTable.cs)、共通登録・読込み主体 | 同テスト群の四推定・三推薦の生成時の親、採番後ID、実SQLite往復、非空行・名称・フォルダ・レベル、推定の手動名と保存設定保持。JSONの互換folderと所属は [BmsPlaylistExternalLoadTests](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalLoadTests.cs)、同じ行参照の補償と局所編集は既存Lifecycle・Workspace群が分担する。 |

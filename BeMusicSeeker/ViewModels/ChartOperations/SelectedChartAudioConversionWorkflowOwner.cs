@@ -500,7 +500,7 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
             string peakDb = Math.Round(
                 20d * Math.Log10(rangeException.Peak),
                 2,
-                MidpointRounding.AwayFromZero).ToString("F2", System.Globalization.CultureInfo.CurrentCulture);
+                MidpointRounding.AwayFromZero).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
             double additionalGainUpperBound = settings.EncoderAmplifier / rangeException.Peak;
             if (additionalGainUpperBound < 0.5d)
             {
@@ -517,7 +517,7 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
                     rangeFailures.Length,
                     peakDb,
                     Path.GetFileName(maximumPeakResult.FileName),
-                    Math.Floor(100d / rangeException.Peak).ToString("F0", System.Globalization.CultureInfo.CurrentCulture),
+                    Math.Floor(100d / rangeException.Peak).ToString("F0", System.Globalization.CultureInfo.InvariantCulture),
                     GetSafeAdditionalGainSuggestion(additionalGainUpperBound));
             }
         }
@@ -572,7 +572,7 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
             candidate = Math.Round(candidate - 0.1d, 10);
             candidateFloat = (float)candidate;
         }
-        return candidateFloat.ToString("F1", System.Globalization.CultureInfo.CurrentCulture);
+        return candidateFloat.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static string BuildProgressLabel(SelectedChartAudioConversionSettingsSnapshot settings)

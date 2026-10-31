@@ -244,7 +244,7 @@ internal sealed class PlaylistRecommendedTableOwner
         if (oldSkill.HasValue && newSkill.HasValue && oldSkill != newSkill)
         {
             notificationOwner.QueueInformation(string.Format(Resources.Recommend_SkillUpdatedMessage,
-                newSkill.Value.ToString("F2"), (newSkill.Value - oldSkill.Value).ToString(" (+#0.00); (-#0.00);")),
+                newSkill.Value.ToString("F2", CultureInfo.InvariantCulture), (newSkill.Value - oldSkill.Value).ToString(" (+#0.00); (-#0.00);", CultureInfo.InvariantCulture)),
                 Resources.Recommend_SkillUpdatedTitle);
         }
     }

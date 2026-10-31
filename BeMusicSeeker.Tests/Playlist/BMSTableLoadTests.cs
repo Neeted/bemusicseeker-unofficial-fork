@@ -17,6 +17,43 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BMSTableLoadTests
 {
+    /// <summary>数値primitiveの明示順と本文所属を一緒に読み、逆自然順・文字列・装飾・nullの互換性とJSON往復を地域によらず保ちます。</summary>
+    [DataTestMethod]
+    [DataRow("fr-FR", "level_order")]
+    [DataRow("de-DE", "folder_order")]
+    public void LoadJson_NumericOrderAndFolderUseInvariantMembership(string cultureName, string orderProperty)
+    {
+        CultureInfo previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            var table = new BMSTable();
+            table.LoadHeaderJSON(new JObject
+            {
+                ["name"] = "Numeric order",
+                ["compat_prefix"] = "",
+                [orderProperty] = new JArray(2.5, -1.25, "★1.5", "1,5")
+            }.ToString());
+            table.LoadDataJSON("[{\"title\":\"lower\",\"level\":-1.25},{\"title\":\"upper\",\"org_level\":null,\"folder\":2.5},{\"title\":\"decorated\",\"level\":\"★1.5\"},{\"title\":\"string\",\"org_level\":null,\"folder\":\"1,5\"}]");
+            string[] expected = ["2.5", "-1.25", "★1.5", "1,5"];
+            CollectionAssert.AreEqual(expected, table.folder_list.ToArray());
+            Assert.AreEqual("-1.25", table.entries.Single(e => e.title == "lower").folder);
+            Assert.AreEqual(-1.25, table.entries.Single(e => e.title == "lower").level);
+            Assert.IsNull(table.entries.Single(e => e.title == "upper").level);
+            var restored = new BMSTable();
+            restored.LoadHeaderJSON(table.HeaderToJson());
+            restored.LoadDataJSON(table.DataToJson());
+            CollectionAssert.AreEqual(expected, restored.folder_list.ToArray());
+            foreach (BMSTableEntry entry in table.entries)
+            {
+                BMSTableEntry restoredEntry = restored.entries.Single(e => e.title == entry.title);
+                Assert.AreEqual(entry.folder, restoredEntry.folder, entry.title);
+                Assert.AreEqual(entry.level, restoredEntry.level, entry.title);
+            }
+        }
+        finally { CultureInfo.CurrentCulture = previous; }
+    }
+
     /// <summary>同じ旧形式・ISO入力を異文化で全体解析し、Gregorian日・壁時計tickとUnspecifiedを保持します。offset変換は別ケースへ分担します。</summary>
     [DataTestMethod]
     [DataRow("ja-JP")]

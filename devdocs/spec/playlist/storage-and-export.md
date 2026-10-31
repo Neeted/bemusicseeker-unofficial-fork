@@ -10,6 +10,10 @@
 
 ## 仕様
 
+数値JSONの `level_order` / `folder_order` と本文の数値 `level` / `folder` を所属・順序の文字列へ採用するときはInvariantを使います。受理済みprimitiveの範囲、文字列・装飾名・null、互換接頭辞の扱いは維持し、文字列を一律にJSON化しません。LR2のLEVEL分類はfloorした整数をASCII表記で名前・SQLへ共用し、通常版とRANDOM版の選曲集合を一致させます。旧地域の負号で壊れた出力は該当表の内容・出力設定を明示保存したときに再出力して修復し、強制再出力や同期署名の変更は行いません。
+
+同期STATUSの説明日時は、保存値と時刻帯を変えずGregorianの `yyyy-MM-dd HH:mm:ss` で表示します。
+
 ### 正本と識別
 
 永続化の正本は本アプリの `playlist`、`playlist_entry`、`playlist_course` です。アプリ内の現在値・所属・明示順序は `BMSPlaylist` / `PlaylistAggregatePersistenceOwner` / `BMSTable` が所有し、DB確定後に同じentry参照へ採用します。共通の `app_schema=1` に含まれ、プレイリスト専用のスキーマ版は持ちません。LR2連携・スタンドアロンの両方で保存します。
@@ -270,6 +274,7 @@ SQL読取りは `SQLITE_ROW` と `SQLITE_DONE` 以外を失敗とし、途中行
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 数値primitiveの順序・所属、LEVEL分類SQLと明示再出力、同期表示日時 | `BMSTable`、`BMSTableEntry`、`BMSPlaylist`、`PlaylistSyncStatusMapper` | `BMSTableLoadTests.LoadJson_NumericOrderAndFolderUseInvariantMembership`、`BmsPlaylistExternalReloadTests.ExternalNumericFolders_PreserveOrderAcrossCultureAndFreshDatabaseRead` は逆順・所属・異文化の保存読戻しを確認する。`BmsPlaylistCustomFolderOutputTests.ReOutputCustomFolderAndCommitToDB_LevelBucketsUseInvariantSqlAndRepairOldOutput` は負小数・負整数・0・正値・未定義の通常/RANDOMを実ファイルとDB commandからSQLite評価し、旧不良本文の明示再出力を確認する。`PlaylistSyncStatusMapperTests` はar-SA/th-THで固定日時と状態を確認する。 |
 | 外部新規登録の空LR2出力名と捕捉モード、Unicode実名の保存 | `PlaylistExternalSyncOwner.RegistrateExternalTableAsync` / `RegistrateExternalTablesAsync` | `BmsPlaylistMigrationAndRegistrationTests.ExternalTableRegistration_EmptyDerivedOutputNameUsesCapturedMode` は一般設定と逆の捕捉モード×単表・一括を実JSON・登録・公開集合・新readonly DB・JSON意味値で確認し、スタンドアロン単表は `ReloadTablesAsync` 後も照合する。LR2拒否では既存ファイル・XML・DBと次要求の受付を確認する。`PlaylistWorkspaceExternalSourceTests.TryStartPlaylistImport_HoldsAdmissionThroughCommunicationAndRequiredOutput` はHTTP・ローカルJSON混合の実BMT生成と受付保持、`TryStartPlaylistImport_AcceptsNextExplicitRequestAfterCompletion` は単一JSON入口と次明示要求を分担する。 |
 | LR2混合取込みでの空出力名の対象別除外と有効表の登録・必要出力 | `PlaylistWorkspaceViewModel.PrepareExternalPlaylistImportRegistrationItems` | `PlaylistWorkspaceExternalSourceTests.TryStartPlaylistImport_Lr2ModeRejectsOnlyEmptyOutputNameAndImportsValidTable` はWorkspace側standalone・実store側LR2で通常入口へ空名と有効名のJSONを渡し、対象URIと空名エラーの失敗、有効表だけの実DB・公開集合・LR2出力、終端後の受付取得を確認する。前段でのstandalone成功は上記の混合取込みと単一JSON代表が分担する。 |
 | プロパティURLのnull解除、相対参照と外部同期の必須条件 | [`PlaylistPropertySaveService`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistPropertySaveService.cs)、[`PlaylistPropertyDialogViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistPropertyDialogViewModel.cs) | [`PlaylistWorkspaceActionWorkflowTests.PlaylistPropertySave_UrlAcceptancePreservesClearRelativeSourcesAndSyncRequirements`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs) は同期OFFの解除・片側指定・相対Header/Data、同期ONの必須URL・絶対基点・bmseeker例外、相対Page拒否のDB不変と有効なPageなし同期設定の保存を担う。実画面からの空欄解除・変換失敗・候補保持・訂正再保存・取消は[プロパティ画面の対応表](../ui/playlist-properties.md#実装とテストの対応)へ分担する。 |

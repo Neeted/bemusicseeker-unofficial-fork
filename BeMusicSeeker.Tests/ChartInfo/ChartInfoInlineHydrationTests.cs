@@ -12,6 +12,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Tests.Helpers;
+using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
 namespace BeMusicSeeker.Tests;
@@ -22,6 +23,49 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartInfoInlineHydrationTests
 {
+    /// <summary>実inline保存・公開後の負PLAYLEVELをASCII表記で詳細行へ渡し、その無変更文字列を実保存ownerが受理します。実F2操作と取消はworkspace画面テストが分担します。</summary>
+    [TestMethod]
+    public void InlinePublication_NegativeLevelCanBeCommittedFromDetailRowWithoutEditing()
+    {
+        CultureInfo previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("sv-SE");
+            WithTemporarySongDb((root, dbPath) =>
+            {
+                string path = Path.Combine(root, "negative-level.bms");
+                File.WriteAllText(path, "#PLAYER 1\r\n#TITLE negative\r\n#PLAYLEVEL -1\r\n#BPM 130\r\n#00111:01\r\n", Encoding.ASCII);
+                ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path));
+                var library = new TestBmsLibrary(dbPath, settings: testSettings);
+                OwnedChartCollectionTestSupport.SetLibraryFilesWithoutNotification(library, [file]);
+                OwnedChartCollectionTestSupport.SetLibraryBmsonSongsWithoutNotification(library, []);
+                OwnedChartCollectionTestSupport.SetDuplicateChartGroupsWithoutNotification(library, []);
+                OwnedChartCollectionTestSupport.InvokeBuildAndPersistInlineChartInfoForInstalledCharts(library, "negative_level", [file]);
+                ChartFile current = library.BmsCharts.Single();
+                Assert.AreEqual("-1", current.LevelText);
+
+                PlaylistPersistenceRepository.EnsureSchema(dbPath);
+                var collectionLock = new BeMusicSeeker.Models.Utils.ReaderWriterLockSlimWrapper();
+                try
+                {
+                    var persistence = new PlaylistAggregatePersistenceOwner(new PlaylistPersistenceRepository(dbPath), collectionLock, new TestUiScheduler(() => null));
+                    var entry = new BMSTableEntry { title = "negative", md5 = current.Md5, folder = "" };
+                    var table = new BMSTable { playlist_id = 9321, name = "Negative", entries = [entry] };
+                    persistence.MarkActiveTables([table]);
+                    persistence.ReplaceTablesWithEntries([table]);
+                    PlaylistDetailRow row = new BeMusicSeeker.ViewModels.PlaylistDetailSourceRow(entry, current).CreateViewRow();
+                    Assert.AreEqual("-1", row.Level);
+                    persistence.CommitEntry(entry, "Level", row.Level, null, _ => { }, () => collectionLock.GetReaderGuard());
+                    Assert.AreEqual(-1d, entry.level);
+                    using LR2SongDBExtended db = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+                    Assert.AreEqual(-1d, db.Table<BMSTableEntry>().Single(e => e.playlist_id == 9321).level);
+                }
+                finally { collectionLock.Dispose(); }
+            });
+        }
+        finally { CultureInfo.CurrentCulture = previous; }
+    }
+
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
     /// <summary>内部故障だけを同ownerの次の明示要求へ残し、正常な兄弟・現在の保存済み失敗と無関係なhealth変更では再解析しない。</summary>

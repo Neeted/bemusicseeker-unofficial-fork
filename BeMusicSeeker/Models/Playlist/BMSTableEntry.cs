@@ -437,7 +437,9 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             };
             if (TryGetNonNullProperty(dataJson, "folder", out JToken folderToken))
             {
-                base.folder = folderToken.ToString();
+                base.folder = folderToken.Type is JTokenType.Integer or JTokenType.Float
+                    ? Convert.ToString(((JValue)folderToken).Value, CultureInfo.InvariantCulture)
+                    : folderToken.ToString();
             }
             else if (TryGetNonNullProperty(dataJson, "level", out JToken compatibleLevelToken))
             {

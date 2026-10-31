@@ -27,6 +27,40 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsPlaylistExternalReloadTests
 {
+    /// <summary>実外部表の数値明示順と所属を保存後、異文化の新しい接続・モデルで読み戻し、地域差で順序や所属を変えないことを確認します。</summary>
+    [TestMethod]
+    public async Task ExternalNumericFolders_PreserveOrderAcrossCultureAndFreshDatabaseRead()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistExternalReloadTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        CultureInfo previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+            string header = Path.Combine(directory, "header.json");
+            File.WriteAllText(header, "{\"name\":\"Numeric folders\",\"compat_prefix\":\"\",\"level_order\":[2.5,-1.25],\"data_url\":\"data.json\"}");
+            File.WriteAllText(Path.Combine(directory, "data.json"), "[{\"title\":\"lower\",\"level\":-1.25},{\"title\":\"upper\",\"org_level\":null,\"folder\":2.5}]");
+            string dbPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(dbPath);
+            var playlist = new TestBmsPlaylist(dbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(dbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(header));
+            table.playlist_id = 9019;
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+            playlist.CommitBMSTableWithEntriesToDB(table);
+
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("ar-SA");
+            var repository = new PlaylistPersistenceRepository(dbPath);
+            BMSTable restored = repository.LoadPlaylistHeaders().Single();
+            restored.entries = repository.LoadStartupPlaylistEntries().Entries;
+            CollectionAssert.AreEqual(new[] { "2.5", "-1.25" }, restored.folder_list.ToArray());
+            Assert.AreEqual("-1.25", restored.entries.Single(e => e.title == "lower").folder);
+            Assert.AreEqual(-1.25, restored.entries.Single(e => e.title == "lower").level);
+            Assert.AreEqual("2.5", restored.entries.Single(e => e.title == "upper").folder);
+            Assert.IsNull(restored.entries.Single(e => e.title == "upper").level);
+        }
+        finally { CultureInfo.CurrentCulture = previous; Directory.Delete(directory, recursive: true); }
+    }
+
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
     /// <summary>不適合日時のhash初期化では日時を保ち、同原文を再保存せず、既知header/data原文差だけ更新日時を進めます。旧adddate/memoは実mergeと新DBで保持します。</summary>
@@ -731,7 +765,7 @@ public sealed class BmsPlaylistExternalReloadTests
             });
             PlaylistSyncRuntimeStatus failedStatus = currentWorkspace.CapturePlaylistSyncStatusSnapshot()["id:7533"];
             Assert.AreEqual(string.Join(Environment.NewLine, failedStatus.StatusText,
-                failedStatus.CheckedAt.ToString("yyyy/MM/dd HH:mm:ss"), new Uri(badHeader).ToString()), failedStatus.Detail);
+                failedStatus.CheckedAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture), new Uri(badHeader).ToString()), failedStatus.Detail);
             using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(confirmed.last_update, db.Table<BMSTable>().Single(table => table.playlist_id == good.playlist_id).last_update);
@@ -2920,7 +2954,7 @@ public sealed class BmsPlaylistExternalReloadTests
             Assert.AreNotEqual(DateTime.MinValue, failedStatus.CheckedAt);
             Assert.AreEqual(string.Join(Environment.NewLine,
                 failedStatus.StatusText,
-                failedStatus.CheckedAt.ToString("yyyy/MM/dd HH:mm:ss"),
+                failedStatus.CheckedAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
                 failureUri.ToString()), failedStatus.Detail,
                 "STATUSには分類・日時・取得元だけを渡し、例外詳細はログへ分離します。");
 

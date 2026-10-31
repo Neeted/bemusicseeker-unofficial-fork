@@ -10,6 +10,8 @@ LR2連携モードで、現在のBMS譜面・検索ルート・プレイリス�
 
 ## 仕様
 
+同期状態の詳細に含める検査日時は、保存値と時刻帯を変えず、Gregorianの `yyyy-MM-dd HH:mm:ss` で表示します。OSの暦・日時区切りに依存させません。
+
 操作の受付分類・競合結果・必要継続の寿命は[競合ポリシー](../core/operation-concurrency-policy.md)を正本とします。以下は入力・処理・資源所有と結果の固有契約です。
 
 ### 管理範囲と設定
@@ -219,6 +221,7 @@ customも物理消失した場合は不要な通常親をpruneします。旧cus
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 同期詳細のGregorian固定日時 | `Lr2SongDbSyncStatusMapper` | `Lr2SongDbSyncStatusMapperTests` はar-SA/th-THで `yyyy-MM-dd HH:mm:ss` の説明と検査日時・元状態・原因の保持を確認する。 |
 | 管理表配下の通常prune保護と基点表記の必須反映 | `Lr2FolderGenerationScopePlanner`、`BMSPlaylist.SynchronizeNormalOutputBasePathChangeAsync`、起動・LR2 workflow | [`SettingDialogEditCompletionTests.NormalOutputScan_PreservesManagedHierarchyAndConvergesConfirmedPaths`](../../../BeMusicSeeker.Tests/Settings/SettingDialogLr2OwnerTests.cs) は無変更の二周期とfresh起動、CP932 Greekの稼働中訂正・消失外部親、ASCIIの次回起動での初検出を分担する。全管理行とCRC連鎖・通常BMSの利用者列を保持し、起動直後のCompleted run維持・修復対象0・ファイル日時不変から全体同期や任意修復による救済を区別する。表の削除・縮小・ROOT/追加先移行は既存 `BmsPlaylistCustomFolderOutputTests`、`BmsPlaylistMigrationAndRegistrationTests` が分担する。 |
 | 残存customの必要親と不要通常親のprune | `Lr2NormalFolderDbSyncService`、`Lr2SynchronizationOwner` | `Lr2NormalFolderDbSyncServiceTests.Sync_ConfirmedCustomDependenciesKeepOnlyRequiredAncestors` が直接親・別子階層・欠落親・依存なしとcustom全列・無関係ルートを実SQLiteで比較する。`BmsLibraryLr2SongDbSyncTests.RemoveLibraryCharts_PrunesNormalFolderRowsForRemovedBmsWhenLr2SongDbSyncEnabled` は実削除入口の残存と全物理消失を接続する。候補読取りと走査交差の限定性は生産経路の静的確認へ分担する。 |
 | folderinfoだけの深い階層 | `Lr2SongDbSyncInputBuilder`、`Lr2FolderTableReconciliationService` | `Lr2FolderTableReconciliationServiceTests.Reconcile_FolderInfoOnlyDeepHierarchyCreatesMissingAncestorsAndPreservesAddDate` が新規・既存行の実DB・時刻・タイトル・親・adddateを確認する。`Lr2SongDbSyncInputBuilderTests.CreateInput_FolderInfoOnlyHierarchyReachesWholeTableProjection` は走査面あり/なしの実入力構築から最終DBへの接続と列挙回数を確認する。scanなしでは、列挙だけの外部InfoOnlyと組込み準備面だけの深いcustom・folderinfo・metadataを混在させ、合流後の候補・祖先・異なるタイトル・CRC・組込み相対DBpathを保持することも確認する。 |

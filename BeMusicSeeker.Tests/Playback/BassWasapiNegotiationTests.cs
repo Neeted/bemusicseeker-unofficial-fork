@@ -59,9 +59,13 @@ public sealed class BassWasapiNegotiationTests
         Assert.IsTrue(session.WasapiInitialized);
     }
 
-    /// <summary>共有方式は選択機器のmix条件で開始し、GetInfoの実効rate・channel・形式からmixerとlatencyを構成して指定との差を報告する。</summary>
-    [TestMethod]
-    public void WasapiShared_UsesMixShapeAndGetInfoReadbackForResultMixerAndLatency()
+    /// <summary>共有方式はmix要求とGetInfo実値を区別し、端末16/24/32bit・FloatでもFloat32バッファを10msへ換算して端末精度とsession結果を保つ。</summary>
+    [DataTestMethod]
+    [DataRow(WasapiFormat.Bit16, SampleFormat.SAMPLE_INT_16BIT, 16)]
+    [DataRow(WasapiFormat.Bit24, SampleFormat.SAMPLE_INT_24BIT, 24)]
+    [DataRow(WasapiFormat.Bit32, SampleFormat.SAMPLE_INT_32BIT, 32)]
+    [DataRow(WasapiFormat.Float, SampleFormat.SAMPLE_FLOAT_32BIT, 32)]
+    public void WasapiShared_UsesMixShapeAndGetInfoReadbackForResultMixerAndLatency(WasapiFormat endpointFormat, SampleFormat expectedFormat, int expectedBits)
     {
         var native = new RecordingWasapiBoundary
         {
@@ -69,39 +73,43 @@ public sealed class BassWasapiNegotiationTests
                 "Shared Device",
                 "shared-id",
                 isDefault: true,
-                mixRate: 48000,
+                mixRate: 96000,
                 mixChannels: 6),
-            WasapiInfo = new BassWasapiInfoSnapshot(96000, 4, WasapiFormat.Float, 7680)
+            WasapiInfo = new BassWasapiInfoSnapshot(48000, 2, endpointFormat, 3840)
         };
         native.InitializationResults.Enqueue(true);
 
+        BassAudioSession session = CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED);
         BassAudioBackendResult result = new BassWasapiNegotiator(native).Initialize(
             CreateWasapiRequest(
                 BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
                 SampleRate.SAMPLE_RATE_44100Hz),
-            CreateWasapiSession(BassAudioPlayer.DeviceDriver.WASAPI_SHARED),
+            session,
             WasapiCallback,
             initialGain: 0.4f,
             eventModeRequested: false);
 
         WasapiInitializationCall call = native.InitializationCalls.Single();
-        Assert.AreEqual(48000, call.Rate);
+        Assert.AreEqual(96000, call.Rate);
         Assert.AreEqual(6, call.Channels);
         Assert.AreEqual(WasapiInitializationKind.SharedNoFormat, call.Kind);
         Assert.AreEqual(0, (int)call.Flags);
         Assert.IsFalse(call.Flags.HasFlag(WasapiInitFlags.Dither));
         Assert.AreEqual(0f, call.BufferSeconds);
         Assert.AreEqual(0f, call.PeriodSeconds);
-        Assert.AreEqual(96000, native.MixerRate);
-        Assert.AreEqual(4, native.MixerChannels);
+        Assert.AreEqual(48000, native.MixerRate);
+        Assert.AreEqual(2, native.MixerChannels);
         Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.Float));
         Assert.IsTrue(native.MixerFlags.HasFlag(BassFlags.MixerNonStop));
-        Assert.AreEqual(SampleRate.SAMPLE_RATE_96000Hz, result.ActualRate);
+        Assert.AreEqual(SampleRate.SAMPLE_RATE_48000Hz, result.ActualRate);
         Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EngineFormat);
         Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.CallbackFormat);
-        Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EndpointFormat);
-        Assert.AreEqual(5d, result.LatencyMilliseconds, 0.0001d);
-        StringAssert.Contains(result.FallbackReason, "endpoint mix rate 48000");
+        Assert.AreEqual(expectedFormat, result.EndpointFormat);
+        Assert.AreEqual(expectedBits, result.EndpointContainerBits);
+        Assert.AreEqual(expectedBits, result.EndpointEffectiveBits);
+        Assert.AreSame(result, session.NegotiationResult);
+        Assert.AreEqual(10d, result.LatencyMilliseconds, 0.0001d);
+        StringAssert.Contains(result.FallbackReason, "endpoint mix rate 96000");
     }
 
     /// <summary>選択した共有機器のmix形状だけを照会し、形式・有効bit・チャンネルを返して再生初期化やgraph構築をしない。</summary>

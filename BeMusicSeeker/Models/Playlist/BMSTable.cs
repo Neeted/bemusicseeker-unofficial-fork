@@ -1281,7 +1281,10 @@ public partial class BMSTable : LR2SongDBExtended.playlist
             throw new FormatException("JSON value must be an array of primitive values.");
         }
 
-        return array.Select(token => token.ToString());
+        // 数値は本文levelと同じ機械表記に揃え、文字列など既存primitiveの受理範囲は維持します。
+        return array.Select(token => token.Type is JTokenType.Integer or JTokenType.Float
+            ? Convert.ToString(((JValue)token).Value, System.Globalization.CultureInfo.InvariantCulture)
+            : token.ToString());
     }
 
     private static IEnumerable<JObject> EnumerateCourseObjects(JToken token)

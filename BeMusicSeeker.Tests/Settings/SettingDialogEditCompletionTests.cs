@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -962,13 +963,15 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
-    /// <summary>要求と異なる backend・機器・形式でのテスト結果を実値と診断に区別して表示し、保存済み要求を上書きしないことを確認して、fallback による利用者意図の消失を検出します。</summary>
+    /// <summary>fr-FRでも要求と異なるbackend・機器・形式と遅延16.5を固定表記で表示し、精度と編集設定を保持して、fallbackによる利用者意図の消失を検出します。</summary>
     [TestMethod]
     public async Task AudioDeviceTest_BackendFallback_DoesNotChangeEditedAudioValues()
     {
+        CultureInfo previousCulture = System.Globalization.CultureInfo.CurrentCulture;
         string root = CreateTemporaryRoot();
         try
         {
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo("fr-FR");
             Settings settings = CreateValidStandaloneSettings(root);
             ConfigureExplicitAudioSettings(settings);
             var settingsSession = new CountingSettingsEditSession(settings);
@@ -1023,11 +1026,12 @@ public sealed partial class SettingDialogEditCompletionTests
             StringAssert.Contains(resultMessage, Resources.AudioDeviceTestFallbackReason);
             StringAssert.Contains(
                 resultMessage,
-                string.Format(System.Globalization.CultureInfo.CurrentCulture, "{0:N1}", 16.5));
+                "16.5");
             StringAssert.Contains(dialog.AudioDeviceTestDiagnosticMessage ?? string.Empty, fallbackReason);
         }
         finally
         {
+            System.Globalization.CultureInfo.CurrentCulture = previousCulture;
             Directory.Delete(root, recursive: true);
         }
     }

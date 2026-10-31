@@ -10,6 +10,8 @@ BMS・bmsonのオフライン変換、外部エンコーダーの起動、音量
 
 ## 仕様
 
+変換失敗の案内に含むdB、現在の増幅率に対する割合と推奨増幅率はInvariantの固定小数表記を使います。保存値・計算値と安全側への丸め、設定範囲外で数値案を省く条件は変えません。
+
 ### 対象譜面と解析
 
 選択したBMS・bmsonのうち、実pathがあり欠落・保留状態ではない対象を、選択順を保って変換します。メニューと実行側で同じ `ConvertToAudio` 能力を確認し、BMS専用の文字コード・IR等の条件をbmsonへ要求しません。出力先選択と開始・取消・結果通知は同じ変換処理を使います。
@@ -118,6 +120,7 @@ flowchart TB
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 地域非依存の安全側の範囲助言 | `SelectedChartAudioConversionWorkflowOwner` | `SelectedChartAudioConversionWorkflowOwnerTests.RunAsync_RangeAdviceUsesCapturedAmplificationAndSafeTenths` はfr-FRで2.61 dB・74%・0.7など独立期待と最小値・実行不能条件を確認する。 |
 | 拡張子なしベース名と同名directory、既存完成fileとの衝突時の採番・保全 | [`BMSAutoPlayWriter.Write`](../../../BeMusicSeeker/Ribbit/BMS/BMSAutoPlayWriter.cs)、`BassSelectedChartAudioConversionExecutor`、`BassAudioWriter.GetAvailableOutputFile` | [`BMSAutoPlayWriterTests.WriterTreatsExistingDirectoryAsFileBaseAndPreservesExistingEntries`](../../../BeMusicSeeker.Tests/Playback/BMSAutoPlayWriterTests.cs) はBMS・bmsonと既存完成fileの有無を組み合わせ、実WAVEの親directory直下の名前・既知入力のNONE増幅PCM・Float32 48kHz形式と、入力・既存file・directory内容の保全を確認する。通常バッチの形式・増幅・完了と解放は既存の変換ownerテストが担う。 |
 | 表示時の形式保持と実変換時の既存WAVE代替の分離 | `SettingsDialogViewModel.EncoderIndex`、`BassSelectedChartAudioConversionExecutor`、`SettingsAudioGateway.ApplyEncoderFallback` | 表示・保存・変換前snapshotは[設定の検証対応](settings.md#実装とテストの対応)で確認する。実変換の欠損判定から共有設定更新・終了時保存への接続は実装を静的確認し、表示テストで保証したものとは扱わない。 |
 | BMS・BMSON二曲の本番バッチから実WAVEと次変換への接続 | `SelectedChartAudioConversionWorkflowOwner`、`BassSelectedChartAudioConversionExecutor`、`BMSAutoPlayWriter` | [`SelectedChartAudioConversionWorkflowOwnerTests.RunAsync_RealNativeExecutorRetainsLibraryAdmissionThroughEncoderAndSessionCleanup`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartAudioConversionWorkflowOwnerTests.cs) は生成した48kHzステレオFloat32入力から独立に求めたPCM・frame数・形式・増幅設定、二成功・未処理0を実WAVEで確認する。encoder/sessionの実解放中の共通受付保持・Busyを維持し、元Taskと解放終端後の次の明示二曲変換も確認する。NullDevice WAVEの結果を外部encoderや物理deviceの確認として扱わない。 |

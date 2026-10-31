@@ -19,6 +19,7 @@ internal static class PlaylistSyncStatusMapper
         };
     }
 
+    /// <summary>同期結果と検査日時を投影します。日時の説明は時刻帯を変えずGregorianの固定書式へ揃えます。</summary>
     internal static PlaylistSyncRuntimeStatus Create(PlaylistSyncAttemptResult result, DateTime checkedAt)
     {
         if (result == null)
@@ -79,7 +80,7 @@ internal static class PlaylistSyncStatusMapper
 
     private static string BuildDetail(PlaylistSyncAttemptResult result, string statusText, DateTime checkedAt)
     {
-        string timestampText = (checkedAt == DateTime.MinValue) ? string.Empty : checkedAt.ToString("yyyy/MM/dd HH:mm:ss");
+        string timestampText = (checkedAt == DateTime.MinValue) ? string.Empty : DateTimeDisplayFormatter.FormatTimestamp(checkedAt);
         string pageUriText = result?.PageUri?.ToString() ?? string.Empty;
         string diagnosticText = result?.Detail ?? string.Empty;
         if (result != null && result.Succeeded)

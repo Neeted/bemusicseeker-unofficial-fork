@@ -1009,6 +1009,7 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
                 ? BeMusicSeeker.Properties.Resources.AudioDeviceTestFallbackReason
                 : BeMusicSeeker.Properties.Resources.AudioDeviceTestSucceeded;
         string details = string.Format(
+            CultureInfo.InvariantCulture,
             BeMusicSeeker.Properties.Resources.AudioDeviceTestResultDetailsFormat,
             AudioDriverDisplayNames.Get(result.RequestedBackend),
             requestedDevice,

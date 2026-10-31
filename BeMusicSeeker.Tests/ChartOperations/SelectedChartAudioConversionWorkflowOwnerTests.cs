@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -968,24 +969,27 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
-    /// <summary>peakと指定増幅率から安全な0.1刻みの助言を表示し、最小値境界を越える入力で実行不能を隠す誤りを検出します。</summary>
+    /// <summary>fr-FRでもdB・割合・安全な0.1刻みの助言を固定表記で表示し、最小値境界を越える入力で実行不能を隠す誤りを検出します。</summary>
     /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
     [DataTestMethod]
     // 通常の減衰、増幅済み、最小0.5で成立する境界、その直外の実行不能を分けます。
-    [DataRow(1.349858d, 1f, "74%", "0.7", false)]
-    [DataRow(2d, 1.5f, "50%", "0.7", false)]
-    [DataRow(2.5d, 1.25f, "40%", "0.5", false)]
-    [DataRow(2.5001d, 1.2499f, "40%", null, true)]
+    [DataRow(1.349858d, "2.61", 1f, "74%", "0.7", false)]
+    [DataRow(2d, "6.02", 1.5f, "50%", "0.7", false)]
+    [DataRow(2.5d, "7.96", 1.25f, "40%", "0.5", false)]
+    [DataRow(2.5001d, "7.96", 1.2499f, "40%", null, true)]
     public async Task RunAsync_RangeAdviceUsesCapturedAmplificationAndSafeTenths(
         double peak,
+        string expectedPeakDb,
         float amplifier,
         string expectedCurrentGainPercent,
         string expectedSuggestedGain,
         bool expectedImpossible)
     {
+        CultureInfo previousCulture = System.Globalization.CultureInfo.CurrentCulture;
         string root = CreateRoot();
         try
         {
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo("fr-FR");
             string chartPath = CreateChartFile(root, "range.bms");
             var events = new EventLog();
             var dialogs = new RecordingDialogService(events)
@@ -1011,36 +1015,28 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
 
             if (expectedImpossible)
             {
-                string peakDb = Math.Round(
-                        20d * Math.Log10(peak),
-                        2,
-                        MidpointRounding.AwayFromZero)
-                    .ToString("F2", System.Globalization.CultureInfo.CurrentCulture);
+                string peakDb = expectedPeakDb;
                 StringAssert.Contains(dialogs.LastMessage, string.Format(
-                    System.Globalization.CultureInfo.CurrentCulture,
+                    System.Globalization.CultureInfo.InvariantCulture,
                     Resources.AudioConversionRangeFailureImpossibleFormat,
                     1,
                     peakDb,
                     "range.bms"));
                 Assert.IsFalse(dialogs.LastMessage.Contains(expectedCurrentGainPercent, StringComparison.Ordinal));
                 Assert.IsFalse(dialogs.LastMessage.Contains(
-                    float.Parse("0.5", System.Globalization.CultureInfo.InvariantCulture).ToString(
-                        "F1",
-                        System.Globalization.CultureInfo.CurrentCulture),
+                    "0.5",
                     StringComparison.Ordinal));
             }
             else
             {
                 StringAssert.Contains(dialogs.LastMessage, expectedCurrentGainPercent);
-                StringAssert.Contains(dialogs.LastMessage, float.Parse(
-                    expectedSuggestedGain,
-                    System.Globalization.CultureInfo.InvariantCulture).ToString(
-                        "F1",
-                        System.Globalization.CultureInfo.CurrentCulture));
+                StringAssert.Contains(dialogs.LastMessage, expectedSuggestedGain);
+                StringAssert.Contains(dialogs.LastMessage, expectedPeakDb);
             }
         }
         finally
         {
+            System.Globalization.CultureInfo.CurrentCulture = previousCulture;
             DeleteRoot(root);
         }
     }

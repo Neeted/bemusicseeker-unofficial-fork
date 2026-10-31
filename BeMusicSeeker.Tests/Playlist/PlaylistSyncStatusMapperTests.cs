@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -18,29 +19,45 @@ public sealed class PlaylistSyncStatusMapperTests
         Assert.IsFalse(status.HasFailureStatus);
     }
 
-    /// <summary>更新成功は更新用リソースと検査時刻を詳細へ渡し失敗表示を出さず、成功を警告扱いにする誤りを検出します。</summary>
+    /// <summary>ar-SAで更新成功は固定Gregorian日時と型付き検査時刻を保ち、成功を警告扱いにする誤りを検出します。</summary>
     [TestMethod]
     public void Create_SuccessUpdated_ReturnsUpdatedStatus()
     {
-        var result = PlaylistSyncAttemptResult.CreateSuccess(null, null, new Uri("https://example.com/table.html"), updated: true);
+        CultureInfo previousCulture = System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo("ar-SA");
+            var result = PlaylistSyncAttemptResult.CreateSuccess(null, null, new Uri("https://example.com/table.html"), updated: true);
 
-        PlaylistSyncRuntimeStatus status = PlaylistSyncStatusMapper.Create(result, new DateTime(2026, 3, 8, 20, 0, 0));
+            PlaylistSyncRuntimeStatus status = PlaylistSyncStatusMapper.Create(result, new DateTime(2026, 3, 8, 20, 0, 0));
 
-        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Playlist_sync_status_updated, status.StatusText);
-        Assert.IsFalse(status.HasFailureStatus);
-        StringAssert.Contains(status.Detail, "2026/03/08 20:00:00");
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Playlist_sync_status_updated, status.StatusText);
+            Assert.IsFalse(status.HasFailureStatus);
+            Assert.AreEqual(new DateTime(2026, 3, 8, 20, 0, 0), status.CheckedAt);
+            StringAssert.Contains(status.Detail, "2026-03-08 20:00:00");
+        }
+        finally { System.Globalization.CultureInfo.CurrentCulture = previousCulture; }
     }
 
-    /// <summary>見出し解析失敗は見出し用リソースと対象URLを示して失敗表示を有効にし、原因のない正常表示へ丸める誤りを検出します。</summary>
+    /// <summary>th-THで見出し解析失敗は固定Gregorian日時と対象URL・元状態を保ち、原因のない正常表示へ丸める誤りを検出します。</summary>
     [TestMethod]
     public void Create_FailureHeaderParse_ReturnsWarningStatus()
     {
-        var result = PlaylistSyncAttemptResult.CreateFailure(null, new Uri("https://example.com/header.json"), new ArgumentException("header", "_header_json"));
+        CultureInfo previousCulture = System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo("th-TH");
+            var result = PlaylistSyncAttemptResult.CreateFailure(null, new Uri("https://example.com/header.json"), new ArgumentException("header", "_header_json"));
 
-        PlaylistSyncRuntimeStatus status = PlaylistSyncStatusMapper.Create(result, new DateTime(2026, 3, 8, 20, 0, 0));
+            PlaylistSyncRuntimeStatus status = PlaylistSyncStatusMapper.Create(result, new DateTime(2026, 3, 8, 20, 0, 0));
 
-        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Playlist_sync_status_header, status.StatusText);
-        Assert.IsTrue(status.HasFailureStatus);
-        StringAssert.Contains(status.Detail, "https://example.com/header.json");
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Playlist_sync_status_header, status.StatusText);
+            Assert.IsTrue(status.HasFailureStatus);
+            StringAssert.Contains(status.Detail, "https://example.com/header.json");
+            StringAssert.Contains(status.Detail, "2026-03-08 20:00:00");
+            Assert.AreEqual(new DateTime(2026, 3, 8, 20, 0, 0), status.CheckedAt);
+            Assert.AreEqual(PlaylistSyncStatusKind.HeaderParseError, status.Kind);
+        }
+        finally { System.Globalization.CultureInfo.CurrentCulture = previousCulture; }
     }
 }
