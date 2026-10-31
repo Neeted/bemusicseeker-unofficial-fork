@@ -1685,7 +1685,7 @@ playlist:"Satellite Sub"
 <h3 id="カスタムフォルダ出力">カスタムフォルダ出力</h3>
 <p>LR2 連携モードでは、プレイリストを LR2 のカスタムフォルダとして出力できます。LR2 のカスタムフォルダは、SQL 条件で曲の集合を作り、実ファイルを移動せずに仮想的なフォルダとして選曲画面へ表示する機能です。</p>
 <p>BeMusicSeeker では、難易度表やローカルプレイリストをこの形式で出力します。難易度表の <code>★1</code>、<code>★2</code> のようなフォルダを LR2 上で選ぶ、未プレイだけを探す、よく使う表を選曲画面のルートに置く、といった使い方を想定しています。</p>
-<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>カスタムフォルダ出力には専用のフォルダを用意し、重要なデータを入れないでください。出力更新で不要なファイルを削除し、出力先の変更やプレイリスト削除では古いプレイリスト出力フォルダを丸ごと削除します。手作業のカスタムフォルダなどを同居させないでください。</p></div><div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>出力ファイルは Shift_JIS です。この文字コードで表せない文字を条件に使うと、LR2 本体がファイルを読み直した際に選曲対象が一致しない場合があります。</p></div>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>通常・ルート・追加通常のいずれも、プレイリストごとの出力フォルダには専用のフォルダを用意し、重要なデータを入れないでください。出力フォルダとその配下は、以前からある内容も含めて出力更新で上書き・整理します。出力先の変更やプレイリスト削除では、古いプレイリスト出力フォルダを丸ごと削除します。</p></div><div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>出力ファイルは Shift_JIS です。この文字コードで表せない文字を条件に使うと、LR2 本体がファイルを読み直した際に選曲対象が一致しない場合があります。</p></div>
 <h4 id="設定の流れ">設定の流れ</h4>
 <ol>
 <li>設定画面の <code>プレイリスト</code> カテゴリで、<code>通常出力先</code> と <code>ルートフォルダ出力先</code> をそれぞれ選択し、表示される移行確認に同意して保存します。必要に応じて <code>追加通常出力先</code> も追加します。未完了の処理がある場合は、その欄の再試行ボタンを使います。新規プレイリストや外部 URL から追加する表の初期状態を変えたい場合は、<code>出力フォルダ既定値</code> も設定します。</li>
@@ -1694,6 +1694,7 @@ playlist:"Satellite Sub"
 </ol>
 <p><code>OUTPUT</code> は設定画面の <code>通常出力先</code> または <code>追加通常出力先</code> から選びます。<code>ルートフォルダにする</code> が ON の間も <code>OUTPUT</code> の保存値は保持されますが、実際の出力先は <code>ルートフォルダ出力先</code> です。ルートフォルダ設定を OFF にすると、保存されていた <code>OUTPUT</code> の出力先へ戻ります。</p>
 <p>プレイリストごとの実際の出力フォルダは、互いに同一または親子にならない場所を指定してください。同じ基点には異なる出力名を使います。名前・出力先・ルート型の変更や一括編集、追加出力先の削除でも、この条件を確認してから保存します。</p>
+<p>出力基点の直下や、プレイリストの出力フォルダと重ならない別フォルダに置いた任意の <code>.lr2folder</code> は、引き続き読み込みます。表の出力整理を理由に、基点全体や無関係な別フォルダを削除することはありません。</p>
 <p>以前に保存した <code>TableName\sub</code> や <code>TableName/sub</code> は、区切りを除いた <code>TableNamesub</code> として表示・出力します。変換後の名前がほかの出力先と重なる場合は、名前や出力先を変更してください。旧階層のファイルは自動移動・削除しません。</p>
 <div class="markdown-alert markdown-alert-important"><p class="markdown-alert-title">Important</p><p>LR2 用カスタムフォルダの出力は LR2 連携モードの機能です。スタンドアローンモードでもプレイリスト名やフォルダ設定はアプリ内 DB に保存されますが、LR2 用の <code>.lr2folder</code> 出力は更新されません。</p></div>
 <h4 id="出力先の使い分け">出力先の使い分け</h4>

@@ -27,6 +27,106 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsPlaylistCustomFolderOutputTests
 {
+    /// <summary>
+    /// 通常・ROOT・追加通常の非空宛先へプロパティ保存で移行し、実列挙の更新時刻がある旧本文も現在の表定義へ置換します。
+    /// 実本文と開き直したDBの選曲を照合し、DBだけが新しくなる退行と管理範囲外の削除を検出します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow("normal")]
+    [DataRow("root")]
+    [DataRow("additional")]
+    public async Task PlaylistPropertyDialog_MigrationReplacesExistingDestinationFromCurrentDefinition(string role)
+    {
+        await using var fixture = new PlaylistRestoreOutputFixture();
+        BMSTable table = PlaylistRestoreOutputFixture.Table(901, "New", "Current folder",
+            root: role == "root", baseName: role == "additional" ? "Additional" : null);
+        fixture.PersistAndOutput(table);
+        string before = fixture.OutputDirectory(table);
+        string outputBase = Path.GetDirectoryName(before) ?? throw new AssertFailedException("Missing output base.");
+        string destination = Path.Combine(outputBase, "Old");
+        string destinationFile = Path.Combine(destination, Path.GetFileName(Directory.GetFiles(before, "*.lr2folder").Single()));
+        string obsolete = Path.Combine(destination, "Nested", "unused.lr2folder");
+        string[] external = [Path.Combine(outputBase, "manual.lr2folder"), Path.Combine(outputBase, "OldSibling", "manual.lr2folder")];
+        const string OldText = "#TITLE Legacy folder\r\n#CATEGORY Legacy table\r\n#COMMAND song.hash = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'\r\n";
+        Directory.CreateDirectory(Path.GetDirectoryName(obsolete) ?? throw new AssertFailedException("Missing nested directory."));
+        File.WriteAllText(destinationFile, OldText, Encoding.GetEncoding("shift_jis"));
+        File.WriteAllText(obsolete, OldText, Encoding.GetEncoding("shift_jis"));
+        foreach (string path in external)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path) ?? throw new AssertFailedException("Missing external directory."));
+            File.WriteAllText(path, OldText, Encoding.GetEncoding("shift_jis"));
+        }
+        // fixtureの探索は実ファイルとmtimeをDiscoveryComplete=trueで捕捉し、空の探索面への本文再検査では代替しません。
+        Assert.IsTrue(new FileInfo(destinationFile).Exists);
+        using (var setup = new LR2SongDBExtended(fixture.SongDb))
+        { setup.InsertOrReplace(new LR2SongDB.song { path = "legacy.bms", hash = new string('b', 32) }); }
+        using PlaylistWorkspaceViewModel workspace = CreatePlaylistWorkspace(
+            fixture.Playlist, fixture.Library, () => fixture.OutputSettings, () => fixture.Config);
+        using PlaylistPropertyDialogViewModel dialog = await workspace.OpenPropertyDialogAsync(table)
+            ?? throw new AssertFailedException("Missing property dialog.");
+        dialog.output_dir = "Old";
+
+        Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+
+        string text = File.ReadAllText(destinationFile, Encoding.GetEncoding("shift_jis"));
+        StringAssert.Contains(text, "#TITLE Current folder");
+        StringAssert.Contains(text, "#CATEGORY Table 901");
+        string command = ReadCustomFolderCommand(text);
+        using (LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+        {
+            Assert.AreEqual("Old", verify.Table<BMSTable>().Single(row => row.playlist_id == 901).Output_dir);
+            LR2SongDB.folder row = verify.Table<LR2SongDB.folder>().Single(row => row.path == destinationFile);
+            Assert.AreEqual("Current folder", row.title);
+            Assert.AreEqual("Table 901", row.category);
+            Assert.AreEqual(command, row.command);
+            CollectionAssert.AreEqual(new[] { new string('a', 32) },
+                verify.Query<LR2SongDB.song>("SELECT song.* FROM song WHERE " + command).Select(song => song.hash).ToArray());
+        }
+        Assert.IsFalse(Directory.Exists(before));
+        Assert.IsFalse(File.Exists(obsolete));
+        foreach (string path in external)
+        { Assert.AreEqual(OldText, File.ReadAllText(path, Encoding.GetEncoding("shift_jis"))); }
+    }
+
+    /// <summary>
+    /// 旧表登録と出力状態のないDBへSQLを復元し、同名の残置ファイルを復元した現在定義へ置換します。
+    /// 復元Taskの終端直後に実本文とDBを観測し、非空先の拒否や後続readerによる修復への依存を検出します。
+    /// </summary>
+    [TestMethod]
+    public async Task PlaylistRestore_ReplacesExistingOutputWithoutPreviousPlaylistState()
+    {
+        string dump;
+        await using (var source = new PlaylistRestoreOutputFixture())
+        {
+            source.PersistAndOutput(PlaylistRestoreOutputFixture.Table(902, "Restored", "Restored folder"));
+            dump = source.Playlist.GetPlaylistDump();
+        }
+        await using var fixture = new PlaylistRestoreOutputFixture();
+        using (LR2SongDBExtended empty = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+        {
+            Assert.AreEqual(0, empty.Table<BMSTable>().Count());
+            Assert.AreEqual(0L, empty.ExecuteScalar<long>("SELECT COUNT(1) FROM playlist_custom_folder_output_status;"));
+        }
+        string destination = fixture.OutputDirectory(PlaylistRestoreOutputFixture.Table(902, "Restored"));
+        Directory.CreateDirectory(destination);
+        string path = Path.Combine(destination, "0000.lr2folder");
+        File.WriteAllText(path, "#TITLE Legacy folder\r\n#CATEGORY Legacy table\r\n#COMMAND 0\r\n", Encoding.GetEncoding("shift_jis"));
+
+        await fixture.Playlist.RestorePlaylistDumpAsync(dump);
+
+        string text = File.ReadAllText(path, Encoding.GetEncoding("shift_jis"));
+        StringAssert.Contains(text, "#TITLE Restored folder");
+        StringAssert.Contains(text, "#CATEGORY Table 902");
+        string command = ReadCustomFolderCommand(text);
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        LR2SongDB.folder row = verify.Table<LR2SongDB.folder>().Single(row => row.path == path);
+        Assert.AreEqual("Restored folder", row.title);
+        Assert.AreEqual("Table 902", row.category);
+        Assert.AreEqual(command, row.command);
+        CollectionAssert.AreEqual(new[] { new string('a', 32) },
+            verify.Query<LR2SongDB.song>("SELECT song.* FROM song WHERE " + command).Select(song => song.hash).ToArray());
+    }
+
     /// <summary>既存DBの未登録名は通常出力だけを止めて対象名を知らせ、正常な兄弟表とROOT出力を継続します。プロパティの未変更保存でも名を保ち、通常先の再選択で解消します。</summary>
     [DataTestMethod]
     [DataRow(false)]

@@ -273,6 +273,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
 
     /// <summary>
     /// 単一表の移行投影を準備します。未登録追加先の通常表は通知して対象から外し、正本保存や独立したBMT処理は妨げません。
+    /// 宛先の既存本文は今回の表定義の反映済みを示さないため、同一先・別先とも生成対象を必須書込みにします。
     /// </summary>
     internal CustomFolderMigrationPreparation PrepareCustomFolderOutputMigration(
         BMSTable table,
@@ -312,10 +313,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         };
         plan.SameDirectory = IsSameDirectory(outputDirectoryBefore, resolvedOutputDirectoryAfter);
         plan.Projection = CreateProjection(table, settings, resolvedOutputDirectoryAfter);
-        if (plan.SameDirectory)
-        {
-            PlaylistCustomFolderOutputOwner.MarkAllFilesForWrite(plan.Projection);
-        }
+        PlaylistCustomFolderOutputOwner.MarkAllFilesForWrite(plan.Projection);
         PrepareProjectionSurfaceAndScopes([plan.Projection], settings, "MigrateCustomFolderOutputDirectory");
         IReadOnlyCollection<string> protectedDirectories = CreateMigrationDestinationDirectories(
             new Dictionary<BMSTable, string> { [table] = resolvedOutputDirectoryAfter }, settings);

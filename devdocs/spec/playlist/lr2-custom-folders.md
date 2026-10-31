@@ -40,6 +40,8 @@
 
 管理表同士の実効絶対パスは、同一・親子のどちらも許可しません。単一名化後の実効絶対パスを、大文字小文字・区切り・相対要素の表記差を正規化して比較し、名前・出力名・基点選択・ルート型・基点設定の変更後集合を副作用前に検査します。一括変更は対象同士と未選択表を含めます。外部表の新規登録も既存表と全候補の変更後集合を検査し、一括登録に衝突があれば全件を登録前に拒否します。`Parent` と `Parent2`、兄弟、重ならない別基点は許可します。スタンドアロンにはこのLR2配置検査を適用しません。
 
+通常・ROOT・追加通常のいずれも、既存内容のある表出力先を受理します。管理範囲は現在の表と確定した設定による実効出力ディレクトリで決まり、別環境の残置物や手作業のファイルがあること、非空であることを理由に追加確認・拒否・別先への振替を行いません。既存の表間衝突・組込み予約領域等の配置条件は維持します。
+
 保存済み値の単一名化後に衝突・包含する場合も出力・移行・出力削除・表削除・検索ルート同期を拒否し、DB・正本・ファイル・検索ルートを変更しません。自動改名・設定修復・包含を保護しながらの出力は行いません。外部情報初期化の対象別除外は[プロパティ編集](../ui/playlist-properties.md#サマリーからの一括編集)に従います。
 
 確定したLR2rootの `LR2files/CustomFolder` は組込みの予約領域です。通常・追加・ROOTの出力基点は組込み自身・配下・直上の `LR2files` を拒否し、LR2rootやdrive rootなど、それより上の祖先は許可します。明示BMSrootは組込み自身・配下だけを拒否します。安全な兄弟、無関係な同名、似たprefixは許可し、LR2root不明時に名前だけから推測しません。検査は起動、出力設定、LR2root・詳細設定、明示BMS登録の受理時に各一回行います。検査済みの出力基点と単一出力名を使う表編集・一括編集・移行・再出力・同期では組込みを再検査せず、表間出力衝突など既存の検査を維持します。表実効先が組込みを含む祖先となる場合の保護は保証しません。出力ディレクトリは専用にし、重要なデータを同居させないでください。
@@ -122,13 +124,15 @@ ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) IS 
 
 ### 管理領域の整理
 
-表の出力ディレクトリ内は管理領域です。同じ先への再出力では期待集合にない `.lr2folder` を削除します。出力先変更、ルート切替、表削除では旧表ディレクトリ全体と対応範囲のDB行を整理します。基点直下の他の項目は変更しません。別表の包含に備えた子孫保護は持ちません。同一表の旧親から新子への移行、旧パスの再利用、管理基点外の保全は移行整理の別の保証として維持します。通常基点と追加基点を同じ設定要求で変更するときは、承認した現在名から最終登録名への対応を移行準備へ明示して渡し、未改名の表を含む配置検査・候補出力・整理時の保全先を同じ最終配置で解決します。
+表の実効出力ディレクトリとその配下は、通常・ROOT・追加通常とも管理領域です。ファイルの作成元によらず現在の表定義で上書きし、生成時には配下も含めて期待集合にない `.lr2folder` を削除します。出力先変更、ルート切替、表削除では旧表ディレクトリ全体と対応範囲のDB行を整理します。整理対象を基点全体や無関係な兄弟項目へ広げません。別表の包含に備えた子孫保護は持ちません。同一表の旧親から新子への移行、旧パスの再利用、管理基点外の保全は移行整理の別の保証として維持します。通常基点と追加基点を同じ設定要求で変更するときは、承認した現在名から最終登録名への対応を移行準備へ明示して渡し、未改名の表を含む配置検査・候補出力・整理時の保全先を同じ最終配置で解決します。
+
+単表移行では旧新が同一か別先かによらず、今回の生成対象をすべて必須書込みにします。宛先に同名ファイルと更新時刻があっても、旧本文を今回の定義の反映済みとは扱いません。既存の生成・DB一括同期・出力状態保存・旧先整理に接続し、新先を丸ごと空にする前処理は加えません。日常更新・起動時の必要出力判定と、管理領域内の一般ファイルを保護対象にしない契約は維持します。
 
 既存禁止設定はprofile構築前の設定訂正へ戻します。未構築時の通常・ROOT選択、追加先の追加・改名・削除は当該区分だけを保存でき、追加の旧禁止集合は一件ずつ縮小できます。未設定・旧予約領域の区分は今回の安全訂正を妨げず、有効な既存基点の一般配置衝突・旧配置警告は維持します。旧builtin自身・配下の物理配置、旧scope、PreviousOutputLocationを移行・削除・DB pruneへ渡しません。通常・追加の変更区分では既知旧管理exact登録だけを除き、ROOTでは現在XMLに実在するbuiltin自身・配下のexact登録だけを除きます。祖先・drive・無関係な未知登録を推測して整理せず、上位祖先を特別に保護・除去しません。全体の起動受理が成立するまではprofile/backendを公開せず、旧ファイルを保持します。
 
 ROOT基点がドライブルート・UNC共有ルートの場合も、整理対象は基点直下の当該表ディレクトリです。基点全体を削除対象へ広げません。[一般BMS一覧・導入先からの除外](../runtime/settings.md#カスタムフォルダと検索対象)は基点全体と子孫を対象とする別の契約です。
 
-SQL復元は、置換前に捕捉した全旧配置を、新正本の必須生成成功後に同じ受付内で整理します。表IDの同一性に依存せず新配置集合を保全し、空表集合・旧ROOTから通常/追加先への復元にも適用します。旧配置だけの整理失敗は残存警告とし、新DB・新出力と利用可能性を保持します。自動再試行や次の再出力への整理状態の持越しは行いません。standaloneでは既存ファイルと `folder` 行に触れません。復元の確定・失敗境界と実SQL往復テストは[SQLバックアップと復元](storage-and-export.md#json出力sqlバックアップと復元)に従います。
+SQL復元は、置換前に捕捉した全旧配置を、新正本の必須生成成功後に同じ受付内で整理します。旧DBに所有表・出力状態がなく、出力先に残置ファイルだけがある場合も、復元した表の定義で必須生成します。空の出力先への変更や事前退避を前提条件にしません。表IDの同一性に依存せず新配置集合を保全し、空表集合・旧ROOTから通常/追加先への復元にも適用します。旧配置だけの整理失敗は残存警告とし、新DB・新出力と利用可能性を保持します。自動再試行や次の再出力への整理状態の持越しは行いません。standaloneでは既存ファイルと `folder` 行に触れません。復元の確定・失敗境界と実SQL往復テストは[SQLバックアップと復元](storage-and-export.md#json出力sqlバックアップと復元)に従います。
 
 ### 修復と一括反映
 
@@ -146,6 +150,8 @@ SQL復元は、置換前に捕捉した全旧配置を、新正本の必須生�
 
 管理外の `.lr2folder` 探索は、管理表ディレクトリを列挙時の除外範囲として渡します。全件を候補化してから捨てません。保持した走査結果と現在の除外範囲が変わった場合は現在の範囲で探索し直し、出力前の古いファイル集合を出力後の同期に使いません。
 
+同じ基点内でも、表出力範囲外の兄弟・似た接頭辞の別ディレクトリ・基点直下にある任意配置の `.lr2folder` は保持し、物理本文から `folder` 行へ同期します。同一・包含は正規化されたパスで判定し、表フォルダ内の生成予定外ファイルは管理内です。別環境の `Old` が残り、現在の表が `New` を使う間は `Old` を管理外として読み、現在の表の出力先を `Old` に変えた後は管理内として現在定義で生成・整理します。管理外本文の `COMMAND` が参照する表ID等は現在のDBで評価し、別環境の所属を移植・変換しません。
+
 日常部分出力・全体生成・設定移行の受付条件と寿命は[競合ポリシー](../core/operation-concurrency-policy.md#プレイリストと必要出力)に従います。進捗は既存の最新状態通知キューを使い、購読先の例外は診断し、物理ファイル・DB・保存状態の結果と区別します。
 
 基点・表ディレクトリ移行は捕捉済み旧先・新先を用いて処理します。新しい先の確定後に旧先削除が失敗しても、新しい先のファイル・DB・出力状態、旧先の残余と元警告を保持します。次の通常要求は新しい先を使い、古い編集画面の配置から旧先cleanupを再開しません。プレイリストのプロパティ編集における同じ編集セッションの明示保存継続は、保存結果に捕捉した旧先・新先の絶対パスと旧型・旧基点を使って未完了部分だけを先に処理します。設定画面の局所出力確定では、今回捕捉した旧先の絶対パスと旧型・旧基点を同じ操作の終端までだけ使い、現在正本から生成します。必要な設定媒体とheader DBを保存してから公開し、生成失敗・旧先残存のどちらも過去要求の再開情報として保持しません。正本保存・必要生成の失敗と、旧先整理だけの警告を区別します。次の明示操作はその時点の最新入力を再保存して生成します。
@@ -160,6 +166,7 @@ ROOT登録の補完・同期、表削除、プロパティ、一括編集は同�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 非空宛先への単表移行と旧登録のないSQL復元 | [`PlaylistCustomFolderOutputMaintenanceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistCustomFolderOutputMaintenanceOwner.cs) の `PrepareCustomFolderOutputMigration`、[`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) の `RestorePlaylistDumpAsync` | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) の `PlaylistPropertyDialog_MigrationReplacesExistingDestinationFromCurrentDefinition` が通常・ROOT・追加通常の実mtime付き旧本文をプロパティ保存で置換し、実本文・実DB行・選曲を確認する。`PlaylistRestore_ReplacesExistingOutputWithoutPreviousPlaylistState` が旧表登録・出力状態のないDBへの実SQL復元直後に残置本文の置換を確認する。管理外の物理本文からのDB同期は `Lr2FolderFileDiscoveryServiceTests.ExcludeAppManagedOutputCandidates_RemovesManagedOutputDirectoryFilesOnly` と [`BmsLibraryLr2SongDbSyncTests`](../../../BeMusicSeeker.Tests/Lr2/BmsLibraryLr2SongDbSyncTests.cs) の管理候補除外・外部定義保持の既存検証へ分担する。 |
 | 組込み予約領域と旧禁止設定の訂正 | `CustomFolderOutputBaseSearchRootSyncService`、設定確定担当、`StartupLibraryConstructionOwner` | `SettingDialogCustomFolderOutputBaseTests.SettingsAcceptance_ReservesBuiltinOnlyAtConfigurationBoundary` が三種出力基点・BMS登録の条件表と上位祖先出力下の禁止BMS登録を確認する。`SettingsDialogBehaviorTests.OutputConfirmation_ReservedBaseKeepsAllMediaAndBackendUnchanged` と `OutputCorrection_SectionsAndAdditionalShrinkKeepBuiltinFilesWithoutStartingBackend` が拒否前の媒体保全と実sectionの逐次訂正を、`SettingDialogEditCompletionTests.ReservedOutputModeSave_FreshStartupRequiresCorrectionThenAncestorBaseAndPropertySaveSucceed` がmode即時保存・fresh起動訂正・許容祖先baseと実表編集を分担する。安全管理先の通常移行・削除は `BmsPlaylistMigrationAndRegistrationTests` が維持する。 |
 | ドライブルート配下の実ROOT表削除と管理外楽曲の保持 | `PlaylistRemovalWorkflowOwner`、`PlaylistCustomFolderOutputMaintenanceOwner` | [`SettingDialogLr2OwnerTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogLr2OwnerTests.cs) の `Lr2DriveRootOutput_PreservesConfirmedInstallThroughGenerationInstallationAndTableRemoval` は設定で保存した管理外導入先への実導入後、同じ表の物理ディレクトリ・folder行・表登録・jukebox登録の削除と、楽曲の実体・DB行・表外ファイルの保持を確認します。別名は全owner終端後に解除し、清掃は所有した一時実パスだけへ行います。 |
 | 同じLR2正本へのROOT登録保存と限定公開 | [`PlaylistCustomFolderOutputMaintenanceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistCustomFolderOutputMaintenanceOwner.cs)、[`Lr2ConfigOwner`](../../../BeMusicSeeker/Models/LR2/Lr2ConfigOwner.cs) | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs)、[`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs)、[`PlaylistSummaryBulkEditTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryBulkEditTests.cs) が各入口の保存・出力を、[`部分保存と実表削除`](../../../BeMusicSeeker.Tests/Settings/SettingDialogLr2OwnerTests.cs) が別操作の未公開値を巻き込まないことを確認します。 |

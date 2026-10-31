@@ -938,7 +938,7 @@ In LR2 linked mode, playlists can be output as LR2 custom folders. LR2 custom fo
 BeMusicSeeker outputs difficulty tables and local playlists in this format. It is intended for uses such as selecting `★1`, `★2`, and similar folders from difficulty tables in LR2, finding only unplayed charts, or placing frequently used tables at the root of the song selection screen.
 
 > [!CAUTION]
-> Use dedicated folders for custom output and keep important data elsewhere. Output updates remove obsolete files; changing destinations or deleting playlists removes the old playlist output folder entirely. Do not place manually managed custom folders or other files inside it.
+> Use a dedicated output folder for each playlist and keep important data elsewhere, whether using the normal, root, or additional normal destination. Output updates overwrite and clean up the playlist output folder and its contents, including files already present. Changing destinations or deleting playlists removes the old playlist output folder entirely.
 
 > [!CAUTION]
 > Output files use Shift_JIS. Conditions containing characters that this encoding cannot represent may fail to match charts when LR2 itself rereads the files.
@@ -952,6 +952,8 @@ BeMusicSeeker outputs difficulty tables and local playlists in this format. It i
 `OUTPUT` selects the `Normal output destination` or one of the `Additional normal output destinations` from settings. While `Make root folder` is enabled, the saved `OUTPUT` value is kept, but the actual output destination is the `Root folder output destination`. When root folder output is turned off, the playlist returns to the saved `OUTPUT` destination.
 
 Choose playlist output folders that are neither identical nor nested. Use different output names under the same base. This is checked before saving changes to names, output destinations, root folder mode, bulk edits, or removal of an additional output base.
+
+Custom `.lr2folder` files placed directly under an output base or in separate folders outside playlist output folders continue to be read. Playlist output cleanup does not delete the entire base or unrelated separate folders.
 
 Previously saved names such as `TableName\sub` or `TableName/sub` are displayed and used for output as `TableNamesub`, with the separators removed. If the resulting name overlaps another output folder, change the name or destination. Files in the old hierarchy are not automatically moved or deleted.
 
