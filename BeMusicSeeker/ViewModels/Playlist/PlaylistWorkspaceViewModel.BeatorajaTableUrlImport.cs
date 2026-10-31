@@ -19,7 +19,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler<BeatorajaTableUrlImportSummaryReadyEventArgs> BeatorajaTableUrlImportSummaryReady;
 
-    /// <summary>確定rootの取込みを開始し、実受付の通知と、取得・DB・出力・通知を含む実終端Taskを返します。</summary>
+    /// <summary>確定rootの取込みを開始し、実受付の通知と、取得・DB・出力・通知を含む実終端Taskを返します。実storeがLR2連携時だけ空出力名を対象別に拒否し、スタンドアロンではUnicode実名を保持します。</summary>
     internal Task StartBeatorajaTableUrlImport(string rootPath, Action onAccepted = null, string confirmationMessage = null)
     {
         bool started = false;
@@ -272,7 +272,8 @@ public sealed partial class PlaylistWorkspaceViewModel
 
                     List<BeatorajaTableUrlImportWorkItem> registrationItems = [.. loadItems
                         .Where(item => item.LoadedTable != null && item.Failure == null)];
-                    foreach (BeatorajaTableUrlImportWorkItem item in registrationItems.Where(item => string.IsNullOrWhiteSpace(item.LoadedTable.Output_dir)))
+                    bool operationModeLR2DB = tables.GetCustomFolderOutputSettings().OperationModeLR2DB;
+                    foreach (BeatorajaTableUrlImportWorkItem item in registrationItems.Where(item => operationModeLR2DB && string.IsNullOrWhiteSpace(item.LoadedTable.Output_dir)))
                     {
                         item.Failure = new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_OutputDirNameEmpty);
                         RecordOutcome(item.Target, BeatorajaTableUrlImportOutcome.Failed(item.Target.Uri, item.Failure));

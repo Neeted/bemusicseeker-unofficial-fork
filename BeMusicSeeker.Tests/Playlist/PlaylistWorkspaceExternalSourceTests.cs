@@ -28,7 +28,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistWorkspaceExternalSourceTests
 {
-    /// <summary>404から実BMTを復元し、同hashの非数値二所属・数値一所属とnullable levelを通常登録・DB読戻し・再出力まで保持します。</summary>
+    /// <summary>404からUnicode実名の実BMTを復元し、同hashの非数値二所属・数値一所属とnullable levelを通常登録・DB読戻し・再出力まで保持します。同URLの再取込みは取得不能でも既存一致として同一IDと保存内容を保ちます。</summary>
     /// <remarks>条件網羅はCreateTableの条件表へ分担し、ここでは実workspace受付から保存・再生成への接続を一例で確認します。</remarks>
     [TestMethod]
     public async Task StartBeatorajaTableUrlImport_CachedNonnumericMembershipsSurvivePersistenceAndReexport()
@@ -65,7 +65,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             WriteBmtJson(bmtPath, new JObject
             {
                 ["url"] = "https://example.test/old-cache.json",
-                ["name"] = "Cached memberships",
+                ["name"] = "한글",
                 ["tag"] = "★",
                 ["folder"] = new JArray(expected.Select(item => new JObject
                 {
@@ -120,11 +120,13 @@ public sealed class PlaylistWorkspaceExternalSourceTests
 
             BMSTable restored = playlist.BMSTables.Single();
             Assert.IsTrue(restored.playlist_id > 0);
+            AssertTableHeader(restored);
             CollectionAssert.AreEquivalent(expected, restored.entries.Select(entry => (entry.md5, entry.folder, entry.level)).ToArray());
             using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 BMSTable header = verify.Table<BMSTable>().Single();
                 Assert.AreEqual(restored.playlist_id, header.playlist_id);
+                AssertTableHeader(header);
                 BMSTableEntry[] saved = verify.Table<BMSTableEntry>().ToArray();
                 Assert.IsTrue(saved.All(entry => entry.playlist_id == header.playlist_id));
                 CollectionAssert.AreEquivalent(expected, saved.Select(entry => (entry.md5, entry.folder, entry.level)).ToArray());
@@ -134,15 +136,53 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             await playlist.ReloadTablesAsync(exportBeatorajaBmt: false);
             BMSTable reloaded = playlist.BMSTables.Single();
             Assert.AreEqual(restored.playlist_id, reloaded.playlist_id);
+            AssertTableHeader(reloaded);
             CollectionAssert.AreEquivalent(expected, reloaded.entries.Select(entry => (entry.md5, entry.folder, entry.level)).ToArray());
             // 既存ファイルの読取りだけでは成功しないよう、DB読戻し後に実ファイルを再生成する。
             File.Delete(bmtPath);
             await playlist.BmtOutput.ExportAllAsync("cached-memberships-reexport", forceProjection: true);
             AssertExportedMemberships();
 
+            // 取得元を閉じた後も、専用入口は再取得・cache復元ではなく既存一致として扱う。
+            await server.DisposeAsync();
+            server = null;
+            summaryReady = new TaskCompletionSource<BeatorajaTableUrlImportSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
+            importCompletion = workspace.StartBeatorajaTableUrlImport(beatorajaRoot);
+            await TestUiDispatcherHost.AwaitNotificationAsync(summaryReady.Task, importCompletion, "cached table repeated import summary");
+            BeatorajaTableUrlImportSummary repeated = await summaryReady.Task;
+            await importCompletion;
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            while (auxiliaryWork.TryDequeue(out Task? work)) { await work; }
+            Assert.AreEqual(1, repeated.ExistingCount);
+            Assert.AreEqual(BeatorajaTableUrlImportOutcomeKind.Existing, repeated.Outcomes.Single().Kind);
+            Assert.AreEqual(inputUrl, repeated.Outcomes.Single().Uri.AbsoluteUri);
+            Assert.AreEqual(restored.playlist_id, playlist.BMSTables.Single().playlist_id);
+            AssertTableHeader(playlist.BMSTables.Single());
+            CollectionAssert.AreEquivalent(expected, playlist.BMSTables.Single().entries.Select(entry => (entry.md5, entry.folder, entry.level)).ToArray());
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            {
+                BMSTable header = verify.Table<BMSTable>().Single();
+                Assert.AreEqual(restored.playlist_id, header.playlist_id);
+                AssertTableHeader(header);
+                BMSTableEntry[] saved = verify.Table<BMSTableEntry>().ToArray();
+                Assert.IsTrue(saved.All(entry => entry.playlist_id == header.playlist_id));
+                CollectionAssert.AreEquivalent(expected, saved.Select(entry => (entry.md5, entry.folder, entry.level)).ToArray());
+            }
+            AssertExportedMemberships();
+
+            void AssertTableHeader(BMSTable table)
+            {
+                Assert.AreEqual("한글", table.name);
+                Assert.AreEqual("★", table.tag);
+                Assert.AreEqual(inputUrl, table.Page_url.AbsoluteUri);
+                Assert.IsTrue(string.IsNullOrWhiteSpace(table.Output_dir), "実名由来の空出力名をスタンドアロンでは受理します。");
+            }
+
             void AssertExportedMemberships()
             {
                 JObject exported = ReadBmtJson(bmtPath);
+                Assert.AreEqual("한글", exported.Value<string>("name"));
+                Assert.AreEqual("★", exported.Value<string>("tag"));
                 Assert.AreEqual(inputUrl, exported.Value<string>("url"), "元cacheが残っただけでは再出力成功としません。");
                 JArray folders = exported["folder"] as JArray ?? throw new AssertFailedException("BMT folder配列がありません。");
                 CollectionAssert.AreEquivalent(expected.Select(item => item.Folder).ToArray(),
@@ -150,6 +190,10 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 CollectionAssert.AreEquivalent(expected.Select(item => (item.Hash, item.Folder)).ToArray(),
                     folders.SelectMany(folder => (folder["songs"] as JArray ?? throw new AssertFailedException("BMT songs配列がありません。")).Select(song =>
                         ((string?)song["md5"], (string?)folder["name"]))).ToArray());
+                BmtTableExportService.ManagedTableUrlEntry managed = BmtTableExportService.ReadManagedTableUrls(output).Single();
+                Assert.AreEqual(restored.playlist_id.ToString(), managed.PlaylistIdentity);
+                Assert.AreEqual(inputUrl, managed.Url);
+                CollectionAssert.AreEqual(new[] { inputUrl }, BeatorajaConfigService.ReadTableUrls(beatorajaRoot).ToArray());
             }
         }
         catch (Exception failure)
@@ -168,7 +212,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             await CleanupAsync(() => importCompletion);
             if (workspace != null) { await CleanupAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync); }
             while (auxiliaryWork.TryDequeue(out Task? work)) { await CleanupAsync(() => work); }
-            await CleanupAsync(() => { workspace?.RefreshPlaylistTreeTables(null); return Task.CompletedTask; });
+            await CleanupAsync(() => { workspace?.RefreshPlaylistTreeTables(null); workspace?.Dispose(); return Task.CompletedTask; });
             while (auxiliaryWork.TryDequeue(out Task? work)) { await CleanupAsync(() => work); }
             await CleanupAsync(() => { playlist?.RequestShutdown("cached-memberships-fixture"); return Task.CompletedTask; });
             await CleanupAsync(() => { library?.RequestShutdown("cached-memberships-fixture"); return Task.CompletedTask; });
@@ -465,6 +509,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
     /// <summary>
     /// 保証：混合4対象のURI・Kindを元入力順で照合し、登録済みの参照表示をモデルから確認する。
     /// 登録確定・IDとentry所属、既存表の非取得・内容、残る二表・管理台帳・config他キー・管理外BMTを保つ。
+    /// スタンドアロンで出力名が空になるUnicode実名を変更せず保存し、ASCII tag・曲集合・元URLを実gzipとURL登録まで反映する。
     /// 通信中Busyと要求元付き進捗を観測し、実受付Taskとconsumerを合流してからHTTP・tempを解放する。
     /// </summary>
     [TestMethod]
@@ -493,7 +538,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             File.WriteAllBytes(Path.Combine(root, "second-data.json"), BmsPlaylistTestSupport.CreateUtf8BomBytes(
                 "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Song A\",\"artist\":\"Artist A\",\"level\":\"10\"}]"));
             server = new SingleRequestHttpServer(BmsPlaylistTestSupport.CreateUtf8BomBytes(
-                "{\"name\":\"New B\",\"symbol\":\"B\",\"compat_prefix\":\"\",\"output_dir\":\"NewB\",\"data_url\":\"" + new Uri(Path.Combine(root, "data.json")).AbsoluteUri + "\"}"), holdBody: true);
+                "{\"name\":\"한글\",\"symbol\":\"st\",\"tag\":\"st\",\"compat_prefix\":\"\",\"data_url\":\"" + new Uri(Path.Combine(root, "data.json")).AbsoluteUri + "\"}"), holdBody: true);
             secondServer = new SingleRequestHttpServer(BmsPlaylistTestSupport.CreateUtf8BomBytes(
                 "{\"name\":\"New A\",\"symbol\":\"A\",\"compat_prefix\":\"\",\"output_dir\":\"NewA\",\"data_url\":\"" + new Uri(Path.Combine(root, "second-data.json")).AbsoluteUri + "\"}"));
             unmanagedServer = new SingleRequestHttpServer(BmsPlaylistTestSupport.CreateUtf8BomBytes("not a difficulty table"));
@@ -595,14 +640,17 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             BeatorajaTableUrlImportOutcome imported = summary.Outcomes.First();
             Assert.AreEqual(BeatorajaTableUrlImportOutcomeKind.Imported, imported.Kind, diagnostics);
             Assert.AreEqual(inputUri, imported.Uri.AbsoluteUri);
-            Assert.AreEqual("New B", imported.TableName);
-            string[] expectedOrder = ["New B", "Existing E", "New A", "Remaining C", "Remaining D"];
+            Assert.AreEqual("한글", imported.TableName);
+            string[] expectedOrder = ["한글", "Existing E", "New A", "Remaining C", "Remaining D"];
             using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 BMSTable[] headers = verify.Table<BMSTable>().OrderBy(table => table.bmt_sort).ToArray();
                 CollectionAssert.AreEqual(expectedOrder, headers.Select(table => table.name).ToArray());
-                BMSTable newB = headers.Single(table => table.name == "New B");
+                BMSTable newB = headers.Single(table => table.name == "한글");
                 BMSTable newA = headers.Single(table => table.name == "New A");
+                Assert.AreEqual("st", newB.tag);
+                Assert.AreEqual(inputUri, newB.Header_url.AbsoluteUri);
+                Assert.IsTrue(string.IsNullOrWhiteSpace(newB.Output_dir), "明示出力名なしのUnicode実名をそのまま保存します。");
                 Assert.IsTrue(newB.playlist_id > 0 && newA.playlist_id > 0);
                 Assert.AreNotEqual(newB.playlist_id, newA.playlist_id);
                 foreach ((BMSTable table, string hash, string title, string folder) in new[]
@@ -636,8 +684,18 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 List<BmtTableExportService.ManagedTableUrlEntry> managed = BmtTableExportService.ReadManagedTableUrls(output);
                 CollectionAssert.AreEquivalent(headers.Select(table => table.playlist_id.ToString()).ToArray(),
                     managed.Select(item => item.PlaylistIdentity).ToArray());
+                Assert.AreEqual(inputUri, managed.Single(item => item.PlaylistIdentity == newB.playlist_id.ToString()).Url);
                 Assert.IsFalse(managed.Any(item => item.Url == unmanagedUri));
             }
+            JObject unicodeBmt = ReadBmtJson(BeatorajaBmtTableImportService.GetCachedTablePath(output, inputUri));
+            Assert.AreEqual("한글", unicodeBmt.Value<string>("name"));
+            Assert.AreEqual("st", unicodeBmt.Value<string>("tag"));
+            Assert.AreEqual(inputUri, unicodeBmt.Value<string>("url"));
+            JArray unicodeFolders = unicodeBmt["folder"] as JArray ?? throw new AssertFailedException("BMT folder配列がありません。");
+            CollectionAssert.AreEqual(new[] { "st2" }, unicodeFolders.Select(folder => (string?)folder["name"]).ToArray());
+            CollectionAssert.AreEquivalent(new[] { (new string('a', 32), "Song B") },
+                unicodeFolders.SelectMany(folder => (folder["songs"] as JArray ?? throw new AssertFailedException("BMT songs配列がありません。"))
+                    .Select(song => ((string?)song["md5"], (string?)song["title"]))).ToArray());
             CollectionAssert.AreEqual(expectedOrder, workspace.PlaylistSummaryView.Select(row => row.TableRef.name).ToArray());
             CollectionAssert.AreEqual(new[] { unmanagedUri, inputUri, existingUri, secondUri, "https://example.com/remaining1", "https://example.com/remaining2" }, BeatorajaConfigService.ReadTableUrls(beatorajaRoot).ToArray());
             Assert.AreEqual(37, (int?)Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(config))["other"]?["volume"]);
@@ -683,7 +741,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 await CleanupAsync(workspace.WaitForPlaylistReloadCleanupIdleAsync);
             }
             while (auxiliaryWork.TryDequeue(out Task? work)) { await CleanupAsync(() => work); }
-            await CleanupAsync(() => { workspace?.RefreshPlaylistTreeTables(null); return Task.CompletedTask; });
+            await CleanupAsync(() => { workspace?.RefreshPlaylistTreeTables(null); workspace?.Dispose(); return Task.CompletedTask; });
             while (auxiliaryWork.TryDequeue(out Task? work)) { await CleanupAsync(() => work); }
             await CleanupAsync(() => { acceptedPlaylist?.RequestShutdown("normal-beatoraja-import-fixture"); return Task.CompletedTask; });
             await CleanupAsync(() => { acceptedLibrary?.RequestShutdown("normal-beatoraja-import-fixture"); return Task.CompletedTask; });
@@ -695,6 +753,132 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             if (cleanupFailures.Count > 0)
             {
                 var cleanupFailure = new AggregateException("beatoraja import cleanup", cleanupFailures);
+                if (primaryFailure == null) { throw cleanupFailure; }
+                Console.WriteLine(cleanupFailure);
+            }
+        }
+    }
+
+    /// <summary>Table URL取込みは実storeのLR2モードでUnicode実名由来の空出力名だけを失敗にし、後続の正常表を保存・出力します。結果の元URL順と実終端後の受付を保ちます。</summary>
+    /// <remarks>Workspace設定がスタンドアロンでも登録先storeのモードを使う接続を確認します。登録本体のモード×単表・一括の条件表は既存登録ownerテストへ分担します。</remarks>
+    [TestMethod]
+    public async Task StartBeatorajaTableUrlImport_Lr2ModeRejectsOnlyEmptyOutputNameAndImportsValidTable()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceExternalSourceTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        Task operation = Task.CompletedTask;
+        var auxiliaryWork = new ConcurrentQueue<Task>();
+        var summaryReady = new TaskCompletionSource<BeatorajaTableUrlImportSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Exception? primaryFailure = null;
+        try
+        {
+            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(root);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string unicodeHeader = Path.Combine(root, "unicode.json");
+            string validHeader = Path.Combine(root, "valid.json");
+            File.WriteAllText(unicodeHeader, "{\"name\":\"한글\",\"symbol\":\"st\",\"tag\":\"st\",\"data_url\":\"./unicode-data.json\"}");
+            File.WriteAllText(Path.Combine(root, "unicode-data.json"), "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Rejected song\",\"level\":\"1\"}]");
+            File.WriteAllText(validHeader, "{\"name\":\"ValidImport\",\"symbol\":\"V\",\"tag\":\"VALID\",\"compat_prefix\":\"\",\"data_url\":\"./valid-data.json\"}");
+            File.WriteAllText(Path.Combine(root, "valid-data.json"), "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Valid song\",\"level\":\"2\"}]");
+            string unicodeUrl = new Uri(unicodeHeader).AbsoluteUri;
+            string validUrl = new Uri(validHeader).AbsoluteUri;
+            string beatorajaRoot = Path.Combine(root, "beatoraja");
+            Directory.CreateDirectory(beatorajaRoot);
+            File.WriteAllBytes(Path.Combine(beatorajaRoot, "beatoraja.jar"), []);
+            File.WriteAllText(Path.Combine(beatorajaRoot, BeatorajaConfigService.ConfigFileName), new JObject
+            {
+                ["tablepath"] = "table",
+                ["tableURL"] = new JArray(unicodeUrl, validUrl)
+            }.ToString());
+            string outputBase = Path.Combine(root, "Output");
+            var outputSettings = new CustomFolderOutputSettingsSnapshot
+            {
+                OperationModeLR2DB = true,
+                LR2CustomFolderOutputBaseDir = outputBase,
+                LR2CustomFolderOutputBaseDirRootType = Path.Combine(root, "RootOutput"),
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            var configOwner = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(Path.Combine(root, "LR2"), outputBase));
+            playlist = new TestBmsPlaylist(songDbPath, configOwner, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => outputSettings,
+                BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            { BMSTables = [] };
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                auxiliaryWork.Enqueue(Task.Run(work));
+                return true;
+            };
+            library = new TestBmsLibrary(songDbPath);
+            // 既存factoryのWorkspaceはスタンドアロン設定で、実storeだけがLR2連携を使う。
+            workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library,
+                playlistSummaryBmtSort: new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables));
+            workspace.BeatorajaTableUrlImportConfirmationRequested += (_, request) => request.Confirmed = true;
+            workspace.BeatorajaTableUrlImportNotificationRequested += (_, request) =>
+                summaryReady.TrySetException(new InvalidOperationException(request.Message));
+            workspace.BeatorajaTableUrlImportSummaryReady += (_, request) => summaryReady.TrySetResult(request.Summary);
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+
+            operation = workspace.StartBeatorajaTableUrlImport(beatorajaRoot);
+            await TestUiDispatcherHost.AwaitNotificationAsync(summaryReady.Task, operation, "LR2 Table URL import summary");
+            BeatorajaTableUrlImportSummary summary = await summaryReady.Task;
+            await operation;
+            while (auxiliaryWork.TryDequeue(out Task? work)) { await work; }
+            string diagnostics = string.Join(Environment.NewLine, summary.Outcomes.Select(outcome => $"{outcome.Kind}: {outcome.Exception}"));
+            Assert.AreEqual(1, summary.FailedCount, diagnostics);
+            Assert.AreEqual(1, summary.ImportedCount, diagnostics);
+            Assert.AreEqual(0, summary.WarningCount, diagnostics);
+            CollectionAssert.AreEqual(new[] { unicodeUrl, validUrl }, summary.Outcomes.Select(outcome => outcome.Uri.AbsoluteUri).ToArray());
+            CollectionAssert.AreEqual(new[] { BeatorajaTableUrlImportOutcomeKind.Failed, BeatorajaTableUrlImportOutcomeKind.Imported },
+                summary.Outcomes.Select(outcome => outcome.Kind).ToArray(), diagnostics);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Error_OutputDirNameEmpty, summary.Outcomes[0].Exception.Message);
+            Assert.AreEqual("ValidImport", playlist.BMSTables.Single().name);
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            {
+                BMSTable saved = verify.Table<BMSTable>().Single();
+                Assert.AreEqual("ValidImport", saved.name);
+                Assert.AreEqual("VALID", saved.tag);
+                Assert.AreEqual(validUrl, saved.Header_url.AbsoluteUri);
+                BMSTableEntry entry = verify.Table<BMSTableEntry>().Single();
+                Assert.AreEqual(saved.playlist_id, entry.playlist_id);
+                Assert.AreEqual(new string('b', 32), entry.md5);
+                Assert.AreEqual("2", entry.folder);
+            }
+            string validOutput = Path.Combine(outputBase, "ValidImport");
+            Assert.IsTrue(Directory.EnumerateFiles(validOutput, "*.lr2folder").Any(), "正常表の必要LR2出力まで完了します。");
+            CollectionAssert.AreEqual(new[] { validOutput }, Directory.GetDirectories(outputBase));
+            using (playlist.AcquirePlaylistMutationLease("after-lr2-table-url-import")) { }
+        }
+        catch (Exception failure)
+        {
+            primaryFailure = failure;
+            throw;
+        }
+        finally
+        {
+            var cleanupFailures = new List<Exception>();
+            async Task CleanupAsync(Func<Task> action)
+            {
+                try { await action(); }
+                catch (Exception failure) { cleanupFailures.Add(failure); }
+            }
+            await CleanupAsync(() => operation);
+            if (workspace != null)
+            {
+                await CleanupAsync(workspace.WaitForDetailBuildIdleAsync);
+                await CleanupAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync);
+                await CleanupAsync(workspace.WaitForPlaylistReloadCleanupIdleAsync);
+                await CleanupAsync(() => { workspace.RefreshPlaylistTreeTables(null); workspace.Dispose(); return Task.CompletedTask; });
+            }
+            while (auxiliaryWork.TryDequeue(out Task? work)) { await CleanupAsync(() => work); }
+            await CleanupAsync(() => { playlist?.RequestShutdown("lr2-table-url-import-fixture"); return Task.CompletedTask; });
+            await CleanupAsync(() => { library?.RequestShutdown("lr2-table-url-import-fixture"); return Task.CompletedTask; });
+            await CleanupAsync(() => { Directory.Delete(root, recursive: true); return Task.CompletedTask; });
+            if (cleanupFailures.Count > 0)
+            {
+                var cleanupFailure = new AggregateException("LR2 Table URL import cleanup", cleanupFailures);
                 if (primaryFailure == null) { throw cleanupFailure; }
                 Console.WriteLine(cleanupFailure);
             }
