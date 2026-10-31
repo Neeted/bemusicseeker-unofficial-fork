@@ -59,11 +59,13 @@ MD5ごとに逐次処理し、取消後は新しい問合せ・取得を始め�
 
 | 対象 | 処理 |
 | --- | --- |
-| Driveの `file/d/{id}`、`open?id=`、Docsの `uc?id=` | `drive.usercontent.google.com/download?id={id}&export=download` へ変換する。既存downloadには `export=download` を付ける。 |
+| Driveの `file/d/{id}`、`open?id=`、Docsの `uc?id=` | `drive.usercontent.google.com/download?id={id}&export=download` へ変換する。元URLの `resourcekey` は不透明なクエリ値として保持し、最初の取得要求から渡す。既存downloadにも `export=download` を付け、キーと確認用クエリを保持する。 |
 | Dropbox | `/scl/fi/` に `dl=1` を設定し、旧直リンクは `dl.dropboxusercontent.com` へ変換する。 |
 | OneDrive | `onedrive.live.com/redir` を `download` へ変換する。 |
 
 正規化できない場合は元の許可済みURLを使います。
+
+Driveのキーは一度復号した値をクエリ値として符号化し、繰り返し正規化しても欠落・二重符号化させません。[Googleのresource key仕様](https://developers.google.com/workspace/drive/api/guides/resource-keys)にある、キーが必要なリンク共有ファイルの取得条件を保ちます。キーのないURLへの推測や再試行は追加しません。
 
 取得実体の比較ではscheme/hostの大小文字を正規化し、fragmentを除きます。HTTPのpath/query（キーと値）とDrive/MediaFireの不透明なファイルIDは大小文字を保持し、有意な差がある別内容を省略しません。同じ共有ファイルは対応済みの共有URL・直接URLや揮発tokenの別表記でも重複保存しません。MD5の重複除去やWindowsパスの比較とは別の契約です。
 
@@ -143,7 +145,8 @@ TSVとStellaの開始済み取得はともに終端まで待ちます。複数�
 | Content-Dispositionと有効な最終URI・Location・元URIの保存名優先、query非依存 | `PlaylistUrlAcquisitionWorkflow.ResolveDownloadedArchiveFileName` | `DownloadCandidate_ChoosesResponseFileNameAndPreservesExactBytes` は9条件でheader優先、queryなし/あり、有効な元名より最終名の優先、最終名無効時のfallback、HTTP 200のLocation競合と無効名を実保存のbasename・拡張子・完全bytes、一回の取得・書込みで確認する。全対応種別は `DownloadCandidate_SupportedChartAndArchiveNamesWriteExactBasenameExtensionAndBytes`、filename*・文字化け復元は `MainWindowContextMenuResourceTests.PlaylistUrlDownload_ResolvesContentDispositionFileName` が分担する。 |
 | queryなしURLの実HTTP転送から保存・一回の導入引渡し | `PlaylistUrlAcquisitionWorkflow`、`PlaylistWorkspaceViewModel.PlaylistUrlAcquisition` | `SingleRedirectedPackage_UsesFinalNameAndInstallSinkBeforeTreeExpansionPresentation` は `/download/123`→`/song.zip` の実HTTP→実保存→sinkを通し、各request target一件、最終名・完全bytes、変更不能snapshot、sink→展開、進捗終端、ブラウザーなし、受理後保持を確認する。進捗・診断故障の有無でも同じ結果を保つ。応答解放中の取消と導入の実所有・利用終端は下記の既存ケースへ分担する。 |
 | path caseの二本文の実取得と一回引渡し、通知故障時の保持 | `PlaylistUrlAcquisitionWorkflow`、`PlaylistWorkspaceViewModel.PlaylistUrlAcquisition` | `BulkDownloadedPackages_UsesCopiedInstallSnapshotBeforeTreeExpansionAndSummary` は同じoriginのpath caseだけ違う二URLを実HTTP→実保存→sinkへ通し、request target、別path・別本文、変更不能snapshot、sink→展開→summary、進捗終端、受理後保持を確認する。 |
-| queryキー/値・共有IDの有意なcaseと同実体抑止 | `PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey`、`DownloadCandidateAsync` | `DownloadCandidate_PreservesSignificantUrlCaseAndSuppressesSameFile` はqueryキー/値、Drive/MediaFire IDを別本文・実書込みで区別し、scheme/host/fragment・共有別表記は一保存へ抑止する。既存の `MainWindowContextMenuResourceTests` のURL正規化・共有キー・HTML解決群が対応形式と揮発tokenを分担する。 |
+| Driveのresourcekeyを保持する正規化・初回要求・保存と導入引渡し | `PlaylistUrlAcquisitionWorkflow.NormalizeDownloadUri`、`PlaylistWorkspaceViewModel.PlaylistUrlAcquisition` | `MainWindowContextMenuResourceTests.PlaylistUrlDownload_NormalizesCloudStorageShareUrls` は四形式・キー有無・予約文字・繰返し正規化を確認し、`PlaylistUrlDownload_ResolvesKnownSharedDownloadPages` は確認フォームのhidden値を分担する。`PlaylistUrlAcquisitionOwnershipTests.GoogleDriveResourceKey_FirstRequestSavesAndHandsOffFromSingleAndBulk` はセルと設定非依存の複数行本体取得から初回gateway要求・完全な保存bytes・一回の導入引渡しを確認する。HTTP転送自体と実WPF配送は既存の各代表へ分担する。 |
+| queryキー/値・共有IDの有意なcaseと同実体抑止 | `PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey`、`DownloadCandidateAsync` | `DownloadCandidate_PreservesSignificantUrlCaseAndSuppressesSameFile` はqueryキー/値、Drive/MediaFire IDを別本文・実書込みで区別し、scheme/host/fragment・共有別表記・resourcekeyや揮発tokenの差は一保存へ抑止する。 |
 | 循環と非CORE除外でのcase保持 | `PlaylistUrlAcquisitionWorkflow` | `DownloadCandidate_SharedPageDistinguishesCaseAndStopsFragmentCycle` はcase別ページの実保存とfragment循環の早期停止を要求順で区別する。`DownloadCandidate_NonCoreExclusionPreservesCaseDistinctAnchor` は同じ非COREの表記違いを除外し、case別anchorだけを取得・保存する。 |
 | API候補・優先順・重複・取消 | [`PlaylistExternalPackageLookupService`](../../../BeMusicSeeker/Models/Playlist/PlaylistExternalPackageLookupService.cs) | [`PlaylistExternalPackageLookupServiceTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistExternalPackageLookupServiceTests.cs) |
 | 失敗実体の再試行抑止とcase別候補への続行 | `PlaylistExternalPackageLookupService`、`PlaylistWorkspaceViewModel.PlaylistUrlAcquisition` | `LookupService_TriesNextProviderWhenDownloadFails` / `LookupService_DoesNotRetryFailedUrlInSameRun` は優先順、別MD5での同実体抑止とcase別候補の成功を確認する。`LookupService_DoesNotRetryRedirectedFailedUrlInSameRun` は元・最終失敗キー、`LookupService_SkipsAlreadyDownloadedUrlWithoutTryingLowerPriorityProvider` は成功重複後の下位照会なしを維持する。`ExternalPackageLookup_FailedUrlSuppressesOnlySameCaseFile` はworkspace所有集合から実取得・保存・一回sinkまでを確認する。 |

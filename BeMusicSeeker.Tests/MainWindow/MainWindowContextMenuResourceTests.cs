@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Web;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Automation.Peers;
@@ -1056,19 +1058,40 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(PlaylistUrlAcquisitionWorkflow.IsBrowserFallbackDownloadUri(new Uri("https://bmssearch.net/bmses/1")));
     }
 
-    /// <summary>Driveの三形式とDropbox共有を取得URLへ変換し似た別hostは変えないことを確認し、互換URL欠落や別サイトの誤変換を検出します。</summary>
+    /// <summary>Drive四形式を繰り返し正規化しても不透明なresourcekeyとIDを保持し、鍵なし・Dropbox・別hostの互換動作を維持することを確認します。</summary>
     [TestMethod]
     public void PlaylistUrlDownload_NormalizesCloudStorageShareUrls()
     {
-        Assert.AreEqual(
-            "https://drive.usercontent.google.com/download?id=abc123&export=download",
-            PlaylistUrlAcquisitionWorkflow.NormalizeDownloadUri(new Uri("https://drive.google.com/file/d/abc123/view?usp=sharing")).ToString());
-        Assert.AreEqual(
-            "https://drive.usercontent.google.com/download?id=abc123&export=download",
-            PlaylistUrlAcquisitionWorkflow.NormalizeDownloadUri(new Uri("https://drive.google.com/open?id=abc123&usp=sharing")).ToString());
-        Assert.AreEqual(
-            "https://drive.usercontent.google.com/download?id=abc123&export=download",
-            PlaylistUrlAcquisitionWorkflow.NormalizeDownloadUri(new Uri("https://docs.google.com/uc?export=download&id=abc123")).ToString());
+        string[] driveUrls =
+        [
+            "https://drive.google.com/file/d/AbC123/view?usp=sharing",
+            "https://drive.google.com/open?id=AbC123&usp=sharing",
+            "https://docs.google.com/uc?export=download&id=AbC123",
+            "https://drive.usercontent.google.com/download?id=AbC123&confirm=token&uuid=volatile"
+        ];
+        // 予約文字とpercent表記そのものを含め、一度の復号後の値で欠落・二重encodeを検出します。
+        foreach (string? resourceKey in new string?[] { null, "key+/%2F&=?#" })
+        {
+            foreach (string source in driveUrls)
+            {
+                Uri uri = new(source + (resourceKey == null ? string.Empty : "&resourcekey=" + Uri.EscapeDataString(resourceKey)));
+                for (int pass = 0; pass < 3; pass++)
+                {
+                    uri = PlaylistUrlAcquisitionWorkflow.NormalizeDownloadUri(uri);
+                    NameValueCollection query = HttpUtility.ParseQueryString(uri.Query);
+                    Assert.AreEqual("drive.usercontent.google.com", uri.Host);
+                    Assert.AreEqual("/download", uri.AbsolutePath);
+                    Assert.AreEqual("AbC123", query["id"]);
+                    Assert.AreEqual("download", query["export"]);
+                    Assert.AreEqual(resourceKey, query["resourcekey"]);
+                    if (source == driveUrls[^1])
+                    {
+                        Assert.AreEqual("token", query["confirm"]);
+                        Assert.AreEqual("volatile", query["uuid"]);
+                    }
+                }
+            }
+        }
         Assert.AreEqual(
             "https://www.dropbox.com/scl/fi/token/package.zip?rlkey=key&dl=1",
             PlaylistUrlAcquisitionWorkflow.NormalizeDownloadUri(new Uri("https://www.dropbox.com/scl/fi/token/package.zip?rlkey=key&dl=0")).ToString());
@@ -1086,6 +1109,7 @@ public sealed class MainWindowContextMenuResourceTests
             <form id="download-form" method="get" action="/download">
               <input type="hidden" name="id" value="abc123">
               <input type="hidden" name="confirm" value="token">
+              <input type="hidden" name="resourcekey" value="key+/%2F&amp;=?#">
               <input type="submit" name="submit" value="download">
             </form>
             </body></html>
@@ -1182,9 +1206,11 @@ public sealed class MainWindowContextMenuResourceTests
             </body></html>
             """;
 
-        Assert.AreEqual(
-            "https://drive.usercontent.google.com/download?id=abc123&confirm=token",
-            PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://drive.usercontent.google.com/download?id=abc123&export=download"), googleDriveWarningHtml).ToString());
+        NameValueCollection driveFormQuery = HttpUtility.ParseQueryString(PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://drive.usercontent.google.com/download?id=abc123&export=download"), googleDriveWarningHtml).Query);
+        Assert.AreEqual("key+/%2F&=?#", driveFormQuery["resourcekey"]);
+        Assert.AreEqual("abc123", driveFormQuery["id"]);
+        Assert.AreEqual("token", driveFormQuery["confirm"]);
+        Assert.IsNull(driveFormQuery["submit"]);
         Assert.AreEqual(
             "https://download123.mediafire.com/abc/package.zip",
             PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://www.mediafire.com/file/abc/package.zip/file"), mediaFireHtml).ToString());
@@ -1239,24 +1265,6 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(
             "BMSをたくさん作るぜ'25_250126更新分.zip",
             PlaylistUrlAcquisitionWorkflow.ResolveContentDispositionFileName("attachment; filename=\"" + mojibake + "\""));
-    }
-
-    /// <summary>DriveとMediaFireの共有/解決URLを揮発tokenによらない同一キーへ変換することを確認し、同じpackageを別取得として受け付ける誤りを検出します。</summary>
-    [TestMethod]
-    public void PlaylistUrlDownload_CreatesStableResolvedDownloadKeys()
-    {
-        Assert.AreEqual(
-            "gdrive:abc123",
-            PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey(new Uri("https://drive.usercontent.google.com/download?id=abc123&export=download&confirm=t&uuid=volatile")));
-        Assert.AreEqual(
-            "gdrive:abc123",
-            PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey(new Uri("https://drive.google.com/file/d/abc123/view?usp=sharing")));
-        Assert.AreEqual(
-            "mediafire:ar4aa9p35amxfer",
-            PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey(new Uri("https://download123.mediafire.com/token/ar4aa9p35amxfer/%5BULTIMATE-lopears%5D-miyako.7z")));
-        Assert.AreEqual(
-            "mediafire:ar4aa9p35amxfer",
-            PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey(new Uri("https://www.mediafire.com/file/ar4aa9p35amxfer/%5BULTIMATE-lopears%5D-miyako.7z/file")));
     }
 
     private static PlayHistoryRow CreateResolvedPlayHistoryRow(string hash = "cccccccccccccccccccccccccccccccc", Func<ChartFile, ChartFile>? change = null)

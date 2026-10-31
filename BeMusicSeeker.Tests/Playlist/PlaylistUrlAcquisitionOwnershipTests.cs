@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -8,6 +9,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Web;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -1311,6 +1313,96 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
+    /// <summary>セルの自動導入ONと設定非依存の複数行本体取得で、初回要求からDriveのキーを保持し、完全な保存bytesを一回だけ導入へ渡すことを確認します。</summary>
+    /// <remarks>実workspaceの行解決・取得・保存・引渡しを接続し、通信だけを固定応答へ置換します。四URL形式の条件網羅と実WPF配送は既存の専用ケースへ分担します。</remarks>
+    [DataTestMethod]
+    [DataRow(false)] // セルは自動導入と起動時ファイル検査を有効にします。
+    [DataRow(true)] // 複数行は両設定が無効でも本体URLを取得します。
+    public async Task GoogleDriveResourceKey_FirstRequestSavesAndHandsOffFromSingleAndBulk(bool bulk)
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        PlaylistWorkspaceViewModel? workspace = null;
+        try
+        {
+            const string resourceKey = "key+/%2F&=?#";
+            Uri[] sources =
+            [
+                new("https://drive.google.com/file/d/FirstId/view?resourcekey=key%2B%2F%252F%26%3D%3F%23"),
+                new("https://drive.google.com/open?id=SecondId&resourcekey=key%2B%2F%252F%26%3D%3F%23")
+            ];
+            string[] ids = ["FirstId", "SecondId"];
+            byte[][] contents = [[1, 2, 3], [4, 5, 6]];
+            int expectedCount = bulk ? 2 : 1;
+            var gateway = new RecordingPlaylistUrlDownloadGateway(root)
+            {
+                ResponseFactory = uri =>
+                {
+                    // 期待値を本番の正規化結果から作らず、最初に渡された要求を独立に読みます。
+                    NameValueCollection query = HttpUtility.ParseQueryString(uri.Query);
+                    Assert.AreEqual("drive.usercontent.google.com", uri.Host);
+                    Assert.AreEqual("/download", uri.AbsolutePath);
+                    Assert.AreEqual("download", query["export"]);
+                    Assert.AreEqual(resourceKey, query["resourcekey"]);
+                    int index = Array.IndexOf(ids, query["id"]);
+                    Assert.IsTrue(index >= 0);
+                    return CreateHttpResponse(uri, contents[index], "application/zip", "attachment; filename=" + ids[index] + ".zip");
+                }
+            };
+            int handoffs = 0;
+            int browserCount = 0;
+            IReadOnlyList<string>? capturedPaths = null;
+            workspace = CreateWorkspace(
+                action => action(),
+                () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = !bulk, AutoInstall = !bulk },
+                new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
+                paths =>
+                {
+                    handoffs++;
+                    capturedPaths = paths;
+                    Assert.AreEqual(expectedCount, paths.Count);
+                    for (int index = 0; index < paths.Count; index++)
+                    {
+                        Assert.AreEqual(ids[index] + ".zip", Path.GetFileName(paths[index]));
+                        CollectionAssert.AreEqual(contents[index], File.ReadAllBytes(paths[index]));
+                    }
+                    return true;
+                },
+                browserSink: _ => browserCount++,
+                dialogService: new RecordingPlaylistUrlDialogService());
+
+            if (bulk)
+            {
+                await workspace.RunPlaylistUrlActionAsync(sources.Select(uri => CreatePlaylistUrlRow(uri.AbsoluteUri, null)), isDiffUrl: false);
+            }
+            else
+            {
+                await workspace.RunSinglePlaylistUrlAsync(sources[0]);
+            }
+
+            Assert.AreEqual(expectedCount, gateway.RequestedUris.Count);
+            CollectionAssert.AreEqual(ids.Take(expectedCount).ToArray(), gateway.RequestedUris.Select(uri => HttpUtility.ParseQueryString(uri.Query)["id"]).ToArray());
+            Assert.AreEqual(expectedCount, gateway.OpenWriteCount);
+            Assert.AreEqual(1, handoffs);
+            Assert.AreEqual(0, browserCount);
+            Assert.IsNotNull(capturedPaths);
+            Assert.IsFalse(workspace.IsPlaylistUrlDownloadRunning);
+            for (int index = 0; index < capturedPaths.Count; index++)
+            {
+                CollectionAssert.AreEqual(contents[index], File.ReadAllBytes(capturedPaths[index]));
+            }
+        }
+        finally
+        {
+            try
+            {
+                workspace?.RequestPlaylistUrlShutdown();
+                if (workspace != null) { await workspace.WaitForPlaylistUrlIdleAsync(); }
+            }
+            finally { Directory.Delete(root, recursive: true); }
+        }
+    }
+
     /// <summary>queryなしURLから実HTTP転送した最終名とbytesを一回だけ変更不能なpathsでsinkへ渡し、その後tree展開します。進捗・診断故障の有無によらず進捗終端と受理後の入力保持を確認し、名前・本文の喪失と順序の逆転を検出します。</summary>
     [DataTestMethod]
     [DataRow(false)]
@@ -2146,14 +2238,14 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             commentValue: string.Empty, memoValue: string.Empty, isRemovedValue: false);
     }
 
-    /// <summary>queryキー/値、共有IDのcase差は二本文を保存し、同一実体のhost/fragment・共有別表記は二重保存しません。要求履歴と実FSでキーと成功集合の組合せを確認します。</summary>
+    /// <summary>queryキー/値、共有IDのcase差は二本文を保存し、同一実体のhost/fragment・共有別表記・resourcekeyや揮発tokenの差は二重保存しません。要求履歴と実FSで成功集合の誤分離を検出します。</summary>
     [DataTestMethod]
     [DataRow("https://example.invalid/package.zip?Token=a", "https://example.invalid/package.zip?token=a", false)]
     [DataRow("https://example.invalid/package.zip?token=Song", "https://example.invalid/package.zip?token=song", false)]
     [DataRow("https://drive.google.com/file/d/AbC/view", "https://drive.google.com/open?id=abc", false)]
     [DataRow("https://www.mediafire.com/file/AbC/package.zip/file", "https://download123.mediafire.com/token/abc/package.zip", false)]
     [DataRow("HTTPS://EXAMPLE.invalid/package.zip#first", "https://example.invalid/package.zip#second", true)]
-    [DataRow("https://drive.google.com/file/d/AbC/view", "https://drive.usercontent.google.com/download?id=AbC&confirm=t", true)]
+    [DataRow("https://drive.google.com/file/d/AbC/view?resourcekey=first", "https://drive.usercontent.google.com/download?id=AbC&resourcekey=second&confirm=t&uuid=volatile", true)]
     [DataRow("https://www.mediafire.com/file/AbC/package.zip/file", "https://download123.mediafire.com/other/AbC/package.zip", true)]
     public async Task DownloadCandidate_PreservesSignificantUrlCaseAndSuppressesSameFile(string firstUrl, string secondUrl, bool duplicate)
     {
@@ -2411,6 +2503,8 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
 
         internal Exception? TransportException { get; set; }
 
+        internal Func<Uri, AppHttpResponse>? ResponseFactory { get; set; }
+
         internal Exception? DeleteFailure { get; set; }
 
         internal int DeleteCount { get; private set; }
@@ -2429,6 +2523,10 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             if (TransportException is not null)
             {
                 throw TransportException;
+            }
+            if (ResponseFactory != null)
+            {
+                return Task.FromResult(ResponseFactory(uri));
             }
             if (!responses.TryGetValue(uri.AbsoluteUri, out Func<AppHttpResponse>? responseFactory))
             {

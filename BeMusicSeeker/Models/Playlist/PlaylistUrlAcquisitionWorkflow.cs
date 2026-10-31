@@ -528,7 +528,7 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
             string fileId = ExtractGoogleDriveFileId(uri);
             if (!string.IsNullOrWhiteSpace(fileId))
             {
-                return BuildGoogleDriveDownloadUri(fileId).ToString();
+                return BuildGoogleDriveDownloadUri(fileId, GetQueryParameter(uri, "resourcekey")).ToString();
             }
         }
         if (host.Equals("docs.google.com", StringComparison.OrdinalIgnoreCase)
@@ -537,7 +537,7 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
             string fileId = GetQueryParameter(uri, "id");
             if (!string.IsNullOrWhiteSpace(fileId))
             {
-                return BuildGoogleDriveDownloadUri(fileId).ToString();
+                return BuildGoogleDriveDownloadUri(fileId, GetQueryParameter(uri, "resourcekey")).ToString();
             }
         }
         if (host.Equals("drive.usercontent.google.com", StringComparison.OrdinalIgnoreCase)
@@ -549,6 +549,7 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
         return input;
     }
 
+    /// <summary>対応する共有URLを取得用へ変換し、Driveのresourcekeyを初回要求から使えるクエリ値として保持します。</summary>
     internal static Uri NormalizeDownloadUri(Uri uri)
     {
         if (uri == null || !uri.IsAbsoluteUri)
@@ -565,10 +566,14 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
         }
     }
 
-    private static Uri BuildGoogleDriveDownloadUri(string fileId)
+    private static Uri BuildGoogleDriveDownloadUri(string fileId, string resourceKey)
     {
         var builder = new UriBuilder("https://drive.usercontent.google.com/download");
         builder.Query = "id=" + Uri.EscapeDataString(fileId) + "&export=download";
+        if (resourceKey != null)
+        {
+            builder.Query += "&resourcekey=" + Uri.EscapeDataString(resourceKey);
+        }
         return builder.Uri;
     }
 
