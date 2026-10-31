@@ -489,19 +489,21 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     }
 
     /// <summary>過去保存された親directoryと内部fileの重複群が属性取得不能でも正常emptyへ変えず、旧2参照・DB・DST・入力bytesを保持して独立入力だけ登録します。ACL復旧後は同じ独立入力から登録専用整理を確認します。</summary>
-    /// <remarks>専用containerのListDirectoryと対象rootのReadAttributesだけを非継承Denyにします。旧EntryExistsがfalseとなる実属性失敗と既知子の読取りを事前確認し、ACL非対応・変更権限不足・拒否未再現は理由付き未実施です。開始済み操作を回収後、両ACLを必ず復旧してから専用rootを通常回収します。</remarks>
+    /// <remarks>専用containerのListDirectoryと対象rootのReadAttributesだけを非継承Denyにします。旧EntryExistsがfalseとなる実属性失敗と既知子の読取りを事前確認し、ACL非対応・変更権限不足・拒否未再現は専用環境の準備不足として失敗にします。開始済み操作を回収後、両ACLを必ず復旧してから専用rootを通常回収します。</remarks>
     [TestMethod]
+    [TestCategory("EnvironmentIntegration")]
     public Task ProductionImport_AttributeDeniedOverlapKeepsSourceAndAllowsIndependentInput()
         => VerifyAttributeDeniedScopeAsync("Collection", childInput: false);
 
     /// <summary>supported拡張子を持つ実directoryのkind不能をfileへ落とさず、内部childdirectory入力の単独採用と親だけのmissing削除を防ぎます。</summary>
     [TestMethod]
+    [TestCategory("EnvironmentIntegration")]
     public Task ProductionImport_AttributeDeniedSupportedDirectoryKeepsChildAndIndependentInput()
         => VerifyAttributeDeniedScopeAsync("Collection.bms", childInput: true);
 
     private static async Task VerifyAttributeDeniedScopeAsync(string parentName, bool childInput)
     {
-        if (!OperatingSystem.IsWindows()) { Assert.Inconclusive("Windows ACLによる実属性拒否を確認するケースです。"); }
+        if (!OperatingSystem.IsWindows()) { Assert.Fail("Windows ACLによる実属性拒否を確認するケースです。"); }
         var port = new ObservingInstallMutationPort();
         await using var fixture = new AutomaticContinuationFixture(false, false, mutationPort: port);
         string container = Path.Combine(fixture.Root, "Private");
@@ -559,13 +561,13 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 rootChanged = true;
             }
             catch (Exception failure) when (failure is UnauthorizedAccessException or NotSupportedException or System.Security.SecurityException)
-            { Assert.Inconclusive("専用rootのACL設定が非対応または権限不足のため未実施: " + failure.Message); }
+            { Assert.Fail("専用rootのACL設定が非対応または権限不足のため実行できません: " + failure.Message); }
 
             Exception? attributeFailure = null;
             try { _ = LongPathFileSystem.GetAttributes(parent); }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException) { attributeFailure = failure; }
             if (attributeFailure == null || LongPathFileSystem.IsNotFoundFailure(attributeFailure) || LongPathFileSystem.EntryExists(parent))
-            { Assert.Inconclusive("旧存在確認がfalseとなる非NotFound属性拒否を再現できないため未実施: " + attributeFailure); }
+            { Assert.Fail("旧存在確認がfalseとなる非NotFound属性拒否を再現できないため実行できません: " + attributeFailure); }
             CollectionAssert.AreEqual(preserved[chart], File.ReadAllBytes(chart), "traverseと既知の子読取りを保持します。");
             string[] inputs = childInput ? [nested, independent] : [independent];
             // 一般の出力順を固定せず、source順と同物理aliasを変えて保護・候補集合だけ確認します。

@@ -284,6 +284,7 @@ public sealed partial class SettingDialogEditCompletionTests
     /// <summary>ルート出力への有効導入先の取込みを副作用前に拒否し、別の確定先への保存後は管理先を候補・保存から除外して通常導入と表削除を接続します。</summary>
     /// <remarks>専用ドライブ別名、実settings/XML/SQLite、標準compositionの生成・導入・削除を通し、候補表示だけの成功や存在しない導入先による偶然の拒否を区別します。</remarks>
     [TestMethod]
+    [TestCategory("EnvironmentIntegration")]
     public void Lr2DriveRootOutput_PreservesConfirmedInstallThroughGenerationInstallationAndTableRemoval()
     {
         OwnedTestDrive? drive = null;

@@ -51,15 +51,23 @@ PowerShell 7から、リポジトリのルートで実行します。
 ```powershell
 pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~対象のテスト名'
 pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full -AllowEnvironmentIntegration
 ```
 
 | 区分 | 用途と処理 |
 | --- | --- |
-| フィルター付き `Quick` | 反復中の対象確認。指定対象だけの専用経路を使用する。 |
+| フィルター付き `Quick` | 反復中の対象確認。指定filter全体を括弧で囲み、`TestCategory!=EnvironmentIntegration` をAND結合する。専用環境を明示許可した場合だけこの除外を外す。 |
 | フィルターなし `Quick` | 通常の機能テストの共通実行処理を一回使う。 |
 | `Functional` | 通常開発のコミット・`dev` への統合前の最終検証。同じ最終版に対して一回を原則とする。 |
-| `Full` | 正式リリース前の公開候補の受入。共通の `Functional` の後に配布物の受入を行う。 |
+| `Full` | 準備済み専用環境で正式リリース前の公開候補を受け入れる。`-AllowEnvironmentIntegration` が必須で、共通の `Functional` の後に専用環境・配布物の受入を行う。 |
+
+専用環境の対象を絞る場合は、準備完了後に明示filterと許可を組み合わせます。
+
+```powershell
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'TestCategory=EnvironmentIntegration' -AllowEnvironmentIntegration
+```
+
+`Functional` とfilterなし `Quick` は許可switch付きの実行を拒否し、`Full` はswitchなしを拒否します。`Functional` / `Full` へのfilter指定も拒否します。拒否は復元・整形・ビルド・テストの開始前です。許可switchだけでは専用環境の準備を代行しません。通常Quickで専用ケースだけを指定して対象が空になった場合も不成功です。
 
 `Quick` はフィルターの有無によらず、`Functional` / `Full` と共通の自動整形処理を使います。全コードモードで、ロックファイルに従う復元、C# スタイルの自動修正、空白・改行の自動整形、Git 差分の空白検査、SDK 標準の品質解析を含む通常のビルド、出力検査、実テストの順に進みます。整形による変更は失敗とせず、整形後のコードを同じ実行内で検証します。
 
@@ -117,7 +125,7 @@ C# の正規形は [`.editorconfig`](../../../.editorconfig) を正本とし、�
 
 ### 通常テストの分割と並列実行
 
-コンパイル済みテストDLLを型のロードなしで一回走査し、実際の実行に使う6プロセス分の計画を同じメタデータから生成・検証して使用します。ポータブル設定だけを先に完了し、成功後は同じ計画から残る5プロセスを追加の待機段階なしで起動します。`DoNotParallelize` は名前空間を含む属性名で判定し、型属性はその型の全テストメソッドへ、メソッド属性はそのメソッドへ適用します。
+コンパイル済みテストDLLを型のロードなしで一回走査し、実際の実行に使う6プロセス分の計画を同じメタデータから生成・検証して使用します。ポータブル設定だけを先に完了し、成功後は同じ計画から残る5プロセスを追加の待機段階なしで起動します。classとmethodの `TestCategory` の和集合を読み、既知の通常除外カテゴリを分割前に除きます。`DoNotParallelize` は名前空間を含む属性名で判定し、型属性はその型の全テストメソッドへ、メソッド属性はそのメソッドへ適用します。
 
 | プロセス | 並列数・範囲 | 担当 |
 | --- | --- | --- |
@@ -141,7 +149,8 @@ C# の正規形は [`.editorconfig`](../../../.editorconfig) を正本とし、�
 | `TestCategory` | Functional | Full | 用途 |
 | --- | --- | --- | --- |
 | 省略・機能名、`Compatibility` | 対象 | 対象 | 小さい合成入力・少数の固定入力による機能と軽量互換性。 |
-| `ProcessIntegration` | 除外 | 対象 | 別プロセスや更新プログラムとの統合。 |
+| `ProcessIntegration` | 除外 | 対象 | 別プロセスや更新プログラムとの統合。`EnvironmentIntegration` 併記分は一般phaseから除く。 |
+| `EnvironmentIntegration` | 除外 | 専用phase必須 | ACL、実リンク、drive alias・別volume、HKCU回復登録、外部tool等を準備した専用環境で明示実行する。 |
 | `ReleaseAcceptance` | 除外 | 対象 | 配布物、更新パッケージ、実アプリの受入。 |
 | `Performance` / `Net10Performance` | 除外 | 除外 | 変更前後の処理時間・仕事量の比較。 |
 | `LargeFixture` | 除外 | 除外 | 巨大DB、大量の実データ。 |
@@ -151,11 +160,28 @@ C# の正規形は [`.editorconfig`](../../../.editorconfig) を正本とし、�
 
 [BMS譜面位置の比較ツール](chart-parse-audit.md)は簡易開発用です。変更確認は対象RunnerのReleaseビルドと差分点検に限定し、恒常toolテストは設けません。
 
+`EnvironmentIntegration` を他カテゴリと併記しても、Fullでは専用phaseで一回だけ実行します。環境不足を `Ignore` / `Inconclusive` で飛ばさず失敗にし、未実施のFullを成功扱いにしません。
+
 カテゴリは実行特性を表します。小さい互換性テストや、少数の実部品を接続する検証は通常検証に含められます。`ProcessIntegration` は別プロセス等を扱う区分であり、主体間の接続を確認するすべてのテストを指しません。
 
 ### 資源の分離と共有
 
 通常テストは固有の一時ファイル・DB・設定と、再現可能な入力を使い、追跡対象ファイルや利用者のデータを変更しません。公開サービスの可用性、ローカルサービスの索引反映、同じPCでの利用者の操作を合否条件にしません。EverythingやOS走査を利用する機能は、取得範囲と完全性を明示した変更不能な入力集合で検証し、作成直後のファイルが外部索引に現れることを前提にしません。外部環境との接続そのものを確認する場合は、対応する実行区分と条件を明示します。
+
+環境依存を見つけた場合は、保証と必要資源から次の四つへ分類します。準備場所が一時ディレクトリでも、OS全体や利用者セッションへ影響する操作は通常I/Oと区別します。
+
+| 分類 | 適用する条件 |
+| --- | --- |
+| Functionalに残す | 所有tempの通常I/O・SQLite・設定、readonly・共有ロックや明示注入した失敗等で保証を再現できる。 |
+| 依存をなくす | 保証に不要なdrive割当やTEMPの長さへの依存を外し、同じ本番処理・観測を所有tempで維持できる。 |
+| 専用環境で明示実行する | 実ACL、symlink/junction、drive alias、別volume、HKCUのRun/RunOnce、外部native/toolそのものとの接続が保証対象。`EnvironmentIntegration` を付ける。 |
+| 削除する | 必要な保証が既存の担当へ移管済み、または契約上不要。移管先の表明まで確認して旧ケースと不要な補助を除く。 |
+
+専用環境は利用者の通常データ・設定から隔離し、ACL変更・リンク作成・drive別名の割当と解除・HKCU回復登録の作成と回収が可能なWindowsを用意します。`DoNotParallelize` は別利用者や別プロセスとの競合を防がないため、準備した環境でだけ明示実行します。処理・出力の終端後に所有資源を回収し、CWDを変更したケースは復元後にdrive aliasを解除します。準備不足・権限不足は失敗です。
+
+クロスボリューム試験は、`BMS_TEST_CROSS_VOLUME_SOURCE_ROOT` と `BMS_TEST_CROSS_VOLUME_DESTINATION_ROOT` に既存の書込み可能なfixture基点を絶対パスで指定します。両者は異なるローカルdrive rootかつ異なる実volumeでなければなりません。[GetVolumePathNameW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getvolumepathnamew) で末端のmount pointを取得し、[GetVolumeNameForVolumeMountPointW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getvolumenameforvolumemountpointw) のvolume GUIDで同一実体を拒否します。別名だけを別volumeと見なしません。環境探索や書込みprobeは行わず、指定基点の下へケース固有の子だけを作成・回収し、基点自体は保持します。
+
+外部依存は対象に応じて用意します。Everythingのnative接続は `BMS_EVERYTHING_PATH_IDENTITY_FIXTURE` に固定SDKとfixture bridgeの基点を指定し、7-Zip接続は既存のProgram Files配置に7-Zip CLIを導入します。Java参照toolは `JAVA_HOME` またはPATHでJDKを用意し、[`chartstring-dump/run.ps1`](../../../tools/chartstring-dump/run.ps1) の参照リポジトリと固定譜面を準備します。外部encoderは[外部エンコーダー](#解析大規模データ外部エンコーダー)の環境変数を使います。Fullではこれらの専用保証もすべて実施します。
 
 DBの準備・観測は検証対象の処理と分けます。入力作成だけの複数行投入・スキーマ準備は一つのトランザクションへまとめ、SELECTだけの観測には既存の読取り専用接続を使います。無関係な一時DBの観測がプロセス共通の書込みロックを取り合わないようにします。スキーマ作成・確定境界自体を保証するテストでは、対象の本番処理とトランザクション境界を維持します。
 
@@ -215,7 +241,7 @@ constructor-only harnessは `PrepareConstructorOnlyShell` で既存のshell acti
 
 ### Fullの処理順と期限
 
-共通の通常検証を一回完了した後、ツールの基本確認、公開旧版のキャッシュ準備、現在版の配布物作成、既存データ起動、現行更新の基本確認、`ProcessIntegration`、`ReleaseAcceptance` の順に進みます。重い配布処理を通常テストの360秒に混ぜません。
+共通の通常検証を一回完了した後、ツールの基本確認、公開旧版のキャッシュ準備、現在版の配布物作成、既存データ起動、現行更新の基本確認、`ProcessIntegration`、`EnvironmentIntegration`、`ReleaseAcceptance` の順に進みます。重い配布処理を通常テストの360秒に混ぜません。
 
 | 段階 | 制限時間 |
 | --- | ---: |
@@ -225,7 +251,7 @@ constructor-only harnessは `PrepareConstructorOnlyShell` で既存のshell acti
 | 現在版の配布物作成 | 180秒 |
 | 既存データ起動 | 180秒 |
 | 現行更新の受入 | 240秒 |
-| `ProcessIntegration`、`ReleaseAcceptance` | 各180秒 |
+| `ProcessIntegration`、`EnvironmentIntegration`、`ReleaseAcceptance` | 各180秒 |
 
 値と診断先は `verification-runner-contract.ps1` の記述を正本とします。各段階で一度作る実行期限と、その10秒後の後片付け期限を内部の全コマンドへ渡します。小区間で期限を作り直さず、後片付け時間に完了した処理を成功へ戻しません。
 
@@ -235,7 +261,7 @@ constructor-only harnessは `PrepareConstructorOnlyShell` で既存のshell acti
 
 再起動失敗時の復元テストは、本番の準備・適用処理と呼出し単位のプロセス開始代替処理を使い、配布実行ファイルを破壊しません。非公開の処理入口を呼ぶ例外はこの境界だけとし、確認対象は元の例外、到達した起動、メタデータ・ファイル・利用者データの復元です。非公開名そのものを契約にしません。画面を確認しない更新プロセスは `CreateNoWindow=true` を使用します。
 
-`UpdaterPackageSyncTests` は実プロセスの終了とreadyファイルで順序を制御し、[非同期処理の待機](#非同期処理の待機)に従います。通常の終了・受付確認には局所期限を追加せず、標準入口の検証全体の期限を使います。生存アプリの模擬プロセスは準備通知後に使い、検査が終わるまで入力待ちで生存させます。決定前・排他競合中に終了しないことは通常完了と別に観測します。ケース固有のアプリディレクトリと回復登録を使い、所有プロセスと出力の回収後に登録・一時領域を清掃します。
+`UpdaterPackageSyncTests` はクラス全体が `EnvironmentIntegration` であり、HKCUの回復登録を使います。実プロセスの終了とreadyファイルで順序を制御し、[非同期処理の待機](#非同期処理の待機)に従います。通常の終了・受付確認には局所期限を追加せず、標準入口の検証全体の期限を使います。生存アプリの模擬プロセスは準備通知後に使い、検査が終わるまで入力待ちで生存させます。決定前・排他競合中に終了しないことは通常完了と別に観測します。ケース固有のアプリディレクトリと回復登録を使い、所有プロセスと出力の回収後に登録・一時領域を清掃します。
 
 再起動先と生存アプリには、[テスト専用GUI stub](../../../BeMusicSeeker.Tests/Fixtures/UpdaterRestartApplication/Program.cs)を使います。既定Terminalへconsoleの寿命を渡さないよう本番と同じWinExeとし、追加引数なしの本番ShellExecuteを通します。版ごとのmarker内容・生存gateは隣接入力をpackage・backupとともに移動させます。marker生成は終了の代わりにせず、root・両pipeのEOF・Job内の全子終了を待ちます。直接Updaterとそのexecution gateの起動は引き続き画面を作りません。stubは.NET 10 runtimeのある検証環境で動くframework依存の単一exeで、通常のテストbuildから独立発行します。
 
@@ -261,7 +287,11 @@ C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2
 
 現行配布物の画面起動受入では、予期しない所有ダイアログが可視・有効なら失敗とし、自動で閉じて成功にしません。初回構築通知も自動操作せず、利用済み入力の不備や起動の問題として扱います。初期設定自体の検証を更新受入へ混ぜません。この判定を、画面を起動しない旧更新プログラムのファイル適用検査には適用しません。
 
-`Assert-VerificationTestOutcomes` は通常テスト全プロセスと後続受入のTRXを合成し、`release-outcomes.json` を生成します。旧更新受入も実際のC#テストの完全修飾名と実行結果を使い、スクリプトが組み立てた専用の成功JSONは使用しません。必須項目は正確に一件の `Passed` を要求します。欠落、重複、その他の状態は失敗です。任意項目の `Skipped` / `Inconclusive` / `NotExecuted` は完全修飾名の明示一覧と空でない理由がある場合だけ許可します。カテゴリ全体や未知の項目を一括で除外しません。
+`Assert-VerificationTestOutcomes` は各実行の全結果へ `Passed` を要求します。空結果・欠損/不正TRX・未知method・非Passedは失敗です。TRXのrun-level `Completed` / `Passed` は許可し、`Failed` / `Aborted` 等は拒否します。理由付きskip許可機構はなく、旧optional記述が入力へ残っていても非Passedを許可しません。
+
+通常の共通計画とFull各phaseでは、選択methodごとに結果一件以上を要求し、返った各DataRowを全件確認します。DataRowの事前全展開は行いません。任意filterのQuickは独自filter解釈をせず、DLL上の既知method集合・非空結果・全Passedを検査し、選択methodの欠落照合は共通計画/Fullへ分担します。
+
+Fullは通常6ホスト、一般 `ProcessIntegration`、専用 `EnvironmentIntegration`、`ReleaseAcceptance` の実TRXを合算し、`release-outcomes.json` を生成します。専用phaseを含む必要なTRXの欠落は失敗です。旧更新受入も実C#テストの完全修飾名と結果を使います。固定配布物rosterの必須項目だけは正確に一件の `Passed` を要求し、欠落・重複を拒否します。通常のDataRowをこの一件制限へ含めません。
 
 ### 解析・大規模データ・外部エンコーダー
 
@@ -276,11 +306,11 @@ $env:BMS_TEST_CHART_INFO_SLOW = '1'
 pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'TestCategory=ParserCompatibilitySlow'
 ```
 
-実譜面・境界例のコピーにはビルド前の `BMS_TEST_CHART_INFO_FULL=1` が必要です。対応フラグがなければ `Inconclusive`、有効なのに入力がなければ失敗とします。約20 MiBを解析する実データ差分も、通常検証へ混ぜません。
+実譜面・境界例のコピーにはビルド前の `BMS_TEST_CHART_INFO_FULL=1` が必要です。対応フラグがなければテスト自身は `Inconclusive` を返し、標準入口の全Passed判定では不成功になります。有効なのに入力がなければ失敗とします。約20 MiBを解析する実データ差分も、通常検証へ混ぜません。
 
 性能検査の入口は `benchmark-net10-performance.ps1 -Corpus all -Configuration Release -Scale small,medium,large` です。`contract` は診断出力、`estimation` は候補リソースの評価、`parser` は同位置だけのノートの全位置で次音なしを確認する機能検査で、走査回数・所要時間は測定しません。規模に対応する入力数は各ケースに置き、800万の逆引きキーや実DB・20 ZIPの導入全体の代わりとは扱いません。条件、完了範囲、反復値、結果同等性は[性能仕様](../core/performance-and-scale.md)に従います。
 
-外部エンコーダーは `ExternalAudioEncoderSmokeTests` で明示実行します。通常は `Inconclusive`、`BMS_TEST_AUDIO_ENCODERS=1` で有効です。`BMS_TEST_AUDIO_ENCODER_DIR`、アプリ基準、`libs\x64`、`x64` の順に検索します。`BMS_TEST_AUDIO_ENCODER_TYPES` は `MP3_LAME,AAC_NERO,OPUS,FLAC,OGG_VORBIS` の部分集合です。指定した実行ファイルがない場合、または指定なしで一つも見つからない場合は失敗です。
+外部エンコーダーは `ExternalAudioEncoderSmokeTests` で明示実行します。`EnvironmentIntegration` として専用環境で実行し、`BMS_TEST_AUDIO_ENCODERS=1` を必須とします。指定がなければ失敗です。`BMS_TEST_AUDIO_ENCODER_DIR`、アプリ基準、`libs\x64`、`x64` の順に検索します。`BMS_TEST_AUDIO_ENCODER_TYPES` は `MP3_LAME,AAC_NERO,OPUS,FLAC,OGG_VORBIS` の部分集合です。指定した実行ファイルがない場合、または指定なしで一つも見つからない場合は失敗です。
 
 生成した短いステレオPCM/WAVを本番の `BassAudioWriter` とエンコード・停止・後片付けへ通し、ファイルの形式識別と採番を確認します。実行ファイル、ライセンス、生成音声をリポジトリの固定入力へ追加しません。
 
@@ -315,7 +345,7 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Tes
 | --- | --- | --- |
 | 通常開発と正式リリース前の検証区分、変更に応じた追加検証 | 本書の[実行範囲の選択](#実行範囲の選択)、[開発指針](../../../AGENTS.md#文書と検証)、[リリース手順](release.md#配布物の生成と検証)、[エージェント運用](agent-workflow.md#統合と予備レビュー) | 作業段階・公開候補の確定と各文書の案内を照合する。運用文言を固定する自動テストは設けない。 |
 | 複数ワークツリーの検証と結果の再利用 | 本書の[複数ワークツリーの検証](#複数ワークツリーの検証)、[並列作業](agent-workflow.md#並列作業)、[通常の統合手順](release.md#通常の作業ブランチの統合) | 全体ルートによる `Functional`・性能測定の開始調整と単位責任者の `Quick` 自主管理、別ワークツリーの必要ビルドとの並行、資源衝突と実測負荷、対象版・共有依存、移管時の結果引継ぎ、検証版と統合版の一致を照合する。運用文言を固定する自動テストは設けない。 |
-| 通常検証の分割、選択、共有期限 | [標準スクリプト](../../../scripts/verify-refactor.ps1) | [`VerificationRunnerContractTests`](../../../BeMusicSeeker.Tests/Verification/VerificationRunnerContractTests.cs)（`ProcessIntegration`）は実計画生成とrunsettingsで対象の完全な分割、追加・削除・順序変更・別プロセスに対する所属の不変、非空条件を確認する。実起動の接続と期限は、実際の実行計画、検出されたテスト集合、終了時刻、TRXを照合する。 |
+| 通常検証の分割、選択、共有期限 | [標準スクリプト](../../../scripts/verify-refactor.ps1) | [`VerificationRunnerContractTests`](../../../BeMusicSeeker.Tests/Verification/VerificationRunnerContractTests.cs)（`ProcessIntegration`）は実PE読取りによるclass/methodカテゴリ和集合、実計画生成とrunsettingsによる専用カテゴリ除外と対象の完全な分割、追加・削除・順序変更・別プロセスに対する所属の不変、非空条件を確認する。typed probeの許可表と合成TRXによる全行Passed・欠落/未知/不正/run-level失敗・Full専用phase欠落の拒否も確認する。実起動の接続と期限は、実際の実行計画、検出されたテスト集合、終了時刻、TRXを照合する。 |
 | テスト整理前後の比較 | [標準スクリプト](../../../scripts/verify-refactor.ps1)、本書 | 同条件の全体経過時間、ホスト終了時刻、実行件数・スキップを照合し、保証整理と時間目標を分けて報告する。 |
 | 変更範囲・全体の自動整形、整形後の検証、失敗時の停止 | [共通の整形処理](../../../scripts/format-code.ps1)、[標準スクリプト](../../../scripts/verify-refactor.ps1) の `Invoke-RepositoryFormattingPhase` | [`RepositoryFormattingTests`](../../../BeMusicSeeker.Tests/Verification/RepositoryFormattingTests.cs)（`ProcessIntegration`）は実 Git による対象選択と、外部コマンドを代替した標準経路の実行順・対象ゼロ・失敗伝播・共有期限を確認する。SDK 自体の修正内容はこのテストの対象外。 |
 | 各段階の期限・診断・停止 | [検証スクリプト群](../../../scripts) | 実行に使う期限とプロセス所有情報、失敗時の診断・残留を確認する。 |

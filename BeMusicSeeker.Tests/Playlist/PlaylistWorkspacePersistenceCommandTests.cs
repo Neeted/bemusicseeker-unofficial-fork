@@ -1372,6 +1372,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
 
     /// <summary>異なるドライブへ実出力した参照は、rawドライブパスでなく明示file:絶対URIでdata内容へ到達します。ケース所有別名はTask・通知終端後に解除し、物理領域を最後に回収します。</summary>
     [TestMethod]
+    [TestCategory("EnvironmentIntegration")]
     public async Task PlaylistWorkspaceExportPlaylistTableAsync_DifferentDriveWritesAbsoluteFileReference()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests), Guid.NewGuid().ToString("N"));

@@ -211,49 +211,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         });
     }
 
-    /// <summary>別volumeへの実フォルダ移動後にroot・子の資源索引を更新し、元索引snapshotを保持して物理成功と検索先の不整合を検出する。</summary>
-    /// <remarks>実際に異なるvolumeの物理移動と資源索引を接続する。第二volume不足の既存Inconclusiveを維持する。</remarks>
-    [TestMethod]
-    public void MoveFolderAndUpdateReferences_CrossVolumeMoveRewritesDirectoryIndex()
-    {
-        using var directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MoveFolderAndUpdateReferences_CrossVolumeMoveRewritesDirectoryIndex));
-        var service = new BmsLibraryLibraryFileOperationsService();
-        string sourceRoot = Path.Combine(directories.SourceBaseDirectory, "Src");
-        string nestedDirectoryPath = Path.Combine(sourceRoot, "Nested");
-        Directory.CreateDirectory(nestedDirectoryPath);
-        File.WriteAllText(Path.Combine(nestedDirectoryPath, "chart.bms"), "#PLAYER 1");
-        string destinationRoot = Path.Combine(directories.DestinationBaseDirectory, "Dst");
-        uint sourceHash = ChartResourceKeyHash.GetLookupHash("root.wav");
-        uint nestedHash = ChartResourceKeyHash.GetLookupHash("chart.bms");
-        var resourceIndex = new LibraryResourceIndex();
-        DirectoryResourceLookupCache lookupCache = resourceIndex.DirectoryLookupCache;
-        var resourceIndexOwner = new LibraryResourceIndexOwner(resourceIndex);
-        lookupCache.AddDir(sourceRoot, [sourceHash], [], []);
-        lookupCache.AddDir(nestedDirectoryPath, [nestedHash], [], []);
-        lookupCache.EnsureAudioRelativeDirectoriesByHashes([sourceHash, nestedHash]);
-
-        service.MoveFolder(
-            sourceRoot,
-            destinationRoot,
-            new ResilientFileMutationService(),
-            new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree));
-        DirectoryResourceLookupCache.ReverseLookupMutationResult mutationResult =
-            resourceIndexOwner.MoveFolderReferences(sourceRoot, destinationRoot).MutationResult;
-        DirectoryResourceLookupCache priorLookupCache = lookupCache;
-        lookupCache = resourceIndexOwner.CaptureSnapshot().DirectoryLookupCache;
-
-        Assert.IsFalse(LongPathFileSystem.DirectoryExists(sourceRoot));
-        Assert.IsTrue(LongPathFileSystem.DirectoryExists(destinationRoot));
-        Assert.IsTrue(LongPathFileSystem.FileExists(Path.Combine(destinationRoot, "Nested", "chart.bms")));
-        CollectionAssert.AreEquivalent(new[] { destinationRoot }, lookupCache.GetDirectoriesByAudioRelativeHash(sourceHash).ToArray());
-        CollectionAssert.AreEquivalent(new[] { Path.Combine(destinationRoot, "Nested") }, lookupCache.GetDirectoriesByAudioRelativeHash(nestedHash).ToArray());
-        Assert.IsNull(lookupCache.GetEntryOrNull(sourceRoot));
-        Assert.IsNull(lookupCache.GetEntryOrNull(nestedDirectoryPath));
-        Assert.IsNotNull(priorLookupCache.GetEntryOrNull(sourceRoot));
-        Assert.IsNotNull(priorLookupCache.GetEntryOrNull(nestedDirectoryPath));
-        Assert.IsTrue(mutationResult.Changed);
-    }
-
     /// <summary>二つの移動事実から子を含む三つの索引先をまとめて更新し、移動漏れ・旧snapshotの改変・件数集計の誤りを検出する。</summary>
     [TestMethod]
     public void UpdateMovedFolderReferences_RewritesMultipleMovedFoldersInOnePass()

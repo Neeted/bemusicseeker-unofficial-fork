@@ -136,7 +136,8 @@ internal static class ChartInfoMetadataTestSupport
         Assert.IsTrue(Math.Abs(expected.Value - actual.Value) <= 0.000001, message + " expected=" + expected.Value.ToString("R", CultureInfo.InvariantCulture) + " actual=" + actual.Value.ToString("R", CultureInfo.InvariantCulture));
     }
 
-    internal static string ResolveInstalledSevenZipPathOrInconclusive()
+    /// <summary>専用環境に導入済みの7-Zipを取得し、準備不足を失敗として返します。</summary>
+    internal static string ResolveInstalledSevenZipPath()
     {
         string[] candidates =
         [
@@ -151,8 +152,7 @@ internal static class ChartInfoMetadataTestSupport
             }
         }
 
-        Assert.Inconclusive("7-Zip CLI is not installed.");
-        return null;
+        throw new AssertFailedException("7-Zip CLI is not installed.");
     }
 
     /// <summary>同期の抽出portで実7zの退出と両pipe終端を同じ期限内に回収し、失敗を保持します。</summary>

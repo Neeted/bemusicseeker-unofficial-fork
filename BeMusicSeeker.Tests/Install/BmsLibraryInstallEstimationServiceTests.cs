@@ -2521,6 +2521,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [DataRow(true, true)]
     [DataRow(false, false)]
     [DoNotParallelize]
+    [TestCategory("EnvironmentIntegration")]
     public void ValidateInstallDestination_PreservesOwnedDriveRootAndRejectsUnknownRoot(bool fileInput, bool knownRoot)
     {
         string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ManualRoot_" + Guid.NewGuid().ToString("N"));

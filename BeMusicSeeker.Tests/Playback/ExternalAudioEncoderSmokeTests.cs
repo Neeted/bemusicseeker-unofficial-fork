@@ -36,9 +36,10 @@ public sealed class ExternalAudioEncoderSmokeTests
     ];
 
     /// <summary>明示有効化した実encoderで音声を保存・復号し、形式署名・非無音PCM・衝突先保持と資源解放を検査する。</summary>
-    /// <remarks>外部配布encoderが必要なProcessIntegration区分。環境指定なしは既存のInconclusiveを維持し、明示したencoder未配置は失敗とする。共有nativeとencoder状態を直列所有する。</remarks>
+    /// <remarks>外部配布encoderを準備するEnvironmentIntegration区分。環境指定なし・指定したencoder未配置は失敗とする。共有nativeとencoder状態を直列所有する。</remarks>
     [TestMethod]
     [TestCategory("ProcessIntegration")]
+    [TestCategory("EnvironmentIntegration")]
     public void AvailableExternalEncodersProduceRecognizableOutput()
     {
         if (!string.Equals(
@@ -46,7 +47,7 @@ public sealed class ExternalAudioEncoderSmokeTests
                 "1",
                 StringComparison.Ordinal))
         {
-            Assert.Inconclusive(
+            Assert.Fail(
                 EnabledEnvironmentVariable + "=1 is required for the external encoder smoke test.");
             return;
         }

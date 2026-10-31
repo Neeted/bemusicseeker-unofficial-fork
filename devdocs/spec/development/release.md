@@ -125,7 +125,7 @@ git pull --ff-only
 git switch main
 git pull --ff-only
 git merge --no-ff dev
-pwsh -NoProfile -File scripts/verify-refactor.ps1 -Mode Full
+pwsh -NoProfile -File scripts/verify-refactor.ps1 -Mode Full -AllowEnvironmentIntegration
 pwsh -NoProfile -File scripts/publish.ps1
 pwsh -NoProfile -File scripts/release.ps1 -CreateDraft
 ```

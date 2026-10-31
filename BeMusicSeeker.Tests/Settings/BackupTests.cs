@@ -644,6 +644,7 @@ public sealed class BackupTests
     [DataRow("score-root")]
     [DataRow("descendant-inside")]
     [DataRow("descendant-outside")]
+    [TestCategory("EnvironmentIntegration")]
     public void SaveSelectedBackupsWithResult_DirectoryLinkFailsBeforePublication(string scenario)
     {
         WithSelectedBackupTree((root, config, song, score) =>
@@ -695,6 +696,7 @@ public sealed class BackupTests
     [DataRow("today")]
     [DataRow("not-due")]
     [DataRow("unselected")]
+    [TestCategory("EnvironmentIntegration")]
     public void SaveSelectedBackupsWithResult_DirectoryLinkDoesNotAffectSkippedOrUnselectedScore(string scenario)
     {
         WithSelectedBackupTree((root, config, song, score) =>

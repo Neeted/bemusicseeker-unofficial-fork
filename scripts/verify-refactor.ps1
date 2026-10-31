@@ -5,6 +5,8 @@ param(
 
     [string]$TestFilter,
 
+    [switch]$AllowEnvironmentIntegration,
+
     # 360秒は運用上の既定期限であり、明示指定した秒数に上限を設けない。
     [ValidateRange('Positive')]
     [int]$FunctionalTimeoutSeconds = 360,
@@ -34,15 +36,61 @@ $functionalReportingTargetSeconds = 180
 . (Join-Path $PSScriptRoot 'verification-test-discovery.ps1')
 $verificationRunnerContract = Get-VerificationRunnerContract
 
-$functionalFilter = @(
-    'TestCategory!=Net10Performance',
-    'TestCategory!=Performance',
-    'TestCategory!=LargeFixture',
-    'TestCategory!=ParserCompatibilityFull',
-    'TestCategory!=ParserCompatibilitySlow',
-    'TestCategory!=ProductionDiffFull',
-    'TestCategory!=ProcessIntegration',
-    'TestCategory!=ReleaseAcceptance') -join '&'
+$functionalExcludedCategories = @(
+    'Net10Performance', 'Performance', 'LargeFixture', 'ParserCompatibilityFull',
+    'ParserCompatibilitySlow', 'ProductionDiffFull', 'ProcessIntegration',
+    'ReleaseAcceptance', 'EnvironmentIntegration')
+$functionalFilter = ($functionalExcludedCategories | ForEach-Object { "TestCategory!=$_" }) -join '&'
+
+# 許可の誤用は、復元・整形・ビルド・テストやfixtureへ触れる前に拒否する。
+function Assert-VerificationModeAuthorization {
+    param([string]$RequestedMode, [string]$RequestedFilter, [bool]$AllowEnvironment)
+    if ($RequestedMode -ne 'Quick' -and -not [string]::IsNullOrWhiteSpace($RequestedFilter)) {
+        throw "$RequestedMode mode does not accept TestFilter. Use Quick mode for a filtered iteration."
+    }
+    if ($RequestedMode -eq 'Full' -and -not $AllowEnvironment) {
+        throw 'Full mode requires -AllowEnvironmentIntegration and a prepared dedicated environment.'
+    }
+    if ($AllowEnvironment -and ($RequestedMode -eq 'Functional' -or
+            ($RequestedMode -eq 'Quick' -and [string]::IsNullOrWhiteSpace($RequestedFilter)))) {
+        throw '-AllowEnvironmentIntegration is permitted only for Full or Quick with an explicit TestFilter.'
+    }
+}
+
+function Get-VerificationQuickFilter {
+    param([string]$Filter, [bool]$AllowEnvironment)
+    if ($AllowEnvironment) { return $Filter }
+    return "($Filter)&TestCategory!=EnvironmentIntegration"
+}
+
+function Get-FunctionalTestMetadata {
+    return @(Get-VerificationTestMetadata -AssemblyPath $functionalTestAssemblyPath | Where-Object {
+            @($_.Categories | Where-Object { $functionalExcludedCategories -ccontains $_ }).Count -eq 0
+        })
+}
+
+# Fullの一般phaseと専用phaseは、併記されたカテゴリを二度実行しない。
+function Get-VerificationCategoryTestNames {
+    param([ValidateSet('ProcessIntegration', 'EnvironmentIntegration', 'ReleaseAcceptance')][string]$Category)
+    return [string[]]@(Get-VerificationTestMetadata -AssemblyPath $functionalTestAssemblyPath | Where-Object {
+            $_.Categories -ccontains $Category -and
+            ($Category -ceq 'EnvironmentIntegration' -or $_.Categories -cnotcontains 'EnvironmentIntegration')
+        } | ForEach-Object { $_.FullyQualifiedName })
+}
+
+function Assert-FullVerificationTestOutcomes {
+    param([Parameter(Mandatory)][string]$DiagnosticsRoot, [Parameter(Mandatory)][string]$ReceiptPath)
+    $paths = @($functionalHostNames | ForEach-Object { Join-Path $DiagnosticsRoot "functional/$_/results.trx" })
+    $paths += @('process-integration', 'environment-integration', 'release-acceptance') | ForEach-Object {
+        Join-Path $DiagnosticsRoot "$_/test/results.trx"
+    }
+    $names = @(Get-FunctionalTestMetadata | ForEach-Object { $_.FullyQualifiedName })
+    foreach ($category in @('ProcessIntegration', 'EnvironmentIntegration', 'ReleaseAcceptance')) {
+        $names += Get-VerificationCategoryTestNames -Category $category
+    }
+    return Assert-VerificationTestOutcomes -ResultPaths $paths -SelectedFqns $names `
+        -RosterPath $v216ArtifactMetadataPath -ReceiptPath $ReceiptPath
+}
 
 $functionalPortableSettingsClass =
     'BeMusicSeeker.Tests.PlayerPanelStateSettingsCompatibilityTests'
@@ -81,7 +129,7 @@ function New-FunctionalTestCaseFilter {
 }
 
 function New-FunctionalShardPlan {
-    $metadata = @(Get-VerificationTestMetadata -AssemblyPath $functionalTestAssemblyPath)
+    $metadata = @(Get-FunctionalTestMetadata)
     if ($metadata.Count -eq 0) {
         throw "Compiled test assembly contains no MSTest test methods: $functionalTestAssemblyPath"
     }
@@ -781,6 +829,9 @@ function Invoke-TestLane {
         [hashtable]$Environment,
 
         [Parameter(Mandatory)]
+        [string[]]$SelectedFqns,
+
+        [Parameter(Mandatory)]
         [object]$DeadlinePolicy,
 
         [switch]$NoBuild
@@ -799,6 +850,7 @@ function Invoke-TestLane {
         -DiagnosticsDirectory $DiagnosticsDirectory `
         -DeadlinePolicy $DeadlinePolicy `
         -Environment $Environment
+    [void](Assert-VerificationTestOutcomes -ResultPaths @(Join-Path $DiagnosticsDirectory 'results.trx') -SelectedFqns $SelectedFqns)
 }
 
 function Start-FunctionalShardProcess {
@@ -1268,6 +1320,11 @@ function Invoke-ParallelFunctionalTestShards {
     }
     if ($null -ne $primaryFailure) {
         throw $primaryFailure
+    }
+    foreach ($shard in $shards) {
+        [void](Assert-VerificationTestOutcomes `
+                -ResultPaths @(Join-Path $DiagnosticsDirectory ($shard.Name + '/results.trx')) `
+                -SelectedFqns $shard.TestNames)
     }
 }
 
@@ -1757,6 +1814,9 @@ function Invoke-FilteredQuickVerification {
             -Arguments $testArguments `
             -DiagnosticsDirectory $testDirectory
         Assert-BuiltOutputs
+        $knownNames = [string[]]@(Get-VerificationTestMetadata -AssemblyPath $functionalTestAssemblyPath |
+            ForEach-Object { $_.FullyQualifiedName })
+        [void](Assert-VerificationTestOutcomes -ResultPaths @(Join-Path $testDirectory 'results.trx') -KnownFqns $knownNames)
     }
     finally {
         $filteredQuickStopwatch.Stop()
@@ -1775,12 +1835,7 @@ if ($null -ne $InternalTestGuard -and
     return
 }
 
-if ($Mode -eq 'Functional' -and -not [string]::IsNullOrWhiteSpace($TestFilter)) {
-    throw 'Use Quick mode for a filtered test iteration. Functional mode always runs the canonical functional lane.'
-}
-if ($Mode -eq 'Full' -and -not [string]::IsNullOrWhiteSpace($TestFilter)) {
-    throw 'Full mode does not accept TestFilter. Use Quick mode for an explicit opt-in lane.'
-}
+Assert-VerificationModeAuthorization -RequestedMode $Mode -RequestedFilter $TestFilter -AllowEnvironment $AllowEnvironmentIntegration.IsPresent
 
 $verificationFailure = $null
 $testDiagnosticsDirectory = Join-Path $verificationArtifactsDirectory (
@@ -1870,21 +1925,28 @@ try {
 
         # 実OSプロセスとの接続、旧protocol updaterとの互換性をC#側の明示実行ケースへ分担する。
         # 最後の結果gateは必須ケースの欠落・スキップ・失敗を成功として扱わない。
-        $processIntegrationResultsPath = $null
-        $releaseAcceptanceResultsPath = $null
-        $processIntegrationResultsPath = @(Invoke-MonitoredVerificationPhase -Name 'ProcessIntegration' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+        [void](Invoke-MonitoredVerificationPhase -Name 'ProcessIntegration' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             $processIntegrationTestDirectory = Join-Path $phaseDirectory 'test'
-            $processIntegrationResultsPath = Join-Path $processIntegrationTestDirectory 'results.trx'
             Invoke-TestLane `
                 -Name 'Process integration' `
-                -Filter 'TestCategory=ProcessIntegration' `
+                -Filter 'TestCategory=ProcessIntegration&TestCategory!=EnvironmentIntegration' `
+                -SelectedFqns (Get-VerificationCategoryTestNames -Category 'ProcessIntegration') `
                 -DiagnosticsDirectory $processIntegrationTestDirectory `
                 -DeadlinePolicy $deadlinePolicy `
                 -NoBuild
-            return $processIntegrationResultsPath
-        })[-1]
-        $releaseAcceptanceResultsPath = @(Invoke-MonitoredVerificationPhase -Name 'ReleaseAcceptance' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+        })
+        [void](Invoke-MonitoredVerificationPhase -Name 'EnvironmentIntegration' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+            param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
+            Invoke-TestLane `
+                -Name 'Environment integration' `
+                -Filter 'TestCategory=EnvironmentIntegration' `
+                -SelectedFqns (Get-VerificationCategoryTestNames -Category 'EnvironmentIntegration') `
+                -DiagnosticsDirectory (Join-Path $phaseDirectory 'test') `
+                -DeadlinePolicy $deadlinePolicy `
+                -NoBuild
+        })
+        [void](Invoke-MonitoredVerificationPhase -Name 'ReleaseAcceptance' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             $legacyArtifactPath = [string]$v216ArtifactPreparation.ArtifactPath
             $currentPackagePath = [string]$artifactManifest.Current.packagePath
@@ -1897,10 +1959,10 @@ try {
                 throw "Current Full distribution package is missing: $currentPackagePath"
             }
             $releaseAcceptanceTestDirectory = Join-Path $phaseDirectory 'test'
-            $releaseAcceptanceResultsPath = Join-Path $releaseAcceptanceTestDirectory 'results.trx'
             Invoke-TestLane `
                 -Name 'Release acceptance' `
-                -Filter 'TestCategory=ReleaseAcceptance' `
+                -Filter 'TestCategory=ReleaseAcceptance&TestCategory!=EnvironmentIntegration' `
+                -SelectedFqns (Get-VerificationCategoryTestNames -Category 'ReleaseAcceptance') `
                 -DiagnosticsDirectory $releaseAcceptanceTestDirectory `
                 -DeadlinePolicy $deadlinePolicy `
                 -Environment @{
@@ -1910,30 +1972,13 @@ try {
                     BMS_LEGACY_UPDATER_CLEANUP_DEADLINE_UTC = $deadlinePolicy.CleanupDeadlineUtc.ToString('O')
                 } `
                 -NoBuild
-            $functionalResultsDirectory = Join-Path $testDiagnosticsDirectory 'functional'
-            if (-not (Test-Path -LiteralPath $functionalResultsDirectory -PathType Container)) {
-                throw "Canonical Functional result directory is missing for the release outcome gate: $functionalResultsDirectory"
-            }
-            $functionalResultPaths = @(
-                Get-ChildItem -LiteralPath $functionalResultsDirectory -Recurse -File -Filter 'results.trx' |
-                    Sort-Object -Property FullName |
-                    ForEach-Object { $_.FullName })
-            if ($functionalResultPaths.Count -eq 0) {
-                throw "Canonical Functional produced no TRX result receipts for the release outcome gate: $functionalResultsDirectory"
-            }
-            $outcomeResultPaths = @(
-                $functionalResultPaths +
-                $processIntegrationResultsPath +
-                $releaseAcceptanceResultsPath)
-            [void](Assert-VerificationTestOutcomes `
-                    -ResultPaths $outcomeResultPaths `
-                    -RosterPath $v216ArtifactMetadataPath `
+            [void](Assert-FullVerificationTestOutcomes `
+                    -DiagnosticsRoot $testDiagnosticsDirectory `
                     -ReceiptPath (Join-Path $phaseDirectory 'release-outcomes.json'))
-            return $releaseAcceptanceResultsPath
-        })[-1]
+        })
     }
     elseif (-not $canonicalFunctionalRequested) {
-        $effectiveFilter = $TestFilter
+        $effectiveFilter = Get-VerificationQuickFilter -Filter $TestFilter -AllowEnvironment $AllowEnvironmentIntegration.IsPresent
         Invoke-FilteredQuickVerification `
             -Filter $effectiveFilter `
             -DiagnosticsRoot $testDiagnosticsDirectory `

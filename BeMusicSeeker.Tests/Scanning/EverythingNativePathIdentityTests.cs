@@ -25,12 +25,13 @@ public sealed class EverythingNativePathIdentityTests
     [DataRow(false)]
     [DataRow(true)]
     [TestCategory("ProcessIntegration")]
+    [TestCategory("EnvironmentIntegration")]
     public void ExecuteScan_PreservesDirectoryIdentityThroughDecodeHealthAndEstimation(bool driveRoot)
     {
         string? fixtureBase = Environment.GetEnvironmentVariable("BMS_EVERYTHING_PATH_IDENTITY_FIXTURE");
         if (string.IsNullOrWhiteSpace(fixtureBase))
         {
-            Assert.Inconclusive("BMS_EVERYTHING_PATH_IDENTITY_FIXTUREで明示したnative試験DLLが必要です。");
+            Assert.Fail("BMS_EVERYTHING_PATH_IDENTITY_FIXTUREで明示したnative試験DLLが必要です。");
         }
         Assert.IsTrue(Path.IsPathFullyQualified(fixtureBase), "fixture app baseは絶対パスで指定します。");
         string caseRoot = Path.Combine(fixtureBase, "cases", Guid.NewGuid().ToString("N"));

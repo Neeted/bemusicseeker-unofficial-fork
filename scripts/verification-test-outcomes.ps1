@@ -1,5 +1,5 @@
-# Parser and gate for the exact-FQN release outcome roster.  This file is
-# sourceable and intentionally has no entry-point side effects.
+# 通常検証とリリース必須rosterが共有する結果読取り・合否判定。
+# dot-sourceだけでは検証やプロセス起動を行わない。
 
 function Get-VerificationOutcomeProperty {
     param(
@@ -55,36 +55,43 @@ function Convert-VerificationTrxResults {
         throw "Verification result receipt is not valid TRX/XML: $Path"
     }
 
+    $run = $document.DocumentElement
+    if ($null -eq $run -or $run.LocalName -cne 'TestRun' -or
+        $null -eq $run.SelectSingleNode("./*[local-name()='Results']")) {
+        throw "Verification result receipt is missing TestRun/Results: $Path"
+    }
+    $summary = $run.SelectSingleNode("./*[local-name()='ResultSummary']")
+    if ($null -eq $summary -or [string]::IsNullOrWhiteSpace($summary.GetAttribute('outcome'))) {
+        throw "Verification result receipt is missing its run-level outcome: $Path"
+    }
+    $runOutcome = [string]$summary.GetAttribute('outcome')
+    if ($runOutcome -cne 'Completed' -and $runOutcome -cne 'Passed') {
+        throw "Verification run-level outcome is not successful: $runOutcome ($Path)"
+    }
+
     $definitions = @{}
     foreach ($definition in @($document.SelectNodes("//*[local-name()='UnitTest']"))) {
         $id = [string]$definition.GetAttribute('id')
-        if ([string]::IsNullOrWhiteSpace($id)) {
-            continue
+        if ([string]::IsNullOrWhiteSpace($id) -or $definitions.ContainsKey($id)) {
+            throw "Verification TRX test definition has a missing or duplicate id: $Path"
         }
         $method = $definition.SelectSingleNode("./*[local-name()='TestMethod']")
-        $className = if ($null -eq $method) { [string]::Empty } else { [string]$method.GetAttribute('className') }
-        $methodName = if ($null -eq $method) { [string]$definition.GetAttribute('name') } else { [string]$method.GetAttribute('name') }
-        $name = if (-not [string]::IsNullOrWhiteSpace($className) -and -not [string]::IsNullOrWhiteSpace($methodName)) {
-            "$className.$methodName"
+        if ($null -eq $method -or
+            [string]::IsNullOrWhiteSpace($method.GetAttribute('className')) -or
+            [string]::IsNullOrWhiteSpace($method.GetAttribute('name'))) {
+            throw "Verification TRX test definition is missing its class or method: $Path"
         }
-        else {
-            [string]$definition.GetAttribute('name')
-        }
+        $name = "$($method.GetAttribute('className')).$($method.GetAttribute('name'))"
         $definitions[$id] = $name
     }
 
     $results = [System.Collections.Generic.List[object]]::new()
     foreach ($result in @($document.SelectNodes("//*[local-name()='UnitTestResult']"))) {
         $testId = [string]$result.GetAttribute('testId')
-        $name = if ($definitions.ContainsKey($testId)) {
-            [string]$definitions[$testId]
+        if (-not $definitions.ContainsKey($testId)) {
+            throw "Verification TRX result is missing its method definition: $Path"
         }
-        else {
-            [string]$result.GetAttribute('fullyQualifiedName')
-        }
-        if ([string]::IsNullOrWhiteSpace($name)) {
-            $name = [string]$result.GetAttribute('testName')
-        }
+        $name = [string]$definitions[$testId]
         $outcome = [string]$result.GetAttribute('outcome')
         $reason = [string]$result.GetAttribute('reason')
         if ([string]::IsNullOrWhiteSpace($reason)) {
@@ -170,6 +177,9 @@ function Read-VerificationTestOutcomes {
         else {
             throw "Unsupported verification result receipt format: $resolvedPath"
         }
+        if (@($items).Count -eq 0) {
+            throw "Verification result receipt is missing test results: $resolvedPath"
+        }
         foreach ($item in @($items)) {
             [void]$results.Add($item)
         }
@@ -198,11 +208,9 @@ function Read-VerificationOutcomeRoster {
         $outcome = $document
     }
     $required = Get-VerificationOutcomeProperty -Object $outcome -Names @('required', 'requiredTests', 'roster')
-    $optional = Get-VerificationOutcomeProperty -Object $outcome -Names @('optionalSkipAllowlist', 'optionalSkips')
     return [pscustomobject][ordered]@{
         Path = $resolvedPath
         Required = @($required)
-        OptionalSkipAllowlist = @($optional)
     }
 }
 
@@ -254,43 +262,6 @@ function Convert-VerificationRosterEntries {
     return @($entries)
 }
 
-function Convert-VerificationOptionalEntries {
-    param(
-        [object]$OptionalSkipAllowlist
-    )
-
-    $entries = [System.Collections.Generic.List[object]]::new()
-    if ($null -ne $OptionalSkipAllowlist) {
-        foreach ($item in @($OptionalSkipAllowlist)) {
-            if ($item -is [string]) {
-                $fqn = [string]$item
-                $reason = [string]::Empty
-            }
-            else {
-                $fqn = Get-VerificationOutcomeString -Object $item -Names @('fullyQualifiedName', 'fqn', 'name')
-                $reason = Get-VerificationOutcomeString -Object $item -Names @('reason', 'skipReason')
-            }
-            if ([string]::IsNullOrWhiteSpace($fqn)) {
-                throw 'Optional skip allowlist entry must contain an exact fully-qualified name.'
-            }
-            if ([string]::IsNullOrWhiteSpace($reason)) {
-                throw "Optional skip allowlist reason is required for: $fqn"
-            }
-            [void]$entries.Add([pscustomobject][ordered]@{
-                    FullyQualifiedName = $fqn
-                    Reason = $reason.Trim()
-                })
-        }
-    }
-    $seenNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-    foreach ($entry in $entries) {
-        if (-not $seenNames.Add($entry.FullyQualifiedName)) {
-            throw "Optional skip allowlist contains a duplicate FQN: $($entry.FullyQualifiedName)"
-        }
-    }
-    return @($entries)
-}
-
 function Assert-VerificationTestOutcomes {
     param(
         [Parameter(Mandatory)]
@@ -298,123 +269,71 @@ function Assert-VerificationTestOutcomes {
         [string[]]$ResultPaths,
 
         [object]$Roster,
-
         [object]$RequiredRoster,
-
         [string[]]$RequiredFqns,
-
         [string]$RosterPath,
 
-        [object]$OptionalSkipAllowlist,
-
+        # 既知計画の選択methodは一件以上、release必須rosterだけは正確に一件を要求する。
+        [string[]]$SelectedFqns,
+        # 任意filterのQuickでは独自にfilterを解釈せず、既知method集合のみを照合する。
+        [string[]]$KnownFqns,
         [string]$ReceiptPath
     )
 
     if (-not [string]::IsNullOrWhiteSpace($RosterPath)) {
-        $loadedRoster = Read-VerificationOutcomeRoster -RosterPath $RosterPath
-        $Roster = $loadedRoster
+        $Roster = Read-VerificationOutcomeRoster -RosterPath $RosterPath
     }
-    $rosterObject = $Roster
-    $requiredObject = $RequiredRoster
-    $optionalObject = $OptionalSkipAllowlist
-    if ($null -ne $rosterObject) {
-        $requiredFromRoster = Get-VerificationOutcomeProperty -Object $rosterObject -Names @('Required', 'required', 'requiredTests', 'roster')
-        if ($null -eq $requiredObject -and $null -eq $RequiredFqns) {
-            $requiredObject = $requiredFromRoster
-        }
-        $optionalFromRoster = Get-VerificationOutcomeProperty -Object $rosterObject -Names @('OptionalSkipAllowlist', 'optionalSkipAllowlist', 'optionalSkips')
-        if ($null -eq $optionalObject) {
-            $optionalObject = $optionalFromRoster
-        }
+    if ($null -ne $Roster -and $null -eq $RequiredRoster -and $null -eq $RequiredFqns) {
+        $RequiredRoster = Get-VerificationOutcomeProperty -Object $Roster -Names @('Required', 'required', 'requiredTests', 'roster')
     }
-    $required = Convert-VerificationRosterEntries -RequiredRoster $requiredObject -RequiredFqns $RequiredFqns
-    $optional = Convert-VerificationOptionalEntries -OptionalSkipAllowlist $optionalObject
-    $optionalByName = [System.Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
-    foreach ($entry in $optional) {
-        $optionalByName[$entry.FullyQualifiedName] = $entry
+    $required = if ($null -ne $RequiredRoster -or $null -ne $RequiredFqns) {
+        @(Convert-VerificationRosterEntries -RequiredRoster $RequiredRoster -RequiredFqns $RequiredFqns)
+    } else { @() }
+    if ($PSBoundParameters.ContainsKey('SelectedFqns') -and @($SelectedFqns).Count -eq 0) {
+        throw 'Verification selected method set is empty.'
     }
-    $requiredByName = [System.Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
-    foreach ($entry in $required) {
-        $requiredByName[$entry.FullyQualifiedName] = $entry
-        if ($optionalByName.ContainsKey($entry.FullyQualifiedName)) {
-            throw "A required FQN cannot be an optional skip: $($entry.FullyQualifiedName)"
-        }
-    }
-
+    if ($null -eq $KnownFqns -and $null -ne $SelectedFqns) { $KnownFqns = $SelectedFqns }
+    $known = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($name in @($KnownFqns)) { if ($null -ne $name) { [void]$known.Add($name) } }
     $results = @(Read-VerificationTestOutcomes -ResultPaths $ResultPaths)
+    if ($results.Count -eq 0) { throw 'Verification result set is missing test results.' }
     $resultsByName = [System.Collections.Generic.Dictionary[string, System.Collections.Generic.List[object]]]::new([StringComparer]::Ordinal)
     foreach ($result in $results) {
         if ([string]::IsNullOrWhiteSpace($result.FullyQualifiedName)) {
             throw 'Verification result contains an empty fully-qualified name.'
+        }
+        if ($null -ne $KnownFqns -and -not $known.Contains($result.FullyQualifiedName)) {
+            throw "Unknown verification method result: $($result.FullyQualifiedName)"
+        }
+        if ($result.Outcome -cne 'Passed') {
+            throw "Verification method is not Passed: $($result.FullyQualifiedName) outcome=$($result.Outcome)"
         }
         if (-not $resultsByName.ContainsKey($result.FullyQualifiedName)) {
             $resultsByName[$result.FullyQualifiedName] = [System.Collections.Generic.List[object]]::new()
         }
         [void]$resultsByName[$result.FullyQualifiedName].Add($result)
     }
-
+    foreach ($name in @($SelectedFqns)) {
+        if ($null -ne $name -and -not $resultsByName.ContainsKey($name)) {
+            throw "Selected verification method is missing: $name"
+        }
+    }
     $requiredReceipt = [System.Collections.Generic.List[object]]::new()
     foreach ($entry in $required) {
-        $matches = @(if ($resultsByName.ContainsKey($entry.FullyQualifiedName)) {
-                $resultsByName[$entry.FullyQualifiedName]
-            })
-        if ($matches.Count -eq 0) {
+        if (-not $resultsByName.ContainsKey($entry.FullyQualifiedName)) {
             throw "Required verification FQN is missing: $($entry.FullyQualifiedName)"
         }
+        $matches = @($resultsByName[$entry.FullyQualifiedName])
         if ($matches.Count -ne 1) {
             throw "Required verification FQN has duplicate results: $($entry.FullyQualifiedName) count=$($matches.Count)"
-        }
-        $result = $matches[0]
-        if ($result.Outcome -cne 'Passed') {
-            throw "Required verification FQN is not Passed: $($entry.FullyQualifiedName) outcome=$($result.Outcome)"
         }
         [void]$requiredReceipt.Add([ordered]@{
                 contractId = $entry.ContractId
                 fullyQualifiedName = $entry.FullyQualifiedName
-                outcome = [string]$result.Outcome
-                sourcePath = [string]$result.SourcePath
+                outcome = [string]$matches[0].Outcome
+                sourcePath = [string]$matches[0].SourcePath
             })
     }
-
-    $optionalReceipt = [System.Collections.Generic.List[object]]::new()
-    foreach ($entry in $optional) {
-        if (-not $resultsByName.ContainsKey($entry.FullyQualifiedName)) {
-            continue
-        }
-        $matches = @($resultsByName[$entry.FullyQualifiedName])
-        if ($matches.Count -ne 1) {
-            throw "Optional verification FQN has duplicate results: $($entry.FullyQualifiedName) count=$($matches.Count)"
-        }
-        $result = $matches[0]
-        if ($result.Outcome -cne 'Passed') {
-            # MSTest serializes Assert.Inconclusive as NotExecuted in TRX, while
-            # JSON receipts and synthetic contract inputs may retain Inconclusive.
-            # Keep the source outcome unchanged in the receipt; only these exact
-            # optional outcomes are accepted as provisioned skips.
-            if ($result.Outcome -cne 'Skipped' -and
-                $result.Outcome -cne 'Inconclusive' -and
-                $result.Outcome -cne 'NotExecuted') {
-                throw "Optional verification FQN has unsupported non-passed outcome: $($entry.FullyQualifiedName) outcome=$($result.Outcome)"
-            }
-            [void]$optionalReceipt.Add([ordered]@{
-                    fullyQualifiedName = $entry.FullyQualifiedName
-                    outcome = [string]$result.Outcome
-                    reason = $entry.Reason
-                    sourcePath = [string]$result.SourcePath
-                })
-        }
-    }
-
-    foreach ($result in $results) {
-        if ($requiredByName.ContainsKey($result.FullyQualifiedName) -or
-            $optionalByName.ContainsKey($result.FullyQualifiedName)) {
-            continue
-        }
-        if ($result.Outcome -cne 'Passed') {
-            throw "Unknown or non-allowlisted verification result: $($result.FullyQualifiedName) outcome=$($result.Outcome)"
-        }
-    }
-
     $receipt = [ordered]@{
         schemaVersion = 1
         manifestType = 'BeMusicSeeker.VerificationTestOutcomes'
@@ -423,21 +342,16 @@ function Assert-VerificationTestOutcomes {
         sourcePaths = @($ResultPaths | ForEach-Object { [IO.Path]::GetFullPath($_) })
         resultCount = $results.Count
         required = @($requiredReceipt)
-        optionalSkips = @($optionalReceipt)
     }
     if (-not [string]::IsNullOrWhiteSpace($ReceiptPath)) {
         $resolvedReceiptPath = [IO.Path]::GetFullPath($ReceiptPath)
         [void](New-Item -ItemType Directory -Path (Split-Path -Parent $resolvedReceiptPath) -Force)
-        [IO.File]::WriteAllText(
-            $resolvedReceiptPath,
-            ($receipt | ConvertTo-Json -Depth 12),
-            [Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText($resolvedReceiptPath, ($receipt | ConvertTo-Json -Depth 12), [Text.UTF8Encoding]::new($false))
     }
     return [pscustomobject][ordered]@{
         Receipt = $receipt
         Results = @($results)
         Required = @($requiredReceipt)
-        OptionalSkips = @($optionalReceipt)
         Passed = $true
     }
 }

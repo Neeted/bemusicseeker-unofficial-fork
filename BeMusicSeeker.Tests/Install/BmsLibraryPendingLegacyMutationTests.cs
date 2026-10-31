@@ -96,6 +96,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
     /// <summary>実symlinkの選択譜面を拒否し、外部のリンク先を残してファイルや親ディレクトリの削除へ進まない。</summary>
     /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
     [TestMethod]
+    [TestCategory("EnvironmentIntegration")]
     public void DeletePendingCharts_ReparseSourceIsFailureWithoutMutation()
     {
         WithTemporaryDirectory(tempDirectoryPath =>
@@ -113,7 +114,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
                 || exception is UnauthorizedAccessException
                 || exception is PlatformNotSupportedException)
             {
-                Assert.Inconclusive("実ファイルsymlinkを作成できない環境のため、この安全境界の実入力検証は未実施: " + exception.Message);
+                Assert.Fail("実ファイルsymlinkを作成できない環境のため、専用環境の準備が不足しています: " + exception.Message);
                 return;
             }
             ChartFile chartFile = ChartTestValues.Empty() with
@@ -465,6 +466,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
     /// <summary>拡張子変更で実symlinkを拒否し、移動・重複削除を行わず外部のリンク先を保持する。</summary>
     /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
     [TestMethod]
+    [TestCategory("EnvironmentIntegration")]
     public void InvalidExtensionPlan_ReparseSourceIsFailureWithoutMutation()
     {
         WithTemporaryDirectory(tempDirectoryPath =>
@@ -480,7 +482,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
                 || exception is UnauthorizedAccessException
                 || exception is PlatformNotSupportedException)
             {
-                Assert.Inconclusive("実ファイルsymlinkを作成できない環境のため、この安全境界の実入力検証は未実施: " + exception.Message);
+                Assert.Fail("実ファイルsymlinkを作成できない環境のため、専用環境の準備が不足しています: " + exception.Message);
                 return;
             }
             ChartFile sourceFile = ChartTestValues.Empty() with

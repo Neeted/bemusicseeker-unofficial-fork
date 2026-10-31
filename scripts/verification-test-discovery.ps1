@@ -1,4 +1,4 @@
-# テストDLLを実行せず、メタデータだけからテスト名と直列化属性を取得する。
+# テストDLLを実行せず、メタデータだけからテスト名・カテゴリ・直列化属性を取得する。
 # 型のロードやstatic initializerの実行は、テスト集合の検出に不要なので行わない。
 
 if ($null -eq ('VerificationTestMetadataReader' -as [type])) {
@@ -26,16 +26,19 @@ public sealed class VerificationTestMetadata
     /// <param name="className">名前空間と型を含むテストクラス名。</param>
     /// <param name="typeDoNotParallelize">型へ直接付与された直列化属性の有無。</param>
     /// <param name="methodDoNotParallelize">メソッドへ直接付与された直列化属性の有無。</param>
+    /// <param name="categories">型とメソッドへ直接付与されたカテゴリの和集合。</param>
     public VerificationTestMetadata(
         string fullyQualifiedName,
         string className,
         bool typeDoNotParallelize,
-        bool methodDoNotParallelize)
+        bool methodDoNotParallelize,
+        string[] categories)
     {
         FullyQualifiedName = fullyQualifiedName;
         ClassName = className;
         TypeDoNotParallelize = typeDoNotParallelize;
         MethodDoNotParallelize = methodDoNotParallelize;
+        Categories = categories;
     }
 
     /// <summary>
@@ -47,6 +50,9 @@ public sealed class VerificationTestMetadata
     /// 名前空間と型を含むテストクラス名を取得する。
     /// </summary>
     public string ClassName { get; }
+
+    /// <summary>型とメソッドに付与されたカテゴリの重複しない集合を取得する。</summary>
+    public string[] Categories { get; }
 
     /// <summary>
     /// 型へ直接付与された直列化属性の有無を取得する。
@@ -76,6 +82,7 @@ public static class VerificationTestMetadataReader
     private const string TestClassAttribute = UnitTestingNamespace + ".TestClassAttribute";
     private const string TestMethodAttribute = UnitTestingNamespace + ".TestMethodAttribute";
     private const string DataTestMethodAttribute = UnitTestingNamespace + ".DataTestMethodAttribute";
+    private const string TestCategoryAttribute = UnitTestingNamespace + ".TestCategoryAttribute";
     private const string DoNotParallelizeAttribute = UnitTestingNamespace + ".DoNotParallelizeAttribute";
 
     /// <summary>
@@ -85,7 +92,7 @@ public static class VerificationTestMetadataReader
     /// <returns>完全修飾名のOrdinal順に並んだMSTestメソッド情報。</returns>
     /// <exception cref="InvalidDataException">
     /// CLIメタデータがない、直接のTestClass属性を持たないテストメソッドがある、
-    /// 継承されたTestClass、または未対応のMSTestメソッド属性がある場合。
+    /// 継承されたTestClass、未対応のMSTestメソッド属性、または不正なカテゴリ属性がある場合。
     /// </exception>
     public static VerificationTestMetadata[] Read(string assemblyPath)
     {
@@ -163,13 +170,39 @@ public static class VerificationTestMetadataReader
                     className + "." + methodName,
                     className,
                     typeDoNotParallelize,
-                    methodDoNotParallelize));
+                    methodDoNotParallelize,
+                    ReadCategories(metadataReader, typeDefinition.GetCustomAttributes(), methodDeclaringTypes)
+                        .Concat(ReadCategories(metadataReader, methodDefinition.GetCustomAttributes(), methodDeclaringTypes))
+                        .Distinct(StringComparer.Ordinal)
+                        .OrderBy(value => value, StringComparer.Ordinal)
+                        .ToArray()));
             }
         }
 
         return tests
             .OrderBy(test => test.FullyQualifiedName, StringComparer.Ordinal)
             .ToArray();
+    }
+
+    private static IEnumerable<string> ReadCategories(
+        MetadataReader metadataReader,
+        CustomAttributeHandleCollection attributes,
+        IReadOnlyDictionary<MethodDefinitionHandle, TypeDefinitionHandle> methodDeclaringTypes)
+    {
+        foreach (CustomAttributeHandle handle in attributes)
+        {
+            CustomAttribute attribute = metadataReader.GetCustomAttribute(handle);
+            if (!string.Equals(GetAttributeTypeName(metadataReader, attribute.Constructor, methodDeclaringTypes),
+                    TestCategoryAttribute, StringComparison.Ordinal))
+            { continue; }
+            BlobReader value = metadataReader.GetBlobReader(attribute.Value);
+            if (value.ReadUInt16() != 1)
+            { throw new InvalidDataException("Invalid MSTest TestCategory attribute prolog."); }
+            string category = value.ReadSerializedString();
+            if (string.IsNullOrWhiteSpace(category))
+            { throw new InvalidDataException("MSTest TestCategory must contain a nonempty name."); }
+            yield return category;
+        }
     }
 
     private static bool HasTestMethodAttribute(

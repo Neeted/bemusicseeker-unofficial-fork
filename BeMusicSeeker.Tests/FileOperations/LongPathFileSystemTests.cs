@@ -22,6 +22,7 @@ public sealed class LongPathFileSystemTests
     /// <summary>既定のコピー呼出しでは安全な非循環ジャンクションを従来どおり辿り、通常ディレクトリとして内容をコピーして元リンクと先を保持します。</summary>
     [TestMethod]
     [TestCategory("ProcessIntegration")]
+    [TestCategory("EnvironmentIntegration")]
     public void CopyDirectory_DefaultFollowsNonCyclicDirectoryLink()
     {
         string root = Path.Combine(Path.GetTempPath(), nameof(LongPathFileSystemTests), Guid.NewGuid().ToString("N"));

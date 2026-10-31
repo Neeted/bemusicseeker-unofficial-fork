@@ -146,11 +146,12 @@ public sealed class ResilientFileMutationServiceTests
     }
 
     /// <summary>別volumeへの上書き移動で新内容をコピーして元を消し、renameだけの実装による移動失敗や旧内容残留を検出する。</summary>
-    /// <remarks>実際に異なるvolumeを用いる。書込み可能な第二volumeがない既存Inconclusiveを維持し、同volumeの成功で代替しない。</remarks>
+    /// <remarks>実際に異なるvolumeを用いる。明示した二つのfixture基点のdrive rootと実volumeを確認し、準備不足は失敗とする。</remarks>
     [TestMethod]
+    [TestCategory("EnvironmentIntegration")]
     public void MoveFile_CrossVolumeOverwriteCopiesAndDeletesSource()
     {
-        using var directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MoveFile_CrossVolumeOverwriteCopiesAndDeletesSource));
+        using var directories = CrossVolumeTestDirectories.Create(nameof(MoveFile_CrossVolumeOverwriteCopiesAndDeletesSource));
         string sourceFilePath = Path.Combine(directories.SourceBaseDirectory, "source.bms");
         string destinationFilePath = Path.Combine(directories.DestinationBaseDirectory, "destination.bms");
         WriteAllText(sourceFilePath, "source");
@@ -198,11 +199,12 @@ public sealed class ResilientFileMutationServiceTests
     }
 
     /// <summary>別volumeの未作成長パス宛先へroot・子の内容を移して元を消し、ディレクトリ作成やコピー後回収の漏れを検出する。</summary>
-    /// <remarks>実際に異なるvolumeを用いる。書込み可能な第二volumeがない既存Inconclusiveを維持し、同volumeの成功で代替しない。</remarks>
+    /// <remarks>実際に異なるvolumeを用いる。明示した二つのfixture基点のdrive rootと実volumeを確認し、準備不足は失敗とする。</remarks>
     [TestMethod]
+    [TestCategory("EnvironmentIntegration")]
     public void MoveDirectory_CrossVolumeCreatesLongDestinationAndDeletesSource()
     {
-        using var directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MoveDirectory_CrossVolumeCreatesLongDestinationAndDeletesSource));
+        using var directories = CrossVolumeTestDirectories.Create(nameof(MoveDirectory_CrossVolumeCreatesLongDestinationAndDeletesSource));
         string sourceDirectoryPath = Path.Combine(directories.SourceBaseDirectory, "source");
         string sourceChildDirectoryPath = Path.Combine(sourceDirectoryPath, "child");
         string destinationDirectoryPath = BuildLongDirectoryPath(directories.DestinationBaseDirectory, "destination");
@@ -218,11 +220,12 @@ public sealed class ResilientFileMutationServiceTests
     }
 
     /// <summary>別volumeの既存宛先をマージして衝突内容を置換し、双方だけのファイル・新しい子を保持して全体置換や子の脱落を検出する。</summary>
-    /// <remarks>実際に異なるvolumeを用いる。書込み可能な第二volumeがない既存Inconclusiveを維持し、同volumeの成功で代替しない。</remarks>
+    /// <remarks>実際に異なるvolumeを用いる。明示した二つのfixture基点のdrive rootと実volumeを確認し、準備不足は失敗とする。</remarks>
     [TestMethod]
+    [TestCategory("EnvironmentIntegration")]
     public void MoveDirectory_CrossVolumeOverwritesExistingDestinationByMerging()
     {
-        using var directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MoveDirectory_CrossVolumeOverwritesExistingDestinationByMerging));
+        using var directories = CrossVolumeTestDirectories.Create(nameof(MoveDirectory_CrossVolumeOverwritesExistingDestinationByMerging));
         string sourceDirectoryPath = Path.Combine(directories.SourceBaseDirectory, "source");
         string destinationDirectoryPath = Path.Combine(directories.DestinationBaseDirectory, "destination");
         string sourceChildDirectoryPath = Path.Combine(sourceDirectoryPath, "child");
@@ -251,11 +254,12 @@ public sealed class ResilientFileMutationServiceTests
     }
 
     /// <summary>別volumeの既存宛先で上書き禁止を守って双方の内容を保持し、失敗後の部分移動や誤上書きを検出する。</summary>
-    /// <remarks>実際に異なるvolumeを用いる。書込み可能な第二volumeがない既存Inconclusiveを維持し、同volumeの成功で代替しない。</remarks>
+    /// <remarks>実際に異なるvolumeを用いる。明示した二つのfixture基点のdrive rootと実volumeを確認し、準備不足は失敗とする。</remarks>
     [TestMethod]
+    [TestCategory("EnvironmentIntegration")]
     public void MoveDirectory_CrossVolumeOverwriteFalseExistingDestinationThrowsAndPreservesBothSides()
     {
-        using var directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MoveDirectory_CrossVolumeOverwriteFalseExistingDestinationThrowsAndPreservesBothSides));
+        using var directories = CrossVolumeTestDirectories.Create(nameof(MoveDirectory_CrossVolumeOverwriteFalseExistingDestinationThrowsAndPreservesBothSides));
         string sourceDirectoryPath = Path.Combine(directories.SourceBaseDirectory, "source");
         string destinationDirectoryPath = Path.Combine(directories.DestinationBaseDirectory, "destination");
         LongPathFileSystem.CreateDirectory(sourceDirectoryPath);

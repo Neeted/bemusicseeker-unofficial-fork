@@ -382,6 +382,7 @@ public sealed class UpdateDownloadServiceTests
     /// currentがシンボリックリンクならツール準備を拒否し、リンク先の実sentinelを保って作業領域外の書換えを検出する。
     /// </summary>
     [TestMethod]
+    [TestCategory("EnvironmentIntegration")]
     public void PrepareUpdaterLaunchRejectsReparsePointInCurrentWorkDirectory()
     {
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdateDownloadServiceTests", Guid.NewGuid().ToString("N"));
@@ -408,7 +409,7 @@ public sealed class UpdateDownloadServiceTests
             {
                 Directory.Delete(root, recursive: true);
             }
-            Assert.Inconclusive("The test environment does not permit directory symbolic links: " + exception.Message);
+            Assert.Fail("The test environment does not permit directory symbolic links: " + exception.Message);
             return;
         }
 
@@ -469,6 +470,7 @@ public sealed class UpdateDownloadServiceTests
     /// downloadsがシンボリックリンクなら削除を警告付きで止め、リンク先のパッケージを消す誤りを検出する。
     /// </summary>
     [TestMethod]
+    [TestCategory("EnvironmentIntegration")]
     public void TryDeleteDownloadedPackageRejectsReparsePointDownloadsDirectory()
     {
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdateDownloadServiceTests", Guid.NewGuid().ToString("N"));
@@ -489,7 +491,7 @@ public sealed class UpdateDownloadServiceTests
             {
                 Directory.Delete(root, recursive: true);
             }
-            Assert.Inconclusive("The test environment does not permit directory symbolic links: " + exception.Message);
+            Assert.Fail("The test environment does not permit directory symbolic links: " + exception.Message);
             return;
         }
 

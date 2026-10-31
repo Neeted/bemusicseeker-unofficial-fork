@@ -98,6 +98,10 @@ Explorerは `ExplorerOpenService` に集約します。通常パスと拡張長�
 | Explorerの事前解決と一回だけの副作用 | [`ExplorerOpenService`](../../../BeMusicSeeker/Models/Utils/Processes/ExplorerOpenService.cs) | [`ExplorerOpenServiceTests`](../../../BeMusicSeeker.Tests/Processes/ExplorerOpenServiceTests.cs) |
 | 実際の譜面移転とファイル操作境界 | [`LibraryMutationOwner`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.cs) | [`BmsLibraryCatalogRelocationTests`](../../../BeMusicSeeker.Tests/Catalog/BmsLibraryCatalogRelocationTests.cs)、[`BmsLibraryLibraryFileOperationsServiceTests`](../../../BeMusicSeeker.Tests/FileOperations/BmsLibraryLibraryFileOperationsServiceTests.cs) |
 
+別volumeの物理移動は `ResilientFileMutationServiceTests` のCrossVolume四系列を `EnvironmentIntegration` で確認し、長い宛先・上書き統合・上書き禁止時の両側保持を分担します。索引の親子・旧snapshot・参照・件数は `BmsLibraryLibraryFileOperationsServiceTests.MoveFolderAndUpdateReferences_RewritesDirectoryIndexAndBuildFolderMoveFactsTracksReferences` と `UpdateMovedFolderReferences_RewritesMultipleMovedFoldersInOnePass` が通常検証で確認します。fixture基点と実volumeの確認は[専用環境の準備](../development/testing.md#資源の分離と共有)に従います。
+
+`BmsLibraryFolderRenameRefreshTests.AutoRenameChartFolders_DoesNotFailWhenLongChartFileNameExceedsLr2LegacyPathLimit` は、所有temp内の有効なpath要素から改名後CP932 259バイト超を構成し、実改名・元消失・先成立・同tokenの現在pathを確認します。259/260バイト境界の警告判定は `Lr2CompatibilityGoldenTests.EvaluatorFlagsChartPathByteBoundary` が分担し、改名前のpathが旧制限内であることは前提にしません。
+
 ## 関連資料
 
 [パスによる識別](path-identity.md)、[ファイル読取り](../library/chart-file-reading.md)、[警告](../library/warnings.md)。

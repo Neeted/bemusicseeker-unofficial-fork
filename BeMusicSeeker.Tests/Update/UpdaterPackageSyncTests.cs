@@ -23,6 +23,7 @@ using Microsoft.Win32;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+[TestCategory("EnvironmentIntegration")]
 [TestCategory("ProcessIntegration")]
 public sealed class UpdaterPackageSyncTests
 {
@@ -1806,7 +1807,7 @@ public sealed class UpdaterPackageSyncTests
             }
             catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException || exception is PlatformNotSupportedException)
             {
-                Assert.Inconclusive("The test environment does not permit directory symbolic links: " + exception.Message);
+                Assert.Fail("The test environment does not permit directory symbolic links: " + exception.Message);
                 return;
             }
 

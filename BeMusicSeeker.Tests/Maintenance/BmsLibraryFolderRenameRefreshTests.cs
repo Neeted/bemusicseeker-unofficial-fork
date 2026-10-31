@@ -1565,14 +1565,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_AutoRenameLongName_" + Guid.NewGuid().ToString("N"));
-            string libraryRootPath = Path.Combine(tempRootPath, "S");
+            // 各要素を短く保ち、TEMPの長さによらず改名後にCP932の259バイト制限を超えます。
+            string libraryRootPath = Path.Combine(tempRootPath, new string('a', 80), new string('b', 80), new string('c', 80));
             string sourceDirectoryPath = Path.Combine(libraryRootPath, "O");
-            int fileNameBaseLength = 252 - sourceDirectoryPath.Length - Path.DirectorySeparatorChar.ToString().Length - ".bms".Length;
-            if (fileNameBaseLength < 1)
-            {
-                Assert.Inconclusive("一時パスが長いため、LR2の旧パス長境界を作れません。");
-            }
-            string chartFileName = new string('x', fileNameBaseLength) + ".bms";
+            string chartFileName = "chart.bms";
             string chartPath = Path.Combine(sourceDirectoryPath, chartFileName);
             try
             {
@@ -1595,7 +1591,12 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 library.AutoRenameChartFoldersWithProgress([(file)], false, new RecordingFolderAutoRenameProgressWriter());
 
                 string destinationDirectoryPath = Path.Combine(libraryRootPath, "[A] T");
-                Assert.AreEqual(Path.Combine(destinationDirectoryPath, chartFileName), CurrentOwnedChart(library, file).Path);
+                string destinationChartPath = Path.Combine(destinationDirectoryPath, chartFileName);
+                Assert.IsTrue(System.Text.Encoding.GetEncoding(932).GetByteCount(destinationChartPath) > 259);
+                ChartFile current = CurrentOwnedChart(library, file);
+                Assert.AreSame(file.Token, current.Token);
+                Assert.AreEqual(destinationChartPath, current.Path);
+                Assert.IsTrue(File.Exists(destinationChartPath));
                 Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
                 Assert.IsTrue(Directory.Exists(destinationDirectoryPath));
             }

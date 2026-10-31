@@ -59,7 +59,7 @@ public sealed class DroppedInstallIngressMaterializerTests
     }
 
     /// <summary>安定folder内のreparse属性を見つけた場合は全体を拒否し、入力の削除や危険なtreeの受理を検出します。</summary>
-    /// <remarks>実FSの入力・専用rootと内容を観測します。属性注入ケースはreparse分類を制御し、実symlinkのケースは作成できない環境で既存のInconclusiveを維持します。</remarks>
+    /// <remarks>実FSの入力・専用rootと内容を観測します。属性注入ケースはreparse分類を制御し、実symlinkのケースは専用環境で実行し、作成できなければ失敗します。</remarks>
     [TestMethod]
     public void Acquire_StableDirectoryContainingInjectedReparseDescendantRejectsWholeBatch()
     {
@@ -81,7 +81,7 @@ public sealed class DroppedInstallIngressMaterializerTests
     }
 
     /// <summary>管理folder内でもreparse属性を見つけた場合は全体を拒否し、所有分類による安全検査の迂回を検出します。</summary>
-    /// <remarks>実FSの入力・専用rootと内容を観測します。属性注入ケースはreparse分類を制御し、実symlinkのケースは作成できない環境で既存のInconclusiveを維持します。</remarks>
+    /// <remarks>実FSの入力・専用rootと内容を観測します。属性注入ケースはreparse分類を制御し、実symlinkのケースは専用環境で実行し、作成できなければ失敗します。</remarks>
     [TestMethod]
     public void Acquire_ManagedDirectoryContainingInjectedReparseDescendantRejectsWholeBatch()
     {
@@ -196,7 +196,7 @@ public sealed class DroppedInstallIngressMaterializerTests
     }
 
     /// <summary>信頼するtemp基点のreparse属性は検査対象に含めず、通常の子入力を誤拒否することを検出します。</summary>
-    /// <remarks>実FSの入力・専用rootと内容を観測します。属性注入ケースはreparse分類を制御し、実symlinkのケースは作成できない環境で既存のInconclusiveを維持します。</remarks>
+    /// <remarks>実FSの入力・専用rootと内容を観測します。属性注入ケースはreparse分類を制御し、実symlinkのケースは専用環境で実行し、作成できなければ失敗します。</remarks>
     [TestMethod]
     public void Acquire_TrustedReparseTempRootDoesNotRejectNormalLogicalDescendant()
     {
@@ -217,7 +217,7 @@ public sealed class DroppedInstallIngressMaterializerTests
     }
 
     /// <summary>temp基点より下のreparse祖先で探索を止め、未存在の子へ進む誤りや専用rootを先に作る誤りを検出します。</summary>
-    /// <remarks>実FSの入力・専用rootと内容を観測します。属性注入ケースはreparse分類を制御し、実symlinkのケースは作成できない環境で既存のInconclusiveを維持します。</remarks>
+    /// <remarks>実FSの入力・専用rootと内容を観測します。属性注入ケースはreparse分類を制御し、実symlinkのケースは専用環境で実行し、作成できなければ失敗します。</remarks>
     [TestMethod]
     public void Acquire_ReparseAncestorBelowTrustedRootIsRejectedBeforeCopy()
     {
@@ -238,8 +238,9 @@ public sealed class DroppedInstallIngressMaterializerTests
     }
 
     /// <summary>実symlinkを含むtreeは拒否してリンク先のsentinelを保ち、外部treeを辿ってコピー・削除する誤りを検出します。</summary>
-    /// <remarks>実FSの入力・専用rootと内容を観測します。属性注入ケースはreparse分類を制御し、実symlinkのケースは作成できない環境で既存のInconclusiveを維持します。</remarks>
+    /// <remarks>実FSの入力・専用rootと内容を観測します。属性注入ケースはreparse分類を制御し、実symlinkのケースは専用環境で実行し、作成できなければ失敗します。</remarks>
     [TestMethod]
+    [TestCategory("EnvironmentIntegration")]
     public void Acquire_DirectoryContainingReparsePointRejectsBatchAndPreservesTarget()
     {
         using var fixture = new MaterializerFixture();
@@ -256,7 +257,7 @@ public sealed class DroppedInstallIngressMaterializerTests
             || exception is UnauthorizedAccessException
             || exception is PlatformNotSupportedException)
         {
-            Assert.Inconclusive("The test environment does not permit directory symbolic links: " + exception.Message);
+            Assert.Fail("The test environment does not permit directory symbolic links: " + exception.Message);
             return;
         }
 

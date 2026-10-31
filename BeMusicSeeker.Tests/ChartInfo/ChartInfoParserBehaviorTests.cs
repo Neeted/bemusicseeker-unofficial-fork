@@ -1868,11 +1868,11 @@ public sealed class ChartInfoParserBehaviorTests
         }
     }
 
-    /// <summary>明示手動実行でJava参照toolを実譜面へ接続し、成功JSONとchart hashの出力が失われる誤りを検出する。</summary>
-    /// <remarks>ローカルJDKと参照リポジトリが必要な既存手動caseで、通常検証の依存へ追加しない。</remarks>
+    /// <summary>専用環境の明示実行でJava参照toolを実譜面へ接続し、成功JSONとchart hashの出力が失われる誤りを検出する。</summary>
+    /// <remarks>ローカルJDKと参照リポジトリを準備する専用環境で実行し、準備不足は失敗とする。</remarks>
     [TestMethod]
     [TestCategory("CompatibilityTool")]
-    [Microsoft.VisualStudio.TestTools.UnitTesting.Ignore("ローカルJDK・参照リポジトリを使う手動確認。通常検証をJavaへ依存させないため自動実行しない。")]
+    [TestCategory("EnvironmentIntegration")]
     public async Task ChartStringDumpTool_BuildsAndDumpsReferenceChartString()
     {
         string repoRoot = FindRepoRoot();

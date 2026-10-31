@@ -215,11 +215,12 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
     }
 
     /// <summary>実7zへ出力したrootのmetadata DBを起動入口から取り込み、保存行の復元とarchive移動までを接続して配布形式の不整合を検出する。</summary>
-    /// <remarks>実7zが必要な配布・起動接続。未導入時の既存Inconclusiveを維持し、他caseの注入抽出ではarchive形式自体を保証しない。</remarks>
+    /// <remarks>実7zが必要な配布・起動接続。専用環境で実行し、未導入時は失敗とする。他caseの注入抽出ではarchive形式自体を保証しない。</remarks>
     [TestMethod]
+    [TestCategory("EnvironmentIntegration")]
     public void ChartInfoExport_CreatesArchiveWithRootMetadataDbAndStartupImporterCanImport()
     {
-        string sevenZipPath = ResolveInstalledSevenZipPathOrInconclusive();
+        string sevenZipPath = ResolveInstalledSevenZipPath();
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string md5 = new('a', 32);

@@ -27,7 +27,10 @@ public sealed class VerificationRunnerContractTests
         try
         {
             using JsonDocument first = ReadFunctionalPlanProbe(root, "variations");
-            string[] expectedNames = GetProperty(first.RootElement, "Metadata").EnumerateArray()
+            string[] excludedCategories = ["Net10Performance", "Performance", "LargeFixture", "ParserCompatibilityFull", "ParserCompatibilitySlow", "ProductionDiffFull", "ProcessIntegration", "ReleaseAcceptance", "EnvironmentIntegration"];
+            JsonElement[] selectedMetadata = GetProperty(first.RootElement, "Metadata").EnumerateArray()
+                .Where(item => !GetProperty(item, "Categories").EnumerateArray().Select(GetRequiredString).Intersect(excludedCategories).Any()).ToArray();
+            string[] expectedNames = selectedMetadata
                 .Where(item => !GetProperty(item, "DoNotParallelize").GetBoolean()
                     && GetRequiredString(GetProperty(item, "ClassName")) is not
                         ("BeMusicSeeker.Tests.PlayerPanelStateSettingsCompatibilityTests" or "BeMusicSeeker.Tests.BassCollectibleLoadContextTests"))
@@ -35,6 +38,14 @@ public sealed class VerificationRunnerContractTests
                 .ToArray();
             JsonElement plans = GetProperty(first.RootElement, "Plans");
             Dictionary<string, string> baseline = ReadParallelMembership(plans[0], expectedNames);
+            CollectionAssert.AreEquivalent(selectedMetadata.Select(item => GetRequiredString(GetProperty(item, "FullyQualifiedName"))).ToArray(),
+                GetProperty(plans[0], "Shards").EnumerateArray().SelectMany(shard => GetProperty(shard, "TestNames").EnumerateArray().Select(GetRequiredString)).ToArray());
+            foreach (JsonElement plan in plans.EnumerateArray())
+            {
+                Assert.IsFalse(GetProperty(plan, "Shards").EnumerateArray()
+                    .SelectMany(shard => GetProperty(shard, "TestNames").EnumerateArray().Select(GetRequiredString))
+                    .Any(name => name.StartsWith("Synthetic.Excluded.", StringComparison.Ordinal)));
+            }
             AssertSameMembership(baseline, ReadParallelMembership(plans[1], expectedNames));
 
             string addedName = GetRequiredString(GetProperty(first.RootElement, "AddedName"));
@@ -51,7 +62,7 @@ public sealed class VerificationRunnerContractTests
             string[] hostNames = ["portable-settings", "bass-collectible", "shared-state-a", "shared-state-b", "parallel-a", "parallel-b"];
             CollectionAssert.AreEqual(hostNames, GetProperty(plans[0], "Shards").EnumerateArray()
                 .Select(shard => GetRequiredString(GetProperty(shard, "Name"))).ToArray());
-            const string categoryFilter = "TestCategory!=Net10Performance&TestCategory!=Performance&TestCategory!=LargeFixture&TestCategory!=ParserCompatibilityFull&TestCategory!=ParserCompatibilitySlow&TestCategory!=ProductionDiffFull&TestCategory!=ProcessIntegration&TestCategory!=ReleaseAcceptance";
+            const string categoryFilter = "TestCategory!=Net10Performance&TestCategory!=Performance&TestCategory!=LargeFixture&TestCategory!=ParserCompatibilityFull&TestCategory!=ParserCompatibilitySlow&TestCategory!=ProductionDiffFull&TestCategory!=ProcessIntegration&TestCategory!=ReleaseAcceptance&TestCategory!=EnvironmentIntegration";
             foreach (JsonElement shard in GetProperty(plans[0], "Shards").EnumerateArray())
             {
                 string hostName = GetRequiredString(GetProperty(shard, "Name"));
@@ -82,6 +93,227 @@ public sealed class VerificationRunnerContractTests
         using JsonDocument result = ReadFunctionalPlanProbe(Path.GetTempPath(), "single");
         Assert.IsTrue(GetProperty(result.RootElement, "Rejected").GetBoolean(), result.RootElement.GetRawText());
         StringAssert.Contains(GetRequiredString(GetProperty(result.RootElement, "Message")), "two nonempty parallel queues");
+    }
+
+    /// <summary>実PEのclass/methodカテゴリを和集合で読み取り、型初期化やテスト実行なしで重複を除去します。</summary>
+    [TestMethod]
+    public void MetadataReaderUnionsClassAndMethodCategoriesWithoutExecutingAssembly()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker-MetadataCategories", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string command = $$"""
+                $ErrorActionPreference = 'Stop'
+                . {{QuotePowerShellLiteral(Path.Combine(FindRepositoryRoot(), "scripts", "verification-test-discovery.ps1"))}}
+                $source = @'
+                using System;
+                namespace Microsoft.VisualStudio.TestTools.UnitTesting {
+                    public sealed class TestClassAttribute : Attribute { }
+                    public sealed class TestMethodAttribute : Attribute { }
+                    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true)]
+                    public sealed class TestCategoryAttribute : Attribute { public TestCategoryAttribute(string value) { } }
+                }
+                [Microsoft.VisualStudio.TestTools.UnitTesting.TestClass]
+                [Microsoft.VisualStudio.TestTools.UnitTesting.TestCategory("ClassOnly")]
+                [Microsoft.VisualStudio.TestTools.UnitTesting.TestCategory("Shared")]
+                public sealed class CategoryFixture {
+                    static CategoryFixture() { throw new Exception("This assembly must not execute."); }
+                    [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+                    [Microsoft.VisualStudio.TestTools.UnitTesting.TestCategory("MethodOnly")]
+                    [Microsoft.VisualStudio.TestTools.UnitTesting.TestCategory("Shared")]
+                    public void Example() { throw new Exception("This test must not execute."); }
+                }
+                '@
+                Add-Type -TypeDefinition $source -OutputAssembly {{QuotePowerShellLiteral(Path.Combine(root, "fixture.dll"))}}
+                @(Get-VerificationTestMetadata -AssemblyPath {{QuotePowerShellLiteral(Path.Combine(root, "fixture.dll"))}}) | ConvertTo-Json -Depth 5 -Compress
+                """;
+            using JsonDocument result = ReadPowerShellJson(["-Command", command]);
+            Assert.AreEqual("CategoryFixture.Example", GetRequiredString(GetProperty(result.RootElement, "FullyQualifiedName")));
+            CollectionAssert.AreEquivalent(new[] { "ClassOnly", "MethodOnly", "Shared" },
+                GetProperty(result.RootElement, "Categories").EnumerateArray().Select(GetRequiredString).ToArray());
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    /// <summary>選択methodは一件以上の全Passed行を要求し、空・欠落・未知・不正TRX・run-level失敗で成功にしません。</summary>
+    /// <remarks>DataRowは事前展開せず、同じmethodの複数行の実結果を共有parserとgateで照合します。</remarks>
+    [TestMethod]
+    public void SelectedOutcomeGateRequiresAllRowsAndValidCompleteReceipts()
+    {
+        const string first = "Synthetic.Selected.First";
+        const string second = "Synthetic.Selected.Second";
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker-SelectedOutcomes", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string path = Path.Combine(root, "results.trx");
+            WriteSyntheticTrx(path, (first, "Passed"), (first, "Passed"), (second, "Passed"));
+            using (JsonDocument passed = ReadSelectedOutcomeProbe(path, first, second))
+            { Assert.IsTrue(GetProperty(passed.RootElement, "Passed").GetBoolean(), passed.RootElement.GetRawText()); }
+            foreach (string outcome in new[] { "Skipped", "Inconclusive", "NotExecuted", "Failed", "Error", "Aborted", "" })
+            {
+                WriteSyntheticTrx(path, (first, "Passed"), (first, outcome), (second, "Passed"));
+                using JsonDocument failed = ReadSelectedOutcomeProbe(path, first, second);
+                AssertGateFailure(failed, "not Passed");
+            }
+            WriteSyntheticTrx(path, (first, "Passed"));
+            using (JsonDocument missing = ReadSelectedOutcomeProbe(path, first, second)) { AssertGateFailure(missing, "missing"); }
+            WriteSyntheticTrx(path, (first, "Passed"), (second, "Passed"), ("Synthetic.Unknown.Method", "Passed"));
+            using (JsonDocument unknown = ReadSelectedOutcomeProbe(path, first, second)) { AssertGateFailure(unknown, "Unknown"); }
+            WriteSyntheticTrx(path);
+            using (JsonDocument empty = ReadSelectedOutcomeProbe(path, first, second)) { AssertGateFailure(empty, "missing"); }
+            foreach (string runOutcome in new[] { "Failed", "Aborted", "Error", "Inconclusive" })
+            {
+                WriteSyntheticTrx(path, (first, "Passed"), (second, "Passed"));
+                var trx = XDocument.Load(path);
+                GetRequiredElement(trx.Root ?? throw new AssertFailedException(), "ResultSummary").SetAttributeValue("outcome", runOutcome);
+                trx.Save(path);
+                using JsonDocument failed = ReadSelectedOutcomeProbe(path, first, second);
+                AssertGateFailure(failed, "run-level");
+            }
+            foreach (string invalid in new[] { "not XML", "<Other />", "<TestRun><Results /></TestRun>" })
+            {
+                File.WriteAllText(path, invalid);
+                using JsonDocument failed = ReadSelectedOutcomeProbe(path, first, second);
+                AssertGateFailure(failed);
+            }
+            foreach (bool missingDefinition in new[] { false, true })
+            {
+                WriteSyntheticTrx(path, (first, "Passed"), (second, "Passed"));
+                var trx = XDocument.Load(path);
+                XElement definitions = GetRequiredElement(trx.Root ?? throw new AssertFailedException(), "TestDefinitions");
+                if (missingDefinition) { definitions.Remove(); }
+                else
+                {
+                    XElement definition = definitions.Elements("UnitTest").First();
+                    definition.SetAttributeValue("name", first);
+                    GetRequiredElement(definition, "TestMethod").Remove();
+                }
+                trx.Save(path);
+                using JsonDocument failed = ReadSelectedOutcomeProbe(path, first, second);
+                AssertGateFailure(failed, "missing");
+            }
+            File.Delete(path);
+            using JsonDocument absent = ReadSelectedOutcomeProbe(path, first, second);
+            AssertGateFailure(absent, "missing");
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    /// <summary>環境許可をFullまたはfilter付きQuickだけで受け付け、通常QuickのOR条件全体へ専用カテゴリ除外を結合します。</summary>
+    /// <remarks>typed probeで本番の入口判断・filter生成を読み込み、専用テストを起動せず許可表を検査します。</remarks>
+    [TestMethod]
+    public void EnvironmentAuthorizationAndQuickFilterRequireExplicitScope()
+    {
+        string body = """
+            $observations = @()
+            foreach ($mode in @('Quick', 'Functional', 'Full')) {
+                foreach ($filtered in @($false, $true)) {
+                    foreach ($allow in @($false, $true)) {
+                        $filter = if ($filtered) { 'FullyQualifiedName=A|FullyQualifiedName=B' } else { '' }
+                        $caught = $null
+                        try { Assert-VerificationModeAuthorization -RequestedMode $mode -RequestedFilter $filter -AllowEnvironment $allow }
+                        catch { $caught = $_.Exception.Message }
+                        $observations += [pscustomobject]@{ Mode = $mode; Filtered = $filtered; Allow = $allow; Accepted = $null -eq $caught }
+                    }
+                }
+            }
+            [pscustomobject]@{
+                Observations = $observations
+                Restricted = Get-VerificationQuickFilter -Filter 'FullyQualifiedName=A|FullyQualifiedName=B' -AllowEnvironment $false
+                Explicit = Get-VerificationQuickFilter -Filter 'FullyQualifiedName=A|FullyQualifiedName=B' -AllowEnvironment $true
+                EnvironmentBudget = (Get-VerificationPhaseDescriptor -Name 'EnvironmentIntegration').BudgetSeconds
+                OrdinaryProcessNames = @(Get-VerificationCategoryTestNames -Category 'ProcessIntegration')
+                EnvironmentNames = @(Get-VerificationCategoryTestNames -Category 'EnvironmentIntegration')
+            } | ConvertTo-Json -Depth 6 -Compress
+            """;
+        using JsonDocument result = ReadRunnerProbe(body);
+        foreach (JsonElement item in GetProperty(result.RootElement, "Observations").EnumerateArray())
+        {
+            string mode = GetRequiredString(GetProperty(item, "Mode"));
+            bool filtered = GetProperty(item, "Filtered").GetBoolean();
+            bool allow = GetProperty(item, "Allow").GetBoolean();
+            bool expected = mode switch { "Quick" => filtered || !allow, "Functional" => !filtered && !allow, "Full" => !filtered && allow, _ => false };
+            Assert.AreEqual(expected, GetProperty(item, "Accepted").GetBoolean(), item.GetRawText());
+        }
+        Assert.AreEqual("(FullyQualifiedName=A|FullyQualifiedName=B)&TestCategory!=EnvironmentIntegration", GetRequiredString(GetProperty(result.RootElement, "Restricted")));
+        Assert.AreEqual("FullyQualifiedName=A|FullyQualifiedName=B", GetRequiredString(GetProperty(result.RootElement, "Explicit")));
+        Assert.AreEqual(180, GetProperty(result.RootElement, "EnvironmentBudget").GetInt32());
+        string[] ordinary = GetProperty(result.RootElement, "OrdinaryProcessNames").EnumerateArray().Select(GetRequiredString).ToArray();
+        string[] environment = GetProperty(result.RootElement, "EnvironmentNames").EnumerateArray().Select(GetRequiredString).ToArray();
+        Assert.IsTrue(ordinary.Length > 0 && environment.Length > 0);
+        Assert.IsFalse(ordinary.Intersect(environment).Any());
+        Assert.IsTrue(environment.Any(name => name.StartsWith("BeMusicSeeker.Tests.UpdaterPackageSyncTests.", StringComparison.Ordinal)));
+    }
+
+    /// <summary>Fullの合算は専用phaseの実TRXも要求し、他phaseが全Passedでも専用phase未実施を成功にしません。</summary>
+    [TestMethod]
+    public void FullOutcomeGateRejectsMissingEnvironmentPhase()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker-FullOutcome", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            foreach (string host in new[] { "portable-settings", "bass-collectible", "shared-state-a", "shared-state-b", "parallel-a", "parallel-b" })
+            {
+                string directory = Path.Combine(root, "functional", host);
+                Directory.CreateDirectory(directory);
+                WriteSyntheticTrx(Path.Combine(directory, "results.trx"), ("Synthetic.Normal.Method", "Passed"));
+            }
+            foreach ((string segment, string name) in new[] { ("process-integration", "ProcessIntegration"), ("environment-integration", "EnvironmentIntegration"), ("release-acceptance", "ReleaseAcceptance") })
+            {
+                string directory = Path.Combine(root, segment, "test");
+                Directory.CreateDirectory(directory);
+                WriteSyntheticTrx(Path.Combine(directory, "results.trx"), ("Synthetic." + name + ".Method", "Passed"));
+            }
+            string roster = Path.Combine(root, "roster.json");
+            WriteSyntheticRoster(roster, ("required", "Synthetic.ReleaseAcceptance.Method"));
+            string body = $$"""
+                $v216ArtifactMetadataPath = {{QuotePowerShellLiteral(roster)}}
+                function Get-FunctionalTestMetadata { [pscustomobject]@{ FullyQualifiedName = 'Synthetic.Normal.Method' } }
+                function Get-VerificationCategoryTestNames { param($Category) "Synthetic.$Category.Method" }
+                $first = Assert-FullVerificationTestOutcomes -DiagnosticsRoot {{QuotePowerShellLiteral(root)}} -ReceiptPath {{QuotePowerShellLiteral(Path.Combine(root, "receipt.json"))}}
+                [IO.File]::Delete({{QuotePowerShellLiteral(Path.Combine(root, "environment-integration", "test", "results.trx"))}})
+                $caught = $null
+                try { $null = Assert-FullVerificationTestOutcomes -DiagnosticsRoot {{QuotePowerShellLiteral(root)}} -ReceiptPath {{QuotePowerShellLiteral(Path.Combine(root, "receipt.json"))}} }
+                catch { $caught = $_.Exception.Message }
+                [pscustomobject]@{ FirstPassed = $first.Passed; Rejected = $null -ne $caught; Message = [string]$caught } | ConvertTo-Json -Compress
+                """;
+            using JsonDocument result = ReadRunnerProbe(body);
+            Assert.IsTrue(GetProperty(result.RootElement, "FirstPassed").GetBoolean());
+            Assert.IsTrue(GetProperty(result.RootElement, "Rejected").GetBoolean());
+            StringAssert.Contains(GetRequiredString(GetProperty(result.RootElement, "Message")), "environment-integration");
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    private static JsonDocument ReadRunnerProbe(string body)
+    {
+        string root = FindRepositoryRoot();
+        return ReadPowerShellJson(["-Command", $$"""
+            $ErrorActionPreference = 'Stop'
+            . {{QuotePowerShellLiteral(Path.Combine(root, "scripts", "verification-process-lifecycle.ps1"))}}
+            $signal = [System.Threading.ManualResetEventSlim]::new($false)
+            try {
+                $guard = [VerificationPostStartFaultGuard]::new($signal)
+                . {{QuotePowerShellLiteral(Path.Combine(root, "scripts", "verify-refactor.ps1"))}} -InternalTestGuard $guard
+                {{body}}
+            } finally { $signal.Dispose() }
+            """]);
+    }
+
+    private static JsonDocument ReadSelectedOutcomeProbe(string path, params string[] selected)
+    {
+        string command = $$"""
+            $ErrorActionPreference = 'Stop'
+            . {{QuotePowerShellLiteral(Path.Combine(FindRepositoryRoot(), "scripts", "verification-test-outcomes.ps1"))}}
+            $caught = $null
+            try { $null = Assert-VerificationTestOutcomes -ResultPaths @({{QuotePowerShellLiteral(path)}}) -SelectedFqns @({{string.Join(", ", selected.Select(QuotePowerShellLiteral))}}) }
+            catch { $caught = $_.Exception.Message }
+            [pscustomobject]@{ Passed = $null -eq $caught; Message = [string]$caught } | ConvertTo-Json -Compress
+            """;
+        return ReadPowerShellJson(["-Command", command]);
     }
 
     private static Dictionary<string, string> ReadParallelMembership(JsonElement plan, string[] expectedNames)
@@ -137,7 +369,7 @@ public sealed class VerificationRunnerContractTests
                 $guard = [VerificationPostStartFaultGuard]::new($signal)
                 . {{QuotePowerShellLiteral(Path.Combine(repositoryRoot, "scripts", "verify-refactor.ps1"))}} -InternalTestGuard $guard
                 $originalMetadata = @(Get-VerificationTestMetadata -AssemblyPath $functionalTestAssemblyPath)
-                $ordinary = @($originalMetadata | Where-Object {
+                $ordinary = @(Get-FunctionalTestMetadata | Where-Object {
                     -not $_.DoNotParallelize -and $_.ClassName -cne 'BeMusicSeeker.Tests.PlayerPanelStateSettingsCompatibilityTests' -and
                     $_.ClassName -cne 'BeMusicSeeker.Tests.BassCollectibleLoadContextTests'
                 })
@@ -166,7 +398,10 @@ public sealed class VerificationRunnerContractTests
                     $script:probeMetadata = $originalMetadata.Clone()
                     [array]::Reverse($script:probeMetadata)
                     $plans += New-FunctionalShardPlan
-                    $script:probeMetadata = @([pscustomobject]@{ FullyQualifiedName = $addedName; ClassName = 'A.Unrelated'; DoNotParallelize = $false }) + $originalMetadata
+                    $script:probeMetadata = @([pscustomobject]@{ FullyQualifiedName = $addedName; ClassName = 'A.Unrelated'; DoNotParallelize = $false; Categories = @() }) + $originalMetadata
+                    foreach ($category in $functionalExcludedCategories) {
+                        $script:probeMetadata += [pscustomobject]@{ FullyQualifiedName = "Synthetic.Excluded.$category"; ClassName = "Synthetic.Excluded"; DoNotParallelize = $false; Categories = @($category) }
+                    }
                     $added = New-FunctionalShardPlan
                     Assert-FunctionalShardConfiguration -Plan $added
                     $plans += $added
@@ -176,7 +411,7 @@ public sealed class VerificationRunnerContractTests
                     $plans += $deleted
                 }
                 [pscustomobject]@{
-                    Metadata = @($originalMetadata | Select-Object FullyQualifiedName, ClassName, DoNotParallelize)
+                    Metadata = @($originalMetadata | Select-Object FullyQualifiedName, ClassName, DoNotParallelize, Categories)
                     AddedName = $addedName
                     RemovedName = $removedName
                     Plans = @($plans | ForEach-Object { [pscustomobject]@{
@@ -191,7 +426,7 @@ public sealed class VerificationRunnerContractTests
     /// <summary>
     /// 必須FQNの大文字小文字を含む完全一致と一件だけのPassedを要求し、欠落・重複・非成功をリリース合格にする誤りを検出する。
     /// </summary>
-    /// <remarks>合成TRX/JSON/rosterを実PowerShellの合否判定へ渡し、検証runnerが消費する形式と除外受付の接続を確認する。</remarks>
+    /// <remarks>合成TRX/rosterを実PowerShellの合否判定へ渡し、検証runnerが消費する形式と全Passed判定の接続を確認する。</remarks>
     [TestMethod]
     public void ReleaseOutcomeGateRequiresExactPassedCardinality()
     {
@@ -240,104 +475,37 @@ public sealed class VerificationRunnerContractTests
         }
     }
 
-    /// <summary>
-    /// 理由付きの明示許可対象だけをskip受付記録へ残し、未登録の除外・理由欠落・許可対象の実失敗まで受理する誤りを検出する。
-    /// </summary>
-    /// <remarks>合成TRX/JSON/rosterを実PowerShellの合否判定へ渡し、検証runnerが消費する形式と除外受付の接続を確認する。</remarks>
+    /// <summary>旧optional許可記述が入力に残っても、どの非Passed結果もリリース成功へ変換しません。</summary>
     [TestMethod]
-    public void ReleaseOutcomeGateAllowsOnlyExactOptionalSkipWithReason()
+    public void ReleaseOutcomeGateRejectsNonPassedEvenWithLegacyOptionalRoster()
     {
-        const string requiredFqn = "BeMusicSeeker.Tests.Synthetic.Required.ReleaseOutcome";
-        const string optionalFqn = "BeMusicSeeker.Tests.Synthetic.Optional.ReleaseOutcome";
-        const string optionalReason = "provisioned acceptance dependency";
-        string root = Path.Combine(
-            Path.GetTempPath(),
-            "BeMusicSeeker-VerificationOptionalOutcomeContractTests",
-            Guid.NewGuid().ToString("N"));
+        const string requiredFqn = "Synthetic.Required.Method";
+        const string legacyFqn = "Synthetic.Legacy.Method";
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker-LegacyOutcomeTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         try
         {
-            string allowedResults = Path.Combine(root, "allowed.trx");
-            WriteSyntheticTrx(allowedResults, (requiredFqn, "Passed"), (optionalFqn, "Skipped"));
-            using JsonDocument allowed = ReadOutcomeGateProbe(
-                allowedResults,
-                requiredFqn,
-                optionalFqn,
-                optionalReason);
-            AssertOptionalReceipt(allowed, optionalFqn, "Skipped", optionalReason);
-
-            string notExecutedResults = Path.Combine(root, "not-executed.trx");
-            WriteSyntheticTrx(notExecutedResults, (requiredFqn, "Passed"), (optionalFqn, "NotExecuted"));
-            using JsonDocument notExecuted = ReadOutcomeGateProbe(
-                notExecutedResults,
-                requiredFqn,
-                optionalFqn,
-                optionalReason);
-            AssertOptionalReceipt(notExecuted, optionalFqn, "NotExecuted", optionalReason);
-
-            string inconclusiveResults = Path.Combine(root, "inconclusive.json");
-            WriteSyntheticJson(inconclusiveResults, (requiredFqn, "Passed"), (optionalFqn, "Inconclusive"));
-            using JsonDocument inconclusive = ReadOutcomeGateProbe(
-                inconclusiveResults,
-                requiredFqn,
-                optionalFqn,
-                optionalReason);
-            AssertOptionalReceipt(inconclusive, optionalFqn, "Inconclusive", optionalReason);
-
-            string unknownResults = Path.Combine(root, "unknown.trx");
-            WriteSyntheticTrx(
-                unknownResults,
-                (requiredFqn, "Passed"),
-                ("BeMusicSeeker.Tests.Synthetic.Unknown.ReleaseOutcome", "Skipped"));
-            using JsonDocument unknown = ReadOutcomeGateProbe(
-                unknownResults,
-                requiredFqn,
-                optionalFqn,
-                optionalReason);
-            AssertGateFailure(unknown, "Unknown");
-
-            string unknownNotExecutedResults = Path.Combine(root, "unknown-not-executed.trx");
-            WriteSyntheticTrx(
-                unknownNotExecutedResults,
-                (requiredFqn, "Passed"),
-                ("BeMusicSeeker.Tests.Synthetic.Unknown.NotExecuted.ReleaseOutcome", "NotExecuted"));
-            using JsonDocument unknownNotExecuted = ReadOutcomeGateProbe(
-                unknownNotExecutedResults,
-                requiredFqn,
-                optionalFqn,
-                optionalReason);
-            AssertGateFailure(unknownNotExecuted);
-
-            string emptyReasonResults = Path.Combine(root, "empty-reason.trx");
-            WriteSyntheticTrx(emptyReasonResults, (requiredFqn, "Passed"), (optionalFqn, "Skipped"));
-            using JsonDocument emptyReason = ReadOutcomeGateProbe(emptyReasonResults, requiredFqn, optionalFqn, "");
-            AssertGateFailure(emptyReason, "reason");
-
-            foreach (string outcome in new[] { "Failed", "Error", "Aborted" })
+            string rosterPath = Path.Combine(root, "legacy-roster.json");
+            File.WriteAllText(rosterPath, JsonSerializer.Serialize(new
             {
-                string failedResults = Path.Combine(root, "allowlisted-" + outcome + ".trx");
-                WriteSyntheticTrx(failedResults, (requiredFqn, "Passed"), (optionalFqn, outcome));
-                using JsonDocument failed = ReadOutcomeGateProbe(
-                    failedResults,
-                    requiredFqn,
-                    optionalFqn,
-                    optionalReason);
-                AssertGateFailure(failed);
+                required = new[] { new { fullyQualifiedName = requiredFqn } },
+                optionalSkipAllowlist = new[] { new { fullyQualifiedName = legacyFqn, reason = "legacy provisioned dependency" } }
+            }));
+            foreach (string outcome in new[] { "Skipped", "Inconclusive", "NotExecuted", "Failed", "Error", "Aborted" })
+            {
+                string path = Path.Combine(root, outcome + ".trx");
+                WriteSyntheticTrx(path, (requiredFqn, "Passed"), (legacyFqn, outcome));
+                using JsonDocument result = ReadOutcomeRosterGateProbe(path, rosterPath);
+                AssertGateFailure(result, outcome);
             }
         }
-        finally
-        {
-            if (Directory.Exists(root))
-            {
-                Directory.Delete(root, recursive: true);
-            }
-        }
+        finally { Directory.Delete(root, recursive: true); }
     }
 
     /// <summary>
     /// 指定したrosterの必須ケースを実結果と照合し、既定一覧だけを使って指定入力を無視する誤りを検出する。
     /// </summary>
-    /// <remarks>合成TRX/JSON/rosterを実PowerShellの合否判定へ渡し、検証runnerが消費する形式と除外受付の接続を確認する。</remarks>
+    /// <remarks>合成TRX/rosterを実PowerShellの合否判定へ渡し、検証runnerが消費する形式と全Passed判定の接続を確認する。</remarks>
     [TestMethod]
     public void ReleaseOutcomeGateLoadsRequiredRosterFromSuppliedPath()
     {
@@ -366,34 +534,17 @@ public sealed class VerificationRunnerContractTests
         }
     }
 
-    private static JsonDocument ReadOutcomeGateProbe(
-        string resultPath,
-        string requiredFqn,
-        string? optionalFqn = null,
-        string? optionalReason = null)
+    private static JsonDocument ReadOutcomeGateProbe(string resultPath, string requiredFqn)
     {
-        string repositoryRoot = FindRepositoryRoot();
-        string helperPath = QuotePowerShellLiteral(Path.Combine(repositoryRoot, "scripts", "verification-test-outcomes.ps1"));
-        string resultLiteral = QuotePowerShellLiteral(resultPath);
-        string requiredLiteral = QuotePowerShellLiteral(requiredFqn);
-        string optionalExpression = optionalFqn is null
-            ? "@()"
-            : "@([pscustomobject]@{ fullyQualifiedName = "
-              + QuotePowerShellLiteral(optionalFqn)
-              + "; reason = "
-              + QuotePowerShellLiteral(optionalReason ?? string.Empty)
-              + " })";
-        string command = string.Join(
-            Environment.NewLine,
-            "Set-StrictMode -Version Latest",
-            "$ErrorActionPreference = 'Stop'",
-            ". " + helperPath,
-            "$caught = $null",
-            "try {",
-            "  $gate = Assert-VerificationTestOutcomes -ResultPaths @(" + resultLiteral + ") -RequiredFqns @(" + requiredLiteral + ") -OptionalSkipAllowlist " + optionalExpression,
-            "} catch { $caught = $_.Exception.Message }",
-            "[pscustomobject]@{ Passed = $null -eq $caught; Message = if ($null -eq $caught) { [string]::Empty } else { [string]$caught }; Receipt = if ($null -eq $caught) { $gate.Receipt } else { $null } } | ConvertTo-Json -Depth 8 -Compress");
-        return ReadPowerShellJson(new[] { "-Command", command });
+        string command = $$"""
+            $ErrorActionPreference = 'Stop'
+            . {{QuotePowerShellLiteral(Path.Combine(FindRepositoryRoot(), "scripts", "verification-test-outcomes.ps1"))}}
+            $caught = $null
+            try { $gate = Assert-VerificationTestOutcomes -ResultPaths @({{QuotePowerShellLiteral(resultPath)}}) -RequiredFqns @({{QuotePowerShellLiteral(requiredFqn)}}) }
+            catch { $caught = $_.Exception.Message }
+            [pscustomobject]@{ Passed = $null -eq $caught; Message = [string]$caught } | ConvertTo-Json -Compress
+            """;
+        return ReadPowerShellJson(["-Command", command]);
     }
 
     private static JsonDocument ReadOutcomeRosterGateProbe(string resultPath, string rosterPath)
@@ -419,7 +570,7 @@ public sealed class VerificationRunnerContractTests
     {
         AssertGateFailure(result);
         StringAssert.Contains(
-            GetProperty(result.RootElement, "Message").GetString()!,
+            GetRequiredString(GetProperty(result.RootElement, "Message")),
             expectedMessagePart,
             result.RootElement.GetRawText());
     }
@@ -429,52 +580,20 @@ public sealed class VerificationRunnerContractTests
         Assert.IsFalse(GetProperty(result.RootElement, "Passed").GetBoolean(), result.RootElement.GetRawText());
     }
 
-    private static void AssertOptionalReceipt(
-        JsonDocument result,
-        string expectedFullyQualifiedName,
-        string expectedOutcome,
-        string expectedReason)
-    {
-        Assert.IsTrue(GetProperty(result.RootElement, "Passed").GetBoolean(), result.RootElement.GetRawText());
-        JsonElement receipt = GetProperty(result.RootElement, "Receipt");
-        JsonElement optionalSkips = GetProperty(receipt, "optionalSkips");
-        Assert.AreEqual(1, optionalSkips.GetArrayLength(), result.RootElement.GetRawText());
-        JsonElement optional = optionalSkips[0];
-        Assert.AreEqual(expectedFullyQualifiedName, GetProperty(optional, "fullyQualifiedName").GetString());
-        Assert.AreEqual(expectedOutcome, GetProperty(optional, "outcome").GetString());
-        Assert.AreEqual(expectedReason, GetProperty(optional, "reason").GetString());
-    }
-
     private static void WriteSyntheticTrx(string path, params (string FullyQualifiedName, string Outcome)[] results)
     {
-        var builder = new StringBuilder(
-            "<?xml version=\"1.0\" encoding=\"utf-8\"?><TestRun><Results>",
-            256);
-        foreach ((string fullyQualifiedName, string outcome) in results)
-        {
-            builder.Append("<UnitTestResult fullyQualifiedName=\"")
-                .Append(System.Security.SecurityElement.Escape(fullyQualifiedName))
-                .Append("\" outcome=\"")
-                .Append(System.Security.SecurityElement.Escape(outcome))
-                .Append("\" />");
-        }
-        builder.Append("</Results></TestRun>");
-        File.WriteAllText(path, builder.ToString(), Encoding.UTF8);
-    }
-
-    private static void WriteSyntheticJson(string path, params (string FullyQualifiedName, string Outcome)[] results)
-    {
-        string json = JsonSerializer.Serialize(new
-        {
-            results = results
-                .Select(result => new
-                {
-                    fullyQualifiedName = result.FullyQualifiedName,
-                    outcome = result.Outcome
-                })
-                .ToArray()
-        });
-        File.WriteAllText(path, json, Encoding.UTF8);
+        var trx = new XDocument(new XElement("TestRun",
+            new XElement("Results", results.Select((result, index) => new XElement("UnitTestResult",
+                new XAttribute("testId", index), new XAttribute("outcome", result.Outcome)))),
+            new XElement("TestDefinitions", results.Select((result, index) =>
+            {
+                int separator = result.FullyQualifiedName.LastIndexOf('.');
+                return new XElement("UnitTest", new XAttribute("id", index),
+                    new XElement("TestMethod", new XAttribute("className", result.FullyQualifiedName[..separator]),
+                        new XAttribute("name", result.FullyQualifiedName[(separator + 1)..])));
+            })),
+            new XElement("ResultSummary", new XAttribute("outcome", "Completed"))));
+        trx.Save(path);
     }
 
     private static void WriteSyntheticRoster(string path, params (string ContractId, string FullyQualifiedName)[] requiredEntries)
@@ -490,8 +609,7 @@ public sealed class VerificationRunnerContractTests
                         contractId = entry.ContractId,
                         fullyQualifiedName = entry.FullyQualifiedName
                     })
-                    .ToArray(),
-                optionalSkipAllowlist = Array.Empty<object>()
+                    .ToArray()
             }
         });
         File.WriteAllText(path, json, Encoding.UTF8);
