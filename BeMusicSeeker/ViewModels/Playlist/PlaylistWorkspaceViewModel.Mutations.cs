@@ -111,10 +111,20 @@ public sealed partial class PlaylistWorkspaceViewModel
         await Task.Run(() => execute(capability)).ConfigureAwait(false);
     }
 
+    /// <summary>手動改名の新しい空白入力だけを空文字へ揃え、同じ確定名を保存と選択の対応付けへ渡します。</summary>
+    /// <param name="table">改名する現在の表。</param>
+    /// <param name="folder">原値を持つ通常フォルダ。保存済みの空白名も原値で識別します。</param>
+    /// <param name="newName">編集原文。nullは取消で、原文一致・正規化後一致では変更しません。</param>
+    /// <returns>保存・必要出力・表示と受付解放までのTask。変更がなければ完了済みです。</returns>
     internal Task RenameFolderAsync(BMSTable table, PlaylistFolderNode folder, string newName)
     {
-        if (folder?.IsEditable != true || !CanMutate(table, PlaylistWorkspaceMutationKind.RenameFolder)) { return Task.CompletedTask; }
-        return ExecutePlaylistMutationAsync(PlaylistWorkspaceMutationKind.RenameFolder, capability => RenameFolder(table, folder, newName, capability));
+        if (folder?.IsEditable != true || newName == null
+            || string.Equals(folder.FolderName, newName, StringComparison.Ordinal)
+            || !CanMutate(table, PlaylistWorkspaceMutationKind.RenameFolder)) { return Task.CompletedTask; }
+        // 旧空白名の無変更確定を移行へ変えないよう、原文一致を先に判定します。
+        string committedName = string.IsNullOrWhiteSpace(newName) ? string.Empty : newName;
+        if (string.Equals(folder.FolderName, committedName, StringComparison.Ordinal)) { return Task.CompletedTask; }
+        return ExecutePlaylistMutationAsync(PlaylistWorkspaceMutationKind.RenameFolder, capability => RenameFolder(table, folder, committedName, capability));
     }
 
     internal Task CreateFolderAsync(BMSTable table)

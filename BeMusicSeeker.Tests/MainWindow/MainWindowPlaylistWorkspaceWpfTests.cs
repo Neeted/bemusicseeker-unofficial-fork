@@ -1357,7 +1357,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.AreSame(normalTimer, PendingTimer());
                 Bubble(normal, initial);
                 BeginByClock(normal, normalTimer);
-                Assert.AreEqual("A", normal.CandidateText, "開始時の表示値から候補を作ります。");
+                Assert.AreEqual("A", normal.CandidateText, "開始時の保存原値から候補を作ります。");
                 EndByEscape(normal);
                 AssertNoSave();
 
@@ -1563,7 +1563,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         });
     }
 
-    /// <summary>無変更/変更Escape後も表示Bindingを保ち、実scrollで同じ部品を別folderへ再利用して、そのfolderだけを一回保存します。</summary>
+    /// <summary>無変更/変更Escape後も原値・表示Bindingを保ち、実scrollで再利用した見出しから名前を外して、そのfolderだけを名前なしへ一回保存します。</summary>
     /// <remarks>実compiled入力とMainWindow/DBへの接続を担当します。保存失敗・拒否・選択復元の条件差は既存owner/構造テストに分担し、OS入力・物理focus成功は要求しません。</remarks>
     [DataTestMethod]
     [DataRow(false)]
@@ -1634,6 +1634,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             {
                 fixture.Table.is_external_sync = false;
                 string[] names = Enumerable.Range(0, 240).Select(index => $"Folder {index:D3}").ToArray();
+                names[0] = "   ";
                 fixture.Table.entries = names.Select((name, index) => new BMSTableEntry
                 {
                     md5 = (index + 1).ToString("x32", CultureInfo.InvariantCulture),
@@ -1721,7 +1722,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 controlA.IsInEditMode = true;
                 tree.UpdateLayout();
                 TextBox editorC = Editor(controlA);
-                string savedName = folderC.FolderName + " renamed";
+                string savedName = string.Empty;
                 Type(editorC, savedName);
                 tree.Dispatcher.Invoke(DispatcherPriority.Loaded, new Action(tree.UpdateLayout));
                 Assert.AreEqual(savedName, controlA.CandidateText);
@@ -1763,8 +1764,16 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 EditableTextBlock currentC = FindDescendants<EditableTextBlock>(tree).FirstOrDefault(control =>
                     control.DataContext is PlaylistFolderNode folder && folder.FolderName == savedName)
                     ?? throw new AssertFailedException("改名後の現treeにCの表示部品がありません。");
-                DisplayBinding(currentC, (PlaylistFolderNode)currentC.DataContext, savedName);
-                Assert.AreEqual(savedName, FindDescendants<TextBlock>(currentC).Single().Text);
+                string unnamedLabel = "(" + Resources.No_folder_name + ")";
+                DisplayBinding(currentC, (PlaylistFolderNode)currentC.DataContext, unnamedLabel);
+                Assert.AreEqual(unnamedLabel, FindDescendants<TextBlock>(currentC).Single().Text);
+                Assert.AreEqual(string.Empty, workspace.CapturePlaylistDetailSelection().FolderName);
+                currentC.IsInEditMode = true;
+                tree.UpdateLayout();
+                TextBox unnamedEditor = Editor(currentC);
+                Assert.AreEqual(string.Empty, unnamedEditor.Text, "表示ラベルではなく保存原値で再編集します。");
+                SendKey(unnamedEditor, Key.Escape);
+                Assert.AreEqual(1, commits.Count);
                 // 保存時のItemsSource置換では旧部品が退役してもよく、以後のpool残留は要求しません。
 
                 void AssertFoldersUnchanged()
@@ -1779,14 +1788,21 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 }
                 static void DisplayBinding(EditableTextBlock control, PlaylistFolderNode source, string expected)
                 {
-                    BindingExpression binding = BindingOperations.GetBindingExpression(control, EditableTextBlock.TextProperty)
+                    BindingExpression binding = BindingOperations.GetBindingExpression(control, EditableTextBlock.DisplayTextProperty)
                         ?? throw new AssertFailedException("外側の表示Bindingが失われています。");
                     Assert.AreEqual(BindingStatus.Active, binding.Status);
                     Assert.AreSame(source, binding.DataItem);
                     Assert.AreEqual(nameof(PlaylistFolderNode.DisplayName), binding.ParentBinding.Path.Path);
                     Assert.AreEqual(BindingMode.OneWay, binding.ParentBinding.Mode);
                     Assert.AreEqual(expected, source.DisplayName);
-                    Assert.AreEqual(expected, control.Text);
+                    Assert.AreEqual(expected, control.DisplayText);
+                    BindingExpression raw = BindingOperations.GetBindingExpression(control, EditableTextBlock.TextProperty)
+                        ?? throw new AssertFailedException("保存原値のBindingがありません。");
+                    Assert.AreEqual(BindingStatus.Active, raw.Status);
+                    Assert.AreSame(source, raw.DataItem);
+                    Assert.AreEqual(nameof(PlaylistFolderNode.FolderName), raw.ParentBinding.Path.Path);
+                    Assert.AreEqual(BindingMode.OneWay, raw.ParentBinding.Mode);
+                    Assert.AreEqual(source.FolderName, control.Text);
                 }
                 static TextBox Editor(EditableTextBlock control)
                 {
@@ -1839,17 +1855,18 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         });
     }
 
-    /// <summary>compiled編集部品で候補の寿命、不変通知、通知中の次編集、表示sourceの追従と編集不可時の開始要求を確認します。</summary>
+    /// <summary>compiled編集部品で表示と編集原値を分け、候補寿命、不変通知、再入、取消と空文字の確定・無変更を確認します。旧空白原値も表示ラベルへ置き換えません。</summary>
     /// <remarks>手動context交換は候補破棄だけの検査です。実TreeView再利用と保存対象は前の実MainWindowケースに分担します。</remarks>
     [TestMethod]
     public void EditableTreeHeader_CompiledEditorKeepsCandidateLifetimeAndImmutableCompletion()
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
-            var sourceA = new TextBlock { Text = "Source A" };
-            var sourceB = new TextBlock { Text = "Source B" };
+            var sourceA = new TextBlock { Text = "Source A", Tag = "Display A" };
+            var sourceB = new TextBlock { Text = "Source B", Tag = "Display B" };
             var control = new EditableTextBlock { Width = 300, Height = 40, DataContext = sourceA, IsEditable = false };
             control.SetBinding(EditableTextBlock.TextProperty, new Binding(nameof(TextBlock.Text)) { Mode = BindingMode.OneWay });
+            control.SetBinding(EditableTextBlock.DisplayTextProperty, new Binding(nameof(TextBlock.Tag)) { Mode = BindingMode.OneWay });
             var window = new Window { Width = 340, Height = 120, Content = control };
             var notifications = new List<EditableTextBlockEditModeChangedEventArgs>();
             RoutedEventHandler record = (_, args) => notifications.Add((EditableTextBlockEditModeChangedEventArgs)args);
@@ -1872,21 +1889,22 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 window.UpdateLayout();
                 Assert.IsFalse(control.IsInEditMode);
                 Assert.IsTrue(notifications.All(args => args.CommittedText == null));
-                AssertDisplay("Source B");
+                AssertDisplay("Display B");
                 TextBox editorB = Begin("Source B");
                 Type(editorB, string.Empty);
                 SendKey(editorB, Key.Return);
                 editorB.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent));
                 EditableTextBlockEditModeChangedEventArgs empty = notifications.Single(args => args.CommittedText != null);
                 Assert.AreEqual(string.Empty, empty.CommittedText, "空文字は取消のnullと区別します。");
-                AssertDisplay("Source B");
+                AssertDisplay("Display B");
                 sourceB.Text = "Published B";
-                AssertDisplay("Published B");
+                sourceB.Tag = "Published label B";
+                AssertDisplay("Published label B");
                 TextBox cancelEditor = Begin("Published B");
                 Type(cancelEditor, "Discard B");
                 SendKey(cancelEditor, Key.Escape);
                 Assert.AreEqual(1, notifications.Count(args => args.CommittedText != null));
-                AssertDisplay("Published B");
+                AssertDisplay("Published label B");
 
                 TextBox unloading = Begin("Published B");
                 Type(unloading, "Discard unloaded");
@@ -1919,7 +1937,18 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.AreEqual("First completion", completed.CommittedText);
                 Assert.AreEqual(2, notifications.Count(args => args.CommittedText != null));
                 sourceB.Text = "Published after completion";
-                AssertDisplay("Published after completion");
+                sourceB.Tag = "Latest display";
+                AssertDisplay("Latest display");
+                sourceB.Text = string.Empty;
+                sourceB.Tag = "(" + Resources.No_folder_name + ")";
+                AssertDisplay("(" + Resources.No_folder_name + ")");
+                SendKey(Begin(string.Empty), Key.Return);
+                Assert.AreEqual(2, notifications.Count(args => args.CommittedText != null), "空欄の無変更ではラベルを確定しません。");
+                sourceB.Text = "   ";
+                sourceB.Tag = "   ";
+                AssertDisplay("   ");
+                SendKey(Begin("   "), Key.Return);
+                Assert.AreEqual(2, notifications.Count(args => args.CommittedText != null), "旧空白名の原文一致も無変更です。");
 
                 TextBox Begin(string expected)
                 {
@@ -1937,13 +1966,14 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 void AssertDisplay(string expected)
                 {
                     window.UpdateLayout();
-                    BindingExpression binding = BindingOperations.GetBindingExpression(control, EditableTextBlock.TextProperty)
+                    BindingExpression binding = BindingOperations.GetBindingExpression(control, EditableTextBlock.DisplayTextProperty)
                         ?? throw new AssertFailedException("外側の表示Bindingがありません。");
                     Assert.AreEqual(BindingStatus.Active, binding.Status);
                     Assert.AreSame(sourceB, binding.DataItem);
-                    Assert.AreEqual(nameof(TextBlock.Text), binding.ParentBinding.Path.Path);
+                    Assert.AreEqual(nameof(TextBlock.Tag), binding.ParentBinding.Path.Path);
                     Assert.AreEqual(BindingMode.OneWay, binding.ParentBinding.Mode);
-                    Assert.AreEqual(expected, control.Text);
+                    Assert.AreEqual(expected, control.DisplayText);
+                    Assert.AreEqual(sourceB.Text, control.Text);
                     Assert.AreEqual(expected, FindDescendants<TextBlock>(control).Single().Text);
                 }
                 static void Type(TextBox editor, string text)
@@ -2652,7 +2682,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         });
     }
 
-    /// <summary>実property画面のUp・Down・自然順を独立順と比較し、DB由来の自然順からの新編集、LR2の完全一致タイトルとfolder行まで接続します。保存前の正本と出力bytes、別表の出力・DBを保ちます。</summary>
+    /// <summary>実プロパティの上下移動・自然順を保存し、空文字だけの名前なし表示と旧空白名の原値を確認します。既存のLR2タイトル規則、保存前の正本と出力bytes、別表を保ちます。</summary>
     /// <remarks>実controlの選択とイベント接続、所有モーダル・保存Task・native閉鎖をこの代表で確認し、LR2全出力種別の条件はcustom-folder系列へ分担します。</remarks>
     [TestMethod]
     public void PlaylistPropertyFolderControls_SaveDraftOrderToDatabaseAndRealLr2Output()
@@ -2691,12 +2721,12 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 table.name = "Order A";
                 table.Output_dir = "OrderA";
                 string symbol = table.symbol;
-                table.Folder_order = ["F10", "F2", "F1"];
+                table.Folder_order = ["F10", "F2", "F1", "", "   "];
                 table.is_external_sync = false;
                 table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
                     & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
                     & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder;
-                table.entries = new[] { "F10", "F2", "F1" }.Select((folder, index) => new BMSTableEntry
+                table.entries = new[] { "F10", "F2", "F1", "", "   " }.Select((folder, index) => new BMSTableEntry
                 {
                     playlist_id = table.playlist_id,
                     md5 = new string((char)('a' + index), 32),
@@ -2723,23 +2753,32 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 summary.ItemsSource = new List<PlaylistSummaryRow> { row };
                 summary.SelectRowsByPredicate(_ => true);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                string[] saved = ["F10", "F2", "F1"];
+                string[] saved = ["F10", "F2", "F1", "", "   "];
                 string[] savedEffective = saved;
-                BMSTable? naturalRead = null;
-                foreach ((string action, string selected, string[] expected) in new[]
+                var expectedTitles = new Dictionary<string, string>(StringComparer.Ordinal)
                 {
-                    ("Up", "F1", new[] { "F10", "F1", "F2" }),
-                    ("Down", "F10", new[] { "F1", "F10", "F2" }),
-                    ("Natural", string.Empty, new[] { "F1", "F2", "F10" })
+                    ["F10"] = "F10",
+                    ["F2"] = "F2",
+                    ["F1"] = "F1",
+                    [""] = "Order A",
+                    ["   "] = "Order A"
+                };
+                BMSTable? naturalRead = null;
+                foreach ((string action, string selected, string[] planned) in new[]
+                {
+                    ("Up", "F1", new[] { "F10", "F1", "F2", "", "   " }),
+                    ("Down", "F10", new[] { "F1", "F10", "F2", "", "   " }),
+                    ("Natural", string.Empty, new[] { "", "   ", "F1", "F2", "F10" })
                 })
                 {
+                    string[] expected = planned;
                     string outputRoot = Path.Combine(fixture.Root, "custom", "OrderA");
                     Dictionary<string, byte[]> savedOutputBytes = Directory.GetFiles(outputRoot, "*.lr2folder", SearchOption.AllDirectories)
                         .ToDictionary(path => path, File.ReadAllBytes);
                     for (int index = 0; index < savedEffective.Length; index++)
                     {
                         string path = Path.Combine(outputRoot, (index + 1).ToString("D4", CultureInfo.InvariantCulture) + ".lr2folder");
-                        Assert.AreEqual("#TITLE " + savedEffective[index], File.ReadAllLines(path, Encoding.GetEncoding("shift_jis"))
+                        Assert.AreEqual("#TITLE " + expectedTitles[savedEffective[index]], File.ReadAllLines(path, Encoding.GetEncoding("shift_jis"))
                             .Single(line => line.StartsWith("#TITLE ", StringComparison.Ordinal)));
                     }
                     OpenPropertyDialog(fixture.Window, summary, row, "property-folder-order-" + action, (dialog, _) =>
@@ -2750,9 +2789,21 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         ObservePropertyNavigation(navigation, content).ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
                         TestUiDispatcherHost.ProcessQueuedPresentation();
                         var list = (ListBox)dialog.FindName("foldersListBox");
+                        list.UpdateLayout();
+                        foreach ((string key, string label) in new[] { ("", Resources.No_folder_name), ("   ", "   ") })
+                        {
+                            ListBoxItem item = list.ItemContainerGenerator.ContainerFromItem(key) as ListBoxItem
+                                ?? throw new AssertFailedException("名前なし・旧空白名の順序項目がありません。");
+                            Assert.AreEqual(label, FindDescendants<TextBlock>(item).Single().Text);
+                        }
                         if (action == "Natural")
                         {
                             ((CheckBox)dialog.FindName("checkBoxFolderNatueralSort")).IsChecked = true;
+                            CollectionAssert.AreEquivalent(planned, draft.folder_order.ToArray(), "自然順でも保存キーを統合しません。");
+                            CollectionAssert.AreEqual(new[] { "F1", "F2", "F10" }, draft.folder_order
+                                .Where(name => name is "F1" or "F2" or "F10").ToArray());
+                            // 空文字・旧空白名の一般ソート位置は契約化せず、選んだ順序の保存接続を観測します。
+                            expected = draft.folder_order.ToArray();
                         }
                         else
                         {
@@ -2796,9 +2847,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         string path = Path.Combine(fixture.Root, "custom", "OrderA", (index + 1).ToString("D4", CultureInfo.InvariantCulture) + ".lr2folder");
                         string titleLine = File.ReadAllLines(path, Encoding.GetEncoding("shift_jis"))
                             .Single(line => line.StartsWith("#TITLE ", StringComparison.Ordinal));
-                        Assert.AreEqual("#TITLE " + expected[index], titleLine);
+                        Assert.AreEqual("#TITLE " + expectedTitles[expected[index]], titleLine);
                         LR2SongDB.folder folder = verify.Table<LR2SongDB.folder>().Single(item => item.path == path);
-                        Assert.AreEqual(expected[index], folder.title);
+                        Assert.AreEqual(expectedTitles[expected[index]], folder.title);
                         Assert.AreEqual("Order A", folder.category);
                     }
                     BMSTable otherRead = verify.Table<BMSTable>().Single(item => item.playlist_id == 2);
@@ -2824,7 +2875,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     ObservePropertyNavigation(navigation, content).ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.AreEqual(true, ((CheckBox)dialog.FindName("checkBoxFolderNatueralSort")).IsChecked);
-                    CollectionAssert.AreEqual(new[] { "F1", "F2", "F10" }, ((PlaylistPropertyDialogViewModel)dialog.DataContext).folder_order.ToArray());
+                    CollectionAssert.AreEqual(savedEffective, ((PlaylistPropertyDialogViewModel)dialog.DataContext).folder_order.ToArray());
                     Assert.IsFalse(FindAutomationButton(dialog, "PlaylistPropertyFolderMoveUp").IsEnabled);
                     Assert.IsFalse(FindAutomationButton(dialog, "PlaylistPropertyFolderMoveDown").IsEnabled);
                     RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyCancel"));

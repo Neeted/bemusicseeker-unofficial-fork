@@ -1035,14 +1035,14 @@
                    <DataTemplate x:Key="templateTreeViewItemHeaderPlaylistTableFolderNormal">
                     <StackPanel Orientation="Horizontal">
                       <v:AppFontIcon Style="{StaticResource styleTreeViewItemIconFolder}" />
-                      <v:EditableTextBlock x:Name="etbPlaylistTableFolder" PreviewMouseDown="playlistTableFolderClicked" EditModeChanged="playlistTableFolderNameChanged" Text="{Binding DisplayName, Mode=OneWay}" IsEditable="{Binding DataContext.is_external_sync, RelativeSource={RelativeSource FindAncestor, AncestorLevel=2, AncestorType={x:Type TreeViewItem}}, Converter={StaticResource notOperatorBoolConverter}}" />
+                      <v:EditableTextBlock x:Name="etbPlaylistTableFolder" PreviewMouseDown="playlistTableFolderClicked" EditModeChanged="playlistTableFolderNameChanged" Text="{Binding FolderName, Mode=OneWay}" DisplayText="{Binding DisplayName, Mode=OneWay}" IsEditable="{Binding DataContext.is_external_sync, RelativeSource={RelativeSource FindAncestor, AncestorLevel=2, AncestorType={x:Type TreeViewItem}}, Converter={StaticResource notOperatorBoolConverter}}" />
                     </StackPanel>
                   </DataTemplate>
                   <DataTemplate x:Key="templateTreeViewItemHeaderPlaylistTableFolderSP">
                     <ContentControl>
                       <StackPanel Orientation="Horizontal">
                         <v:AppFontIcon Style="{StaticResource styleTreeViewItemIconNotOwnedFolder}" />
-                        <v:EditableTextBlock x:Name="etbPlaylistTableFolder" IsEditable="False" Text="{Binding DisplayName, Mode=OneWay}" />
+                        <v:EditableTextBlock x:Name="etbPlaylistTableFolder" IsEditable="False" DisplayText="{Binding DisplayName, Mode=OneWay}" />
                       </StackPanel>
                     </ContentControl>
                   </DataTemplate>

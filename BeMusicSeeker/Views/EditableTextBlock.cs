@@ -7,13 +7,16 @@ using System.Windows.Markup;
 
 namespace BeMusicSeeker.Views;
 
-/// <summary>表示元のBindingを保持したまま、編集期間だけ独立した候補を持つツリー見出しです。</summary>
+/// <summary>表示値と保存原値のBindingを保持したまま、編集期間だけ原値から独立した候補を持つツリー見出しです。</summary>
 public partial class EditableTextBlock : UserControl, IComponentConnector, IStyleConnector
 {
     private string? editStartText;
 
-    /// <summary>表示元が供給する文字列です。編集・取消からは書き込みません。</summary>
+    /// <summary>編集の開始値と無変更比較に使う保存原値です。編集・取消からは書き込みません。</summary>
     public static readonly DependencyProperty TextProperty = DependencyProperty.Register("Text", typeof(string), typeof(EditableTextBlock), new PropertyMetadata(string.Empty));
+
+    /// <summary>通常表示に使う文字列です。編集候補や保存値へ逆変換しません。</summary>
+    public static readonly DependencyProperty DisplayTextProperty = DependencyProperty.Register("DisplayText", typeof(string), typeof(EditableTextBlock), new PropertyMetadata(string.Empty));
 
     /// <summary>内部TextBoxが編集する短命な候補です。</summary>
     public static readonly DependencyProperty CandidateTextProperty = DependencyProperty.Register("CandidateText", typeof(string), typeof(EditableTextBlock), new PropertyMetadata(string.Empty));
@@ -24,16 +27,21 @@ public partial class EditableTextBlock : UserControl, IComponentConnector, IStyl
     /// <summary>実際の編集開始・終端を通知し、編集不可の間はtrueを受け付けない状態です。</summary>
     public static readonly DependencyProperty IsInEditModeProperty = DependencyProperty.Register("IsInEditMode", typeof(bool), typeof(EditableTextBlock), new FrameworkPropertyMetadata(false, OnIsInEditModeChanged, CoerceIsInEditMode));
 
-    public static readonly DependencyProperty TextFormatProperty = DependencyProperty.Register("TextFormat", typeof(string), typeof(EditableTextBlock), new PropertyMetadata("{0}"));
-
     /// <summary>開始と終端を通知します。変更を確定した終端だけ確定候補を持ちます。</summary>
     public static readonly RoutedEvent EditModeChangedEvent = EventManager.RegisterRoutedEvent("EditModeChanged", RoutingStrategy.Bubble, typeof(RoutedEventHandler), typeof(EditableTextBlock));
 
-    /// <summary>表示元の文字列を取得・設定します。編集候補とは独立しています。</summary>
+    /// <summary>保存原値を取得・設定します。編集開始時にだけ候補へコピーします。</summary>
     public string Text
     {
         get => (string)GetValue(TextProperty);
         set => SetValue(TextProperty, value);
+    }
+
+    /// <summary>通常表示の文字列を取得・設定します。保存原値と編集候補から独立しています。</summary>
+    public string DisplayText
+    {
+        get => (string)GetValue(DisplayTextProperty);
+        set => SetValue(DisplayTextProperty, value);
     }
 
     /// <summary>内部editorの候補を取得・設定します。編集の終端で破棄されます。</summary>
@@ -56,15 +64,6 @@ public partial class EditableTextBlock : UserControl, IComponentConnector, IStyl
         get => (bool)GetValue(IsInEditModeProperty);
         set => SetValue(IsInEditModeProperty, value);
     }
-
-    /// <summary>整形表示の書式を取得・設定します。空文字は既定書式へ戻します。</summary>
-    public string TextFormat
-    {
-        get => (string)GetValue(TextFormatProperty);
-        set => SetValue(TextFormatProperty, value == "" ? "{0}" : value);
-    }
-
-    public string FormattedText => string.Format(TextFormat, Text);
 
     /// <summary>開始・取消・無変更はnull、変更確定は空文字を含む確定値を通知します。</summary>
     public event RoutedEventHandler EditModeChanged

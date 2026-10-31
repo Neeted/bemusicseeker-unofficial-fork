@@ -56,7 +56,7 @@ public sealed class PlaylistFolderNode
 
     /// <summary>
     /// ツリー上に表示する文字列を取得します。
-    /// 通常フォルダではフォルダ名を返し、空フォルダ名は <c>(フォルダ名なし)</c> を返します。
+    /// 通常フォルダでは原値を返し、空文字だけを <c>(フォルダ名なし)</c> へ変換します。保存済みの非空の空白名はそのまま表示します。
     /// 特殊ノードでは種別に対応する表示名を返します。
     /// </summary>
     public string DisplayName
@@ -67,7 +67,7 @@ public sealed class PlaylistFolderNode
             {
                 return SpecialKind.ToDisplayName();
             }
-            if (!string.IsNullOrWhiteSpace(FolderName))
+            if (FolderName.Length != 0)
             {
                 return FolderName;
             }

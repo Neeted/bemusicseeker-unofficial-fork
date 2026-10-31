@@ -1888,7 +1888,7 @@ public sealed class MainWindowChartPresentationWpfTests
                 BorderThickness = new Thickness(1),
                 Style = (Style)host.FindResource("App.Canonical.TextBoxStyle")
             };
-            var editable = new EditableTextBlock { Text = "editable", Width = 220, Height = 30 };
+            var editable = new EditableTextBlock { Text = "editable", DisplayText = "editable", Width = 220, Height = 30 };
             host.Children.Add(simple);
             host.Children.Add(canonical);
             host.Children.Add(editable);

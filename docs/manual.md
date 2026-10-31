@@ -779,7 +779,11 @@ Right-click the playlist itself to use these operations.
 
 Right-click the playlist tree root and select `Create new`. With external sync OFF, drag chart rows onto the playlist itself or a folder to add them. Play-log rows corresponding to owned charts can also be added.
 
-Edit levels, folders, URL1 / URL2, comments, and similar fields in the detail list. Drag charts to another folder to move them within the same playlist. Adding to the root of a folder-based playlist selects a suitable folder and creates one if necessary. `Remove entry` removes a row from the playlist.
+Edit levels, URL1 / URL2, comments, and similar fields in the detail list. Drag charts onto another folder in the tree to change their membership within the same playlist. `Remove entry` removes a row from the playlist.
+
+Edit folder names in the tree. Confirming a blank name or a name containing only whitespace combines its charts into the single `No folder name` group. This group disappears from the tree when its last chart is moved or removed. Previously saved whitespace-only names remain unchanged.
+
+Adding charts to the root of a folder-based playlist selects a suitable existing named folder and creates one if necessary. To add charts to `No folder name`, drop them onto that folder explicitly.
 
 ### Downloading Main Packages and Additional Charts
 

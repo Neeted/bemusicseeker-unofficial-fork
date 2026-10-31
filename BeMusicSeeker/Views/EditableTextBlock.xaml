@@ -15,7 +15,7 @@
         </Grid>
       </DataTemplate>
       <DataTemplate x:Key="DisplayModeTemplate">
-        <TextBlock Margin="1,0" Padding="1,0,5,0" Foreground="{Binding Foreground, ElementName=mainControl}" Text="{Binding ElementName=mainControl, Path=Text}" />
+        <TextBlock Margin="1,0" Padding="1,0,5,0" Foreground="{Binding Foreground, ElementName=mainControl}" Text="{Binding ElementName=mainControl, Path=DisplayText}" />
       </DataTemplate>
       <Style x:Key="{x:Type v:EditableTextBlock}" TargetType="{x:Type v:EditableTextBlock}">
         <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
