@@ -519,6 +519,133 @@ public sealed class RegularChartNavigationTests
         });
     }
 
+    /// <summary>履歴keyword callbackの遅着を新しい通常ツリー／完成済み重複一覧の構築中に配送し、受付の有効性だけでなく実表示Taskの終端と非空の対象行を維持します。要求置換・古い結果の拒否自体は履歴owner系列へ分担します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    [DoNotParallelize]
+    public void PlayHistoryRefresh_StaleKeywordRequestKeepsLaterRowsBuild(bool duplicate)
+    {
+        using var release = new ManualResetEventSlim(false);
+        var reached = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var scheduler = new ProjectionTaskCollector(new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
+        RunColdDuplicateFixture(fixture =>
+        {
+            MainWindowViewModel vm = fixture.ViewModel;
+            if (duplicate)
+            {
+                fixture.AwaitOwned(fixture.NavigateDuplicate(MainViewUpdateMode.DuplicateFilterSelected, null), "cache duplicate navigation");
+                fixture.CompleteDuplicate();
+            }
+            AwaitHistoryRows(vm, () => vm.PlayHistory.ActivatePeriod(PlayHistoryPeriodRequest.All(), string.Empty));
+            Assert.IsTrue(vm.PlayHistory.TryBeginKeywordRefresh(string.Empty, true, out PlayHistoryViewRequest stale));
+            int claimed = 0;
+            vm.MainChartList.RowProjection.NormalInputWorkObserver = (kind, _) =>
+            {
+                if (kind == "order_buffer" && Interlocked.Exchange(ref claimed, 1) == 0)
+                {
+                    bool onUi = TestUiDispatcherHost.Dispatcher.CheckAccess();
+                    reached.TrySetResult(onUi);
+                    if (onUi) { release.Set(); } else { release.Wait(); }
+                }
+            };
+            Task? rows = null;
+            Task? navigation = null;
+            var treePresentation = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+            EventHandler<RegularChartTreeNavigationPresentationRequestedEventArgs> tree = (_, request) => treePresentation.TrySetResult(request.Presentation);
+            vm.RegularChartList.TreeNavigationPresentationRequested += tree;
+            try
+            {
+                Task<Task> presentation = duplicate ? scheduler.ObserveNext() : treePresentation.Task;
+                if (duplicate) { navigation = fixture.NavigateDuplicate(MainViewUpdateMode.DuplicateFilterSelected, null); }
+                else { Assert.IsTrue(vm.RegularChartList.NavigateTree(RegularChartFolderFilterKind.Directory, fixture.Target.Directory)); }
+                fixture.AwaitOwned(presentation, "later actual presentation started");
+                rows = presentation.GetAwaiter().GetResult();
+                fixture.AwaitOwned(TestUiDispatcherHost.AwaitNotificationAsync(reached.Task, rows, "later rows build gate"), "later rows worker reached");
+                Assert.IsFalse(reached.Task.GetAwaiter().GetResult(), "構築の保留はUI外で行います。");
+                RegularChartNavigationRequest current = vm.RegularChartList.CaptureNavigation();
+                Assert.IsTrue(current.IsCurrent);
+                Assert.IsFalse(vm.PlayHistory.IsCurrentRequest(stale.RequestId));
+                Assert.IsFalse(rows.IsCompleted);
+                fixture.AwaitOwned(RefreshHistoryKeyword(vm, stale), "stale history callback terminal");
+                Assert.AreSame(current, vm.RegularChartList.CaptureNavigation());
+                Assert.IsTrue(current.IsCurrent);
+                release.Set();
+                fixture.AwaitOwned(rows, "later actual rows terminal");
+                CollectionAssert.AreEquivalent((duplicate ? fixture.Duplicates : [fixture.Target]).Select(chart => chart.Path).ToArray(),
+                    vm.MainChartList.Rows.Cast<LibraryChartRow>().Select(row => row.path).ToArray());
+                Assert.AreEqual(duplicate ? MainViewUpdateMode.DuplicateFilterSelected : MainViewUpdateMode.FolderFilterSelected,
+                    vm.MainChartList.LastAppliedColumnMode);
+            }
+            finally
+            {
+                release.Set();
+                vm.PlayHistory.CompleteKeywordRefresh(stale.KeywordFilterRevision);
+                try { fixture.AwaitOwned(Task.WhenAll(rows ?? Task.CompletedTask, navigation ?? Task.CompletedTask), "later rows build cleanup"); }
+                finally
+                {
+                    vm.RegularChartList.TreeNavigationPresentationRequested -= tree;
+                    vm.MainChartList.RowProjection.NormalInputWorkObserver = null;
+                }
+            }
+        }, scheduler: scheduler);
+    }
+
+    /// <summary>現行keyword要求は同じcompiled refresh入口で実履歴ownerへ届き、所有rawの二行から検索に合う一行を採用します。全履歴refreshを早期拒否する誤りを区別します。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void PlayHistoryRefresh_CurrentKeywordRequestAppliesMatchingHistoryRows()
+    {
+        RunColdDuplicateFixture(fixture =>
+        {
+            MainWindowViewModel vm = fixture.ViewModel;
+            Lr2PlayHistoryRecord target = new() { history_id = 1, hash = fixture.Target.Md5, played_at = 1000, finalized = 1 };
+            Lr2PlayHistoryRecord other = new() { history_id = 2, hash = fixture.Duplicates[0].Md5, played_at = 1001, finalized = 1 };
+            var raw = new Lr2PlayHistoryReadResult(PlayHistorySourceProfile.Lr2("owned-score.db"), [target, other], [], Lr2PlayHistorySchemaStatus.Installed);
+            var snapshot = new BMSLibrary.ScoreSnapshot
+            { PlayHistorySnapshot = new ScorePlayHistorySnapshot(ActiveScoreSource.Lr2, "owned-score.db", raw), SourceGeneration = 1 };
+            vm.PlayHistory.ConfigureViewExecution(new PlayHistoryViewExecutionDependencies(() => fixture.Library, () => fixture.Playlist,
+                () => PlayHistoryReadSourceContext.FromSnapshot(snapshot), action => { TestUiDispatcherHost.Dispatcher.Invoke(action); return true; },
+                (_, _) => { }, () => MainViewUpdateMode.PlayHistorySelected, vm.MainChartList, vm.PlaylistWorkspace));
+            AwaitHistoryRows(vm, () => vm.PlayHistory.ActivatePeriod(PlayHistoryPeriodRequest.All(), string.Empty));
+            CollectionAssert.AreEquivalent(new long[] { 1, 2 }, vm.MainChartList.Rows.Cast<PlayHistoryRow>().Select(row => row.HistoryId).ToArray());
+            const string keyword = "title:target";
+            var callback = new TaskCompletionSource<PlayHistoryViewRequest>(TaskCreationOptions.RunContinuationsAsynchronously);
+            vm.PlayHistory.ConfigureViewRefreshScheduler(() => false, request => callback.TrySetResult(request));
+            vm.ChartFilters.KeywordFilter = keyword;
+            fixture.AwaitOwned(callback.Task, "current keyword callback captured");
+            fixture.AwaitOwned(vm.PlayHistory.WaitForRefreshQueuesIdleAsync(), "current keyword queue terminal");
+            PlayHistoryViewRequest current = callback.Task.GetAwaiter().GetResult();
+            fixture.AwaitOwned(RefreshHistoryKeyword(vm, current), "current history callback terminal");
+            Assert.IsTrue(vm.PlayHistory.IsCurrentRequest(current.RequestId));
+            Assert.AreEqual(MainViewUpdateMode.PlayHistorySelected, vm.MainChartList.LastAppliedColumnMode);
+            PlayHistoryRow row = vm.MainChartList.Rows.Cast<PlayHistoryRow>().Single();
+            Assert.AreSame(target, row.Raw);
+            Assert.IsNotNull(row.ResolvedChart);
+            Assert.AreEqual(fixture.Target.Path, row.ResolvedChart.Path);
+        });
+    }
+
+    /// <summary>期間選択で実履歴行が公開されるまで待ち、通知購読を回収します。</summary>
+    private static void AwaitHistoryRows(MainWindowViewModel vm, Action activate)
+    {
+        var rows = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        PropertyChangedEventHandler changed = (_, args) => { if (args.PropertyName == nameof(MainChartListViewModel.Rows)) { rows.TrySetResult(); } };
+        vm.MainChartList.PropertyChanged += changed;
+        try { activate(); TestUiDispatcherHost.AwaitTaskOnDispatcher(rows.Task, "history rows published"); }
+        finally { vm.MainChartList.PropertyChanged -= changed; }
+    }
+
+    /// <summary>本番keyword callbackのcompiled入口一箇所に限り、要求の遅延配送順を決定的に制御します。</summary>
+    private static Task RefreshHistoryKeyword(MainWindowViewModel vm, PlayHistoryViewRequest request)
+    {
+        // この機能テストが管理する反射例外。責務上の安定入口へ統合できた時点で退役し、他のprivate操作へ拡張しない。
+        MethodInfo method = typeof(MainWindowViewModel).GetMethod("RefreshChartRowsView", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new AssertFailedException("履歴refresh入口がありません。");
+        return (Task)(method.Invoke(vm, [MainViewUpdateMode.KeywordFilterUpdated, request, null, null])
+            ?? throw new AssertFailedException("履歴refreshのTaskがありません。"));
+    }
+
     /// <summary>初回解析のロック解放後の通知を保留し、通常、保守、導入、履歴、プレイリストへの後発移動を行います。解析完了後も後発画面の対象行、表示モード、サマリーを保ち、明示した重複画面への再訪では最新結果を表示することを確認します。</summary>
     /// <remarks>履歴は確定batchで要求が置き換わるため、要求参照ではなく、非既定の期間境界・検索・表示対象と現在要求の有効性を確認します。このconstructor-only fixtureは成績取得組を公開しないため、履歴は規定の取得失敗表示を維持します。正常0件の期間集計を作らず、0件や最終モードだけでも意味上の選択維持を判定しません。</remarks>
     [DataTestMethod]
@@ -2090,7 +2217,7 @@ internal sealed class DuplicateNavigationTestFixture : IDisposable
         Library.BmsCharts = AllCharts;
         new BmsLibraryDbGateway(songDb).UpsertSongs(AllCharts);
         PlaylistPersistenceRepository.EnsureSchema(songDb);
-        TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDb, settings, library: Library);
+        TestBmsPlaylist playlist = Playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDb, settings, library: Library);
         Entry = new BMSTableEntry { md5 = Target.Md5, title = "target", artist = "target artist" };
         Table = new BMSTable { playlist_id = 701, name = "target playlist", entries = [Entry] };
         playlist.BMSTables = new ObservableCollection<BMSTable>([Table]);
@@ -2166,6 +2293,8 @@ internal sealed class DuplicateNavigationTestFixture : IDisposable
 
     internal MainWindowViewModel ViewModel { get; }
     internal TestBmsLibrary Library { get; }
+    /// <summary>同じ所有ライブラリへ接続したプレイリストです。履歴投影でも通常画面と同じ参照索引を使います。</summary>
+    internal TestBmsPlaylist Playlist { get; }
     internal ChartFile[] AllCharts { get; }
     internal ChartFile[] Duplicates { get; }
     internal ChartFile Target { get; }

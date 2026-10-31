@@ -3899,7 +3899,7 @@ public partial class MainWindowViewModel : ViewModel,
     /// このメソッドの実行には、規模に応じて時間がかかるため内部でタイマー計測し遅延を制御・ロギングする機構が含まれています。
     /// </summary>
     /// <param name="mode">更新の契機（どのフィルタや要素が変更されたかを示す更新モード）。</param>
-    /// <param name="parameter">選択されたプレイリスト（BMSTable）やフォルダ名などの追加パラメータ、無い場合は null。</param>
+    /// <param name="parameter">選択されたプレイリスト（BMSTable）やフォルダ名などの追加パラメータ。明示された古い履歴要求は一覧構築を失効させる前に拒否します。無い場合は null。</param>
     /// <param name="expectedSortTarget">受付した並べ替えが現在の操作区分へ属する場合だけ更新します。</param>
     /// <param name="navigation">元の画面受付です。最初の表示副作用より前に判定し、行採用まで同じ参照を渡します。</param>
     /// <param name="confirmedUnresolvedDuplicateSource">保守後の選択解決で所属消失を確定した空一覧です。データ未準備とは区別します。</param>
@@ -3920,9 +3920,24 @@ public partial class MainWindowViewModel : ViewModel,
         {
             return Task.CompletedTask;
         }
-        regularChartListOwner.PrepareForMainViewRefresh();
         var viewBuildStopwatch = Stopwatch.StartNew();
         MainViewUpdateMode requestedMode = mode;
+        var playHistoryRequest = parameter as PlayHistoryViewRequest;
+        if ((mode == MainViewUpdateMode.PlayHistorySelected
+                || (mode == MainViewUpdateMode.KeywordFilterUpdated && playHistoryRequest != null))
+            && (playHistoryRequest == null || !playHistoryWorkflowOwner.IsCurrentRequest(playHistoryRequest.RequestId)))
+        {
+            playHistoryRuntimeEventReporter.ReportStaleViewRequest(
+                mode,
+                requestedMode,
+                parameter,
+                playHistoryRequest?.PeriodRequest ?? parameter as PlayHistoryPeriodRequest,
+                playHistoryRequest?.RequestId ?? 0L,
+                playHistoryWorkflowOwner.CurrentRequestId,
+                viewBuildStopwatch.ElapsedMilliseconds);
+            return Task.CompletedTask;
+        }
+        regularChartListOwner.PrepareForMainViewRefresh();
         MainViewOperationSection previousOperationSection = MainChartList.CurrentOperationContext.OperationSection;
         MainViewUpdateMode activeTreeViewFilterMode = MainViewUpdateMode.TreeViewFilterNotChanged;
         object activeTreeViewFilterParameter = null;
@@ -3934,36 +3949,8 @@ public partial class MainWindowViewModel : ViewModel,
             parameter = activeTreeViewFilterParameter;
             hasActiveTreeViewFilterSnapshot = true;
         }
-        else if (mode == MainViewUpdateMode.PlayHistorySelected)
-        {
-            var playHistoryRequest = parameter as PlayHistoryViewRequest;
-            if (playHistoryRequest == null || !playHistoryWorkflowOwner.IsCurrentRequest(playHistoryRequest.RequestId))
-            {
-                playHistoryRuntimeEventReporter.ReportStaleViewRequest(
-                    mode,
-                    requestedMode,
-                    parameter,
-                    playHistoryRequest?.PeriodRequest ?? parameter as PlayHistoryPeriodRequest,
-                    playHistoryRequest?.RequestId ?? 0L,
-                    playHistoryWorkflowOwner.CurrentRequestId,
-                    viewBuildStopwatch.ElapsedMilliseconds);
-                return Task.CompletedTask;
-            }
-        }
         else if (mode == MainViewUpdateMode.KeywordFilterUpdated && parameter is PlayHistoryViewRequest playHistoryKeywordRequest)
         {
-            if (!playHistoryWorkflowOwner.IsCurrentRequest(playHistoryKeywordRequest.RequestId))
-            {
-                playHistoryRuntimeEventReporter.ReportStaleViewRequest(
-                    mode,
-                    requestedMode,
-                    parameter,
-                    playHistoryKeywordRequest.PeriodRequest,
-                    playHistoryKeywordRequest.RequestId,
-                    playHistoryWorkflowOwner.CurrentRequestId,
-                    viewBuildStopwatch.ElapsedMilliseconds);
-                return Task.CompletedTask;
-            }
             if (files == null)
             {
                 return Task.CompletedTask;
@@ -3979,7 +3966,7 @@ public partial class MainWindowViewModel : ViewModel,
                     PlayHistory.SelectedDisplayTarget)));
             return Task.CompletedTask;
         }
-        else if (mode < MainViewUpdateMode.KeywordFilterUpdated)
+        else if (mode < MainViewUpdateMode.KeywordFilterUpdated && mode != MainViewUpdateMode.PlayHistorySelected)
         {
             if (mode == MainViewUpdateMode.DuplicateFilterSelected)
             {
