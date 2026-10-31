@@ -168,8 +168,9 @@ Write-Host ""
 Write-Host "manifest URL:"
 Write-Host "  $baseUrl/update.json"
 Write-Host ""
-Write-Host "app 起動例:"
-Write-Host "  .\BeMusicSeeker\bin\x64\Release\net10.0-windows\BeMusicSeeker.exe --update-manifest-url=$baseUrl/update.json"
+Write-Host "app 起動例（配布 ZIP を未使用の検証用ディレクトリへ展開し、同梱の Updater と一緒に使います）:"
+Write-Host "  Expand-Archive -LiteralPath '$($sourcePackagePath.Replace("'", "''"))' -DestinationPath '.\artifacts\local-update-app'"
+Write-Host "  .\artifacts\local-update-app\BeMusicSeeker.exe --update-manifest-url=$baseUrl/update.json"
 
 if ($StartServer) {
     Stop-ExistingServer $pidPath
@@ -182,16 +183,16 @@ if ($StartServer) {
     }
 
     if ($pythonCommand.Name -eq "py.exe" -or $pythonCommand.Name -eq "py") {
-        $argumentList = @("-3", "-m", "http.server", $Port.ToString(), "--bind", "127.0.0.1", "--directory", $resolvedOutputDir)
+        $argumentList = @("-3", "-m", "http.server", $Port.ToString(), "--bind", "127.0.0.1", "--directory", ".")
     }
     else {
-        $argumentList = @("-m", "http.server", $Port.ToString(), "--bind", "127.0.0.1", "--directory", $resolvedOutputDir)
+        $argumentList = @("-m", "http.server", $Port.ToString(), "--bind", "127.0.0.1", "--directory", ".")
     }
 
-    $serverProcess = Start-Process -FilePath $pythonCommand.Source -ArgumentList $argumentList -WindowStyle Hidden -PassThru
+    $serverProcess = Start-Process -FilePath $pythonCommand.Source -ArgumentList $argumentList -WorkingDirectory $resolvedOutputDir -WindowStyle Hidden -PassThru
     Set-Content -Path $pidPath -Value $serverProcess.Id -Encoding ASCII
     Write-Host ""
     Write-Host "local update test server を起動しました: PID $($serverProcess.Id)" -ForegroundColor Green
     Write-Host "停止:"
-    Write-Host "  .\scripts\prepare-local-update-test.ps1 -StopServer"
+    Write-Host "  .\scripts\prepare-local-update-test.ps1 -OutputDir '$($resolvedOutputDir.Replace("'", "''"))' -StopServer"
 }

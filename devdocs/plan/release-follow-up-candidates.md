@@ -337,6 +337,36 @@ BMIIDX/LR2でAの捕捉済み終了通知がB開始後に届くと、Bのprocess
 
 根拠は [CustomTableView](../../BeMusicSeeker/Views/CustomTable/CustomTableView.cs) の `HandleKeyDown`、[KeywordSearchEditor](../../BeMusicSeeker/Views/Search/KeywordSearchEditor.xaml.cs) の `HandleInputKey`、[MainWindow](../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) の行操作接続と再生後のフォーカス復帰、および[一覧](../spec/ui/table-view.md)、[検索](../spec/ui/keyword-search.md)、[再生パネル](../spec/ui/playback-panel.md)。
 
+## LR2同期状態表のスキーマ整理と移行
+
+同期要否から署名判定を外した後も、ダウングレード互換のため `lr2_song_db_sync_status` の表・列を維持し、`signature` を判定に使わない。未使用列と永続情報の整理は任意の後続課題とする。
+
+採用時は、旧版とのダウングレード互換を終了できる時期、残す同期状態・進捗・診断情報、既存状態を引き継ぐ移行方法を決める。未使用という理由だけで表・列を削除したり、既存の完了状態を無効化したりしない。
+
+根拠は [同期状態表の定義](../../BeMusicSeeker/Models/LR2/LR2SongDBExtended.cs) と [状態の読取り・保存](../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncStatusService.cs)。
+
+## LR2・beatoraja履歴のコース名対応
+
+履歴行と日付索引は暫定的に単曲を対象とし、コース履歴の表示は任意改善とする。コースのハッシュから名前へ対応付ける方法を検討し、採用時に名前の取得元、対応を解決できない履歴の扱い、日付索引への含め方を確定する。
+
+根拠は [LR2の履歴読取り](../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistoryReader.cs)、[beatorajaの履歴読取り](../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/BeatorajaPlayHistoryReader.cs)、[履歴行の投影](../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryRow.cs)。単曲の履歴修正をこの対応の完了待ちにしない。
+
+## 資源照合と内蔵音声のFLAC代替範囲の統一
+
+資源照合はFLAC代替で充足とする一方、内蔵試聴・音声変換の代替候補とは範囲が異なる。今回の修正では既存の代替動作を維持し、照合結果と実際に音声を利用できる範囲を揃えることは任意改善とする。
+
+採用時は両経路の代替範囲と優先順を整理し、同名の複数形式がある場合も含めて期待結果を決める。FLACの直接指定と別拡張子からの代替を区別し、現行の候補一覧だけから対応範囲を決定しない。
+
+根拠は [資源照合の拡張子](../../BeMusicSeeker/Models/Resources/ChartResourceExtensions.cs) と [再生・変換側の代替候補](../../BeMusicSeeker/Ribbit/BMS/Resources.cs)。
+
+## 難易度表レベルによるsong.level上書き機能の撤廃検討
+
+難易度表のレベルで `song.level` を上書きする機能は維持する。通常の `chart_info` 補完と全体同期では、`level` を譜面由来の値へ戻す。上書き機能そのものの必要性を見直し、撤廃の要否を検討する課題であり、撤廃を決定したものではない。
+
+採用時は難易度表のレベルをLR2へ反映する利用目的と、譜面由来の値へ戻る操作との関係を確認し、機能を残すか廃止するかを判断する。今回の補完・同期処理の修正に、機能の廃止や別の上書き方法の追加を含めない。
+
+根拠は [通常補完からの反映要求](../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoBuildService.cs)、[通常補完時のlevel更新](../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbWriter.cs)、[全体同期時の生成列更新](../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs)。
+
 ## 採用・完了時
 
 採用する場合は未確定の利用者挙動を質問し、実装計画へ必要な入口・契約・検証条件を移す。完了した項目は契約・採用理由・検証対応を仕様へ移して計画から除き、完了記録だけを残さない。[計画の運用](README.md#運用)に従う。

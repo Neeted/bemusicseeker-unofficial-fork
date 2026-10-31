@@ -36,6 +36,8 @@ https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/upda
 
 `--update-manifest-url=` で検証用URLを指定できます。ローカル検証は `scripts/prepare-local-update-test.ps1 -StartServer` を使い、`dist/` にある通常版・同梱版から更新情報を作ってHTTP配信します。
 
+起動するアプリは、配布ZIPを未使用の検証用ディレクトリへ展開した `BeMusicSeeker.exe` を使います。同じディレクトリに `BeMusicSeeker.Updater.exe` が必要です。スクリプトは展開・起動のコマンド例を表示し、アプリの起動や配布構成の生成は行いません。`-OutputDir` には空白を含むパスも指定でき、Pythonの作業ディレクトリを配信先にしてHTTP配信します。停止時は、起動時と同じ `-OutputDir` を指定して `-StopServer` を実行します。
+
 ### 取得と適用の受付
 
 起動時に非同期で更新を確認し、現在より新しい版があればダイアログを表示します。通常版を先頭・初期選択とします。適用ボタンは `ProgressHub.StartupProgress.IsActive=false` のときだけ有効です。適用操作ではリリースページも開きます。
@@ -171,6 +173,7 @@ v2.1.6.0からの更新受入には、[固定成果物の定義](../../acceptanc
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| ローカル更新検証の配信先・起動案内 | [`prepare-local-update-test.ps1`](../../../scripts/prepare-local-update-test.ps1) の起動例と `StartServer` / `StopServer` | 恒久テストは設けず、python / pyの両経路で空白入り `OutputDir` からHTTPでmanifest・ZIPを取得し、サイズ・SHA-256を照合する実行確認を行う。案内する配布ZIP展開先の本体・Updaterの共存と、同じ `OutputDir` を指定した停止後の待受・所有プロセスの解放を確認する。 |
 | 不正JSONの分類と原因保持 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs) の `ParseManifest` | [`UpdateCheckServiceTests`](../../../BeMusicSeeker.Tests/Update/UpdateCheckServiceTests.cs) の `ParseManifest_MalformedJsonRetainsValidationCause` は検証失敗への変換と元原因の保持を確認する。有効・無効マニフェストの資産検証は同クラスの既存ケースが分担する。 |
 | マニフェスト整数の`Int32`/`Int64`上下範囲外と`BigInteger`、表現可能な非対応版・非正数、最大サイズの維持 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs) の `ReadRequiredInt` / `ReadRequiredLong` | [`UpdateCheckServiceTests`](../../../BeMusicSeeker.Tests/Update/UpdateCheckServiceTests.cs) の `ParseManifest_OutOfRangeIntegerRetainsValidationCause`、`ParseManifest_RepresentableIntegerKeepsSemanticValidation`、`ParseManifest_MaximumInt64SizeRemainsAccepted` は実JSON解析から型付き失敗・元原因・従来意味検証と正の上限受理を確認する。 |
 | 更新情報・資産選択・取得検証 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs)、[`UpdateDownloadService`](../../../BeMusicSeeker/Models/Update/UpdateDownloadService.cs) | [`UpdateCheckServiceTests`](../../../BeMusicSeeker.Tests/Update/UpdateCheckServiceTests.cs)、[`UpdateDownloadServiceTests`](../../../BeMusicSeeker.Tests/Update/UpdateDownloadServiceTests.cs)、[`UpdateAvailableDialogViewModelTests`](../../../BeMusicSeeker.Tests/Update/UpdateAvailableDialogViewModelTests.cs) |
