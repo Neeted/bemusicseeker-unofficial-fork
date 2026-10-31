@@ -177,9 +177,16 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.WriteAllText(chartPath, "#TITLE Added\r\n#ARTIST Artist\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             ChartFile file = CreateSyncTestFile(chartPath, snapshot);
+            ChartFile previous = file with { Md5 = new string('a', 32), RawTitle = "Old", Title = "Old", Date = 1 };
+            ChartFile removed = previous with { Path = Path.Combine(songDirectory, "removed.bms"), Md5 = new string('b', 32) };
+            string addedPath = Path.Combine(songDirectory, "added.bms");
+            File.WriteAllText(addedPath, "#TITLE New\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+            new BmsLibraryDbGateway(scope.SongDbPath).UpsertSongs([previous, removed]);
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
                 setup.CreateTable<LR2SongDB.folder>();
+                Lr2SongDbSyncStatusService.MarkCompleted(setup, "legacy-completed", 1, DateTime.UtcNow);
+                setup.Execute("UPDATE lr2_song_db_sync_status SET signature = 'old-parser21';");
             }
             BmsLibraryOptionsSnapshot options = new()
             {
@@ -192,7 +199,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 PendingInstallEstimateMaxParallelPackages = 1
             };
             IChartFileScanner chartFileScanner = CapturedChartFileScanner.FromFixture(
-                [chartPath],
+                [chartPath, addedPath],
                 new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                 {
                     [songDirectory] = []
@@ -209,7 +216,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 dialogService: new BmsLibraryInitializationTestSupport.RecordingDialogService(), settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
 
-                BmsCharts = []
+                BmsCharts = [previous, removed]
             };
 
             try
@@ -222,6 +229,14 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(rootDirectory)));
                 Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(packDirectory)));
                 Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(songDirectory)));
+                Assert.AreEqual(2, verify.Table<LR2SongDB.song>().Count());
+                Assert.AreEqual("Added", verify.Find<LR2SongDB.song>(chartPath).title);
+                Assert.AreEqual(snapshot.Md5, verify.Find<LR2SongDB.song>(chartPath).hash);
+                Assert.AreEqual("New", verify.Find<LR2SongDB.song>(addedPath).title);
+                Assert.IsNull(verify.Find<LR2SongDB.song>(removed.Path));
+                Assert.AreEqual("Completed", verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>("default").status);
+                Assert.AreEqual("old-parser21", verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>("default").signature);
+                Assert.AreEqual(0, library.Lr2SongDbSyncRequestedVersion);
             }
             finally
             {
@@ -767,14 +782,14 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
-    /// <summary>同一署名の保存済みCompletedでは通常要求の同期を省略し、完了状態・run・DBを保持して新要求と準備を開始せず、L/Pを解放します。</summary>
+    /// <summary>旧複合署名付き保存済みCompletedでは通常要求の同期を省略し、完了状態・run・DBを保持して新要求と準備を開始せず、L/Pを解放します。</summary>
     /// <remarks>状態保存の本番窓口で入力を作ります。省略後の取り込み成功分類と案内はAutomaticContinuationの実owner系列が分担します。</remarks>
     [TestMethod]
-    public async Task QueueLr2SongDbSync_CompletedSignatureSkipsWithoutStartingOrChangingStoredCompletion()
+    public async Task QueueLr2SongDbSync_LegacyCompletedSkipsWithoutStartingOrChangingStoredCompletion()
     {
         using var scope = TestDatabaseScope.Create();
         var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true };
-        string signature = Lr2SongDbSyncSignatureBuilder.Build(options);
+        string signature = "lr2_song_db_sync_v2|appSchema=1|chartInfoSchema=1|chartInfoParser=21|operationModeLR2DB=1";
         DateTime completedAt = new(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
         string root = Path.Combine(scope.DirectoryPath, "Root"), child = Path.Combine(root, "Child");
         Directory.CreateDirectory(child);
@@ -789,7 +804,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 DirectoryMetadataResolver = _ => new Lr2FolderDirectoryMetadata(completedAt)
             });
             Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(root), setup.Find<LR2SongDB.folder>(ToFolderPath(child)).parent);
-            Lr2SongDbSyncStatusService.MarkCompleted(setup, signature, "previous-completed-run", 7, completedAt);
+            Lr2SongDbSyncStatusService.MarkCompleted(setup, "previous-completed-run", 7, completedAt);
+            setup.Execute("UPDATE lr2_song_db_sync_status SET signature = ?;", signature);
         }
         var library = new TestBmsLibrary(scope.SongDbPath, null, null, null,
             () => options, TestBmsFactory.MissingEverythingBridge, settings: testSettings);
@@ -801,7 +817,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 prepareGeneratedData: (_, _) => { prepared++; return Lr2SongDbSyncPreparedDataSurface.Empty; });
             Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, result.Status);
             Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, result.StoredStatus);
-            Assert.AreEqual(signature, result.Signature);
             Assert.AreEqual("previous-completed-run", result.RunId);
             Assert.AreEqual(completedAt, result.CompletedAt);
             Assert.AreEqual(0, prepared);
@@ -895,7 +910,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             {
                 Lr2SongDbSyncStatusService.MarkCompleted(
                     setup,
-                    signature: "previous",
                     runId: "completed",
                     totalCount: 1,
                     nowUtc: DateTime.UtcNow);
@@ -950,7 +964,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             {
                 Lr2SongDbSyncStatusService.MarkCompleted(
                     setup,
-                    signature: "previous",
                     runId: "completed",
                     totalCount: 1,
                     nowUtc: DateTime.UtcNow);
@@ -1005,7 +1018,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             {
                 Lr2SongDbSyncStatusService.MarkCompleted(
                     setup,
-                    signature: "previous",
                     runId: "completed",
                     totalCount: 1,
                     nowUtc: DateTime.UtcNow);
@@ -1709,57 +1721,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     /// <summary>
-    /// 不完全状態からの受付が禁止された場合は状態を保持して投稿せず、禁止された再同期を開始しない。
-    /// </summary>
-    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
-    [TestMethod]
-    public async Task QueueLr2SongDbSync_DoesNotStartFromIncompleteWhenDisallowed()
-    {
-        using var scope = TestDatabaseScope.Create();
-        try
-        {
-            testSettings.OperationModeLR2DB = true;
-            ResetLr2FolderDiscoverySettings();
-            var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings);
-            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
-            {
-                Lr2SongDbSyncStatusService.MarkIncomplete(
-                    setup,
-                    Lr2SongDbSyncSignatureBuilder.Build(new BmsLibraryOptionsSnapshot
-                    {
-                        OperationModeLR2DB = true,
-                    }),
-                    "scoped-folder-sync",
-                    processedCursor: null,
-                    totalCount: null,
-                    stage: "lr2_builtin_folder_scoped_sync_failed",
-                    detail: "failed",
-                    nowUtc: DateTime.UtcNow);
-            }
-            bool queued = false;
-            library.StartupBackgroundTaskScheduler = delegate
-            {
-                queued = true;
-                return true;
-            };
-
-            Lr2SongDbSyncStatusSnapshot snapshot = await library.QueueLr2SongDbSyncAsync(
-                "test_settings_scoped_failure",
-                force: false,
-                allowIncompleteToQueue: false);
-
-            Assert.AreEqual(Lr2SongDbSyncStatusKind.Incomplete, snapshot.StoredStatus);
-            Assert.IsFalse(queued);
-            Assert.AreEqual(0, library.Lr2SongDbSyncRequestedVersion);
-            Assert.IsFalse(library.Lr2SongDbSyncRunning);
-        }
-        finally
-        {
-            ResetTouchedSettings();
-        }
-    }
-
-    /// <summary>
     /// ライブラリ・playlistの競合/受付閉鎖は、直接要求と通常の手動同期ownerの両方で準備・保存前に拒否します。実受付結果のfalse通知・部分権限解放・自動再実行0を確認します。
     /// </summary>
     [DataTestMethod]
@@ -1990,7 +1951,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                         force: false).GetAwaiter().GetResult();
                 }
             };
-            string acceptedSignature = string.Empty;
             var expectedFailure = new InvalidOperationException("expected preparation failure");
 
             InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => library.QueueLr2SongDbSyncAsync(
@@ -1998,14 +1958,12 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 force: false,
                 (_, _) =>
                 {
-                    acceptedSignature = library.GetLr2SongDbSyncStatusSnapshot().Signature;
                     throw expectedFailure;
                 }));
 
             Lr2SongDbSyncStatusSnapshot status = library.GetLr2SongDbSyncStatusSnapshot();
             Assert.AreSame(expectedFailure, failure);
             Assert.AreEqual(Lr2SongDbSyncStatusKind.Failed, status.Status);
-            Assert.AreEqual(acceptedSignature, status.Signature);
             Assert.AreEqual(expectedFailure.Message, status.LastError);
             Assert.IsNotNull(competingStatus);
             Lr2SongDbSyncStatusSnapshot completedCompetingStatus = competingStatus!;
@@ -4683,11 +4641,14 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     /// <summary>
-    /// 実同期で譜面情報と定義行を保存し、利用者列を保持してCompletedへ至る。最新chart_info採用と保存・終端の接続不良を検出する。
+    /// 旧Incompleteの途中位置から先頭実行し、Completedへの手動forceでは有効形式の誤CRCを修復し、新解析・現行cacheともUI排出前にLevel/LevelTextを譜面由来へ戻します。利用者列と保存・終端を維持します。
     /// </summary>
     /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
-    [TestMethod]
-    public async Task QueueLr2SongDbSync_RunsLr2SongDbSyncAndMarksCompletedWhenClean()
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task QueueLr2SongDbSync_RunsLr2SongDbSyncAndMarksCompletedWhenClean(bool manualResync, bool currentCache)
     {
         LibraryFileInitializationResult? initializationInput = null;
         Lr2SongDbSyncPreparedDataSurface? preparedInput = null;
@@ -4702,7 +4663,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Directory.CreateDirectory(songDirectory);
             File.WriteAllText(Path.Combine(packDirectory, "folderinfo.txt"), "#TITLE Pack Title");
             string chartPath = Path.Combine(songDirectory, "chart.bms");
-            File.WriteAllText(chartPath, "#TITLE Parsed Title\r\n#ARTIST Parsed Artist\r\n#BPM 120\r\n#PLAYLEVEL 4\r\n#DIFFICULTY 2\r\n#RANK 3\r\n#00111:01\r\n");
+            File.WriteAllText(chartPath, "#TITLE Parsed Title\r\n#ARTIST Parsed Artist\r\n#BPM 120\r\n#PLAYLEVEL 3\r\n#DIFFICULTY 2\r\n#RANK 3\r\n#00111:01\r\n");
             ChartFileSnapshot chartSnapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             File.WriteAllText(Path.Combine(songDirectory, "readme.txt"), "text group");
             string customFolderPath = Path.Combine(rootDirectory, "custom.lr2folder");
@@ -4721,7 +4682,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             };
             file = file with { Md5 = chartSnapshot.Md5 };
             file = file with { Sha256 = chartSnapshot.Sha256 };
-            file = file with { Folder = "00000000" };
+            file = file with { Folder = "876fd4dd", Level = 12 };
             LR2SongDB.song capturedStorageRow = ChartSongStorageMapping.ToBmsRow(file);
             capturedStorageRow.parent = "11111111";
             library.BmsCharts = [file];
@@ -4734,11 +4695,13 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     {
                         Path = chartPath,
                         AddDate = 98765,
+                        Level = 12,
+                        Folder = "876fd4dd",
                         Tag = "keep-tag"
                     })) with
                     { Md5 = "cccccccccccccccccccccccccccccccc", Favorite = 3 }), typeof(LR2SongDB.song));
                     BmsLibraryDbGateway.EnsureChartInfoSchema(setup);
-                    setup.InsertOrReplace(ChartInfoStorageMapping.ToStorage(new BeMusicSeeker.Models.ChartDetails
+                    setup.InsertOrReplace(ChartInfoStorageMapping.ToStorage(currentCache ? ChartInfoParser.Parse(chartPath) : new BeMusicSeeker.Models.ChartDetails
                     {
                         sha256 = chartSnapshot.Sha256,
                         md5 = chartSnapshot.Md5,
@@ -4749,7 +4712,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                         mode = 7,
                         feature = 4 | 8,
                         notes = 1234,
-                        parser_version = BmsLibraryDbGateway.CurrentChartInfoParserVersion
+                        parser_version = manualResync ? 21 : BmsLibraryDbGateway.CurrentChartInfoParserVersion
                     }), typeof(LR2SongDBExtended.chart_info));
                     string stalePath = ToFolderPath(Path.Combine(rootDirectory, "Removed"));
                     setup.InsertOrReplace(new LR2SongDB.folder
@@ -4771,6 +4734,13 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                         date = 1
                     }, typeof(LR2SongDB.folder));
                 });
+            }
+
+            using (var statusSetup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                Lr2SongDbSyncStatusService.MarkIncomplete(statusSetup, "old-run", 9, 10, "song_rows", "interrupted", DateTime.UtcNow);
+                if (manualResync) { statusSetup.Execute("UPDATE lr2_song_db_sync_status SET status = 'Completed', signature = 'legacy-parser21';"); }
+                statusSetup.Execute("UPDATE song SET folder = '876fd4dd', parent = '11111111';");
             }
 
             // Everything can report a complete result before its index observes files created by this test.
@@ -4802,7 +4772,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     stagePublicationObserved = true;
                 }
             };
-            Lr2SongDbSyncStatusSnapshot snapshot = await library.QueueLr2SongDbSyncAsync("test_enabled", initializationResult: initializationInput, preparedSurface: preparedInput);
+            Lr2SongDbSyncStatusSnapshot snapshot = await library.QueueLr2SongDbSyncAsync("test_enabled", force: manualResync, initializationResult: initializationInput, preparedSurface: preparedInput);
+            Assert.AreEqual(manualResync ? 3 : 9, library.BmsCharts.Single().Level);
+            Assert.AreEqual(manualResync ? "3" : "9", library.BmsCharts.Single().LevelText);
             TestUiDispatcherHost.ProcessQueuedPresentation();
 
             Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, snapshot.Status);
@@ -4836,24 +4808,35 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Assert.AreEqual(0, folderRows.Count(folder => folder.path == expectedRemovedFolderPath));
             Assert.AreEqual(0, folderRows.Count(folder => folder.path == expectedStaleLr2FolderPath));
             Assert.AreEqual(1, folderRows.Count(folder => folder.path == expectedCustomFolderPath));
-            string expectedSongFolderHash = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(songDirectory);
+            string expectedSongFolderHash = Lr2StoredPathReference.Compute(song.path);
+            Assert.AreEqual(song.path, verify.Query<LR2SongDB.folder>("SELECT * FROM folder WHERE parent = ? AND path = ?;", Lr2StoredPathReference.Compute(pack.path), song.path).Single().path);
+            Assert.AreEqual(custom.path, verify.Query<LR2SongDB.folder>("SELECT * FROM folder WHERE parent = ? AND path = ?;", Lr2StoredPathReference.Compute(root.path), custom.path).Single().path);
             Assert.AreEqual(expectedSongFolderHash, verify.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", chartPath));
             Assert.IsFalse(string.IsNullOrWhiteSpace(verify.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", chartPath)));
             Assert.AreEqual("Parsed Title", verify.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual("Parsed Artist", verify.ExecuteScalar<string>("SELECT artist FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(file.Md5, verify.ExecuteScalar<string>("SELECT hash FROM song WHERE path = ?;", chartPath));
-            Assert.AreEqual(9, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
-            Assert.AreEqual(3, verify.ExecuteScalar<int>("SELECT difficulty FROM song WHERE path = ?;", chartPath));
-            Assert.AreEqual(180, verify.ExecuteScalar<int>("SELECT maxbpm FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual(manualResync ? 3 : 9, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual(manualResync ? 2 : 3, verify.ExecuteScalar<int>("SELECT difficulty FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual(manualResync ? 120 : 180, verify.ExecuteScalar<int>("SELECT maxbpm FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(120, verify.ExecuteScalar<int>("SELECT minbpm FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(5, verify.ExecuteScalar<int>("SELECT mode FROM song WHERE path = ?;", chartPath));
-            Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT random FROM song WHERE path = ?;", chartPath));
-            Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT longnote FROM song WHERE path = ?;", chartPath));
-            Assert.AreEqual(1234, verify.ExecuteScalar<int>("SELECT karinotes FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual(manualResync ? 0 : 1, verify.ExecuteScalar<int>("SELECT random FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual(manualResync ? 0 : 1, verify.ExecuteScalar<int>("SELECT longnote FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual(manualResync ? 1 : 1234, verify.ExecuteScalar<int>("SELECT karinotes FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT txt FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(3, verify.ExecuteScalar<int>("SELECT favorite FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(98765, verify.ExecuteScalar<int>("SELECT adddate FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual("keep-tag", verify.ExecuteScalar<string>("SELECT tag FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual(string.Empty, row.signature);
+            if (manualResync)
+            {
+                Assert.AreEqual(3, library.BmsCharts.Single().Level);
+                SongTableLoadResult reloaded = new BmsLibraryInitializationService().LoadSongTable(
+                    new BmsLibraryDbGateway(scope.SongDbPath), new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true },
+                    null, new OwnedChartCollectionTestSupport.TestFileMutationService(), null, exception => exception.Message);
+                Assert.AreEqual(3, reloaded.LoadedFiles.Single().Level);
+            }
             Assert.AreEqual(1, library.Lr2SongDbSyncRequestedVersion);
             Assert.AreEqual(1, library.Lr2SongDbSyncCompletedVersion);
             Assert.IsFalse(library.Lr2SongDbSyncRunning);
@@ -7231,12 +7214,12 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         string firstPath = Path.Combine(root, "first.bms");
         string secondPath = Path.Combine(root, "second.bms");
         WriteBasicBms(firstPath, "first committed projection", CreateLr2TooLongResourcePath());
-        File.AppendAllText(firstPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n");
+        File.AppendAllText(firstPath, "#PLAYER 1\r\n#PLAYLEVEL 3\r\n#BPM 120\r\n#00111:01\r\n");
         WriteBasicBms(secondPath, "second committed projection", CreateLr2TooLongResourcePath());
-        File.AppendAllText(secondPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n");
+        File.AppendAllText(secondPath, "#PLAYER 1\r\n#PLAYLEVEL 3\r\n#BPM 120\r\n#00111:01\r\n");
         ChartFile first = CreateSyncTestFile(firstPath, ChartFileContentReader.ReadSnapshot(firstPath)) with
-        { Favorite = 7, Tag = "keep", AddDate = 123 };
-        ChartFile second = CreateSyncTestFile(secondPath, ChartFileContentReader.ReadSnapshot(secondPath));
+        { Favorite = 7, Tag = "keep", AddDate = 123, Level = 12, LevelText = "12" };
+        ChartFile second = CreateSyncTestFile(secondPath, ChartFileContentReader.ReadSnapshot(secondPath)) with { Level = 12, LevelText = "12" };
         var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true };
         var scheduler = new QueuedUiScheduler();
         var library = new TestBmsLibrary(scope.SongDbPath, null, null, null, null, scheduler,
@@ -7282,7 +7265,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         try
         {
             operation = Lr2SongDbSyncRequestCoordinator.QueueAsync(owner, "required_projection_failure", true,
-                prepareGeneratedData: null, allowIncompleteToQueue: true, initializationResult: initialization);
+                prepareGeneratedData: null, initializationResult: initialization);
             Task enteredOrFinished = await Task.WhenAny(projectionEntered.Task, operation);
             if (enteredOrFinished == operation)
             {
@@ -7306,6 +7289,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 AssertDurableFacts(waitingReadback, "Running");
             }
 
+            Assert.IsTrue(library.BmsCharts.All(chart => chart.Level == 12 && chart.LevelText == "12"));
             projectionRelease.Set();
             if (projectionFails)
             {
@@ -7343,6 +7327,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 int secondFlags = readback.ExecuteScalar<int>("SELECT lr2_warning_flags FROM maintenance WHERE path = ?;", secondPath);
                 ChartFile firstLive = library.BmsCharts.Single(file => file.Path == firstPath);
                 ChartFile secondLive = library.BmsCharts.Single(file => file.Path == secondPath);
+                Assert.AreEqual(3, firstLive.Level);
+                Assert.AreEqual("3", firstLive.LevelText);
+                Assert.AreEqual(projectionFails ? 12 : 3, secondLive.Level);
+                Assert.AreEqual(projectionFails ? "12" : "3", secondLive.LevelText);
                 Assert.AreEqual(firstFlags, firstLive.ResourceHealthMaintenanceSnapshot?.Lr2WarningFlags);
                 if (projectionFails) { Assert.AreNotEqual(secondFlags, secondLive.ResourceHealthMaintenanceSnapshot?.Lr2WarningFlags); }
                 else { Assert.AreEqual(secondFlags, secondLive.ResourceHealthMaintenanceSnapshot?.Lr2WarningFlags); }
@@ -7389,6 +7377,36 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>確定levelだけの終端投影でも同tokenのLevel/Textを変更し、詳細索引・互換警告の通知なしで共通refreshへ変更譜面を登録します。</summary>
+    [TestMethod]
+    public void CurrentProjection_LevelOnlyCommitReachesCommonRefreshPublisher()
+    {
+        using var scope = TestDatabaseScope.Create();
+        var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
+        {
+            BmsCharts = [ChartTestValues.Empty() with { Path = Path.Combine(scope.DirectoryPath, "level-only.bms"), Md5 = new string('a', 32), Level = 12, LevelText = "12" }]
+        };
+        try
+        {
+            ChartFile current = library.BmsCharts.Single();
+            int handledVersion = library.NormalLibraryRefreshNotificationVersion;
+            int detailVersion = library.ChartInfoIndexVersion;
+            ILr2SynchronizationProjectionPort projection = ReadSynchronizationDependency<ILr2SynchronizationProjectionPort>(library.Lr2Synchronization, "projection");
+            int changed = projection.ApplyLr2SongDbSyncCurrentProjection(
+                [new Lr2SongDbSyncCurrentFact(current with { Level = 3, LevelText = "3" }, true, null)], "level-only", false, false);
+            Assert.AreEqual(1, changed);
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledVersion);
+            ChartFile notified = batch.ChangedCharts.Single();
+            Assert.AreSame(current.Token, notified.Token);
+            Assert.AreEqual(3, notified.Level);
+            Assert.AreEqual("3", notified.LevelText);
+            Assert.AreEqual(3, library.BmsCharts.Single().Level);
+            Assert.AreEqual(detailVersion, library.ChartInfoIndexVersion);
+            Assert.IsFalse(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+        }
+        finally { library.RequestShutdown("level-only-test-cleanup"); }
+    }
+
     // 標準構成の既存portを読取りだけで借り、故障注入用の製品APIやreadonly fieldの書換えを増やしません。
     private static T ReadSynchronizationDependency<T>(BMSLibrary.Lr2SynchronizationOwner owner, string name) where T : class
     {
@@ -7408,7 +7426,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         internal int CompatibilityCalls { get; private set; }
         internal bool ChartInfoApplied { get; private set; }
         public void EnsureLr2SongDbSyncChartInfoIndexHydrated(string reason) => inner.EnsureLr2SongDbSyncChartInfoIndexHydrated(reason);
-        public Dictionary<string, ChartFile> CreateLr2SongDbSyncCompatibilityProjectionIndex() => inner.CreateLr2SongDbSyncCompatibilityProjectionIndex();
         public Func<ChartFile, BeMusicSeeker.Models.ChartDetails> CreateLr2SongDbSyncChartInfoResolverSnapshot() => inner.CreateLr2SongDbSyncChartInfoResolverSnapshot();
         public HashSet<string> CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(string reason) => inner.CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(reason);
         public void UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<BeMusicSeeker.Models.ChartDetails> rows)
@@ -7417,20 +7434,20 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             ChartInfoApplied = true;
             if (outcome == "cancel_then_projection_failure") { requestShutdown(); }
         }
-        public int ApplyLr2SongDbSyncCompatibilityProjection(IReadOnlyList<ResourceHealthMaintenanceSnapshot> facts,
-            string reason, IReadOnlyDictionary<string, ChartFile> index, bool logSummary, bool dispatchPresentation)
+        public int ApplyLr2SongDbSyncCurrentProjection(IReadOnlyList<Lr2SongDbSyncCurrentFact> facts,
+            string reason, bool logSummary, bool dispatchPresentation)
         {
             CompatibilityCalls++;
             entered.TrySetResult(true);
             release.Wait();
             if (outcome is "projection_failure_with_shutdown" or "cancel_then_projection_failure" or "failed_status_write")
             {
-                inner.ApplyLr2SongDbSyncCompatibilityProjection([facts.Single(fact => fact.Path == firstPath)],
-                    reason, index, logSummary, dispatchPresentation);
+                inner.ApplyLr2SongDbSyncCurrentProjection([facts.Single(fact => fact.Chart.Path == firstPath)],
+                    reason, logSummary, dispatchPresentation);
                 if (outcome == "projection_failure_with_shutdown") { requestShutdown(); }
                 return ThrowCompatibilityProjectionFault();
             }
-            int applied = inner.ApplyLr2SongDbSyncCompatibilityProjection(facts, reason, index, logSummary, dispatchPresentation);
+            int applied = inner.ApplyLr2SongDbSyncCurrentProjection(facts, reason, logSummary, dispatchPresentation);
             if (outcome == "shutdown_after_projection") { requestShutdown(); }
             return applied;
         }

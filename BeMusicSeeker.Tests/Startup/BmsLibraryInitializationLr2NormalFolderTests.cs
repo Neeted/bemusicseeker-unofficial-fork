@@ -86,6 +86,8 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             Assert.AreEqual(1, pack.type);
             Assert.AreEqual("Synced Folder", pack.title);
             Assert.IsTrue(pack.date.HasValue);
+            Assert.AreEqual(pack.path, verify.Query<LR2SongDB.folder>("SELECT * FROM folder WHERE parent = ? AND path = ?;", Lr2StoredPathReference.Compute(root.path), pack.path).Single().path);
+            Assert.AreEqual(bmsPath, verify.Query<LR2SongDB.song>("SELECT * FROM song WHERE folder = ? AND parent = ?;", Lr2StoredPathReference.Compute(pack.path), Lr2StoredPathReference.Compute(root.path)).Single().path);
         });
     }
 
@@ -178,6 +180,8 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder pack = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(packDirectoryPath));
             Assert.AreEqual("Updated Folder", pack.title);
+            LR2SongDB.folder savedRoot = verify.Find<LR2SongDB.folder>(ToFolderPath(lr2RootPath));
+            Assert.AreEqual(pack.path, verify.Query<LR2SongDB.folder>("SELECT * FROM folder WHERE parent = ? AND path = ?;", Lr2StoredPathReference.Compute(savedRoot.path), pack.path).Single().path);
         });
     }
 

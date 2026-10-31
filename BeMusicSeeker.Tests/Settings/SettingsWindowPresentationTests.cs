@@ -5493,10 +5493,9 @@ public sealed class SettingsWindowPresentationTests
             string reason,
             bool force,
             bool prepareGeneratedData = false,
-            bool allowIncompleteToQueue = true,
             LibraryFileInitializationResult? initializationResult = null, LibraryFileMutationCapability? capability = null, bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability? playlistCapability = null, Lr2SongDbSyncPreparedDataSurface? preparedSurface = null, OperationProgressRequest? originatingRequest = null, BmsLibraryOptionsSnapshot? optionsSnapshot = null, Action<bool>? admissionResult = null)
         {
-            QueueCall call = new(reason, force, allowIncompleteToQueue);
+            QueueCall call = new(reason, force);
             lock (gate)
             {
                 queueCalls.Add(call);
@@ -5521,18 +5520,15 @@ public sealed class SettingsWindowPresentationTests
 
         internal sealed class QueueCall
         {
-            internal QueueCall(string reason, bool force, bool allowIncompleteToQueue)
+            internal QueueCall(string reason, bool force)
             {
                 Reason = reason;
                 Force = force;
-                AllowIncompleteToQueue = allowIncompleteToQueue;
             }
 
             internal string Reason { get; }
 
             internal bool Force { get; }
-
-            internal bool AllowIncompleteToQueue { get; }
         }
     }
 

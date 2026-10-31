@@ -2577,7 +2577,6 @@ public sealed class BmsLibraryInitializationFileScanTests
             using var followUpDb = new LR2SongDBExtended(songDbPath);
             Lr2SongDbSyncResult followUpResult = Lr2SongDbSyncService.Run(followUpDb, new Lr2SongDbSyncRequest
             {
-                Signature = "date-only-generated-follow-up",
                 RunId = "date-only-generated-follow-up",
                 SongRows = [existingFile],
                 ChartFileBufferReader = path =>

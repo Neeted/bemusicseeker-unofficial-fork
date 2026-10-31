@@ -115,9 +115,7 @@ public partial class BMSLibrary
 
         internal int FailedVersion { get; set; }
 
-
         internal bool Running { get; set; }
-
 
 
 
@@ -637,10 +635,8 @@ public partial class BMSLibrary
                 return false;
             }
 
-            string signature = Lr2SongDbSyncSignatureBuilder.Build(options);
             Lr2SongDbSyncStatusSnapshot status = data.EvaluateLr2SongDbSyncStatus(
                 enabled: true,
-                signature,
                 DateTime.UtcNow);
             return status == null || status.Status != Lr2SongDbSyncStatusKind.Completed;
         }
@@ -737,11 +733,9 @@ public partial class BMSLibrary
 
             try
             {
-                string signature = Lr2SongDbSyncSignatureBuilder.Build(options);
                 Lr2SongDbSyncStatusSnapshot status = data.ApplyLr2SongDbSyncStatusMutation(
                     new Lr2SongDbSyncStatusMutationRequest(
                         Lr2SongDbSyncStatusMutationKind.MarkIncomplete,
-                        signature,
                         string.IsNullOrWhiteSpace(runId) ? "runtime_write" : runId,
                         processedCursor: null,
                         totalCount: null,
@@ -1096,11 +1090,11 @@ public partial class BMSLibrary
         internal Lr2SearchRootSnapshot CaptureBmsDirectories() =>
             data.CaptureBmsDirectories();
 
+        /// <summary>保存済みCompletedと連携モードから全体同期の要否を判定し、旧署名を読み替えません。</summary>
         internal Lr2SongDbSyncStatusSnapshot EvaluateLr2SongDbSyncStatus(
             bool enabled,
-            string signature,
             DateTime nowUtc) =>
-            data.EvaluateLr2SongDbSyncStatus(enabled, signature, nowUtc);
+            data.EvaluateLr2SongDbSyncStatus(enabled, nowUtc);
 
         internal Lr2SongDbSyncResult ApplyLr2SongDbSync(Lr2SongDbSyncRequest request) =>
             data.ApplyLr2SongDbSync(request);
@@ -1153,13 +1147,13 @@ public partial class BMSLibrary
 
         /// <summary>生存共通権限で受理済み同期の実処理と後片付けを実行します。自己受付を取り直しません。</summary>
         /// <param name="capability">同じ受付の生存中の所有者に属する権限。</param>
-        /// <param name="options">署名と生成準備から継続して渡す受理済み操作の変更不能設定。</param>
+        /// <param name="options">生成準備から継続して渡す受理済み操作の変更不能設定。</param>
         /// <returns>実処理と後片付けの終端。失敗と取消は呼出し元へ伝播します。</returns>
-        internal Task RunLr2SongDbSyncAsync(string reason, string signature, int requestVersion,
+        internal Task RunLr2SongDbSyncAsync(string reason, int requestVersion,
             LibraryFileInitializationResult initializationResult, Lr2SongDbSyncPreparedDataSurface preparedSurface, LibraryFileMutationCapability capability, BmsLibraryOptionsSnapshot options)
         {
             capability.Validate(operationAdmission);
-            Lr2SongDbSyncRequestCoordinator.Run(this, reason, signature, requestVersion, initializationResult, preparedSurface, options);
+            Lr2SongDbSyncRequestCoordinator.Run(this, reason, requestVersion, initializationResult, preparedSurface, options);
             return Task.CompletedTask;
         }
 
@@ -1306,8 +1300,6 @@ public partial class BMSLibrary
         internal void EnsureLr2SongDbSyncChartInfoIndexHydrated(string reason) =>
             projection.EnsureLr2SongDbSyncChartInfoIndexHydrated(reason);
 
-        internal Dictionary<string, ChartFile> CreateLr2SongDbSyncCompatibilityProjectionIndex() =>
-            projection.CreateLr2SongDbSyncCompatibilityProjectionIndex();
 
         internal Func<ChartFile, BeMusicSeeker.Models.ChartDetails> CreateLr2SongDbSyncChartInfoResolverSnapshot() =>
             projection.CreateLr2SongDbSyncChartInfoResolverSnapshot();
@@ -1321,16 +1313,14 @@ public partial class BMSLibrary
         internal void UpdateLr2SongDbSyncProgress(Lr2SongDbSyncProgress progress) =>
             UpdateProgress(progress);
 
-        internal int ApplyLr2SongDbSyncCompatibilityProjection(
-            IReadOnlyList<ResourceHealthMaintenanceSnapshot> maintenanceInfos,
+        internal int ApplyLr2SongDbSyncCurrentProjection(
+            IReadOnlyList<Lr2SongDbSyncCurrentFact> currentFacts,
             string reason,
-            IReadOnlyDictionary<string, ChartFile> bmsByPath,
             bool logSummary,
             bool dispatchPresentation) =>
-            projection.ApplyLr2SongDbSyncCompatibilityProjection(
-                maintenanceInfos,
+            projection.ApplyLr2SongDbSyncCurrentProjection(
+                currentFacts,
                 reason,
-                bmsByPath,
                 logSummary,
                 dispatchPresentation);
 
@@ -1345,12 +1335,11 @@ public partial class BMSLibrary
         }
 
         /// <summary>必須終端投影と所有token確認を終えた要求のCompletedを既存状態保存窓口へ渡します。実要求版と進捗の公開は保存成功後に呼出し元が行います。</summary>
-        internal void MarkLr2SongDbSyncCompletedStatus(string signature, string runId, int totalCount)
+        internal void MarkLr2SongDbSyncCompletedStatus(string runId, int totalCount)
         {
             data.ApplyLr2SongDbSyncStatusMutation(
                 new Lr2SongDbSyncStatusMutationRequest(
                     Lr2SongDbSyncStatusMutationKind.MarkCompleted,
-                    signature,
                     runId,
                     processedCursor: totalCount,
                     totalCount,
@@ -1359,12 +1348,12 @@ public partial class BMSLibrary
                     DateTime.UtcNow));
         }
 
-        internal void MarkLr2SongDbSyncFailedStatus(string signature, string runId, Exception ex)
+        /// <summary>同じrun IDの確定済み進捗を保持して失敗を保存します。</summary>
+        internal void MarkLr2SongDbSyncFailedStatus(string runId, Exception ex)
         {
             data.ApplyLr2SongDbSyncStatusMutation(
                 new Lr2SongDbSyncStatusMutationRequest(
                     Lr2SongDbSyncStatusMutationKind.MarkFailed,
-                    signature,
                     runId,
                     processedCursor: null,
                     totalCount: null,
@@ -1374,24 +1363,23 @@ public partial class BMSLibrary
         }
 
         /// <summary>LR2失敗の保存と公開を一箇所で終結します。同じ要求で既に確定したFailed/Incompleteを再通知・上書きしません。</summary>
-        /// <param name="signature">今回の要求が捕捉した設定署名。</param>
         /// <param name="runId">下位実行の識別。実行開始前の失敗では空です。</param>
         /// <param name="requestVersion">今回の実要求版。開始前なら現在の要求版です。</param>
         /// <param name="failure">元の同期失敗または終了取消。</param>
         /// <param name="stage">失敗を観測した実段階。</param>
         /// <param name="interruptedByShutdown">終了による中断は既存Incompleteとして保存します。</param>
-        internal void RecordLr2SongDbSyncFailure(string signature, string runId, int requestVersion,
+        internal void RecordLr2SongDbSyncFailure(string runId, int requestVersion,
             Exception failure, string stage, bool interruptedByShutdown = false)
         {
             Lr2SongDbSyncStatusSnapshot current = GetStatusSnapshot();
             if (current.Status is Lr2SongDbSyncStatusKind.Failed or Lr2SongDbSyncStatusKind.Incomplete) { return; }
             if (interruptedByShutdown)
             {
-                MarkLr2SongDbSyncInterruptedStatus(signature, runId, ObservableProcessedCount, ObservableTotalCount, stage);
+                MarkLr2SongDbSyncInterruptedStatus(runId, ObservableProcessedCount, ObservableTotalCount, stage);
                 FailRequest(requestVersion, Lr2SongDbSyncStatusKind.Incomplete, stage, "shutdown_interrupted");
                 return;
             }
-            try { MarkLr2SongDbSyncFailedStatus(signature, runId, failure); }
+            try { MarkLr2SongDbSyncFailedStatus(runId, failure); }
             catch (Exception statusFailure)
             {
                 BMSLibrary.LogInstallPerformanceWarn("lr2_song_db_sync failure_status_write_failed "
@@ -1404,7 +1392,7 @@ public partial class BMSLibrary
             BMSLibrary.LogInstallPerformance(message);
 
         internal void MarkLr2SongDbSyncInterruptedStatus(
-            string signature,
+
             string runId,
             int processedCursor,
             int totalCount,
@@ -1415,7 +1403,6 @@ public partial class BMSLibrary
                 data.ApplyLr2SongDbSyncStatusMutation(
                     new Lr2SongDbSyncStatusMutationRequest(
                         Lr2SongDbSyncStatusMutationKind.MarkIncomplete,
-                        signature,
                         runId,
                         processedCursor: Math.Max(0, processedCursor),
                         totalCount: Math.Max(0, totalCount),
@@ -1627,7 +1614,6 @@ public partial class BMSLibrary
             }
             PublishStatus(BMSLibrary.CreateRuntimeLr2SongDbSyncStatus(
                 Lr2SongDbSyncStatusKind.Completed,
-                GetStatusSnapshot().Signature,
                 ObservableStage,
                 ObservableProcessedCount,
                 ObservableTotalCount,
@@ -1654,7 +1640,6 @@ public partial class BMSLibrary
             }
             PublishStatus(BMSLibrary.CreateRuntimeLr2SongDbSyncStatus(
                 status,
-                GetStatusSnapshot().Signature,
                 ObservableStage,
                 ObservableProcessedCount,
                 ObservableTotalCount,
@@ -1675,7 +1660,6 @@ public partial class BMSLibrary
             }
             Lr2SongDbSyncStatusSnapshot status = BMSLibrary.CreateRuntimeLr2SongDbSyncStatus(
                 Lr2SongDbSyncStatusKind.Running,
-                GetStatusSnapshot().Signature,
                 progress.Stage ?? string.Empty,
                 Math.Max(0, progress.ProcessedCursor),
                 Math.Max(0, progress.TotalCount),

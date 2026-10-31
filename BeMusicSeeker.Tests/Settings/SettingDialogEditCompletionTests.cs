@@ -4201,7 +4201,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 db.CreateTable<LR2SongDB.song>();
                 db.CreateTable<LR2SongDB.folder>();
                 db.Insert(new LR2SongDB.folder { path = folder + Path.DirectorySeparatorChar, type = 1, date = null, adddate = 0, title = "saved identity", info_a = "retained" });
-                Lr2SongDbSyncStatusService.MarkCompleted(db, Lr2SongDbSyncSignatureBuilder.Build(BmsLibraryOptionsSnapshot.CreateCurrent(values)), "fixture-complete", 0, DateTime.UtcNow);
+                Lr2SongDbSyncStatusService.MarkCompleted(db, "fixture-complete", 0, DateTime.UtcNow);
             }
             var settingsSession = new CountingSettingsEditSession(values);
             var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes) };

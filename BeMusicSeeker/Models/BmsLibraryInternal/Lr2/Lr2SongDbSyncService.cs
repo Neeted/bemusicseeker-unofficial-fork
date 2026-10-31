@@ -14,10 +14,12 @@ using SQLitePCL;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>実commit済みsongに対応する現在値の事実です。Levelの採用根拠と任意の互換性事実を一緒に渡し、tokenで同じ所持対象へ反映します。</summary>
+internal sealed record Lr2SongDbSyncCurrentFact(ChartFile Chart, bool HasLevel, ResourceHealthMaintenanceSnapshot CompatibilityInfo);
+
+/// <summary>一回の全体同期の生成入力とrun IDを渡します。保存済みカーソルを新しい実行の開始位置に使いません。</summary>
 internal sealed class Lr2SongDbSyncRequest
 {
-    public string Signature { get; set; }
-
     public string RunId { get; set; }
 
     public IReadOnlyCollection<string> RootDirectories { get; set; } = [];
@@ -121,8 +123,8 @@ internal sealed class Lr2SongDbSyncRequest
     /// <summary>段階内の実対象件数と保存済みカーソルを区別して通知します。通知失敗は同期結果に影響しません。</summary>
     public Action<Lr2SongDbSyncProgress> ProgressReporter { get; init; }
 
-    /// <summary>確定済み互換性事実を必須投影へ一度引き渡します。任意の進捗通知とは区別します。</summary>
-    public Action<IReadOnlyList<ResourceHealthMaintenanceSnapshot>> Lr2CompatibilityFactsCommitted { get; init; }
+    /// <summary>実commit後だけ、保存済みlevelと互換性事実を既存の必須終端投影へ一度渡します。未知失敗・未登録song・根拠のないfallbackのlevelは渡しません。</summary>
+    public Action<IReadOnlyList<Lr2SongDbSyncCurrentFact>> SongCurrentFactsCommitted { get; init; }
 
     /// <summary>
     /// 同じ親操作の直前のファイル差分で、生成行をDBへ確定したBMSパスです。
@@ -285,7 +287,6 @@ internal static class Lr2SongDbSyncService
 
         Lr2SongDbSyncStatusService.MarkRunning(
             songDb,
-            request.Signature,
             request.RunId,
             totalCount,
             stage: initialStage,
@@ -337,7 +338,6 @@ internal static class Lr2SongDbSyncService
 
         Lr2SongDbSyncStatusService.UpdateCursor(
             songDb,
-            request.Signature,
             request.RunId,
             processedCursor: folderProcessedCount,
             totalCount: totalCount,
@@ -361,7 +361,6 @@ internal static class Lr2SongDbSyncService
             LogStage(request, "stage_start", "song_rows", songRows.Count, songStageStart, songStageProcessedCursor);
             Lr2SongDbSyncStatusService.UpdateCursor(
                 songDb,
-                request.Signature,
                 request.RunId,
                 processedCursor: songStageProcessedCursor,
                 totalCount: totalCount,
@@ -386,7 +385,6 @@ internal static class Lr2SongDbSyncService
                 songRowStartIndex,
                 lr2FolderEndCursor,
                 totalCount,
-                request.Signature,
                 request.RunId,
                 request,
                 chartInfoChunkWriter);
@@ -399,7 +397,6 @@ internal static class Lr2SongDbSyncService
         {
             Lr2SongDbSyncStatusService.UpdateCursor(
                 songDb,
-                request.Signature,
                 request.RunId,
                 processedCursor: processedCount,
                 totalCount: totalCount,
@@ -450,7 +447,6 @@ internal static class Lr2SongDbSyncService
         {
             Lr2SongDbSyncStatusService.MarkFailed(
                 songDb,
-                request?.Signature,
                 request?.RunId,
                 processedCursor,
                 totalCount,
@@ -984,7 +980,6 @@ internal static class Lr2SongDbSyncService
         int startIndex,
         int baseProcessedCursor,
         int totalCount,
-        string signature,
         string runId,
         Lr2SongDbSyncRequest request,
         Func<CatalogChartInfoWriteRequest, CatalogChartInfoWriteReceipt> chartInfoChunkWriter)
@@ -1255,7 +1250,8 @@ internal static class Lr2SongDbSyncService
             try
             {
                 var stageStopwatch = Stopwatch.StartNew();
-                songWriteResult = Lr2SongDbWriter.UpdateGeneratedSongsForLr2SongDbSyncWithResult(songDb, rowsToWrite);
+                songWriteResult = Lr2SongDbWriter.UpdateGeneratedSongsForLr2SongDbSyncWithResult(songDb, rowsToWrite,
+                    captureSavedLevels: request.SongCurrentFactsCommitted != null);
                 stageStopwatch.Stop();
                 songStageMs = stageStopwatch.ElapsedMilliseconds;
 
@@ -1291,7 +1287,6 @@ internal static class Lr2SongDbSyncService
                 stageStopwatch.Restart();
                 Lr2SongDbSyncStatusService.UpdateCursor(
                     songDb,
-                    signature,
                     runId,
                     processedCursor,
                     totalCount,
@@ -1315,8 +1310,24 @@ internal static class Lr2SongDbSyncService
                     "song_rows",
                     Math.Max(Volatile.Read(ref evaluatedStageProcessedCount), offset + chunk.Count),
                     targetRows.Count);
+                var currentFacts = new List<Lr2SongDbSyncCurrentFact>(chunk.Count);
+                foreach (SongRowSyncComputedItem item in chunk)
+                {
+                    ChartFile value = item.Row;
+                    bool hasLevel = value != null && (item.ParsedFromSnapshot || item.ChartInfoApplied)
+                        && songWriteResult.SavedLevels != null && songWriteResult.SavedLevels.ContainsKey(value.Path);
+                    if (hasLevel)
+                    {
+                        int? savedLevel = songWriteResult.SavedLevels[value.Path];
+                        value = value with { Level = savedLevel, LevelText = savedLevel?.ToString(System.Globalization.CultureInfo.InvariantCulture) };
+                    }
+                    if (value != null && (hasLevel || item.Lr2CompatibilityInfo != null))
+                    {
+                        currentFacts.Add(new(value, hasLevel, item.Lr2CompatibilityInfo));
+                    }
+                }
                 ApplyCommittedSongRowFacts(request, chunkChartInfoRows, chunkChartInfoParseFailures,
-                    chunkChartInfoParseFailureDeleteMd5s, chunkCompatibilityInfos);
+                    chunkChartInfoParseFailureDeleteMd5s, currentFacts);
                 chartInfoGeneratedCount += chunkChartInfoRows.Count;
                 chartInfoParseFailurePersistedCount += chunkChartInfoParseFailures.Count;
                 chartInfoParseFailureClearedCount += chunkChartInfoParseFailureDeleteMd5s.Count;
@@ -1565,7 +1576,6 @@ internal static class Lr2SongDbSyncService
             {
                 Lr2SongDbSyncStatusService.MarkFailed(
                     songDb,
-                    signature,
                     runId,
                     processedCursor: baseProcessedCursor + safeStartIndex + processed,
                     totalCount,
@@ -1614,7 +1624,7 @@ internal static class Lr2SongDbSyncService
         IReadOnlyList<BeMusicSeeker.Models.ChartDetails> chartInfoRows,
         IReadOnlyList<BeMusicSeeker.Models.ChartParseFailure> parseFailures,
         IReadOnlyList<string> clearedFailureMd5s,
-        IReadOnlyList<ResourceHealthMaintenanceSnapshot> compatibilityInfos)
+        IReadOnlyList<Lr2SongDbSyncCurrentFact> currentFacts)
     {
         Exception firstFailure = null;
         void ApplyRequiredFact(Action callback, string fact)
@@ -1641,9 +1651,9 @@ internal static class Lr2SongDbSyncService
                 parseFailures.Count, clearedFailureMd5s.Count,
                 [.. parseFailures.Select(value => value.md5).Concat(clearedFailureMd5s)]), "chart_info_parse_failures");
         }
-        if (compatibilityInfos.Count > 0 && request.Lr2CompatibilityFactsCommitted != null)
+        if (currentFacts.Count > 0 && request.SongCurrentFactsCommitted != null)
         {
-            ApplyRequiredFact(() => request.Lr2CompatibilityFactsCommitted(compatibilityInfos), "lr2_compatibility");
+            ApplyRequiredFact(() => request.SongCurrentFactsCommitted(currentFacts), "song_current");
         }
         if (firstFailure is OperationCanceledException)
         {

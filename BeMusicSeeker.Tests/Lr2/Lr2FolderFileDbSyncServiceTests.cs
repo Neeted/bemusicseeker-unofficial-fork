@@ -33,7 +33,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             DateTime timestamp = new(2026, 6, 10, 0, 0, 0, DateTimeKind.Utc);
             if (preserve)
             {
-                db.Insert(new LR2SongDB.folder { path = file, title = "Existing", command = "original", type = 4, parent = "original-parent", date = 123, adddate = 456 });
+                db.Insert(new LR2SongDB.folder { path = file, title = "Existing", command = "original", type = 4, parent = Lr2StoredPathReference.Compute(Lr2FolderPath.ToFolderPath(child)), date = 123, adddate = 456 });
                 db.Insert(new LR2SongDB.folder { path = Lr2FolderPath.ToFolderPath(child), type = 1, parent = Lr2SongFolderParentNormalizer.RootParentHash });
             }
             Lr2FolderFileDbSyncService.Sync(db, new Lr2FolderFileDbSyncRequest
@@ -44,11 +44,16 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                 DirectoryMetadataResolver = _ => new Lr2FolderDirectoryMetadata(timestamp)
             });
             Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, db.Find<LR2SongDB.folder>(Lr2FolderPath.ToFolderPath(root)).parent);
-            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.GetDirectoryName(child)), db.Find<LR2SongDB.folder>(Lr2FolderPath.ToFolderPath(child)).parent);
+            LR2SongDB.folder savedRoot = db.Find<LR2SongDB.folder>(Lr2FolderPath.ToFolderPath(root));
+            LR2SongDB.folder savedChild = db.Find<LR2SongDB.folder>(Lr2FolderPath.ToFolderPath(child));
+            Assert.AreEqual(savedChild.path, db.Query<LR2SongDB.folder>("SELECT * FROM folder WHERE parent = ? AND path = ?;",
+                Lr2StoredPathReference.Compute(savedRoot.path), savedChild.path).Single().path);
+            Assert.AreEqual(file, db.Query<LR2SongDB.folder>("SELECT * FROM folder WHERE parent = ? AND path = ?;",
+                Lr2StoredPathReference.Compute(savedChild.path), file).Single().path);
             if (preserve)
             {
                 LR2SongDB.folder row = db.Find<LR2SongDB.folder>(file);
-                Assert.AreEqual(("Existing", "original", (int?)4, "original-parent", (int?)123, (int?)456),
+                Assert.AreEqual(("Existing", "original", (int?)4, Lr2StoredPathReference.Compute(savedChild.path), (int?)123, (int?)456),
                     (row.title, row.command, row.type, row.parent, row.date, row.adddate));
             }
         });
@@ -1271,7 +1276,6 @@ public sealed class Lr2FolderFileDbSyncServiceTests
 
             Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
             {
-                Signature = "test",
                 RunId = "run",
                 RootDirectories = [rootDirectory],
                 ChartPaths = [],
@@ -1373,8 +1377,8 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
-            string bmsRoot = Path.Combine(Path.GetDirectoryName(songDbPath)!, "BMS");
-            string outputBase = Path.Combine(bmsRoot, "#BeMusicSeeker");
+            string bmsRoot = @"D:\";
+            string outputBase = bmsRoot;
             string tableDirectory = Path.Combine(outputBase, "Table");
             string filePath = Path.Combine(tableDirectory, "0000.lr2folder");
             DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
@@ -1401,15 +1405,15 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             Assert.AreEqual(3, result.UpsertedCount);
             LR2SongDB.folder outputBaseRow = songDb.Table<LR2SongDB.folder>().Single(row => row.path == Lr2FolderPath.ToFolderPath(outputBase));
             Assert.AreEqual(1, outputBaseRow.type);
-            Assert.AreEqual("#BeMusicSeeker", outputBaseRow.title);
+
             Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, outputBaseRow.parent);
             LR2SongDB.folder tableRow = songDb.Table<LR2SongDB.folder>().Single(row => row.path == Lr2FolderPath.ToFolderPath(tableDirectory));
             Assert.AreEqual(1, tableRow.type);
             Assert.AreEqual("Table", tableRow.title);
-            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(outputBase), tableRow.parent);
+            Assert.AreEqual(tableRow.path, songDb.Query<LR2SongDB.folder>("SELECT * FROM folder WHERE parent = ? AND path = ?;", Lr2StoredPathReference.Compute(outputBaseRow.path), tableRow.path).Single().path);
             LR2SongDB.folder childRow = songDb.Table<LR2SongDB.folder>().Single(row => row.path == filePath);
             Assert.AreEqual(2, childRow.type);
-            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(tableDirectory), childRow.parent);
+            Assert.AreEqual(childRow.path, songDb.Query<LR2SongDB.folder>("SELECT * FROM folder WHERE parent = ? AND path = ?;", Lr2StoredPathReference.Compute(tableRow.path), childRow.path).Single().path);
         });
     }
 

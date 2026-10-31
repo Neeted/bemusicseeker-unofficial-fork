@@ -1393,7 +1393,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             applicationPort.AttachStartupLibrary(library);
             applicationPort.AttachStartupServices(new StartupLibraryServices(profile, library, playlist));
             var failure = new IOException("controlled required LR2 failure for actual UI consumer");
-            library.Lr2Synchronization.RecordLr2SongDbSyncFailure("consumer-signature", string.Empty, 0, failure, "failed");
+            library.Lr2Synchronization.RecordLr2SongDbSyncFailure(string.Empty, 0, failure, "failed");
             Assert.IsFalse(owner.ProgressHub.Rows.Any(row => row.Key == "lr2"), "結果投影前はこのfixtureに状態通知listenerを登録しない。");
             var result = new StartupRequiredInitializationResult(new LibraryFileInitializationResult(), failure);
 

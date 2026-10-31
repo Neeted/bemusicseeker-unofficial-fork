@@ -115,9 +115,10 @@ internal static class Lr2SongFolderParentNormalizer
         return TryCompute(chartPath, out folder, out parent);
     }
 
+    /// <summary>LR2の保存ディレクトリpathと同じ末尾区切り一つとNULをCP932化し、大小文字と相対表記を保持してCRCを返します。</summary>
     internal static string ComputeDirectoryHash(string directoryPath)
     {
-        return LR2CRC32.Compute(StrictShiftJis.GetBytes((directoryPath ?? string.Empty) + "\\\0")).ToString("x");
+        return LR2CRC32.Compute(StrictShiftJis.GetBytes((directoryPath ?? string.Empty).TrimEnd('\\') + "\\\0")).ToString("x");
     }
 
     internal static string ComputeRootHash()

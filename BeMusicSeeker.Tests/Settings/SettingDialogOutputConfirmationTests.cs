@@ -593,7 +593,7 @@ public sealed partial class SettingDialogEditCompletionTests
         public bool IsLibraryAvailable => true;
         internal int ExternalSyncCount { get; private set; }
 
-        public Task<bool> QueueAsync(string reason, bool force, bool prepareGeneratedData = false, bool allowIncompleteToQueue = true,
+        public Task<bool> QueueAsync(string reason, bool force, bool prepareGeneratedData = false,
             LibraryFileInitializationResult? initializationResult = null, LibraryFileMutationCapability? capability = null,
             bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability? playlistCapability = null,
             Lr2SongDbSyncPreparedDataSurface? preparedSurface = null, OperationProgressRequest? originatingRequest = null,

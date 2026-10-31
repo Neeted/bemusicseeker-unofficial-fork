@@ -15,7 +15,7 @@ internal sealed record LibraryFileInitializationResult
         CommittedBmsPaths = (committedBmsPaths ?? []).ToFrozenSet(StringComparer.OrdinalIgnoreCase);
     }
 
-    /// <summary>ファイル確定と同じ操作で捕捉した設定。後段の署名・探索へ再読なしで渡します。</summary>
+    /// <summary>ファイル確定と同じ操作で捕捉した設定。後段の生成・探索へ再読なしで渡します。</summary>
     internal BmsLibraryOptionsSnapshot Options { get; }
 
     /// <summary>今回の走査が確認した通常出力基点の旧・新表記です。同じ受理済み操作の管理出力反映だけに渡し、無変更なら保持しません。</summary>

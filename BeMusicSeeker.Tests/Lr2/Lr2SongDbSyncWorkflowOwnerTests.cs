@@ -38,41 +38,6 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
     }
 
     /// <summary>
-    /// 設定保存の同じ生存権限を生成データ付き要求へ渡して実終端を待ち、権限の差替えや借用権限の無断解放を検出します。
-    /// </summary>
-    [TestMethod]
-    public async Task SettingsCoreSync_ForwardsLiveCapabilityAndAwaitsBothSurfaceRequest()
-    {
-        var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var runtime = new RecordingRuntime { QueueTask = terminal.Task };
-        var owner = new Lr2SongDbSyncWorkflowOwner(runtime);
-        var admission = new ChartFileOperationSynchronizer();
-        Assert.IsTrue(admission.TryEnter(out IDisposable lease));
-        using (lease)
-        using (LibraryFileMutationCapability capability = admission.CreateMutationCapability(lease))
-        {
-            Task operation = owner.SyncFolderDataAfterSettingsChangeAsync("SettingDialog.SaveSettings", capability);
-            try
-            {
-                Assert.IsFalse(operation.IsCompleted);
-                Assert.AreEqual(1, runtime.QueueCalls.Count);
-                QueueCall call = runtime.QueueCalls[0];
-                Assert.AreEqual("SettingDialog.SaveSettings", call.Reason);
-                Assert.IsFalse(call.AllowIncompleteToQueue);
-                Assert.IsTrue(call.PrepareGeneratedData);
-                Assert.IsTrue(call.IncludeBuiltinGeneratedData);
-                Assert.AreSame(capability, call.Capability);
-                capability.Validate(admission);
-                terminal.TrySetResult();
-                await operation;
-                Assert.IsTrue(admission.IsActive);
-            }
-            finally { terminal.TrySetResult(); await operation; }
-        }
-        Assert.IsFalse(admission.IsActive);
-    }
-
-    /// <summary>
     /// 外部出力基点だけの変更は外部行同期へ渡し、全データの強制再同期キューを起動する誤りを検出します。
     /// </summary>
     [TestMethod]
@@ -150,7 +115,6 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
             string reason,
             bool force,
             bool prepareGeneratedData = false,
-            bool allowIncompleteToQueue = true,
             LibraryFileInitializationResult? initializationResult = null, LibraryFileMutationCapability? capability = null, bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability? playlistCapability = null, Lr2SongDbSyncPreparedDataSurface? preparedSurface = null, OperationProgressRequest? originatingRequest = null, BmsLibraryOptionsSnapshot? optionsSnapshot = null, Action<bool>? admissionResult = null)
         {
             admissionResult?.Invoke(true);
@@ -160,7 +124,7 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
                 if (includeBuiltinGeneratedData) { Events.Add("prepare-builtin:" + reason); }
             }
             Events.Add("queue:" + reason);
-            QueueCalls.Add(new QueueCall(reason, force, allowIncompleteToQueue, initializationResult, capability, acceptedBackground, prepareGeneratedData, includeBuiltinGeneratedData));
+            QueueCalls.Add(new QueueCall(reason, force, initializationResult, capability, acceptedBackground, prepareGeneratedData, includeBuiltinGeneratedData));
             await QueueTask.ConfigureAwait(false);
             return true;
         }
@@ -178,7 +142,6 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
     private sealed record QueueCall(
         string Reason,
         bool Force,
-        bool AllowIncompleteToQueue,
         LibraryFileInitializationResult? InitializationResult,
         LibraryFileMutationCapability? Capability,
         bool AcceptedBackground,

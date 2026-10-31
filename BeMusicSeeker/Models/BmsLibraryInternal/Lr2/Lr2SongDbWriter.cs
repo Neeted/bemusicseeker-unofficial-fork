@@ -17,8 +17,12 @@ internal readonly struct Lr2GeneratedSongWriteResult(
     long insertStageMs,
     long digestUpsertStageMs,
     long digestCleanupStageMs,
-    long tempCleanupStageMs)
+    long tempCleanupStageMs,
+    IReadOnlyDictionary<string, int?> savedLevels = null)
 {
+    /// <summary>当該chunkで実在songへ保存した生成levelです。要求された保存境界だけが返し、欠落pathを含めません。</summary>
+    public IReadOnlyDictionary<string, int?> SavedLevels { get; } = savedLevels;
+
     public int ChangedCount { get; } = changedCount;
 
     public int UpdatedCount { get; } = updatedCount;
@@ -200,9 +204,11 @@ internal static class Lr2SongDbWriter
     }
 
     /// <summary>解析できない対象では既存exact path/hash行の生成列を継承し、取得済み詳細の限定列とtxtだけを反映します。読取り成功の対象は共通解析結果から生成します。</summary>
+    /// <param name="captureSavedLevels">終端の現在値投影を行う要求だけ、当該chunkと保存先のexact joinから実在songへ保存した生成levelを返します。所属を変更しません。</param>
     internal static Lr2GeneratedSongWriteResult UpdateGeneratedSongsForLr2SongDbSyncWithResult(
         LR2SongDBExtended songDb,
-        IReadOnlyList<(ChartFile Chart, bool ParsedFromSnapshot)> facts)
+        IReadOnlyList<(ChartFile Chart, bool ParsedFromSnapshot)> facts,
+        bool captureSavedLevels = false)
     {
         Dictionary<string, GeneratedSongRow> fallbackRows = FindSongsByPaths(songDb,
             facts.Where(fact => !fact.ParsedFromSnapshot).Select(fact => fact.Chart.Path));
@@ -252,7 +258,7 @@ internal static class Lr2SongDbWriter
             Lr2SongRowEnricher.ApplyLr2ChartMetadataDefaults(row);
             rows.Add(row);
         }
-        return WriteGeneratedSongsForLr2SongDbSyncWithResult(songDb, rows, allowMembershipMutation: false);
+        return WriteGeneratedSongsForLr2SongDbSyncWithResult(songDb, rows, allowMembershipMutation: false, captureSavedLevels: captureSavedLevels);
     }
 
     internal static Lr2GeneratedSongWriteResult UpsertGeneratedSongsForLr2SongDbSyncWithResult(
@@ -265,7 +271,8 @@ internal static class Lr2SongDbWriter
     private static Lr2GeneratedSongWriteResult WriteGeneratedSongsForLr2SongDbSyncWithResult(
         LR2SongDBExtended songDb,
         IReadOnlyList<LR2SongDB.song> songs,
-        bool allowMembershipMutation)
+        bool allowMembershipMutation,
+        bool captureSavedLevels = false)
     {
         if (songDb == null)
         {
@@ -358,6 +365,20 @@ internal static class Lr2SongDbWriter
         stageStopwatch.Stop();
         long digestCleanupStageMs = stageStopwatch.ElapsedMilliseconds;
 
+        Dictionary<string, int?> savedLevels = null;
+        if (captureSavedLevels)
+        {
+            // 既存tempの当該chunkと完全一致する保存先だけを確認し、未登録songの現在値を成功公開しません。
+            HashSet<string> savedPaths = [.. songDb.Query<ChartInfoSongProjectionIdentityRow>(
+                "SELECT s.path FROM temp." + TempGeneratedSongUpsertTable + " u JOIN " + songTable + " s ON s.path = u.path;")
+                .Select(row => row.path)];
+            savedLevels = new Dictionary<string, int?>(StringComparer.Ordinal);
+            foreach (LR2SongDB.song row in rows)
+            {
+                if (savedPaths.Contains(row.path)) { savedLevels[row.path] = row.level; }
+            }
+        }
+
         stageStopwatch.Restart();
         ClearTempTable(songDb, TempDeletedSongHashTable);
         ClearTempTable(songDb, TempGeneratedSongUpsertTable);
@@ -374,7 +395,7 @@ internal static class Lr2SongDbWriter
             insertStageMs,
             digestUpsertStageMs,
             digestCleanupStageMs,
-            tempCleanupStageMs);
+            tempCleanupStageMs, savedLevels);
     }
 
     private static void ApplyGeneratedPersistenceDefaults(LR2SongDB.song song, bool isNewRow)

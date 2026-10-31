@@ -1975,7 +1975,6 @@ public sealed class SettingsDialogBehaviorTests
             string reason,
             bool force,
             bool prepareGeneratedData = false,
-            bool allowIncompleteToQueue = true,
             LibraryFileInitializationResult? initializationResult = null, LibraryFileMutationCapability? capability = null, bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability? playlistCapability = null, Lr2SongDbSyncPreparedDataSurface? preparedSurface = null, OperationProgressRequest? originatingRequest = null, BmsLibraryOptionsSnapshot? optionsSnapshot = null, Action<bool>? admissionResult = null)
         {
             admissionResult?.Invoke(true);

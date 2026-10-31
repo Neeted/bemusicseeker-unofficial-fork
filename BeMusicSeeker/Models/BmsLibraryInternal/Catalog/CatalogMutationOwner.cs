@@ -421,16 +421,16 @@ internal sealed class CatalogMutationOwner
         }
     }
 
+    /// <summary>保存済みCompletedと連携モードから全体同期の要否を判定し、旧署名を読み替えません。</summary>
     internal Lr2SongDbSyncStatusSnapshot EvaluateLr2SongDbSyncStatus(
         bool enabled,
-        string signature,
         DateTime nowUtc)
     {
         using (maintenanceWriteGate.GetWriterGuard())
         using (LR2SongDBExtended songDb = dbGateway?.OpenSongDb()
             ?? throw new InvalidOperationException("Catalog mutation owner is not configured with a song database."))
         {
-            return Lr2SongDbSyncStatusService.Evaluate(songDb, enabled, signature, nowUtc);
+            return Lr2SongDbSyncStatusService.Evaluate(songDb, enabled, nowUtc);
         }
     }
 
@@ -451,7 +451,6 @@ internal sealed class CatalogMutationOwner
             {
                 Lr2SongDbSyncStatusMutationKind.MarkIncomplete => Lr2SongDbSyncStatusService.MarkIncomplete(
                     songDb,
-                    request.Signature,
                     request.RunId,
                     request.ProcessedCursor,
                     request.TotalCount,
@@ -460,7 +459,6 @@ internal sealed class CatalogMutationOwner
                     request.NowUtc),
                 Lr2SongDbSyncStatusMutationKind.MarkFailed => Lr2SongDbSyncStatusService.MarkFailed(
                     songDb,
-                    request.Signature,
                     request.RunId,
                     request.ProcessedCursor,
                     request.TotalCount,
@@ -469,7 +467,6 @@ internal sealed class CatalogMutationOwner
                     request.NowUtc),
                 Lr2SongDbSyncStatusMutationKind.MarkCompleted => Lr2SongDbSyncStatusService.MarkCompleted(
                     songDb,
-                    request.Signature,
                     request.RunId,
                     request.TotalCount,
                     request.NowUtc),
@@ -1417,7 +1414,6 @@ internal sealed class CatalogInstalledTargetUpsertRequest
 
     /// <summary>導入対象の実入力だけを再検査する捕捉値。無関係な現在値更新は拒否条件にしません。</summary>
     internal IReadOnlyDictionary<string, LibraryChartRef> BeforeByPath { get; }
-
 
     /// <summary>installed target upsert と同じ transaction で削除する pending install row path。</summary>
     internal IReadOnlyList<string> InstallPathsToDelete { get; }

@@ -605,7 +605,7 @@ public sealed class StartupRequiredInitializationTests
         internal Exception? BeforeQueueFailure { get; init; }
         public bool IsLr2ModeEnabled => true;
         public bool IsLibraryAvailable => true;
-        public async Task<bool> QueueAsync(string reason, bool force, bool prepareGeneratedData = false, bool allowIncompleteToQueue = true,
+        public async Task<bool> QueueAsync(string reason, bool force, bool prepareGeneratedData = false,
             LibraryFileInitializationResult? initializationResult = null, LibraryFileMutationCapability? capability = null,
             bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability? playlistCapability = null,
             Lr2SongDbSyncPreparedDataSurface? preparedSurface = null, OperationProgressRequest? originatingRequest = null, BmsLibraryOptionsSnapshot? optionsSnapshot = null, Action<bool>? admissionResult = null)
@@ -615,7 +615,7 @@ public sealed class StartupRequiredInitializationTests
             Entered.TrySetResult();
             await Release.Task;
             if (BeforeQueueFailure != null) { throw BeforeQueueFailure; }
-            return await actual.QueueAsync(reason, force, prepareGeneratedData, allowIncompleteToQueue, initializationResult,
+            return await actual.QueueAsync(reason, force, prepareGeneratedData, initializationResult,
                 capability, acceptedBackground, includeBuiltinGeneratedData, playlistCapability, preparedSurface, originatingRequest, optionsSnapshot, admissionResult);
         }
         public Task SyncExternalFolderRowsForCustomFolderOutputBaseChangeAsync(string reason,

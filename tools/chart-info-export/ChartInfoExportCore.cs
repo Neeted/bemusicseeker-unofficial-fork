@@ -55,7 +55,7 @@ public static class ChartInfoExportRunner
 {
     public const int CurrentChartInfoSchemaVersion = 5;
 
-    public const int CurrentChartInfoParserVersion = 21;
+    public const int CurrentChartInfoParserVersion = 22;
 
     public const int MetadataBundleFormatVersion = 1;
 

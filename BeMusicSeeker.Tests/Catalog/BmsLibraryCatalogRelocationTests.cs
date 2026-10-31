@@ -177,7 +177,9 @@ public sealed class BmsLibraryCatalogRelocationTests
                 Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT txt FROM song WHERE path = ?;", newChartPath));
                 Assert.IsFalse(verifySongDb.Table<LR2SongDB.song>().Any(file => file.path == oldChartPath));
                 LR2SongDB.folder movedFolder = verifySongDb.Table<LR2SongDB.folder>().Single(folder => folder.path == newDirectoryPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar);
-                Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.GetDirectoryName(newDirectoryPath)), movedFolder.parent);
+                LR2SongDB.song movedSong = verifySongDb.Query<LR2SongDB.song>("SELECT * FROM song WHERE folder = ?;", Lr2StoredPathReference.Compute(movedFolder.path)).Single();
+                Assert.AreEqual(newChartPath, movedSong.path);
+                Assert.AreEqual(movedFolder.parent, movedSong.parent);
                 Assert.IsTrue(verifySongDb.Table<LR2SongDBExtended.bmson_song>().Any(song => song.path == newBmsonPath));
             }
             finally

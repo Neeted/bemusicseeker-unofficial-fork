@@ -68,7 +68,6 @@ public sealed class Lr2SongDbSyncServiceTests
         bool observedPreCommitState = false;
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "folder-reconciliation-progress",
             RunId = "folder-reconciliation-progress",
             RootDirectories = [rootDirectory],
             NormalFolderDirectoryPaths = [rootDirectory, firstDirectory, secondDirectory],
@@ -198,7 +197,6 @@ public sealed class Lr2SongDbSyncServiceTests
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             LogInstallPerformance = logs.Enqueue,
-            Signature = "real-chunk-progress",
             RunId = "real-chunk-progress",
             SongRows = songs,
             ChartFileBufferReader = path => new ChartFileReadBuffer(path,
@@ -281,7 +279,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "folder-reconciliation-observer-failure",
             RunId = "folder-reconciliation-observer-failure",
             RootDirectories = [rootDirectory],
             NormalFolderDirectoryPaths = [rootDirectory, firstDirectory, secondDirectory],
@@ -317,7 +314,6 @@ public sealed class Lr2SongDbSyncServiceTests
             RootDirectories = withFolder ? [scope.DirectoryPath] : [],
             NormalFolderDirectoryPaths = withFolder ? [scope.DirectoryPath] : [],
             DirectoryEntries = withFolder ? CreateDirectoryEntryMap(scope.DirectoryPath) : [],
-            Signature = "empty-folder-projection",
             RunId = "empty-folder-projection",
             StartedAtUtc = new DateTime(2026, 6, 8, 8, 0, 0, DateTimeKind.Utc),
             ProgressReporter = progress =>
@@ -373,7 +369,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "full-membership-delete",
             RunId = "full-membership-delete",
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
@@ -391,6 +386,8 @@ public sealed class Lr2SongDbSyncServiceTests
     {
         using var scope = TestDatabaseScope.Create();
         string chartPath = Path.Combine(scope.DirectoryPath, "new.bms");
+        WriteBasicBms(chartPath, "missing membership");
+        var currentFacts = new List<Lr2SongDbSyncCurrentFact>();
         ChartFile file = ChartTestValues.Empty() with
         {
             Path = chartPath
@@ -402,14 +399,16 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "full-membership-insert",
             RunId = "full-membership-insert",
+            ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
+            SongCurrentFactsCommitted = facts => currentFacts.AddRange(facts),
             SongRows = [file],
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
         Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.IsNull(songDb.Find<LR2SongDB.song>(chartPath));
+        Assert.IsFalse(currentFacts.Any(fact => fact.HasLevel));
     }
 
     /// <summary>
@@ -441,7 +440,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "full-lr2folder-reparse",
             RunId = "full-lr2folder-reparse",
             RootDirectories = [rootDirectory],
             Lr2FolderDiscoveryDirectories = [rootDirectory],
@@ -480,7 +478,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "full-epoch-folder-date",
             RunId = "full-epoch-folder-date",
             RootDirectories = [rootDirectory],
             DirectoryEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
@@ -535,7 +532,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(copiedDb, new Lr2SongDbSyncRequest
         {
-            Signature = "copied-user-columns",
             RunId = "copied-user-columns-run",
             RootDirectories = [rootDirectory],
             ChartPaths = [chartPath],
@@ -586,10 +582,11 @@ public sealed class Lr2SongDbSyncServiceTests
         songDb.InsertOrReplace(new LR2SongDBExtended.maintenance
         { path = missingChartPath, hash = file.Md5, encoding = "big5", is_encoding_fixed = true });
 
+        var currentFacts = new List<Lr2SongDbSyncCurrentFact>();
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "missing-song",
             RunId = "missing-song",
+            SongCurrentFactsCommitted = facts => currentFacts.AddRange(facts),
             SongRows = [file],
             TextFileDirectories = [],
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
@@ -604,6 +601,7 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(314, songDb.ExecuteScalar<int>("SELECT maxbpm FROM song WHERE path = ?;", missingChartPath));
         Assert.AreEqual(157, songDb.ExecuteScalar<int>("SELECT minbpm FROM song WHERE path = ?;", missingChartPath));
         Assert.AreEqual(2718, songDb.ExecuteScalar<int>("SELECT karinotes FROM song WHERE path = ?;", missingChartPath));
+        Assert.IsFalse(currentFacts.Any(fact => fact.HasLevel));
         Assert.AreEqual("big5", songDb.ExecuteScalar<string>("SELECT encoding FROM maintenance WHERE path = ?;", missingChartPath));
         Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT is_encoding_fixed FROM maintenance WHERE path = ?;", missingChartPath));
     }
@@ -631,7 +629,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "negative-song-date",
             RunId = "negative-song-date",
             RootDirectories = [rootDirectory],
             ChartPaths = [chartPath],
@@ -669,7 +666,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "null-song-date",
             RunId = "null-song-date",
             RootDirectories = [rootDirectory],
             ChartPaths = [chartPath],
@@ -711,7 +707,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "legacy-folder-date-stale",
             RunId = "legacy-folder-date-stale-run",
             RootDirectories = [rootDirectory],
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
@@ -749,22 +744,23 @@ public sealed class Lr2SongDbSyncServiceTests
         songDb.CreateTable<LR2SongDB.folder>();
         songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(firstFile), typeof(LR2SongDB.song));
         songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(secondFile), typeof(LR2SongDB.song));
-        const string signature = "rollback-song-chunk";
         songDb.Execute(
             "CREATE TRIGGER fail_second_song_update BEFORE UPDATE ON song"
             + " WHEN NEW.path = '" + EscapeSqlLiteral(secondPath) + "'"
             + " BEGIN SELECT RAISE(ABORT, 'fail_second_song_update'); END;");
 
+        var currentFacts = new List<Lr2SongDbSyncCurrentFact>();
         Assert.ThrowsException<SQLite.SQLiteException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = signature,
             RunId = "rollback-fail-run",
+            SongCurrentFactsCommitted = facts => currentFacts.AddRange(facts),
             RootDirectories = [rootDirectory],
             ChartPaths = [firstPath, secondPath],
             SongRows = [firstFile, secondFile],
             ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         }));
+        Assert.AreEqual(0, currentFacts.Count);
         Assert.AreEqual(2, songDb.Table<LR2SongDB.song>().Count());
         Assert.AreEqual("stale first", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", firstPath));
         Assert.AreEqual("stale second", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", secondPath));
@@ -777,7 +773,6 @@ public sealed class Lr2SongDbSyncServiceTests
         songDb.Execute("DROP TRIGGER fail_second_song_update;");
         Lr2SongDbSyncResult retry = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = signature,
             RunId = "rollback-retry-run",
             RootDirectories = [rootDirectory],
             ChartPaths = [firstPath, secondPath],
@@ -825,11 +820,10 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "utf8-song",
             RunId = "utf8-song",
             SongRows = [file],
             ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
-            Lr2CompatibilityFactsCommitted = _ => notifiedTitles.Add(songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath)),
+            SongCurrentFactsCommitted = _ => notifiedTitles.Add(songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath)),
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
@@ -873,7 +867,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "fixed-metadata",
             RunId = "fixed-metadata",
             SongRows = [file],
             ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
@@ -936,7 +929,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "encoding-detection",
             RunId = "encoding-detection",
             SongRows = [file],
             ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb)
@@ -953,7 +945,7 @@ public sealed class Lr2SongDbSyncServiceTests
     }
 
     /// <summary>
-    /// 最新・旧版・MD5不一致の解析入力を区別し、最新結果を採用し他を再解析しながら各譜面の読取りを一度に抑える。
+    /// 最新・旧版・MD5不一致の解析入力を区別し、最新結果を採用し他を再解析しながら各譜面の読取りを一度に抑える。新解析とcacheの確定levelを同じ事実境界へ渡す。
     /// </summary>
     /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
@@ -988,11 +980,12 @@ public sealed class Lr2SongDbSyncServiceTests
         songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(mismatchFile), typeof(LR2SongDB.song));
         var serviceReadCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         object serviceReadCountsSync = new();
+        var currentFacts = new List<Lr2SongDbSyncCurrentFact>();
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "chart-info-current",
             RunId = "chart-info-current",
+            SongCurrentFactsCommitted = facts => currentFacts.AddRange(facts),
             SongRows = [currentFile, staleFile, mismatchFile],
             ChartInfoResolver = CreateChartInfoResolver([currentInfo, staleInfo, mismatchInfo]),
             ChartFileBufferReader = path =>
@@ -1019,6 +1012,14 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(1, serviceReadCounts[currentPath]);
         Assert.AreEqual(1, serviceReadCounts[stalePath]);
         Assert.AreEqual(1, serviceReadCounts[mismatchPath]);
+        Assert.AreEqual(3, currentFacts.Count(fact => fact.HasLevel));
+        foreach ((string path, int expectedLevel) in new[] { (currentPath, 77), (stalePath, 9), (mismatchPath, 11) })
+        {
+            Lr2SongDbSyncCurrentFact fact = currentFacts.Single(value => value.Chart.Path == path);
+            Assert.AreEqual(expectedLevel, fact.Chart.Level);
+            Assert.AreEqual(expectedLevel.ToString(System.Globalization.CultureInfo.InvariantCulture), fact.Chart.LevelText);
+            Assert.AreEqual(expectedLevel, songDb.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", path));
+        }
     }
 
     /// <summary>
@@ -1043,7 +1044,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "chart-info-failure-skip",
             RunId = "chart-info-failure-skip",
             SongRows = [file],
             CurrentChartInfoParseFailureMd5s = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -1082,7 +1082,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "chart-info-resolver",
             RunId = "chart-info-resolver",
             SongRows = [file],
             ChartInfoResolver = CreateChartInfoResolver(
@@ -1122,7 +1121,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "chart-info-stale-resolver",
             RunId = "chart-info-stale-resolver",
             SongRows = [file],
             ChartInfoResolver = _ => CreateChartInfo(snapshot.Sha256, snapshot.Md5, level: 99, parserVersion: BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1),
@@ -1151,7 +1149,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Assert.ThrowsException<OperationCanceledException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "sig_cancel",
             RunId = "run_cancel",
             CancellationToken = cancellation.Token
         }));
@@ -1193,7 +1190,6 @@ public sealed class Lr2SongDbSyncServiceTests
         bool transactionBarrierObserved = false;
         Assert.ThrowsException<OperationCanceledException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "folder-commit-shutdown",
             RunId = "folder-commit-shutdown",
             RootDirectories = [rootDirectory],
             NormalFolderDirectoryPaths = [rootDirectory],
@@ -1256,7 +1252,6 @@ public sealed class Lr2SongDbSyncServiceTests
         int committedCallbackCount = 0;
         OperationCanceledException failure = Assert.ThrowsException<OperationCanceledException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "song-commit-shutdown",
             RunId = "song-commit-shutdown",
             SongRows = [file],
             CancellationToken = cancellation.Token,
@@ -1276,7 +1271,7 @@ public sealed class Lr2SongDbSyncServiceTests
             },
             ChartInfoRowsCommitted = _ => Interlocked.Increment(ref committedCallbackCount),
             ChartInfoParseFailuresCommitted = (_, _, _) => Interlocked.Increment(ref committedCallbackCount),
-            Lr2CompatibilityFactsCommitted = _ => Interlocked.Increment(ref committedCallbackCount),
+            SongCurrentFactsCommitted = _ => Interlocked.Increment(ref committedCallbackCount),
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         }));
 
@@ -1319,12 +1314,10 @@ public sealed class Lr2SongDbSyncServiceTests
         songDb.CreateTable<LR2SongDB.folder>();
         songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
         using var cancellation = new CancellationTokenSource();
-        const string signature = "cancel-retry-after-folder";
         var progressEvents = new List<Lr2SongDbSyncProgress>();
 
         Assert.ThrowsException<OperationCanceledException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = signature,
             RunId = "cancel-run",
             RootDirectories = [rootDirectory],
             ChartPaths = [chartPath],
@@ -1361,7 +1354,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult retried = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = signature,
             RunId = "retry-after-cancel-run",
             RootDirectories = [rootDirectory],
             ChartPaths = [chartPath],
@@ -1404,12 +1396,11 @@ public sealed class Lr2SongDbSyncServiceTests
         var committedCompatibilityFacts = new List<ResourceHealthMaintenanceSnapshot>();
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "lr2-compatibility",
             RunId = "lr2-compatibility",
             SongRows = [file],
             ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc),
-            Lr2CompatibilityFactsCommitted = infos => committedCompatibilityFacts.AddRange(infos)
+            SongCurrentFactsCommitted = infos => committedCompatibilityFacts.AddRange(infos.Select(fact => fact.CompatibilityInfo).OfType<ResourceHealthMaintenanceSnapshot>())
         });
 
         Assert.AreEqual(1, result.SongRowLr2CompatibilityAppliedCount);
@@ -1443,7 +1434,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Assert.ThrowsException<SQLite.SQLiteException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "encoding-expiry-rollback",
             RunId = "encoding-expiry-rollback",
             SongRows = [file],
             ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb)
@@ -1481,7 +1471,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "lr2-compatibility-exact",
             RunId = "lr2-compatibility-exact",
             SongRows = [file],
             ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
@@ -1521,7 +1510,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "lr2-compatibility-fallback-preserve",
             RunId = "lr2-compatibility-fallback-preserve",
             SongRows = [file],
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
@@ -1559,7 +1547,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "test",
             RunId = "run",
             RootDirectories = [rootDirectory],
             DirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
@@ -1595,7 +1582,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "lr2folder-enumerated-time",
             RunId = "lr2folder-enumerated-time-run",
             RootDirectories = [rootDirectory],
             Lr2FolderDiscoveryDirectories = [rootDirectory],
@@ -1637,7 +1623,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "builtin-lr2folder-parent-diagnostic",
             RunId = "builtin-lr2folder-parent-diagnostic-run",
             RootDirectories = [chartRoot],
             DirectoryEntries = CreateDirectoryEntryMap(chartRoot, insaneDirectory),
@@ -1676,7 +1661,6 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "directory-enumerated-time",
             RunId = "directory-enumerated-time-run",
             RootDirectories = [rootDirectory],
             DirectoryEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
@@ -1741,7 +1725,6 @@ public sealed class Lr2SongDbSyncServiceTests
         });
         var request = new Lr2SongDbSyncRequest
         {
-            Signature = "detail-input-skip",
             RunId = "detail-input-skip",
             SongRows = charts,
             ChartInfoBuildService = parser,
@@ -1823,7 +1806,6 @@ public sealed class Lr2SongDbSyncServiceTests
         int activeReaders = 0;
         var request = new Lr2SongDbSyncRequest
         {
-            Signature = "basic-input-skip",
             RunId = "basic-input-skip",
             SongRows = charts,
             ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
@@ -1883,7 +1865,6 @@ public sealed class Lr2SongDbSyncServiceTests
             }
             Lr2SongDbSyncResult next = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
             {
-                Signature = "basic-input-next",
                 RunId = "basic-input-next",
                 SongRows = charts,
                 ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
@@ -1954,6 +1935,7 @@ public sealed class Lr2SongDbSyncServiceTests
             int? observedPrefixCursor = null;
             int activeCallbacks = 0;
             int publishedFailures = 0;
+            var currentFacts = new List<Lr2SongDbSyncCurrentFact>();
             var parser = new ChartInfoBuildService(null, parseBytes: (bytes, path, md5, sha256, timeout) =>
             {
                 Interlocked.Increment(ref activeCallbacks);
@@ -1975,8 +1957,8 @@ public sealed class Lr2SongDbSyncServiceTests
             });
             var request = new Lr2SongDbSyncRequest
             {
-                Signature = "pipeline-request-cancel",
                 RunId = "pipeline-run",
+                SongCurrentFactsCommitted = facts => currentFacts.AddRange(facts),
                 SongRows = charts,
                 ChartInfoBuildService = parser,
                 ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
@@ -2031,6 +2013,9 @@ public sealed class Lr2SongDbSyncServiceTests
                 Assert.IsNotNull(failure);
                 Assert.IsInstanceOfType<OperationCanceledException>(failure);
                 Assert.AreEqual(cleanupCancellation.Token, ((OperationCanceledException)failure).CancellationToken);
+                Assert.AreEqual(1000, currentFacts.Count);
+                Assert.IsTrue(currentFacts.All(fact => fact.HasLevel && fact.Chart.Level == 9 && fact.Chart.LevelText == "9"));
+                CollectionAssert.AreEquivalent(charts.Take(1000).Select(chart => chart.Path).ToArray(), currentFacts.Select(fact => fact.Chart.Path).ToArray());
                 Assert.AreEqual(0, activeCallbacks);
                 Assert.AreEqual(0, publishedFailures);
                 LR2SongDBExtended.lr2_song_db_sync_status status = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
@@ -2125,7 +2110,6 @@ public sealed class Lr2SongDbSyncServiceTests
             InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(() =>
                 Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
                 {
-                    Signature = "required-callback",
                     RunId = "required-callback",
                     SongRows = [file],
                     ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
@@ -2134,7 +2118,7 @@ public sealed class Lr2SongDbSyncServiceTests
                         rowsCalls++;
                         if (failedFact == "chart_info") { ObserveCommit(); ThrowRequiredCommittedCallbackFault(failedFact); }
                     },
-                    Lr2CompatibilityFactsCommitted = _ =>
+                    SongCurrentFactsCommitted = _ =>
                     {
                         compatibilityCalls++;
                         if (failedFact == "compatibility") { ObserveCommit(); ThrowRequiredCommittedCallbackFault(failedFact); }
@@ -2289,7 +2273,6 @@ public sealed class Lr2SongDbSyncServiceTests
             }
             var request = new Lr2SongDbSyncRequest
             {
-                Signature = "committed-fault-after-cancel-" + failedFact + readerCancelsBeforeOwner,
                 RunId = "committed-fault-after-cancel",
                 SongRows = files,
                 CancellationToken = cancellation.Token,
@@ -2335,7 +2318,7 @@ public sealed class Lr2SongDbSyncServiceTests
                     Interlocked.Add(ref clearedParseFailures, cleared);
                     ApplyCommittedFact("parse_failures");
                 },
-                Lr2CompatibilityFactsCommitted = _ =>
+                SongCurrentFactsCommitted = _ =>
                 {
                     Interlocked.Increment(ref compatibilityCalls);
                     ApplyCommittedFact("compatibility");
@@ -2506,7 +2489,6 @@ public sealed class Lr2SongDbSyncServiceTests
             {
                 Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
                 {
-                    Signature = "rollback-authorizer",
                     RunId = "rollback-authorizer",
                     SongRows = files,
                     CancellationToken = cancellation.Token,

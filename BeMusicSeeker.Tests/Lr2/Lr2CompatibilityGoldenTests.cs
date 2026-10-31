@@ -12,6 +12,27 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2CompatibilityGoldenTests
 {
+    /// <summary>末尾区切りを一つにし、大小文字・日本語・既知相対表記・空親の意味を独立固定値で維持します。参照計算も固定値で照合します。</summary>
+    [DataTestMethod]
+    [DataRow(@"D:\", "ac06268")]
+    [DataRow(@"D:\\", "ac06268")]
+    [DataRow(@"C:\Library", "d04e1bd9")]
+    [DataRow(@"C:\Library\", "d04e1bd9")]
+    [DataRow(@"\\server\share\", "fcdbcd31")]
+    [DataRow(@"D:\BMS\あいう\", "51aa0c67")]
+    [DataRow(@"D:\BMS\表ソ\", "e2ffc2f3")]
+    [DataRow(@"LR2files\CustomFolder\RANDOM\", "757007d0")]
+    [DataRow(null, "57d700a7")]
+    [DataRow("", "57d700a7")]
+    public void DirectoryHashMatchesStoredPathGoldenValues(string? directory, string expected)
+    {
+        Assert.AreEqual(expected, Lr2SongFolderParentNormalizer.ComputeDirectoryHash(directory));
+        // 参照側の入力は保存形式の固定文字列です。製品の末尾補正は使いません。
+        string stored = directory == @"D:\\" ? @"D:\" : directory == @"C:\Library" ? @"C:\Library\" : directory ?? @"\";
+        if (stored == "") { stored = @"\"; }
+        Assert.AreEqual(expected, Lr2StoredPathReference.Compute(stored));
+    }
+
     /// <summary>
     /// LR2のROOT親識別子を独立した互換値と照合し、ルート行を別階層へ接続する変更を検出する。
     /// </summary>
@@ -20,6 +41,8 @@ public sealed class Lr2CompatibilityGoldenTests
     {
         Assert.AreEqual("e2977170", Lr2SongFolderParentNormalizer.RootParentHash);
         Assert.AreEqual("e2977170", Lr2SongFolderParentNormalizer.ComputeRootHash());
+        Assert.AreEqual("e2977170", Lr2StoredPathReference.Compute("ROOT"));
+        Assert.AreNotEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(@"C:\Library"), Lr2SongFolderParentNormalizer.ComputeDirectoryHash(@"c:\Library"));
     }
 
     /// <summary>
@@ -38,7 +61,7 @@ public sealed class Lr2CompatibilityGoldenTests
     /// </summary>
     [DataTestMethod]
     [DataRow(@"D:\BMS\Pack\Song\chart.bms", "f002e300", "a777506c")]
-    [DataRow(@"D:\root.bms", "876fd4dd", "57d700a7")]
+    [DataRow(@"D:\root.bms", "ac06268", "57d700a7")]
     [DataRow(@"\\server\share\Pack\chart.bms", "34521cee", "fcdbcd31")]
     [DataRow(@"D:\BMS\あいう\chart.bms", "51aa0c67", "8c132896")]
     public void FolderParentHashesMatchLr2DirectoryGoldenValues(string chartPath, string expectedFolder, string expectedParent)

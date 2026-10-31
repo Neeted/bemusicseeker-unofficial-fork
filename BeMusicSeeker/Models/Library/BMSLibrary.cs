@@ -5921,7 +5921,6 @@ public partial class BMSLibrary : ObservableObject
         string reason,
         bool force = false,
         Func<LibraryFileMutationLease, BmsLibraryOptionsSnapshot, Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData = null,
-        bool allowIncompleteToQueue = true,
         LibraryFileInitializationResult initializationResult = null,
         LibraryFileMutationCapability capability = null, bool acceptedBackground = false,
         BmsLibraryOptionsSnapshot optionsSnapshot = null, Action<LibraryFileMutationCapability> capturePreparationInputs = null, LibraryFileMutationCapability playlistCapability = null, Action<bool> admissionResult = null, Lr2SongDbSyncPreparedDataSurface preparedSurface = null, OperationProgressRequest originatingRequest = null)
@@ -5931,7 +5930,6 @@ public partial class BMSLibrary : ObservableObject
             reason,
             force,
             prepareGeneratedData,
-            allowIncompleteToQueue,
             initializationResult, capability, acceptedBackground, optionsSnapshot, capturePreparationInputs, playlistCapability, admissionResult, preparedSurface, originatingRequest);
     }
 
@@ -5944,7 +5942,6 @@ public partial class BMSLibrary : ObservableObject
 
     private static Lr2SongDbSyncStatusSnapshot CreateRuntimeLr2SongDbSyncStatus(
         Lr2SongDbSyncStatusKind status,
-        string signature,
         string stage,
         int? processedCursor,
         int? totalCount,
@@ -5956,7 +5953,6 @@ public partial class BMSLibrary : ObservableObject
         {
             Status = status,
             StoredStatus = status,
-            Signature = signature ?? string.Empty,
             Stage = stage ?? string.Empty,
             ProcessedCursor = processedCursor,
             TotalCount = totalCount,
@@ -7257,7 +7253,6 @@ public partial class BMSLibrary : ObservableObject
             SnapshotVersion = snapshot?.Version ?? 0,
             InvalidationVersion = snapshot?.InvalidationVersion ?? 0,
             CatalogRevision = snapshot?.CatalogRevision ?? 0,
-
             StaleRetryCount = staleRetryCount
         };
         LogInstallPerformance("owned_adjacent_index_warmup index=" + result.IndexName

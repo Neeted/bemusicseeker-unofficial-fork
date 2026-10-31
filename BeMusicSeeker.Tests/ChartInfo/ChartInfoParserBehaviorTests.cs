@@ -20,6 +20,25 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartInfoParserBehaviorTests
 {
+    /// <summary>正ノーツBMSONのTOTAL省略・非正値・nullは未定義、明示正値は定義済みとし、有効TOTALの既定計算と倍率を維持します。</summary>
+    [DataTestMethod]
+    [DataRow("", false, 260d)]
+    [DataRow(",\"total\":100", true, 260d)]
+    [DataRow(",\"total\":0", false, 260d)]
+    [DataRow(",\"total\":-100", false, 260d)]
+    [DataRow(",\"total\":null", false, 260d)]
+    [DataRow(",\"total\":150", true, 390d)]
+    public void ParseBmson_TotalDefinitionPreservesEffectiveValue(string totalProperty, bool defined, double total)
+    {
+        string json = "{\"version\":\"1.0.0\",\"info\":{\"init_bpm\":120,\"mode_hint\":\"beat-7k\"" + totalProperty
+            + "},\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":0}]}]}";
+        ChartDetails row = ChartInfoParser.ParseBytesDetailed(Encoding.UTF8.GetBytes(json), "total.bmson").Row;
+        Assert.AreEqual(1, row.notes);
+        Assert.AreEqual(total, row.total.GetValueOrDefault(), 0.000001);
+        Assert.AreEqual(defined, row.total_defined);
+        Assert.AreEqual(22, row.parser_version);
+    }
+
     /// <summary>旧0.21・versionless・現代versionの旧別名を同じJSON境界で受理し、旧形式だけresolutionを240へ固定してSTOPをpulse長のまま扱います。</summary>
     [DataTestMethod]
     [DataRow("\"version\":\"0.21\",", 480)]
@@ -447,7 +466,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
-    /// <summary>重複するscroll・BGAキーは最後の値を採用し、省略されたinfoとrateは入力規格の互換値へ補完して前値の混在を検出する。</summary>
+    /// <summary>重複するscroll・BGAキーは最後の値を採用し、省略されたinfoの構造・配列・rateを従来の受理既定値へ補完して前値の混在を検出する。</summary>
     [TestMethod]
     public void BmsonJsonParser_DuplicateKeysUseLastValueAndDefaultsMatchReference()
     {
@@ -464,7 +483,8 @@ public sealed class ChartInfoParserBehaviorTests
         Assert.IsNotNull(document.Info);
         Assert.AreEqual("beat-7k", document.Info.ModeHint);
         Assert.AreEqual(100, document.Info.JudgeRank);
-        Assert.AreEqual(100.0, document.Info.Total, 0.000001);
+        // TOTALの内部既定値は固定せず、省略時の有効値と未定義フラグは
+        // ParseBmson_TotalDefinitionPreservesEffectiveValue の正ノーツ実解析へ集約します。
         Assert.AreEqual(240, document.Info.Resolution);
         Assert.IsFalse(document.Info.Level.HasValue);
         Assert.AreEqual(0, document.Lines.Length);

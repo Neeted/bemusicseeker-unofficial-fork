@@ -159,17 +159,19 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
-            string md5A = new('a', 32);
+            ChartDetails parsed = ChartInfoParser.ParseBytes(Encoding.UTF8.GetBytes(
+                "{\"version\":\"1.0.0\",\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":0}]}]}"), "export.bmson");
+            string md5A = parsed.md5;
             string md5B = new('b', 32);
             string md5C = new('c', 32);
-            string shaA = new('1', 64);
+            string shaA = parsed.sha256;
             string shaB = new('2', 64);
             string shaC = new('3', 64);
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                 BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
-                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(shaA, md5A, BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(parsed), typeof(LR2SongDBExtended.chart_info));
                 songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(shaB, md5B, BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1)), typeof(LR2SongDBExtended.chart_info));
                 songDb.InsertOrReplace(CreateChartDigestRow(md5C, shaC), typeof(LR2SongDBExtended.chart_digest_map));
             }
@@ -191,9 +193,24 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             ChartInfoMetadataBundleManifestRow manifest = verify.Query<ChartInfoMetadataBundleManifestRow>("SELECT * FROM chart_info_metadata_bundle;").Single();
             Assert.AreEqual(ChartInfoExportRunner.MetadataBundleFormatVersion, manifest.format_version);
             Assert.AreEqual(BmsLibraryDbGateway.CurrentChartInfoSchemaVersion, manifest.chart_info_schema_version);
-            Assert.AreEqual(21, manifest.chart_info_parser_version);
+            Assert.AreEqual(22, manifest.chart_info_parser_version);
             Assert.AreEqual(1, manifest.chart_info_count);
             Assert.AreEqual(2, manifest.chart_digest_count);
+            string importedDirectory = Path.Combine(tempRootPath, "imported");
+            Directory.CreateDirectory(importedDirectory);
+            string importedDbPath = Path.Combine(importedDirectory, "song.db");
+            using (var emptyDb = new SQLiteConnection(importedDbPath, storeDateTimeAsTicks: true))
+            {
+                emptyDb.CreateTable<LR2SongDB.song>();
+            }
+            var importedGateway = new BmsLibraryDbGateway(importedDbPath);
+            importedGateway.EnsureChartInfoSchema();
+            importedGateway.ImportChartInfoMetadataBundle(outputPath, ChartFileContentReader.ComputeSha256(outputPath));
+            using var imported = new LR2SongDBExtended(importedDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            ChartDetails importedRow = imported.Query<ChartDetails>("SELECT * FROM chart_info WHERE sha256 = ?;", shaA).Single();
+            Assert.AreEqual(22, importedRow.parser_version);
+            Assert.IsFalse(importedRow.total_defined);
+            Assert.AreEqual(260d, importedRow.total);
         });
     }
 

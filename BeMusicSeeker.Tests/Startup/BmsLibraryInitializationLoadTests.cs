@@ -104,9 +104,11 @@ public sealed class BmsLibraryInitializationLoadTests
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             string rootedNestedFolderPath = Path.Combine(lr2RootPath, "Songs", "Nested") + "\\";
             LR2SongDB.folder nested = verify.Table<LR2SongDB.folder>().Single(folder => folder.path == rootedNestedFolderPath);
-            Assert.AreEqual(
-                Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.Combine(lr2RootPath, "Songs")),
-                nested.parent);
+            if (!targetUnreadable)
+            {
+                LR2SongDB.folder savedParent = verify.Find<LR2SongDB.folder>(target.path);
+                Assert.AreEqual(nested.path, verify.Query<LR2SongDB.folder>("SELECT * FROM folder WHERE parent = ? AND path = ?;", Lr2StoredPathReference.Compute(savedParent.path), nested.path).Single().path);
+            }
             Assert.IsNotNull(result.FolderTableSnapshot);
             IReadOnlyDictionary<string, LR2SongDB.folder> reused = result.FolderTableSnapshot.ExistingRowsByPath;
             CollectionAssert.AreEquivalent(verify.Table<LR2SongDB.folder>().Select(row => row.path).ToArray(), reused.Values.Select(row => row.path).ToArray());
@@ -131,6 +133,11 @@ public sealed class BmsLibraryInitializationLoadTests
             else { Assert.IsNull(verify.Find<LR2SongDB.folder>(target.path)); }
             LR2SongDB.song savedSong = verify.Find<LR2SongDB.song>(rootedChartPath);
             Assert.AreEqual(((int?)5, "relative-user", (int?)5432), (savedSong.favorite, savedSong.tag, savedSong.adddate));
+            if (!targetUnreadable)
+            {
+                string folderHash = Lr2StoredPathReference.Compute(verify.Find<LR2SongDB.folder>(target.path).path);
+                Assert.AreEqual(rootedChartPath, verify.Query<LR2SongDB.song>("SELECT * FROM song WHERE folder = ?;", folderHash).Single().path);
+            }
             Assert.IsFalse(reused.ContainsKey(unreadable.path));
             Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM folder WHERE path = ?;", unreadable.path));
             Assert.AreEqual("Keep unchanged", reused[untouched].title); Assert.AreEqual(7, reused[untouched].date); Assert.AreEqual(456, reused[untouched].adddate);

@@ -2111,7 +2111,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <h4 id="lr2-cannot-select-a-chart">LR2 Cannot Select a Chart</h4>
 <p>Check whether the chart appears in <code>LR2 compatibility warnings</code>. Charts containing chart paths or resource definitions that cannot be represented in CP932 / Shift_JIS, or overly long chart paths / resource reference paths, may fail selection or playback in LR2.</p>
 <p>In LR2 linked mode, also check the <code>Syncing LR2 song.db</code> state in the status bar. If incomplete or failed work remains, LR2 may be reading an old <code>song.db</code>. Use <code>Resync LR2 song.db data</code> in the settings dialog and let synchronization finish before starting LR2.</p>
-<p>Even after synchronization is complete, you can use <code>Resync LR2 song.db data</code> in the settings dialog if another tool has changed the <code>song</code> / <code>folder</code> information in <code>song.db</code> and you suspect inconsistencies in the data generated for LR2.</p>
+<p>If you cannot browse folders or open custom folders in the LR2 song selection screen, use <code>Resync LR2 song.db data</code> in the settings dialog. This rebuilds all generated information in the <code>folder</code> / <code>song</code> tables and restores levels to the values defined in the charts.</p>
 <h3 id="play-log-troubleshooting">Play Log Troubleshooting</h3>
 <h4 id="past-lr2-plays-are-not-shown">Past LR2 Plays Are Not Shown</h4>
 <p>The LR2 play log records only plays made in LR2 after the play-log feature has been installed. Plays made before installation cannot be restored in the Play Log view.</p>

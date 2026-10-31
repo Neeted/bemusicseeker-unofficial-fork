@@ -38,9 +38,9 @@ internal interface ILr2SynchronizationDataPort
 
     Lr2FolderExistingRowsSnapshot CaptureLr2FolderExistingRows(Lr2SongDbSyncRequest request);
 
+    /// <summary>連携モードと保存済みCompletedから、既存状態を変更せず同期要否を判定します。</summary>
     Lr2SongDbSyncStatusSnapshot EvaluateLr2SongDbSyncStatus(
         bool enabled,
-        string signature,
         DateTime nowUtc);
 
     Lr2SongDbSyncStatusSnapshot ApplyLr2SongDbSyncStatusMutation(
@@ -112,9 +112,9 @@ internal enum Lr2SongDbSyncStatusMutationKind
 
 internal sealed class Lr2SongDbSyncStatusMutationRequest
 {
+    /// <summary>受理済みrunの終端状態と進捗を保存窓口へ渡します。進捗の継承はrun IDで照合します。</summary>
     internal Lr2SongDbSyncStatusMutationRequest(
         Lr2SongDbSyncStatusMutationKind kind,
-        string signature,
         string runId,
         int? processedCursor,
         int? totalCount,
@@ -123,7 +123,6 @@ internal sealed class Lr2SongDbSyncStatusMutationRequest
         DateTime nowUtc)
     {
         Kind = kind;
-        Signature = signature;
         RunId = runId;
         ProcessedCursor = processedCursor;
         TotalCount = totalCount;
@@ -133,8 +132,6 @@ internal sealed class Lr2SongDbSyncStatusMutationRequest
     }
 
     internal Lr2SongDbSyncStatusMutationKind Kind { get; }
-
-    internal string Signature { get; }
 
     internal string RunId { get; }
 
@@ -177,18 +174,16 @@ internal interface ILr2SynchronizationProjectionPort
 {
     void EnsureLr2SongDbSyncChartInfoIndexHydrated(string reason);
 
-    Dictionary<string, ChartFile> CreateLr2SongDbSyncCompatibilityProjectionIndex();
-
     Func<ChartFile, BeMusicSeeker.Models.ChartDetails> CreateLr2SongDbSyncChartInfoResolverSnapshot();
 
     HashSet<string> CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(string reason);
 
     void UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<BeMusicSeeker.Models.ChartDetails> rows);
 
-    int ApplyLr2SongDbSyncCompatibilityProjection(
-        IReadOnlyList<ResourceHealthMaintenanceSnapshot> maintenanceInfos,
+    /// <summary>実commit済みsongのLevel/LevelTextと任意の互換性事実だけを、同tokenの現在値と共通配送へ反映します。</summary>
+    int ApplyLr2SongDbSyncCurrentProjection(
+        IReadOnlyList<Lr2SongDbSyncCurrentFact> currentFacts,
         string reason,
-        IReadOnlyDictionary<string, ChartFile> bmsByPath,
         bool logSummary,
         bool dispatchPresentation);
 
@@ -486,9 +481,8 @@ internal sealed class Lr2SynchronizationDataPort : ILr2SynchronizationDataPort
 
     public Lr2SongDbSyncStatusSnapshot EvaluateLr2SongDbSyncStatus(
         bool enabled,
-        string signature,
         DateTime nowUtc) =>
-        catalogMutationOwner.EvaluateLr2SongDbSyncStatus(enabled, signature, nowUtc);
+        catalogMutationOwner.EvaluateLr2SongDbSyncStatus(enabled, nowUtc);
 
     public Lr2SongDbSyncStatusSnapshot ApplyLr2SongDbSyncStatusMutation(
         Lr2SongDbSyncStatusMutationRequest request) =>
@@ -564,15 +558,6 @@ internal sealed class Lr2SynchronizationProjectionPort : ILr2SynchronizationProj
     public void EnsureLr2SongDbSyncChartInfoIndexHydrated(string reason) =>
         chartInfoCapability.EnsureHydratedForLr2(reason);
 
-    public Dictionary<string, ChartFile> CreateLr2SongDbSyncCompatibilityProjectionIndex()
-    {
-        CatalogChartCollectionSnapshot snapshot = storageRowsOwner.CaptureSnapshot();
-        return (snapshot.BmsRows ?? [])
-            .Where(file => file != null && !string.IsNullOrWhiteSpace(file.Path))
-            .GroupBy(file => file.Path, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-    }
-
     public Func<ChartFile, BeMusicSeeker.Models.ChartDetails> CreateLr2SongDbSyncChartInfoResolverSnapshot() =>
         chartInfoCapability.CreateLr2ResolverSnapshot();
 
@@ -607,85 +592,51 @@ internal sealed class Lr2SynchronizationProjectionPort : ILr2SynchronizationProj
     public void UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<BeMusicSeeker.Models.ChartDetails> rows) =>
         chartInfoCapability.UpsertIndex(rows);
 
-    public int ApplyLr2SongDbSyncCompatibilityProjection(
-        IReadOnlyList<ResourceHealthMaintenanceSnapshot> maintenanceInfos,
+    /// <summary>DBとmaintenance writerの解放後、確定chunkの同tokenへlevelと互換性列だけを一括反映します。利用者列や別対象の現在値を上書きしません。</summary>
+    public int ApplyLr2SongDbSyncCurrentProjection(
+        IReadOnlyList<Lr2SongDbSyncCurrentFact> currentFacts,
         string reason,
-        IReadOnlyDictionary<string, ChartFile> bmsByPath,
         bool logSummary,
         bool dispatchPresentation)
     {
-        List<ResourceHealthMaintenanceSnapshot> infoList = [.. (maintenanceInfos ?? [])
-            .Where(info => info != null && !string.IsNullOrWhiteSpace(info.Path))];
-        if (infoList.Count == 0)
+        var factsByToken = new Dictionary<OwnedChartToken, Lr2SongDbSyncCurrentFact>();
+        foreach (Lr2SongDbSyncCurrentFact fact in currentFacts ?? [])
         {
-            if (logSummary)
-            {
-                log("lr2_song_db_sync_compatibility_projection skipped"
-                    + " reason=" + (reason ?? "unknown")
-                    + " input=0 applied=0");
-            }
-            return 0;
+            if (fact.Chart?.Token != null) { factsByToken[fact.Chart.Token] = fact; }
         }
-
-        int applied = 0;
-        using (storageRowsOwner.WriteGate.GetWriterGuard())
-        {
-            CatalogChartCollectionSnapshot snapshot = storageRowsOwner.CaptureSnapshot();
-            bmsByPath ??= (snapshot.BmsRows ?? [])
-                .Where(file => file != null && !string.IsNullOrWhiteSpace(file.Path))
-                .GroupBy(file => file.Path, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-            storageRowsOwner.Commit(state =>
+        CatalogCommitReceipt receipt = storageRowsOwner.CommitCurrentValues(
+            factsByToken.Values.Select(fact => fact.Chart), (current, value) =>
             {
-                foreach (ResourceHealthMaintenanceSnapshot sourceInfo in infoList)
+                Lr2SongDbSyncCurrentFact fact = factsByToken[value.Token];
+                ChartFile next = fact.HasLevel ? current with { Level = value.Level, LevelText = value.LevelText } : current;
+                ResourceHealthMaintenanceSnapshot source = fact.CompatibilityInfo;
+                if (source == null || !string.Equals(source.Path, current.Path, StringComparison.Ordinal)
+                    || (!string.IsNullOrWhiteSpace(source.Hash) && !string.Equals(source.Hash, current.Md5, StringComparison.OrdinalIgnoreCase)))
                 {
-                    if (!bmsByPath.TryGetValue(sourceInfo.Path, out ChartFile file)
-                        || file == null
-                        || (!string.IsNullOrWhiteSpace(sourceInfo.Hash)
-                            && !string.Equals(sourceInfo.Hash, file.Md5, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        continue;
-                    }
-
-                    file = state.ResolveCurrentChart(LibraryChartRef.FromChartFile(file));
-                    if (file == null)
-                    {
-                        continue;
-                    }
-
-                    ResourceHealthMaintenanceSnapshot targetInfo = file.ResourceHealthMaintenanceSnapshot;
-                    targetInfo ??= new ResourceHealthMaintenanceSnapshot { Path = file.Path, Hash = file.Md5 };
-                    ResourceHealthMaintenanceSnapshot next = targetInfo with
-                    {
-                        Lr2WarningFlags = sourceInfo.Lr2WarningFlags,
-                        Lr2ResourceMaxRelativeCp932Bytes = sourceInfo.Lr2ResourceMaxRelativeCp932Bytes,
-                        Lr2ResourceHasParentTraversal = sourceInfo.Lr2ResourceHasParentTraversal,
-                        Origin = MaintenanceInfoOrigin.Calculated
-                    };
-                    if (next == targetInfo)
-                    {
-                        continue;
-                    }
-
-                    if (state.ApplyCurrentChartValue(ChartFileProjection.WithMaintenance(file, next)) == CatalogCurrentValueApplyResult.Changed)
-                    {
-                        applied++;
-                    }
+                    return next;
                 }
+                ResourceHealthMaintenanceSnapshot maintenance = current.ResourceHealthMaintenanceSnapshot
+                    ?? new ResourceHealthMaintenanceSnapshot { Path = current.Path, Hash = current.Md5 };
+                ResourceHealthMaintenanceSnapshot updated = maintenance with
+                {
+                    Lr2WarningFlags = source.Lr2WarningFlags,
+                    Lr2ResourceMaxRelativeCp932Bytes = source.Lr2ResourceMaxRelativeCp932Bytes,
+                    Lr2ResourceHasParentTraversal = source.Lr2ResourceHasParentTraversal,
+                    Origin = MaintenanceInfoOrigin.Calculated
+                };
+                return ChartFileProjection.WithMaintenance(next, updated);
             });
-        }
-
+        int applied = receipt.Changes.Count;
         if (logSummary)
         {
-            log("lr2_song_db_sync_compatibility_projection applied"
-                + " reason=" + (reason ?? "unknown")
-                + " input=" + infoList.Count
-                + " applied=" + applied);
+            log("lr2_song_db_sync_current_projection applied"
+                + " reason=" + (reason ?? "unknown") + " input=" + factsByToken.Count + " applied=" + applied);
         }
-        if (dispatchPresentation && applied > 0)
+        if (dispatchPresentation && applied > 0 && factsByToken.Values.Any(fact => fact.CompatibilityInfo != null))
         {
-            chartInfoCapability.PublishWarningPresentationChanged("lr2_song_db_sync_compatibility_projection",
-                [.. infoList.Select(value => value.Hash).Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.OrdinalIgnoreCase)]);
+            chartInfoCapability.PublishWarningPresentationChanged("lr2_song_db_sync_current_projection",
+                [.. factsByToken.Values.Where(fact => fact.CompatibilityInfo != null).Select(fact => fact.CompatibilityInfo.Hash)
+                    .Where(hash => !string.IsNullOrWhiteSpace(hash)).Distinct(StringComparer.OrdinalIgnoreCase)]);
         }
         return applied;
     }

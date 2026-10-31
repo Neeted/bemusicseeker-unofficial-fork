@@ -146,7 +146,7 @@ internal sealed record BmsLibraryOptionsSnapshot
 
     /// <summary>登録以外の設定入力を捕捉します。出力配置は保存段階の公開値へ揃え、登録はLibraryのsnapshot取得時に同じ確定readerから捕捉します。</summary>
     /// <param name="settings">非配置設定を読む共有設定。</param>
-    /// <param name="placement">保存段階完了時に公開した配置。署名・出力・管理領域照合で同じ値を使い、非配置入力は現在設定から捕捉します。</param>
+    /// <param name="placement">保存段階完了時に公開した配置。出力・管理領域照合で同じ値を使い、非配置入力は現在設定から捕捉します。</param>
     internal static BmsLibraryOptionsSnapshot CreateCurrent(Settings settings, CustomFolderOutputSettingsSnapshot placement = null)
     {
         if (settings == null)

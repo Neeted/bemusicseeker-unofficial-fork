@@ -54,13 +54,12 @@ public sealed class Lr2SongDbSyncCommittedInputTests
         var logs = new ConcurrentQueue<string>();
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "receipt-reader-gate",
             RunId = "receipt-reader-gate",
             SongRows = rows,
             CommittedBmsPaths = new HashSet<string>(excluded.Select(file => file.Path.ToUpperInvariant())
                 .Append(Path.Combine(scope.DirectoryPath, "outside.bms")), StringComparer.OrdinalIgnoreCase),
             ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
-            Lr2CompatibilityFactsCommitted = facts => committedPaths.AddRange(facts.Select(fact => fact.Path)),
+            SongCurrentFactsCommitted = facts => committedPaths.AddRange(facts.Select(fact => fact.Chart.Path)),
             ChartFileBufferReader = path =>
             {
                 reads.Enqueue(path);
@@ -144,7 +143,6 @@ public sealed class Lr2SongDbSyncCommittedInputTests
         var logs = new ConcurrentQueue<string>();
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "receipt-chunk-boundaries",
             RunId = "receipt-chunk-boundaries",
             SongRows = songRows,
             RootDirectories = [scope.DirectoryPath],

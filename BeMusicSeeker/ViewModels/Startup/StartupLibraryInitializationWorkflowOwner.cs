@@ -401,7 +401,7 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
         if (library.IsShutdownRequested) { throw new OperationCanceledException(); }
         BmsLibraryOptionsSnapshot options = fileResult.Options ?? library.Lr2Synchronization.CurrentOptionsSnapshot;
         bool syncNeeded = options.OperationModeLR2DB && library.Lr2Synchronization.EvaluateLr2SongDbSyncStatus(
-            true, Lr2SongDbSyncSignatureBuilder.Build(options), DateTime.UtcNow).IsNeeded;
+            true, DateTime.UtcNow).IsNeeded;
         if (fileResult.NormalOutputBasePathChange is { } pathChange)
         {
             customFolderSettings = (customFolderSettings ?? playlist.GetCustomFolderOutputSettings()).WithDirectoryPaths(
@@ -419,7 +419,7 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
         catch (OperationCanceledException) when (library.IsShutdownRequested) { throw; }
         catch (Exception failure)
         {
-            library.Lr2Synchronization.RecordLr2SongDbSyncFailure(Lr2SongDbSyncSignatureBuilder.Build(options), string.Empty,
+            library.Lr2Synchronization.RecordLr2SongDbSyncFailure(string.Empty,
                 library.Lr2SongDbSyncRequestedVersion, failure, "failed");
             lr2Failure = failure;
             Task.FromException(failure).ObserveFault("RequiredStartupLr2Sync");

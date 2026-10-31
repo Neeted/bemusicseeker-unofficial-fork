@@ -12,7 +12,7 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     /// <summary>
     /// LR2同期を無効にした入力では同期不要と判定し、設定に反する作業の受付を検出します。
     /// </summary>
-    /// <remarks>状態表の生成と保存署名・状態の読戻しを実SQLiteで接続して確認します。</remarks>
+    /// <remarks>状態表の生成と保存状態の読戻しを実SQLiteで接続して確認します。</remarks>
     [TestMethod]
     public void Evaluate_ReturnsNotNeededWhenFeatureIsDisabled()
     {
@@ -23,7 +23,6 @@ public sealed class Lr2SongDbSyncStatusServiceTests
         Lr2SongDbSyncStatusSnapshot snapshot = Lr2SongDbSyncStatusService.Evaluate(
             songDb,
             enabled: false,
-            signature: "sig1",
             nowUtc: now);
 
         Assert.AreEqual(Lr2SongDbSyncStatusKind.NotNeeded, snapshot.Status);
@@ -31,9 +30,9 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     }
 
     /// <summary>
-    /// 保存状態がない場合は指定署名の同期が必要と判定し、未実施を完了扱いにする誤りを検出します。
+    /// 保存状態がない場合は同期が必要と判定し、未実施を完了扱いにする誤りを検出します。
     /// </summary>
-    /// <remarks>状態表の生成と保存署名・状態の読戻しを実SQLiteで接続して確認します。</remarks>
+    /// <remarks>状態表の生成と保存状態の読戻しを実SQLiteで接続して確認します。</remarks>
     [TestMethod]
     public void Evaluate_ReturnsNeededWhenStatusRowIsMissing()
     {
@@ -44,49 +43,58 @@ public sealed class Lr2SongDbSyncStatusServiceTests
         Lr2SongDbSyncStatusSnapshot snapshot = Lr2SongDbSyncStatusService.Evaluate(
             songDb,
             enabled: true,
-            signature: "sig1",
             nowUtc: now);
 
         Assert.AreEqual(Lr2SongDbSyncStatusKind.Needed, snapshot.Status);
         Assert.IsTrue(snapshot.IsNeeded);
-        Assert.AreEqual("sig1", snapshot.Signature);
     }
 
     /// <summary>
-    /// 実保存した完了署名が一致する場合だけ完了を再利用し、署名変更時は旧保存状態を残して再同期へ戻すことを確認します。
+    /// 旧複合署名付きCompletedを再利用し、判定だけでは保存行やschemaを書き換えないことを確認します。
     /// </summary>
-    /// <remarks>状態表の生成と保存署名・状態の読戻しを実SQLiteで接続して確認します。</remarks>
     [TestMethod]
-    public void Evaluate_ReturnsCompletedOnlyForMatchingCompletedSignature()
+    public void Evaluate_ReusesLegacyCompletedWithoutChangingStoredRow()
     {
         using var scope = TestDatabaseScope.Create();
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        BmsLibraryDbGateway.EnsureAppOwnedSchema(songDb);
         DateTime now = new(2026, 6, 4, 1, 2, 3, DateTimeKind.Utc);
-
-        Lr2SongDbSyncStatusService.MarkCompleted(songDb, "sig1", "run1", totalCount: 10, nowUtc: now);
-
-        Lr2SongDbSyncStatusSnapshot sameSignature = Lr2SongDbSyncStatusService.Evaluate(
-            songDb,
-            enabled: true,
-            signature: "sig1",
-            nowUtc: now.AddMinutes(1));
-        Lr2SongDbSyncStatusSnapshot changedSignature = Lr2SongDbSyncStatusService.Evaluate(
-            songDb,
-            enabled: true,
-            signature: "sig2",
-            nowUtc: now.AddMinutes(1));
-
-        Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, sameSignature.Status);
-        Assert.AreEqual(10, sameSignature.ProcessedCursor);
-        Assert.AreEqual(10, sameSignature.TotalCount);
-        Assert.AreEqual(Lr2SongDbSyncStatusKind.Needed, changedSignature.Status);
-        Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, changedSignature.StoredStatus);
+        const string legacySignature = "lr2_song_db_sync_v2|appSchema=1|chartInfoSchema=1|chartInfoParser=21|operationModeLR2DB=1";
+        songDb.InsertOrReplace(new LR2SongDBExtended.lr2_song_db_sync_status
+        {
+            name = Lr2SongDbSyncStatusService.DefaultStatusName,
+            status = "Completed",
+            signature = legacySignature,
+            run_id = "legacy-run",
+            processed_cursor = 10,
+            total_count = 10,
+            stage = "completed",
+            last_error = "",
+            updated_at = now,
+            completed_at = now
+        });
+        string schemaBefore = songDb.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE name = 'lr2_song_db_sync_status'");
+        Lr2SongDbSyncStatusSnapshot snapshot = Lr2SongDbSyncStatusService.Evaluate(songDb, true, now.AddMinutes(1));
+        Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, snapshot.Status);
+        Assert.AreEqual(10, snapshot.ProcessedCursor);
+        Assert.AreEqual(10, snapshot.TotalCount);
+        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+        Assert.AreEqual(legacySignature, row.signature);
+        Assert.AreEqual("Completed", row.status);
+        Assert.AreEqual("legacy-run", row.run_id);
+        Assert.AreEqual(10, row.processed_cursor);
+        Assert.AreEqual(10, row.total_count);
+        Assert.AreEqual("completed", row.stage);
+        Assert.AreEqual("", row.last_error);
+        Assert.AreEqual(now, row.updated_at);
+        Assert.AreEqual(now, row.completed_at);
+        Assert.AreEqual(schemaBefore, songDb.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE name = 'lr2_song_db_sync_status'"));
     }
 
     /// <summary>
     /// 保存された失敗・旧取消・未完了を再同期が必要な状態として読み、元終端種別を取り違えて完了扱いにする誤りを検出します。
     /// </summary>
-    /// <remarks>状態表の生成と保存署名・状態の読戻しを実SQLiteで接続して確認します。</remarks>
+    /// <remarks>状態表の生成と保存状態の読戻しを実SQLiteで接続して確認します。</remarks>
     [TestMethod]
     public void Evaluate_ReturnsNeededForRestartableTerminalStates()
     {
@@ -94,7 +102,7 @@ public sealed class Lr2SongDbSyncStatusServiceTests
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         DateTime now = new(2026, 6, 4, 1, 2, 3, DateTimeKind.Utc);
 
-        Lr2SongDbSyncStatusService.MarkFailed(songDb, "sig1", "run1", processedCursor: 3, totalCount: 10, stage: "song", error: "failed", nowUtc: now);
+        Lr2SongDbSyncStatusService.MarkFailed(songDb, "run1", processedCursor: 3, totalCount: 10, stage: "song", error: "failed", nowUtc: now);
         AssertNeededWithStoredStatus(songDb, Lr2SongDbSyncStatusKind.Failed);
 
         songDb.InsertOrReplace(new LR2SongDBExtended.lr2_song_db_sync_status
@@ -110,14 +118,19 @@ public sealed class Lr2SongDbSyncStatusServiceTests
         }, typeof(LR2SongDBExtended.lr2_song_db_sync_status));
         AssertNeededWithStoredStatus(songDb, Lr2SongDbSyncStatusKind.Cancelled);
 
-        Lr2SongDbSyncStatusService.MarkIncomplete(songDb, "sig1", "run3", processedCursor: 5, totalCount: 10, stage: "finalize", detail: "stale", nowUtc: now.AddMinutes(2));
+        Lr2SongDbSyncStatusService.MarkIncomplete(songDb, "run3", processedCursor: 5, totalCount: 10, stage: "finalize", detail: "stale", nowUtc: now.AddMinutes(2));
         AssertNeededWithStoredStatus(songDb, Lr2SongDbSyncStatusKind.Incomplete);
+        foreach (Lr2SongDbSyncStatusKind stored in new[] { Lr2SongDbSyncStatusKind.Needed, Lr2SongDbSyncStatusKind.Running, Lr2SongDbSyncStatusKind.NotNeeded })
+        {
+            songDb.Execute("UPDATE lr2_song_db_sync_status SET status = ?;", stored.ToString());
+            AssertNeededWithStoredStatus(songDb, stored);
+        }
     }
 
     /// <summary>
     /// 中断位置は診断として保持し、新しい実行開始は保存カーソル0へ戻して途中からの無断再開を検出します。
     /// </summary>
-    /// <remarks>状態表の生成と保存署名・状態の読戻しを実SQLiteで接続して確認します。</remarks>
+    /// <remarks>状態表の生成と保存状態の読戻しを実SQLiteで接続して確認します。</remarks>
     [TestMethod]
     public void NonCompletedStatusAndRunningMarkAlwaysStartAtZero()
     {
@@ -127,7 +140,6 @@ public sealed class Lr2SongDbSyncStatusServiceTests
 
         Lr2SongDbSyncStatusService.MarkIncomplete(
             songDb,
-            "sig1",
             "previous-run",
             processedCursor: 9,
             totalCount: 10,
@@ -138,7 +150,6 @@ public sealed class Lr2SongDbSyncStatusServiceTests
         Lr2SongDbSyncStatusSnapshot needed = Lr2SongDbSyncStatusService.Evaluate(
             songDb,
             enabled: true,
-            signature: "sig1",
             nowUtc: now.AddMinutes(1));
 
         Assert.AreEqual(Lr2SongDbSyncStatusKind.Needed, needed.Status);
@@ -146,7 +157,6 @@ public sealed class Lr2SongDbSyncStatusServiceTests
 
         Lr2SongDbSyncStatusService.MarkRunning(
             songDb,
-            "sig1",
             "new-run",
             totalCount: 10,
             stage: "normal_folders",
@@ -160,9 +170,9 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     }
 
     /// <summary>
-    /// 実行中の署名・実行識別・工程・位置・総数を実DBへ保存し、完了時刻を付ける誤りや更新漏れを検出します。
+    /// 実行中の実行識別・工程・位置・総数を実DBへ保存し、完了時刻を付ける誤りや更新漏れを検出します。
     /// </summary>
-    /// <remarks>状態表の生成と保存署名・状態の読戻しを実SQLiteで接続して確認します。</remarks>
+    /// <remarks>状態表の生成と保存状態の読戻しを実SQLiteで接続して確認します。</remarks>
     [TestMethod]
     public void UpdateCursor_PersistsProgress()
     {
@@ -170,12 +180,12 @@ public sealed class Lr2SongDbSyncStatusServiceTests
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         DateTime now = new(2026, 6, 4, 1, 2, 3, DateTimeKind.Utc);
 
-        Lr2SongDbSyncStatusService.MarkRunning(songDb, "sig1", "run1", totalCount: 100, stage: "song", nowUtc: now);
-        Lr2SongDbSyncStatusService.UpdateCursor(songDb, "sig1", "run1", processedCursor: 40, totalCount: 100, stage: "song", nowUtc: now.AddMinutes(1));
+        Lr2SongDbSyncStatusService.MarkRunning(songDb, "run1", totalCount: 100, stage: "song", nowUtc: now);
+        Lr2SongDbSyncStatusService.UpdateCursor(songDb, "run1", processedCursor: 40, totalCount: 100, stage: "song", nowUtc: now.AddMinutes(1));
 
         LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Running", row.status);
-        Assert.AreEqual("sig1", row.signature);
+        Assert.AreEqual(string.Empty, row.signature);
         Assert.AreEqual("run1", row.run_id);
         Assert.AreEqual(40, row.processed_cursor);
         Assert.AreEqual(100, row.total_count);
@@ -186,7 +196,7 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     /// <summary>
     /// 同じ実行の失敗に位置指定がなければ直前の保存位置と総数を保持し、失敗記録で診断位置を消す誤りを検出します。
     /// </summary>
-    /// <remarks>状態表の生成と保存署名・状態の読戻しを実SQLiteで接続して確認します。</remarks>
+    /// <remarks>状態表の生成と保存状態の読戻しを実SQLiteで接続して確認します。</remarks>
     [TestMethod]
     public void MarkFailed_PreservesSameRunCursorWhenNoCursorIsProvided()
     {
@@ -194,21 +204,27 @@ public sealed class Lr2SongDbSyncStatusServiceTests
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         DateTime now = new(2026, 6, 4, 1, 2, 3, DateTimeKind.Utc);
 
-        Lr2SongDbSyncStatusService.MarkRunning(songDb, "sig1", "run1", totalCount: 100, stage: "song", nowUtc: now);
-        Lr2SongDbSyncStatusService.UpdateCursor(songDb, "sig1", "run1", processedCursor: 40, totalCount: 100, stage: "song", nowUtc: now.AddMinutes(1));
-        Lr2SongDbSyncStatusService.MarkFailed(songDb, "sig1", "run1", processedCursor: null, totalCount: null, stage: "failed", error: "boom", nowUtc: now.AddMinutes(2));
+        Lr2SongDbSyncStatusService.MarkRunning(songDb, "run1", totalCount: 100, stage: "song", nowUtc: now);
+        Lr2SongDbSyncStatusService.UpdateCursor(songDb, "run1", processedCursor: 40, totalCount: 100, stage: "song", nowUtc: now.AddMinutes(1));
+        songDb.Execute("UPDATE lr2_song_db_sync_status SET signature = 'legacy-signature';");
+        Lr2SongDbSyncStatusService.MarkFailed(songDb, "run1", processedCursor: null, totalCount: null, stage: "failed", error: "boom", nowUtc: now.AddMinutes(2));
 
         LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Failed", row.status);
         Assert.AreEqual(40, row.processed_cursor);
         Assert.AreEqual(100, row.total_count);
         Assert.AreEqual("failed", row.stage);
+        Assert.AreEqual(string.Empty, row.signature);
+        Lr2SongDbSyncStatusService.MarkFailed(songDb, "different-run", null, null, "failed", "other", now.AddMinutes(3));
+        row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+        Assert.IsNull(row.processed_cursor);
+        Assert.IsNull(row.total_count);
     }
 
     /// <summary>
     /// アプリ所有スキーマの初期化後に同期状態を実挿入・読戻しでき、状態表の生成漏れを検出します。
     /// </summary>
-    /// <remarks>状態表の生成と保存署名・状態の読戻しを実SQLiteで接続して確認します。</remarks>
+    /// <remarks>状態表の生成と保存状態の読戻しを実SQLiteで接続して確認します。</remarks>
     [TestMethod]
     public void EnsureAppOwnedSchema_CreatesStatusTable()
     {
@@ -232,7 +248,6 @@ public sealed class Lr2SongDbSyncStatusServiceTests
         Lr2SongDbSyncStatusSnapshot snapshot = Lr2SongDbSyncStatusService.Evaluate(
             songDb,
             enabled: true,
-            signature: "sig1",
             nowUtc: new DateTime(2026, 6, 4, 2, 0, 0, DateTimeKind.Utc));
 
         Assert.AreEqual(Lr2SongDbSyncStatusKind.Needed, snapshot.Status);

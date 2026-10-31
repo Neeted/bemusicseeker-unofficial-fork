@@ -679,8 +679,9 @@ internal sealed class BmsonInfo
     [JsonProperty("judge_rank")]
     public int JudgeRank { get; set; } = 100;
 
+    /// <summary>明示されたTOTAL倍率。省略とnullは0として保持し、正値だけを定義済みとします。</summary>
     [JsonProperty("total")]
-    public double Total { get; set; } = 100.0;
+    public double Total { get; set; }
 
     [JsonProperty("init_bpm")]
     public double InitBpm { get; set; }

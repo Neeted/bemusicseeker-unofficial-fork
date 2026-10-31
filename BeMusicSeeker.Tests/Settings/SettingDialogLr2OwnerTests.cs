@@ -84,15 +84,15 @@ public sealed partial class SettingDialogEditCompletionTests
                 db.InsertOrReplace(new LR2SongDB.folder { path = obsoleteParent, type = 1, title = "gone parent", date = 10, adddate = 111 });
                 db.InsertOrReplace(new LR2SongDB.folder { path = obsoleteCustom, type = 4, title = "gone custom", date = 10, adddate = 222 });
                 db.Execute("UPDATE song SET favorite = ?, tag = ?, adddate = ? WHERE hash = ?;", 7, "user-tag", 123, hash);
-                completedSignature = Lr2SongDbSyncSignatureBuilder.Build(composition.BmsLibraryOptionsProvider());
-                Lr2SongDbSyncStatusService.MarkCompleted(db, completedSignature,
+                completedSignature = "lr2_song_db_sync_v2|appSchema=1|chartInfoSchema=1|chartInfoParser=21|operationModeLR2DB=1";
+                Lr2SongDbSyncStatusService.MarkCompleted(db,
                     "generated-complete", library.Lr2SongDbSyncRequestedVersion, DateTime.UtcNow);
+                db.Execute("UPDATE lr2_song_db_sync_status SET signature = ?;", completedSignature);
             }
             string[] originalManaged = ReadManaged(values, previousTable);
             Assert.IsTrue(originalManaged.Length > 3);
             AssertHierarchy(values, previousBase);
-            Assert.IsFalse(library.Lr2Synchronization.EvaluateLr2SongDbSyncStatus(true,
-                Lr2SongDbSyncSignatureBuilder.Build(composition.BmsLibraryOptionsProvider()), DateTime.UtcNow).IsNeeded);
+            Assert.IsFalse(library.Lr2Synchronization.EvaluateLr2SongDbSyncStatus(true, DateTime.UtcNow).IsNeeded);
             if (detectOnStartup)
             {
                 // 稼働中には再走査・保存・再出力せず、物理表記だけを変えてこの寿命を終えます。

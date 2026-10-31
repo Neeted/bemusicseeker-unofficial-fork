@@ -1316,9 +1316,10 @@ public sealed class ChartInfoInlineHydrationTests
                 };
                 if (operationModeLr2Db)
                 {
-                    string signature = Lr2SongDbSyncSignatureBuilder.Build(options);
+                    string signature = "lr2_song_db_sync_v2|appSchema=1|chartInfoSchema=1|chartInfoParser=21|operationModeLR2DB=1";
                     using var songDb = new LR2SongDBExtended(songDbPath);
-                    Lr2SongDbSyncStatusService.MarkCompleted(songDb, signature, "unit-test", 1, DateTime.UtcNow);
+                    Lr2SongDbSyncStatusService.MarkCompleted(songDb, "unit-test", 1, DateTime.UtcNow);
+                    songDb.Execute("UPDATE lr2_song_db_sync_status SET signature = ?;", signature);
                 }
                 var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings)
                 {
@@ -1799,37 +1800,44 @@ public sealed class ChartInfoInlineHydrationTests
     }
 
     /// <summary>
-    /// 通常/完了済みLR2モードとも欠落情報を補完してsongと所有行へ一回反映し、LR2完了状態だけで必要補完を省く誤りを検出する。
+    /// 欠落情報と旧21を通常補完し、旧署名Completedでも全体同期を始めず、上書きlevel12を譜面由来3へDB・current・再読込みで戻します。
     /// </summary>
     /// <remarks>実BMSLibraryと専用DBを使い、保存行から索引・所有行・facade通知への接続を観測する。管理主体だけの結果ではこの接続を代用できない。</remarks>
     [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task DeferredChartInfoHydration_MissingCurrentRowBackfillsRegardlessOfCompletedLr2Status(bool operationModeLr2Db)
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task DeferredChartInfoHydration_MissingCurrentRowBackfillsRegardlessOfCompletedLr2Status(bool operationModeLr2Db, bool staleRow)
     {
 
         await WithTemporarySongDb(async delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "missing-current.bms");
-            File.WriteAllText(chartPath, "#PLAYER 1\r\n#PLAYLEVEL 13\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#PLAYLEVEL " + (staleRow ? "3" : "13") + "\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
             ChartFile digest = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
             ChartFile file = ChartTestValues.Empty() with
             {
                 Path = chartPath
             };
             file = file with { Md5 = digest.Md5 };
-            file = file with { Sha256 = digest.Sha256 };
+            file = file with { Sha256 = digest.Sha256, Level = staleRow ? 12 : null };
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                 BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
                 InsertSongForSummary(songDb, chartPath, file.Md5);
+                if (staleRow)
+                {
+                    songDb.Execute("UPDATE song SET level = 12 WHERE path = ?;", chartPath);
+                    songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(file.Sha256, file.Md5, 21)));
+                }
                 songDb.InsertOrReplace(CreateChartDigestRow(file.Md5, file.Sha256), typeof(LR2SongDBExtended.chart_digest_map));
                 if (operationModeLr2Db)
                 {
-                    string signature = Lr2SongDbSyncSignatureBuilder.Build(new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true });
-                    Lr2SongDbSyncStatusService.MarkCompleted(songDb, signature, "unit-test", 1, DateTime.UtcNow);
+                    string signature = "lr2_song_db_sync_v2|appSchema=1|chartInfoSchema=1|chartInfoParser=21|operationModeLR2DB=1";
+                    Lr2SongDbSyncStatusService.MarkCompleted(songDb, "unit-test", 1, DateTime.UtcNow);
+                    songDb.Execute("UPDATE lr2_song_db_sync_status SET signature = ?;", signature);
                 }
             }
             bool originalOperationMode = testSettings.OperationModeLR2DB;
@@ -1860,11 +1868,17 @@ public sealed class ChartInfoInlineHydrationTests
                         AwaitChartInfoBackfillAsync(library), Task.WhenAll(workers), "chart-info.backfill-completion");
                     using var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
                     Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", file.Sha256));
-                    Assert.AreEqual(13, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
-                    Assert.AreEqual(13, library.BmsCharts.Single().Level);
+                    Assert.AreEqual(staleRow ? 3 : 13, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
+                    Assert.AreEqual(staleRow ? 3 : 13, library.BmsCharts.Single().Level);
                     Assert.AreSame(captured.Token, library.BmsCharts.Single().Token);
                     Assert.AreEqual(initialOwnedVersion + 1, library.CatalogRevision);
-                    Assert.IsNull(file.Level);
+                    Assert.AreEqual(staleRow ? 12 : (int?)null, file.Level);
+                    Assert.AreEqual(22, verify.ExecuteScalar<int>("SELECT parser_version FROM chart_info WHERE sha256 = ?;", file.Sha256));
+                    Assert.AreEqual(0, library.Lr2SongDbSyncRequestedVersion);
+                    SongTableLoadResult reloaded = new BmsLibraryInitializationService().LoadSongTable(
+                        new BmsLibraryDbGateway(songDbPath), new BmsLibraryOptionsSnapshot { OperationModeLR2DB = operationModeLr2Db },
+                        null, new OwnedChartCollectionTestSupport.TestFileMutationService(), null, exception => exception.Message);
+                    Assert.AreEqual(staleRow ? 3 : 13, reloaded.LoadedFiles.Single().Level);
                 }
                 catch (Exception exception)
                 {

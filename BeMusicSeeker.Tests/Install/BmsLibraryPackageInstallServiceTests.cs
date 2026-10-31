@@ -5630,7 +5630,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     Assert.AreEqual(md5, saved.md5);
                     Assert.AreEqual(sha256, saved.sha256);
                     ChartDetails details = readback.Query<ChartDetails>("SELECT * FROM chart_info WHERE sha256 = ?;", sha256).Single();
-                    Assert.AreEqual(21, details.parser_version);
+                    Assert.AreEqual(22, details.parser_version);
                     Assert.AreEqual(md5, details.md5);
                     Assert.AreEqual(120d, details.minbpm);
                     Assert.AreEqual(240d, details.maxbpm);

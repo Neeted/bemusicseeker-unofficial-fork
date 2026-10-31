@@ -25,7 +25,7 @@ flowchart TB
     Headers --> Join
     Join --> Pending["保留全復元／未確定失敗の明示選択"]
     Pending --> Outputs["必要情報を準備、保存済み項目・修復・BMTを完了"]
-    Outputs --> Lr2["状態・署名で必要判定し、LR2全体同期を直接待つ"]
+    Outputs --> Lr2["保存済みCompletedで必要判定し、LR2全体同期を直接待つ"]
     Lr2 --> Release["全開始Taskとcleanupを回収しL＋P解放"]
     Release --> Ui["必須UI反映・実host接続のTask終端"]
     Ui --> Operable["初回完了・初期化成功を公開し、操作解禁"]

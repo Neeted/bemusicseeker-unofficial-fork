@@ -74,13 +74,12 @@ internal interface ILr2SongDbSyncWorkflowRuntime
     /// <summary>全体同期はLとPを準備前に非待機取得し、実worker・状態保存・cleanupの終端まで保持します。</summary>
     /// <param name="capability">受理済み必須継続の生存権限。nullは新しい要求です。</param>
     /// <param name="acceptedBackground">外側起動登録の識別。新しい全体同期は背景登録でも競合時に待ちません。</param>
-    /// <param name="admissionResult">実L/P取得と最終検査後の受付結果を準備前に通知する窓口。同一署名Completedの正常省略もtrueです。</param>
-    /// <returns>受理した要求は実終端後にtrue。同一署名Completedの正常省略もtrueで、実行不成立・開始競合・未接続はfalseです。元失敗と取消を伝播します。</returns>
+    /// <param name="admissionResult">実L/P取得と最終検査後の受付結果を準備前に通知する窓口。保存済みCompletedの正常省略もtrueです。</param>
+    /// <returns>受理した要求は実終端後にtrue。保存済みCompletedの正常省略もtrueで、実行不成立・開始競合・未接続はfalseです。元失敗と取消を伝播します。</returns>
     Task<bool> QueueAsync(
         string reason,
         bool force,
         bool prepareGeneratedData = false,
-        bool allowIncompleteToQueue = true,
         LibraryFileInitializationResult initializationResult = null, LibraryFileMutationCapability capability = null,
         bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability playlistCapability = null, Lr2SongDbSyncPreparedDataSurface preparedSurface = null, OperationProgressRequest originatingRequest = null, BmsLibraryOptionsSnapshot optionsSnapshot = null, Action<bool> admissionResult = null);
 
@@ -116,7 +115,6 @@ internal sealed class BmsLr2SongDbSyncWorkflowRuntime : ILr2SongDbSyncWorkflowRu
         string reason,
         bool force,
         bool prepareGeneratedData = false,
-        bool allowIncompleteToQueue = true,
         LibraryFileInitializationResult initializationResult = null, LibraryFileMutationCapability capability = null,
         bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability playlistCapability = null, Lr2SongDbSyncPreparedDataSurface preparedSurface = null, OperationProgressRequest originatingRequest = null, BmsLibraryOptionsSnapshot optionsSnapshot = null, Action<bool> admissionResult = null)
     {
@@ -127,7 +125,7 @@ internal sealed class BmsLr2SongDbSyncWorkflowRuntime : ILr2SongDbSyncWorkflowRu
             return false;
         }
 
-        // 同署名Completedの省略より前に、今回確認した表記差だけを同じL/Pで完了します。
+        // 保存済みCompletedの省略より前に、今回確認した表記差だけを同じL/Pで完了します。
         // 起動から完全な準備面が来る場合と、自然に全体同期が必要な場合は既存の全体生成へ委ねます。
         if (initializationResult?.NormalOutputBasePathChange is { } pathChange
             && preparedSurface == null && !force)
@@ -135,7 +133,7 @@ internal sealed class BmsLr2SongDbSyncWorkflowRuntime : ILr2SongDbSyncWorkflowRu
             BmsLibraryOptionsSnapshot operationOptions = optionsSnapshot ?? initializationResult.Options
                 ?? library.Lr2Synchronization.CurrentOptionsSnapshot;
             if (!library.Lr2Synchronization.EvaluateLr2SongDbSyncStatus(
-                true, Lr2SongDbSyncSignatureBuilder.Build(operationOptions), DateTime.UtcNow).IsNeeded)
+                true, DateTime.UtcNow).IsNeeded)
             {
                 BMSPlaylist playlists = playlistProvider()
                     ?? throw new InvalidOperationException("LR2 playlist preparation is unavailable.");
@@ -167,7 +165,6 @@ internal sealed class BmsLr2SongDbSyncWorkflowRuntime : ILr2SongDbSyncWorkflowRu
             reason,
             force,
             prepareWithLease,
-            allowIncompleteToQueue,
             initializationResult, capability, acceptedBackground, capturePreparationInputs: capturePreparationInputs, playlistCapability: playlistCapability, optionsSnapshot: optionsSnapshot, admissionResult: result => { admitted = result; admissionResult?.Invoke(result); }, preparedSurface: preparedSurface, originatingRequest: originatingRequest).ConfigureAwait(false);
         return admitted;
     }
@@ -251,13 +248,6 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
         => CanRun() ? runtime.QueueAsync(reason, false, initializationResult: initializationResult,
             capability: capability, preparedSurface: preparedSurface, originatingRequest: originatingRequest, optionsSnapshot: optionsSnapshot) : Task.FromResult(false);
 
-    /// <summary>受理済み設定の権限で生成データ準備とDB同期の実終端まで待ちます。</summary>
-    internal Task SyncFolderDataAfterSettingsChangeAsync(string reason, LibraryFileMutationCapability capability, LibraryFileMutationCapability playlistCapability = null)
-    {
-        if (!CanRun()) { return Task.CompletedTask; }
-        return runtime.QueueAsync(reason, false, prepareGeneratedData: true, allowIncompleteToQueue: false,
-            capability: capability, includeBuiltinGeneratedData: true, playlistCapability: playlistCapability);
-    }
 
     /// <summary>受理済み設定の権限で外部folder更新の実終端まで待ちます。</summary>
     internal Task SyncExternalFolderRowsAfterCustomFolderOutputBaseSettingsChangeAsync(string reason, LibraryFileMutationCapability capability, LibraryFileMutationCapability playlistCapability = null)

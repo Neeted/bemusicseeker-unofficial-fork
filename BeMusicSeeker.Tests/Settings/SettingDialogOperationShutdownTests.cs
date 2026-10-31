@@ -307,13 +307,13 @@ public sealed partial class SettingDialogEditCompletionTests
         public bool IsLr2ModeEnabled => actual.IsLr2ModeEnabled;
         public bool IsLibraryAvailable => actual.IsLibraryAvailable;
         internal bool WasAccepted { get; private set; }
-        public async Task<bool> QueueAsync(string reason, bool force, bool prepareGeneratedData = false, bool allowIncompleteToQueue = true,
+        public async Task<bool> QueueAsync(string reason, bool force, bool prepareGeneratedData = false,
             LibraryFileInitializationResult? initializationResult = null, LibraryFileMutationCapability? capability = null,
             bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability? playlistCapability = null,
             Lr2SongDbSyncPreparedDataSurface? preparedSurface = null, OperationProgressRequest? originatingRequest = null,
             BmsLibraryOptionsSnapshot? optionsSnapshot = null, Action<bool>? admissionResult = null)
         {
-            bool accepted = await actual.QueueAsync(reason, force, prepareGeneratedData, allowIncompleteToQueue, initializationResult,
+            bool accepted = await actual.QueueAsync(reason, force, prepareGeneratedData, initializationResult,
                 capability, acceptedBackground, includeBuiltinGeneratedData, playlistCapability, preparedSurface, originatingRequest,
                 optionsSnapshot, value => { WasAccepted = value; admissionResult?.Invoke(value); });
             if (accepted) { entered.TrySetResult(); await release; }
