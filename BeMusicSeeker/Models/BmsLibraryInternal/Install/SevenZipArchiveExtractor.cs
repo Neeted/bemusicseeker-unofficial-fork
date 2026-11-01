@@ -12,10 +12,10 @@ internal static class SevenZipArchiveExtractor
 {
     private const string NativeArchitectureDirectoryName = "x64";
 
-    /// <summary>アプリ同梱のx64展開ライブラリを解決し、未配置なら処理を失敗させます。</summary>
+    /// <summary>確定済みの読取り素材配下から同梱のx64展開ライブラリを解決し、未配置なら処理を失敗させます。</summary>
     public static string ResolveBundledSevenZipLibraryPath()
     {
-        string bundledLibraryPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "libs", NativeArchitectureDirectoryName, "7z.dll");
+        string bundledLibraryPath = Path.Combine(ApplicationPathPolicy.Current.AssetsDirectory, "libs", NativeArchitectureDirectoryName, "7z.dll");
         if (File.Exists(bundledLibraryPath))
         {
             return bundledLibraryPath;

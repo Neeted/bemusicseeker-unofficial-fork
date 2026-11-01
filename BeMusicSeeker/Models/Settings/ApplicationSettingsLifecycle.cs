@@ -21,6 +21,7 @@ internal sealed class ApplicationSettingsInitializationResult
 
     internal string AppearanceTheme { get; }
 
+    /// <summary>呼出元が表示リソースへ適用する、正規化済みの文化圏を取得します。</summary>
     internal CultureInfo Culture { get; }
 }
 
@@ -67,7 +68,8 @@ internal sealed class ApplicationSettingsLifecycle
     }
 
     /// <summary>
-    /// 保存設定の正規化後にストアを読み、バージョン・文化圏・テーマを反映します。保存診断の失敗は結果を変えません。
+    /// 保存設定の正規化後にストアを読み、バージョン・言語・テーマを正規化して起動結果を返します。
+    /// 表示リソースへの文化圏の適用は呼出元が所有し、保存診断の失敗は結果を変えません。
     /// </summary>
     /// <param name="availableCultureNames">アプリが対応する文化圏名。</param>
     /// <param name="serializableVersionFactory">現在のアプリバージョンを返す処理。</param>
@@ -147,7 +149,6 @@ internal sealed class ApplicationSettingsLifecycle
         string appearanceTheme = AppThemeService.NormalizeTheme(settingsStore.AppearanceTheme);
         settingsStore.AppearanceTheme = appearanceTheme;
         var culture = CultureInfo.GetCultureInfo(settingsStore.Language);
-        Resources.Culture = culture;
         return new ApplicationSettingsInitializationResult(firstStartup, appearanceTheme, culture);
     }
 

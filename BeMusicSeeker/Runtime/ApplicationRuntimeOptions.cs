@@ -4,8 +4,6 @@ using System.Collections.Generic;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.Update;
-using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Runtime;
 
@@ -18,17 +16,20 @@ internal sealed class ApplicationRuntimeOptions
     /// <param name="testSession">明示的な検証起動の識別情報。通常起動はnull。</param>
     /// <param name="updateManifestUrl">優先順位を解決した更新URL。通常CLIの妥当性は既存の更新確認境界で検査します。</param>
     /// <param name="restartArguments">実行ファイル名を除く、引用前の再起動引数列。</param>
+    /// <param name="loggingOptions">捕捉済みのログ条件。省略時は引数列を再解釈せず、既定のInfoを使います。</param>
     internal ApplicationRuntimeOptions(
         ApplicationPathSnapshot paths,
         BmsDatabaseLoadOptions databaseLoadOptions,
         ApplicationTestSession? testSession,
         string updateManifestUrl,
-        IEnumerable<string> restartArguments)
+        IEnumerable<string> restartArguments,
+        ApplicationLoggingOptions? loggingOptions = null)
     {
         Paths = paths ?? throw new ArgumentNullException(nameof(paths));
         DatabaseLoadOptions = databaseLoadOptions ?? throw new ArgumentNullException(nameof(databaseLoadOptions));
         TestSession = testSession;
         UpdateManifestUrl = updateManifestUrl ?? throw new ArgumentNullException(nameof(updateManifestUrl));
+        LogOptions = loggingOptions ?? ApplicationLoggingOptions.Default;
         ArgumentNullException.ThrowIfNull(restartArguments);
         RestartArguments = Array.AsReadOnly(restartArguments.ToArray());
     }
@@ -45,15 +46,13 @@ internal sealed class ApplicationRuntimeOptions
     /// <summary>優先順位を解決した更新URLを取得します。取得時に環境やCLIを再読しません。</summary>
     internal string UpdateManifestUrl { get; }
 
+    /// <summary>捕捉済みのログ条件を取得します。取得時にCLIや共有設定を再読しません。</summary>
+    internal ApplicationLoggingOptions LogOptions { get; }
+
     /// <summary>実行ファイル名を除く、変更不能な再起動引数列を取得します。</summary>
     internal IReadOnlyList<string> RestartArguments { get; }
 
-    /// <summary>通常起動のCLIと環境を捕捉し、更新URL未指定時だけ従来の既定値を採用します。</summary>
-    internal static ApplicationRuntimeOptions Capture(ApplicationPathSnapshot paths)
-        => new(paths, BmsDatabaseLoadOptions.CaptureEnvironment(), null,
-            string.IsNullOrWhiteSpace(CommandLineSwitches.UpdateManifestUrl)
-                ? UpdateCheckService.DefaultManifestUrl : CommandLineSwitches.UpdateManifestUrl,
-            Environment.GetCommandLineArgs().Skip(1));
+
 }
 
 /// <summary>検証起動で共有する識別情報です。プロファイルの排他キーや操作結果の代わりには使いません。</summary>

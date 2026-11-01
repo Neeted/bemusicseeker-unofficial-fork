@@ -28,7 +28,7 @@ public sealed class NLogWrapperTests
         LoggingConfiguration? originalConfiguration = LogManager.Configuration;
         try
         {
-            NLogWrapper.ConfigureApplicationFileLogging(rootPath, LogLevel.Info, enableInstallPerformanceLogging: true);
+            NLogWrapper.ConfigureApplicationFileLogging(Path.Combine(rootPath, "log"), LogLevel.Info, enableInstallPerformanceLogging: true);
             NLogWrapper.FileLogger.Info("application-message");
             NLogWrapper.GetLogger("Feature.Diagnostic").Warn("日本語診断");
             Exception failure = CreateFailure();

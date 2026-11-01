@@ -12,15 +12,41 @@
 
 ### 起動時の配置と実行条件
 
-`ApplicationRuntimeOptions` は、起動境界で捕捉した配置、DB読取り方式、検証起動の識別情報、更新URL、再起動引数を変更不能な値として `ApplicationComposition` へ必須で渡します。再起動引数は実行ファイル名を除く引用前の配列を複製して保持します。更新URLの解決は選択元の優先順位を決める処理であり、通常CLIの不正URLを新たな必須起動失敗にはしません。通常CLIの値は従来の更新確認境界で検査します。
+`ApplicationRuntimeOptions` は、起動境界で捕捉した配置、DB読取り方式、検証起動の識別情報、更新URL、ログ条件、再起動引数を変更不能な値として `ApplicationComposition` へ必須で渡します。再起動引数は実行ファイル名を除く引用前の配列を複製して保持します。更新URLの解決は選択元の優先順位を決める処理であり、通常CLIの不正URLを新たな必須起動失敗にはしません。通常CLIの値は従来の更新確認境界で検査します。
+
+ログ条件は `ApplicationLoggingOptions` が未加工のCLI値から純粋に解決し、共有ログgetterを変更しません。`ApplicationRuntimeOptions` の直接構築でログ条件を省略した場合はInfoと空の不正値を使い、再起動argvを解析しません。値の意味は[ログ仕様](../core/logging.md#ファイルとレベル)に従います。共有窓口の `CommandLineSwitches` は適用された不変の条件を公開し、自らプロセス引数を読みません。適用は `Program` だけが並行処理の開始前に行い、headless構成や個別のcompositionでは共有条件を変更しません。
 
 `ApplicationPathSnapshot` は実際の実行ファイル、読取り素材、可変プロファイルを分けます。通常配置は実行ファイル配下の `config/`、`data/`、`lang/`、`log/`、`update_work/downloads/` と `test.mp3` を維持し、一時領域はOSの一時領域配下の `BeMusicSeeker`、旧設定の移行元は `%LOCALAPPDATA%/BeMusicSeeker` です。明示配置では実行体を変えず、素材・プロファイル・言語・一時領域・移行元をそれぞれ指定できます。配置の計算だけでファイルやディレクトリを作成しません。
 
 DB読取り方式は `BmsDatabaseLoadOptions` の三つの必須boolで表します。通常起動の捕捉では既存の三環境変数について `sqlite_net` だけをfalseとし、それ以外はtrueとする選択を維持します。この値の共有と、各DB読取り処理への接続は区別します。
 
+### 専有プロファイルでの検証起動
+
+内部検証の入口は独立した`--test-session <manifest>`だけです。switchの大小文字は区別せず、一度だけ受理します。欠損・重複・イコール形式・不正prefixは起動失敗です。直後の値はmanifestパスとして一回消費し、先頭が `--update-manifest-url=` や `--log-level=` でも別のoptionとして再解釈しません。manifestの相対パスは起動時のCWDで絶対化し、変更不能な再起動argvへ保持します。他の通常引数とCWDを保持します。
+
+manifestはJSON objectで、未知のfieldと重複propertyを拒否します。次の契約を持ち、省略と不正値を区別します。
+
+| field | 条件・省略時の値 |
+| --- | --- |
+| `schemaVersion` | 必須、整数`1` |
+| `profileDirectory` | 必須、空白でない絶対パス |
+| `runId`、`caseId`、`controlPipeName` | 必須、空白でない文字列 |
+| `assetsDirectory` | 省略時は実行ファイルのディレクトリ |
+| `languageDirectory`、`tempDirectory`、`legacySettingsDirectory` | 省略時はprofile配下の`lang`、`temp`、`legacy` |
+| `providers` | 省略またはobject。既知fieldは`fileEnumeration`だけで、省略または厳密な文字列`file-system`を受理 |
+| `updateManifestUrl` | 省略時だけ既存CLI、次に通常既定値を使用。明示値は空白でない絶対HTTP(S) URL |
+
+任意のパスも、指定した場合は絶対パスを要求し、null・空値・相対パス・別型を拒否します。設定・DB・ログはprofileから派生し、通常ユーザー領域へ戻りません。更新作業とダウンロードは既存の実行ファイル側の配置に従います。snapshotが供給する未使用の更新用パスは、更新処理との配置契約の整理が未完了です。旧設定の移行も明示された移行元で通常と同じ処理を通します。言語配置は素材と独立し、言語fixtureのためにnative資産を複製する必要はありません。`file-system`は既存の`FastRootFileEnumerator`へ接続します。
+
+不正manifest・未知providerは`App`生成より前にstderrへ理由を出して非zero終了し、未検証profileへ書き込みません。通常CLIの空白URLを既定値とする従来規則は保持し、不正な非空URLは必須起動失敗へ格上げしません。
+
+### 起動の排他
+
+通常起動は従来の固定GUIDによる全体排他を維持し、コピー先や別profileでも一つだけです。通常・検証起動の両方に、絶対パス・末尾区切り・Windowsの大小文字を正規化したprofile identityの排他を適用します。検証起動だけは通常全体排他へ参加せず、異なる専有profileを並行利用できます。run/case IDを排他キーにしません。通常全体、profileの順で取得し、途中失敗も取得済み分だけを同じスレッドで解放します。
+
 ### 起動の流れと完了境界
 
-`App`の必須パスと言語一覧の準備は、設定読込みと同じ`ApplicationStartupCompositionOwner`の準備境界で行います。準備に失敗した場合は既存の起動失敗処理を一度待ち、VM・`Window`の構成へ進みません。ファイルログ、性能診断、既存ネットワーク診断、無効ログ水準の案内はそれぞれ独立した任意処理とし、一つの診断失敗で言語一覧の準備や他の診断を飛ばしません。
+`Program.Main`は、実行条件の捕捉、`CommandLineSwitches.Configure`によるログ条件の適用、`ApplicationPathPolicy.Configure`、`App`生成、WPFの初期化の順に進みます。`App.xaml`から別のMainを生成しません。設定・言語・ログ・nativeの配置窓口は確定後に参照します。ただし、固定配布runtimeのSQLite providerとコードページの登録はmodule initializerで先行し、manifestのAssets切替の対象外です。この登録は可変path・設定・ログ・DB読取り方式の3値を参照・確定しません。`App`の言語一覧と設定の準備は`ApplicationStartupCompositionOwner`の準備境界で行います。設定lifecycleは表示文化圏を結果として返し、`App`が表示リソースへ適用します。準備に失敗した場合は既存の起動失敗処理を一度待ち、VM・`Window`の構成へ進みません。ファイルログ、性能診断、既存ネットワーク診断、無効ログ水準の案内はそれぞれ独立した任意処理とし、一つの診断失敗で言語一覧の準備や他の診断を飛ばしません。
 
 登録先・設定・DB構造・修復可否・終了の事前判断後、親が既存L＋Pを一度取得します。設定適用では呼出元の生存権限を借用します。独立したファイル走査・DB読込みと保存済みプレイリストの見出し読込みを並列に進め、正本変更は明示した依存順で確定します。並行読取りの合流後に出力ルートの登録修復を同じプレイリスト管理主体で確定します。必要な譜面情報・ハッシュ・保存済みスコアが利用可能になってから項目、カスタムフォルダ修復、BMTを直接待ち、必要なLR2全体同期の実終端へ進みます。
 
@@ -289,6 +315,8 @@ DB確定前の読取・DB失敗は`PendingPackageRestoreException`が元原因�
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 起動時の配置分離と再起動引数の固定 | [`ApplicationPathSnapshot`](../../../BeMusicSeeker/Models/ApplicationPathSnapshot.cs)、[`ApplicationRuntimeOptions`](../../../BeMusicSeeker/Runtime/ApplicationRuntimeOptions.cs)、[`ApplicationComposition`](../../../BeMusicSeeker/ViewModels/MainWindow/ApplicationComposition.cs) | `ApplicationPathPolicyTests` は通常配置と明示した実行体・素材・プロファイルの分離、`ApplicationRuntimeOptionsTests` は元配列と公開コレクションからの変更防止を確認する。構成への受渡しは既存の `ApplicationCompositionTests` 等の回帰で確認する。 |
+| ログCLIの捕捉と起動境界での適用 | [`ApplicationLoggingOptions`](../../../BeMusicSeeker/Runtime/ApplicationLoggingOptions.cs)、[`ApplicationRuntimeOptionsParser`](../../../BeMusicSeeker/Runtime/ApplicationRuntimeOptionsParser.cs)、[`CommandLineSwitches`](../../../BeMusicSeeker/Models/Utils/CommandLineSwitches.cs)、[`Program`](../../../BeMusicSeeker/Program.cs) | `ApplicationRuntimeOptionsParserTests` は通常の9種類のログ値、最後指定の優先、ログoptionに見えるmanifest値の一回消費、argv保持と共有getterの非変更を確認する。`ApplicationRuntimeOptionsTests` は直接構築時の既定ログ条件と共有getterの非変更を分担する。Programの適用順と適用箇所が一つであることは静的レビューで確認する。 |
+| 検証manifest、初期化前の拒否とprofile排他 | [`Program`](../../../BeMusicSeeker/Program.cs)、[`ApplicationRuntimeOptionsParser`](../../../BeMusicSeeker/Runtime/ApplicationRuntimeOptionsParser.cs)、[`ApplicationInstanceLease`](../../../BeMusicSeeker/Runtime/ApplicationInstanceLease.cs) | [`ApplicationRuntimeOptionsParserTests`](../../../BeMusicSeeker.Tests/Runtime/ApplicationRuntimeOptionsParserTests.cs)が入力条件・無書込み・argv保持を集約する。[`RuntimeIsolationProcessTests`](../../../tests/BeMusicSeeker.Windows.Tests/Runtime/RuntimeIsolationProcessTests.cs)が実製品の不正入力終了、fresh processの設定配置・子環境捕捉、通常全体とprofileの相互排他・強制終了後の再取得を確認する。OS試験の通常mutex名はcase専有とし、製品Appの固定GUIDへの接続は静的レビューで確認する。 |
 | DB構造更新の取消・×・Esc、承認・確認不要の起動 | [`StartupLibraryInitializationWorkflowOwner.PrepareSchemaAsync`](../../../BeMusicSeeker/ViewModels/Startup/StartupLibraryInitializationWorkflowOwner.cs)、[`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) の初期化結果・受付解放後の終了配送 | [`MainWindowViewModelAppSchemaRepairTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewModelAppSchemaRepairTests.cs) は実旧DBの非同期確認を保留し、取消・×でschemaと保存版を変えず終了結果を返すこと、承認・修復のみ・通常準備の適用と同セッションの再確認省略を確認する。[`MainWindowViewHostTests.MainWindow_AppSchemaCancelUsesExistingCloseAfterAdmissionRelease`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowAppSchemaRepairExitTests.cs) は通常起動・初回設定開始の実CloseとL/P・gate解放を、[`UiDialogCoordinatorWpfTests.WholeFolderConfirmation_RealMessageProducesDistinctNoCancelAndClose`](../../../BeMusicSeeker.Tests/Dialogs/UiDialogCoordinatorWpfTests.cs) のOKCancel対照は取消・×・Escの実入力結果を確認する。 |
 | 確認済みrootの共有と保存境界 | `LongPathFileSystem.ConfirmDirectoryPathSpelling`、`LibraryFileScanPipelineOwner` | `RootFileEnumerationTests.ConfirmRootSpelling_UsesExistingComponentsAndPreservesUnconfirmedInput` が実要素・空root・未確認入力を、`LongPathFileSystemTests.CopyDirectory_DefaultFollowsNonCyclicDirectoryLink` がリンク位置保持を分担する。`LibraryFileScanPipelineOwnerTests.ConfirmedRootRegistration_IsSharedByScanAndCommitWithFailureBoundaries` がFast/捕捉Everythingのraw面不変、空成功と空走査保護、取消・不完全・root消失・保存/DB失敗を実入口で確認する。`RootFileEnumerationTests.ConfirmScanRoots_*` がdrive/UNC・root自身・兄弟境界と入力合成Entryの除外を分担する。 |
 | 組込み予約領域の起動拒否と訂正 | `StartupLibraryConstructionOwner.PrepareDirectoriesAsync`、`LibraryDirectoryPreflightService.ValidateSettingsAcceptance` | `SettingDialogCustomFolderOutputBaseTests.SettingsAcceptance_ReservesBuiltinOnlyAtConfigurationBoundary` が受理条件と、許容祖先baseに含まれる明示BMS登録の構築前拒否を確認する。`SettingDialogEnvironmentConfirmationTests.ReservedOutputModeSave_FreshStartupRequiresCorrectionThenAncestorBaseAndPropertySaveSucceed` がmode即時保存、明示開始・fresh起動の訂正、訂正後の利用開始とbuiltin実ファイル保全を分担する。`LibraryDirectoryWarningFormatterTests.Format_InvalidConfigurationShowsOnlyKnownReservedDirectoryDetail` が受理例外の具体理由と追加JSON汎用理由、元例外・診断保持を確認する。 |

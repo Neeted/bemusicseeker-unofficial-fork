@@ -62,7 +62,7 @@ public sealed class BassNativeRuntimeTests
             "403287F5E79580C4987F5018AF7FFE5B180F63819B10D09EA744AF5465D360C9"
         };
 
-        string nativeDirectory = Path.Combine(AppContext.BaseDirectory, "libs", "x64");
+        string nativeDirectory = Path.Combine(ApplicationPathPolicy.Current.AssetsDirectory, "libs", "x64");
         for (int index = 0; index < expectedNames.Length; index++)
         {
             string path = Path.Combine(nativeDirectory, expectedNames[index]);

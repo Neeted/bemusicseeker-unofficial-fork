@@ -89,9 +89,10 @@ internal sealed class EverythingNative
             ?? throw new ArgumentNullException(nameof(applicationPathSnapshot));
     }
 
+    /// <summary>注入された読取り素材の配置からnative bridgeのパスを解決します。</summary>
     internal string GetExpectedBridgeDllPath()
     {
-        return Path.Combine(applicationPathSnapshot.BaseDirectory, "native", BridgeDllName);
+        return Path.Combine(applicationPathSnapshot.AssetsDirectory, "native", BridgeDllName);
     }
 
     internal void Dispose()

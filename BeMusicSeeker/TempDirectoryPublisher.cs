@@ -1,223 +1,33 @@
+#nullable enable
 using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Globalization;
-using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Runtime;
 
 namespace BeMusicSeeker;
 
+/// <summary>製品プロセスが所有する一つの管理一時セッションへの入口です。</summary>
 public static class TempDirectoryPublisher
 {
-    private const string AppTempDirectoryName = "BeMusicSeeker";
-    private const string SessionDirectoryPrefix = "session-";
-    private const string SessionMarkerFileName = ".bemusicseeker-temp-session";
+    private static readonly TemporaryDirectorySession Session = new(ApplicationPathPolicy.Current.TempDirectory);
 
-    private static readonly List<string> DirList = [];
-    private static readonly object SyncRoot = new();
-    private static readonly string ManagedRootPath = Path.Combine(Path.GetTempPath(), AppTempDirectoryName);
-    private static readonly string SessionDirectoryName = CreateSessionDirectoryName();
-    private static readonly string SessionDirectoryPath = Path.Combine(ManagedRootPath, SessionDirectoryName);
+    /// <summary>用途未指定の独立した管理一時ディレクトリを作ります。</summary>
+    public static string Get() => Session.Get("work");
 
-    /// <summary>作成印の初期化を終えた現在のセッション内に、作業用の独立した管理ディレクトリを作ります。</summary>
-    /// <remarks>並列の初回取得とI/O失敗の扱いは <see cref="Get(string)"/> と同じです。</remarks>
-    public static string Get()
-    {
-        return Get("work");
-    }
+    /// <summary>指定用途の管理一時ディレクトリを、生存leaseの確立後に返します。終了開始後は取得できません。</summary>
+    public static string Get(string? purpose) => Session.Get(purpose);
 
-    /// <summary>指定用途の独立した管理ディレクトリを、現在のセッション内に作って返します。</summary>
-    /// <remarks>初回取得が並列でも作成印の初期化を競合させず、返却前に書込みを完了します。実I/O失敗は取得元へ伝播します。</remarks>
-    public static string Get(string purpose)
-    {
-        string normalizedPurpose = NormalizePurpose(purpose);
-        string text = Path.Combine(SessionDirectoryPath, normalizedPurpose + "-" + Path.GetRandomFileName());
-        EnsureSessionDirectory();
-        Directory.CreateDirectory(text);
-        lock (SyncRoot)
-        {
-            DirList.Add(text);
-        }
-        return text;
-    }
+    /// <summary>現在のプロセスのセッション配下かを判定します。</summary>
+    public static bool IsManagedPath(string? path) => Session.IsManagedPath(path);
 
-    public static bool IsManagedPath(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return false;
-        }
+    /// <summary>現在のプロセスの管理一時パスだけを削除し、通常の削除失敗は警告先へ通知します。</summary>
+    public static bool TryDeleteManagedPath(string? path, Action<string>? logInfo = null, Action<string, Exception>? logWarning = null)
+        => Session.TryDeleteManagedPath(path, logInfo, logWarning);
 
-        try
-        {
-            string fullPath = Path.GetFullPath(path);
-            string sessionPath = Path.GetFullPath(SessionDirectoryPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            return fullPath.StartsWith(sessionPath, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), sessionPath.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    /// <summary>生存していない既知の管理セッションの回収を開始し、実処理の完了を返します。</summary>
+    public static Task StartCleanupStaleDirectoriesAsync(Action<string>? logInfo = null, Action<string, Exception>? logWarning = null)
+        => Session.StartCleanupStaleDirectoriesAsync(logInfo, logWarning);
 
-    public static bool TryDeleteManagedPath(string path, Action<string> logInfo = null, Action<string, Exception> logWarning = null)
-    {
-        if (!IsManagedPath(path))
-        {
-            return false;
-        }
-
-        if (TryDeletePath(path, logWarning))
-        {
-            lock (SyncRoot)
-            {
-                DirList.RemoveAll(dir => string.Equals(dir, path, StringComparison.OrdinalIgnoreCase));
-            }
-            logInfo?.Invoke("temp_cleanup deleted path=" + path);
-            return true;
-        }
-
-        return false;
-    }
-
-    public static void StartCleanupStaleDirectoriesAsync(Action<string> logInfo = null, Action<string, Exception> logWarning = null)
-    {
-        Task.Run(() => CleanupStaleDirectories(logInfo, logWarning));
-    }
-
-    public static void RemoveAll()
-    {
-        RemoveAll(null);
-    }
-
-    public static void RemoveAll(Action<string, Exception> logWarning)
-    {
-        List<string> dirs;
-        lock (SyncRoot)
-        {
-            dirs = [.. DirList];
-            DirList.Clear();
-        }
-
-        dirs.Add(SessionDirectoryPath);
-        foreach (string dir in dirs)
-        {
-            TryDeletePath(dir, logWarning);
-        }
-    }
-
-    private static string CreateSessionDirectoryName()
-    {
-        return SessionDirectoryPrefix + DateTime.UtcNow.ToString("yyyyMMddHHmmssfff", CultureInfo.InvariantCulture) + "-" + Process.GetCurrentProcess().Id.ToString(CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N");
-    }
-
-    private static void EnsureSessionDirectory()
-    {
-        // 初回の並列取得でも、作成印の存在確認から書込み完了までを一体にする。
-        lock (SyncRoot)
-        {
-            Directory.CreateDirectory(SessionDirectoryPath);
-            string markerPath = Path.Combine(SessionDirectoryPath, SessionMarkerFileName);
-            if (!File.Exists(markerPath))
-            {
-                File.WriteAllText(markerPath, "BeMusicSeeker managed temporary session");
-            }
-        }
-    }
-
-    private static string NormalizePurpose(string purpose)
-    {
-        string normalized = string.IsNullOrWhiteSpace(purpose) ? "work" : purpose.Trim();
-        foreach (char invalidChar in Path.GetInvalidFileNameChars())
-        {
-            normalized = normalized.Replace(invalidChar, '_');
-        }
-        return string.IsNullOrWhiteSpace(normalized) ? "work" : normalized;
-    }
-
-    private static void CleanupStaleDirectories(Action<string> logInfo, Action<string, Exception> logWarning)
-    {
-        try
-        {
-            if (!Directory.Exists(ManagedRootPath))
-            {
-                return;
-            }
-
-            int deletedCount = 0;
-            foreach (string directoryPath in Directory.EnumerateDirectories(ManagedRootPath).Where(IsStaleSessionDirectory))
-            {
-                if (TryDeletePath(directoryPath, logWarning))
-                {
-                    deletedCount++;
-                }
-            }
-
-            if (deletedCount > 0)
-            {
-                logInfo?.Invoke("temp_startup_cleanup deletedSessions=" + deletedCount + " root=" + ManagedRootPath);
-            }
-        }
-        catch (Exception ex)
-        {
-            logWarning?.Invoke(ManagedRootPath, ex);
-        }
-    }
-
-    private static bool IsStaleSessionDirectory(string path)
-    {
-        if (IsCurrentSessionDirectory(path))
-        {
-            return false;
-        }
-
-        try
-        {
-            return string.Equals(Path.GetDirectoryName(path), Path.GetFullPath(ManagedRootPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)
-                && Path.GetFileName(path).StartsWith(SessionDirectoryPrefix, StringComparison.OrdinalIgnoreCase)
-                && File.Exists(Path.Combine(path, SessionMarkerFileName));
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static bool IsCurrentSessionDirectory(string path)
-    {
-        try
-        {
-            return string.Equals(Path.GetFullPath(path), Path.GetFullPath(SessionDirectoryPath), StringComparison.OrdinalIgnoreCase);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static bool TryDeletePath(string path, Action<string, Exception> logWarning)
-    {
-        try
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-                return true;
-            }
-
-            if (Directory.Exists(path))
-            {
-                Directory.Delete(path, recursive: true);
-                return true;
-            }
-        }
-        catch (Exception ex)
-        {
-            logWarning?.Invoke(path, ex);
-        }
-
-        return false;
-    }
+    /// <summary>新しい取得を停止し、開始済み回収を待って現在のセッションを解放します。繰返し呼出しは同じ完了を返します。</summary>
+    public static Task RemoveAllAsync(Action<string, Exception>? logWarning = null) => Session.RemoveAllAsync(logWarning);
 }

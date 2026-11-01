@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using ManagedBass;
 using ManagedBass.Enc;
@@ -46,8 +47,8 @@ public class BassAudioWriter : BassAudioPlayer
     /// <summary>encoderの現在のlifecycle stateを取得します。</summary>
     public static PlayState RecordState { get; protected set; } = PlayState.Stopped;
 
-    /// <summary>command-line encoderを検索するdirectoryを取得または設定します。</summary>
-    public static string EncoderDirectory { get; set; } = AppContext.BaseDirectory;
+    /// <summary>外部エンコーダーの優先検索先を取得または設定します。初期値は確定済みの読取り素材の配置です。</summary>
+    public static string EncoderDirectory { get; set; } = ApplicationPathPolicy.Current.AssetsDirectory;
 
     /// <summary>現在のencoder command lineを取得します。</summary>
     public static string EncoderCommandLine => encoder?.CommandLine;

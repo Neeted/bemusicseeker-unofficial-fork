@@ -15,8 +15,6 @@ namespace Ribbit.Logging;
 /// </summary>
 public static class NLogWrapper
 {
-    private const string LogDirectoryName = "log";
-
     private const string ArchiveDirectoryName = "archive";
 
     private const string ApplicationLogFileName = "application.log";
@@ -113,19 +111,18 @@ public static class NLogWrapper
     }
 
     /// <summary>
-    /// 実行ファイル配下の通常診断を非同期出力し、性能ログを別ファイルへ分離します。
+    /// 明示したログディレクトリへ通常診断を非同期出力し、性能ログを別ファイルへ分離します。
     /// </summary>
-    /// <param name="applicationBaseDirectory">実行ファイルの所在ディレクトリ。</param>
+    /// <param name="logDirectoryPath">構成境界で確定した通常ログと性能ログの保存先。</param>
     /// <param name="minimumFileLogLevel">通常ログへ出力する最低レベル。</param>
     /// <param name="enableInstallPerformanceLogging">性能ログも記録するか。</param>
-    public static void ConfigureApplicationFileLogging(string applicationBaseDirectory, LogLevel minimumFileLogLevel, bool enableInstallPerformanceLogging)
+    public static void ConfigureApplicationFileLogging(string logDirectoryPath, LogLevel minimumFileLogLevel, bool enableInstallPerformanceLogging)
     {
-        if (string.IsNullOrWhiteSpace(applicationBaseDirectory))
+        if (string.IsNullOrWhiteSpace(logDirectoryPath))
         {
-            throw new ArgumentException("Application base directory is required.", nameof(applicationBaseDirectory));
+            throw new ArgumentException("Log directory path is required.", nameof(logDirectoryPath));
         }
         LogLevel effectiveMinimumFileLogLevel = minimumFileLogLevel ?? LogLevel.Info;
-        string logDirectoryPath = Path.Combine(applicationBaseDirectory, LogDirectoryName);
         FileTarget applicationFileTarget = CreateRollingFileTarget(
             "ApplicationFileTarget",
             Path.Combine(logDirectoryPath, ApplicationLogFileName),

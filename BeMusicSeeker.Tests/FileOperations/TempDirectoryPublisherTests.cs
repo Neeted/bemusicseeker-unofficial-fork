@@ -1,13 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Reflection;
-using System.Runtime.ExceptionServices;
-using System.Runtime.Loader;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Runtime;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -15,197 +12,208 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class TempDirectoryPublisherTests
 {
-    /// <summary>未使用のセッションへ並列に初回取得し、各返却時の作成印と独立した管理ディレクトリを確認する。</summary>
-    /// <remarks>実製品を別ロードして既存テストによる初期化と分離する。内部I/Oの交錯自体は強制せず、排他範囲の静的確認と分担する。</remarks>
+    private const string MarkerName = ".bemusicseeker-temp-session";
+    private const string KnownMarker = "BeMusicSeeker managed temporary session v2";
+    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>並列の初回取得でも各返却時に生存leaseが成立し、同一セッション内に独立した領域を作ることを確認する。</summary>
+    /// <remarks>所有者を直接分離して実FSと排他Streamを観測する。異なるプロセスと強制終了後の回収はプロセス試験が分担する。</remarks>
     [TestMethod]
     public async Task ConcurrentFirstGetsReturnDistinctDirectoriesWithCompletedSessionMarker()
     {
-        string assemblyPath = typeof(TempDirectoryPublisher).Assembly.Location;
-        var context = new IsolatedPublisherLoadContext(assemblyPath);
+        await using var scope = new SessionScope();
+        TemporaryDirectorySession owner = scope.CreateOwner();
         using var ready = new CountdownEvent(2);
         using var start = new ManualResetEventSlim();
         var workers = new List<Task<string>>();
-        var cleanupFailures = new List<Exception>();
-        Exception? bodyFailure = null;
-        Action<Action<string, Exception>>? removeAll = null;
         try
         {
-            Type publisher = context.LoadFromAssemblyPath(assemblyPath).GetType(typeof(TempDirectoryPublisher).FullName ?? throw new AssertFailedException(), throwOnError: true)
-                ?? throw new AssertFailedException();
-            Func<string, string> get = (publisher.GetMethod(nameof(TempDirectoryPublisher.Get), [typeof(string)]) ?? throw new AssertFailedException()).CreateDelegate<Func<string, string>>();
-            Func<string, bool> isManaged = (publisher.GetMethod(nameof(TempDirectoryPublisher.IsManagedPath)) ?? throw new AssertFailedException()).CreateDelegate<Func<string, bool>>();
-            removeAll = (publisher.GetMethod(nameof(TempDirectoryPublisher.RemoveAll), [typeof(Action<string, Exception>)]) ?? throw new AssertFailedException()).CreateDelegate<Action<Action<string, Exception>>>();
             for (int i = 0; i < 2; i++)
             {
                 workers.Add(Task.Factory.StartNew(() =>
                 {
                     ready.Signal();
-                    start.Wait();
-                    string path = get("parallel-first-get");
+                    Assert.IsTrue(start.Wait(Timeout), "並列取得の開始通知がありません。");
+                    string path = owner.Get("parallel-first-get");
                     Assert.IsTrue(Directory.Exists(path));
-                    Assert.IsTrue(isManaged(path));
-                    string session = Path.GetDirectoryName(path) ?? throw new AssertFailedException();
-                    // 全worker合流前に観測し、読み手自身は書込みの共有違反を起こさない。
-                    using var marker = new FileStream(Path.Combine(session, ".bemusicseeker-temp-session"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                    using var reader = new StreamReader(marker);
-                    Assert.AreEqual("BeMusicSeeker managed temporary session", reader.ReadToEnd());
+                    Assert.IsTrue(owner.IsManagedPath(path));
+                    AssertLeaseHeld(Path.GetDirectoryName(path) ?? throw new AssertFailedException());
                     return path;
                 }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default));
             }
-            ready.Wait();
+            Assert.IsTrue(ready.Wait(Timeout), "並列取得workerが準備されません。");
             start.Set();
-            string[] paths = await Task.WhenAll(workers);
+            string[] paths = await Task.WhenAll(workers).WaitAsync(Timeout);
             Assert.AreEqual(2, paths.Distinct(StringComparer.OrdinalIgnoreCase).Count());
             Assert.AreEqual(Path.GetDirectoryName(paths[0]), Path.GetDirectoryName(paths[1]));
         }
-        catch (Exception ex)
-        {
-            bodyFailure = ex;
-        }
         finally
         {
             start.Set();
-            try { await Task.WhenAll(workers); }
-            catch (Exception ex) { bodyFailure ??= ex; }
-            try
-            {
-                // 別ロードした型が所有するセッションだけを、全取得の終端後に回収する。
-                removeAll?.Invoke((path, error) => cleanupFailures.Add(new IOException("テスト所有セッションの回収に失敗: " + path, error)));
-            }
-            catch (Exception ex)
-            {
-                cleanupFailures.Add(ex);
-            }
-            finally
-            {
-                context.Unload();
-            }
+            await Task.WhenAll(workers).WaitAsync(Timeout);
         }
-        if (bodyFailure != null)
-        {
-            if (cleanupFailures.Count != 0) { bodyFailure.Data["SessionCleanupFailures"] = new AggregateException(cleanupFailures).ToString(); }
-            ExceptionDispatchInfo.Capture(bodyFailure).Throw();
-        }
-        if (cleanupFailures.Count != 0) { throw new AggregateException(cleanupFailures); }
     }
 
-    /// <summary>非Gregorian文化でも固定UTC形式のsession名で管理ディレクトリを作り、実在・所有判定と回収を確認する。</summary>
-    /// <remarks>実ファイルと所有markerの削除境界を確認し、管理外の利用者データ保持を分担する。</remarks>
+    /// <summary>所有scopeにGUIDセッションを作り、実在と所有境界を確認する。地域依存の日時・整数書式は管理名に持ち込まない。</summary>
     [TestMethod]
-    [DoNotParallelize]
-    [DataRow("th-TH")]
-    public void GetCreatesManagedDirectory(string cultureName)
+    public async Task GetCreatesManagedDirectory()
     {
-        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        await using var scope = new SessionScope();
+        TemporaryDirectorySession owner = scope.CreateOwner();
+        string path = owner.Get("unit-test");
+        string session = Path.GetDirectoryName(path) ?? throw new AssertFailedException();
+        string sessionName = Path.GetFileName(session);
+        Assert.IsTrue(sessionName.StartsWith("session-", StringComparison.Ordinal));
+        Assert.IsTrue(Guid.TryParseExact(sessionName[8..], "N", out _));
+        Assert.AreEqual(scope.Root, Path.GetDirectoryName(session));
+        Assert.IsTrue(Directory.Exists(path));
+        Assert.IsTrue(owner.IsManagedPath(path));
+    }
+
+    /// <summary>自セッション内の実ファイルとleafだけを削除し、別ownerのleaf・scope直下の利用者データ・markerなしのsession風フォルダを保持する。</summary>
+    [TestMethod]
+    public async Task TryDeleteManagedPathDeletesOnlyManagedPaths()
+    {
+        await using var scope = new SessionScope();
+        TemporaryDirectorySession owner = scope.CreateOwner();
+        TemporaryDirectorySession otherOwner = scope.CreateOwner();
+        string leaf = owner.Get("delete");
+        string file = Path.Combine(leaf, "archive.zip");
+        File.WriteAllText(file, "temporary archive");
+        string otherLeaf = otherOwner.Get("other");
+        string manualFile = Path.Combine(scope.Root, "manual.zip");
+        File.WriteAllText(manualFile, "user owned");
+        string manualSession = Path.Combine(scope.Root, "session-manual");
+        Directory.CreateDirectory(manualSession);
+        string manualArchive = Path.Combine(manualSession, "archive.zip");
+        File.WriteAllText(manualArchive, "user owned archive");
+
+        Assert.IsTrue(owner.TryDeleteManagedPath(file));
+        Assert.IsTrue(owner.TryDeleteManagedPath(leaf));
+        Assert.IsFalse(File.Exists(file));
+        Assert.IsFalse(Directory.Exists(leaf));
+        foreach (string unmanaged in new[] { otherLeaf, manualFile, manualSession })
+        {
+            Assert.IsFalse(owner.IsManagedPath(unmanaged));
+            Assert.IsFalse(owner.TryDeleteManagedPath(unmanaged));
+        }
+        Assert.IsTrue(Directory.Exists(otherLeaf));
+        Assert.AreEqual("user owned", File.ReadAllText(manualFile));
+        Assert.AreEqual("user owned archive", File.ReadAllText(manualArchive));
+    }
+
+    /// <summary>回収は排他取得できる既知v2だけを削除し、生存owner・未知版・旧marker・markerなし・通常ファイルの内容を保持する。</summary>
+    [TestMethod]
+    public async Task CleanupStaleDirectoriesDeletesOnlyKnownInactiveSessions()
+    {
+        await using var scope = new SessionScope();
+        TemporaryDirectorySession live = scope.CreateOwner();
+        TemporaryDirectorySession cleaner = scope.CreateOwner();
+        string liveLeaf = live.Get("live");
+        string liveFile = Path.Combine(liveLeaf, "archive.zip");
+        File.WriteAllText(liveFile, "live archive");
+        string stale = scope.CreateMarkedSession(KnownMarker);
+        string unknown = scope.CreateMarkedSession("BeMusicSeeker managed temporary session v3");
+        string legacy = scope.CreateMarkedSession("BeMusicSeeker managed temporary session");
+        string unmarked = Path.Combine(scope.Root, "session-manual");
+        Directory.CreateDirectory(unmarked);
+        string manual = Path.Combine(scope.Root, "manual.zip");
+        File.WriteAllText(manual, "manual archive");
+        var warnings = new List<Exception>();
+
+        await cleaner.StartCleanupStaleDirectoriesAsync(logWarning: (path, error) => warnings.Add(new IOException(path, error))).WaitAsync(Timeout);
+
+        Assert.AreEqual(0, warnings.Count);
+        Assert.IsFalse(Directory.Exists(stale));
+        Assert.AreEqual("live archive", File.ReadAllText(liveFile));
+        AssertLeaseHeld(Path.GetDirectoryName(liveLeaf) ?? throw new AssertFailedException());
+        Assert.AreEqual("BeMusicSeeker managed temporary session v3", File.ReadAllText(Path.Combine(unknown, MarkerName)));
+        Assert.AreEqual("BeMusicSeeker managed temporary session", File.ReadAllText(Path.Combine(legacy, MarkerName)));
+        Assert.IsTrue(Directory.Exists(unmarked));
+        Assert.AreEqual("manual archive", File.ReadAllText(manual));
+    }
+
+    /// <summary>終了開始で新Getを止め、開始済み回収の実終端までは自leaseとleafを保持し、解放後に削除する。再終了は同じTaskで再起動しない。</summary>
+    [TestMethod]
+    public async Task RemoveAllStopsGetsAndDrainsCleanupBeforeReleasingLease()
+    {
+        await using var scope = new SessionScope();
+        TemporaryDirectorySession owner = scope.CreateOwner();
+        string leaf = owner.Get("terminal");
+        string session = Path.GetDirectoryName(leaf) ?? throw new AssertFailedException();
+        scope.CreateMarkedSession(KnownMarker);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var warnings = new List<Exception>();
+        Task cleanup = owner.StartCleanupStaleDirectoriesAsync(_ =>
+        {
+            entered.SetResult();
+            if (!release.Wait(Timeout)) { throw new TimeoutException("回収終端の解放通知がありません。"); }
+        }, (path, error) => warnings.Add(new IOException(path, error)));
+        Task? terminal = null;
         try
         {
-            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
-            string directoryPath = TempDirectoryPublisher.Get("unit-test");
-
-            try
-            {
-                Assert.IsTrue(Directory.Exists(directoryPath));
-                Assert.IsTrue(TempDirectoryPublisher.IsManagedPath(directoryPath));
-                string sessionName = Path.GetFileName(Path.GetDirectoryName(directoryPath)) ?? throw new AssertFailedException();
-                StringAssert.Matches(sessionName, new System.Text.RegularExpressions.Regex(@"^session-[0-9]{17}-[0-9]+-[a-f0-9]{32}$"));
-                var sessionTime = DateTime.ParseExact(sessionName.Substring(8, 17), "yyyyMMddHHmmssfff", CultureInfo.InvariantCulture);
-                Assert.IsTrue(sessionTime <= DateTime.UtcNow, "管理名はGregorianのUTC日時を使います。");
-                StringAssert.Contains(directoryPath, Path.Combine(Path.GetTempPath(), "BeMusicSeeker"));
-            }
-            finally
-            {
-                TempDirectoryPublisher.TryDeleteManagedPath(directoryPath);
-            }
+            await entered.Task.WaitAsync(Timeout);
+            terminal = owner.RemoveAllAsync((path, error) => warnings.Add(new IOException(path, error)));
+            Assert.AreSame(terminal, owner.RemoveAllAsync());
+            Assert.ThrowsExactly<ObjectDisposedException>(() => owner.Get("after-stop"));
+            Assert.IsFalse(terminal.IsCompleted);
+            Assert.IsFalse(cleanup.IsCompleted);
+            Assert.IsTrue(Directory.Exists(leaf));
+            AssertLeaseHeld(session);
         }
         finally
         {
-            CultureInfo.CurrentCulture = previousCulture;
+            release.Set();
+            await cleanup.WaitAsync(Timeout);
+            if (terminal != null) { await terminal.WaitAsync(Timeout); }
         }
+        Assert.AreEqual(0, warnings.Count);
+        Assert.IsFalse(Directory.Exists(session));
+        Assert.ThrowsExactly<ObjectDisposedException>(() => owner.Get("after-complete"));
+        Assert.AreSame(terminal, owner.RemoveAllAsync());
     }
 
-    /// <summary>管理された実ディレクトリ内のファイルとディレクトリだけを削除し、所有対象の回収漏れを検出する。</summary>
-    /// <remarks>実ファイルと所有markerの削除境界を確認し、管理外の利用者データ保持を分担する。</remarks>
-    [TestMethod]
-    public void TryDeleteManagedPathDeletesOnlyManagedPaths()
+    private static void AssertLeaseHeld(string session)
     {
-        string directoryPath = TempDirectoryPublisher.Get("unit-test-delete");
-        try
+        Assert.ThrowsExactly<IOException>(() =>
         {
-            string filePath = Path.Combine(directoryPath, "archive.zip");
-            File.WriteAllText(filePath, "temporary archive");
-
-            bool deletedFile = TempDirectoryPublisher.TryDeleteManagedPath(filePath);
-            bool deletedDirectory = TempDirectoryPublisher.TryDeleteManagedPath(directoryPath);
-
-            Assert.IsTrue(deletedFile);
-            Assert.IsTrue(deletedDirectory);
-            Assert.IsFalse(File.Exists(filePath));
-            Assert.IsFalse(Directory.Exists(directoryPath));
-        }
-        finally
-        {
-            TempDirectoryPublisher.TryDeleteManagedPath(directoryPath);
-        }
-
+            using var marker = new FileStream(Path.Combine(session, MarkerName), FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        });
     }
 
-    /// <summary>アプリtemp配下でも利用者が作ったファイルは管理外として保持し、場所だけを根拠に誤削除する危険を検出する。</summary>
-    /// <remarks>実ファイルと所有markerの削除境界を確認し、管理外の利用者データ保持を分担する。</remarks>
-    [TestMethod]
-    public void TryDeleteManagedPathDoesNotDeleteManualFileUnderAppTempRoot()
+    private sealed class SessionScope : IAsyncDisposable
     {
-        string managedRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker");
-        string manualFilePath = Path.Combine(managedRootPath, "manual-" + Guid.NewGuid().ToString("N") + ".zip");
-        Directory.CreateDirectory(managedRootPath);
-        File.WriteAllText(manualFilePath, "user owned");
+        private readonly List<TemporaryDirectorySession> owners = [];
+        internal string Root { get; } = Path.Combine(Path.GetTempPath(), "BeMusicSeeker.Tests", "temp-session-" + Guid.NewGuid().ToString("N"));
 
-        try
+        internal TemporaryDirectorySession CreateOwner()
         {
-            Assert.IsFalse(TempDirectoryPublisher.IsManagedPath(manualFilePath));
-            Assert.IsFalse(TempDirectoryPublisher.TryDeleteManagedPath(manualFilePath));
-            Assert.IsTrue(File.Exists(manualFilePath));
-        }
-        finally
-        {
-            File.Delete(manualFilePath);
-        }
-    }
-
-    /// <summary>session風の名前でも管理markerのない実ディレクトリを保持し、名前だけから所有を推定して誤削除する危険を検出する。</summary>
-    /// <remarks>実ファイルと所有markerの削除境界を確認し、管理外の利用者データ保持を分担する。</remarks>
-    [TestMethod]
-    public void TryDeleteManagedPathDoesNotDeleteManualSessionNamedDirectoryWithoutMarker()
-    {
-        string managedRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker");
-        string manualDirectoryPath = Path.Combine(managedRootPath, "session-manual-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(manualDirectoryPath);
-        File.WriteAllText(Path.Combine(manualDirectoryPath, "archive.zip"), "user owned");
-
-        try
-        {
-            Assert.IsFalse(TempDirectoryPublisher.IsManagedPath(manualDirectoryPath));
-            Assert.IsFalse(TempDirectoryPublisher.TryDeleteManagedPath(manualDirectoryPath));
-            Assert.IsTrue(Directory.Exists(manualDirectoryPath));
-        }
-        finally
-        {
-            Directory.Delete(manualDirectoryPath, recursive: true);
-        }
-    }
-    private sealed class IsolatedPublisherLoadContext(string assemblyPath) : AssemblyLoadContext(isCollectible: true)
-    {
-        private readonly AssemblyDependencyResolver resolver = new(assemblyPath);
-
-        protected override Assembly? Load(AssemblyName assemblyName)
-        {
-            string? path = resolver.ResolveAssemblyToPath(assemblyName);
-            return path == null ? null : LoadFromAssemblyPath(path);
+            var owner = new TemporaryDirectorySession(Root);
+            owners.Add(owner);
+            return owner;
         }
 
-        protected override IntPtr LoadUnmanagedDll(string unmanagedDllName)
+        internal string CreateMarkedSession(string content)
         {
-            string? path = resolver.ResolveUnmanagedDllToPath(unmanagedDllName);
-            return path == null ? IntPtr.Zero : LoadUnmanagedDllFromPath(path);
+            string path = Path.Combine(Root, "session-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(path);
+            File.WriteAllText(Path.Combine(path, MarkerName), content);
+            File.WriteAllText(Path.Combine(path, "archive.zip"), "stale archive");
+            return path;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            var failures = new List<Exception>();
+            foreach (TemporaryDirectorySession owner in owners)
+            {
+                try { await owner.RemoveAllAsync((path, error) => failures.Add(new IOException("所有セッションの回収失敗: " + path, error))).WaitAsync(Timeout); }
+                catch (Exception ex) { failures.Add(ex); }
+            }
+            try { if (Directory.Exists(Root)) { Directory.Delete(Root, recursive: true); } }
+            catch (Exception ex) { failures.Add(ex); }
+            if (failures.Count != 0) { throw new AggregateException(failures); }
         }
     }
 }

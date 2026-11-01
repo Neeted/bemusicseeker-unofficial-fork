@@ -581,7 +581,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         LoggingConfiguration? previousConfiguration = LogManager.Configuration;
         try
         {
-            NLogWrapper.ConfigureApplicationFileLogging(directory, LogLevel.Info, enableInstallPerformanceLogging: false);
+            NLogWrapper.ConfigureApplicationFileLogging(Path.Combine(directory, "log"), LogLevel.Info, enableInstallPerformanceLogging: false);
             var configuration = new LoggingConfiguration();
             configuration.AddRule(LogLevel.Warn, LogLevel.Fatal, log);
             LogManager.Configuration = configuration;

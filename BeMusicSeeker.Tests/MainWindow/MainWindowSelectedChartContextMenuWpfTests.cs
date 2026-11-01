@@ -1316,7 +1316,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
         try
         {
             LogManager.Configuration = new LoggingConfiguration();
-            NLogWrapper.ConfigureApplicationFileLogging(logDirectory.FullName, LogLevel.Info, enableInstallPerformanceLogging: false);
+            NLogWrapper.ConfigureApplicationFileLogging(Path.Combine(logDirectory.FullName, "log"), LogLevel.Info, enableInstallPerformanceLogging: false);
             var configuration = new LoggingConfiguration();
             configuration.AddRule(LogLevel.Warn, LogLevel.Fatal, capture);
             LogManager.Configuration = configuration;

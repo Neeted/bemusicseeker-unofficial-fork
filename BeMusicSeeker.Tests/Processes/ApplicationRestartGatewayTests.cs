@@ -8,14 +8,13 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ApplicationRestartGatewayTests
 {
-    /// <summary>元の実行ファイルを再起動引数から除き、空引数・空白・引用符・末尾backslashをWindows形式で保持します。</summary>
+    /// <summary>捕捉済みargvを受け取り、空引数・空白・引用符・末尾backslashをWindows形式で保持します。</summary>
     [TestMethod]
-    public void RestartArgumentsExcludeExecutableAndPreserveCanonicalWindowsQuoting()
+    public void RestartArgumentsPreserveCanonicalWindowsQuoting()
     {
         string arguments = ApplicationRestartArgumentsPolicy.BuildCommandLineArguments(
             new[]
             {
-                @"C:\BeMusicSeeker\BeMusicSeeker.exe",
                 "first",
                 string.Empty,
                 "two words",
@@ -37,14 +36,14 @@ public sealed class ApplicationRestartGatewayTests
             arguments);
     }
 
-    /// <summary>実行ファイルだけの起動入力から空の再起動引数を作り、実行ファイルを引数として重ねません。</summary>
+    /// <summary>空argvから空の再起動引数を作り、実行ファイルを引数として加えません。</summary>
     [TestMethod]
-    public void RestartArgumentsWithOnlyExecutableAreEmpty()
+    public void EmptyRestartArgumentsRemainEmpty()
     {
         Assert.AreEqual(
             string.Empty,
             ApplicationRestartArgumentsPolicy.BuildCommandLineArguments(
-                new[] { @"C:\BeMusicSeeker\BeMusicSeeker.exe" }));
+                System.Array.Empty<string>()));
     }
 
     /// <summary>再起動前にmutexを解放し、実行ファイル・引数・作業先を注入gatewayへ渡して新プロセスの受付競合を防ぎます。</summary>

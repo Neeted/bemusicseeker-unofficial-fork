@@ -21,6 +21,10 @@ internal sealed class AppApplicationLifetime : IApplicationLifetimePort
 
     public void RequestShutdown() => application.Shutdown();
 
+    /// <summary>アプリ全体が所有する一時ディレクトリの回収完了を返します。</summary>
+    public System.Threading.Tasks.Task CompleteTemporaryDirectoriesAsync(System.Action<string, System.Exception> logWarning)
+        => TempDirectoryPublisher.RemoveAllAsync(logWarning);
+
     /// <summary>通常終了の後片付けを通さず、保全物を残した最終終了へ接続します。</summary>
     public void ExitForUnrestoredDestination(System.Exception failure)
         => application.ExitForUnrestoredDestination(failure);

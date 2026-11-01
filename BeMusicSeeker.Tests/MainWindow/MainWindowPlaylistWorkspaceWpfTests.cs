@@ -138,7 +138,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         {
                             foreach (string path in managedInputs)
                             {
-                                // 通常終了が既に管理入力を回収するため、存在する今回の入力だけ追加回収し、最終不存在を確認します。
+                                // テストの終了処理はアプリ全体の一時領域を回収しないため、今回の入力だけ回収します。
                                 if (File.Exists(path) || Directory.Exists(path))
                                 {
                                     Exception? deletionFailure = null;
@@ -7298,6 +7298,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
         public void ExitForUnrestoredDestination(System.Exception failure)
         => throw new System.InvalidOperationException("Unexpected unrestored destination exit.", failure);
+
+        /// <summary>テストが所有する一時入力は各fixtureで回収し、アプリ全体の回収を行いません。</summary>
+        public Task CompleteTemporaryDirectoriesAsync(Action<string, Exception> logWarning) => Task.CompletedTask;
 
         public void RequestShutdown()
         {

@@ -141,6 +141,73 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         CollectionAssert.AreEqual(new[] { "settings_save", "application_shutdown" }, events);
     }
 
+    /// <summary>一時領域の回収待ちも同じ終端Taskを共有し、完了前には後継起動と終端完了後の明示終了へ進みません。</summary>
+    /// <remarks>実Shell ownerに未完了の回収Taskを渡します。実ファイル回収はTempDirectoryPublisherTests、Windowからの終了要求はMainWindowViewHostTestsが分担します。</remarks>
+    [TestMethod]
+    public async Task TerminalCleanupAwaitsTemporaryDirectoriesBeforeRestartAndShutdown()
+    {
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        var temporaryEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var temporaryRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var settingsSession = new RecordingSettingsEditSession();
+        int temporaryCompletionCount = 0;
+        int restartCount = 0;
+        int shutdownCount = 0;
+        ShellShutdownWorkflowOwner owner = CreateDirectOwner(
+            viewModel,
+            settingsEditSession: settingsSession,
+            requestApplicationShutdown: () => shutdownCount++,
+            startApplicationRestart: () => { restartCount++; return Task.CompletedTask; },
+            completeTemporaryDirectories: _ =>
+            {
+                temporaryCompletionCount++;
+                temporaryEntered.TrySetResult();
+                return temporaryRelease.Task;
+            });
+        Task<ShellShutdownWorkflowCompletionReceipt>? close = null;
+        owner.OperationModeRestartRequested += () => close = owner.RequestWindowCloseAsync();
+        Task? terminal = null;
+        Task? shutdown = null;
+        try
+        {
+            Assert.IsTrue(await owner.RequestOperationModeRestartAsync(new OperationModeRestartRequest(
+                EnvironmentSettingsChange.Capture(settingsSession.Values)
+                    with
+                { OperationModeLR2DB = true }, "history-temporary-cleanup")));
+            Assert.IsNotNull(close);
+            await close;
+            terminal = owner.CompleteTerminalShutdownAsync();
+            shutdown = ShutdownAfterTerminalAsync(terminal);
+            await TestUiDispatcherHost.AwaitNotificationAsync(temporaryEntered.Task, terminal, "shell-shutdown.temporary-cleanup");
+
+            Assert.AreSame(terminal, owner.CompleteTerminalShutdownAsync());
+            Assert.IsFalse(terminal.IsCompleted);
+            Assert.IsFalse(shutdown.IsCompleted);
+            Assert.AreEqual(1, temporaryCompletionCount);
+            Assert.AreEqual(0, restartCount);
+            Assert.AreEqual(0, shutdownCount);
+
+            temporaryRelease.TrySetResult();
+            await shutdown;
+            Assert.AreEqual(1, temporaryCompletionCount);
+            Assert.AreEqual(1, restartCount);
+            Assert.AreEqual(1, shutdownCount);
+        }
+        finally
+        {
+            temporaryRelease.TrySetResult();
+            if (terminal != null) { await terminal; }
+            if (shutdown != null) { await shutdown; }
+            viewModel.SettingDialog.Dispose();
+        }
+
+        async Task ShutdownAfterTerminalAsync(Task completion)
+        {
+            await completion;
+            owner.RequestTerminalApplicationShutdown();
+        }
+    }
+
     /// <summary>設定保存が失敗してもplayerを一回解放し、元例外をUIで一回通知して終端終了へ進みます。</summary>
     /// <remarks>通知と保存の実Dispatcher所属が対象であり、Windowの寿命は不要です。Closeの実接続はMainWindowViewHostTestsが分担します。</remarks>
     [TestMethod]
@@ -1410,6 +1477,9 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         public void ExitForUnrestoredDestination(System.Exception failure)
         => throw new System.InvalidOperationException("Unexpected unrestored destination exit.", failure);
 
+        /// <summary>テストが所有する一時入力は各fixtureで回収し、アプリ全体の回収を行いません。</summary>
+        public Task CompleteTemporaryDirectoriesAsync(Action<string, Exception> logWarning) => Task.CompletedTask;
+
         public void RequestShutdown() => ShutdownCount++;
         public Task RestartApplicationAsync() { RestartCount++; return Task.FromException(startFailure); }
     }
@@ -1430,6 +1500,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         }
     }
 
+    /// <summary>終了処理の依存を置き換え、一時入力は各テストの所有範囲で回収します。</summary>
     internal static ShellShutdownWorkflowOwner CreateDirectOwner(
         MainWindowViewModel viewModel,
         Func<Func<Task>, Task>? dispatch = null,
@@ -1447,7 +1518,8 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         Action<Exception>? reportSettingsSaveFailure = null,
         Func<Task>? startApplicationRestart = null,
         IUiDialogService? restartFailureDialogs = null,
-        Action<Exception>? reportRestartFailure = null)
+        Action<Exception>? reportRestartFailure = null,
+        Func<Action<string, Exception>, Task>? completeTemporaryDirectories = null)
     {
         StartupBackgroundTaskSchedulerOwner scheduler = GetPrivateField<StartupBackgroundTaskSchedulerOwner>(
             viewModel,
@@ -1485,6 +1557,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
             logShutdown ?? (_ => { }),
             logShutdownWarning ?? (_ => { }),
             value => value ?? string.Empty,
+            completeTemporaryDirectories ?? (_ => Task.CompletedTask),
             reportSettingsSaveFailure,
             startApplicationRestart,
             restartFailureDialogs,

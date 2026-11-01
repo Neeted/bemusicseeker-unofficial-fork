@@ -338,6 +338,9 @@ public sealed class SettingDialogOperationShutdownTests
         public void CompleteFirstStartup() { }
         public void MarkCoordinatedShutdownStarted(string reason) { }
         public void ExitForUnrestoredDestination(Exception failure) => throw new InvalidOperationException("Unexpected exit", failure);
+        /// <summary>テストが所有する一時入力は各fixtureで回収し、アプリ全体の回収を行いません。</summary>
+        public Task CompleteTemporaryDirectoriesAsync(Action<string, Exception> logWarning) => Task.CompletedTask;
+
         public void RequestShutdown() => ShutdownRequested.TrySetResult();
         public Task RestartApplicationAsync() => Task.CompletedTask;
     }

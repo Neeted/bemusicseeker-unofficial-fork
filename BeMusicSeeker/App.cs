@@ -28,19 +28,15 @@ public partial class App : System.Windows.Application
 
     private static readonly TimeSpan ApplicationLogFlushLimit = TimeSpan.FromSeconds(2);
 
-    private const string MutexName = "a601b8c6-41c3-4182-950b-b96a0f0c8b0c";
-
-    private static Mutex _mutex = null;
-
-    private static bool _mutexOwned;
+    private ApplicationInstanceLease instanceLease;
 
     private static int coordinatedShutdownStarted;
 
     private static string coordinatedShutdownReason;
 
-    private ApplicationPathSnapshot applicationPathSnapshot;
+    private readonly ApplicationPathSnapshot applicationPathSnapshot;
 
-    private ApplicationRuntimeOptions applicationRuntimeOptions;
+    private readonly ApplicationRuntimeOptions applicationRuntimeOptions;
 
     private readonly IApplicationRestartGateway applicationRestartGateway;
 
@@ -70,14 +66,21 @@ public partial class App : System.Windows.Application
         AvailableCultures = JsonLanguageCatalog.GetLanguagesSnapshot();
     }
 
-    public App()
-        : this(ApplicationRestartGatewayPolicy.Current)
+    /// <summary>Programが初期化前に確定した実行条件を、WPF起動へ接続します。</summary>
+    internal App(ApplicationRuntimeOptions runtimeOptions)
+        : this(runtimeOptions, ApplicationRestartGatewayPolicy.Current)
     {
     }
 
-    internal App(IApplicationRestartGateway applicationRestartGateway)
+    /// <summary>確定済み配置と再起動境界を使い、通常・検証で同じ設定初期化を構成します。</summary>
+    internal App(ApplicationRuntimeOptions runtimeOptions, IApplicationRestartGateway applicationRestartGateway)
     {
+        applicationRuntimeOptions = runtimeOptions ?? throw new ArgumentNullException(nameof(runtimeOptions));
+        applicationPathSnapshot = runtimeOptions.Paths;
         applicationSettingsLifecycle = new ApplicationSettingsLifecycle(
+            legacyMigration: (cultures, currentCulture) => LegacyUserConfigMigrator.MigrateIfNeeded(
+                applicationPathSnapshot.UserConfigPath, applicationPathSnapshot.LegacySettingsDirectory,
+                cultures, currentCulture),
             normalizeSettings: PreparePortableSettings, warnSaveFailure: ShowSettingsSaveWarning);
         this.applicationRestartGateway = applicationRestartGateway
             ?? throw new ArgumentNullException(nameof(applicationRestartGateway));
@@ -89,7 +92,7 @@ public partial class App : System.Windows.Application
         TryInitializeDiagnostic(() =>
         {
             LogLevel defaultFileLogLevel = ConvertToNLogLevel(CommandLineSwitches.LogLevel);
-            NLogWrapper.ConfigureApplicationFileLogging(applicationPathSnapshot.BaseDirectory,
+            NLogWrapper.ConfigureApplicationFileLogging(applicationPathSnapshot.LogDirectory,
                 defaultFileLogLevel, CommandLineSwitches.IsInfoLoggingEnabled);
         }, "startup_file_logging_failed");
         TryInitializeDiagnostic(Net10PerformanceLog.Start, "startup_performance_logging_failed");
@@ -134,6 +137,7 @@ public partial class App : System.Windows.Application
             {
                 var composition = new ApplicationComposition(
                     runtimeOptions: applicationRuntimeOptions,
+                    rootFileEnumerator: applicationRuntimeOptions.TestSession == null ? null : new FastRootFileEnumerator(),
                     uiScheduler: new WpfUiScheduler(() => base.Dispatcher),
                     applicationLifetime: new AppApplicationLifetime(this),
                     cultureCatalog: new AppCultureCatalog(this),
@@ -162,20 +166,9 @@ public partial class App : System.Windows.Application
 
     private bool AcquireSingleInstanceOwnership()
     {
-        _mutex = new Mutex(initiallyOwned: false, MutexName);
-        try
-        {
-            _mutexOwned = _mutex.WaitOne(5000, exitContext: false);
-        }
-        catch (AbandonedMutexException)
-        {
-            _mutexOwned = true;
-        }
-        if (_mutexOwned)
-        {
-            return true;
-        }
-        ReleaseSingleInstanceMutex();
+        instanceLease = ApplicationInstanceLease.TryAcquire(applicationPathSnapshot.ProfileDirectory,
+            applicationRuntimeOptions.TestSession != null, TimeSpan.FromSeconds(5));
+        if (instanceLease != null) { return true; }
         EmergencyDialog.Show(BeMusicSeeker.Properties.Resources.ApplicationAlreadyStarted,
             BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Error);
         Shutdown();
@@ -203,19 +196,18 @@ public partial class App : System.Windows.Application
     private void InitializeOwnedSettings()
     {
         // 必須準備の故障は既存の起動ownerが受け止め、未構成のまま終了します。
-        applicationPathSnapshot = ApplicationPathPolicy.Current;
-        applicationRuntimeOptions = ApplicationRuntimeOptions.Capture(applicationPathSnapshot);
         InitializeStartupDiagnostics();
         InitializeAvailableCultures();
-        applicationSettingsLifecycle.Initialize(
+        ApplicationSettingsInitializationResult initialized = applicationSettingsLifecycle.Initialize(
             AvailableCultures.Values,
             () => new SerializableVersion(Assembly.GetExecutingAssembly().GetName().Version),
             value => firstStartup = value);
+        BeMusicSeeker.Properties.Resources.Culture = initialized.Culture;
         DispatcherHelper.UIDispatcher = base.Dispatcher;
         AppThemeService.ApplyTheme(applicationSettingsLifecycle.GetCurrentAppearanceTheme());
         AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
         base.DispatcherUnhandledException += Application_DispatcherUnhandledException;
-        TempDirectoryPublisher.StartCleanupStaleDirectoriesAsync(
+        _ = TempDirectoryPublisher.StartCleanupStaleDirectoriesAsync(
             message => NLogWrapper.FileLogger?.Info(message),
             (path, ex) => NLogWrapper.FileLogger?.Warn(ex, "temp_startup_cleanup_failed path=" + path));
     }
@@ -245,6 +237,8 @@ public partial class App : System.Windows.Application
             }
             await StopPerformanceDiagnosticsBeforeTerminalActionAsync(
                 "startup_composition_failed").ConfigureAwait(true);
+            await TempDirectoryPublisher.RemoveAllAsync((path, failure) =>
+                LogFailureBestEffort(failure, "temp_startup_failure_cleanup_failed path=" + path)).ConfigureAwait(true);
         }
         finally
         {
@@ -301,7 +295,7 @@ public partial class App : System.Windows.Application
                 applicationPathSnapshot,
                 applicationRestartGateway,
                 () => ApplicationRestartArgumentsPolicy.BuildCommandLineArguments(
-                    Environment.GetCommandLineArgs()),
+                    applicationRuntimeOptions.RestartArguments),
                 ReleaseSingleInstanceMutex).Restart();
             return Task.CompletedTask;
         }
@@ -343,28 +337,10 @@ public partial class App : System.Windows.Application
         }
     }
 
-    private static void ReleaseSingleInstanceMutex()
+    private void ReleaseSingleInstanceMutex()
     {
-        if (_mutex == null)
-        {
-            return;
-        }
-        try
-        {
-            if (_mutexOwned)
-            {
-                _mutex.ReleaseMutex();
-            }
-        }
-        catch (ApplicationException)
-        {
-        }
-        finally
-        {
-            _mutexOwned = false;
-            _mutex.Dispose();
-            _mutex = null;
-        }
+        instanceLease?.Dispose();
+        instanceLease = null;
     }
 
     private void Application_DispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)

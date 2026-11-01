@@ -140,6 +140,8 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private readonly Func<string, string> formatTextForLog;
 
+    private readonly Func<Action<string, Exception>, Task> completeTemporaryDirectories;
+
     private readonly Action<Exception> reportSettingsSaveFailure;
 
     private BMSLibrary files;
@@ -211,6 +213,7 @@ internal sealed class ShellShutdownWorkflowOwner
     /// <param name="logShutdown">通常の終了診断を記録する処理。</param>
     /// <param name="logShutdownWarning">終了時の警告診断を記録する処理。</param>
     /// <param name="formatTextForLog">終了診断用に値を整形する処理。</param>
+    /// <param name="completeTemporaryDirectories">DBの終端後に一時ディレクトリの回収完了を待つ処理。</param>
     /// <param name="reportSettingsSaveFailure">owner lock外で保存警告を通知する処理。通知失敗時も後処理を継続します。</param>
     /// <param name="databaseScope">読取り専用接続も含む同じ構成のDB終端を待つ所有者。</param>
     internal ShellShutdownWorkflowOwner(
@@ -237,6 +240,7 @@ internal sealed class ShellShutdownWorkflowOwner
         Action<string> logShutdown,
         Action<string> logShutdownWarning,
         Func<string, string> formatTextForLog,
+        Func<Action<string, Exception>, Task> completeTemporaryDirectories,
         Action<Exception> reportSettingsSaveFailure = null,
         Func<Task> startApplicationRestart = null,
         IUiDialogService restartFailureDialogs = null,
@@ -269,6 +273,7 @@ internal sealed class ShellShutdownWorkflowOwner
         this.logShutdown = logShutdown ?? throw new ArgumentNullException(nameof(logShutdown));
         this.logShutdownWarning = logShutdownWarning ?? throw new ArgumentNullException(nameof(logShutdownWarning));
         this.formatTextForLog = formatTextForLog ?? throw new ArgumentNullException(nameof(formatTextForLog));
+        this.completeTemporaryDirectories = completeTemporaryDirectories ?? throw new ArgumentNullException(nameof(completeTemporaryDirectories));
         this.reportSettingsSaveFailure = reportSettingsSaveFailure;
         startupUpdateWorkflow.BindShutdownPreparation(PrepareForStartupUpdateAsync);
     }
@@ -389,8 +394,8 @@ internal sealed class ShellShutdownWorkflowOwner
         }
         try
         {
-            TempDirectoryPublisher.RemoveAll((path, exception) =>
-                logShutdown("temp_remove_failed path=" + path + " message=" + exception.Message));
+            await completeTemporaryDirectories((path, exception) =>
+                logShutdown("temp_remove_failed path=" + path + " message=" + exception.Message)).ConfigureAwait(true);
         }
         catch (Exception exception)
         {

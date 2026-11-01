@@ -9,6 +9,10 @@ internal static class Program
     private static Task<int> Main(string[] args)
     {
         Console.OutputEncoding = new UTF8Encoding(false);
+        if (args.Length > 0 && args[0] == "runtime-isolation")
+        {
+            return RuntimeIsolationProbe.RunAsync(args[1..]);
+        }
         Console.Error.WriteLine("指定されたprobeはまだ接続されていません: " + string.Join(" ", args));
         return Task.FromResult(2);
     }

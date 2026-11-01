@@ -74,18 +74,20 @@ public sealed class ApplicationPathPolicyTests
         Assert.ThrowsExactly<ArgumentException>(() => ApplicationPathSnapshot.FromExecutablePath(null));
     }
 
-    /// <summary>注入した実行ファイル基準をnative bridgeの探索へ渡し、別のアプリ配置を参照しません。</summary>
+    /// <summary>実行体・素材・プロファイルが別々でも、注入した素材のnative bridgeを探索し、実行体や保存領域を参照しません。</summary>
     [TestMethod]
-    public void EverythingNativeUsesInjectedApplicationBaseDirectoryForBridgePath()
+    public void EverythingNativeUsesInjectedAssetsDirectoryForBridgePath()
     {
         string root = Path.Combine(Path.GetTempPath(), nameof(ApplicationPathPolicyTests), Guid.NewGuid().ToString("N"));
-        var snapshot = ApplicationPathSnapshot.FromExecutablePath(
-            Path.Combine(root, "bin", "BeMusicSeeker.exe"));
+        var snapshot = ApplicationPathSnapshot.FromLayout(
+            Environment.ProcessPath ?? throw new InvalidOperationException("実行ファイルの位置を取得できません。"),
+            Path.Combine(root, "assets"), Path.Combine(root, "profile"), Path.Combine(root, "language"),
+            Path.Combine(root, "temporary"), Path.Combine(root, "legacy"));
 
         var native = new EverythingNative(snapshot);
 
         Assert.AreEqual(
-            Path.Combine(snapshot.BaseDirectory, "native", "EverythingBridge_x64.dll"),
+            Path.Combine(root, "assets", "native", "EverythingBridge_x64.dll"),
             native.GetExpectedBridgeDllPath());
         native.Dispose();
     }

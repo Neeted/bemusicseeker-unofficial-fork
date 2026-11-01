@@ -50,28 +50,19 @@ internal static class ApplicationRestartGatewayPolicy
 }
 
 /// <summary>
-/// Builds the Windows command-line representation used when restarting the application.
+/// 確定済みargvを再起動gatewayが受け取るWindowsコマンドラインへ変換します。
 /// </summary>
 internal static class ApplicationRestartArgumentsPolicy
 {
     /// <summary>
-    /// Excludes the executable element from a process argument array and quotes each remaining
-    /// argument according to the Windows C runtime command-line rules.
+    /// 実行ファイル名を含まないargvの全要素を、Windows C runtimeの引用規則で保持します。
     /// </summary>
-    /// <param name="processArguments">The process argument array, including its executable element.</param>
-    /// <returns>The canonical argument string for a new process.</returns>
-    internal static string BuildCommandLineArguments(IEnumerable<string> processArguments)
+    /// <param name="arguments">起動境界で捕捉した、引用前の引数列。</param>
+    /// <returns>プロセス起動境界へ渡す引用済み引数。</returns>
+    internal static string BuildCommandLineArguments(IEnumerable<string> arguments)
     {
-        if (processArguments == null)
-        {
-            throw new ArgumentNullException(nameof(processArguments));
-        }
-
-        return string.Join(
-            " ",
-            processArguments
-                .Skip(1)
-                .Select(QuoteCommandLineArgument));
+        ArgumentNullException.ThrowIfNull(arguments);
+        return string.Join(" ", arguments.Select(QuoteCommandLineArgument));
     }
 
     private static string QuoteCommandLineArgument(string argument)

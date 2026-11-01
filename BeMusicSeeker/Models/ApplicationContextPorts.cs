@@ -326,6 +326,10 @@ internal interface IApplicationLifetimePort
 
     void RequestShutdown();
 
+    /// <summary>アプリ全体が所有する一時ディレクトリを回収し、終了・再起動前に実完了を待ちます。</summary>
+    /// <param name="logWarning">削除できないパスと例外を報告する処理。</param>
+    Task CompleteTemporaryDirectoriesAsync(Action<string, Exception> logWarning);
+
     /// <summary>
     /// 終端の後処理後に後継プロセスを起動します。最終的な application shutdown は呼び出し側が担当します。
     /// </summary>

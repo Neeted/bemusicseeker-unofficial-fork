@@ -38,4 +38,21 @@
     <RemoveDir Directories="$(_WindowsProbeDestination)" />
     <Copy SourceFiles="@(_WindowsProbeFiles)" DestinationFiles="@(_WindowsProbeFiles->'$(_WindowsProbeDestination)/%(RecursiveDir)%(Filename)%(Extension)')" />
   </Target>
+  <!-- 開発起動検証は同じProjectReferenceのbuild出力だけを使い、publish受入とは分ける。 -->
+  <Target Name="CopyApplicationFixture" AfterTargets="Build">
+    <MSBuild Projects="../../BeMusicSeeker/BeMusicSeeker.csproj" Targets="GetTargetPath" Properties="Configuration=$(Configuration);Platform=$(Platform)">
+      <Output TaskParameter="TargetOutputs" ItemName="_ApplicationFixtureTarget" />
+    </MSBuild>
+    <PropertyGroup>
+      <_ApplicationFixtureSource>@(_ApplicationFixtureTarget->'%(RootDir)%(Directory)')</_ApplicationFixtureSource>
+      <_ApplicationFixtureDestination>$(TargetDir)fixtures/application/</_ApplicationFixtureDestination>
+    </PropertyGroup>
+    <Error Condition="'$(_ApplicationFixtureSource)' == '' Or '$(TargetDir)' == ''" Text="Application fixture output directory is unavailable." />
+    <ItemGroup>
+      <_ApplicationFixtureFiles Include="$(_ApplicationFixtureSource)/**/*" />
+    </ItemGroup>
+    <!-- この明示leafだけを再生成し、前回コピーの残留を検証成功に使わない。 -->
+    <RemoveDir Directories="$(_ApplicationFixtureDestination)" />
+    <Copy SourceFiles="@(_ApplicationFixtureFiles)" DestinationFiles="@(_ApplicationFixtureFiles->'$(_ApplicationFixtureDestination)%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
 </Project>

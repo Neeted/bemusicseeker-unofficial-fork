@@ -78,6 +78,12 @@ LR2試聴の終了はプレイヤーの終端かプロセスの終了通知へ�
 
 ### 再起動と最終の終了
 
+一時領域全体の終端は実`App` lifetimeが所有します。ShellはDB等の開始済み処理を回収してから、lifetimeが返す一時領域の実Taskを待ち、その後に後継起動へ進みます。headless構成の終了でプロセス全体の一時領域を削除せず、fixtureは自分のleafを回収します。
+
+一時セッションは専有scopeの新しいGUIDディレクトリへ作り、既知v2 markerを`FileShare.None`で保持してからleafを返します。起動時回収はscope内で直列化し、排他取得できる既知markerだけを回収します。生存中・未知版・旧marker・markerなし・所有を確認できない候補は保持します。終了開始で新規取得を止め、開始済み回収Taskの終端、生存lease解放、自セッション削除の順で完了します。繰返し終了は同じTaskを返し、セッションを復活させません。強制終了で残るセッションはOSがleaseを解放した後の起動で回収します。
+
+通常再起動は起動時に捕捉したargvを保持し、検証起動では絶対manifestパスも継承します。引用は既存のWindowsプロセス起動境界だけで行います。
+
 `IApplicationLifetimePort.RequestShutdown` は、通常の準備と後片付けを通過した後にWPFの終了へ接続する境界です。差し替え可能であっても前段を短絡しません。
 
 モード変更の `RestartApplicationAsync` は、ミューテックスを解放して後継プロセスを起動するだけです。自身でWPFを終了しません。起動失敗の通知の完了・失敗・非表示も観測してから終端Taskを完了します。メイン画面だけがTaskの完了後に終了を認可します。後継の起動と旧プロセスの最終終了が短時間重なることは許容します。
@@ -172,6 +178,7 @@ ownerはsong/score別の再入可能なMonitorと接続寿命を管理します�
 | 試聴の現在正本による復元、開始・終了失敗と明示再試行 | [`LR2body`](../../../BeMusicSeeker/Models/LR2/LR2body.cs)、[`Lr2ConfigOwner`](../../../BeMusicSeeker/Models/LR2/Lr2ConfigOwner.cs) | [`ExternalPlayerProcessGatewayTests`](../../../BeMusicSeeker.Tests/Processes/ExternalPlayerProcessGatewayTests.cs)、[`process終了後の復元再試行`](../../../BeMusicSeeker.Tests/Processes/Lr2PreviewOwnerTests.cs) |
 | 拡張データ削除の受付、実処理終端後の撤去、失敗通知後の終了、LR2既存テーブルの保護 | [`ApplicationDataUninstallWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Settings/ApplicationDataUninstallWorkflowOwner.cs)、[`LR2SongDB`](../../../BeMusicSeeker/Models/LR2/LR2SongDB.cs) | [`ApplicationDataUninstallWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationDataUninstallWorkflowOwnerTests.cs)、[`ShellShutdownUninstallTests`](../../../BeMusicSeeker.Tests/MainWindow/ShellShutdownUninstallTests.cs)、[`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs)、[`LR2SongDBExtendedUninstallTests`](../../../BeMusicSeeker.Tests/Lr2/LR2SongDBExtendedUninstallTests.cs) |
 | 再起動の引数、実行パス、作業ディレクトリと引渡し順 | [`ApplicationRestartRequest`](../../../BeMusicSeeker/Models/Utils/Processes/ApplicationRestartGateway.cs)、[`ApplicationRestartArgumentsPolicy`](../../../BeMusicSeeker/Models/Utils/Processes/ApplicationRestartGateway.cs) | [`ApplicationRestartGatewayTests`](../../../BeMusicSeeker.Tests/Processes/ApplicationRestartGatewayTests.cs) |
+| 一時領域の生存leaseと終了順 | [`TemporaryDirectorySession`](../../../BeMusicSeeker/Runtime/TemporaryDirectorySession.cs)、[`AppApplicationLifetime`](../../../BeMusicSeeker/AppApplicationLifetime.cs) | [`TempDirectoryPublisherTests`](../../../BeMusicSeeker.Tests/FileOperations/TempDirectoryPublisherTests.cs)が独立ownerで既知・未知・生存markerと実Task終端を、[`RuntimeIsolationProcessTests`](../../../tests/BeMusicSeeker.Windows.Tests/Runtime/RuntimeIsolationProcessTests.cs)が実processの生存中保全・強制停止後回収・scope分離を確認する。Shellの一時回収Task待機と後継起動順は[`ShellShutdownWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/MainWindow/ShellShutdownWorkflowOwnerTests.cs)が分担する。 |
 
 
 自ownerのreadonly待機とmetadata所有Taskの待機は、終了側の`wait_start`到達通知をClose Taskと競合して待ち、対象待機の呼出し脱落を動的に識別します。待機呼出しを残したまま`await`だけを除く変更まで動的に保証するものではありません。`CollectShutdownPreparationResultAsync`からSQLite idle・startup scheduler待機への二つの呼出しと、それぞれのhelper内の`await`接続は独立静的レビューで確認します。

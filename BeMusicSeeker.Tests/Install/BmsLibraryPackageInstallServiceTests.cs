@@ -8452,7 +8452,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// <summary>
     /// ZIP・7z・RAR・LZHの実入力を展開して保存日時と進捗を復元し、形式別の展開・必須日時復元の欠落を検出する。
     /// </summary>
-    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。 展開先の共通一時領域を回収するため並列実行を避ける。</remarks>
+    /// <remarks>実native展開と日時を確認し、作成時に捕捉した当該ケースの展開先だけを回収する。native系列の非並列条件を維持する。</remarks>
     [TestMethod]
     [DataRow("fixture.zip")]
     [DataRow("fixture.7z")]
@@ -8469,6 +8469,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             var service = new BmsLibraryPackageInstallService();
             List<string> logs = [];
             var progressWriter = new RecordingPackageInstallProgressWriter();
+            List<string> createdInputs = [];
 
             try
             {
@@ -8480,7 +8481,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     null,
                     progressWriter,
                     CancellationToken.None,
-                    action => action());
+                    action => action(),
+                    createdInputs.Add);
 
                 Assert.AreEqual(1, expandedPaths.Count);
                 string extractedDirectoryPath = expandedPaths[0];
@@ -8498,7 +8500,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             }
             finally
             {
-                global::BeMusicSeeker.TempDirectoryPublisher.RemoveAll();
+                CleanupCreatedExpansionPaths(createdInputs);
             }
         });
     }
@@ -8506,7 +8508,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// <summary>
     /// 各実書庫の必須更新日時復元が失敗したら展開先を受理せず進捗と失敗通知を残し、復元失敗を正常入力へ読み替える誤りを検出する。
     /// </summary>
-    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。 展開先の共通一時領域を回収するため並列実行を避ける。</remarks>
+    /// <remarks>実native展開と日時を確認し、作成時に捕捉した当該ケースの展開先だけを回収する。native系列の非並列条件を維持する。</remarks>
     [TestMethod]
     [DataRow("fixture.zip")]
     [DataRow("fixture.7z")]
@@ -8524,6 +8526,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             List<string> logs = [];
             var dialogService = new RecordingDialogService();
             var progressWriter = new RecordingPackageInstallProgressWriter();
+            List<string> createdInputs = [];
 
             try
             {
@@ -8535,7 +8538,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     dialogService,
                     progressWriter,
                     CancellationToken.None,
-                    action => action());
+                    action => action(),
+                    createdInputs.Add);
 
                 Assert.AreEqual(0, expandedPaths.Count);
                 Assert.AreEqual(1, progressWriter.SourceProcessedCount);
@@ -8549,7 +8553,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             }
             finally
             {
-                global::BeMusicSeeker.TempDirectoryPublisher.RemoveAll();
+                CleanupCreatedExpansionPaths(createdInputs);
             }
         });
     }
@@ -8627,7 +8631,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// <summary>
     /// 暗号化・破損7zと短い・切断RARの展開失敗では借用元bytesと排他再読取りを保ってprivate準備先を削除し、失敗通知と進捗を残します。
     /// </summary>
-    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。 展開先の共通一時領域を回収するため並列実行を避ける。</remarks>
+    /// <remarks>実native展開と借用元を確認し、作成時に捕捉した当該ケースの展開先だけを回収する。native系列の非並列条件を維持する。</remarks>
     [TestMethod]
     [DataRow("encrypted.7z")]
     [DataRow("corrupt.7z")]
@@ -8690,13 +8694,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             }
             finally
             {
-                global::BeMusicSeeker.TempDirectoryPublisher.RemoveAll();
+                CleanupCreatedExpansionPaths(createdRoots);
             }
         });
     }
 
     /// <summary>借用元を他者が排他保持して読取りIOが失敗しても、そのprivate展開先だけを回収し、独立した正常ZIPのbytes・必須日時と進捗を保持します。</summary>
-    /// <remarks>テスト自身が排他Streamを所有し、解除後の借用元bytesと排他再読取りを確認します。管理一時領域の回収を使うため非並列です。</remarks>
+    /// <remarks>テスト自身が排他Streamを所有し、解除後の借用元bytesと排他再読取りを確認します。当該展開先だけを回収し、native系列の非並列条件を維持します。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void ExpandInstallSources_SourceReadFailurePreservesBorrowedSourceAndIndependentArchive()
@@ -8743,12 +8747,12 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Assert.AreEqual(1, dialogs.Messages.Count);
                 StringAssert.Contains(dialogs.Messages.Single(), blocked);
             }
-            finally { global::BeMusicSeeker.TempDirectoryPublisher.RemoveAll(); }
+            finally { CleanupCreatedExpansionPaths(roots); }
         });
     }
 
     /// <summary>診断先が通常例外を返しても壊れた借用ZIPだけを除外し、独立した正常ZIPのbytes・進捗と借用元を保持します。</summary>
-    /// <remarks>実native展開と既存の管理一時領域を使うため非並列とし、診断callback内の表明に頼らず実結果を観測します。</remarks>
+    /// <remarks>実native展開を非並列で実行し、診断callback内の表明に頼らず実結果を観測します。回収は当該展開先だけに限定します。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void ExpandInstallSources_DiagnosticFailureDoesNotRejectIndependentNormalArchive()
@@ -8788,8 +8792,24 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 StringAssert.Contains(dialogs.Messages.Single(), broken);
                 Assert.IsTrue(diagnosticAttempts > 0);
             }
-            finally { global::BeMusicSeeker.TempDirectoryPublisher.RemoveAll(); }
+            finally { CleanupCreatedExpansionPaths(roots); }
         });
+    }
+
+    /// <summary>当該ケースが作成した展開先だけを回収し、回収失敗をテスト失敗として残します。</summary>
+    private static void CleanupCreatedExpansionPaths(IEnumerable<string> paths)
+    {
+        List<Exception> failures = [];
+        foreach (string path in paths)
+        {
+            TempDirectoryPublisher.TryDeleteManagedPath(path,
+                logWarning: (failedPath, error) => failures.Add(new IOException("展開先の回収失敗: " + failedPath, error)));
+            if (Directory.Exists(path) || File.Exists(path))
+            {
+                failures.Add(new IOException("展開先が回収後も残っています: " + path));
+            }
+        }
+        if (failures.Count != 0) { throw new AggregateException(failures); }
     }
 
     /// <summary>

@@ -132,9 +132,8 @@ internal static class ChartInfoMetadataBundleStartupImporter
 
     private static string CreateDefaultTempDirectory()
     {
-        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartInfoMetadata_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectoryPath);
-        return tempDirectoryPath;
+        // 呼出しごとに独立leafを受け取り、既存finallyがそのleafだけを回収する。
+        return TempDirectoryPublisher.Get("chart-info-metadata");
     }
 
     private static string ResolveExtractedMetadataDbPath(string tempDirectoryPath)

@@ -69,7 +69,7 @@ public sealed partial class MainWindowViewHostTests
         try
         {
             // process共通のログ設定はDoNotParallelizeのfixtureだけで差し替え、finallyで戻します。
-            NLogWrapper.ConfigureApplicationFileLogging(directory.Path, LogLevel.Info, enableInstallPerformanceLogging: false);
+            NLogWrapper.ConfigureApplicationFileLogging(Path.Combine(directory.Path, "log"), LogLevel.Info, enableInstallPerformanceLogging: false);
             var configuration = new LoggingConfiguration();
             configuration.AddRule(LogLevel.Error, LogLevel.Fatal, capture);
             LogManager.Configuration = configuration;
@@ -1809,6 +1809,9 @@ public sealed partial class MainWindowViewHostTests
 
         public void ExitForUnrestoredDestination(System.Exception failure)
         => throw new System.InvalidOperationException("Unexpected unrestored destination exit.", failure);
+
+        /// <summary>テストが所有する一時入力は各fixtureで回収し、アプリ全体の回収を行いません。</summary>
+        public Task CompleteTemporaryDirectoriesAsync(Action<string, Exception> logWarning) => Task.CompletedTask;
 
         public void RequestShutdown()
         {
