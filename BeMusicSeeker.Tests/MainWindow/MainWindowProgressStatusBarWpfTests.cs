@@ -174,7 +174,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
     [TestMethod]
     public async Task DefaultFactory_MapsEveryOwnerRouteAndKeepsCancellationIndependent()
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
             });
@@ -263,7 +263,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
             var lifetime = new MainWindowPresentationTestHarness.PresentationApplicationLifetime();
             MainWindowViewModel viewModel = new ApplicationComposition(
                 runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
-                settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
+                settingsEditSession: new NoOpSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings()),
                 uiScheduler: uiScheduler ?? new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 applicationLifetime: lifetime,
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog())

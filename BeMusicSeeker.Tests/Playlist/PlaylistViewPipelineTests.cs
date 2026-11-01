@@ -2741,7 +2741,7 @@ public sealed class PlaylistViewPipelineTests
             };
             PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, (bmson)).CreateViewRow();
             using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
-            BMSPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(databaseScope, songDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings());
+            BMSPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(databaseScope, songDbPath, TestSettingsFactory.CreateIsolatedSettings());
             table.entries = [entry];
             playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
             typeof(MainWindowViewModel).GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, playlist);

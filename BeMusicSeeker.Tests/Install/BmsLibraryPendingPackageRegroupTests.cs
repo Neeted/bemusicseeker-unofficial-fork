@@ -796,7 +796,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
 
     /// <summary>混在の対象は未所持群だけの最頻ペアとし、所持群を混ぜた逆転や全譜面一致の要求を検出する。使用音源が完全な候補だけをStrongで設定する。</summary>
     /// <remarks>実譜面・実保留DBから個別入口を通します。Strongの文字列条件表はサービス側へ分担します。</remarks>

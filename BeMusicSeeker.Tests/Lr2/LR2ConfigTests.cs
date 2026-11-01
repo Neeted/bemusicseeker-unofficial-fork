@@ -815,7 +815,7 @@ public sealed class LR2ConfigTests
                     db.Execute("INSERT INTO consumer_score VALUES (?, ?);", parsed.Md5, 9876);
                 });
             }
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = true; values.LR2RootPath = root; values.LR2ConfigXmlPath = configPath;
                 values.LR2CustomFolderOutputBaseDir = string.Empty; values.LR2CustomFolderAdditionalOutputBaseDirs = "[]";

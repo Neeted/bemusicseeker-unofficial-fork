@@ -36,7 +36,7 @@ public sealed partial class SettingDialogEditCompletionTests
             var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var lifetime = new SettingsOperationLifetime();
-            Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config")));
+            Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(Path.Combine(root, "user.config")));
             string validSong = values.LR2SongDBPath;
             string oldBeatoraja = Path.Combine(root, "old-beatoraja");
             WriteBeatorajaRoot(oldBeatoraja, "old", ["old"], createScoreFiles: false);

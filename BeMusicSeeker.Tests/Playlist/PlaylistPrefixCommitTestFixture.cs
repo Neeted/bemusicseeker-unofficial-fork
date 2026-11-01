@@ -49,7 +49,7 @@ internal sealed class PlaylistPrefixCommitTestFixture : IAsyncDisposable
         }
         File.WriteAllText(header, "{\"name\":\"Prefix\",\"symbol\":\"PF\",\"compat_prefix\":\"Q\",\"folder_sort_key\":\"\",\"folder_sort_ascending\":true,\"data_url\":\"data.json\"}");
         File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"source\",\"level\":\"1\"}]");
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
         {
             values.OperationModeLR2DB = false;
             values.EnablePlaylistUrlCompletion = false;

@@ -24,7 +24,7 @@ internal static class StartupLibraryConstructionTestSupport
 
     internal static ApplicationComposition CreateComposition(Settings? settings = null)
     {
-        settings ??= MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        settings ??= TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
             });

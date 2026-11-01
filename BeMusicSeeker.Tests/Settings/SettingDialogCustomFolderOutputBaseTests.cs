@@ -126,7 +126,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         return changed;
     }
 
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings(
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings(
         values => values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson);
 
 

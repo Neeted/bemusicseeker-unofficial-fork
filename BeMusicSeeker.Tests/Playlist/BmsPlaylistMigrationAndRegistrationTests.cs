@@ -72,7 +72,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         finally { Directory.Delete(directory, true); }
     }
 
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
 
     /// <summary>通常型からルート型へ実移行し、旧ファイル・旧親DB行を除去して新しい表ルート階層を保存します。型変更で旧投影を残す誤りと親hashの混同を検出します。</summary>
     [TestMethod]
@@ -766,7 +766,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             string targetPath = Path.Combine(targetDir, "0000.lr2folder");
             Directory.CreateDirectory(targetDir);
             File.WriteAllText(targetPath, "#TITLE provider target", Encoding.GetEncoding("shift_jis"));
-            LR2Config config = CreateLr2Config(lr2RootPath, targetDir);
+            LR2Config config = TestLr2ConfigFactory.CreateLr2Config(lr2RootPath, targetDir);
             var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
@@ -1704,7 +1704,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 LR2CustomFolderOutputBaseDirRootType = Path.Combine(directory, "RootOutput"),
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]"
             };
-            LR2Config config = CreateLr2Config(testSettings.LR2RootPath, outputBase);
+            LR2Config config = TestLr2ConfigFactory.CreateLr2Config(testSettings.LR2RootPath, outputBase);
             byte[] oldXml = File.ReadAllBytes(config.ConfigFilePath);
             var existing = new BMSTable { playlist_id = 7790, name = "Existing", Output_dir = "Existing" };
             playlist = new TestBmsPlaylist(databaseScope, songPath, new Lr2ConfigOwner(config), null, null,
@@ -1984,7 +1984,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             testSettings.LR2CustomFolderOutputBaseDir = outputBase;
             testSettings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootOutput");
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
-            LR2Config config = CreateLr2Config(testSettings.LR2RootPath, outputBase);
+            LR2Config config = TestLr2ConfigFactory.CreateLr2Config(testSettings.LR2RootPath, outputBase);
             var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             byte[] oldXml = File.ReadAllBytes(config.ConfigFilePath);
             string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);

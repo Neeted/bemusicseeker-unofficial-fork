@@ -58,7 +58,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
     public void PlaylistSummaryKeywordSearchLanguage_RefreshesOnlyAttachedPresentation(bool warning)
     {
         CultureInfo? previousCulture = Resources.Culture;
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings();
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
         using SettingsDialogViewModel settingsLifetime = owner.SettingDialog;
         PlaylistWorkspaceViewModel workspace = owner.PlaylistWorkspace;

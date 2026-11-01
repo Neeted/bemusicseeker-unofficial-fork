@@ -173,7 +173,7 @@ public sealed class SettingsWindowPresentationTests
             {
                 RefreshAction = () => { started.TrySetResult(); release.Wait(); }
             };
-            Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(settings =>
+            Settings values = TestSettingsFactory.CreateIsolatedSettings(settings =>
             {
                 settings.OperationModeLR2DB = false;
                 settings.BMSRootPath = string.Empty;
@@ -262,7 +262,7 @@ public sealed class SettingsWindowPresentationTests
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings values = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = true;
                 values.LR2SongDBPath = "song.db";
@@ -682,7 +682,7 @@ public sealed class SettingsWindowPresentationTests
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.RightClickActionsJson = "{\"webActions\":[],\"programActions\":[]}";
                 values.OperationModeLR2DB = false;
@@ -764,7 +764,7 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.Invoke(() =>
         {
             const string originalJson = "{\"webActions\":[{\"id\":\"custom\",\"name\":\"Custom\",\"urlTemplate\":\"https://example.test/{md5}\",\"enabled\":true,\"chartKind\":\"All\"}],\"programActions\":[{\"id\":\"viewer\",\"name\":\"Viewer\",\"executablePath\":\"C:\\\\Tools\\\\viewer.exe\",\"argumentTemplate\":\"{filePath}\",\"enabled\":true}]}";
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.RightClickActionsJson = originalJson;
                 values.OperationModeLR2DB = false;
@@ -866,7 +866,7 @@ public sealed class SettingsWindowPresentationTests
             SettingsWindow? window = null;
             try
             {
-                Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
             });
@@ -964,7 +964,7 @@ public sealed class SettingsWindowPresentationTests
                 string staged = Directory.CreateDirectory(Path.Combine(directory, "Staged")).FullName;
                 string additional = Directory.CreateDirectory(Path.Combine(directory, "Additional")).FullName;
                 string settingsPath = Path.Combine(directory, "user.config");
-                Settings settings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                Settings settings = TestSettingsFactory.OpenSettings(settingsPath);
                 settings.OperationModeLR2DB = false;
                 settings.BMSRootPath = install;
                 settings.StandaloneBmsRootPaths = install;
@@ -1026,7 +1026,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.IsTrue(window.IsVisible);
                 dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
                 ClickAndAwait();
-                Settings fresh = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                Settings fresh = TestSettingsFactory.OpenSettings(settingsPath);
                 CollectionAssert.AreEqual(new[] { additional }, CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(fresh.LR2CustomFolderAdditionalOutputBaseDirs).ToArray());
                 CollectionAssert.AreEqual(new[] { install }, owner.SettingDialog.AvailableBMSDirectories);
                 Assert.AreEqual(install, fresh.StandaloneBmsRootPaths);
@@ -1231,7 +1231,7 @@ public sealed class SettingsWindowPresentationTests
                 ApplicationDatabaseScope ownerDatabaseScope = MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope;
                 StartupLibraryConstructionTestSupport.CreateSongDatabase(ownerDatabaseScope, dbPath);
                 TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(ownerDatabaseScope, dbPath,
-                    MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false));
+                    TestSettingsFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false));
                 PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateBackupWorkspace(library.DatabaseScope,
                     dbPath, [new BMSTable { playlist_id = 1, name = "Old live", symbol = "O" }],
                     out BMSPlaylist playlist, out List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications,
@@ -1359,7 +1359,7 @@ public sealed class SettingsWindowPresentationTests
                 ApplicationDatabaseScope ownerDatabaseScope = MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope;
                 StartupLibraryConstructionTestSupport.CreateSongDatabase(ownerDatabaseScope, dbPath);
                 TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(ownerDatabaseScope, dbPath,
-                    MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false));
+                    TestSettingsFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false));
                 PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateBackupWorkspace(library.DatabaseScope,
                     dbPath, [new BMSTable { playlist_id = 1, name = "Old live", symbol = "O" }],
                     out BMSPlaylist playlist, out List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications,
@@ -1505,7 +1505,7 @@ public sealed class SettingsWindowPresentationTests
             MainWindowViewModel? owner = null;
             try
             {
-                owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                owner = MainWindowViewModelTestFactory.Create(TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = Path.GetTempPath();
@@ -1577,7 +1577,7 @@ public sealed class SettingsWindowPresentationTests
             SettingsWindow? window = null;
             try
             {
-                Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = string.Empty;
@@ -1668,7 +1668,7 @@ public sealed class SettingsWindowPresentationTests
             TaskCompletionSource<UiFolderPickerResult>? completion = null;
             try
             {
-                Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = string.Empty;
@@ -1805,7 +1805,7 @@ public sealed class SettingsWindowPresentationTests
             using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
             var state = new DangerStatePort(() => Task.CompletedTask) { HasActiveLibraryProfile = !initialEnvironment };
             DangerDialogContext context = CreateDangerDialog(owner,
-                new DangerSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings(), []),
+                new DangerSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings(), []),
                 MainWindowViewModelTestFactory.GetComposition(owner), new DangerDialogService(),
                 new DangerSchemaDialogPort(), new DangerApplicationDataStore(), statePort: state);
             using SettingsDialogViewModel settings = context.Settings;
@@ -1939,7 +1939,7 @@ public sealed class SettingsWindowPresentationTests
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings values = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = true;
                 values.LR2SongDBPath = "song.db";
@@ -2049,7 +2049,7 @@ public sealed class SettingsWindowPresentationTests
             try
             {
                 ResourceService.Current.ChangeCulture("en-US");
-                Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(settings =>
+                Settings values = TestSettingsFactory.CreateIsolatedSettings(settings =>
                 {
                     settings.Lang = "en-US";
                     settings.LangDisplayName = "English";
@@ -2399,7 +2399,7 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             BassAudioRuntime.Initialize();
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = string.Empty;
@@ -2931,7 +2931,7 @@ public sealed class SettingsWindowPresentationTests
             {
                 var startupEvents = new List<string>();
                 startupLifetime = new DangerApplicationLifetime(startupEvents, firstStartup: true);
-                var startupSettingsSession = new DangerSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings(), startupEvents);
+                var startupSettingsSession = new DangerSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings(), startupEvents);
                 var composition = new ApplicationComposition(
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                     settingsEditSession: startupSettingsSession,
@@ -3913,7 +3913,7 @@ public sealed class SettingsWindowPresentationTests
             database.CreateTable<LR2ScoreDB.player>();
         }
         new Lr2PlayHistorySchemaService(databaseScope).InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
-        values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        values = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = true;
                 values.LR2RootPath = scope;
@@ -4163,7 +4163,7 @@ public sealed class SettingsWindowPresentationTests
     {
         TestUiDispatcherHost.Invoke(() =>
         {
-            Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(settings =>
+            Settings values = TestSettingsFactory.CreateIsolatedSettings(settings =>
             {
                 settings.OperationModeLR2DB = true;
                 settings.LR2RootPath = string.Empty;
@@ -4456,7 +4456,7 @@ public sealed class SettingsWindowPresentationTests
             var events = new List<string>();
             var failures = new List<Exception>();
             var lifetime = new DangerApplicationLifetime(events, firstStartup: false);
-            Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(value =>
+            Settings values = TestSettingsFactory.CreateIsolatedSettings(value =>
             {
                 value.OperationModeLR2DB = false;
                 value.BMSRootPath = root; value.StandaloneBmsRootPaths = root; value.BMSInstallDir = root;
@@ -4614,7 +4614,7 @@ public sealed class SettingsWindowPresentationTests
         {
             var startupEvents = new List<string>();
             var startupLifetime = new DangerApplicationLifetime(startupEvents, firstStartup: true);
-            Settings startupSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            Settings startupSettings = TestSettingsFactory.CreateIsolatedSettings();
             var startupSettingsSession = new DangerSettingsEditSession(startupSettings, startupEvents);
             var composition = new ApplicationComposition(
                 runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
@@ -4761,7 +4761,7 @@ public sealed class SettingsWindowPresentationTests
         {
             var startupEvents = new List<string>();
             var startupLifetime = new DangerApplicationLifetime(startupEvents, firstStartup: true);
-            var startupSettingsSession = new DangerSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings(), startupEvents);
+            var startupSettingsSession = new DangerSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings(), startupEvents);
             var composition = new ApplicationComposition(
                 runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 settingsEditSession: startupSettingsSession,
@@ -4928,7 +4928,7 @@ public sealed class SettingsWindowPresentationTests
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            Settings values = TestSettingsFactory.CreateIsolatedSettings();
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(values);
             using SettingsDialogViewModel ownedDialogLifetime = viewModel.SettingDialog;
             var presentation = new RecordingPresentationPort();
@@ -5016,7 +5016,7 @@ public sealed class SettingsWindowPresentationTests
             string image = Path.Combine(root, "panel.png");
             File.WriteAllBytes(image, Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jCZYAAAAASUVORK5CYII="));
             string configPath = Path.Combine(root, "user.config");
-            Settings values = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            Settings values = TestSettingsFactory.OpenSettings(configPath);
             values.OperationModeLR2DB = false;
             values.EnableBeatorajaBmtOutput = false;
             values.UseExternalPanelImage = false;
@@ -5052,7 +5052,7 @@ public sealed class SettingsWindowPresentationTests
                 FindDescendants<CheckBox>(appearance).Single(check => check.Name == "checkBoxUseExternalPanelImage")
                     .SetCurrentValue(ToggleButton.IsCheckedProperty, true);
                 Assert.IsTrue(values.UseExternalPanelImage);
-                Settings fresh = PortableSettingsPersistenceTests.OpenSettings(configPath);
+                Settings fresh = TestSettingsFactory.OpenSettings(configPath);
                 Assert.IsTrue(fresh.UseExternalPanelImage, "独立した局所確定はP待機中も実providerへ保存します。");
                 window.Close();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -5080,7 +5080,7 @@ public sealed class SettingsWindowPresentationTests
             string root = Path.Combine(Path.GetTempPath(), "SettingsSectionRetry-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             string config = Path.Combine(root, "user.config");
-            Settings values = PortableSettingsPersistenceTests.OpenSettings(config);
+            Settings values = TestSettingsFactory.OpenSettings(config);
             values.OperationModeLR2DB = false;
             values.BMSRootPath = root;
             values.StandaloneBmsRootPaths = root;
@@ -5141,7 +5141,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(1, operations, "復元確認の取消でBMTを再実行しません。");
                 Assert.AreEqual(1, failures.Count, "復元確認の取消で保存・処理の新しい失敗を作りません。");
                 Assert.IsTrue(settings.IsBeatorajaSelectionEnabled);
-                Settings fresh = PortableSettingsPersistenceTests.OpenSettings(config);
+                Settings fresh = TestSettingsFactory.OpenSettings(config);
                 Assert.IsFalse(fresh.KeepBeatorajaBmtFilesWhenOutputDisabled);
                 window.Close();
                 window = new SettingsWindow(restoreDialogs) { DataContext = settings, PlaylistWorkspace = owner.PlaylistWorkspace };
@@ -5179,7 +5179,7 @@ public sealed class SettingsWindowPresentationTests
             string root = Path.Combine(Path.GetTempPath(), "SettingsScoreNext-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             string config = Path.Combine(root, "user.config");
-            Settings values = PortableSettingsPersistenceTests.OpenSettings(config);
+            Settings values = TestSettingsFactory.OpenSettings(config);
             string beatoraja = Directory.CreateDirectory(Path.Combine(root, "beatoraja")).FullName;
             File.WriteAllText(Path.Combine(beatoraja, "beatoraja.jar"), string.Empty);
             File.WriteAllText(Path.Combine(beatoraja, BeatorajaConfigService.ConfigFileName), "{\"playername\":\"player\"}");
@@ -5220,7 +5220,7 @@ public sealed class SettingsWindowPresentationTests
                 AwaitViewOperationTerminal(settings);
                 Assert.AreEqual(1, failures.Count);
                 Assert.AreEqual(1, operations);
-                Assert.IsFalse(PortableSettingsPersistenceTests.OpenSettings(config).UseBeatorajaScoreDb);
+                Assert.IsFalse(TestSettingsFactory.OpenSettings(config).UseBeatorajaScoreDb);
                 Assert.IsTrue(settings.IsScoreSelectionEnabled);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(window.HandlePlaylistRestoreAsync(), "restore after score failure");
                 Assert.AreEqual(1, restoreDialogs.ConfirmationRequests.Count);
@@ -5237,7 +5237,7 @@ public sealed class SettingsWindowPresentationTests
                 AwaitViewOperationTerminal(settings);
                 Assert.AreEqual(2, operations);
                 Assert.AreEqual(1, failures.Count);
-                Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(config).UseBeatorajaScoreDb);
+                Assert.IsTrue(TestSettingsFactory.OpenSettings(config).UseBeatorajaScoreDb);
             }
             finally
             {
@@ -5342,7 +5342,7 @@ public sealed class SettingsWindowPresentationTests
     /// <remarks>自動照会のnative呼出しは表示保証の対象外で、受付・取消・解放は音声workflowの既存ケースが分担します。元childは表示前に破棄し、置換childの寿命は各呼出元のfinally/usingが所有します。</remarks>
     private static MainWindowViewModel CreateOwnerForPresentationWithoutNativeCapabilityQuery()
     {
-        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        Settings values = TestSettingsFactory.CreateIsolatedSettings();
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(values);
         owner.SettingDialog.Dispose();
         ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(owner);
@@ -5384,7 +5384,7 @@ public sealed class SettingsWindowPresentationTests
         RecordingManualResyncRuntime runtime, Settings? values = null)
     {
         var settingsSession = new ManualResyncSettingsEditSession(
-            values ?? MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            values ?? TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = true;
             }));

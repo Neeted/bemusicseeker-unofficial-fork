@@ -86,7 +86,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
     [TestMethod]
     public void ResolveConfiguredActions_PlaylistStorageProjectionPreservesChartInfoSha256()
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
             });
@@ -132,7 +132,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
     [TestMethod]
     public void Execute_UrlLauncherFailureReturnsTypedResult()
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
             });
@@ -163,7 +163,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
     public void Execute_ConfiguredProgramRechecksActionAndPassesResolvedTokens(bool bmson, bool pending)
     {
         ChartFileKind kind = bmson ? ChartFileKind.Bmson : ChartFileKind.Bms;
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings();
         settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
             new RightClickActionSettings(
                 [],
@@ -226,7 +226,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
     public void ResolveConfiguredProgram_RejectsUnavailableFileTargetsWithoutLaunching(string condition)
     {
         const string chartPath = @"C:\Songs\alpha.bms";
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
                 new RightClickActionSettings([], [new RightClickProgramActionDefinition(
@@ -270,7 +270,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
     [TestMethod]
     public void Execute_ConfiguredProgramMapsGatewayMissingExecutableToTypedFailure()
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings();
         settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
             new RightClickActionSettings(
                 [],
@@ -308,7 +308,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
     [TestMethod]
     public void Execute_InvalidSettingsReturnsTypedFailureWithInternalDiagnosticOnly()
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.RightClickActionsJson = "{invalid";
             });

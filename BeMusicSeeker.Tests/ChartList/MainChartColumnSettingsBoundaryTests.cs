@@ -25,7 +25,7 @@ public sealed class MainChartColumnSettingsBoundaryTests
             runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             () => new BmsLibraryOptionsSnapshot(),
             mainChartColumnSettingsStore: store,
-            settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
+            settingsEditSession: new NoOpSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings()),
             playlistWorkspaceDialogService: dialogs,
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();

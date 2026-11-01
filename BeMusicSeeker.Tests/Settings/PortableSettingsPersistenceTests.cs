@@ -1,5 +1,4 @@
 using System;
-using System.Configuration;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -20,16 +19,16 @@ public sealed class PortableSettingsPersistenceTests
     {
         using var files = new SettingsFiles();
         File.WriteAllText(files.Path, Config("Lang", "en-US").Replace("</BeMusicSeeker", "<setting name=\"FutureKey\" serializeAs=\"String\"><value>retain</value></setting></BeMusicSeeker"));
-        Settings first = OpenSettings(files.Path);
-        Settings second = OpenSettings(files.Path);
+        Settings first = TestSettingsFactory.OpenSettings(files.Path);
+        Settings second = TestSettingsFactory.OpenSettings(files.Path);
         _ = first.PlayerMixerThreadCount;
         _ = second.Lang;
         first.Commit((nameof(Settings.Lang), "fr-FR"));
         second.Commit((nameof(Settings.PlayerMixerThreadCount), 3));
         Assert.AreEqual("fr-FR", first.Lang);
         Assert.AreEqual("en-US", second.Lang, "対象外のreader値を再読込みしません。");
-        Assert.AreEqual("fr-FR", OpenSettings(files.Path).Lang);
-        Assert.AreEqual(3, OpenSettings(files.Path).PlayerMixerThreadCount);
+        Assert.AreEqual("fr-FR", TestSettingsFactory.OpenSettings(files.Path).Lang);
+        Assert.AreEqual(3, TestSettingsFactory.OpenSettings(files.Path).PlayerMixerThreadCount);
         Assert.AreEqual("retain", XDocument.Load(files.Path).Descendants("setting").Single(e => (string?)e.Attribute("name") == "FutureKey").Element("value")!.Value);
         byte[] before = File.ReadAllBytes(files.Path);
         using (File.Open(files.Path, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -45,7 +44,7 @@ public sealed class PortableSettingsPersistenceTests
     {
         using var files = new SettingsFiles();
         File.WriteAllText(files.Path, Config("Lang", "en-US"));
-        Settings settings = OpenSettings(files.Path);
+        Settings settings = TestSettingsFactory.OpenSettings(files.Path);
         using (File.Open(files.Path, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             Assert.ThrowsExactly<PortableSettingsException>(() => settings.Commit(
@@ -55,7 +54,7 @@ public sealed class PortableSettingsPersistenceTests
         Assert.AreEqual(1, settings.PlayerMixerThreadCount);
         settings.ShowNewPackageInstallConfirmMsg = false;
         settings.Save();
-        Settings loaded = OpenSettings(files.Path);
+        Settings loaded = TestSettingsFactory.OpenSettings(files.Path);
         Assert.AreEqual("en-US", loaded.Lang);
         Assert.AreEqual(1, loaded.PlayerMixerThreadCount);
         Assert.IsFalse(loaded.ShowNewPackageInstallConfirmMsg);
@@ -66,14 +65,14 @@ public sealed class PortableSettingsPersistenceTests
     public void RuntimeSaveDoesNotOverwriteLatestConfirmedSettingFromAnotherWrapper()
     {
         using var files = new SettingsFiles();
-        Settings first = OpenSettings(files.Path);
-        Settings runtime = OpenSettings(files.Path);
+        Settings first = TestSettingsFactory.OpenSettings(files.Path);
+        Settings runtime = TestSettingsFactory.OpenSettings(files.Path);
         _ = runtime.Lang;
         first.Commit((nameof(Settings.Lang), "fr-FR"));
         runtime.PlayerMixerThreadCount = 3;
         runtime.Save();
-        Assert.AreEqual("fr-FR", OpenSettings(files.Path).Lang);
-        Assert.AreEqual(3, OpenSettings(files.Path).PlayerMixerThreadCount);
+        Assert.AreEqual("fr-FR", TestSettingsFactory.OpenSettings(files.Path).Lang);
+        Assert.AreEqual(3, TestSettingsFactory.OpenSettings(files.Path).PlayerMixerThreadCount);
     }
 
     /// <summary>異文化でdouble/floatの精度と利用者の言語・品質・確認設定・全有効thread数を実保存し、新providerでの復元、未知キーと一時ファイル回収を確認します。</summary>
@@ -88,7 +87,7 @@ public sealed class PortableSettingsPersistenceTests
         {
             using var files = new SettingsFiles();
             File.WriteAllText(files.Path, Config("Lang", "en-US").Replace("</BeMusicSeeker", "<setting name=\"FutureKey\" serializeAs=\"String\"><value>retain</value></setting></BeMusicSeeker"));
-            Settings settings = OpenSettings(files.Path);
+            Settings settings = TestSettingsFactory.OpenSettings(files.Path);
             settings.Lang = "fr-FR";
             settings.PlayerResamplingQuality = 4;
             settings.ShowNewPackageInstallConfirmMsg = false;
@@ -105,7 +104,7 @@ public sealed class PortableSettingsPersistenceTests
                 CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(saveCulture);
                 settings.Save();
                 CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(readCulture);
-                Settings loaded = OpenSettings(files.Path);
+                Settings loaded = TestSettingsFactory.OpenSettings(files.Path);
                 Assert.AreEqual(BitConverter.DoubleToInt64Bits(width), BitConverter.DoubleToInt64Bits(loaded.TreeViewWidth));
                 Assert.AreEqual(BitConverter.SingleToInt32Bits(quality), BitConverter.SingleToInt32Bits(loaded.EncoderQuality));
                 Assert.AreEqual("fr-FR", loaded.Lang);
@@ -118,8 +117,8 @@ public sealed class PortableSettingsPersistenceTests
             settings.ShowNewPackageInstallConfirmMsg = true;
             settings.AutoInstallAfterAutomaticEstimation = false;
             settings.Save();
-            Assert.IsTrue(OpenSettings(files.Path).ShowNewPackageInstallConfirmMsg);
-            Assert.IsFalse(OpenSettings(files.Path).AutoInstallAfterAutomaticEstimation);
+            Assert.IsTrue(TestSettingsFactory.OpenSettings(files.Path).ShowNewPackageInstallConfirmMsg);
+            Assert.IsFalse(TestSettingsFactory.OpenSettings(files.Path).AutoInstallAfterAutomaticEstimation);
             Assert.AreEqual("retain", XDocument.Load(files.Path).Descendants("setting").Single(e => (string?)e.Attribute("name") == "FutureKey").Element("value")!.Value);
             Assert.AreEqual(0, Directory.GetFiles(files.Directory, "*.tmp").Length);
         }
@@ -131,19 +130,19 @@ public sealed class PortableSettingsPersistenceTests
     public void MissingFileAndIndividualKeyUseDefaults()
     {
         using var files = new SettingsFiles();
-        string defaultLanguage = OpenSettings(files.Path).Lang;
-        Assert.IsFalse(OpenSettings(files.Path).AutoInstallAfterAutomaticEstimation, "新規利用で自動導入を有効にしません。");
-        Assert.IsFalse(OpenSettings(files.Path).RequireCompleteUsedResourcesForAutoInstall);
-        Assert.IsTrue(OpenSettings(files.Path).ShowNewPackageInstallConfirmMsg);
+        string defaultLanguage = TestSettingsFactory.OpenSettings(files.Path).Lang;
+        Assert.IsFalse(TestSettingsFactory.OpenSettings(files.Path).AutoInstallAfterAutomaticEstimation, "新規利用で自動導入を有効にしません。");
+        Assert.IsFalse(TestSettingsFactory.OpenSettings(files.Path).RequireCompleteUsedResourcesForAutoInstall);
+        Assert.IsTrue(TestSettingsFactory.OpenSettings(files.Path).ShowNewPackageInstallConfirmMsg);
         File.WriteAllText(files.Path, Config());
-        Assert.IsFalse(OpenSettings(files.Path).AutoInstallAfterAutomaticEstimation, "旧設定のキー欠損で自動導入を有効にしません。");
-        Assert.AreEqual(defaultLanguage, OpenSettings(files.Path).Lang);
-        Assert.IsFalse(OpenSettings(files.Path).RequireCompleteUsedResourcesForAutoInstall);
-        Assert.IsNull(OpenSettings(files.Path).AssemblyVersion);
-        Assert.IsTrue(OpenSettings(files.Path).ShowNewPackageInstallConfirmMsg);
-        Assert.AreEqual(2, OpenSettings(files.Path).PlayerResamplingQuality);
-        Assert.AreEqual(1, OpenSettings(files.Path).PlayerMixerThreadCount);
-        Assert.AreEqual(100, OpenSettings(files.Path).InstallDestinationAutoApplyMinAudioHealth);
+        Assert.IsFalse(TestSettingsFactory.OpenSettings(files.Path).AutoInstallAfterAutomaticEstimation, "旧設定のキー欠損で自動導入を有効にしません。");
+        Assert.AreEqual(defaultLanguage, TestSettingsFactory.OpenSettings(files.Path).Lang);
+        Assert.IsFalse(TestSettingsFactory.OpenSettings(files.Path).RequireCompleteUsedResourcesForAutoInstall);
+        Assert.IsNull(TestSettingsFactory.OpenSettings(files.Path).AssemblyVersion);
+        Assert.IsTrue(TestSettingsFactory.OpenSettings(files.Path).ShowNewPackageInstallConfirmMsg);
+        Assert.AreEqual(2, TestSettingsFactory.OpenSettings(files.Path).PlayerResamplingQuality);
+        Assert.AreEqual(1, TestSettingsFactory.OpenSettings(files.Path).PlayerMixerThreadCount);
+        Assert.AreEqual(100, TestSettingsFactory.OpenSettings(files.Path).InstallDestinationAutoApplyMinAudioHealth);
     }
 
     /// <summary>旧設定の欠如は100%で読み、有効な90/97/100と範囲外の保存値を実保存・新reader・操作snapshotへそのまま渡し、黙った丸めを検出します。</summary>
@@ -151,15 +150,15 @@ public sealed class PortableSettingsPersistenceTests
     public void InstallDestinationAudioThresholdRoundTripsWithoutNormalizingInvalidValues()
     {
         using var files = new SettingsFiles();
-        Assert.AreEqual(100, OpenSettings(files.Path).InstallDestinationAutoApplyMinAudioHealth);
+        Assert.AreEqual(100, TestSettingsFactory.OpenSettings(files.Path).InstallDestinationAutoApplyMinAudioHealth);
         File.WriteAllText(files.Path, Config());
-        Assert.AreEqual(100, OpenSettings(files.Path).InstallDestinationAutoApplyMinAudioHealth);
+        Assert.AreEqual(100, TestSettingsFactory.OpenSettings(files.Path).InstallDestinationAutoApplyMinAudioHealth);
         foreach (int threshold in new[] { 90, 97, 100, 89, 101 })
         {
-            Settings settings = OpenSettings(files.Path);
+            Settings settings = TestSettingsFactory.OpenSettings(files.Path);
             settings.InstallDestinationAutoApplyMinAudioHealth = threshold;
             settings.Save();
-            Settings loaded = OpenSettings(files.Path);
+            Settings loaded = TestSettingsFactory.OpenSettings(files.Path);
             Assert.AreEqual(threshold, loaded.InstallDestinationAutoApplyMinAudioHealth);
             Assert.AreEqual(threshold, Models.BmsLibraryInternal.BmsLibraryOptionsSnapshot.CreateCurrent(loaded).InstallDestinationAutoApplyMinAudioHealth);
         }
@@ -170,15 +169,15 @@ public sealed class PortableSettingsPersistenceTests
     public void StartupSortCachePriorityRoundTripsWithoutNormalizingInvalidValues()
     {
         using var files = new SettingsFiles();
-        Assert.AreEqual(1, OpenSettings(files.Path).StartupSortCachePrewarmPriority);
+        Assert.AreEqual(1, TestSettingsFactory.OpenSettings(files.Path).StartupSortCachePrewarmPriority);
         File.WriteAllText(files.Path, Config());
-        Assert.AreEqual(1, OpenSettings(files.Path).StartupSortCachePrewarmPriority);
+        Assert.AreEqual(1, TestSettingsFactory.OpenSettings(files.Path).StartupSortCachePrewarmPriority);
         foreach (int priority in new[] { 0, 1, 2, 3, -1, 4 })
         {
-            Settings values = OpenSettings(files.Path);
+            Settings values = TestSettingsFactory.OpenSettings(files.Path);
             values.StartupSortCachePrewarmPriority = priority;
             values.Save();
-            Assert.AreEqual(priority, OpenSettings(files.Path).StartupSortCachePrewarmPriority);
+            Assert.AreEqual(priority, TestSettingsFactory.OpenSettings(files.Path).StartupSortCachePrewarmPriority);
         }
     }
 
@@ -191,11 +190,11 @@ public sealed class PortableSettingsPersistenceTests
     public void ExistingInvalidInputFailsReadAndSaveWithoutReplacingBytes(string input)
     {
         using var files = new SettingsFiles();
-        Settings settings = OpenSettings(files.Path);
+        Settings settings = TestSettingsFactory.OpenSettings(files.Path);
         settings.Lang = "fr-FR"; // Materialize while missing, then model an external edit before Save.
         File.WriteAllText(files.Path, input);
         byte[] before = File.ReadAllBytes(files.Path);
-        PortableSettingsException read = Assert.ThrowsExactly<PortableSettingsException>(() => _ = OpenSettings(files.Path).Lang);
+        PortableSettingsException read = Assert.ThrowsExactly<PortableSettingsException>(() => _ = TestSettingsFactory.OpenSettings(files.Path).Lang);
         AssertFailure(read, files.Path, "Read");
         PortableSettingsException save = Assert.ThrowsExactly<PortableSettingsException>(() => settings.Save());
         AssertFailure(save, files.Path, "Read");
@@ -210,7 +209,7 @@ public sealed class PortableSettingsPersistenceTests
         using var files = new SettingsFiles();
         File.WriteAllText(files.Path, Config("Lang", "en-US"));
         byte[] before = File.ReadAllBytes(files.Path);
-        Settings settings = OpenSettings(files.Path);
+        Settings settings = TestSettingsFactory.OpenSettings(files.Path);
         settings.Lang = "invalid XML character: \u0001";
         AssertFailure(Assert.ThrowsExactly<PortableSettingsException>(() => settings.Save()), files.Path, "Save");
         CollectionAssert.AreEqual(before, File.ReadAllBytes(files.Path));
@@ -223,7 +222,7 @@ public sealed class PortableSettingsPersistenceTests
     {
         using var files = new SettingsFiles();
         File.WriteAllText(files.Path, Config("Lang", "en-US"));
-        Settings settings = OpenSettings(files.Path);
+        Settings settings = TestSettingsFactory.OpenSettings(files.Path);
         settings.Lang = "fr-FR";
         byte[] before = File.ReadAllBytes(files.Path);
         File.SetAttributes(files.Path, FileAttributes.ReadOnly);
@@ -239,12 +238,12 @@ public sealed class PortableSettingsPersistenceTests
     {
         using var files = new SettingsFiles();
         File.WriteAllText(files.Path, Config("Lang", "en-US"));
-        Settings settings = OpenSettings(files.Path);
+        Settings settings = TestSettingsFactory.OpenSettings(files.Path);
         settings.Lang = "fr-FR";
         byte[] before = File.ReadAllBytes(files.Path);
         using (var blocker = new FileStream(files.Path, FileMode.Open, FileAccess.Read, FileShare.None))
         {
-            AssertFailure(Assert.ThrowsExactly<PortableSettingsException>(() => _ = OpenSettings(files.Path).Lang), files.Path, "Read");
+            AssertFailure(Assert.ThrowsExactly<PortableSettingsException>(() => _ = TestSettingsFactory.OpenSettings(files.Path).Lang), files.Path, "Read");
             AssertFailure(Assert.ThrowsExactly<PortableSettingsException>(() => settings.Save()), files.Path, "Read");
         }
         CollectionAssert.AreEqual(before, File.ReadAllBytes(files.Path));
@@ -256,7 +255,7 @@ public sealed class PortableSettingsPersistenceTests
     {
         using var files = new SettingsFiles();
         File.WriteAllText(files.Path, Config("Lang", "en-US"));
-        Settings settings = OpenSettings(files.Path);
+        Settings settings = TestSettingsFactory.OpenSettings(files.Path);
         settings.Lang = "fr-FR";
         byte[] before = File.ReadAllBytes(files.Path);
         // 直接書込みはできるが置換できない条件にし、元ファイルを壊す実装を区別します。
@@ -304,7 +303,7 @@ public sealed class PortableSettingsPersistenceTests
                     });
                 Assert.IsNotNull(backup);
                 Assert.AreNotEqual(earlierBackup, backup);
-                Assert.IsNull(OpenSettings(files.Path).AssemblyVersion);
+                Assert.IsNull(TestSettingsFactory.OpenSettings(files.Path).AssemblyVersion);
                 Assert.AreEqual(0, XDocument.Load(files.Path).Descendants("setting").Count());
                 earlierBackup = backup;
             }
@@ -402,25 +401,9 @@ public sealed class PortableSettingsPersistenceTests
         int imports = 0;
         new PortableSettingsStartupFile(files.Path).Prepare(() => imports++, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount));
         Assert.AreEqual(1, imports);
-        Assert.IsNull(OpenSettings(files.Path).AssemblyVersion);
+        Assert.IsNull(TestSettingsFactory.OpenSettings(files.Path).AssemblyVersion);
         Assert.IsNotNull(XDocument.Load(files.Path).Root!.Element("userSettings")!.Element(PortableSettingsProvider.SettingsSectionName));
         Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
-    }
-
-    /// <summary>専用パスの本番 provider を生成済み Settings wrapper に接続し、実保存・読戻しを確認できるようにします。</summary>
-    internal static Settings OpenSettings(string path)
-    {
-        var settings = new Settings();
-        var provider = new PortableSettingsProvider(path);
-        provider.Initialize(nameof(PortableSettingsProvider), null!);
-        settings.Providers.Clear();
-        settings.Providers.Add(provider);
-        foreach (SettingsProperty property in settings.Properties)
-        {
-            property.Provider = provider;
-        }
-
-        return settings;
     }
 
     private static void AssertFailure(PortableSettingsException failure, string path, string operation)
@@ -435,21 +418,4 @@ public sealed class PortableSettingsPersistenceTests
         "<configuration><userSettings><BeMusicSeeker.Properties.Settings>" +
         (key == null ? "" : $"<setting name=\"{key}\" serializeAs=\"String\"><value>{value}</value></setting>") +
         "</BeMusicSeeker.Properties.Settings></userSettings></configuration>";
-
-    /// <summary>保存テストが独占する設定ファイルと一時ディレクトリを所有します。</summary>
-    internal sealed class SettingsFiles : IDisposable
-    {
-        internal string Directory { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BmsSettings-" + Guid.NewGuid().ToString("N"));
-        internal string Path => System.IO.Path.Combine(Directory, "user.config");
-        internal SettingsFiles() => System.IO.Directory.CreateDirectory(Directory);
-        public void Dispose()
-        {
-            if (File.Exists(Path))
-            {
-                File.SetAttributes(Path, FileAttributes.Normal);
-            }
-
-            System.IO.Directory.Delete(Directory, true);
-        }
-    }
 }

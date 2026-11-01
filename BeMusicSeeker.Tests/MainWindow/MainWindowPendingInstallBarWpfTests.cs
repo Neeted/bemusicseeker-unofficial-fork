@@ -25,7 +25,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     public void PendingInstallBar_TracksPresentedSectionAndCollapsesOutsidePending()
     {
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(s => s.StartupSelectInstallPending = false),
+            TestSettingsFactory.CreateIsolatedSettings(s => s.StartupSelectInstallPending = false),
             (scope, vm, window) =>
             {
                 MainWindowPresentationTestHarness.ShowCompiledContent(scope, vm, window);
@@ -105,7 +105,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         var installCompletion = new TaskCompletionSource<PendingPackageMutationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         Task installEvent = Task.CompletedTask;
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(s => s.StartupSelectInstallPending = false),
+            TestSettingsFactory.CreateIsolatedSettings(s => s.StartupSelectInstallPending = false),
             (scope, vm, window) =>
             {
                 MainWindowPresentationTestHarness.ShowCompiledContent(scope, vm, window);
@@ -235,7 +235,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     public void PendingInstallBar_UpdatesLocalizedNamesAndThemeBrushes()
     {
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(s => s.StartupSelectInstallPending = false),
+            TestSettingsFactory.CreateIsolatedSettings(s => s.StartupSelectInstallPending = false),
             (scope, vm, window) =>
             {
                 CultureInfo? previousCulture = Resources.Culture;

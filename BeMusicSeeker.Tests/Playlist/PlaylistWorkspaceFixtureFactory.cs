@@ -218,7 +218,7 @@ internal static class PlaylistWorkspaceFixtureFactory
         Action<Exception, string>? reloadFailureLog = null)
     {
         PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
             });

@@ -17,7 +17,7 @@ public sealed class SettingDialogOpenCommandTests
     public void OpenCommand_PublishesExactlyOneOwnerRequest()
     {
         var catalog = new TestAudioDeviceCatalog();
-        var settingsSession = new TestSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        var settingsSession = new TestSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
                 values.PlayerResamplingQuality = 2;
@@ -43,7 +43,7 @@ public sealed class SettingDialogOpenCommandTests
     [TestMethod]
     public void PlayerDriverSelection_UsesTypedBackendCapabilities()
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
                 values.PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED;
@@ -86,7 +86,7 @@ public sealed class SettingDialogOpenCommandTests
     [TestMethod]
     public void OpenCommand_SelectedDevicePreservesSavedIdentityAcrossRefreshAndNewViewModel()
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
                 values.PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED;
@@ -139,7 +139,7 @@ public sealed class SettingDialogOpenCommandTests
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             settingsEditSession: settingsEditSession
-                ?? new TestSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                ?? new TestSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
             })),

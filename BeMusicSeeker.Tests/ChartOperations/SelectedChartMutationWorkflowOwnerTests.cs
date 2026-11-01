@@ -34,11 +34,11 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             string removed = Directory.CreateDirectory(Path.Combine(root, "Removed")).FullName;
             string retained = Directory.CreateDirectory(Path.Combine(root, "Retained")).FullName;
             string managed = Directory.CreateDirectory(Path.Combine(root, "ManagedOutput")).FullName;
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config"));
+            Settings settings = TestSettingsFactory.OpenSettings(Path.Combine(root, "user.config"));
             settings.OperationModeLR2DB = true;
             settings.LR2RootPath = Path.Combine(root, "LR2");
             settings.LR2CustomFolderOutputBaseDir = managed;
-            settings.LR2ConfigXmlPath = BmsPlaylistTestSupport.CreateLr2Config(settings.LR2RootPath, removed, retained, managed).ConfigFilePath;
+            settings.LR2ConfigXmlPath = TestLr2ConfigFactory.CreateLr2Config(settings.LR2RootPath, removed, retained, managed).ConfigFilePath;
             settings.BMSRootPath = removed;
             settings.BMSInstallDir = retained;
             settings.Save();
@@ -114,7 +114,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             File.WriteAllText(chartPath, "root chart");
             string resource = Path.Combine(source, "user.wav"); File.WriteAllText(resource, "resource");
             string settingsPath = Path.Combine(temporaryRoot, "user.config");
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+            Settings settings = TestSettingsFactory.OpenSettings(settingsPath);
             settings.OperationModeLR2DB = false;
             settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([source, retained]);
             settings.BMSRootPath = source; settings.BMSInstallDir = decision == "protected" ? source : retained; settings.Save();
@@ -136,7 +136,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 Assert.AreEqual(string.Format(Resources.Confirm_DeleteRegisteredBmsRoots, source, source), request.MessageBoxText);
                 Assert.IsTrue(File.Exists(chartPath));
                 CollectionAssert.AreEqual(new[] { source, retained }, StandaloneBmsRootPathSettings.Deserialize(
-                    PortableSettingsPersistenceTests.OpenSettings(settingsPath).StandaloneBmsRootPaths).ToArray());
+                    TestSettingsFactory.OpenSettings(settingsPath).StandaloneBmsRootPaths).ToArray());
                 Assert.IsTrue(library.OperationAdmission.IsActive);
             };
             var presentation = new RecordingPresentation();
@@ -156,7 +156,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 Assert.AreEqual(decision != "yes", File.Exists(resource));
                 string[] expectedRoots = decision == "yes" ? [retained] : [source, retained];
                 CollectionAssert.AreEqual(expectedRoots, StandaloneBmsRootPathSettings.Deserialize(
-                    PortableSettingsPersistenceTests.OpenSettings(settingsPath).StandaloneBmsRootPaths).ToArray());
+                    TestSettingsFactory.OpenSettings(settingsPath).StandaloneBmsRootPaths).ToArray());
                 using LR2SongDBExtended read = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 Assert.AreEqual(decision == "protected" ? 1 : 0, read.Table<LR2SongDB.song>().Count());
                 Assert.AreEqual(decision == "protected" ? 1 : 0, dialogs.Messages.Count);
@@ -198,7 +198,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 return CreateFile(new string((char)('a' + index), 32), path);
             }).ToArray();
             string settingsPath = Path.Combine(root, "user.config");
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+            Settings settings = TestSettingsFactory.OpenSettings(settingsPath);
             settings.OperationModeLR2DB = false;
             settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([.. folders, retained]);
             settings.BMSRootPath = folders[0]; settings.BMSInstallDir = retained; settings.Save();
@@ -245,7 +245,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                     read.Table<LR2SongDB.song>().Select(row => row.path + "|" + row.hash).ToArray());
                 CollectionAssert.AreEqual(savedSettings, File.ReadAllBytes(settingsPath));
                 CollectionAssert.AreEqual(folders.Append(retained).ToArray(), StandaloneBmsRootPathSettings.Deserialize(
-                    PortableSettingsPersistenceTests.OpenSettings(settingsPath).StandaloneBmsRootPaths).ToArray());
+                    TestSettingsFactory.OpenSettings(settingsPath).StandaloneBmsRootPaths).ToArray());
             }
             try
             {
@@ -899,7 +899,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             File.WriteAllText(rootChart.Path, "root bytes");
             File.WriteAllText(childChart.Path, "child bytes");
             string settingsPath = Path.Combine(temporaryRoot, "user.config");
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+            Settings settings = TestSettingsFactory.OpenSettings(settingsPath);
             settings.OperationModeLR2DB = false;
             settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([source, destination]);
             settings.BMSRootPath = source;
@@ -952,7 +952,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 StringAssert.Contains(modelDialogs.Messages.Single(), string.Format(BeMusicSeeker.Properties.Resources.Warn_CannotMoveRegisteredBmsRoot, source));
                 AssertState(moved: includeChild);
                 CollectionAssert.AreEqual(savedSettings, File.ReadAllBytes(settingsPath), "登録の保存や暗黙書換えを行いません。");
-                Settings saved = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                Settings saved = TestSettingsFactory.OpenSettings(settingsPath);
                 string[] roots = StandaloneBmsRootPathSettings.Deserialize(saved.StandaloneBmsRootPaths, saved.BMSRootPath).ToArray();
                 CollectionAssert.AreEqual(new[] { source, destination }, roots);
                 CollectionAssert.AreEqual(roots, BmsRootRegistrationStore.CaptureStandaloneRoots(library.FixtureSettings).ToArray());
@@ -1014,7 +1014,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             }
             Directory.CreateDirectory(blockedDestination);
             string lr2Root = Path.Combine(root, "LR2");
-            LR2Config config = BmsPlaylistTestSupport.CreateLr2Config(lr2Root, source);
+            LR2Config config = TestLr2ConfigFactory.CreateLr2Config(lr2Root, source);
             var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             var library = new TestBmsLibrary(databaseScope, songDbPath, configOwner, null, null,
                 new FileDbReportRecordingDialogs(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),

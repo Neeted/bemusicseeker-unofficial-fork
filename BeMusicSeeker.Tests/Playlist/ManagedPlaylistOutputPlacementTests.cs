@@ -47,7 +47,7 @@ public sealed class ManagedPlaylistOutputPlacementTests
         Directory.CreateDirectory(root);
         try
         {
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = true;
                 values.LR2RootPath = root;
@@ -105,7 +105,7 @@ public sealed class ManagedPlaylistOutputPlacementTests
         Directory.CreateDirectory(root);
         try
         {
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = true;
                 values.LR2RootPath = root;

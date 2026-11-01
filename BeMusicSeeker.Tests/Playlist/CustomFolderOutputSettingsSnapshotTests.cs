@@ -6,7 +6,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomFolderOutputSettingsSnapshotTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
     /// <summary>出力先と出力抑止設定を捕捉した後にValuesを編集しても旧snapshotは変わらず、次の捕捉だけが編集値を使うことで、処理中の利用者編集の混入を検出します。</summary>
     [TestMethod]
     public void CreateCurrentFreezesOutputSettingsUntilNextCapture()

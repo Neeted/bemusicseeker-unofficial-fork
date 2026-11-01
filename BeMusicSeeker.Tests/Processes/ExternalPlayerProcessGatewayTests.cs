@@ -19,7 +19,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed partial class ExternalPlayerProcessGatewayTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
 
     /// <summary>実Windows processの終了通知でadapter自身をsenderとして渡し、利用側が別のprocess instanceを参照しません。</summary>
     [TestMethod]

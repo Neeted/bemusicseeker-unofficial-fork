@@ -24,7 +24,7 @@ public sealed class ChartInfoInstallFailureRetryTests
 {
     private readonly ApplicationDatabaseScope databaseScope = new();
 
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
 
     /// <summary>実BMSパッケージを物理導入し、同じ処理内でsong・digest対応・詳細と索引へ反映して別の全件補完待ちや保存漏れを検出する。</summary>
     /// <remarks>本番ライブラリの導入・警告・受付を実DBへ接続する。設定と入力はcaseごとに所有し、保存・通知を計算値で代替しない。</remarks>
@@ -62,7 +62,7 @@ public sealed class ChartInfoInstallFailureRetryTests
             var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart((pendingChart))]);
             package.path = sourceDir;
             package.delete_parent = false;
-            var library = new TestBmsLibrary(databaseScope, songDbPath, new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(tempRootPath)), null, null, new RecordingDialogService(), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(tempRootPath)), null, null, new RecordingDialogService(), settings: testSettings);
 
             InvokeInstallChartPackages(library, [package], installDir);
 
@@ -143,7 +143,7 @@ public sealed class ChartInfoInstallFailureRetryTests
             var package = ChartPackage.FromChartEntries([pendingChart]);
             package.path = sourceDir;
             package.delete_parent = false;
-            var library = new TestBmsLibrary(databaseScope, songDbPath, new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(tempRootPath)), null, null, new RecordingDialogService(), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(tempRootPath)), null, null, new RecordingDialogService(), settings: testSettings);
 
             InvokeInstallChartPackages(library, [package], installDir);
 
@@ -219,7 +219,7 @@ public sealed class ChartInfoInstallFailureRetryTests
             var package = ChartPackage.FromChartEntries([pendingChart]);
             package.path = sourceDir;
             package.delete_parent = false;
-            var library = new TestBmsLibrary(databaseScope, songDbPath, new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(tempRootPath)), null, null, new RecordingDialogService(), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(tempRootPath)), null, null, new RecordingDialogService(), settings: testSettings);
 
             InvokeInstallChartPackages(library, [package], installDir);
 

@@ -9,7 +9,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryOptionsSnapshotTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
     /// <summary>
     /// 保証：追加出力先を捕捉した後の元リスト変更を反映せず、公開リストへの書込みも拒否して操作中の設定を固定する。
     /// </summary>

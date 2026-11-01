@@ -74,7 +74,7 @@ public sealed class ChartListVirtualViewTests
         });
     }
 
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
     /// <summary>件数照会では三行とも未生成とし、先頭アクセスだけが整列済みのAlpha一行を生成することで、件数取得時の全件生成を検出します。</summary>
     [TestMethod]
     public void Count_DoesNotRealizeRowsUntilIndexed()

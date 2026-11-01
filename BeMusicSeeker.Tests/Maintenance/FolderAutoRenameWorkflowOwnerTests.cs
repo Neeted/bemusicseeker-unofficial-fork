@@ -56,7 +56,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             string songDb = Path.Combine(root, "song.db");
             File.WriteAllBytes(songDb, []);
             var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2CustomFolderOutputBaseDir = managed, FolderNameFormat = "%TITLE%" };
-            var library = new TestBmsLibrary(databaseScope, songDb, new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(root)), null, null, new FileDbReportRecordingDialogs(),
+            var library = new TestBmsLibrary(databaseScope, songDb, new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(root)), null, null, new FileDbReportRecordingDialogs(),
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => options)
             { BmsCharts = charts };
             new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).UpsertSongs(charts);

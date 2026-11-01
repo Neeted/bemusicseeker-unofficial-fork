@@ -63,7 +63,7 @@ public sealed class BmsPlaylistExternalReloadTests
         finally { CultureInfo.CurrentCulture = previous; Directory.Delete(directory, recursive: true); }
     }
 
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
 
     /// <summary>不適合日時のhash初期化では日時を保ち、同原文を再保存せず、既知header/data原文差だけ更新日時を進めます。旧adddate/memoは実mergeと新DBで保持します。</summary>
     [TestMethod]

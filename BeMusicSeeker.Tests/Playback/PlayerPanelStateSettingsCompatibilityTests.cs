@@ -24,11 +24,11 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
         Assert.AreEqual(1, (int)PlayerPanelState.TITLE_SMALL);
         Assert.AreEqual(2, (int)PlayerPanelState.BMS_PLAYER);
 
-        SettingsProperty metadata = MainWindowViewModelTestFactory.CreateIsolatedSettings().Properties[nameof(Settings.PlayerPanelState)];
+        SettingsProperty metadata = TestSettingsFactory.CreateIsolatedSettings().Properties[nameof(Settings.PlayerPanelState)];
         Assert.IsNotNull(metadata);
         Assert.AreEqual("PlayerPanelState", metadata.Name);
 
-        using var files = new PortableSettingsPersistenceTests.SettingsFiles();
+        using var files = new SettingsFiles();
         string configPath = files.Path;
         AssertRoundTrips(configPath, "TITLE_LARGE", PlayerPanelState.TITLE_LARGE);
         AssertRoundTrips(configPath, "TITLE_SMALL", PlayerPanelState.TITLE_SMALL);
@@ -45,7 +45,7 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
     [TestMethod]
     public void PlayerPanelState_AtomicNormalizationFailurePreservesOriginalAndMaterializesCanonicalValue()
     {
-        using var files = new PortableSettingsPersistenceTests.SettingsFiles();
+        using var files = new SettingsFiles();
         string configPath = files.Path;
         CreateConfig("12").Save(configPath);
         byte[] legacyConfig = File.ReadAllBytes(configPath);
@@ -71,7 +71,7 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
         CollectionAssert.AreEqual(legacyConfig, File.ReadAllBytes(configPath));
         Assert.AreEqual("12", GetPlayerPanelStateValue(XDocument.Load(configPath)));
 
-        Settings loaded = PortableSettingsPersistenceTests.OpenSettings(configPath);
+        Settings loaded = TestSettingsFactory.OpenSettings(configPath);
         loaded.Reload();
         Assert.AreEqual(
             (PlayerPanelState)10,
@@ -100,7 +100,7 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
         Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
         CreateConfig(persistedValue).Save(configPath);
 
-        Settings loaded = PortableSettingsPersistenceTests.OpenSettings(configPath);
+        Settings loaded = TestSettingsFactory.OpenSettings(configPath);
         loaded.Reload();
         Assert.AreEqual(expected, loaded.PlayerPanelState);
 
@@ -123,7 +123,7 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
                 .Element("value")?
                 .Value);
 
-        Settings reloaded = PortableSettingsPersistenceTests.OpenSettings(configPath);
+        Settings reloaded = TestSettingsFactory.OpenSettings(configPath);
         reloaded.Reload();
         Assert.AreEqual(expected, reloaded.PlayerPanelState);
     }

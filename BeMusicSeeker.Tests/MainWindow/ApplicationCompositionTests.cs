@@ -23,7 +23,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed partial class ApplicationCompositionTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
 
     /// <summary>本番child factoryの目録解除が同じ再生panelの停止へ接続され、停止終端前に管理入力を回収しないことを検証します。</summary>
     /// <remarks>Windowを作らず実composition・panel・目録・SQLite/FSを動かし、dialogとplayerの外部処理だけを代替します。標準compositionの共有購読の寿命は非並列で所有します。</remarks>
@@ -447,7 +447,7 @@ public sealed partial class ApplicationCompositionTests
         Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
         File.WriteAllBytes(executablePath, []);
         File.WriteAllText(configPath, "<config><system /><jukebox /></config>");
-        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings values = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.UsePlayerLR2body = true;
@@ -493,7 +493,7 @@ public sealed partial class ApplicationCompositionTests
         Directory.CreateDirectory(root);
         File.WriteAllBytes(executablePath, []);
         string missingConfigPath = Path.Combine(root, "missing-config.xml");
-        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings values = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.UsePlayerLR2body = true;
@@ -580,7 +580,7 @@ public sealed partial class ApplicationCompositionTests
         File.WriteAllText(chartPath, "#PLAYER 1\n");
         try
         {
-            Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings values = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.ShowScoreViewerRegisterConfirmMsg = true;
@@ -890,7 +890,7 @@ public sealed partial class ApplicationCompositionTests
         {
             TestUiDispatcherHost.Invoke(() =>
             {
-                Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
                 {
                     values.OperationModeLR2DB = false;
                     values.StartupSelectInstallPending = false;
@@ -1211,7 +1211,7 @@ public sealed partial class ApplicationCompositionTests
     [TestMethod]
     public void CompositionDefaultStartupSettingsProviderUsesInjectedEditSessionValues()
     {
-        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings values = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.LR2RootPath = "injected-lr2-root";
@@ -1233,7 +1233,7 @@ public sealed partial class ApplicationCompositionTests
     [TestMethod]
     public void CompositionDefaultWorkflowSnapshotProvidersUseInjectedEditSessionValues()
     {
-        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings values = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.PendingInstallEstimateMaxParallelPackages = 11;
                 values.LR2CustomFolderAdditionalOutputBaseDirs = "[\"session-output\"]";
@@ -1281,7 +1281,7 @@ public sealed partial class ApplicationCompositionTests
     [TestMethod]
     public void CompositionDefaultSerializedSettingsStoresUseInjectedEditSessionValues()
     {
-        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings values = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.KeywordSearchHistory = "keyword-history";
                 values.PlaylistSummaryKeywordSearchHistory = "playlist-keyword-history";
@@ -1316,7 +1316,7 @@ public sealed partial class ApplicationCompositionTests
         string previousGlobalPaths = BeMusicSeeker.Properties.Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
         string sessionPath = Path.GetFullPath("session-additional-output");
         string globalPath = Path.GetFullPath("global-additional-output");
-        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings values = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([sessionPath]);
             });
@@ -1343,7 +1343,7 @@ public sealed partial class ApplicationCompositionTests
     [TestMethod]
     public void MainWindowPlaylistOutputOptionsUseCompositionCustomFolderSettings()
     {
-        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings values = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.LR2CustomFolderOutputBaseDir = "session-output-base";
                 values.LR2CustomFolderAdditionalOutputBaseDirs = "[\"session-additional\"]";
@@ -1389,7 +1389,7 @@ public sealed partial class ApplicationCompositionTests
     [TestMethod]
     public void MainWindowKeywordSearchFavoritesDefaultUsesCompositionSettingsSession()
     {
-        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        Settings values = TestSettingsFactory.CreateIsolatedSettings();
         var composition = new ApplicationComposition(
             runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             () => new BmsLibraryOptionsSnapshot(),

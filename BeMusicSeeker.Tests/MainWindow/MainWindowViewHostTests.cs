@@ -57,7 +57,7 @@ public sealed partial class MainWindowViewHostTests
                 return dialogRelease.Task;
             }
         };
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
             });
@@ -282,7 +282,7 @@ public sealed partial class MainWindowViewHostTests
             };
             var children = new List<ChartPropertiesWindow>();
             var lifetime = new RecordingApplicationLifetime();
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings();
             ApplicationComposition composition = CreateComposition(new RecordingSettingsEditSession(settings, () => { }), lifetime);
             MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
             MainWindowPresentationTestHarness.PrepareConstructorOnlyShell(viewModel);
@@ -530,7 +530,7 @@ public sealed partial class MainWindowViewHostTests
         double customTableHeaderHeight,
         double customTableFontSize)
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.TreeViewWidth = treeViewWidth;
                 values.StartupSelectInstallPending = startupSelectInstallPending;
@@ -575,7 +575,7 @@ public sealed partial class MainWindowViewHostTests
     {
         var databaseScope = new ApplicationDatabaseScope();
         var settings = (Settings)System.Configuration.SettingsBase.Synchronized(
-            PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory, "user.config")));
+            TestSettingsFactory.OpenSettings(Path.Combine(directory, "user.config")));
         settings.OperationModeLR2DB = false;
         settings.BMSRootPath = directory;
         settings.StandaloneBmsRootPaths = directory;
@@ -1249,7 +1249,7 @@ public sealed partial class MainWindowViewHostTests
         string settingsPath = Path.Combine(directory.Path, "user.config");
         // 本番Settings.Defaultと同じく、UIのReloadと起動後の背景読取りが共有する同一instanceを同期化します。
         var settings = (Settings)System.Configuration.SettingsBase.Synchronized(
-            PortableSettingsPersistenceTests.OpenSettings(settingsPath));
+            TestSettingsFactory.OpenSettings(settingsPath));
         settings.OperationModeLR2DB = false;
         settings.LR2RootPath = string.Empty;
         settings.LR2SongDBPath = string.Empty;
@@ -1439,7 +1439,7 @@ public sealed partial class MainWindowViewHostTests
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.SettingDialog.SelectOperationModeAsync(true), "operation mode explicit retry after save failure");
                     Assert.AreEqual(2, settingsSession.ModeSaveCount);
                     Assert.AreEqual(2, settingsDialogs.ConfirmationCount);
-                    Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(settingsPath).OperationModeLR2DB);
+                    Assert.IsTrue(TestSettingsFactory.OpenSettings(settingsPath).OperationModeLR2DB);
                     Assert.AreEqual(1, reportedSettingsFailures.Count, "明示再操作の成功は最初の保存失敗を重複報告しません。");
                 }
                 observation = Task.Run(async () =>
@@ -1482,7 +1482,7 @@ public sealed partial class MainWindowViewHostTests
                 {
                     Assert.IsTrue(IndexOfEvent(events, "restart") < IndexOfEvent(events, "shutdown"));
                 }
-                Settings persisted = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                Settings persisted = TestSettingsFactory.OpenSettings(settingsPath);
                 Assert.AreEqual(restartExpected, persisted.OperationModeLR2DB);
                 Assert.AreEqual(string.Empty, persisted.LR2RootPath);
                 Assert.AreEqual(string.Empty, persisted.LR2SongDBPath);

@@ -24,7 +24,7 @@ public sealed partial class ApplicationCompositionTests
         string root = StartupLibraryConstructionTestSupport.CreateTemporaryRoot();
         string path = Path.Combine(root, "admission.bms");
         File.WriteAllText(path, "#PLAYER 1\n#TITLE Admission\n#BPM 120\n#00111:01\n");
-        BeMusicSeeker.Properties.Settings values = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config"));
+        BeMusicSeeker.Properties.Settings values = TestSettingsFactory.OpenSettings(Path.Combine(root, "user.config"));
         values.OperationModeLR2DB = false;
         values.BMSRootPath = root;
         values.StandaloneBmsRootPaths = root;
@@ -96,7 +96,7 @@ public sealed partial class ApplicationCompositionTests
             Assert.AreEqual(stopsBeforeBusy, player.CloseProcessCount);
             Assert.IsNull(viewModel.PlaybackPanel.NowPlayingChart);
             viewModel.SettingDialog.KeepInstallablePackagesPending = !before;
-            Assert.AreEqual(!before, PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config")).KeepInstallablePackagesPending);
+            Assert.AreEqual(!before, TestSettingsFactory.OpenSettings(Path.Combine(root, "user.config")).KeepInstallablePackagesPending);
             viewModel.SettingDialog.BeatorajaPlayerId = "pending-score-player";
 
             await viewModel.SettingDialog.CommitScoreSettingsAsync();
@@ -112,7 +112,7 @@ public sealed partial class ApplicationCompositionTests
             Assert.AreEqual(0, viewModel.MainChartList.SelectedIndex);
             Assert.AreEqual("pending-score-player", viewModel.SettingDialog.BeatorajaPlayerId, "Busyによる確定拒否では未確定候補を破棄しません。");
             string settingsPath = Path.Combine(root, "user.config");
-            string confirmedPlayer = PortableSettingsPersistenceTests.OpenSettings(settingsPath).BeatorajaPlayerId;
+            string confirmedPlayer = TestSettingsFactory.OpenSettings(settingsPath).BeatorajaPlayerId;
             Assert.AreNotEqual("pending-score-player", confirmedPlayer);
             byte[] savedSettingsBeforeClose = File.ReadAllBytes(settingsPath);
             viewModel.SettingDialog.CloseCommand.Execute();
@@ -123,7 +123,7 @@ public sealed partial class ApplicationCompositionTests
             await viewModel.PlaybackPanel.StartAtIndex(0);
             Assert.IsTrue(player.Commands.Any(command => command == "PlayStart:" + path));
             Assert.AreEqual(confirmedPlayer, viewModel.SettingDialog.BeatorajaPlayerId);
-            Assert.AreEqual(confirmedPlayer, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BeatorajaPlayerId);
+            Assert.AreEqual(confirmedPlayer, TestSettingsFactory.OpenSettings(settingsPath).BeatorajaPlayerId);
         }
         finally
         {
@@ -144,9 +144,9 @@ public sealed partial class ApplicationCompositionTests
         string chartPath = Path.Combine(scope.DirectoryPath, "preview.bms");
         File.WriteAllText(chartPath, "#TITLE Preview\n#BPM 120\n#00111:01\n");
         string configPath = Path.Combine(scope.DirectoryPath, "user.config");
-        BeMusicSeeker.Properties.Settings values = PortableSettingsPersistenceTests.OpenSettings(configPath);
+        BeMusicSeeker.Properties.Settings values = TestSettingsFactory.OpenSettings(configPath);
         values.OperationModeLR2DB = true;
-        values.LR2ConfigXmlPath = BmsPlaylistTestSupport.CreateLr2Config(scope.DirectoryPath).ConfigFilePath;
+        values.LR2ConfigXmlPath = TestLr2ConfigFactory.CreateLr2Config(scope.DirectoryPath).ConfigFilePath;
         values.Save();
         var session = new FakeSettingsEditSession { Values = values, PersistOwnedValues = true };
         var player = new PlaybackPanelViewModelTests.FakeBmsPlayer();
@@ -212,7 +212,7 @@ public sealed partial class ApplicationCompositionTests
 
             Assert.AreEqual(0, session.SaveCount);
             Assert.AreEqual(!before, values.KeepInstallablePackagesPending, "通常項目は同期の終端を待たず保存済みです。");
-            Assert.AreEqual(!before, PortableSettingsPersistenceTests.OpenSettings(configPath).KeepInstallablePackagesPending);
+            Assert.AreEqual(!before, TestSettingsFactory.OpenSettings(configPath).KeepInstallablePackagesPending);
         }
         finally
         {
@@ -239,10 +239,10 @@ public sealed partial class ApplicationCompositionTests
         string outputBase = Path.Combine(scope.DirectoryPath, "Output");
         var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2CustomFolderOutputBaseDir = outputBase };
         var outputSettings = new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = true, LR2CustomFolderOutputBaseDir = outputBase };
-        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(settings =>
+        Settings values = TestSettingsFactory.CreateIsolatedSettings(settings =>
         {
             settings.OperationModeLR2DB = true;
-            settings.LR2ConfigXmlPath = BmsPlaylistTestSupport.CreateLr2Config(scope.DirectoryPath).ConfigFilePath;
+            settings.LR2ConfigXmlPath = TestLr2ConfigFactory.CreateLr2Config(scope.DirectoryPath).ConfigFilePath;
             settings.LR2CustomFolderOutputBaseDir = outputBase;
         });
         var composition = new ApplicationComposition(bmsLibraryOptionsProvider: () => options,
@@ -306,13 +306,13 @@ public sealed partial class ApplicationCompositionTests
 
         using var scope = Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
         string outputA = Path.Combine(scope.DirectoryPath, "OutputA");
-        BeMusicSeeker.Properties.Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        BeMusicSeeker.Properties.Settings values = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = true;
                 values.LR2CustomFolderOutputBaseDir = outputA;
                 values.EnableDownloadLr2IrScoreAndDetectUnsent = true;
             });
-        values.LR2ConfigXmlPath = BmsPlaylistTestSupport.CreateLr2Config(scope.DirectoryPath).ConfigFilePath;
+        values.LR2ConfigXmlPath = TestLr2ConfigFactory.CreateLr2Config(scope.DirectoryPath).ConfigFilePath;
         var captured = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseCapture = new System.Threading.ManualResetEventSlim();
         bool holdCapture = false;
@@ -418,7 +418,7 @@ public sealed partial class ApplicationCompositionTests
         if (lr2Mode) { Directory.CreateDirectory(output); Directory.CreateDirectory(Path.Combine(scope.DirectoryPath, "RootOutput")); }
         string chart = Path.Combine(music, "chart.bms");
         File.WriteAllText(chart, "#PLAYER 1\n#TITLE Actual Diff\n#ARTIST Fixture\n#BPM 120\n#00111:01\n");
-        BeMusicSeeker.Properties.Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        BeMusicSeeker.Properties.Settings values = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = lr2Mode;
                 values.LR2RootPath = scope.DirectoryPath;

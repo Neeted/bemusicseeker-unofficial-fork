@@ -58,7 +58,7 @@ public sealed class MainWindowCatalogProjectionTests
                 log.Execute("CREATE TABLE scorelog (sha256 TEXT, mode INTEGER, clear INTEGER, oldclear INTEGER, score INTEGER, oldscore INTEGER, combo INTEGER, oldcombo INTEGER, minbp INTEGER, oldminbp INTEGER, date INTEGER)");
                 log.Execute("INSERT INTO scorelog VALUES (?, 0, 4, 0, 100, 0, 50, 0, 10, 20, 1000)", historyHash);
             }
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = music;

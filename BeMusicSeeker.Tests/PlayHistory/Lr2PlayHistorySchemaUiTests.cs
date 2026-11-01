@@ -33,7 +33,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
     {
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
         using SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
-        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(value => value.OperationModeLR2DB = true);
+        Settings values = TestSettingsFactory.CreateIsolatedSettings(value => value.OperationModeLR2DB = true);
         var settingsSession = new SchemaSettingsSession(values);
         var statePort = new TestSettingsDialogStatePort(
             owner,
@@ -608,7 +608,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         Directory.CreateDirectory(Path.Combine(root, "LR2files", "Config"));
         Directory.CreateDirectory(Path.Combine(root, "LR2files", "Database", "Score"));
         File.WriteAllText(config, "<config><system/><jukebox/><player><id>player1</id></player></config>");
-        Settings values = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config"));
+        Settings values = TestSettingsFactory.OpenSettings(Path.Combine(root, "user.config"));
         values.OperationModeLR2DB = true;
         values.LR2RootPath = root;
         values.LR2ConfigXmlPath = config;

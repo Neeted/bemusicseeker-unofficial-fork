@@ -963,7 +963,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             string header = Path.Combine(directory, "header.json"), data = Path.Combine(directory, "data.json");
             File.WriteAllText(header, "{\"name\":\"Prefix replacement\",\"symbol\":\"P\",\"data_url\":\"data.json\"}");
             File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"}]");
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.EnablePlaylistUrlCompletion = false);
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => values.EnablePlaylistUrlCompletion = false);
             var playlist = new TestBmsPlaylist(databaseScope, songPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot(), settings: settings);
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(header));
@@ -1753,7 +1753,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             try
             {
                 string songDbPath = Path.Combine(tempDirectory, "song.db");
-                Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = tempDirectory;
@@ -1932,7 +1932,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             try
             {
                 string songDbPath = Path.Combine(tempDirectory, "song.db");
-                Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = tempDirectory;
@@ -2230,9 +2230,9 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             string normal = Path.Combine(directory, "normal"), bmt = Path.Combine(directory, "bmt");
             var output = new CustomFolderOutputSettingsSnapshot
             { OperationModeLR2DB = lr2, LR2RootPath = directory, LR2CustomFolderOutputBaseDir = normal, LR2CustomFolderOutputBaseDirRootType = Path.Combine(directory, "root") };
-            LR2Config config = BmsPlaylistTestSupport.CreateLr2Config(directory, normal);
+            LR2Config config = TestLr2ConfigFactory.CreateLr2Config(directory, normal);
             var owner = new Lr2ConfigOwner(config); owner.SetPlacement(output);
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => { values.OperationModeLR2DB = lr2; values.EnablePlaylistUrlCompletion = false; });
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => { values.OperationModeLR2DB = lr2; values.EnablePlaylistUrlCompletion = false; });
             library = new TestBmsLibrary(databaseScope, path, owner, null, null, () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
             playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), path, () => output, owner,
                 () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmt }, settings: settings);
@@ -2559,7 +2559,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             BMSTable table = new() { name = "Edit target" };
             TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(databaseScope,
-                songDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                songDbPath, TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
             }));
@@ -2646,7 +2646,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 entries = [new BMSTableEntry { md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", folder = "A" }]
             };
             TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(databaseScope,
-                songDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                songDbPath, TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
             }));
@@ -2789,7 +2789,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 seed.InsertOrReplace(prefixedEntry, typeof(LR2SongDBExtended.playlist_entry));
             }
             TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(databaseScope,
-                songDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                songDbPath, TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
             }));
@@ -2931,11 +2931,11 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             string target = Path.Combine(targetBase, "FirstOutput");
             string targetFile = Path.Combine(target, "0000.lr2folder");
             string bmt = Path.Combine(directory, "bmt");
-            LR2Config config = BmsPlaylistTestSupport.CreateLr2Config(directory, normal, additional);
+            LR2Config config = TestLr2ConfigFactory.CreateLr2Config(directory, normal, additional);
             var owner = new Lr2ConfigOwner(config);
             owner.SetPlacement(output);
             byte[] oldXml = File.ReadAllBytes(config.ConfigFilePath);
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = true);
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = true);
             var library = new TestBmsLibrary(databaseScope, songPath, owner, null, null, () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
             var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songPath, () => output, owner,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
@@ -3062,7 +3062,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmt },
                 () => new CustomFolderOutputSettingsSnapshot(),
                 BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songPath, CustomFolderOutputPhysicalSurface.Empty));
-            var library = new TestBmsLibrary(databaseScope, songPath, settings: MainWindowViewModelTestFactory.CreateIsolatedSettings());
+            var library = new TestBmsLibrary(databaseScope, songPath, settings: TestSettingsFactory.CreateIsolatedSettings());
             PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(playlist, library);
             dialog = await workspace.CreatePlaylistPropertyDialogAsync()
                 ?? throw new AssertFailedException("Draft dialog was not created.");
@@ -3130,7 +3130,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             var visibleTables = new ObservableCollection<BMSTable>();
             TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(databaseScope,
-                songDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                songDbPath, TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
             }));
@@ -3294,7 +3294,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         {
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, databasePath);
             var playlist = new TestBmsPlaylist(databaseScope, databasePath, settings:
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                TestSettingsFactory.CreateIsolatedSettings(values =>
                 {
                     values.OperationModeLR2DB = false;
                     values.EnableBeatorajaBmtOutput = false;

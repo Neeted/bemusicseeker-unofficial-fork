@@ -74,7 +74,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
             reader = new TestBmsPlaylist(databaseScope, songPath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },
-                settings: MainWindowViewModelTestFactory.CreateIsolatedSettings());
+                settings: TestSettingsFactory.CreateIsolatedSettings());
             await reader.ReloadTablesAsync(exportBeatorajaBmt: false);
             foreach (BMSTable original in generated)
             {
@@ -335,7 +335,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
             library.StartupBackgroundTaskScheduler = (name, _, _, work) => ScheduleOwned("library", name, work);
             string bmtDirectory = Path.Combine(directory, "bmt");
             Directory.CreateDirectory(bmtDirectory);
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.EnablePlaylistUrlCompletion = false;
                 values.OperationModeLR2DB = false;
@@ -832,7 +832,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
     /// <param name="databaseScope">ライブラリの読取りと接続寿命を共有するDB所有者。</param>
     private static BMSLibrary NewLibrary(ApplicationDatabaseScope databaseScope, string songPath, string? scorePath, Func<BmsLibraryOptionsSnapshot> options)
         => new(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath, null, scorePath, null, options, new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), TestBmsFactory.MissingEverythingBridge,
-            new BmsRootRegistrationStore(MainWindowViewModelTestFactory.CreateIsolatedSettings(settings => settings.OperationModeLR2DB = false), () => null));
+            new BmsRootRegistrationStore(TestSettingsFactory.CreateIsolatedSettings(settings => settings.OperationModeLR2DB = false), () => null));
     private static string NewDirectory()
     {
         string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistRecommendedTableOwnerTests), Guid.NewGuid().ToString("N"));

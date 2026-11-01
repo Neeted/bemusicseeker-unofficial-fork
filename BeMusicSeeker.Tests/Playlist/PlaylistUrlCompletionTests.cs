@@ -35,7 +35,7 @@ public sealed class PlaylistUrlCompletionTests
             nameof(PlaylistUrlCompletionTests),
             "settings-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(isolatedSettingsDirectory);
-        testSettings = PortableSettingsPersistenceTests.OpenSettings(
+        testSettings = TestSettingsFactory.OpenSettings(
             Path.Combine(isolatedSettingsDirectory, "user.config"));
     }
 
@@ -337,7 +337,7 @@ public sealed class PlaylistUrlCompletionTests
                 (nameof(testSettings.EnableStellaFullPlaylistUrlCompletion), true),
                 (nameof(testSettings.PlaylistMd5UrlMappingTsvUri), firstSource));
             string settingsPath = Path.Combine(isolatedSettingsDirectory, "user.config");
-            testSettings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+            testSettings = TestSettingsFactory.OpenSettings(settingsPath);
             Assert.AreEqual(firstSource, testSettings.PlaylistMd5UrlMappingTsvUri);
             Func<Uri, CancellationToken, Task<string>> stellaFetcher = (uri, cancellationToken) =>
             {
@@ -375,7 +375,7 @@ public sealed class PlaylistUrlCompletionTests
             Assert.AreEqual(new Uri("https://example.com/diff-stella-b"), stellaEntry.RuntimeUrlDiffCompletion);
 
             testSettings.Commit((nameof(testSettings.PlaylistMd5UrlMappingTsvUri), secondSource));
-            testSettings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+            testSettings = TestSettingsFactory.OpenSettings(settingsPath);
             Assert.AreEqual(secondSource, testSettings.PlaylistMd5UrlMappingTsvUri);
             await ScheduleUrlCompletionRefreshAsync(playlist, "settings_changed");
 

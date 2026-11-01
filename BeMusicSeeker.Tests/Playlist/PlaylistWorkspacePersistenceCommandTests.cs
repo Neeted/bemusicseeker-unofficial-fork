@@ -734,7 +734,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             string bmsRoot = Path.Combine(tempDirectory, "BMS");
             Directory.CreateDirectory(bmsRoot);
             string lr2Root = Path.Combine(tempDirectory, "LR2");
-            LR2Config config = BmsPlaylistTestSupport.CreateLr2Config(lr2Root, bmsRoot);
+            LR2Config config = TestLr2ConfigFactory.CreateLr2Config(lr2Root, bmsRoot);
             var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             string outputBase = Path.Combine(tempDirectory, "custom");
             string bmtRoot = Path.Combine(tempDirectory, "beatoraja");
@@ -1282,7 +1282,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         var table = new BMSTable { playlist_id = 4202, name = "Keep on read failure", symbol = "keep" };
         owned.Store.BMSTables.Add(table);
         owned.Store.CommitBMSTableHeaderToDB(table);
-        TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(owned.DatabaseScope, owned.SongDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(owned.DatabaseScope, owned.SongDbPath, TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
             }));
@@ -2590,7 +2590,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             var outputAdmission = new ChartFileOperationSynchronizer();
-            Settings librarySettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            Settings librarySettings = TestSettingsFactory.CreateIsolatedSettings();
             var library = new TestBmsLibrary(databaseScope, songDbPath, getLR2Config: null, _lr2ScoreDB: null,
                 startupRequiredFileScanReason: null,
                 optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(librarySettings),

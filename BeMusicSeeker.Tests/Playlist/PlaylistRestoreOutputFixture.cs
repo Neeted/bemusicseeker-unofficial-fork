@@ -36,7 +36,7 @@ internal sealed class PlaylistRestoreOutputFixture : IAsyncDisposable
         PlaylistPersistenceRepository.EnsureSchema(databaseScope, SongDb);
         string bms = Path.Combine(DirectoryPath, "BMS");
         string additional = Path.Combine(bms, "Additional");
-        Settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings = TestSettingsFactory.CreateIsolatedSettings(values =>
         {
             values.OperationModeLR2DB = true;
             values.EnablePlaylistUrlCompletion = false;
@@ -49,7 +49,7 @@ internal sealed class PlaylistRestoreOutputFixture : IAsyncDisposable
         Directory.CreateDirectory(bms);
         Directory.CreateDirectory(additional);
         Directory.CreateDirectory(Settings.LR2CustomFolderOutputBaseDirRootType);
-        Config = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(Settings.LR2RootPath, bms));
+        Config = new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(Settings.LR2RootPath, bms));
         Config.SetPlacement(OutputSettings);
         Library = new TestBmsLibrary(databaseScope, SongDb, Config, null, null,
             () => BmsLibraryOptionsSnapshot.CreateCurrent(Settings), settings: Settings);

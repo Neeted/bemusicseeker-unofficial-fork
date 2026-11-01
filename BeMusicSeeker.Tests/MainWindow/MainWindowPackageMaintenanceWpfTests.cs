@@ -72,7 +72,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             var scanner = CapturedChartFileScanner.FromFixture([sourcePath, aPath, bPath],
                 new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { [sourceDirectory] = [], [aDirectory] = ["tone.wav"], [bDirectory] = ["tone.wav"] }, [root]);
             var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, ScanBmsFilesOnStartup = true };
-            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.StartupSelectInstallPending = false),
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(TestSettingsFactory.CreateIsolatedSettings(values => values.StartupSelectInstallPending = false),
                 (scope, vm, window) =>
                 {
                     TestBmsLibrary currentLibrary = library ?? throw new AssertFailedException();
@@ -329,7 +329,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         string root = Path.Combine(Path.GetTempPath(), "installed-current-wpf-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false);
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false);
         settings.StartupSelectInstallPending = false;
         try
         {
@@ -535,11 +535,11 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 ChartFile chart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourceChart));
                 string dbPath = Path.Combine(root, "song.db");
                 string lr2Root = Path.Combine(root, "LR2");
-                LR2Config config = BmsPlaylistTestSupport.CreateLr2Config(lr2Root, root);
+                LR2Config config = TestLr2ConfigFactory.CreateLr2Config(lr2Root, root);
                 var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
                 var composition = new ApplicationComposition(
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
-                    settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
+                    settingsEditSession: new NoOpSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings()),
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
@@ -658,7 +658,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 // 登録済みの原本は導入対象から除外されるため、ここでは導入先だけを登録します。
                 var composition = new ApplicationComposition(
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
-                    settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
+                    settingsEditSession: new NoOpSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings()),
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
@@ -741,7 +741,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             var dialogs = new FileDbReportRecordingDialogs();
             var composition = new ApplicationComposition(
                 runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
-                settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
+                settingsEditSession: new NoOpSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings()),
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(), fileDbMutationDialogService: dialogs);
@@ -843,7 +843,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     {
         string root = Path.Combine(Path.GetTempPath(), "resource-health-wpf-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
         {
             values.OperationModeLR2DB = false;
             values.StartupSelectInstallPending = false;
@@ -1099,7 +1099,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         File.WriteAllText(Path.Combine(candidateBDirectory, "sound.wav"), "candidate");
         string songDbPath = Path.Combine(root, "song.db");
         File.WriteAllBytes(songDbPath, []);
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.StartupSelectInstallPending = false;
             });
@@ -1301,7 +1301,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             otherPackage.path = otherSource;
             string songDbPath = Path.Combine(root, "song.db");
             File.WriteAllBytes(songDbPath, []);
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.StartupSelectInstallPending = false);
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => values.StartupSelectInstallPending = false);
             var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, ScanBmsFilesOnStartup = true };
             var scanner = CapturedChartFileScanner.FromFixture(ownedPaths.Append(rootOwnedPath),
                 new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
@@ -1634,7 +1634,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 { [absoluteRoot] = [], [registeredRoot] = [], [candidate] = [], [destinationRoot] = [] },
                 [absoluteRoot, destinationRoot]);
             var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, ScanBmsFilesOnStartup = true };
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.StartupSelectInstallPending = false);
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => values.StartupSelectInstallPending = false);
             // D:\がD:へ変わると同driveのこの子ディレクトリへ解決されるため、誤変換を観測できます。
             Environment.CurrentDirectory = Directory.CreateDirectory(Path.Combine(absoluteRoot, "Working")).FullName;
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(settings, (scope, viewModel, window) =>
@@ -1852,7 +1852,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 var installedMenu = (ContextMenu)window.FindResource("treeViewInstalledContextMenu");
@@ -1948,7 +1948,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         var pendingInstallationTerminal = new MainWindowPendingInstallationTerminal(
             _ => Complete(), _ => Complete(), _ => Complete());
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 ContextMenu menu;
@@ -2005,7 +2005,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 var libraryMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
@@ -2045,7 +2045,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             _ => Task.CompletedTask);
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 ChartFile bmsFile = ChartTestValues.Empty() with
@@ -2118,7 +2118,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (_, window) =>
             {
                 try
@@ -2173,7 +2173,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         var busyDialogs = new FileDbReportRecordingDialogs();
         RegularChartListOwnerTestSupport.WithTemporarySongDb(songDb =>
         {
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.StartupSelectInstallPending = false;
@@ -2800,7 +2800,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (scope, viewModel, window) =>
             {
                 try
@@ -3024,7 +3024,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 try
@@ -3276,7 +3276,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             () => Task.CompletedTask,
             () => Task.CompletedTask);
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (_, window) =>
             {
                 var menu = (ContextMenu)window.FindResource("treeViewInstallPendingContextMenu");

@@ -33,7 +33,7 @@ public sealed class MainWindowTreePresentationWpfTests
         var databaseScope = new ApplicationDatabaseScope();
         BmsLibraryStateApplierTestSupport.WithTemporarySongDb(songDbPath =>
         {
-            MainWindowPresentationTestHarness.RunConstructorOnly(MainWindowViewModelTestFactory.CreateIsolatedSettings(), (_, window) =>
+            MainWindowPresentationTestHarness.RunConstructorOnly(TestSettingsFactory.CreateIsolatedSettings(), (_, window) =>
             {
                 var owner = new PackageLifecycleOwner(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                     new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), _ => { },
@@ -104,7 +104,7 @@ public sealed class MainWindowTreePresentationWpfTests
                 () => { calls.Add("reload"); return calls.Count == 1 ? reloadCompletion.Task : Task.CompletedTask; },
                 () => { calls.Add("reinitialize"); return calls.Count == 2 ? reinitializeCompletion.Task : Task.CompletedTask; });
             MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (viewModel, window) =>
                 {
                     Task reloadEvent = Task.CompletedTask;
@@ -190,7 +190,7 @@ public sealed class MainWindowTreePresentationWpfTests
         });
 
         MainWindowPresentationTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 createdViewModel = viewModel;
@@ -256,7 +256,7 @@ public sealed class MainWindowTreePresentationWpfTests
             });
 
         MainWindowPresentationTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (_, window) =>
             {
                 calls.Clear();
@@ -306,7 +306,7 @@ public sealed class MainWindowTreePresentationWpfTests
             });
 
         MainWindowPresentationTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (_, window) =>
             {
                 calls.Clear();
@@ -350,7 +350,7 @@ public sealed class MainWindowTreePresentationWpfTests
         });
 
         MainWindowPresentationTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (_, window) =>
             {
                 var menu = (ContextMenu)window.FindResource("treeViewZeroNoteContextMenu");
@@ -371,7 +371,7 @@ public sealed class MainWindowTreePresentationWpfTests
         var terminal = new MainWindowLibraryReloadMenuTerminal(
             () => { reloadCalls++; return Task.FromException(failure); },
             () => { reinitializeCalls++; return Task.FromException(failure); });
-        MainWindowPresentationTestHarness.RunConstructorOnly(MainWindowViewModelTestFactory.CreateIsolatedSettings(), (_, window) =>
+        MainWindowPresentationTestHarness.RunConstructorOnly(TestSettingsFactory.CreateIsolatedSettings(), (_, window) =>
         {
             var menu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
             MenuItem[] items = menu.Items.OfType<MenuItem>().ToArray();
@@ -387,7 +387,7 @@ public sealed class MainWindowTreePresentationWpfTests
     [TestMethod]
     public void ConstructorAppliesSavedInitialPendingSelection()
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.StartupSelectInstallPending = true;
             });

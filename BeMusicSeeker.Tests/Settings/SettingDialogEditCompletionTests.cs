@@ -291,7 +291,7 @@ public sealed partial class SettingDialogEditCompletionTests
             var runtime = new VolumePreviewPlaybackRuntime();
             try
             {
-                Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(path));
+                Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(path));
                 values.uBMplayVolume = 50;
                 values.Save();
                 var gateway = new SettingsPlayerSettingsGateway(() => values);
@@ -337,7 +337,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 bool other = !dialog.ShowRecommUpdatedMsg;
                 dialog.ShowRecommUpdatedMsg = other;
                 values.Save();
-                Settings before = PortableSettingsPersistenceTests.OpenSettings(path);
+                Settings before = TestSettingsFactory.OpenSettings(path);
                 Assert.AreEqual(50, before.uBMplayVolume);
                 Assert.AreEqual(other, before.ShowRecommUpdatedMsg);
                 Assert.IsFalse(before.UseBeatorajaScoreDb);
@@ -358,7 +358,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 if (failSave && completion == "drag")
                 {
                     CompleteInput();
-                    Assert.AreEqual(60, PortableSettingsPersistenceTests.OpenSettings(path).uBMplayVolume);
+                    Assert.AreEqual(60, TestSettingsFactory.OpenSettings(path).uBMplayVolume);
                     Assert.AreEqual(60, composedGateway.CaptureSnapshot().PlayerVolume);
                     slider.SetCurrentValue(Slider.ValueProperty, 70d);
                     TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -370,7 +370,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 using (FileStream? blocked = failSave ? new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite) : null) { CompleteInput(); }
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 int expected = failSave && completion != "drag" ? 50 : 60;
-                Assert.AreEqual(expected, PortableSettingsPersistenceTests.OpenSettings(path).uBMplayVolume);
+                Assert.AreEqual(expected, TestSettingsFactory.OpenSettings(path).uBMplayVolume);
                 Assert.AreEqual(expected, values.uBMplayVolume);
                 Assert.AreEqual(expected, gateway.CaptureSnapshot().PlayerVolume);
                 Assert.AreEqual(expected, composedGateway.CaptureSnapshot().PlayerVolume);
@@ -660,7 +660,7 @@ public sealed partial class SettingDialogEditCompletionTests
             string config = Path.Combine(nextRoot, BeatorajaConfigService.ConfigFileName);
             string oldConfig = Path.Combine(oldRoot, BeatorajaConfigService.ConfigFileName);
             string settingsPath = Path.Combine(root, "settings", "user.config");
-            Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(settingsPath));
+            Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(settingsPath));
             values.BeatorajaRootPath = oldRoot;
             values.BeatorajaBmtTablePath = oldOutput;
             values.EnableBeatorajaBmtOutput = true;
@@ -766,7 +766,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 if (rootChange) { await dialog.CommitBeatorajaRootSettingsAsync(nextRoot); }
                 else { await dialog.CommitBmtSettingsAsync(); }
                 bool adopted = scenario is not ("prepare-file" or "prepare-manifest" or "save" or "root-prepare-file" or "root-save");
-                Settings reader = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                Settings reader = TestSettingsFactory.OpenSettings(settingsPath);
                 Assert.AreEqual(Path.TrimEndingDirectorySeparator(adopted ? output : oldOutput), Path.TrimEndingDirectorySeparator(reader.BeatorajaBmtTablePath), ignoreCase: true);
                 Assert.AreEqual(adopted ? nextRoot : oldRoot, reader.BeatorajaRootPath);
                 Assert.AreEqual(!adopted || !keepDisabled && !removeDisabled, reader.EnableBeatorajaBmtOutput);
@@ -827,7 +827,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     currentConfig["tablepath"] = finalOutput;
                     File.WriteAllText(config, currentConfig.ToString());
                     await dialog.CommitBmtSettingsAsync();
-                    Assert.AreEqual(finalOutput, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BeatorajaBmtTablePath);
+                    Assert.AreEqual(finalOutput, TestSettingsFactory.OpenSettings(settingsPath).BeatorajaBmtTablePath);
                     AssertProjection(finalOutput, "PreferSha256Only");
                     Assert.AreEqual(1, failures.Count, "過去のA残存は次のC確定を拒否しません。");
                 }
@@ -843,7 +843,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 playlist.CommitBMSTablesWithEntriesToDB(tables);
                 dialog.BeatorajaBmtHashOutputMode = "PreferSha256Only";
                 await dialog.CommitBmtSettingsAsync();
-                Assert.AreEqual(finalOutput, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BeatorajaBmtTablePath);
+                Assert.AreEqual(finalOutput, TestSettingsFactory.OpenSettings(settingsPath).BeatorajaBmtTablePath);
                 AssertProjection(finalOutput, "PreferSha256Only");
                 Assert.AreEqual(1, failures.Count, "前回の準備/URL失敗で次の最新Cを固定・拒否しません。");
                 if (scenario == "same-root-url") { Assert.IsTrue(File.Exists(obsoleteFile), "今回と無関係になった過去Aの回収を推測しません。"); }
@@ -3408,7 +3408,7 @@ public sealed partial class SettingDialogEditCompletionTests
             TestUiDispatcherHost.Invoke(() =>
             {
                 string settingsPath = Path.Combine(root, "settings", "user.config");
-                Settings values = CreateValidStandaloneSettings(music, PortableSettingsPersistenceTests.OpenSettings(settingsPath));
+                Settings values = CreateValidStandaloneSettings(music, TestSettingsFactory.OpenSettings(settingsPath));
                 values.BeatorajaRootPath = oldRoot;
                 values.BeatorajaPlayerId = "player";
                 values.BeatorajaScoreDbPath = Path.Combine(oldRoot, "player", "player", "score.db");
@@ -3462,7 +3462,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         operation = owner.SettingDialog.CommitBeatorajaRootSettingsAsync(newRoot);
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(completionUi.Entered.Task, operation, "root-bmt-score-required-ui"), "root-bmt-score-ui-arrival");
                         Assert.IsFalse(operation.IsCompleted);
-                        Assert.AreEqual(newRoot, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BeatorajaRootPath);
+                        Assert.AreEqual(newRoot, TestSettingsFactory.OpenSettings(settingsPath).BeatorajaRootPath);
                         Assert.AreEqual(80, Lookup().Score);
                         Assert.IsTrue(File.Exists(oldFile));
                         CollectionAssert.Contains(BeatorajaConfigService.ReadTableUrls(newRoot).ToArray(), "bemusicseeker://playlist/1");
@@ -3534,7 +3534,7 @@ public sealed partial class SettingDialogEditCompletionTests
             TestUiDispatcherHost.Invoke(() =>
             {
                 string settingsPath = Path.Combine(root, "settings", "user.config");
-                Settings values = CreateValidStandaloneSettings(music, PortableSettingsPersistenceTests.OpenSettings(settingsPath));
+                Settings values = CreateValidStandaloneSettings(music, TestSettingsFactory.OpenSettings(settingsPath));
                 values.UseBeatorajaScoreDb = true;
                 values.BeatorajaRootPath = beatoraja;
                 values.BeatorajaPlayerId = "A";
@@ -3610,7 +3610,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         apply = dialog.CommitScoreSettingsAsync();
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "score-next-" + player);
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.RegularChartList.DeliverPendingLibraryChangesAsync(library, CancellationToken.None), "score-next-delivery-" + player);
-                        Settings fresh = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                        Settings fresh = TestSettingsFactory.OpenSettings(settingsPath);
                         Assert.AreEqual(player, fresh.BeatorajaPlayerId);
                         Assert.AreEqual(Path.Combine(beatoraja, "profiles", player, "score.db"), fresh.BeatorajaScoreDbPath);
                         Assert.IsTrue(fresh.UseBeatorajaScoreDb);
@@ -4721,7 +4721,7 @@ public sealed partial class SettingDialogEditCompletionTests
             new TestSettingsDialogPlayerFactoryPort(),
             new TestSettingsDialogPlaybackRuntimePort(),
             owner.Lr2SongDbSyncWorkflow,
-            new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()), new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
+            new NoOpSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings()), new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             externalShellGateway: ExternalShellGatewayPolicy.Current,
@@ -4870,7 +4870,7 @@ public sealed partial class SettingDialogEditCompletionTests
 
     private static Settings CreateValidStandaloneSettings(string root, Settings? ownedValues = null)
     {
-        Settings settings = ownedValues ?? MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        Settings settings = ownedValues ?? TestSettingsFactory.CreateIsolatedSettings();
         void Configure(Settings values)
         {
             values.OperationModeLR2DB = false;

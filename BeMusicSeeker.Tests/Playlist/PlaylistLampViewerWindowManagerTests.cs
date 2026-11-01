@@ -772,7 +772,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
         try
         {
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = settingsRoot;

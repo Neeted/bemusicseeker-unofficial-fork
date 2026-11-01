@@ -49,7 +49,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
-            Settings settingsValues = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings settingsValues = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = Path.GetTempPath();
@@ -173,7 +173,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
     {
         TestUiDispatcherHost.Invoke(() =>
         {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = Path.GetTempPath();
@@ -234,7 +234,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
             try
             {
                 ResourceService.Current.ChangeCulture("en-US");
-                Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(settings => settings.StartupSortCachePrewarmPriority = 4);
+                Settings values = TestSettingsFactory.CreateIsolatedSettings(settings => settings.StartupSortCachePrewarmPriority = 4);
                 owner = MainWindowViewModelTestFactory.Create(values);
                 window = new SettingsWindow { DataContext = owner.SettingDialog, PlaybackPanel = owner.PlaybackPanel };
                 scope.ShowAndWaitForContentRendered(window);
@@ -285,7 +285,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
             try
             {
                 ResourceService.Current.ChangeCulture("en-US");
-                Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+                Settings settings = TestSettingsFactory.CreateIsolatedSettings();
                 settings.OperationModeLR2DB = false;
                 settings.BMSRootPath = Path.GetTempPath();
                 settings.StandaloneBmsRootPaths = Path.GetTempPath();
@@ -350,7 +350,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
     {
         TestUiDispatcherHost.Invoke(() =>
         {
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = Path.GetTempPath();
@@ -518,8 +518,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
-            string configPath = Path.Combine(MainWindowViewModelTestFactory.CreateIsolatedSettingsDirectory(), "user.config");
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            string configPath = Path.Combine(TestSettingsFactory.CreateIsolatedSettingsDirectory(), "user.config");
+            Settings settings = TestSettingsFactory.OpenSettings(configPath);
             settings.OperationModeLR2DB = false;
             settings.BMSRootPath = Path.GetTempPath();
             settings.StandaloneBmsRootPaths = Path.GetTempPath();
@@ -572,7 +572,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Materialize(window);
                 Assert.AreEqual(1, persistedRequests.SetRequests, "明示WAVE選択だけを一回保存します。");
                 Assert.AreEqual(EncoderType.WAVE, settings.Encoder);
-                Assert.AreEqual(EncoderType.WAVE, PortableSettingsPersistenceTests.OpenSettings(configPath).Encoder);
+                Assert.AreEqual(EncoderType.WAVE, TestSettingsFactory.OpenSettings(configPath).Encoder);
                 Assert.AreEqual((int)EncoderType.WAVE, encoder.SelectedIndex);
                 Assert.AreEqual(EncoderType.WAVE, SelectedChartAudioConversionSettingsSnapshot.CreateCurrent(gateway.CaptureEncodingSettings()).Encoder);
                 window.CloseForOwnerShutdown();
@@ -595,7 +595,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Assert.AreEqual((int)EncoderType.WAVE, encoder.SelectedIndex, "拒否candidateをcontrolに残しません。");
                 Assert.AreEqual((int)EncoderType.WAVE, dialog.EncoderIndex);
                 Assert.AreEqual(EncoderType.WAVE, settings.Encoder);
-                Assert.AreEqual(EncoderType.WAVE, PortableSettingsPersistenceTests.OpenSettings(configPath).Encoder);
+                Assert.AreEqual(EncoderType.WAVE, TestSettingsFactory.OpenSettings(configPath).Encoder);
                 Assert.AreEqual(EncoderType.WAVE, SelectedChartAudioConversionSettingsSnapshot.CreateCurrent(gateway.CaptureEncodingSettings()).Encoder);
                 Assert.AreEqual(1, persistedRequests.SetRequests, "利用不能な別形式の拒否は保存しません。");
                 CollectionAssert.AreEqual(savedWave, File.ReadAllBytes(configPath));
@@ -621,7 +621,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = Path.GetTempPath();
@@ -739,7 +739,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = Path.GetTempPath();
@@ -833,7 +833,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
     {
         TestUiDispatcherHost.Invoke(() =>
         {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = Path.GetTempPath();
@@ -878,7 +878,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
     {
         TestUiDispatcherHost.Invoke(() =>
         {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = Path.GetTempPath();
@@ -934,7 +934,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
             ResourceService.Current.ChangeCulture("en-US");
             TestUiDispatcherHost.Invoke(() =>
             {
-                MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = Path.GetTempPath();
@@ -1055,7 +1055,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
             try
             {
                 ResourceService.Current.ChangeCulture("en-US");
-                owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                owner = MainWindowViewModelTestFactory.Create(TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = Path.GetTempPath();
@@ -1145,7 +1145,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
     {
         TestUiDispatcherHost.Invoke(() =>
         {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = Path.GetTempPath();
@@ -1300,7 +1300,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
             try
             {
                 ResourceService.Current.ChangeCulture("en-US");
-                owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                owner = MainWindowViewModelTestFactory.Create(TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = firstRoot;

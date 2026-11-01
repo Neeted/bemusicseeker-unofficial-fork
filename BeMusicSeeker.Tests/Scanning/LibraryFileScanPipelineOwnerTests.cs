@@ -970,7 +970,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
         try
         {
             string config = Path.Combine(directory, "user.config");
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(config);
+            Settings settings = TestSettingsFactory.OpenSettings(config);
             settings.OperationModeLR2DB = false; settings.BMSRootPath = requested;
             settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([requested]);
             settings.BMSInstallDir = requested; settings.Save();
@@ -1081,7 +1081,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
         TestBmsLibrary library = lr2ModeEnabled
             ? new TestBmsLibrary(databaseScope,
                 songDbPath,
-                getLR2Config: new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(directoryPath)),
+                getLR2Config: new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(directoryPath)),
                 _lr2ScoreDB: null,
                 startupRequiredFileScanReason: null,
                 optionsSnapshotProvider: () => new BmsLibraryOptionsSnapshot

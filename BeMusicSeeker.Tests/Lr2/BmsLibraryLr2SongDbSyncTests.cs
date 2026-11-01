@@ -24,7 +24,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryLr2SongDbSyncTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
 
     /// <summary>
     /// LR2モード有効時だけテキスト列挙を必要とし、無効・設定不在時に不要なLR2入力取得を要求しない。
@@ -1330,7 +1330,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 ],
                 Folder_order = ["Folder C"]
             };
-            Lr2ConfigOwner lr2ConfigProvider = new(BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, bmsRoot));
+            Lr2ConfigOwner lr2ConfigProvider = new(TestLr2ConfigFactory.CreateLr2Config(lr2RootPath, bmsRoot));
             var scheduler = new QueuedUiScheduler();
             var library = new TestBmsLibrary(scope.DatabaseScope,
                     scope.SongDbPath,
@@ -1484,7 +1484,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 ],
                 Folder_order = ["Folder D"]
             };
-            Lr2ConfigOwner lr2ConfigProvider = new(BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, bmsRoot));
+            Lr2ConfigOwner lr2ConfigProvider = new(TestLr2ConfigFactory.CreateLr2Config(lr2RootPath, bmsRoot));
             var options = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
             bool failPreflight = false;
             var library = new TestBmsLibrary(scope.DatabaseScope,

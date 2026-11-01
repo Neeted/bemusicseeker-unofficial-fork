@@ -1321,7 +1321,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         MainWindowViewModel? owner = null;
         try
         {
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings();
             owner = MainWindowViewModelTestFactory.Create(settings);
             ApplicationDatabaseScope databaseScope = MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope;
             string songDbPath = Path.Combine(tempDirectory, "song.db");
@@ -1380,7 +1380,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     [DoNotParallelize]
     public async Task StartupRequiredResult_ActualMainWindowConsumerProjectsLr2FailureWithoutAnotherSnapshotStore()
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings();
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
         ApplicationDatabaseScope databaseScope = MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope;
         using var scope = Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
@@ -1701,7 +1701,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                     });
                 }
                 else { Assert.IsFalse(File.Exists(path.StandaloneSongDbPath)); }
-                Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
                 {
                     values.OperationModeLR2DB = false;
                     values.BMSRootPath = songs;
@@ -1980,7 +1980,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 Directory.CreateDirectory(Path.Combine(directory, "NormalOutput"));
                 Directory.CreateDirectory(Path.Combine(directory, "RootOutput"));
             }
-            Settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = lr2Mode;
                 if (lr2Mode)

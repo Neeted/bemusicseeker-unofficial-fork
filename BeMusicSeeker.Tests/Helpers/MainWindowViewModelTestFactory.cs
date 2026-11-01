@@ -1,7 +1,5 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.IO;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -16,8 +14,6 @@ namespace BeMusicSeeker.Tests;
 
 internal static class MainWindowViewModelTestFactory
 {
-    private static readonly ConcurrentBag<string> isolatedSettingsDirectories = [];
-
     /// <summary>fixtureの配置を明示し、process環境を再読しない固定の実行条件を作ります。</summary>
     internal static ApplicationRuntimeOptions CreateRuntimeOptions(ApplicationPathSnapshot? paths = null)
         => new(paths ?? ApplicationPathPolicy.Current,
@@ -30,7 +26,7 @@ internal static class MainWindowViewModelTestFactory
     /// </summary>
     internal static MainWindowViewModel Create(Settings? settings = null, BeMusicSeeker.Views.Dialogs.IUiDialogService? fileDbMutationDialogs = null)
     {
-        settings ??= CreateIsolatedSettings();
+        settings ??= TestSettingsFactory.CreateIsolatedSettings();
         return new ApplicationComposition(
             runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             settingsEditSession: new NoOpSettingsEditSession(settings),
@@ -39,37 +35,6 @@ internal static class MainWindowViewModelTestFactory
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             fileDbMutationDialogService: fileDbMutationDialogs)
             .CreateMainWindowViewModelForTest();
-    }
-
-    /// <summary>テストホスト間で共有しないポータブル設定インスタンスを作成します。</summary>
-    internal static Settings CreateIsolatedSettings(Action<Settings>? configure = null)
-    {
-        string directory = CreateIsolatedSettingsDirectory();
-        Settings settings = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory, "user.config"));
-        configure?.Invoke(settings);
-        return settings;
-    }
-
-    /// <summary>専用設定と実LR2 XMLを、同じtesthost終端で回収する領域へ準備します。</summary>
-    internal static string CreateIsolatedSettingsDirectory()
-    {
-        string directory = Path.Combine(Path.GetTempPath(), "BmsViewModelSettings-" + Guid.NewGuid().ToString("N"));
-        isolatedSettingsDirectories.Add(directory);
-        return directory;
-    }
-
-    /// <summary>このtesthostが生成した設定専用ディレクトリだけを、全テストと共有画面の終端後に回収します。</summary>
-    internal static void CleanupIsolatedSettingsDirectories()
-    {
-        string temporaryRoot = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar);
-        while (isolatedSettingsDirectories.TryTake(out string? ownedDirectory))
-        {
-            string fullPath = Path.GetFullPath(ownedDirectory);
-            if (!string.Equals(Path.GetDirectoryName(fullPath), temporaryRoot, StringComparison.OrdinalIgnoreCase)
-                || !Path.GetFileName(fullPath).StartsWith("BmsViewModelSettings-", StringComparison.Ordinal))
-            { throw new InvalidOperationException("設定fixture所有外の削除を拒否しました: " + fullPath); }
-            if (Directory.Exists(fullPath)) { Directory.Delete(fullPath, recursive: true); }
-        }
     }
 
     /// <summary>独立fixture、または既存実画面と同じcompositionのL/Pでライブラリを作成します。</summary>

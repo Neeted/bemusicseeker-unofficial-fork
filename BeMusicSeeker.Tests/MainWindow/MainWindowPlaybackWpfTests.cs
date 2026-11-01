@@ -35,7 +35,7 @@ public sealed class MainWindowPlaybackWpfTests
         File.WriteAllBytes(aPath, []); File.WriteAllBytes(bPath, []);
         try
         {
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.FolderSkipPlayMode = false; values.RepeatPlayMode = false; values.SinglePlayMode = false;
             });
@@ -146,7 +146,7 @@ public sealed class MainWindowPlaybackWpfTests
         try
         {
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (scope, viewModel, window) =>
                 {
                     var player = new PlaybackPanelViewModelTests.FakeBmsPlayer();
@@ -237,7 +237,7 @@ public sealed class MainWindowPlaybackWpfTests
             });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (scope, viewModel, window) =>
             {
                 MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
@@ -293,7 +293,7 @@ public sealed class MainWindowPlaybackWpfTests
         {
             TestUiDispatcherHost.RunWindowTest(scope =>
             {
-                Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
                 {
                     values.UsePlayerBMIIDXView = true;
                     values.UsePlayeruBMplay = false;
@@ -387,7 +387,7 @@ public sealed class MainWindowPlaybackWpfTests
         try
         {
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (scope, viewModel, window) =>
                 {
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.ReplacePlayerAsync(player), "replace-player");
@@ -698,7 +698,7 @@ public sealed class MainWindowPlaybackWpfTests
         {
             TestUiDispatcherHost.RunWindowTest(scope =>
             {
-                Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
                 {
                     values.PlayerPanelState = PlayerPanelState.TITLE_LARGE;
                     values.UsePlayerBMIIDXView = false;

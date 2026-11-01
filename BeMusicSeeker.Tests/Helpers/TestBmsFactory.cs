@@ -22,12 +22,12 @@ internal static class TestBmsFactory
     /// <summary>既存fixtureのroot入力を専用の確定設定または実LR2 XMLへ準備します。独立した可変runtime一覧は作りません。</summary>
     internal static Settings CreateRootSettings(System.Collections.Generic.IEnumerable<string> roots, Settings settings = null, bool lr2 = false)
     {
-        settings ??= MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = lr2);
+        settings ??= TestSettingsFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = lr2);
         string[] paths = System.Linq.Enumerable.ToArray(roots);
         if (settings.OperationModeLR2DB)
         {
-            settings.LR2ConfigXmlPath = BmsPlaylistTestSupport.CreateLr2Config(
-                MainWindowViewModelTestFactory.CreateIsolatedSettingsDirectory(), paths).ConfigFilePath;
+            settings.LR2ConfigXmlPath = TestLr2ConfigFactory.CreateLr2Config(
+                TestSettingsFactory.CreateIsolatedSettingsDirectory(), paths).ConfigFilePath;
         }
         else
         {
@@ -64,7 +64,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
     internal Lr2ConfigOwner FixtureLr2Owner { get; }
 
     private static Settings CreateSettings(Lr2ConfigOwner owner = null)
-        => MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = owner != null);
+        => TestSettingsFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = owner != null);
 
     private static Lr2ConfigOwner ResolveOwner(Settings settings)
         => settings?.OperationModeLR2DB == true && !string.IsNullOrWhiteSpace(settings.LR2ConfigXmlPath)
@@ -73,7 +73,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
     /// <summary>専用設定または固定の既定入力を捕捉し、利用者設定を読みません。</summary>
     private static Func<BmsLibraryOptionsSnapshot> CreateOptions(Settings settings)
     {
-        Settings values = settings ?? MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        Settings values = settings ?? TestSettingsFactory.CreateIsolatedSettings();
         return () => BmsLibraryOptionsSnapshot.CreateCurrent(values);
     }
 
@@ -311,19 +311,19 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
 {
     private static Func<PlaylistUrlCompletionOptionsSnapshot> CreatePlaylistUrlOptions(Settings settings)
     {
-        Settings values = settings ?? MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        Settings values = settings ?? TestSettingsFactory.CreateIsolatedSettings();
         return () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(values);
     }
 
     private static Func<BeatorajaBmtOptionsSnapshot> CreateBeatorajaOptions(Settings settings)
     {
-        Settings values = settings ?? MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        Settings values = settings ?? TestSettingsFactory.CreateIsolatedSettings();
         return () => BeatorajaBmtOptionsSnapshot.CreateCurrent(values);
     }
 
     private static Func<CustomFolderOutputSettingsSnapshot> CreateCustomFolderOptions(Settings settings)
     {
-        Settings values = settings ?? MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        Settings values = settings ?? TestSettingsFactory.CreateIsolatedSettings();
         return () => CustomFolderOutputSettingsSnapshot.CreateCurrent(values);
     }
 

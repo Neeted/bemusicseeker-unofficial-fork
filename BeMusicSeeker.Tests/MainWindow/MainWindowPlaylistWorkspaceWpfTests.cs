@@ -2255,7 +2255,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 values.OperationModeLR2DB = true;
                 values.LR2RootPath = root;
                 values.LR2SongDBPath = Path.Combine(root, "data", "song.db");
-                LR2Config config = CreateLr2Config(root, Path.Combine(root, "Songs"));
+                LR2Config config = TestLr2ConfigFactory.CreateLr2Config(root, Path.Combine(root, "Songs"));
                 values.LR2ConfigXmlPath = config.ConfigFilePath;
                 values.BMSRootPath = Path.Combine(root, "Songs");
                 values.BMSInstallDir = values.BMSRootPath;
@@ -4480,7 +4480,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         MainWindowPlaylistTablesReloadTerminal reloadTerminal =
             new(() => ++callCount == 1 ? completion.Task : Task.CompletedTask);
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 Task reloadEvent = Task.CompletedTask;
@@ -4969,7 +4969,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         try
         {
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (scope, viewModel, window) =>
                 {
                     try
@@ -5153,7 +5153,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         MainWindowPlaylistUrlInstallTreeExpansionTerminal expansion = new(() => expansionCalls++);
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (_, _) =>
             {
                 Assert.AreEqual(1, expansionEventSource.SubscriberCount);
@@ -5198,7 +5198,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         try
         {
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (viewModel, window) =>
                 {
                     try
@@ -5259,7 +5259,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         try
         {
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (_, window) =>
                 {
                     try
@@ -5302,7 +5302,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     public void PlaylistTableContextMenu_PreservesActionsAndRejectsFolderCreationDuringExternalSync()
     {
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (_, window) =>
             {
                 var menu = (ContextMenu)window.FindResource("treeViewPlaylistTableContextMenu");
@@ -5557,7 +5557,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         };
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (_, window) =>
             {
                 (TreeViewItem playlistRoot, MenuItem removeTable) =
@@ -5595,7 +5595,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 EventHandler<PlaylistTreeSelectionActivatedEventArgs> selectionActivated = (_, args) =>
@@ -5658,7 +5658,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 EventHandler<PlaylistTreeSelectionActivatedEventArgs> selectionActivated = (_, args) =>
@@ -5728,7 +5728,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (_, window) =>
             {
                 Task handlerCompletion = Task.CompletedTask;
@@ -5784,7 +5784,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 EventHandler<PlaylistTreeSelectionActivatedEventArgs> selectionActivated = (_, args) =>
@@ -5853,7 +5853,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 EventHandler<PlaylistTreeSelectionActivatedEventArgs> selectionActivated = (_, args) =>
@@ -6390,7 +6390,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         var applicationPath = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe"));
         Directory.CreateDirectory(applicationPath.DataDirectoryPath);
         string songDbPath = applicationPath.StandaloneSongDbPath;
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.BMSRootPath = root;

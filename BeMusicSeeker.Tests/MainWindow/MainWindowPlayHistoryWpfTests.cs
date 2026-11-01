@@ -35,7 +35,7 @@ public sealed class MainWindowPlayHistoryWpfTests
         {
             RegularChartListOwnerTestSupport.WithTemporarySongDb(songDb =>
             {
-                MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(MainWindowViewModelTestFactory.CreateIsolatedSettings(), (scope, vm, window) =>
+                MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(TestSettingsFactory.CreateIsolatedSettings(), (scope, vm, window) =>
             {
                 using (LR2SongDBExtended db = MainWindowViewModelTestFactory.GetComposition(vm).DatabaseScope.OpenSongWrite(songDb)) { BmsLibraryDbGateway.EnsureChartInfoSchema(db); }
                 var library = new TestBmsLibrary(MainWindowViewModelTestFactory.GetComposition(vm).DatabaseScope, songDb);
@@ -46,7 +46,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                 var raw = new Lr2PlayHistoryReadResult(PlayHistorySourceProfile.Lr2("score.db"), [first, second], [], Lr2PlayHistorySchemaStatus.Installed);
                 var snapshot = new BMSLibrary.ScoreSnapshot
                 { PlayHistorySnapshot = new ScorePlayHistorySnapshot(ActiveScoreSource.Lr2, "score.db", raw), SourceGeneration = 1 };
-                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(library.DatabaseScope, songDb, MainWindowViewModelTestFactory.CreateIsolatedSettings(), library: library);
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(library.DatabaseScope, songDb, TestSettingsFactory.CreateIsolatedSettings(), library: library);
                 BMSTable targetTable = CreateTargetTable("Before");
                 playlist.BMSTables = [targetTable];
                 vm.PlayHistory.ConfigureDisplayTargetCatalogRefresh(() => false, () => playlist.BMSTables.ToArray(), action => action());
@@ -212,7 +212,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     [TestMethod]
     public void PlayHistoryColumnMenu_TogglesMd5ColumnThroughCompiledBinding()
     {
-        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(MainWindowViewModelTestFactory.CreateIsolatedSettings(), (scope, vm, window) =>
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(TestSettingsFactory.CreateIsolatedSettings(), (scope, vm, window) =>
         {
             MainWindowPresentationTestHarness.ShowCompiledContent(scope, vm, window);
             var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
@@ -251,7 +251,7 @@ public sealed class MainWindowPlayHistoryWpfTests
         try
         {
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (scope, viewModel, window) =>
                 {
                     MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
@@ -460,7 +460,7 @@ public sealed class MainWindowPlayHistoryWpfTests
         try
         {
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (scope, viewModel, window) =>
                 {
                     MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
@@ -577,7 +577,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     public void PlayHistoryMainTable_PreservesResolvedAndUnresolvedRowMenuContext()
     {
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (scope, viewModel, window) =>
             {
                 MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
@@ -642,7 +642,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     public void PlayHistoryContextMenu_ShowsDateRangeOnlyForMultipleSelection()
     {
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (scope, viewModel, window) =>
             {
                 MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
@@ -678,7 +678,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     public void PlayHistoryContextMenu_DoesNotInferPrimaryActionsFromSecondaryRows()
     {
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (scope, viewModel, window) =>
             {
                 MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
@@ -725,7 +725,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     [TestMethod]
     public void PlayHistoryContextMenu_DateRangeUsesOpenSnapshotAndUpdatesKeywordOnce()
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings();
         settings.KeywordSearchHistory = KeywordSearchHistoryStore.Serialize(["title:previous"]);
         string historyBeforeAction = settings.KeywordSearchHistory;
 
@@ -804,7 +804,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     {
         const string actionName = "Bmson MD5";
         var calls = new List<(RightClickActionResolutionInput Input, ConfiguredExternalActionKind Kind, string Id)>();
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings();
         settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
             new RightClickActionSettings(
                 [new RightClickWebActionDefinition(
@@ -847,7 +847,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     {
         const string allKindsName = "All kinds";
         var calls = new List<(RightClickActionResolutionInput Input, string Id)>();
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings();
         settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
             new RightClickActionSettings(
                 [
@@ -906,7 +906,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     [TestMethod]
     public void PlayHistoryResolvedRowOffersAssociatedOpenForExistingFile()
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings();
         settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(new RightClickActionSettings([], []));
         var calls = new List<(ChartOperationTarget Target, SelectedChartExternalActionKind Kind)>();
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(

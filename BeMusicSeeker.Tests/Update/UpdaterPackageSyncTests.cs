@@ -53,7 +53,7 @@ public sealed class UpdaterPackageSyncTests
             string songsDirectory = Directory.CreateDirectory(Path.Combine(appDirectoryPath, "Songs")).FullName;
             string otherEmptyDirectory = Directory.CreateDirectory(Path.Combine(appDirectoryPath, "user-empty", "nested-empty")).FullName;
             string settingsPath = Path.Combine(appDirectoryPath, "config", "user.config");
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+            Settings settings = TestSettingsFactory.OpenSettings(settingsPath);
             settings.Commit(
                 (nameof(Settings.OperationModeLR2DB), false),
                 (nameof(Settings.StandaloneBmsRootPaths), StandaloneBmsRootPathSettings.Serialize([songsDirectory])));
@@ -98,7 +98,7 @@ public sealed class UpdaterPackageSyncTests
             Assert.IsTrue(Directory.Exists(otherEmptyDirectory));
             Assert.AreEqual(0, Directory.GetFileSystemEntries(songsDirectory).Length);
             Assert.AreEqual(0, Directory.GetFileSystemEntries(otherEmptyDirectory).Length);
-            Settings reloadedSettings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+            Settings reloadedSettings = TestSettingsFactory.OpenSettings(settingsPath);
             IReadOnlyList<string> savedRoots = new BmsRootRegistrationStore(reloadedSettings, () => null).CaptureUserRoots();
             CollectionAssert.AreEqual(new[] { songsDirectory }, savedRoots.ToArray());
             LibraryDirectoryPreflightService preflight = new();

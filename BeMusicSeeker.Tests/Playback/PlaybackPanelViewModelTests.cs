@@ -35,7 +35,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaybackPanelViewModelTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
 
     /// <summary>実音量Popupで0〜100%の表示桁数によらずSlider配置と軌道・つまみの中央を保ち、previewを漏らさずマウス終端と終了開始で最終音量を保存します。</summary>
     /// <remarks>実Popupのbindingとイベント配送を観測し、音量通知から音声runtimeへの接続は設定画面とAudioContractsの代表ケースへ分担します。</remarks>
@@ -50,7 +50,7 @@ public sealed class PlaybackPanelViewModelTests
             string directory = Path.Combine(Path.GetTempPath(), "MainVolume-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directory);
             string path = Path.Combine(directory, "user.config");
-            Settings values = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings values = TestSettingsFactory.OpenSettings(path);
             values.uBMplayVolume = 50;
             values.Save();
             var player = new FakeBmsPlayer();
@@ -108,11 +108,11 @@ public sealed class PlaybackPanelViewModelTests
                 slider.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0,
                     System.Windows.Input.MouseButton.Left)
                 { RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent });
-                Assert.AreEqual(37, PortableSettingsPersistenceTests.OpenSettings(path).uBMplayVolume);
+                Assert.AreEqual(37, TestSettingsFactory.OpenSettings(path).uBMplayVolume);
                 slider.SetCurrentValue(Slider.ValueProperty, 44d);
                 Assert.AreEqual(37, values.uBMplayVolume);
                 panel.BeginShutdown();
-                Assert.AreEqual(44, PortableSettingsPersistenceTests.OpenSettings(path).uBMplayVolume);
+                Assert.AreEqual(44, TestSettingsFactory.OpenSettings(path).uBMplayVolume);
             }
             finally
             {

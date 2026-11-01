@@ -124,7 +124,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             File.WriteAllText(Path.Combine(child, "child.wav"), "child audio");
             Dictionary<string, byte[]> originalBytes = charts.ToDictionary(chart => chart.Path, chart => File.ReadAllBytes(chart.Path));
             string configPath = Path.Combine(root, "user.config");
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            Settings settings = TestSettingsFactory.OpenSettings(configPath);
             settings.OperationModeLR2DB = mode != 0;
             settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([libraryRoot, empty]);
             settings.BMSRootPath = libraryRoot;
@@ -132,7 +132,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             if (mode != 0)
             {
                 settings.LR2RootPath = Path.Combine(root, "LR2");
-                settings.LR2ConfigXmlPath = BmsPlaylistTestSupport.CreateLr2Config(settings.LR2RootPath, libraryRoot, empty).ConfigFilePath;
+                settings.LR2ConfigXmlPath = TestLr2ConfigFactory.CreateLr2Config(settings.LR2RootPath, libraryRoot, empty).ConfigFilePath;
             }
             settings.ScanBmsFilesOnStartup = false;
             settings.Save();
@@ -173,7 +173,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 foreach (string path in finalPaths) { Assert.AreEqual(7, db.Find<LR2SongDB.song>(path).favorite); Assert.AreEqual("retained-tag", db.Find<LR2SongDB.song>(path).tag); }
             }
             finally { library.RequestShutdown("registered-rename-apply"); }
-            Settings loaded = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            Settings loaded = TestSettingsFactory.OpenSettings(configPath);
             var reloaded = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(), settings: loaded)
             { StartupBackgroundTaskScheduler = (_, _, _, _) => false };
             try
@@ -481,7 +481,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             Directory.CreateDirectory(source);
             Directory.CreateDirectory(destination);
             File.WriteAllText(Path.Combine(source, "chart.bms"), "registered root chart bytes");
-            Lr2ConfigOwner? configOwner = lr2 ? new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(Path.Combine(root, "LR2"), source)) : null;
+            Lr2ConfigOwner? configOwner = lr2 ? new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(Path.Combine(root, "LR2"), source)) : null;
             var library = new TestBmsLibrary(databaseScope, songDbPath, configOwner, null, null, new RecordingDialogService(),
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = lr2 }, settings: TestBmsFactory.CreateRootSettings(lr2 ? [] : [source, destination]));
             try
@@ -508,7 +508,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             string destination = Path.Combine(root, "Destination");
             foreach (string directory in managed.Append(destination)) { Directory.CreateDirectory(directory); }
             foreach (string source in sources) { File.WriteAllText(Path.Combine(source, "chart.bms"), "ordinary chart bytes"); }
-            var configOwner = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(Path.Combine(root, "LR2"), managed));
+            var configOwner = new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(Path.Combine(root, "LR2"), managed));
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
@@ -1052,7 +1052,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 ChartFile file = (ChartTestValues.Empty() with { Path = sourceChartPath });
                 file = file with { Token = new OwnedChartToken() };
                 file = file with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
-                LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, tempRootPath);
+                LR2Config lr2Config = TestLr2ConfigFactory.CreateLr2Config(lr2RootPath, tempRootPath);
                 var lr2ConfigOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(lr2Config);
                 var library = new TestBmsLibrary(databaseScope,
                     songDbPath,
@@ -1177,7 +1177,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     files.Add(background);
                 }
 
-                LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, libraryRootPath);
+                LR2Config lr2Config = TestLr2ConfigFactory.CreateLr2Config(lr2RootPath, libraryRootPath);
 
                 var lr2ConfigOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(lr2Config);
                 var library = new TestBmsLibrary(databaseScope,
@@ -1677,7 +1677,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 file = file with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
                 file = file with { Title = "PackFinalizationFailure", RawTitle = "PackFinalizationFailure" };
                 file = file with { Artist = "Artist", RawArtist = "Artist" };
-                LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, tempRootPath);
+                LR2Config lr2Config = TestLr2ConfigFactory.CreateLr2Config(lr2RootPath, tempRootPath);
                 var lr2ConfigOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(lr2Config);
                 var library = new TestBmsLibrary(databaseScope,
                     songDbPath,

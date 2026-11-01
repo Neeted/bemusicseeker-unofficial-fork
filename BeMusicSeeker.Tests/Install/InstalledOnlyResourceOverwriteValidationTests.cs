@@ -14,7 +14,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class InstalledOnlyResourceOverwriteValidationTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
 
     /// <summary>全譜面のhashが一つの所持folderへ解決する場合だけその宛先を選び、形式やhashの取り落としを検出します。</summary>
     [TestMethod]

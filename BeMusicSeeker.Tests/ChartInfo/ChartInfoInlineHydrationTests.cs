@@ -68,7 +68,7 @@ public sealed class ChartInfoInlineHydrationTests
         finally { CultureInfo.CurrentCulture = previous; }
     }
 
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
 
     /// <summary>内部故障だけを同ownerの次の明示要求へ残し、正常な兄弟・現在の保存済み失敗と無関係なhealth変更では再解析しない。</summary>
     /// <remarks>実serviceの解析関数だけ最初のXで故障させ、実SQLite・digest/current/indexと対象読取りを二要求の終端で確認する。</remarks>

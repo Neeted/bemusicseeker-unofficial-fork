@@ -21,7 +21,7 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class AudioContractsTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
 
     /// <summary>実panelの変更停止portは、現曲の実readと先読みdecoder解放の実終端まで入力回収を待ち、同じL内では新試聴を予約しません。</summary>
     /// <remarks>NULL_DEVICEと実入力・decoder所有を使います。目録の対象確定・実削除・失敗保全はPackageCatalogWorkflowOwnerTests、停止の失敗集約は既存InternalClose系列が担当します。</remarks>

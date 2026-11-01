@@ -1162,7 +1162,7 @@ public sealed class RegularChartNavigationTests
         {
             MainWindowViewModel vm = fixture.ViewModel;
             ApplicationDatabaseScope databaseScope = MainWindowViewModelTestFactory.GetComposition(vm).DatabaseScope;
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.StartupSelectInstallPending = false;
@@ -2119,7 +2119,7 @@ public sealed class RegularChartNavigationTests
     {
         TestUiDispatcherHost.Invoke(() => WithTemporarySongDb(songDb =>
         {
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.StartupSelectInstallPending = false;

@@ -10,7 +10,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class StartupSettingsSnapshotTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
     /// <summary>
     /// 保証：利用者が指定した起動後処理とスコア参照の設定を一度の捕捉で渡し、設定項目の欠落や取り違えを検出する。
     /// </summary>

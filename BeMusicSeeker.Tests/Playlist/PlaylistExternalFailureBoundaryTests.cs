@@ -70,7 +70,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
         Exception? primary = null;
         try
         {
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings();
             string songPath = CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songPath);
             string header = Path.Combine(directory, "good-header.json");
@@ -346,7 +346,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
         bool triggerCreated = false;
         try
         {
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings();
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songPath);
             string header = Path.Combine(directory, "header.json"), data = Path.Combine(directory, "data.json");
             File.WriteAllText(header, "{\"name\":\"External\",\"symbol\":\"E\",\"data_url\":\"data.json\"}");
@@ -431,7 +431,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
         Exception? primary = null;
         try
         {
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => { values.EnablePlaylistUrlCompletion = false; values.OperationModeLR2DB = false; });
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => { values.EnablePlaylistUrlCompletion = false; values.OperationModeLR2DB = false; });
             string path = CreateTempSongDbPath(databaseScope, directory); PlaylistPersistenceRepository.EnsureSchema(databaseScope, path);
             string headerPath = Path.Combine(directory, "header.json"), dataPath = Path.Combine(directory, "data.json");
             const string validHeader = "{\"name\":\"Date external\",\"data_url\":\"data.json\"}";

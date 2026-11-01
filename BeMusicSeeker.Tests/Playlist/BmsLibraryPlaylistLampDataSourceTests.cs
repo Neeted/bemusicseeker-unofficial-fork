@@ -148,8 +148,8 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
                 new Lr2PlayHistorySchemaService(databaseScope).InstallOrRepair(scorePath, isLr2LinkedProfile: true).Status);
             // 日付選択は取得済み履歴の範囲内でだけ可能です。外部更新より前の取得組へ既存の履歴を含めます。
             using (LR2ScoreDBExtended db = databaseScope.OpenScoreWrite(scorePath)) { InsertLr2SourceHistory(db, hash, DateTime.Today.AddDays(-1), 10); }
-            Settings sourceSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = true);
-            var sourceOwner = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(Path.GetDirectoryName(songDbPath) ?? throw new AssertFailedException()));
+            Settings sourceSettings = TestSettingsFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = true);
+            var sourceOwner = new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(Path.GetDirectoryName(songDbPath) ?? throw new AssertFailedException()));
             var library = new TestBmsLibrary(databaseScope, songDbPath, sourceOwner, scorePath, new TestFileMutationService(), new PlaylistSummaryAggregationTestSupport.RecordingDialogService(), settings: sourceSettings) { BmsCharts = [] };
             try
             {
@@ -358,7 +358,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
     {
         TestUiDispatcherHost.Invoke(() => WithTemporarySongDb((root, songDbPath) =>
         {
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
                 values.UseBeatorajaScoreDb = false;

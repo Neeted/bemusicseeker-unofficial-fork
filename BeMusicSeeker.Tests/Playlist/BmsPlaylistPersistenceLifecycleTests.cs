@@ -168,7 +168,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         Assert.AreEqual("Prefix", verify.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id = ?", fixture.Table.playlist_id));
     }
 
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
 
     /// <summary>出力状態の設定・ハッシュ・更新時刻を実SQLiteへ保存して再取得し、指定表の削除まで確認して保存項目の欠落や残存を検出します。</summary>
     [TestMethod]
@@ -1273,7 +1273,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             testSettings.LR2CustomFolderOutputBaseDir = Path.Combine(bmsRoot, "CustomFolder");
             testSettings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(directory, "RootOutput");
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
-            LR2Config config = CreateLr2Config(testSettings.LR2RootPath, bmsRoot);
+            LR2Config config = TestLr2ConfigFactory.CreateLr2Config(testSettings.LR2RootPath, bmsRoot);
             var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             var table = new BMSTable
             {
@@ -1377,7 +1377,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             // 配置検証ではなく、出力先の子にある通常ファイルとの衝突で I/O 失敗を起こす。
             string bmsRoot = Path.Combine(directory, "BMS");
             Directory.CreateDirectory(bmsRoot);
-            LR2Config config = CreateLr2Config(lr2Root, bmsRoot);
+            LR2Config config = TestLr2ConfigFactory.CreateLr2Config(lr2Root, bmsRoot);
             var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             string outputBase = Path.Combine(directory, "RootOutput");
             Directory.CreateDirectory(outputBase);
@@ -1544,7 +1544,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             testSettings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootOutput");
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
-            LR2Config config = CreateLr2Config(lr2RootPath, bmsRoot);
+            LR2Config config = TestLr2ConfigFactory.CreateLr2Config(lr2RootPath, bmsRoot);
             var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             CustomFolderOutputSettingsSnapshot repairSettings = new()
             {
@@ -1781,7 +1781,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             testSettings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootOutput");
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
-            LR2Config config = CreateLr2Config(lr2RootPath, bmsRoot);
+            LR2Config config = TestLr2ConfigFactory.CreateLr2Config(lr2RootPath, bmsRoot);
             var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             CustomFolderOutputSettingsSnapshot repairSettings = new()
             {
@@ -1898,7 +1898,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             testSettings.LR2CustomFolderOutputBaseDir = outputBaseDirectory;
             testSettings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootOutput");
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
-            LR2Config config = CreateLr2Config(lr2RootPath, bmsRoot);
+            LR2Config config = TestLr2ConfigFactory.CreateLr2Config(lr2RootPath, bmsRoot);
             var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             CustomFolderOutputSettingsSnapshot repairSettings = new()
             {

@@ -38,7 +38,7 @@ public sealed class RegularChartFolderRenameTests
             File.WriteAllText(path, "#PLAYER 1\n#TITLE Managed\n");
             ChartFile chart = CreateTestableBmsFile(path);
             var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2CustomFolderOutputBaseDir = managed };
-            var library = new TestBmsLibrary(databaseScope, songDbPath, new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(root)),
+            var library = new TestBmsLibrary(databaseScope, songDbPath, new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(root)),
                 null, null, new FileDbReportRecordingDialogs(), new TestUiScheduler(() => null!), () => options)
             { BmsCharts = [chart], BmsonCharts = [] };
             new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs([chart]);
@@ -97,7 +97,7 @@ public sealed class RegularChartFolderRenameTests
             TestBmsLibrary library;
             if (finalizationFails)
             {
-                LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, libraryRoot);
+                LR2Config lr2Config = TestLr2ConfigFactory.CreateLr2Config(lr2RootPath, libraryRoot);
                 var lr2ConfigOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(lr2Config);
                 library = new TestBmsLibrary(databaseScope,
                     songDbPath,
@@ -513,7 +513,7 @@ public sealed class RegularChartFolderRenameTests
             try
             {
                 ChartFile file = CreateTestableBmsFile(chartPath);
-                LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, libraryRoot);
+                LR2Config lr2Config = TestLr2ConfigFactory.CreateLr2Config(lr2RootPath, libraryRoot);
                 var lr2ConfigOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(lr2Config);
                 var library = new TestBmsLibrary(databaseScope,
                     songDbPath,

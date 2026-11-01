@@ -54,7 +54,7 @@ public sealed partial class SettingDialogEditCompletionTests
             try
             {
                 string settingsPath = Path.Combine(root, "settings", "user.config");
-                Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(settingsPath));
+                Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(settingsPath));
                 string alternate = Directory.CreateDirectory(Path.Combine(root, "AlternateSongs")).FullName;
                 var xml = new LR2Config(values.LR2ConfigXmlPath);
                 xml.AddBMSSearchDirectories([alternate]);
@@ -105,7 +105,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     CollectionAssert.DoesNotContain(dialog.AvailableBMSDirectories, staged);
                     if (operation == "song") { Assert.AreEqual(song, dialog.LR2SongDBPath); }
                     if (operation == "config") { Assert.AreEqual(config, dialog.LR2ConfigXmlPath); }
-                    if (operation == "install") { Assert.AreEqual(alternate, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BMSInstallDir); }
+                    if (operation == "install") { Assert.AreEqual(alternate, TestSettingsFactory.OpenSettings(settingsPath).BMSInstallDir); }
                     if (operation == "lr2-root")
                     {
                         Assert.AreEqual(config, values.LR2ConfigXmlPath);
@@ -151,7 +151,7 @@ public sealed partial class SettingDialogEditCompletionTests
             try
             {
                 string settingsPath = Path.Combine(root, "user.config");
-                Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(settingsPath));
+                Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(settingsPath));
                 values.Save();
                 var failures = new List<Exception>();
                 var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(outcome == "cancel" ? MessageBoxResult.Cancel : MessageBoxResult.OK) };
@@ -216,7 +216,7 @@ public sealed partial class SettingDialogEditCompletionTests
             try
             {
                 string settingsPath = Path.Combine(root, "user.config");
-                Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(settingsPath));
+                Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(settingsPath));
                 values.Save();
                 var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
                 owner = CreateViewModel(new SettingsEditSession(values), firstStartup: false, dialogs: dialogs);
@@ -263,7 +263,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 string replacement = Directory.CreateDirectory(Path.Combine(root, "B")).FullName;
                 string added = Directory.CreateDirectory(Path.Combine(root, "D")).FullName;
                 string[] initialRoots = operation == "add" ? [firstAlternative, original, replacement] : [original, firstAlternative, replacement];
-                Settings values = CreateValidStandaloneSettings(original, PortableSettingsPersistenceTests.OpenSettings(path));
+                Settings values = CreateValidStandaloneSettings(original, TestSettingsFactory.OpenSettings(path));
                 values.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize(initialRoots);
                 values.Save();
                 var failures = new List<Exception>();
@@ -315,7 +315,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     string[] expectedRoots = cancelled || failed ? initialRoots
                         : operation == "add" ? [.. initialRoots, added] : [firstAlternative, replacement];
                     string expectedInstall = operation == "replace" ? replacement : original;
-                    Settings saved = PortableSettingsPersistenceTests.OpenSettings(path);
+                    Settings saved = TestSettingsFactory.OpenSettings(path);
                     CollectionAssert.AreEqual(expectedRoots, StandaloneBmsRootPathSettings.Deserialize(saved.StandaloneBmsRootPaths, saved.BMSRootPath).ToArray());
                     CollectionAssert.AreEqual(expectedRoots, dialog.ConfirmedBMSDirectories.ToArray());
                     Assert.AreEqual(expectedInstall, saved.BMSInstallDir);
@@ -361,7 +361,7 @@ public sealed partial class SettingDialogEditCompletionTests
             try
             {
                 string path = Path.Combine(root, "user.config");
-                Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(path));
+                Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(path));
                 string original = values.BMSInstallDir;
                 string alternate = Directory.CreateDirectory(Path.Combine(root, "Alternate")).FullName;
                 var xml = new LR2Config(values.LR2ConfigXmlPath);
@@ -394,7 +394,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "install-selection-terminal");
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.AreEqual(1, dialogs.ConfirmationCount);
-                    Assert.AreEqual(accepted ? alternate : original, PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
+                    Assert.AreEqual(accepted ? alternate : original, TestSettingsFactory.OpenSettings(path).BMSInstallDir);
                     Assert.AreEqual(accepted ? alternate : original, combo.SelectedItem);
                     Assert.AreEqual(!accepted, dialog.AvailableBMSDirectories.Contains(staged));
                     CollectionAssert.DoesNotContain(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), staged);
@@ -419,7 +419,7 @@ public sealed partial class SettingDialogEditCompletionTests
             try
             {
                 string path = Path.Combine(root, "user.config");
-                Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(path));
+                Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(path));
                 string alternate = Directory.CreateDirectory(Path.Combine(root, "Alternate")).FullName;
                 var xml = new LR2Config(values.LR2ConfigXmlPath);
                 xml.AddBMSSearchDirectories([alternate]); xml.Save(xml.ConfigFilePath);
@@ -435,8 +435,8 @@ public sealed partial class SettingDialogEditCompletionTests
                 dialogs.ConfirmationObserved = _ => values.Commit((nameof(Settings.BMSInstallDir), alternate));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync("normal"), "latest-install-output-terminal");
                 Assert.AreEqual(1, dialogs.ConfirmationCount);
-                Assert.AreEqual(originalOutput, PortableSettingsPersistenceTests.OpenSettings(path).LR2CustomFolderOutputBaseDir);
-                Assert.AreEqual(alternate, PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
+                Assert.AreEqual(originalOutput, TestSettingsFactory.OpenSettings(path).LR2CustomFolderOutputBaseDir);
+                Assert.AreEqual(alternate, TestSettingsFactory.OpenSettings(path).BMSInstallDir);
                 Assert.AreEqual(originalOutput, dialog.LR2CustomFolderOutputDir);
                 CollectionAssert.Contains(dialog.AvailableBMSDirectories, staged);
                 CollectionAssert.AreEqual(beforeXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
@@ -466,7 +466,7 @@ public sealed partial class SettingDialogEditCompletionTests
             try
             {
                 string path = Path.Combine(root, "user.config");
-                Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(path));
+                Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(path));
                 string original = values.BMSInstallDir;
                 string alternate = Directory.CreateDirectory(Path.Combine(root, "Alternate")).FullName;
                 var xml = new LR2Config(values.LR2ConfigXmlPath);
@@ -496,7 +496,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Task originalCompletion = owner.SettingDialog.SettingsOperationCompletionTask;
                 combo.SetCurrentValue(Selector.SelectedItemProperty, alternate);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreEqual(rejected ? original : alternate, PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
+                Assert.AreEqual(rejected ? original : alternate, TestSettingsFactory.OpenSettings(path).BMSInstallDir);
                 Assert.AreEqual(rejected ? original : alternate, combo.SelectedItem);
                 Assert.AreEqual(hasDraft && rejected, dialog.AvailableBMSDirectories.Contains(staged));
                 Assert.AreEqual(hasDraft && !rejected ? 1 : 0, dialogs.ConfirmationCount);
@@ -507,11 +507,11 @@ public sealed partial class SettingDialogEditCompletionTests
                     ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationInstall");
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     held?.Dispose(); held = null;
-                    Assert.AreEqual(original, PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
+                    Assert.AreEqual(original, TestSettingsFactory.OpenSettings(path).BMSInstallDir);
                     combo.SetCurrentValue(Selector.SelectedItemProperty, alternate);
                     TestUiDispatcherHost.ProcessQueuedPresentation();
-                    Assert.AreEqual(alternate, PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
-                    Assert.AreEqual(3, PortableSettingsPersistenceTests.OpenSettings(path).StartupSortCachePrewarmPriority);
+                    Assert.AreEqual(alternate, TestSettingsFactory.OpenSettings(path).BMSInstallDir);
+                    Assert.AreEqual(3, TestSettingsFactory.OpenSettings(path).StartupSortCachePrewarmPriority);
                 }
                 if (busy == "window")
                 {
@@ -527,7 +527,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         combo.SetCurrentValue(Selector.SelectedItemProperty, alternate);
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "independent-install-explicit-retry");
                         Assert.AreEqual(1, dialogs.ConfirmationCount);
-                        Assert.AreEqual(alternate, PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
+                        Assert.AreEqual(alternate, TestSettingsFactory.OpenSettings(path).BMSInstallDir);
                         CollectionAssert.DoesNotContain(dialog.AvailableBMSDirectories, staged);
                     }
                 }
@@ -558,7 +558,7 @@ public sealed partial class SettingDialogEditCompletionTests
             try
             {
                 string config = Path.Combine(root, "user.config");
-                Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(config));
+                Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(config));
                 string original = values.BMSInstallDir;
                 string alternate = Directory.CreateDirectory(Path.Combine(root, "Alternate")).FullName;
                 if (lr2) { var xml = new LR2Config(values.LR2ConfigXmlPath); xml.AddBMSSearchDirectories([alternate]); xml.Save(xml.ConfigFilePath); }
@@ -572,12 +572,12 @@ public sealed partial class SettingDialogEditCompletionTests
                 dialog.EnableBeatorajaBmtOutput = !values.EnableBeatorajaBmtOutput;
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SelectBmsInstallDirectoryAsync(alternate), "independent-install-busy");
                 Assert.AreEqual(original, values.BMSInstallDir);
-                Assert.AreEqual(original, PortableSettingsPersistenceTests.OpenSettings(config).BMSInstallDir);
+                Assert.AreEqual(original, TestSettingsFactory.OpenSettings(config).BMSInstallDir);
                 Assert.IsTrue(dialog.CanCancelBmtSettings);
                 held.Dispose(); held = null;
-                Assert.AreEqual(original, PortableSettingsPersistenceTests.OpenSettings(config).BMSInstallDir);
+                Assert.AreEqual(original, TestSettingsFactory.OpenSettings(config).BMSInstallDir);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SelectBmsInstallDirectoryAsync(alternate), "independent-install-explicit");
-                Assert.AreEqual(alternate, PortableSettingsPersistenceTests.OpenSettings(config).BMSInstallDir);
+                Assert.AreEqual(alternate, TestSettingsFactory.OpenSettings(config).BMSInstallDir);
                 Assert.IsTrue(dialog.CanCancelBmtSettings);
                 string chartPath = Path.Combine(original, "root-delete.bms");
                 File.WriteAllText(chartPath, "#TITLE Removed root");
@@ -589,7 +589,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.AreEqual(1, removal.ConfirmedChartCount);
                 Assert.IsNull(removal.RegistrationFailure);
                 Assert.IsFalse(Directory.Exists(original));
-                Assert.AreEqual(alternate, PortableSettingsPersistenceTests.OpenSettings(config).BMSInstallDir,
+                Assert.AreEqual(alternate, TestSettingsFactory.OpenSettings(config).BMSInstallDir,
                     "登録解除は独立選択で成立した導入先を古い値へ戻しません。");
                 CollectionAssert.AreEqual(new[] { alternate }, dialog.ConfirmedBMSDirectories.ToArray());
                 Assert.IsTrue(dialog.CanCancelBmtSettings);
@@ -618,7 +618,7 @@ public sealed partial class SettingDialogEditCompletionTests
             try
             {
                 string config = Path.Combine(root, "user.config");
-                Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(config));
+                Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(config));
                 string original = values.BMSInstallDir;
                 string alternate = Directory.CreateDirectory(Path.Combine(root, "Alternate")).FullName;
                 values.OperationModeLR2DB = false;
@@ -649,7 +649,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.AreEqual(failSave ? 1 : 0, failures.Count);
                 Assert.IsFalse(reportedWithLibraryHeld, "失敗案内は短い保存区間のL解放後です。");
                 Assert.AreEqual(failSave ? original : alternate, values.BMSInstallDir);
-                Assert.AreEqual(failSave ? original : alternate, PortableSettingsPersistenceTests.OpenSettings(config).BMSInstallDir);
+                Assert.AreEqual(failSave ? original : alternate, TestSettingsFactory.OpenSettings(config).BMSInstallDir);
                 Assert.IsTrue(admission.TryEnter(out IDisposable fresh)); fresh.Dispose();
             }
             catch (Exception failure) { primaryFailure = failure; throw; }
@@ -669,7 +669,7 @@ public sealed partial class SettingDialogEditCompletionTests
             try
             {
                 string config = Path.Combine(root, "user.config");
-                Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(config));
+                Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(config));
                 string original = values.BMSInstallDir;
                 string alternate = Directory.CreateDirectory(Path.Combine(root, "Alternate")).FullName;
                 string staged = Directory.CreateDirectory(Path.Combine(root, "Staged")).FullName;
@@ -690,7 +690,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 CollectionAssert.Contains(dialog.AvailableBMSDirectories, staged);
                 Assert.IsTrue(dialog.CanCancelBmtSettings);
                 Assert.AreEqual(original, values.BMSInstallDir);
-                Assert.AreEqual(original, PortableSettingsPersistenceTests.OpenSettings(config).BMSInstallDir);
+                Assert.AreEqual(original, TestSettingsFactory.OpenSettings(config).BMSInstallDir);
                 dialogs.ConfirmationObserved = null;
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SelectBmsInstallDirectoryAsync(staged), "independent-install-invalid-candidate");
                 Assert.AreEqual(1, dialogs.ConfirmationCount);

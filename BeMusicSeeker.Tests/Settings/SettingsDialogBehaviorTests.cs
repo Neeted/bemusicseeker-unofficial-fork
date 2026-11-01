@@ -61,7 +61,7 @@ public sealed class SettingsDialogBehaviorTests
             await harness.Dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2SongDBPath), draft.SongDbPath);
             await harness.Dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2ConfigXmlPath), draft.ConfigPath);
             harness.Dialog.EnableBeatorajaBmtOutput = true;
-            Settings other = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings other = TestSettingsFactory.OpenSettings(path);
             other.Commit((nameof(Settings.PlayerMixerThreadCount), 3));
             byte[] before = File.ReadAllBytes(path);
             using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -72,9 +72,9 @@ public sealed class SettingsDialogBehaviorTests
             Assert.IsTrue(harness.Dialog.OperationModeLR2DB, "実保存失敗は今回選択を画面に残します。");
             CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
             TestUiDispatcherHost.ProcessQueuedPresentation();
-            Assert.AreEqual(confirmed, EnvironmentSettingsChange.Capture(PortableSettingsPersistenceTests.OpenSettings(path)), "保存先解放だけでは再実行しません。");
+            Assert.AreEqual(confirmed, EnvironmentSettingsChange.Capture(TestSettingsFactory.OpenSettings(path)), "保存先解放だけでは再実行しません。");
             await harness.Dialog.SelectOperationModeAsync(true);
-            Settings saved = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings saved = TestSettingsFactory.OpenSettings(path);
             Assert.AreEqual(confirmed with { OperationModeLR2DB = true }, EnvironmentSettingsChange.Capture(saved));
             Assert.AreEqual(3, saved.PlayerMixerThreadCount);
             Assert.IsFalse(saved.EnableBeatorajaBmtOutput);
@@ -142,7 +142,7 @@ public sealed class SettingsDialogBehaviorTests
                 float quality = values.EncoderQuality == 0.5f ? 0.6f : 0.5f;
                 dialog.EncoderQuality = quality;
                 Assert.AreEqual(quality, values.EncoderQuality);
-                Assert.AreEqual(quality, PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config")).EncoderQuality);
+                Assert.AreEqual(quality, TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config")).EncoderQuality);
                 work.TrySetResult();
                 await cleanupEntered.Task;
                 await AssertRejected();
@@ -239,7 +239,7 @@ public sealed class SettingsDialogBehaviorTests
             Assert.AreEqual(keepFiles, request.Target.KeepBeatorajaBmtFilesWhenOutputDisabled);
             Assert.AreEqual(registerUrls, request.Target.RegisterBeatorajaBmtUrls);
             Assert.AreEqual("Original", request.Target.BeatorajaBmtHashOutputMode);
-            Settings saved = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config"));
+            Settings saved = TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config"));
             Assert.AreEqual(newRoot, saved.BeatorajaRootPath);
             Assert.AreEqual(enabled, saved.EnableBeatorajaBmtOutput);
             Assert.AreEqual(keepFiles, saved.KeepBeatorajaBmtFilesWhenOutputDisabled);
@@ -302,7 +302,7 @@ public sealed class SettingsDialogBehaviorTests
             harness.State.ThrowOnScoreReload = false;
             harness.Dialog.UseBeatorajaScoreDb = false;
             await harness.Dialog.CommitScoreSettingsAsync();
-            Settings fresh = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config"));
+            Settings fresh = TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config"));
             Assert.IsFalse(fresh.UseBeatorajaScoreDb);
             Assert.AreEqual(root, fresh.BeatorajaRootPath);
             Assert.IsTrue(harness.Dialog.CanCancelBmtSettings);
@@ -333,7 +333,7 @@ public sealed class SettingsDialogBehaviorTests
             Assert.AreEqual(3, harness.Workspace.BmtRequests.Count);
             Assert.AreEqual("missing-score", harness.Dialog.BeatorajaPlayerId);
             Assert.AreEqual(otherRoot, harness.Dialog.BeatorajaRootPath);
-            Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config")).UseBeatorajaScoreDb);
+            Assert.IsTrue(TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config")).UseBeatorajaScoreDb);
             Assert.AreEqual(2, failures.Count);
         }, nameof(ScoreConfirmation_KeepsRootAndBmtCandidatesAndNeverRestartsBmt));
     }
@@ -434,7 +434,7 @@ public sealed class SettingsDialogBehaviorTests
             Assert.AreEqual(1, failures.Count, string.Join(Environment.NewLine, failures));
             bool ordinaryValue = !values.ShowNewPackageInstallConfirmMsg;
             harness.Dialog.ShowNewPackageInstallConfirmMsg = ordinaryValue;
-            Assert.AreEqual(ordinaryValue, PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config")).ShowNewPackageInstallConfirmMsg);
+            Assert.AreEqual(ordinaryValue, TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config")).ShowNewPackageInstallConfirmMsg);
         }, nameof(EnvironmentRestart_AllowsPreviousBeatorajaFailureAndRejectsConcurrentSettings));
     }
 
@@ -486,7 +486,7 @@ public sealed class SettingsDialogBehaviorTests
             try
             {
                 await TestUiDispatcherHost.AwaitNotificationAsync(scoreEntered.Task, operation, "root score after BMT failure");
-                Assert.AreEqual(newRoot, PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config")).BeatorajaRootPath);
+                Assert.AreEqual(newRoot, TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config")).BeatorajaRootPath);
                 Assert.IsFalse(operation.IsCompleted);
                 Assert.IsTrue(composition.OperationAdmission.IsActive);
                 Assert.IsFalse(harness.Output.CanBeginOutputOperation, "設定操作が実際に借用するPを保持します。");
@@ -550,7 +550,7 @@ public sealed class SettingsDialogBehaviorTests
                 owner.SettingDialog.PlayerFormat = SampleFormat.SAMPLE_FLOAT_32BIT;
                 owner.SettingDialog.PlayerBufferSize = 25;
                 owner.SettingDialog.UseExternalPanelImage = true;
-                Settings fresh = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config"));
+                Settings fresh = TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config"));
                 Assert.AreEqual(SampleRate.SAMPLE_RATE_48000Hz, fresh.PlayerSampleRate);
                 Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, fresh.PlayerFormat);
                 Assert.AreEqual(25, fresh.PlayerBufferSize);
@@ -643,7 +643,7 @@ public sealed class SettingsDialogBehaviorTests
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var page = (BeMusicSeeker.Views.Settings.Pages.PlaybackSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
                 ((RadioButton)page.FindName("radioButtonPlayBMIIDXView")).SetCurrentValue(ToggleButton.IsCheckedProperty, true);
-                Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config")).UsePlayerBMIIDXView);
+                Assert.IsTrue(TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config")).UsePlayerBMIIDXView);
                 Assert.AreSame(current, owner.PlaybackPanel.NowPlayingChart);
                 Assert.IsTrue(owner.PlaybackPanel.IsPlaying);
                 Assert.AreEqual(0, currentPlayer.CloseProcessCount);
@@ -707,7 +707,7 @@ public sealed class SettingsDialogBehaviorTests
             harness.Dialog.BeatorajaRootPath = Path.Combine(directory.Path, "unconfirmed");
             harness.Dialog.StartupSortCachePrewarmPriority = 3;
             harness.Dialog.RequireCompleteUsedResourcesForAutoInstall = true;
-            Settings fresh = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            Settings fresh = TestSettingsFactory.OpenSettings(configPath);
             Assert.AreEqual(3, fresh.StartupSortCachePrewarmPriority);
             Assert.IsTrue(fresh.RequireCompleteUsedResourcesForAutoInstall);
             Assert.IsFalse(fresh.EnableBeatorajaBmtOutput);
@@ -751,12 +751,12 @@ public sealed class SettingsDialogBehaviorTests
             Assert.AreEqual(string.Format(CultureInfo.CurrentCulture, Resources.Warn_EncoderExecutableNotFoundFormat, EncoderType.AAC_NERO.GetEncoderFileName()), dialogs.LastMessageText);
             Assert.AreEqual((int)EncoderType.MP3_LAME, harness.Dialog.EncoderIndex);
             Assert.AreEqual(EncoderType.MP3_LAME, values.Encoder);
-            Assert.AreEqual(EncoderType.MP3_LAME, PortableSettingsPersistenceTests.OpenSettings(configPath).Encoder);
+            Assert.AreEqual(EncoderType.MP3_LAME, TestSettingsFactory.OpenSettings(configPath).Encoder);
             Assert.AreEqual(EncoderType.MP3_LAME, SelectedChartAudioConversionSettingsSnapshot.CreateCurrent(gateway.CaptureEncodingSettings()).Encoder);
             CollectionAssert.AreEqual(savedMp3, File.ReadAllBytes(configPath), "拒否した形式と暗黙のWAVEを保存しません。");
 
             harness.Dialog.EncoderIndex = (int)EncoderType.WAVE;
-            Settings fresh = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            Settings fresh = TestSettingsFactory.OpenSettings(configPath);
             Assert.AreEqual(EncoderType.WAVE, fresh.Encoder);
             Assert.AreEqual(EncoderType.WAVE, values.Encoder);
             Assert.AreEqual((int)EncoderType.WAVE, harness.Dialog.EncoderIndex);
@@ -788,12 +788,12 @@ public sealed class SettingsDialogBehaviorTests
             Assert.AreEqual(previous, harness.Dialog.ShowDiffBMSInstallConfirmMsg);
             Assert.AreEqual(previous, values.ShowDiffBMSInstallConfirmMsg);
             harness.Dialog.ShowNewPackageInstallConfirmMsg = false;
-            Settings fresh = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            Settings fresh = TestSettingsFactory.OpenSettings(configPath);
             Assert.AreEqual(previous, fresh.ShowDiffBMSInstallConfirmMsg);
             Assert.AreEqual(3, fresh.StartupSortCachePrewarmPriority);
             Assert.IsFalse(fresh.ShowNewPackageInstallConfirmMsg);
             harness.Dialog.ShowDiffBMSInstallConfirmMsg = !previous;
-            Assert.AreEqual(!previous, PortableSettingsPersistenceTests.OpenSettings(configPath).ShowDiffBMSInstallConfirmMsg);
+            Assert.AreEqual(!previous, TestSettingsFactory.OpenSettings(configPath).ShowDiffBMSInstallConfirmMsg);
             await Task.CompletedTask;
         }, nameof(OrdinarySaveFailureKeepsOnlyThatItemsPreviousValue));
     }
@@ -817,7 +817,7 @@ public sealed class SettingsDialogBehaviorTests
             await harness.Dialog.AddBmsSearchRootPathsAsync([added]);
             await harness.Dialog.CommitBmsRootsAsync();
             Assert.AreSame(failure, failures.Single());
-            CollectionAssert.Contains(StandaloneBmsRootPathSettings.Deserialize(PortableSettingsPersistenceTests.OpenSettings(configPath).StandaloneBmsRootPaths).ToArray(), added);
+            CollectionAssert.Contains(StandaloneBmsRootPathSettings.Deserialize(TestSettingsFactory.OpenSettings(configPath).StandaloneBmsRootPaths).ToArray(), added);
             CollectionAssert.Contains(harness.Dialog.ConfirmedBMSDirectories.ToArray(), added);
             harness.Dialog.ShowNewPackageInstallConfirmMsg = false;
             harness.State.ReloadFileDiffHandler = null;
@@ -834,8 +834,8 @@ public sealed class SettingsDialogBehaviorTests
             Assert.AreEqual(2, failures.Count, string.Join(Environment.NewLine, failures));
             Assert.AreEqual(2, harness.State.FileDiffReloadCount);
             CollectionAssert.AreEqual(new[] { latest }, harness.Dialog.ConfirmedBMSDirectories.ToArray());
-            Assert.AreEqual(latest, PortableSettingsPersistenceTests.OpenSettings(configPath).BMSInstallDir);
-            Assert.IsFalse(PortableSettingsPersistenceTests.OpenSettings(configPath).ShowNewPackageInstallConfirmMsg);
+            Assert.AreEqual(latest, TestSettingsFactory.OpenSettings(configPath).BMSInstallDir);
+            Assert.IsFalse(TestSettingsFactory.OpenSettings(configPath).ShowNewPackageInstallConfirmMsg);
         }, nameof(BmsConfirmation_FileDiffFailureAllowsLatestInputResave));
     }
 
@@ -890,7 +890,7 @@ public sealed class SettingsDialogBehaviorTests
             Assert.AreEqual(0, harness.State.FileDiffReloadCount);
             harness.Dialog.ReplacementBmsInstallDir = newRoot;
             await harness.Dialog.CommitBmsRootsAsync();
-            Settings fresh = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config"));
+            Settings fresh = TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config"));
             Assert.AreEqual(newRoot, fresh.BMSInstallDir);
             CollectionAssert.AreEqual(new[] { newRoot }, StandaloneBmsRootPathSettings.Deserialize(fresh.StandaloneBmsRootPaths).ToArray());
             Assert.AreEqual(1, harness.State.FileDiffReloadCount);
@@ -946,7 +946,7 @@ public sealed class SettingsDialogBehaviorTests
                 Assert.AreEqual(target, values.BMSInstallDir);
                 CollectionAssert.AreEqual(new[] { target }, StandaloneBmsRootPathSettings.Deserialize(values.StandaloneBmsRootPaths).ToArray());
                 Assert.AreEqual(1, harness.State.FileDiffReloadCount);
-                Assert.AreEqual(3, PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config")).StartupSortCachePrewarmPriority);
+                Assert.AreEqual(3, TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config")).StartupSortCachePrewarmPriority);
                 CollectionAssert.AreEqual(new[] { target }, dialog.AvailableBMSDirectories.ToArray(), "保存前に再表示しても、保存成功後の候補は最新確定一覧に揃います。");
                 Assert.IsFalse(dialog.CanCancelBmsRoots);
                 Assert.IsTrue(dialog.CanConfirmBmsRoots);
@@ -1033,7 +1033,7 @@ public sealed class SettingsDialogBehaviorTests
                     harness.State.ThrowOnScoreReload = false;
                     dialog.UseBeatorajaScoreDb = false;
                     await dialog.CommitScoreSettingsAsync();
-                    Assert.IsFalse(PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config")).UseBeatorajaScoreDb);
+                    Assert.IsFalse(TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config")).UseBeatorajaScoreDb);
                 }
                 if (section == "bmt") { Assert.IsTrue(values.KeepBeatorajaBmtFilesWhenOutputDisabled); }
                 if (section == "root") { Assert.AreEqual(nextRoot, values.BeatorajaRootPath); }
@@ -1086,7 +1086,7 @@ public sealed class SettingsDialogBehaviorTests
             await Select(latest);
             await dialog.CommitBmsRootsAsync();
             CollectionAssert.AreEqual(new[] { latest }, dialog.ConfirmedBMSDirectories.ToArray());
-            Assert.AreEqual(latest, PortableSettingsPersistenceTests.OpenSettings(configPath).BMSInstallDir);
+            Assert.AreEqual(latest, TestSettingsFactory.OpenSettings(configPath).BMSInstallDir);
             Assert.AreEqual(1, harness.State.FileDiffReloadCount);
             Assert.AreEqual(1, failures.Count);
         }, nameof(Lr2BmsConfirmation_PartialSaveCloseKeepsPublishedInputsUntilExplicitSave));
@@ -1109,7 +1109,7 @@ public sealed class SettingsDialogBehaviorTests
             editor.AddProgramAction();
             editor.SelectedProgramAction!.ArgumentTemplate = "invalid candidate";
             harness.Dialog.CommitRightClickRecord(true);
-            RightClickActionSettings saved = RightClickActionSettingsSerializer.Parse(PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config")).RightClickActionsJson).Settings;
+            RightClickActionSettings saved = RightClickActionSettingsSerializer.Parse(TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config")).RightClickActionsJson).Settings;
             Assert.AreEqual("saved record", saved.WebActions[0].Name);
             Assert.AreEqual(before.ProgramActions.Count, saved.ProgramActions.Count);
             Assert.AreEqual("invalid candidate", editor.SelectedProgramAction.ArgumentTemplate);
@@ -1162,8 +1162,8 @@ public sealed class SettingsDialogBehaviorTests
             string prefix = web ? "web-" : "program-";
             string[] DisplayedIds() => web ? editor.WebActions.Select(row => row.Id).ToArray() : editor.ProgramActions.Select(row => row.Id).ToArray();
             string[] SavedIds() => web
-                ? RightClickActionSettingsSerializer.Parse(PortableSettingsPersistenceTests.OpenSettings(path).RightClickActionsJson).Settings.WebActions.Select(row => row.Id).ToArray()
-                : RightClickActionSettingsSerializer.Parse(PortableSettingsPersistenceTests.OpenSettings(path).RightClickActionsJson).Settings.ProgramActions.Select(row => row.Id).ToArray();
+                ? RightClickActionSettingsSerializer.Parse(TestSettingsFactory.OpenSettings(path).RightClickActionsJson).Settings.WebActions.Select(row => row.Id).ToArray()
+                : RightClickActionSettingsSerializer.Parse(TestSettingsFactory.OpenSettings(path).RightClickActionsJson).Settings.ProgramActions.Select(row => row.Id).ToArray();
             harness.Dialog.CommitRightClickRecord(web, "up");
             CollectionAssert.AreEqual(new[] { prefix + "a", addedId, prefix + "b" }, DisplayedIds());
             CollectionAssert.AreEqual(new[] { prefix + "a", prefix + "b" }, SavedIds());
@@ -1186,7 +1186,7 @@ public sealed class SettingsDialogBehaviorTests
             string[] expected = moveSavedB ? new[] { prefix + "a", prefix + "b" } : new[] { prefix + "a", addedId, prefix + "b" };
             CollectionAssert.AreEqual(expected, SavedIds());
             CollectionAssert.AreEqual(moveSavedB ? new[] { prefix + "a", prefix + "b", addedId } : expected, DisplayedIds());
-            RightClickActionSettings saved = RightClickActionSettingsSerializer.Parse(PortableSettingsPersistenceTests.OpenSettings(path).RightClickActionsJson).Settings;
+            RightClickActionSettings saved = RightClickActionSettingsSerializer.Parse(TestSettingsFactory.OpenSettings(path).RightClickActionsJson).Settings;
             Assert.AreEqual("A", web ? saved.WebActions[0].Name : saved.ProgramActions[0].Name);
             Assert.AreEqual("unsaved A", web ? editor.WebActions[0].Name : editor.ProgramActions[0].Name);
             CollectionAssert.AreEqual(new[] { "A", "B" }, web ? saved.ProgramActions.Select(row => row.Name).ToArray() : saved.WebActions.Select(row => row.Name).ToArray());
@@ -1245,12 +1245,12 @@ public sealed class SettingsDialogBehaviorTests
             }
             Assert.AreEqual("保持", retained.Name);
             Assert.AreEqual<int?>(101, retained.Targets.Single().PlaylistId);
-            Assert.AreEqual(retainedJson, PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config")).PlayHistoryDisplayTargetSetsJson);
+            Assert.AreEqual(retainedJson, TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config")).PlayHistoryDisplayTargetSetsJson);
             dialog.EnableBeatorajaBmtOutput = true;
 
             void AssertConfirmed(string? name, int? playlistId)
             {
-                Settings saved = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config"));
+                Settings saved = TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config"));
                 var records = JArray.Parse(saved.PlayHistoryDisplayTargetSetsJson);
                 Assert.AreEqual(name == null ? 1 : 2, records.Count);
                 JToken savedRetained = records.Single(record => record.Value<string>("Name") == "保持");
@@ -1327,7 +1327,7 @@ public sealed class SettingsDialogBehaviorTests
             harness.Dialog.SetPresentationActive(true);
             Assert.IsFalse(harness.Dialog.EnableBeatorajaBmtOutput);
             Assert.AreEqual(3, harness.Dialog.StartupSortCachePrewarmPriority);
-            Assert.IsFalse(PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config")).EnableBeatorajaBmtOutput);
+            Assert.IsFalse(TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config")).EnableBeatorajaBmtOutput);
             await Task.CompletedTask;
         }, nameof(ClosingDiscardsCandidatesAndKeepsConfirmedOrdinaryItems));
     }
@@ -1398,7 +1398,7 @@ public sealed class SettingsDialogBehaviorTests
                 CollectionAssert.Contains(harness.Dialog.BmsRootPathList.ToArray(), candidate);
                 CollectionAssert.Contains(harness.Dialog.ConfirmedBMSDirectories.ToArray(), observedRoot);
                 Assert.AreEqual(observedRoot, harness.Dialog.BMSInstallDir);
-                Settings fresh = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config"));
+                Settings fresh = TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config"));
                 Assert.AreEqual(observedRoot, fresh.BMSInstallDir, false);
                 Assert.AreEqual(Path.Combine(observedRoot, "Output"), fresh.LR2CustomFolderOutputBaseDir, false);
                 Assert.AreEqual(Path.Combine(observedRoot, "Output"), composition.CustomFolderOutputSettingsProvider().LR2CustomFolderOutputBaseDir, false);
@@ -1493,7 +1493,7 @@ public sealed class SettingsDialogBehaviorTests
             string normal = Directory.CreateDirectory(Path.Combine(directory.Path, "SafeNormal")).FullName;
             harness.Dialog.LR2CustomFolderOutputDir = normal;
             await harness.Dialog.CommitOutputSettingsAsync("normal");
-            Settings Fresh() => PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory.Path, "user.config"));
+            Settings Fresh() => TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config"));
             Assert.AreEqual(normal, Fresh().LR2CustomFolderOutputBaseDir);
             Assert.AreEqual(builtin, Fresh().LR2CustomFolderOutputBaseDirRootType);
             CollectionAssert.AreEqual(new[] { one, two }, CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(Fresh().LR2CustomFolderAdditionalOutputBaseDirs).ToArray());
@@ -1530,7 +1530,7 @@ public sealed class SettingsDialogBehaviorTests
 
     private static Settings OpenPersistedSettings(string root)
     {
-        Settings values = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config"));
+        Settings values = TestSettingsFactory.OpenSettings(Path.Combine(root, "user.config"));
         string bms = Directory.CreateDirectory(Path.Combine(root, "library")).FullName;
         values.OperationModeLR2DB = false; values.StandaloneBmsRootPaths = bms; values.BMSRootPath = bms; values.BMSInstallDir = bms;
         values.BeatorajaRootPath = string.Empty; values.UseBeatorajaScoreDb = false; values.EnableBeatorajaBmtOutput = false;

@@ -813,7 +813,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             File.WriteAllText(keeperPath, "#PLAYER 1");
             File.WriteAllText(duplicatePath, "#PLAYER 1");
             string configPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "user.config");
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            Settings settings = TestSettingsFactory.OpenSettings(configPath);
             settings.OperationModeLR2DB = false; settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([folder]);
             settings.BMSRootPath = folder; settings.BMSInstallDir = folder; settings.Save();
             byte[] registeredConfig = File.ReadAllBytes(configPath);
@@ -1284,7 +1284,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             using (LR2SongDBExtended initialize = databaseScope.OpenSongWrite(songDbPath)) { }
             var files = new UnrestoredDestinationFileMutationService(Path.Combine(destination, "note.wav"));
             var playlist = new ChartFileOperationSynchronizer();
-            var configOwner = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(Path.Combine(root, "LR2"), root));
+            var configOwner = new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(Path.Combine(root, "LR2"), root));
             library = new TestBmsLibrary(databaseScope, songDbPath, configOwner, null, files,
                 new FileDbReportRecordingDialogs(), new TestUiScheduler(() => null),
                 () => new BmsLibraryOptionsSnapshot

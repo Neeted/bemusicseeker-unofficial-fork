@@ -1938,7 +1938,7 @@ public sealed class PlaylistCatalogViewChangeTests
                 ChartFileSnapshot input = ChartFileContentReader.ReadSnapshot(path);
                 charts.Add(bmson ? BmsonChartFileParser.ParseSnapshot(input) : BmsChartFileParser.ParseSnapshot(input));
             }
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false);
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false);
             string? scorePath = oracleScores ? Path.Combine(directory, "score.db") : null;
             if (scorePath != null)
             {

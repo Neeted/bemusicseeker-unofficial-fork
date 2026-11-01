@@ -749,7 +749,7 @@ public sealed class StartupRequiredInitializationTests
                     scoreDb.Insert(new LR2ScoreDB.score { hash = content.Md5, perfect = 123 });
                 });
             }
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = lr2Enabled);
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = lr2Enabled);
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = lr2Enabled,

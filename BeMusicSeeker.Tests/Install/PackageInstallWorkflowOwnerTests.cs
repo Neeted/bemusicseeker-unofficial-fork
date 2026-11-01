@@ -92,7 +92,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         string installDirectory = Path.Combine(root, "install-source");
         Directory.CreateDirectory(installDirectory);
         File.WriteAllBytes(songDbPath, []);
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
             });

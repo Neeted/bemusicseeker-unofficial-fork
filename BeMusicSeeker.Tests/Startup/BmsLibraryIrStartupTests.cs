@@ -778,7 +778,7 @@ public sealed class BmsLibraryIrStartupTests
                 UpdateLr2IrRankingCacheOnStartup = exerciseRankingCache,
                 PendingInstallEstimateMaxParallelPackages = 1
             };
-            var lr2Owner = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(root));
+            var lr2Owner = new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(root));
             Library = new TestBmsLibrary(databaseScope, songPath, lr2Owner, scorePath, null, () => options,
                 TestBmsFactory.MissingEverythingBridge,
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), irClient: Client);

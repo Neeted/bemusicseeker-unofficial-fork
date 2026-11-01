@@ -19,7 +19,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed partial class BmsPlaylistExternalLoadTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
 
     /// <summary>新規表作成へ利用者指定の出力除外maskを渡し、既定maskへ戻る設定接続の漏れを検出します。</summary>
     [TestMethod]

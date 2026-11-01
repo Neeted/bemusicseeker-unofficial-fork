@@ -20,7 +20,7 @@
 
 画面を使う必要性は[画面に関わる保証の分担](../devdocs/spec/development/test-authoring.md#画面に関わる保証の分担)で判断し、Windowを使わない処理に画面用scopeを持ち込まないようにします。
 
-設定fixtureは `MainWindowViewModelTestFactory.CreateIsolatedSettings` 等の専用providerか固定snapshotを使います。実MainWindowの共通寿命は `MainWindowTestLifetime`、通常Taskと表示・閉鎖の待機はそれぞれ `AwaitTaskOnDispatcher` と `AwaitPresentationOnDispatcher` に揃えます。同一テストの親子Windowには同じ表示scopeを渡します。
+設定fixtureは `TestSettingsFactory.CreateIsolatedSettings` 等の専用providerか固定snapshotを使います。実MainWindowの共通寿命は `MainWindowTestLifetime`、通常Taskと表示・閉鎖の待機はそれぞれ `AwaitTaskOnDispatcher` と `AwaitPresentationOnDispatcher` に揃えます。同一テストの親子Windowには同じ表示scopeを渡します。
 
 ## 編集と確認
 

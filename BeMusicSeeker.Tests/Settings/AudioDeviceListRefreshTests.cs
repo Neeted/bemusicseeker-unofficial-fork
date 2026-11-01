@@ -37,7 +37,7 @@ public sealed class AudioDeviceListRefreshTests
                 Devices = [new AudioDeviceInfo("Saved", "saved"), new AudioDeviceInfo("Current", "current")],
                 RefreshAction = () => { started.TrySetResult(); release.Wait(); }
             };
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings();
             var selection = new AudioOutputSelection(AudioDriver.WasapiExclusive, "saved", "Saved");
             using SettingsDialogViewModel dialog = CreateDialog(settings, catalog, selection);
             int listNotifications = 0;
@@ -137,7 +137,7 @@ public sealed class AudioDeviceListRefreshTests
                     AudioDeviceCapabilityStatus.Available, [SampleRate.SAMPLE_RATE_44100Hz]);
             });
             using SettingsDialogViewModel dialog = CreateDialog(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(), catalog,
+                TestSettingsFactory.CreateIsolatedSettings(), catalog,
                 new AudioOutputSelection(AudioDriver.WasapiExclusive, "saved", "Saved"), capability);
             try
             {
@@ -195,7 +195,7 @@ public sealed class AudioDeviceListRefreshTests
             };
             string settingsPath = Path.Combine(root, "user.config");
             Directory.CreateDirectory(root);
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+            Settings settings = TestSettingsFactory.OpenSettings(settingsPath);
             settings.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
             settings.PlayerSampleRate = SampleRate.SAMPLE_RATE_44100Hz;
             settings.PlayerFormat = SampleFormat.SAMPLE_INT_16BIT;
@@ -230,7 +230,7 @@ public sealed class AudioDeviceListRefreshTests
                 dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
                 bool savedOtherValue = dialog.ShowRecommUpdatedMsg;
 
-                Settings reader = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                Settings reader = TestSettingsFactory.OpenSettings(settingsPath);
                 Assert.AreEqual(savedOtherValue, reader.ShowRecommUpdatedMsg);
                 Assert.AreEqual((int)selection.Backend, (int)reader.PlayerDriver);
                 Assert.AreEqual("missing-device", reader.PlayerDevice);

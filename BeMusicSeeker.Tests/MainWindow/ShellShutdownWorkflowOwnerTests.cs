@@ -88,7 +88,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         MainWindowViewModel? viewModel = null;
         try
         {
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings settings = TestSettingsFactory.OpenSettings(path);
             var diskPlacement = new BeMusicSeeker.Models.Utils.WindowPlacement(0, 1, 0, 0, 0, 0, 10, 20, 810, 620);
             var memoryPlacement = new BeMusicSeeker.Models.Utils.WindowPlacement(0, 1, 0, 0, 0, 0, 30, 40, 830, 640);
             var finalPlacement = new BeMusicSeeker.Models.Utils.WindowPlacement(0, 1, 0, 0, 0, 0, 50, 60, 850, 660);
@@ -111,7 +111,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
             Assert.AreEqual(1, saveRequests);
             Assert.AreEqual(1, player.CloseProcessCount);
             Assert.AreEqual(BeMusicSeeker.Models.Utils.Win32WindowPlacementAdapter.ToNative(finalPlacement),
-                PortableSettingsPersistenceTests.OpenSettings(path).LR2bodyWindowPlacement);
+                TestSettingsFactory.OpenSettings(path).LR2bodyWindowPlacement);
         }
         finally
         {
@@ -946,7 +946,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         MainWindowViewModel? viewModel = null;
         try
         {
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+            Settings settings = TestSettingsFactory.OpenSettings(settingsPath);
             var dispatcherEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var dispatcherRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             bool shutdownRequested = false;
@@ -1287,7 +1287,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
             string root = Path.Combine(Path.GetTempPath(), "composed-restart-failure-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             string settingsPath = Path.Combine(root, "user.config");
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+            Settings settings = TestSettingsFactory.OpenSettings(settingsPath);
             settings.OperationModeLR2DB = false;
             settings.PlayHistorySelectedDisplayTargetIdentity = "history-initial";
             settings.ShowScoreViewerRegisterConfirmMsg = false;
@@ -1372,7 +1372,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
                 Assert.AreEqual(1, lifetime.ShutdownCount);
                 Assert.AreEqual(1, lifetime.RestartCount);
                 Assert.AreEqual(1, settingsSession.SaveCount);
-                Settings persisted = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                Settings persisted = TestSettingsFactory.OpenSettings(settingsPath);
                 Assert.IsTrue(persisted.OperationModeLR2DB);
                 Assert.AreEqual("history-initial", persisted.PlayHistorySelectedDisplayTargetIdentity);
                 Assert.IsTrue(persisted.ShowScoreViewerRegisterConfirmMsg, "画面外で確定した項目も終端保存で保持します。");
@@ -1698,7 +1698,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         internal RecordingSettingsEditSession(Action? onSave = null, BeMusicSeeker.Properties.Settings? values = null)
         {
             this.onSave = onSave;
-            Values = values ?? MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            Values = values ?? TestSettingsFactory.CreateIsolatedSettings();
         }
 
         public BeMusicSeeker.Properties.Settings Values { get; }

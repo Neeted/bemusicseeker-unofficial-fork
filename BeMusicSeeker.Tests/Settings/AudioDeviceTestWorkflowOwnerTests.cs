@@ -29,7 +29,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         string path = Path.Combine(root, "user.config");
         try
         {
-            Settings values = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings values = TestSettingsFactory.OpenSettings(path);
             values.PlayerDriver = BassAudioMapping.ToBassDriver(AudioDriver.WasapiShared);
             values.PlayerDevice = saved;
             values.PlayerDeviceName = saved;

@@ -168,7 +168,7 @@ public sealed partial class SettingDialogEditCompletionTests
             if (!detectOnStartup) { return; }
             string previousBase = Path.Combine(root, initialName);
             Assert.AreEqual(previousBase, values.LR2CustomFolderOutputBaseDir);
-            Assert.AreEqual(previousBase, PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "settings", "user.config")).LR2CustomFolderOutputBaseDir);
+            Assert.AreEqual(previousBase, TestSettingsFactory.OpenSettings(Path.Combine(root, "settings", "user.config")).LR2CustomFolderOutputBaseDir);
             CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), previousBase);
             CollectionAssert.AreEqual(stableRows, ReadManaged(MainWindowViewModelTestFactory.GetComposition(shell).DatabaseScope, values, Path.Combine(previousBase, "Table")));
             using LR2SongDBExtended db = new BmsLibraryDbGateway(MainWindowViewModelTestFactory.GetComposition(shell).DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).OpenSongDbReadOnly();
@@ -202,7 +202,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.AreEqual(((int?)7, "user-tag", (int?)123), (song.favorite, song.tag, song.adddate));
             }
             Assert.AreEqual(currentBase, values.LR2CustomFolderOutputBaseDir);
-            Assert.AreEqual(currentBase, PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "settings", "user.config")).LR2CustomFolderOutputBaseDir);
+            Assert.AreEqual(currentBase, TestSettingsFactory.OpenSettings(Path.Combine(root, "settings", "user.config")).LR2CustomFolderOutputBaseDir);
             Assert.AreEqual(currentBase, composition.CustomFolderOutputSettingsProvider().LR2CustomFolderOutputBaseDir);
             Assert.AreEqual(currentBase, composition.ResolveLr2Config(values.LR2ConfigXmlPath).Capture().Placement.LR2CustomFolderOutputBaseDir);
             CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), currentBase);
@@ -355,8 +355,8 @@ public sealed partial class SettingDialogEditCompletionTests
             Assert.AreEqual(owned.Root, dialog.LR2CustomFolderAsRootOutputDir);
             TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync("root"), "drive-root-output");
             Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
-            Assert.AreEqual(owned.Root, PortableSettingsPersistenceTests.OpenSettings(settingsPath).LR2CustomFolderOutputBaseDirRootType);
-            Assert.AreEqual(songs, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BMSInstallDir);
+            Assert.AreEqual(owned.Root, TestSettingsFactory.OpenSettings(settingsPath).LR2CustomFolderOutputBaseDirRootType);
+            Assert.AreEqual(songs, TestSettingsFactory.OpenSettings(settingsPath).BMSInstallDir);
             Assert.IsTrue(File.Exists(Path.Combine(managed, "0000.lr2folder")));
             Assert.IsFalse(File.Exists(oldFile));
             CollectionAssert.Contains(ReadRegisteredRoots(), managed);
@@ -366,14 +366,14 @@ public sealed partial class SettingDialogEditCompletionTests
             dialog.CloseCommand.Execute();
             dialog.CancelBmsRoots();
             AssertCandidates();
-            Assert.AreEqual(Path.Combine(root, "NormalOutput"), PortableSettingsPersistenceTests.OpenSettings(settingsPath).LR2CustomFolderOutputBaseDir);
+            Assert.AreEqual(Path.Combine(root, "NormalOutput"), TestSettingsFactory.OpenSettings(settingsPath).LR2CustomFolderOutputBaseDir);
 
             oldSettings = File.ReadAllBytes(settingsPath);
             oldXml = File.ReadAllBytes(values.LR2ConfigXmlPath);
             Assert.IsTrue(Directory.Exists(managed));
             TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SelectBmsInstallDirectoryAsync(managed), "drive-root-reject-managed-install");
             Assert.AreEqual(songs, values.BMSInstallDir);
-            Assert.AreEqual(songs, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BMSInstallDir);
+            Assert.AreEqual(songs, TestSettingsFactory.OpenSettings(settingsPath).BMSInstallDir);
             CollectionAssert.AreEqual(oldSettings, File.ReadAllBytes(settingsPath));
             CollectionAssert.AreEqual(oldXml, File.ReadAllBytes(values.LR2ConfigXmlPath));
             CollectionAssert.Contains(ReadRegisteredRoots(), managed);
@@ -668,7 +668,7 @@ public sealed partial class SettingDialogEditCompletionTests
         try
         {
             resource = ownedResource?.Invoke(root);
-            Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "settings", "user.config")));
+            Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(Path.Combine(root, "settings", "user.config")));
             prepare?.Invoke(root, values);
             values.ScanBmsFilesOnStartup = true;
             values.StartupSelectInstallPending = false;
@@ -676,7 +676,7 @@ public sealed partial class SettingDialogEditCompletionTests
             int launches = afterRestart == null ? 1 : 2;
             for (int launch = 0; launch < launches; launch++)
             {
-                if (launch > 0) { values = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "settings", "user.config")); }
+                if (launch > 0) { values = TestSettingsFactory.OpenSettings(Path.Combine(root, "settings", "user.config")); }
                 TestUiDispatcherHost.Invoke(() =>
             {
                 var failures = new List<Exception>();

@@ -48,7 +48,7 @@ public sealed class MainWindowExternalShellTests
                     uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
                     applicationLifetime: lifetime,
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                    settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
+                    settingsEditSession: new NoOpSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings()),
                     externalShellGateway: gateway);
                 viewModel = composition.CreateMainWindowViewModel();
                 ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
@@ -136,7 +136,7 @@ public sealed class MainWindowExternalShellTests
                     uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
                     applicationLifetime: lifetime,
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                    settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
+                    settingsEditSession: new NoOpSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings()),
                     externalShellGateway: new RecordingExternalShellGateway());
                 viewModel = composition.CreateMainWindowViewModel();
                 ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);

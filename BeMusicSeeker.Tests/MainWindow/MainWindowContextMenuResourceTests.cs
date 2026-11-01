@@ -962,7 +962,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void SidebarTreeViewWidthSetting_PropertyNormalizesBackingValue()
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings();
 
         settings["TreeViewWidth"] = 0d;
         Assert.AreEqual(Settings.DefaultTreeViewWidth, settings.TreeViewWidth);
@@ -978,7 +978,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void AppearanceThemeSetting_NormalizesValues()
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings();
 
         settings["AppearanceTheme"] = "Dark";
         Assert.AreEqual(AppThemeService.Dark, settings.AppearanceTheme);
@@ -994,7 +994,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void CustomTableAppearanceSettings_NormalizeValues()
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings();
 
         settings["CustomTableFontSize"] = double.NaN;
         settings["CustomTableRowHeight"] = double.PositiveInfinity;

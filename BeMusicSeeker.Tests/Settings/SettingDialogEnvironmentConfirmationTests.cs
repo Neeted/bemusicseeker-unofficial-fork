@@ -33,7 +33,7 @@ public sealed partial class SettingDialogEditCompletionTests
             try
             {
                 string path = Path.Combine(root, "user.config");
-                Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(path));
+                Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(path));
                 values.LR2RootPath = string.Empty;
                 values.LR2SongDBPath = string.Empty;
                 values.LR2ConfigXmlPath = string.Empty;
@@ -43,7 +43,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 var applicationPath = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "application", "BeMusicSeeker.exe"));
                 foreach (bool freshStartup in new[] { false, true })
                 {
-                    Settings current = freshStartup ? PortableSettingsPersistenceTests.OpenSettings(path) : values;
+                    Settings current = freshStartup ? TestSettingsFactory.OpenSettings(path) : values;
                     var dialogs = new RecordingRootDialogService();
                     var factory = new StartupLibraryConstructionTestSupport.NullStartupLibraryFactory();
                     var composition = new ApplicationComposition(
@@ -63,7 +63,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         if (!freshStartup)
                         {
                             TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SelectOperationModeAsync(true), "unconfigured-mode-in-place-save");
-                            Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(path).OperationModeLR2DB);
+                            Assert.IsTrue(TestSettingsFactory.OpenSettings(path).OperationModeLR2DB);
                             Assert.IsTrue(owner.SettingDialog.IsEnvironmentSelectionEnabled);
                             Assert.IsTrue(owner.SettingDialog.IsInitialEnvironment);
                             Assert.AreEqual(0, factory.LibraryCallCount);
@@ -128,14 +128,14 @@ public sealed partial class SettingDialogEditCompletionTests
                 const string original = "#TITLE Builtin preserved\n#COMMAND 0\n";
                 File.WriteAllText(sentinel, original);
                 string settingsPath = Path.Combine(directory, "user.config");
-                Settings values = CreateValidStandaloneSettings(manual, PortableSettingsPersistenceTests.OpenSettings(settingsPath));
+                Settings values = CreateValidStandaloneSettings(manual, TestSettingsFactory.OpenSettings(settingsPath));
                 values.LR2RootPath = lr2; values.LR2SongDBPath = layout.SongDb; values.LR2ConfigXmlPath = layout.Config;
                 values.LR2CustomFolderOutputBaseDir = builtin;
                 values.LR2CustomFolderOutputBaseDirRootType = Directory.CreateDirectory(Path.Combine(directory, "RootOutput")).FullName;
                 values.LR2CustomFolderAdditionalOutputBaseDirs = "[]"; values.Save();
                 foreach (bool fresh in new[] { false, true })
                 {
-                    Settings current = fresh ? PortableSettingsPersistenceTests.OpenSettings(settingsPath) : values;
+                    Settings current = fresh ? TestSettingsFactory.OpenSettings(settingsPath) : values;
                     var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
                     var failures = new List<Exception>();
                     var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(current),
@@ -154,7 +154,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         if (!fresh)
                         {
                             TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SelectOperationModeAsync(true), "reserved-mode-save");
-                            Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(settingsPath).OperationModeLR2DB);
+                            Assert.IsTrue(TestSettingsFactory.OpenSettings(settingsPath).OperationModeLR2DB);
                             Assert.AreEqual(0, dialogs.MessageCount, "mode選択は保存し、検査は再起動後の共通入口へ委ねます。");
                             TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.StartConfirmedEnvironmentAsync(), "reserved-explicit-start");
                         }
@@ -172,7 +172,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         // LR2rootは直上LR2filesより上なので受理する。実効先包含の救済・再検査を後続へ足さない。
                         owner.SettingDialog.LR2CustomFolderOutputDir = lr2;
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("normal"), "ancestor-base-correction");
-                        Assert.AreEqual(lr2, PortableSettingsPersistenceTests.OpenSettings(settingsPath).LR2CustomFolderOutputBaseDir);
+                        Assert.AreEqual(lr2, TestSettingsFactory.OpenSettings(settingsPath).LR2CustomFolderOutputBaseDir);
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.StartConfirmedEnvironmentAsync(), "corrected-explicit-start");
                         Assert.IsTrue(owner.HasActiveLibraryProfile);
                         Assert.IsTrue(owner.IsInitializationCompleted);
@@ -259,7 +259,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, schema.InstallOrRepair(oldScore, isLr2LinkedProfile: true).Status);
                 byte[] previousDatabase = File.ReadAllBytes(oldScore);
                 string settingsPath = Path.Combine(root, "user.config");
-                Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(settingsPath));
+                Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(settingsPath));
                 values.OperationModeLR2DB = true;
                 values.LR2RootPath = initialRootSelection ? string.Empty : oldRoot;
                 values.LR2SongDBPath = initialRootSelection ? string.Empty : oldSong;
@@ -294,7 +294,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(ConfirmEnvironment(), "history-environment-confirmed");
                 Assert.AreEqual(nextScore, dialog.Lr2PlayHistoryScoreDbPath);
                 Assert.IsNull(dialog.Lr2PlayHistorySchemaStatusSnapshot, "保存終端で旧playerの検査状態を持ち越しません。");
-                Assert.AreEqual(nextConfig, PortableSettingsPersistenceTests.OpenSettings(settingsPath).LR2ConfigXmlPath);
+                Assert.AreEqual(nextConfig, TestSettingsFactory.OpenSettings(settingsPath).LR2ConfigXmlPath);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.InstallOrRepairLr2PlayHistorySchemaAsync(), "history-new-target-install");
                 Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, schema.Check(nextScore, isLr2LinkedProfile: true).Status);
                 Assert.AreEqual(nextScore, dialog.Lr2PlayHistorySchemaStatusSnapshot.ScoreDbPath);
@@ -324,7 +324,7 @@ public sealed partial class SettingDialogEditCompletionTests
         try
         {
             string path = Path.Combine(root, "user.config");
-            Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(path));
+            Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(path));
             (values.LR2SongDBPath, values.LR2ConfigXmlPath) = CreateValidLr2Layout(Path.Combine(root, "confirmed"));
             values.LR2RootPath = string.Empty;
             values.Save();
@@ -339,7 +339,7 @@ public sealed partial class SettingDialogEditCompletionTests
             dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2SongDBPath), draftSong).GetAwaiter().GetResult();
             dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2ConfigXmlPath), draftConfig).GetAwaiter().GetResult();
             dialog.SelectOperationModeAsync(true).GetAwaiter().GetResult();
-            Settings saved = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings saved = TestSettingsFactory.OpenSettings(path);
             Assert.IsTrue(saved.OperationModeLR2DB);
             Assert.IsTrue(composition.CustomFolderOutputSettingsProvider().OperationModeLR2DB, "初回開始の出力readerも保存済みモードを読みます。");
             Assert.AreEqual(string.Empty, saved.LR2RootPath);
@@ -358,7 +358,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 using (held) { dialog.SelectLr2RootAsync(Path.Combine(root, "selected")).GetAwaiter().GetResult(); }
                 Assert.AreEqual(savedSong, values.LR2SongDBPath);
             }
-            Assert.AreEqual(savedSong, PortableSettingsPersistenceTests.OpenSettings(path).LR2SongDBPath);
+            Assert.AreEqual(savedSong, TestSettingsFactory.OpenSettings(path).LR2SongDBPath);
             using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
             { dialog.SelectLr2RootAsync(Path.Combine(root, "selected")).GetAwaiter().GetResult(); }
             Assert.AreEqual(1, failures.Count);
@@ -366,7 +366,7 @@ public sealed partial class SettingDialogEditCompletionTests
             Assert.AreEqual(savedSong, values.LR2SongDBPath);
             Assert.AreEqual(savedConfig, values.LR2ConfigXmlPath);
             dialog.SelectLr2RootAsync(Path.Combine(root, "selected")).GetAwaiter().GetResult();
-            saved = PortableSettingsPersistenceTests.OpenSettings(path);
+            saved = TestSettingsFactory.OpenSettings(path);
             Assert.AreEqual(selectedSong, saved.LR2SongDBPath);
             Assert.AreEqual(Path.Combine(root, "selected"), composition.CustomFolderOutputSettingsProvider().LR2RootPath);
             Assert.AreEqual(selectedConfig, saved.LR2ConfigXmlPath);
@@ -391,8 +391,8 @@ public sealed partial class SettingDialogEditCompletionTests
             string root = CreateTemporaryRoot();
             string path = Path.Combine(root, "user.config");
             Settings values = playlistOperation
-                ? CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(path))
-                : CreateValidCustomFolderSettings(Path.Combine(root, "confirmed-lr2"), [], PortableSettingsPersistenceTests.OpenSettings(path));
+                ? CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(path))
+                : CreateValidCustomFolderSettings(Path.Combine(root, "confirmed-lr2"), [], TestSettingsFactory.OpenSettings(path));
             if (playlistOperation)
             {
                 values.LR2RootPath = string.Empty;
@@ -469,7 +469,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.AreEqual(2, dialogs.ConfirmationCount);
                 Assert.AreEqual(1, session.SaveCount);
                 Assert.AreEqual(1, restartRequests);
-                Assert.AreEqual(confirmed with { OperationModeLR2DB = targetMode }, EnvironmentSettingsChange.Capture(PortableSettingsPersistenceTests.OpenSettings(path)));
+                Assert.AreEqual(confirmed with { OperationModeLR2DB = targetMode }, EnvironmentSettingsChange.Capture(TestSettingsFactory.OpenSettings(path)));
                 Assert.IsFalse(composition.OperationAdmission.IsActive, "受理後は終了join前にLを解放します。");
                 Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive, "受理後は終了join前にPを解放します。");
                 Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
@@ -497,7 +497,7 @@ public sealed partial class SettingDialogEditCompletionTests
             try
             {
                 string path = Path.Combine(root, "user.config");
-                Settings values = CreateValidCustomFolderSettings(Path.Combine(root, "old"), [], PortableSettingsPersistenceTests.OpenSettings(path));
+                Settings values = CreateValidCustomFolderSettings(Path.Combine(root, "old"), [], TestSettingsFactory.OpenSettings(path));
                 values.Save();
                 (string song, string config) = CreateValidLr2Layout(Path.Combine(root, "individual"));
                 var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
@@ -522,13 +522,13 @@ public sealed partial class SettingDialogEditCompletionTests
                     SettingsPathPicker picker = FindDescendants<SettingsPathPicker>(window).Single(item => item.GetBindingExpression(SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path == property);
                     FindDescendants<Button>(picker).Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "LR2-individual-picker-terminal");
-                    Assert.AreEqual(oldSong, PortableSettingsPersistenceTests.OpenSettings(path).LR2SongDBPath);
+                    Assert.AreEqual(oldSong, TestSettingsFactory.OpenSettings(path).LR2SongDBPath);
                     Assert.AreEqual(oldConfig, values.LR2ConfigXmlPath);
                     Assert.AreEqual(0, restarts);
                 }
                 FindDescendants<Button>(window).Single(button => Equals(button.Tag, "confirm:environment")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "LR2-detailed-confirmation-terminal");
-                Settings saved = PortableSettingsPersistenceTests.OpenSettings(path);
+                Settings saved = TestSettingsFactory.OpenSettings(path);
                 Assert.AreEqual(song, saved.LR2SongDBPath);
                 Assert.AreEqual(config, saved.LR2ConfigXmlPath);
                 Assert.IsFalse(saved.UseBeatorajaScoreDb);
@@ -559,7 +559,7 @@ public sealed partial class SettingDialogEditCompletionTests
             TestUiDispatcherHost.Invoke(() =>
             {
                 string settingsPath = Path.Combine(root, "user.config");
-                Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(settingsPath));
+                Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(settingsPath));
                 new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).EnsureAppOwnedSchema();
                 string folder = Path.Combine(root, "LeapCandidate");
                 Directory.CreateDirectory(folder);
@@ -601,11 +601,11 @@ public sealed partial class SettingDialogEditCompletionTests
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SelectLr2RootAsync(root), "preparation-reject-root");
                     dialog.BeatorajaRootPath = Path.Combine(root, "other");
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitScoreSettingsAsync(), "preparation-reject-beatoraja");
-                    Assert.AreEqual(captured, EnvironmentSettingsChange.Capture(PortableSettingsPersistenceTests.OpenSettings(settingsPath)));
+                    Assert.AreEqual(captured, EnvironmentSettingsChange.Capture(TestSettingsFactory.OpenSettings(settingsPath)));
                     Assert.AreEqual(oldBeatoraja, values.BeatorajaRootPath);
                     bool ordinary = !values.ShowNewPackageInstallConfirmMsg;
                     dialog.ShowNewPackageInstallConfirmMsg = ordinary;
-                    Assert.AreEqual(ordinary, PortableSettingsPersistenceTests.OpenSettings(settingsPath).ShowNewPackageInstallConfirmMsg);
+                    Assert.AreEqual(ordinary, TestSettingsFactory.OpenSettings(settingsPath).ShowNewPackageInstallConfirmMsg);
                     Assert.AreEqual(0, factory.Calls.Count);
                     release.TrySetResult();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(startup, "startup-preparation-terminal");
@@ -630,7 +630,7 @@ public sealed partial class SettingDialogEditCompletionTests
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
             string root = CreateTemporaryRoot();
-            Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config")));
+            Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(Path.Combine(root, "user.config")));
             values.OperationModeLR2DB = true;
             values.LR2SongDBPath = string.Empty;
             values.LR2ConfigXmlPath = string.Empty;
@@ -715,7 +715,7 @@ public sealed partial class SettingDialogEditCompletionTests
             WriteBeatorajaRoot(oldRoot, "old-player", ["old-player"], createScoreFiles: true);
             WriteBeatorajaRoot(newRoot, "new-player", missingPlayer ? [] : ["new-player"], createScoreFiles: false);
             string settingsPath = Path.Combine(root, "settings", "user.config");
-            Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(settingsPath));
+            Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(settingsPath));
             values.BeatorajaRootPath = oldRoot;
             values.BeatorajaPlayerId = "old-player";
             values.BeatorajaScoreDbPath = BeatorajaConfigService.GetScoreDbPath(oldRoot, "old-player");
@@ -751,7 +751,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
                     CollectionAssert.AreEqual(savedBytes, File.ReadAllBytes(settingsPath));
                     Assert.AreEqual(oldRoot, values.BeatorajaRootPath);
-                    Assert.AreEqual(oldRoot, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BeatorajaRootPath);
+                    Assert.AreEqual(oldRoot, TestSettingsFactory.OpenSettings(settingsPath).BeatorajaRootPath);
                     Assert.IsFalse(Directory.Exists(BeatorajaConfigService.GetTablePath(newRoot)), "拒否では新環境の実BMT出力を開始しません。");
                     Assert.AreEqual(newRoot, owner.SettingDialog.BeatorajaRootPath);
                     Assert.IsTrue(owner.SettingDialog.UseBeatorajaScoreDb);
@@ -774,7 +774,7 @@ public sealed partial class SettingDialogEditCompletionTests
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
             string root = CreateTemporaryRoot();
-            Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config")));
+            Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(Path.Combine(root, "user.config")));
             values.OperationModeLR2DB = true;
             (values.LR2SongDBPath, values.LR2ConfigXmlPath) = CreateValidLr2Layout(Path.Combine(root, "lr2"));
             values.UseBeatorajaScoreDb = false;
@@ -859,7 +859,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 WriteBeatorajaRoot(oldRoot, "old-player", ["old-player", "draft-player"], createScoreFiles: true);
                 WriteBeatorajaRoot(newRoot, configuredPlayerExists ? "z-player" : "missing", ["a-player", "z-player"], createScoreFiles: true);
                 string settingsPath = Path.Combine(root, "settings", "user.config");
-                Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(settingsPath));
+                Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(settingsPath));
                 values.BeatorajaRootPath = oldRoot;
                 values.BeatorajaPlayerId = "old-player";
                 values.BeatorajaScoreDbPath = BeatorajaConfigService.GetScoreDbPath(oldRoot, "old-player");
@@ -901,7 +901,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.AreEqual(0, selectionChanges, "同値pickerは自動反映の選択通知も発行しません。");
                     Assert.AreEqual(0, failures.Count);
                     CollectionAssert.AreEqual(originalSettings, File.ReadAllBytes(settingsPath));
-                    Assert.AreEqual(oldRoot, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BeatorajaRootPath);
+                    Assert.AreEqual(oldRoot, TestSettingsFactory.OpenSettings(settingsPath).BeatorajaRootPath);
                 }
                 finally
                 {
@@ -945,7 +945,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 }
                 if (failSave)
                 {
-                    Settings unchanged = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                    Settings unchanged = TestSettingsFactory.OpenSettings(settingsPath);
                     Assert.AreEqual(oldRoot, unchanged.BeatorajaRootPath);
                     Assert.AreEqual("old-player", unchanged.BeatorajaPlayerId);
                     Assert.AreEqual(BeatorajaConfigService.GetScoreDbPath(oldRoot, "old-player"), unchanged.BeatorajaScoreDbPath);
@@ -959,7 +959,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 }
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 string expectedPlayer = configuredPlayerExists ? "z-player" : "a-player";
-                Settings saved = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                Settings saved = TestSettingsFactory.OpenSettings(settingsPath);
                 Assert.AreEqual(newRoot, saved.BeatorajaRootPath);
                 Assert.AreEqual(expectedPlayer, saved.BeatorajaPlayerId);
                 Assert.AreEqual(Path.Combine(newRoot, "profiles", expectedPlayer, "score.db"), saved.BeatorajaScoreDbPath);
@@ -985,7 +985,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 string nextPlayer = configuredPlayerExists ? "a-player" : "z-player";
                 scorePlayer.SetCurrentValue(ComboBox.SelectedItemProperty, nextPlayer);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "beatoraja-player-selection-terminal");
-                Assert.AreEqual(nextPlayer, PortableSettingsPersistenceTests.OpenSettings(settingsPath).BeatorajaPlayerId);
+                Assert.AreEqual(nextPlayer, TestSettingsFactory.OpenSettings(settingsPath).BeatorajaPlayerId);
                 Assert.AreEqual(BeatorajaConfigService.GetScoreDbPath(newRoot, nextPlayer), dialog.EnvironmentBeatorajaScoreDbPath);
             }
             finally

@@ -44,7 +44,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
         RegularChartListOwnerTestSupport.WithTemporarySongDb(path =>
         {
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (scope, viewModel, window) =>
                 {
                     using var fixture = new RegularScoreDeliveryTestFixture(path);
@@ -173,7 +173,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
         LibraryChartRow bmsonRow = CreateChartRow(ChartFileKind.Bmson, "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", @"C:\wave6e-state\row.bmson");
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 var table = (CustomTableView)window.FindName("customTableView");
@@ -225,7 +225,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 });
 
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (viewModel, window) =>
                 {
                     var table = (CustomTableView)window.FindName("customTableView");
@@ -363,7 +363,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 try
@@ -474,7 +474,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 try
@@ -527,7 +527,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 try
@@ -579,7 +579,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
         var pending = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(owned.Chart));
         PlaylistDetailRow missing = CreateMissingPlaylistRow("EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE");
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 var table = (CustomTableView)window.FindName("customTableView");
@@ -632,7 +632,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
         PlaylistDetailRow missingRow = CreateMissingPlaylistRow("22222222222222222222222222222222");
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 try
@@ -695,7 +695,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             @"C:\wave6e-external-separator\chart.bms");
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 var table = (CustomTableView)window.FindName("customTableView");
@@ -726,7 +726,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
         string chartPath = @"C:\Pending\right clicked" + extension;
         string updatedPath = @"C:\Pending\current chart" + extension;
         string otherPath = @"C:\Pending\first selected" + extension;
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
                 new RightClickActionSettings([], [new RightClickProgramActionDefinition(
@@ -845,7 +845,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
         LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, md5, chartPath);
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 var table = (CustomTableView)window.FindName("customTableView");
@@ -936,7 +936,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
         LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, "44444444444444444444444444444444", @"C:\wave6e-related\chart.bms");
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 try
@@ -1086,7 +1086,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             });
         LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, new string('a', 32), @"C:\selected-terminal\chart.bms");
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 var table = (CustomTableView)window.FindName("customTableView");
@@ -1162,7 +1162,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             _ => Task.FromResult(SelectedChartMutationResult.Completed));
         LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, new string('b', 32), @"C:\receipt\chart.bms");
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 var table = (CustomTableView)window.FindName("customTableView");
@@ -1207,7 +1207,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 second = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(second.Chart));
             }
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (scope, viewModel, window) =>
                 {
                     MainWindowViewHostTests.ShowMainWindow(scope, window);
@@ -1322,7 +1322,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             LogManager.Configuration = configuration;
             LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, new string('a', 32), path);
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (scope, viewModel, window) =>
                 {
                     shell = window;

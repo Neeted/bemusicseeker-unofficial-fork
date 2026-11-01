@@ -18,18 +18,18 @@ public sealed class CustomTableColumnSettingsTests
     [TestMethod]
     public void PlayHistoryHashLayouts_SaveAndReloadWithoutChangingExistingChoices()
     {
-        string directory = MainWindowViewModelTestFactory.CreateIsolatedSettingsDirectory();
+        string directory = TestSettingsFactory.CreateIsolatedSettingsDirectory();
         string path = Path.Combine(directory, "user.config");
         try
         {
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings settings = TestSettingsFactory.OpenSettings(path);
             var layouts = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
             layouts.Hash.Width = 173; layouts.Hash.DisplayIndex = 100; layouts.Hash.Visibility = Visibility.Visible;
             layouts.Sha256.Width = 279; layouts.Sha256.DisplayIndex = 101; layouts.Sha256.Visibility = Visibility.Hidden;
             layouts.PlayHistoryRawHash.Width = 191; layouts.PlayHistoryRawHash.DisplayIndex = 102; layouts.PlayHistoryRawHash.Visibility = Visibility.Visible;
             layouts.Title.Width = 181; layouts.Title.DisplayIndex = 103; layouts.Title.Visibility = Visibility.Visible;
             settings.PlayHistoryCustomTableColumnSettings = layouts; settings.Save();
-            Settings reopened = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings reopened = TestSettingsFactory.OpenSettings(path);
             Settings.EnsureColumnSettingDefaults(reopened);
             CustomTableColumnSettings restored = reopened.PlayHistoryCustomTableColumnSettings;
             var columns = CustomTableColumnFactory.CreateMainColumns(restored).ToDictionary(column => column.Id);
@@ -54,18 +54,18 @@ public sealed class CustomTableColumnSettingsTests
     [TestMethod]
     public void UrlWidths_SaveAndReloadThroughProviderRestoreColumnRoles()
     {
-        string directory = MainWindowViewModelTestFactory.CreateIsolatedSettingsDirectory();
+        string directory = TestSettingsFactory.CreateIsolatedSettingsDirectory();
         string path = Path.Combine(directory, "user.config");
         try
         {
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings settings = TestSettingsFactory.OpenSettings(path);
             var columns = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAYLIST);
             columns.Url1.Visibility = columns.Url2.Visibility = Visibility.Visible;
             columns.Url1.Width = 41; columns.Url2.Width = 240;
             settings.PlaylistCustomTableColumnSettings = columns;
             settings.Save();
 
-            Settings reloaded = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings reloaded = TestSettingsFactory.OpenSettings(path);
             Settings.EnsureColumnSettingDefaults(reloaded);
             CustomTableColumnSettings restored = reloaded.PlaylistCustomTableColumnSettings;
             Assert.AreEqual(41, restored.Url1.Width); Assert.AreEqual(240, restored.Url2.Width);
@@ -158,7 +158,7 @@ public sealed class CustomTableColumnSettingsTests
     [TestMethod]
     public void EnsureColumnSettingDefaults_RecreatesAndCompletesPlayHistorySettings()
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings();
         var existing = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
         existing.PlayHistoryBestExscore.Visibility = Visibility.Visible;
         existing.PlayHistoryBestExscore.DisplayIndex = 77;

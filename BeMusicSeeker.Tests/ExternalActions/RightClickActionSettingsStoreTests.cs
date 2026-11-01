@@ -15,8 +15,8 @@ public sealed class RightClickActionSettingsStoreTests
     [TestMethod]
     public void StoreLoadsAndSavesThroughTheProvidedSettingsOwnerWithoutFallback()
     {
-        using var files = new PortableSettingsPersistenceTests.SettingsFiles();
-        Settings settings = PortableSettingsPersistenceTests.OpenSettings(files.Path);
+        using var files = new SettingsFiles();
+        Settings settings = TestSettingsFactory.OpenSettings(files.Path);
         settings.RightClickActionsJson = "{\"webActions\":[],\"programActions\":[]}";
         var store = new RightClickActionSettingsStore(() => settings);
 
@@ -30,7 +30,7 @@ public sealed class RightClickActionSettingsStoreTests
         RightClickActionSettings replacement = new(
             [new RightClickWebActionDefinition("date", "2024-01-02T03:04:05.1234567+09:00", "https://example.test/{md5}", true, ExternalChartKind.All)], []);
         Assert.IsTrue(store.TrySaveAndPersist(replacement, out RightClickActionSettingsParseError saveError), saveError?.ToString());
-        var freshStore = new RightClickActionSettingsStore(() => PortableSettingsPersistenceTests.OpenSettings(files.Path));
+        var freshStore = new RightClickActionSettingsStore(() => TestSettingsFactory.OpenSettings(files.Path));
         RightClickActionSettingsParseResult persisted = freshStore.Load();
         Assert.IsTrue(persisted.Succeeded, persisted.Error?.ToString());
         Assert.AreEqual("2024-01-02T03:04:05.1234567+09:00", persisted.Settings.WebActions.Single().Name);

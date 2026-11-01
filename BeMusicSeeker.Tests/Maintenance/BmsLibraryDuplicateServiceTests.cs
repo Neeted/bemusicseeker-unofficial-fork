@@ -73,7 +73,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             File.WriteAllText(Path.Combine(source, "source.wav"), "source audio");
             File.WriteAllText(Path.Combine(destination, "destination.wav"), "destination audio");
             string configPath = Path.Combine(root, "user.config");
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            Settings settings = TestSettingsFactory.OpenSettings(configPath);
             settings.OperationModeLR2DB = emptyChild;
             settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([root, registration]);
             settings.BMSRootPath = root;
@@ -82,7 +82,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             if (emptyChild)
             {
                 settings.LR2RootPath = Path.Combine(root, "LR2");
-                settings.LR2ConfigXmlPath = BmsPlaylistTestSupport.CreateLr2Config(settings.LR2RootPath, root, registration).ConfigFilePath;
+                settings.LR2ConfigXmlPath = TestLr2ConfigFactory.CreateLr2Config(settings.LR2RootPath, root, registration).ConfigFilePath;
             }
             settings.Save();
             var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(), settings: settings) { BmsCharts = charts, BmsonCharts = [bmson] };
@@ -109,7 +109,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.AreEqual(bmson.Path, db.Table<LR2SongDBExtended.bmson_song>().Single().path);
             }
             finally { library.RequestShutdown("registered-merge-rejection"); }
-            Settings loaded = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            Settings loaded = TestSettingsFactory.OpenSettings(configPath);
             var reloaded = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(), settings: loaded)
             { StartupBackgroundTaskScheduler = (_, _, _, _) => false };
             try
@@ -142,7 +142,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             File.WriteAllText(Path.Combine(source, "source.wav"), "source audio");
             File.WriteAllText(Path.Combine(destination, "kept.wav"), "destination audio");
             string configPath = Path.Combine(root, "user.config");
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            Settings settings = TestSettingsFactory.OpenSettings(configPath);
             settings.OperationModeLR2DB = false;
             settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([registered]);
             settings.BMSRootPath = registered;
@@ -165,7 +165,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 CollectionAssert.AreEquivalent(expected, db.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
             }
             finally { library.RequestShutdown("ordinary-registered-child-merge"); }
-            Settings loaded = PortableSettingsPersistenceTests.OpenSettings(configPath);
+            Settings loaded = TestSettingsFactory.OpenSettings(configPath);
             var reloaded = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(), settings: loaded)
             { StartupBackgroundTaskScheduler = (_, _, _, _) => false };
             try
@@ -1570,7 +1570,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             try
             {
                 ChartFile sourceFile = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourceChartPath));
-                LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, tempRootPath);
+                LR2Config lr2Config = TestLr2ConfigFactory.CreateLr2Config(lr2RootPath, tempRootPath);
                 var lr2ConfigOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(lr2Config);
                 var library = new TestBmsLibrary(databaseScope,
                     songDbPath,

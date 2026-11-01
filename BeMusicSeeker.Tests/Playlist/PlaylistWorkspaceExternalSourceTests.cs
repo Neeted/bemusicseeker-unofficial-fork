@@ -803,7 +803,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 LR2CustomFolderOutputBaseDirRootType = Path.Combine(root, "RootOutput"),
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]"
             };
-            var configOwner = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(Path.Combine(root, "LR2"), outputBase));
+            var configOwner = new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(Path.Combine(root, "LR2"), outputBase));
             playlist = new TestBmsPlaylist(databaseScope, songDbPath, configOwner, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => outputSettings,
                 BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty))
@@ -1678,7 +1678,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 LR2CustomFolderOutputBaseDirRootType = Path.Combine(directory, "RootOutput"),
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]"
             };
-            var configOwner = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(Path.Combine(directory, "LR2"), outputBase));
+            var configOwner = new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(Path.Combine(directory, "LR2"), outputBase));
             playlist = new TestBmsPlaylist(databaseScope, databasePath, configOwner, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
                 () => outputSettings, BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, databasePath, CustomFolderOutputPhysicalSurface.Empty))

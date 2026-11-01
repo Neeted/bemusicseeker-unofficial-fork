@@ -215,7 +215,7 @@ public sealed class ApplicationSettingsLifecycleTests
         {
             WriteConfig(path, ("AssemblyVersion", "9.8.7.6"), ("Lang", "en-US"), ("AppearanceTheme", AppThemeService.Dark), ("PlayerPanelState", "12"));
             byte[] before = File.ReadAllBytes(path);
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings settings = TestSettingsFactory.OpenSettings(path);
             var notices = new System.Collections.Generic.List<Exception>();
             var lifecycle = new ApplicationSettingsLifecycle(settingsStore: new FileSettingsStore(settings),
                 normalizeSettings: () => PortableSettingsProvider.NormalizePortableConfig(path),
@@ -276,7 +276,7 @@ public sealed class ApplicationSettingsLifecycleTests
         {
             WriteConfig(path, ("AssemblyVersion", "1.0.0.0"), ("Lang", "en-US"), ("AppearanceTheme", AppThemeService.Dark));
             byte[] before = File.ReadAllBytes(path);
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings settings = TestSettingsFactory.OpenSettings(path);
             var notices = new System.Collections.Generic.List<Exception>();
             var lifecycle = new ApplicationSettingsLifecycle(
                 settingsStore: new FileSettingsStore(settings),
@@ -358,7 +358,7 @@ public sealed class ApplicationSettingsLifecycleTests
         {
             RunLegacySettingsFixtureGenerator(path);
 
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings settings = TestSettingsFactory.OpenSettings(path);
             SerializableVersion version = settings.AssemblyVersion;
             Assert.IsNotNull(version);
             Assert.AreEqual(17, version.Major);
@@ -409,7 +409,7 @@ public sealed class ApplicationSettingsLifecycleTests
             // First prove that this exact physical legacy candidate is eligible through the real owner.
             ApplicationSettingsLifecycle normal = CreateFileLifecycle(path, legacyRoot, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), saveWarnings.Add);
             Assert.IsFalse(normal.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)).FirstStartup);
-            Assert.AreEqual("legacy-install", PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
+            Assert.AreEqual("legacy-install", TestSettingsFactory.OpenSettings(path).BMSInstallDir);
 
             File.WriteAllText(path, "<configuration>");
             byte[] corrupt = File.ReadAllBytes(path);
@@ -427,13 +427,13 @@ public sealed class ApplicationSettingsLifecycleTests
 
             ApplicationSettingsLifecycle restarted = CreateFileLifecycle(path, legacyRoot, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), saveWarnings.Add);
             Assert.IsTrue(restarted.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)).FirstStartup);
-            Assert.AreNotEqual("legacy-install", PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
+            Assert.AreNotEqual("legacy-install", TestSettingsFactory.OpenSettings(path).BMSInstallDir);
             CollectionAssert.AreEqual(corrupt, File.ReadAllBytes(backup));
 
             WriteConfig(path, ("AssemblyVersion", "9.8.7.6"), ("Lang", "en-US"), ("BMSInstallDir", "current-install"));
             ApplicationSettingsLifecycle current = CreateFileLifecycle(path, legacyRoot, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), saveWarnings.Add);
             Assert.IsFalse(current.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)).FirstStartup);
-            Assert.AreEqual("current-install", PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
+            Assert.AreEqual("current-install", TestSettingsFactory.OpenSettings(path).BMSInstallDir);
             CollectionAssert.AreEqual(corrupt, File.ReadAllBytes(backup));
             Assert.AreEqual(0, saveWarnings.Count);
         }
@@ -462,7 +462,7 @@ public sealed class ApplicationSettingsLifecycleTests
             var normalWarnings = new List<Exception>();
             ApplicationSettingsLifecycle normal = CreateFileLifecycle(path, legacyRoot, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), normalWarnings.Add);
             normal.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6));
-            Assert.AreEqual("legacy-install", PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
+            Assert.AreEqual("legacy-install", TestSettingsFactory.OpenSettings(path).BMSInstallDir);
             Assert.AreEqual(0, normalWarnings.Count);
             Resources.Culture = previousCulture;
             File.Delete(path);
@@ -501,7 +501,7 @@ public sealed class ApplicationSettingsLifecycleTests
         ApplicationSettingsLifecycle lifecycle = null!;
         lifecycle = new ApplicationSettingsLifecycle(
             legacyMigration: (cultures, culture) => LegacyUserConfigMigrator.MigrateIfNeeded(path, legacyRoot, cultures, culture),
-            settingsStore: new FileSettingsStore(PortableSettingsPersistenceTests.OpenSettings(path)),
+            settingsStore: new FileSettingsStore(TestSettingsFactory.OpenSettings(path)),
             normalizeSettings: () => new PortableSettingsStartupFile(path).Prepare(
                 () => lifecycle.MigrateLegacy(["ja-JP", "en-US"], "en-US"), warnRecovery),
             warnSaveFailure: warnSaveFailure);

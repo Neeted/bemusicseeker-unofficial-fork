@@ -9,7 +9,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class MainWindowViewSettingsBoundaryTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
     /// <summary>利用者の一覧寸法と起動選択を読み、変更したツリー幅を設定へ保存し設定側の文字サイズ変更を一回通知することを確認し、画面設定の双方向接続漏れを検出します。</summary>
     [TestMethod]
     public void ViewSettingsStoreCapturesViewStateAndForwardsDraftChanges()

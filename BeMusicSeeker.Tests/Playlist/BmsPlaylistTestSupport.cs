@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -46,7 +45,7 @@ internal static class BmsPlaylistTestSupport
         Lr2ConfigOwner getLr2Config = null!,
         Settings? settings = null)
     {
-        settings ??= MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        settings ??= TestSettingsFactory.CreateIsolatedSettings();
         return new TestBmsPlaylist(
             databaseScope,
             songDbPath,
@@ -161,28 +160,6 @@ internal static class BmsPlaylistTestSupport
         return reader.ReadToEnd();
     }
 
-    internal static LR2Config CreateLr2Config(string lr2RootPath, params string[] bmsRoots)
-    {
-        string configDirectory = Path.Combine(lr2RootPath, "LR2files", "Config");
-        Directory.CreateDirectory(configDirectory);
-        string pathElements = string.Join(
-            string.Empty,
-            (bmsRoots ?? [])
-                .Where(root => !string.IsNullOrWhiteSpace(root))
-                .Select(root => "<path>" + EscapeXml(root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar) + "</path>"));
-        string configPath = Path.Combine(configDirectory, "config.xml");
-        File.WriteAllText(
-            configPath,
-            "<config><system><customfolder>0</customfolder><titleflash>24</titleflash></system><jukebox>" + pathElements + "</jukebox></config>",
-            Encoding.UTF8);
-        return new LR2Config(configPath);
-    }
-
-    internal static string EscapeXml(string value)
-    {
-        return System.Security.SecurityElement.Escape(value) ?? string.Empty;
-    }
-
     internal static BMSTableEntry CreateEntry(string md5, string folder)
     {
         return new BMSTableEntry(JObject.Parse("{\"md5\":\"" + md5 + "\",\"title\":\"" + md5 + "\",\"level\":\"" + folder + "\"}"));
@@ -191,65 +168,5 @@ internal static class BmsPlaylistTestSupport
     internal static BMSTableEntry CreateEntryWithLevel(string md5, int level)
     {
         return new BMSTableEntry(JObject.Parse("{\"md5\":\"" + md5 + "\",\"title\":\"" + md5 + "\",\"level\":" + level + "}"));
-    }
-}
-
-internal sealed class TestLr2PlaylistFolderSynchronizationPort : ILr2PlaylistFolderSynchronizationPort
-{
-    private readonly ApplicationDatabaseScope databaseScope;
-    private readonly string songDbPath;
-
-    /// <summary>同じfixtureが使う接続所有者と曲DBへ、実LR2行同期を接続します。</summary>
-    internal TestLr2PlaylistFolderSynchronizationPort(ApplicationDatabaseScope databaseScope, string songDbPath)
-    {
-        this.databaseScope = databaseScope;
-        this.songDbPath = songDbPath;
-    }
-
-    internal List<string> Operations { get; } = [];
-
-    internal Func<CustomFolderOutputPhysicalSurface> PhysicalSurfaceFactory { get; set; } = null!;
-
-    internal Exception Failure { get; set; } = null!;
-
-    internal Action<LibraryFileMutationCapability> SynchronizationStartProbe { get; set; } = null!;
-
-    public CustomFolderOutputPhysicalSurface GetCurrentAppManagedCustomFolderOutputPhysicalSurface()
-    {
-        return PhysicalSurfaceFactory?.Invoke()
-            ?? new CustomFolderOutputPhysicalSurface(
-                new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
-                discoveryComplete: false);
-    }
-
-    public Lr2FolderFileDbSyncResult SyncPlaylistLr2FolderFileRows(
-        string operation,
-        Lr2FolderFileDbSyncRequest request,
-        LibraryFileMutationCapability mutationCapability)
-    {
-        if (mutationCapability == null)
-        {
-            throw new ArgumentNullException(nameof(mutationCapability));
-        }
-        SynchronizationStartProbe?.Invoke(mutationCapability);
-        Operations.Add(operation);
-        if (Failure != null)
-        {
-            throw Failure;
-        }
-
-        using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
-        string savepoint = songDb.SaveTransactionPoint();
-        try
-        {
-            Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, request);
-            songDb.Commit();
-            return result;
-        }
-        catch
-        {
-            songDb.RollbackTo(savepoint);
-            throw;
-        }
     }
 }

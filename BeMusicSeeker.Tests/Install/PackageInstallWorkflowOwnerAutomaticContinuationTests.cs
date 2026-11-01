@@ -778,7 +778,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             }
             File.WriteAllBytes(Database, []);
             options = CreateOptions(enabled, deleteSource);
-            lr2Owner = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(Root, LibraryRoot));
+            lr2Owner = new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(Root, LibraryRoot));
             ChartFileOperationSynchronizer admission = operationAdmission ?? new ChartFileOperationSynchronizer();
             Library = new TestBmsLibrary(databaseScope, Database, lr2Owner, null, Files, new FileDbReportRecordingDialogs(),
                 uiScheduler ?? new TestUiScheduler(() => null), () => Options,

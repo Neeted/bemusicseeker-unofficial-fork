@@ -22,7 +22,7 @@ public sealed class PlayerSettingsGatewayTests
         string path = System.IO.Path.Combine(directory, "user.config");
         try
         {
-            Settings settings = PortableSettingsPersistenceTests.OpenSettings(path);
+            Settings settings = TestSettingsFactory.OpenSettings(path);
             var first = new WindowPlacement(0, 1, 0, 0, 0, 0, 10, 20, 810, 620);
             var captured = new WindowPlacement(0, 1, 0, 0, 0, 0, 30, 40, 830, 640);
             settings.LR2bodyWindowPlacement = BeMusicSeeker.Models.Utils.Win32WindowPlacementAdapter.ToNative(first);
@@ -36,12 +36,12 @@ public sealed class PlayerSettingsGatewayTests
             Assert.AreEqual(0, saves);
             Assert.AreEqual(Win32WindowPlacementAdapter.ToNative(captured), settings.LR2bodyWindowPlacement);
             CollectionAssert.AreEqual(before, System.IO.File.ReadAllBytes(path));
-            Assert.AreEqual(Win32WindowPlacementAdapter.ToNative(first), PortableSettingsPersistenceTests.OpenSettings(path).LR2bodyWindowPlacement);
+            Assert.AreEqual(Win32WindowPlacementAdapter.ToNative(first), TestSettingsFactory.OpenSettings(path).LR2bodyWindowPlacement);
         }
         finally { System.IO.Directory.Delete(directory, true); }
     }
 
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
     /// <summary>
     /// 保証：旧DirectSound設定を再生要求へ変換し、捕捉後の音質・並列数変更に影響されず、保存側のドライバー・機器・利用者値は書き換えない。
     /// </summary>

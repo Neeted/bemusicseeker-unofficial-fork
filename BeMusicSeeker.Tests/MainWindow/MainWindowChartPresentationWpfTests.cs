@@ -36,7 +36,7 @@ public sealed class MainWindowChartPresentationWpfTests
     public void CompiledTables_ExposeAutomationPatternsAndPureOwnerEditAvailability()
     {
         WithSimpleTextBoxStyles(() => MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(), (scope, viewModel, window) =>
+            TestSettingsFactory.CreateIsolatedSettings(), (scope, viewModel, window) =>
             {
                 window.Width = 1000d; window.Height = 700d;
                 MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
@@ -217,7 +217,7 @@ public sealed class MainWindowChartPresentationWpfTests
         WithSimpleTextBoxStyles(() =>
         {
             MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (_, window) =>
                 {
                     var menu = (ContextMenu)window.FindResource("tableColumnHeaderContextMenu");
@@ -244,7 +244,7 @@ public sealed class MainWindowChartPresentationWpfTests
         WithSimpleTextBoxStyles(() =>
         {
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (scope, viewModel, window) =>
                 {
                     viewModel.MainChartList.CellEditBeginningRequested += (_, request) => beginning.Add(request.Context);
@@ -666,7 +666,7 @@ public sealed class MainWindowChartPresentationWpfTests
         WithSimpleTextBoxStyles(() =>
         {
             MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (viewModel, window) =>
                 {
                     KeywordSearchEditor searchEditor = GetNamedElement<KeywordSearchEditor>(window, "KeywordSearchEditor");
@@ -685,7 +685,7 @@ public sealed class MainWindowChartPresentationWpfTests
         WithSimpleTextBoxStyles(() =>
         {
             MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (viewModel, window) =>
                 {
                     MaterializeMainWindow(window);
@@ -744,7 +744,7 @@ public sealed class MainWindowChartPresentationWpfTests
         WithSimpleTextBoxStyles(() =>
         {
             MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (viewModel, window) =>
                 {
                     SearchChrome normal = GetSearchChrome(window, "KeywordSearchEditor");
@@ -781,7 +781,7 @@ public sealed class MainWindowChartPresentationWpfTests
         WithSimpleTextBoxStyles(() =>
         {
             MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (windowTest, viewModel, window) =>
                 {
                     SearchChrome normal = GetSearchChrome(window, "KeywordSearchEditor");
@@ -836,7 +836,7 @@ public sealed class MainWindowChartPresentationWpfTests
         WithSimpleTextBoxStyles(() =>
         {
             MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (windowTest, viewModel, window) =>
                 {
                     SearchChrome chrome = GetSearchChrome(window, "KeywordSearchEditor");
@@ -893,7 +893,7 @@ public sealed class MainWindowChartPresentationWpfTests
         WithSimpleTextBoxStyles(() =>
         {
             MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (windowTest, viewModel, window) =>
                 {
                     SearchChrome chrome = GetSearchChrome(window, "KeywordSearchEditor");
@@ -947,7 +947,7 @@ public sealed class MainWindowChartPresentationWpfTests
         WithSimpleTextBoxStyles(() =>
         {
             MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (windowTest, viewModel, window) =>
                 {
                     SearchChrome chrome = GetSearchChrome(window, "KeywordSearchEditor");
@@ -995,7 +995,7 @@ public sealed class MainWindowChartPresentationWpfTests
         WithSimpleTextBoxStyles(() =>
         {
             MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (windowTest, viewModel, window) =>
                 {
                     KeywordSearchAssistanceOwner owner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
@@ -1102,7 +1102,7 @@ public sealed class MainWindowChartPresentationWpfTests
             try
             {
                 MainWindowPresentationTestHarness.RunConstructorOnly(
-                    MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                    TestSettingsFactory.CreateIsolatedSettings(),
                     (windowTest, viewModel, window) =>
                     {
                         ChartListFilterViewModel filters = viewModel.ChartFilters;
@@ -1212,7 +1212,7 @@ public sealed class MainWindowChartPresentationWpfTests
         WithSimpleTextBoxStyles(() =>
         {
             MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (windowTest, viewModel, window) =>
                 {
                     KeywordSearchAssistanceOwner owner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
@@ -1364,7 +1364,7 @@ public sealed class MainWindowChartPresentationWpfTests
         WithSimpleTextBoxStyles(() =>
         {
             MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (windowTest, viewModel, window) =>
                 {
                     WithPresentedMainWindow(windowTest, window, () =>
@@ -1475,7 +1475,7 @@ public sealed class MainWindowChartPresentationWpfTests
         WithSimpleTextBoxStyles(() =>
         {
             MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (windowTest, viewModel, window) =>
                 {
                     KeywordSearchAssistanceOwner owner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
@@ -1543,7 +1543,7 @@ public sealed class MainWindowChartPresentationWpfTests
         WithSimpleTextBoxStyles(() =>
         {
             MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (windowTest, viewModel, window) =>
                 {
                     KeywordSearchAssistanceOwner owner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
@@ -1599,7 +1599,7 @@ public sealed class MainWindowChartPresentationWpfTests
         WithSimpleTextBoxStyles(() =>
         {
             MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (windowTest, viewModel, window) =>
                 {
                     KeywordSearchAssistanceOwner owner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
@@ -1683,7 +1683,7 @@ public sealed class MainWindowChartPresentationWpfTests
         WithSimpleTextBoxStyles(() =>
         {
             MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (windowTest, viewModel, window) =>
                 {
                     KeywordSearchAssistanceOwner owner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
@@ -1749,7 +1749,7 @@ public sealed class MainWindowChartPresentationWpfTests
         WithSimpleTextBoxStyles(() =>
         {
             MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (windowTest, viewModel, window) =>
                 {
                     const string longQuery =
@@ -1830,7 +1830,7 @@ public sealed class MainWindowChartPresentationWpfTests
         WithSimpleTextBoxStyles(() =>
         {
             MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (windowTest, viewModel, window) =>
                 {
                     KeywordSearchAssistanceOwner owner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
@@ -1880,7 +1880,7 @@ public sealed class MainWindowChartPresentationWpfTests
         WithSimpleTextBoxStyles(() =>
         {
             MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                TestSettingsFactory.CreateIsolatedSettings(),
                 (windowTest, viewModel, window) =>
                 {
                     SearchChrome chrome = GetSearchChrome(window, "KeywordSearchEditor");

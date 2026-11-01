@@ -36,7 +36,7 @@ public sealed partial class SettingDialogEditCompletionTests
             string root = CreateTemporaryRoot();
             string path = Path.Combine(root, "user.config");
             string original = Path.Combine(root, "Original");
-            Settings values = CreateValidCustomFolderSettings(root, [original], PortableSettingsPersistenceTests.OpenSettings(path));
+            Settings values = CreateValidCustomFolderSettings(root, [original], TestSettingsFactory.OpenSettings(path));
             values.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([original]);
             values.Save();
             string oldNormal = values.LR2CustomFolderOutputBaseDir;
@@ -119,7 +119,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.AreEqual("My Charts", dialog.SelectedCustomFolderAdditionalOutputBaseName);
                 Assert.AreEqual(renamed, dialog.SelectedCustomFolderAdditionalOutputBaseDir);
                 CollectionAssert.AreEqual(new[] { renamed }, dialog.CustomFolderAdditionalOutputBaseDirList.ToArray());
-                Settings fresh = PortableSettingsPersistenceTests.OpenSettings(path);
+                Settings fresh = TestSettingsFactory.OpenSettings(path);
                 CollectionAssert.AreEqual(new[] { renamed }, CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(fresh.LR2CustomFolderAdditionalOutputBaseDirs).ToArray());
                 Assert.AreEqual(oldNormal, fresh.LR2CustomFolderOutputBaseDir);
                 Assert.AreEqual(oldRoot, fresh.LR2CustomFolderOutputBaseDirRootType);
@@ -159,7 +159,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 CollectionAssert.AreEqual(configBeforeSameName, File.ReadAllBytes(values.LR2ConfigXmlPath));
                 Assert.AreEqual(!confirmedKeepBmt, dialog.KeepBeatorajaBmtFilesWhenOutputDisabled, "同値改名は無関係なBMT候補を破棄・採用しません。");
                 Assert.AreEqual(confirmedKeepBmt, values.KeepBeatorajaBmtFilesWhenOutputDisabled);
-                fresh = PortableSettingsPersistenceTests.OpenSettings(path);
+                fresh = TestSettingsFactory.OpenSettings(path);
                 CollectionAssert.AreEqual(new[] { renamed }, CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(fresh.LR2CustomFolderAdditionalOutputBaseDirs).ToArray());
                 Assert.AreEqual(confirmedKeepBmt, fresh.KeepBeatorajaBmtFilesWhenOutputDisabled);
 
@@ -174,7 +174,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 string savedFormat = values.FolderNameFormat == "%ARTIST% - %TITLE%" ? "%TITLE%" : "%ARTIST% - %TITLE%";
                 EditCategoryControl(window, "Install", nameof(SettingsDialogViewModel.FolderNameFormat), savedFormat);
                 Assert.AreEqual(savedFormat, values.FolderNameFormat);
-                Assert.AreEqual(savedFormat, PortableSettingsPersistenceTests.OpenSettings(path).FolderNameFormat);
+                Assert.AreEqual(savedFormat, TestSettingsFactory.OpenSettings(path).FolderNameFormat);
                 Assert.IsTrue(Volatile.Read(ref providerWriteNotifications) > writesBeforeOrdinarySave, "別ページの通常項目を実保存します。");
                 editor = (TextBox)GetCategoryControl(window, "Playlist", nameof(SettingsDialogViewModel.SelectedCustomFolderAdditionalOutputBaseName)).Control;
                 Assert.AreEqual("Discarded Draft ", editor.Text, "ページ移動と別項目の保存では編集中の候補を破棄しません。");
@@ -182,7 +182,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.AreEqual(renamed, dialog.SelectedCustomFolderAdditionalOutputBaseDir);
                 CollectionAssert.AreEqual(new[] { renamed }, dialog.CustomFolderAdditionalOutputBaseDirList.ToArray());
                 Assert.AreEqual(CustomFolderOutputBaseRegistry.SerializeBaseDirectories([renamed]), values.LR2CustomFolderAdditionalOutputBaseDirs);
-                Assert.AreEqual(CustomFolderOutputBaseRegistry.SerializeBaseDirectories([renamed]), PortableSettingsPersistenceTests.OpenSettings(path).LR2CustomFolderAdditionalOutputBaseDirs);
+                Assert.AreEqual(CustomFolderOutputBaseRegistry.SerializeBaseDirectories([renamed]), TestSettingsFactory.OpenSettings(path).LR2CustomFolderAdditionalOutputBaseDirs);
                 int writesBeforeClose = Volatile.Read(ref providerWriteNotifications);
                 byte[] settingsBeforeClose = File.ReadAllBytes(path);
                 byte[] configBeforeClose = File.ReadAllBytes(values.LR2ConfigXmlPath);
@@ -211,7 +211,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.AreEqual(writesBeforeClose, Volatile.Read(ref providerWriteNotifications));
                 CollectionAssert.AreEqual(settingsBeforeClose, File.ReadAllBytes(path));
                 CollectionAssert.AreEqual(configBeforeClose, File.ReadAllBytes(values.LR2ConfigXmlPath));
-                Assert.AreEqual(savedFormat, PortableSettingsPersistenceTests.OpenSettings(path).FolderNameFormat);
+                Assert.AreEqual(savedFormat, TestSettingsFactory.OpenSettings(path).FolderNameFormat);
 
                 editor.SelectAll();
                 editor.SelectedText = "Next Charts";
@@ -233,7 +233,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.AreEqual("Next Charts", dialog.SelectedCustomFolderAdditionalOutputBaseName);
                 Assert.AreEqual(next, dialog.SelectedCustomFolderAdditionalOutputBaseDir);
                 CollectionAssert.AreEqual(new[] { next }, dialog.CustomFolderAdditionalOutputBaseDirList.ToArray());
-                fresh = PortableSettingsPersistenceTests.OpenSettings(path);
+                fresh = TestSettingsFactory.OpenSettings(path);
                 CollectionAssert.AreEqual(new[] { next }, CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(fresh.LR2CustomFolderAdditionalOutputBaseDirs).ToArray());
                 Assert.AreEqual(savedFormat, fresh.FolderNameFormat);
                 Assert.AreEqual(oldNormal, fresh.LR2CustomFolderOutputBaseDir);
@@ -262,7 +262,7 @@ public sealed partial class SettingDialogEditCompletionTests
         {
             string root = CreateTemporaryRoot();
             string path = Path.Combine(root, "user.config");
-            Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(path));
+            Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(path));
             values.RightClickActionsJson = invalidPersisted ? "{broken JSON" : """
                 {"webActions":[{"id":"one","name":"One","urlTemplate":"https://example.test/{md5}","enabled":true,"chartKind":"All"},{"id":"two","name":"Two","urlTemplate":"https://example.test/{sha256}","enabled":true,"chartKind":"All"}],"programActions":[]}
                 """;
@@ -292,7 +292,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         Assert.IsFalse(recordCancel.IsEnabled);
                         Assert.IsTrue(editor.IsInvalidPersistedSettings);
                         Assert.AreEqual("{broken JSON", values.RightClickActionsJson);
-                        Assert.AreEqual("{broken JSON", PortableSettingsPersistenceTests.OpenSettings(path).RightClickActionsJson);
+                        Assert.AreEqual("{broken JSON", TestSettingsFactory.OpenSettings(path).RightClickActionsJson);
                     }
                     return;
                 }
@@ -313,7 +313,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.AreEqual("One", editor.WebActions[0].Name);
                 Assert.AreEqual("Other draft", editor.WebActions[1].Name);
                 Assert.IsFalse(confirm.IsEnabled); Assert.IsFalse(cancel.IsEnabled);
-                Assert.AreEqual("Two", RightClickActionSettingsSerializer.Parse(PortableSettingsPersistenceTests.OpenSettings(path).RightClickActionsJson).Settings.WebActions[1].Name);
+                Assert.AreEqual("Two", RightClickActionSettingsSerializer.Parse(TestSettingsFactory.OpenSettings(path).RightClickActionsJson).Settings.WebActions[1].Name);
             }
             finally
             {
@@ -335,7 +335,7 @@ public sealed partial class SettingDialogEditCompletionTests
             string root = CreateTemporaryRoot();
             string path = Path.Combine(root, "user.config");
             string culture = Resources.Culture?.Name ?? "ja-JP";
-            Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(path));
+            Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(path));
             values.PlayerDriver = BassAudioMapping.ToBassDriver(AudioDriver.WasapiShared);
             values.PlayerDevice = string.Empty;
             values.PlayerDeviceName = string.Empty;
@@ -412,18 +412,18 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.AreEqual(threadItems.Single(item => item.Key == 3).Value, threads.Text);
                     Assert.AreEqual(4, dialog.PlayerResamplingQuality);
                     Assert.AreEqual(3, dialog.PlayerMixerThreadCount);
-                    Settings saved = PortableSettingsPersistenceTests.OpenSettings(path);
+                    Settings saved = TestSettingsFactory.OpenSettings(path);
                     Assert.AreEqual(4, saved.PlayerResamplingQuality);
                     Assert.AreEqual(3, saved.PlayerMixerThreadCount);
                 }
                 AssertLocalizedOptionsAndSelection();
                 Assert.IsFalse(dialog.PlayerWASAPIParam);
                 Assert.IsFalse(toggle.IsChecked);
-                Assert.IsFalse(PortableSettingsPersistenceTests.OpenSettings(path).PlayerWASAPIParam);
+                Assert.IsFalse(TestSettingsFactory.OpenSettings(path).PlayerWASAPIParam);
                 Button retry = FindDescendants<Button>(window).Single(button => Equals(button.Tag, "retry:audio"));
                 Assert.AreEqual(Visibility.Collapsed, retry.Visibility);
                 toggle.SetCurrentValue(ToggleButton.IsCheckedProperty, true);
-                Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(path).PlayerWASAPIParam);
+                Assert.IsTrue(TestSettingsFactory.OpenSettings(path).PlayerWASAPIParam);
                 Assert.IsFalse(dialog.CanRetryAudioSettings);
                 using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
                 { toggle.SetCurrentValue(ToggleButton.IsCheckedProperty, false); }
@@ -435,7 +435,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AudioSettingsCompletionTask, "audio-language-draft-query-terminal");
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.RunAudioDeviceTestAsync(), "audio-language-test-result-terminal");
                 Assert.IsFalse(dialog.PlayerWASAPIParam);
-                Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(path).PlayerWASAPIParam);
+                Assert.IsTrue(TestSettingsFactory.OpenSettings(path).PlayerWASAPIParam);
                 Assert.IsTrue(dialog.CanRetryAudioSettings);
                 AssertLocalizedOptionsAndSelection();
                 string result = dialog.AudioDeviceTestStatusMessage;
@@ -456,7 +456,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.AreSame(threads, GetCategoryControl(window, "Audio", nameof(SettingsDialogViewModel.PlayerMixerThreadCount)).Control);
                 Assert.IsFalse(dialog.PlayerWASAPIParam);
                 Assert.IsFalse(toggle.IsChecked);
-                Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(path).PlayerWASAPIParam);
+                Assert.IsTrue(TestSettingsFactory.OpenSettings(path).PlayerWASAPIParam);
                 Assert.IsTrue(dialog.CanRetryAudioSettings);
                 Assert.AreEqual(Visibility.Visible, retry.Visibility);
                 Assert.AreEqual(Resources.Settings_retry_audio_save, retry.Content);
@@ -469,7 +469,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 CollectionAssert.AreEqual(beforeVisibleCultureChange, File.ReadAllBytes(path));
                 retry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.IsFalse(PortableSettingsPersistenceTests.OpenSettings(path).PlayerWASAPIParam);
+                Assert.IsFalse(TestSettingsFactory.OpenSettings(path).PlayerWASAPIParam);
                 Assert.AreEqual(Visibility.Collapsed, retry.Visibility);
                 using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
                 {
@@ -524,7 +524,7 @@ public sealed partial class SettingDialogEditCompletionTests
             string root = CreateTemporaryRoot();
             string path = Path.Combine(root, "user.config");
             string target = Path.Combine(root, "SelectedOutput");
-            Settings values = CreateValidCustomFolderSettings(root, [target], PortableSettingsPersistenceTests.OpenSettings(path));
+            Settings values = CreateValidCustomFolderSettings(root, [target], TestSettingsFactory.OpenSettings(path));
             values.Save();
             string oldNormal = values.LR2CustomFolderOutputBaseDir;
             string oldRoot = values.LR2CustomFolderOutputBaseDirRootType;
@@ -618,7 +618,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.IsTrue(dialogs.FolderRequests.All(request => ReferenceEquals(window, request.Owner)));
                 Assert.AreEqual(outcome == "picker-cancel" ? 0 : 1, dialogs.ConfirmationCount);
                 Assert.AreEqual(outcome is not ("accept" or "same"), owner.SettingDialog.AvailableBMSDirectories.Contains(staged), "競合候補は採用後だけ破棄し、picker取消・確認取消・受付拒否では保持します。");
-                Settings fresh = PortableSettingsPersistenceTests.OpenSettings(path);
+                Settings fresh = TestSettingsFactory.OpenSettings(path);
                 if (outcome is "accept" or "same")
                 {
                     Assert.AreEqual(section == "normal" ? target : oldNormal, fresh.LR2CustomFolderOutputBaseDir);
@@ -661,7 +661,7 @@ public sealed partial class SettingDialogEditCompletionTests
             string path = Path.Combine(root, "user.config");
             string normal = Path.Combine(root, "SelectedNormal");
             string rootOutput = Path.Combine(root, "SelectedRoot");
-            Settings values = CreateValidCustomFolderSettings(root, [normal, rootOutput], PortableSettingsPersistenceTests.OpenSettings(path));
+            Settings values = CreateValidCustomFolderSettings(root, [normal, rootOutput], TestSettingsFactory.OpenSettings(path));
             string previousNormal = missingPreviousDirectories ? Path.Combine(root, "UnavailableNormal", "PreviousNormal") : string.Empty;
             string previousRoot = missingPreviousDirectories ? Path.Combine(root, "UnavailableRoot", "PreviousRoot") : string.Empty;
             values.LR2CustomFolderOutputBaseDir = previousNormal;
@@ -709,7 +709,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
                     Assert.AreEqual(0, dialogs.MessageCount, dialogs.LastMessageText);
                     Assert.AreEqual(completed, dialogs.ConfirmationCount);
-                    Settings fresh = PortableSettingsPersistenceTests.OpenSettings(path);
+                    Settings fresh = TestSettingsFactory.OpenSettings(path);
                     string expectedNormal = completed == 2 || section == "normal" ? normal : previousNormal;
                     string expectedRoot = completed == 2 || section == "root" ? rootOutput : previousRoot;
                     Assert.AreEqual(expectedNormal, fresh.LR2CustomFolderOutputBaseDir);
@@ -755,7 +755,7 @@ public sealed partial class SettingDialogEditCompletionTests
             encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(System.Windows.Media.Imaging.BitmapSource.Create(
                 1, 1, 96, 96, System.Windows.Media.PixelFormats.Bgra32, null, new byte[] { 33, 44, 55, 255 }, 4)));
             using (FileStream imageFile = File.Create(imagePath)) { encoder.Save(imageFile); }
-            Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(path));
+            Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(path));
             values.UseExternalPanelImage = false;
             values.StagefilePath = imagePath;
             values.Save();
@@ -784,7 +784,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.AreSame(previousImage, artwork.Source);
                     toggle.SetCurrentValue(ToggleButton.IsCheckedProperty, true);
                     owner.SettingDialog.ShowNewPackageInstallConfirmMsg = !values.ShowNewPackageInstallConfirmMsg;
-                    Assert.IsFalse(PortableSettingsPersistenceTests.OpenSettings(path).UseExternalPanelImage);
+                    Assert.IsFalse(TestSettingsFactory.OpenSettings(path).UseExternalPanelImage);
                     Assert.AreEqual(1, failures.Count);
                     Assert.IsTrue(owner.SettingDialog.CanRetryImageSettings);
                     FindDescendants<Button>(window).Single(button => Equals(button.Tag, "retry:image"))
@@ -798,7 +798,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 byte[] pixels = new byte[4];
                 bitmap.CopyPixels(pixels, 4, 0);
                 Assert.AreEqual((byte)33, pixels[0]);
-                Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(path).UseExternalPanelImage);
+                Assert.IsTrue(TestSettingsFactory.OpenSettings(path).UseExternalPanelImage);
                 Assert.IsFalse(owner.SettingDialog.CanRetryImageSettings);
                 Assert.IsTrue(window.IsVisible);
                 Assert.AreEqual(failSave ? 1 : 0, failures.Count);
@@ -823,7 +823,7 @@ public sealed partial class SettingDialogEditCompletionTests
         string root = CreateTemporaryRoot();
         try
         {
-            Settings values = CreateValidStandaloneSettings(root, PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config")));
+            Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(Path.Combine(root, "user.config")));
             values.Save();
             TestUiDispatcherHost.RunWindowTest(scope =>
             {
@@ -836,19 +836,19 @@ public sealed partial class SettingDialogEditCompletionTests
                     owner.SettingDialog.UseBeatorajaScoreDb = true;
                     var text = (TextBox)GetCategoryControl(window, "Install", "FolderNameFormat").Control;
                     text.SetCurrentValue(TextBox.TextProperty, "%ARTIST% - %TITLE%");
-                    Assert.AreNotEqual("%ARTIST% - %TITLE%", PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config")).FolderNameFormat);
+                    Assert.AreNotEqual("%ARTIST% - %TITLE%", TestSettingsFactory.OpenSettings(Path.Combine(root, "user.config")).FolderNameFormat);
                     var key = new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), 0, Key.Enter)
                     { RoutedEvent = Keyboard.PreviewKeyDownEvent };
                     text.RaiseEvent(key);
                     Assert.IsTrue(key.Handled);
-                    Assert.AreEqual("%ARTIST% - %TITLE%", PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config")).FolderNameFormat);
+                    Assert.AreEqual("%ARTIST% - %TITLE%", TestSettingsFactory.OpenSettings(Path.Combine(root, "user.config")).FolderNameFormat);
                     var slider = (Slider)GetCategoryControl(window, "Appearance", "CustomTableRowHeight").Control;
                     double before = values.CustomTableRowHeight;
                     slider.SetCurrentValue(RangeBase.ValueProperty, 27d);
                     slider.SetCurrentValue(RangeBase.ValueProperty, 31d);
                     Assert.AreEqual(before, values.CustomTableRowHeight);
                     slider.RaiseEvent(new DragCompletedEventArgs(0, 0, false) { RoutedEvent = Thumb.DragCompletedEvent, Source = slider });
-                    Settings fresh = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config"));
+                    Settings fresh = TestSettingsFactory.OpenSettings(Path.Combine(root, "user.config"));
                     Assert.AreEqual(31d, fresh.CustomTableRowHeight);
                     Assert.IsFalse(fresh.UseBeatorajaScoreDb);
                     ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAbout");
@@ -900,7 +900,7 @@ public sealed partial class SettingDialogEditCompletionTests
             Exception? primaryFailure = null;
             try
             {
-                Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(config));
+                Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(config));
                 values.Lang = "ja-JP";
                 values.LangDisplayName = TestApplicationContext.CreateCultureCatalog().Cultures.Single(pair => pair.Value == "ja-JP").Key;
                 values.EnablePlaylistUrlCompletion = true;
@@ -966,7 +966,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
                 window.CloseForOwnerShutdown();
                 AssertCategoryRuntime(owner, bindingPath);
-                Settings fresh = PortableSettingsPersistenceTests.OpenSettings(config);
+                Settings fresh = TestSettingsFactory.OpenSettings(config);
                 AssertCategoryPersisted(fresh, bindingPath);
                 Assert.AreEqual(untouched, fresh.EncodeFileNameFormat);
                 freshOwner = CreateViewModel(new SettingsEditSession(fresh), firstStartup: false);
@@ -982,7 +982,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 freshOwner.SettingDialog.CloseCommand.Execute();
                 TestUiDispatcherHost.AwaitPresentationOnDispatcher(cancelled.Task, "category Cancel close");
                 AssertCategoryRuntime(freshOwner, bindingPath);
-                AssertCategoryPersisted(PortableSettingsPersistenceTests.OpenSettings(config), bindingPath);
+                AssertCategoryPersisted(TestSettingsFactory.OpenSettings(config), bindingPath);
                 reopened = OpenSettingsWindow(scope, freshOwner.SettingDialog);
                 freshPresentation.CurrentWindow = reopened;
                 Assert.AreEqual(expected, ReadCategoryEditor(reopened, category, bindingPath));

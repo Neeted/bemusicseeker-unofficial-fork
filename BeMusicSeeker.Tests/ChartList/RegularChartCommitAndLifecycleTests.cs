@@ -20,7 +20,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class RegularChartCommitAndLifecycleTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
 
 
     /// <summary>表示開始の同期例外・非同期失敗・取消を一覧所有者へ渡し、失敗だけを一度通知し、通知の完了まで停止が待つことを確認します。実画面との接続は初回重複の代表ケースが分担します。</summary>

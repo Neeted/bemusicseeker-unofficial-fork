@@ -45,7 +45,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Settings settings = TestBmsFactory.CreateRootSettings([normal]);
             settings.OperationModeLR2DB = true;
             settings.LR2RootPath = Path.Combine(root, "LR2");
-            settings.LR2ConfigXmlPath = BmsPlaylistTestSupport.CreateLr2Config(settings.LR2RootPath, normal, additional, rootOutput).ConfigFilePath;
+            settings.LR2ConfigXmlPath = TestLr2ConfigFactory.CreateLr2Config(settings.LR2RootPath, normal, additional, rootOutput).ConfigFilePath;
             settings.LR2CustomFolderOutputBaseDir = normal;
             settings.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additional]);
             settings.LR2CustomFolderOutputBaseDirRootType = rootOutput;
@@ -1315,7 +1315,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             string sourceChartPath = CreateBmsFile(sourceDirectoryPath, "chart.bms", "#TITLE Durable failure");
             string destinationChartPath = Path.Combine(sourceDirectoryPath, "chart.bme");
             ChartFile chart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourceChartPath));
-            LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, sourceDirectoryPath);
+            LR2Config lr2Config = TestLr2ConfigFactory.CreateLr2Config(lr2RootPath, sourceDirectoryPath);
             var lr2ConfigOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(lr2Config);
             var library = new TestBmsLibrary(databaseScope,
                 songDbPath,

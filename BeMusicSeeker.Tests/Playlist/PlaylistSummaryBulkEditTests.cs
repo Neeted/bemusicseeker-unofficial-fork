@@ -51,7 +51,7 @@ public sealed class PlaylistSummaryBulkEditTests
             string header = Path.Combine(directory, "header.json"), data = Path.Combine(directory, "data.json");
             File.WriteAllText(header, "{\"name\":\"External name\",\"symbol\":\"EX\",\"last_update\":\"invalid header\",\"data_url\":\"data.json\"}");
             File.WriteAllText(data, "[{\"title\":\"external row\",\"adddate\":1700000000}]");
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => { values.OperationModeLR2DB = false; values.EnablePlaylistUrlCompletion = false; });
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => { values.OperationModeLR2DB = false; values.EnablePlaylistUrlCompletion = false; });
             playlist = new TestBmsPlaylist(databaseScope, path, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, settings: settings)
             { BMSTables = [] };
@@ -157,7 +157,7 @@ public sealed class PlaylistSummaryBulkEditTests
             else
             {
                 currentStore = MainWindowViewModelTestFactory.CreatePlaylist(fixture.DatabaseScope, fixture.SongDb,
-                    MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false));
+                    TestSettingsFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false));
                 currentStore.BMSTables = new ObservableCollection<BMSTable>([first, second]);
             }
             string[] beforeModel = fixture.Playlist.BMSTables.Select(CaptureBulkHeader).ToArray();
@@ -457,7 +457,7 @@ public sealed class PlaylistSummaryBulkEditTests
         }
     }
 
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
 
     /// <summary>対象二表が同じ出力種別を有効にしている場合、別種別の除外差を無視して一括編集の有効状態を返すことを確認します。</summary>
     [TestMethod]
@@ -665,7 +665,7 @@ public sealed class PlaylistSummaryBulkEditTests
             string songDb = CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDb);
             string normal = Path.Combine(directory, "Normal"), additional = Path.Combine(directory, "Additional");
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings();
             settings.OperationModeLR2DB = true;
             settings.EnableBeatorajaBmtOutput = false;
             settings.EnablePlaylistUrlCompletion = false;
@@ -761,7 +761,7 @@ public sealed class PlaylistSummaryBulkEditTests
         {
             string songDb = CreateTempSongDbPath(databaseScope, root);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDb);
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings();
             settings.OperationModeLR2DB = false;
             settings.EnableBeatorajaBmtOutput = false;
             settings.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([Path.Combine(root, "Secondary")]);
@@ -861,7 +861,7 @@ public sealed class PlaylistSummaryBulkEditTests
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.None
             };
             TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(databaseScope,
-                songDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                songDbPath, TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
             }));
@@ -1643,7 +1643,7 @@ public sealed class PlaylistSummaryBulkEditTests
     public async Task PlaylistSummaryBulkEditDialog_BindsAllCustomFolderOptionsTwoWayAndLocalized()
     {
         await using var fixture = new PlaylistPrefixCommitTestFixture();
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = true;
             });
@@ -1744,7 +1744,7 @@ public sealed class PlaylistSummaryBulkEditTests
     [DoNotParallelize]
     public void SettingDialog_CustomFolderOutputDefaultsRenderLocalizedTwoWayFolderOptions()
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = true;
             });
