@@ -13,7 +13,7 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using static BeMusicSeeker.Tests.OwnedChartCollectionTestSupport;
+using static BeMusicSeeker.TestSupport.Components.OwnedChartCollectionTestSupport;
 
 namespace BeMusicSeeker.Tests;
 

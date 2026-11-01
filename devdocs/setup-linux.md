@@ -83,6 +83,7 @@ dotnet build BeMusicSeeker.sln --no-restore -c Release --disable-build-servers \
     <TargetFramework>net10.0</TargetFramework>
     <LangVersion>14.0</LangVersion>
     <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
     <TestingExtensionsProfile>None</TestingExtensionsProfile>
     <EnableMicrosoftTestingExtensionsTrxReport>true</EnableMicrosoftTestingExtensionsTrxReport>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
@@ -90,7 +91,7 @@ dotnet build BeMusicSeeker.sln --no-restore -c Release --disable-build-servers \
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../BeMusicSeeker/Ribbit/Math/Fraction.cs" Link="Fraction.cs" />
-    <Compile Include="../../BeMusicSeeker.Tests/Chart/FractionTests.cs" Link="FractionTests.cs" />
+    <Compile Include="../../tests/BeMusicSeeker.Core.Tests/Chart/FractionTests.cs" Link="FractionTests.cs" />
   </ItemGroup>
 </Project>
 XML

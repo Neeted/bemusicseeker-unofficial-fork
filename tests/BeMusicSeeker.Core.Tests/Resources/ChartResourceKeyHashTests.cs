@@ -1,6 +1,4 @@
-using System.IO;
 using BeMusicSeeker.Models;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 

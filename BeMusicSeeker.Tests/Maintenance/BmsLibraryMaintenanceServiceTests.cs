@@ -15,7 +15,7 @@ using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-using static BeMusicSeeker.Tests.OwnedChartCollectionTestSupport;
+using static BeMusicSeeker.TestSupport.Components.OwnedChartCollectionTestSupport;
 
 namespace BeMusicSeeker.Tests;
 

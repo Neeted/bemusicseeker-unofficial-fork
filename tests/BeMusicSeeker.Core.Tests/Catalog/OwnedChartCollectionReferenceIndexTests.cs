@@ -1,12 +1,7 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-
-using static BeMusicSeeker.Tests.OwnedChartCollectionTestSupport;
+using BeMusicSeeker.TestSupport.Components;
+using static BeMusicSeeker.TestSupport.Components.OwnedChartCollectionTestSupport;
 
 namespace BeMusicSeeker.Tests;
 

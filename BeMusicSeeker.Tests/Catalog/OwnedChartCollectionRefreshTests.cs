@@ -5,7 +5,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using static BeMusicSeeker.Tests.OwnedChartCollectionTestSupport;
+using static BeMusicSeeker.TestSupport.Components.OwnedChartCollectionTestSupport;
 
 namespace BeMusicSeeker.Tests;
 

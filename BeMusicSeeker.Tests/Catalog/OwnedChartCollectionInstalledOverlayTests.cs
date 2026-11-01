@@ -3,7 +3,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-using static BeMusicSeeker.Tests.OwnedChartCollectionTestSupport;
+using static BeMusicSeeker.TestSupport.Components.OwnedChartCollectionTestSupport;
 
 namespace BeMusicSeeker.Tests;
 

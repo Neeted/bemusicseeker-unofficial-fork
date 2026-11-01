@@ -1,18 +1,12 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Reflection;
-using System.Threading;
-using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.TestSupport.Wpf;
 using Microsoft.VisualBasic.FileIO;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.TestSupport.Components;
 
 internal static class OwnedChartCollectionTestSupport
 {
