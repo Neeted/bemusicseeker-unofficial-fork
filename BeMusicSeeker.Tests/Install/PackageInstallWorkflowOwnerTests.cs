@@ -1123,7 +1123,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         }
     }
 
-    /// <summary>先行導入の失敗後も次の明示要求を受理し、実導入の終端前に完了を通知せず、各失敗・完了を共通受付解放後に一度届ける。</summary>
+    /// <summary>同path・同世代の別要求の失敗・正常保留・導入を各BatchIdへ結び、実終端前の通知や保留だけの利用者向け完了通知を増やさず、受付解放後に届ける。</summary>
+    /// <remarks>実portの元例外と異なる実結果を既存ownerへ通して発行側の帰属を検査します。consumerの照合処理をテスト内に複製しません。</remarks>
     [TestMethod]
     public async Task Enqueue_PublishesCompletionAfterLiveInstallReturnsAndContinuesAfterFailure()
     {
@@ -1143,6 +1144,17 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         object observationLock = new object();
         var chartFileOperations = new ChartFileOperationSynchronizer();
         var terminalAdmissions = new List<bool>();
+        var terminals = new List<PackageInstallBatchTerminal>();
+        var batchAdmissions = new List<bool>();
+        string samePath = Path.Combine(root, "same.zip");
+        var failedRequest = new DroppedInstallBatchRequest([samePath]);
+        var pendingRequest = new DroppedInstallBatchRequest([samePath]);
+        var installedRequest = new DroppedInstallBatchRequest([samePath]);
+        var expectedFailure = new InvalidOperationException("first failed");
+        var pendingReceipt = new LibraryMutationSessionReceipt([], durableCommit: true);
+        var installedPackage = new ChartPackage();
+        PackageInstallCompletionReceipt? installedCompletion = null;
+        int callNumber = 0;
         PackageInstallWorkflowOwner? owner = null;
         bool workerStarted = false;
         try
@@ -1159,16 +1171,18 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                     {
                         calls.Add(displayName);
                     }
-                    if (displayName == "first.zip")
+                    int attempt = Interlocked.Increment(ref callNumber);
+                    if (attempt == 1)
                     {
                         firstInstallEntered.TrySetResult(true);
                         releaseFirstInstall.Wait();
-                        throw new InvalidOperationException("first failed");
+                        throw expectedFailure;
                     }
+                    if (attempt == 2) { return new PackageInstallCommandResult([], pendingReceipt); }
                     secondInstallEntered.TrySetResult(true);
                     releaseSecondInstall.Wait();
                     secondFinished.TrySetResult(true);
-                    return new PackageInstallCommandResult([new ChartPackage()], null);
+                    return new PackageInstallCommandResult([installedPackage], null);
                 },
                 action =>
                 {
@@ -1199,8 +1213,19 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                     terminalAdmissions.Add(admissionAvailable);
                 }
             };
-            owner.CompletionPublished += _ =>
+            owner.BatchTerminated += terminal =>
             {
+                bool available = chartFileOperations.TryEnter(out IDisposable admission);
+                admission?.Dispose();
+                lock (observationLock)
+                {
+                    terminals.Add(terminal);
+                    batchAdmissions.Add(available);
+                }
+            };
+            owner.CompletionPublished += receipt =>
+            {
+                installedCompletion = receipt;
                 bool admissionAvailable = chartFileOperations.TryEnter(out IDisposable admission);
                 admission?.Dispose();
                 lock (observationLock)
@@ -1210,15 +1235,27 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 }
                 completed.TrySetResult(true);
             };
-            owner.Enqueue([Path.Combine(root, "first.zip")]);
+            Assert.IsTrue(owner.TryEnqueue(failedRequest));
             workerStarted = true;
             await TestUiDispatcherHost.AwaitNotificationAsync(firstInstallEntered.Task, owner.WaitForIdleAsync(), "PackageInstallWorkflowOwnerTests.firstInstallEntered");
-            Assert.IsFalse(owner.Enqueue([Path.Combine(root, "second.zip")]));
+            Assert.IsFalse(owner.TryEnqueue(new DroppedInstallBatchRequest([samePath])));
             releaseFirstInstall.Set();
             await owner.WaitForIdleAsync();
+            await terminalInactive.Task;
             Assert.AreEqual(1, failures.Count);
             terminalInactive = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            Assert.IsTrue(owner.Enqueue([Path.Combine(root, "second.zip")]));
+            Assert.IsTrue(owner.TryEnqueue(pendingRequest));
+            await owner.WaitForIdleAsync();
+            await terminalInactive.Task;
+            Assert.IsFalse(completed.Task.IsCompleted, "保留だけの正常結果から利用者向け導入完了通知を増やしません。");
+            Assert.AreEqual(2, terminals.Count);
+            Assert.AreEqual(failedRequest.BatchId, terminals[0].BatchId);
+            Assert.AreSame(expectedFailure, terminals[0].Failure);
+            Assert.AreEqual(pendingRequest.BatchId, terminals[1].BatchId);
+            Assert.IsNull(terminals[1].Failure);
+            Assert.AreSame(pendingReceipt, terminals[1].CommandResult.SessionReceipt);
+            terminalInactive = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Assert.IsTrue(owner.TryEnqueue(installedRequest));
 
             await TestUiDispatcherHost.AwaitNotificationAsync(secondInstallEntered.Task, owner.WaitForIdleAsync(), "PackageInstallWorkflowOwnerTests.secondInstallEntered");
             lock (observationLock)
@@ -1231,6 +1268,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Assert.IsFalse(completed.Task.IsCompleted, "Completion must not be published before the live install returns.");
             Assert.IsFalse(terminalInactive.Task.IsCompleted, "The queue must remain active while the following batch is running.");
             Assert.IsFalse(owner.IsIdle, "The workflow must not become idle before the live install returns.");
+            Assert.AreEqual(2, terminals.Count, "先行2要求の終端を、未終端の同path要求の結果として増やしません。");
             releaseSecondInstall.Set();
 
             await TestUiDispatcherHost.AwaitNotificationAsync(secondFinished.Task, owner.WaitForIdleAsync(), "PackageInstallWorkflowOwnerTests.secondFinished");
@@ -1248,8 +1286,20 @@ public sealed partial class PackageInstallWorkflowOwnerTests
 
             await TestUiDispatcherHost.AwaitNotificationAsync(completed.Task, owner.WaitForIdleAsync(), "PackageInstallWorkflowOwnerTests.completed");
             Assert.AreEqual(1, failureSnapshot.Length);
-            CollectionAssert.AreEqual(new[] { "first.zip", "second.zip" }, callSnapshot);
-            CollectionAssert.AreEqual(new[] { "failure", "inactive", "completion", "inactive" }, eventOrderSnapshot);
+            CollectionAssert.AreEqual(new[] { "same.zip", "same.zip", "same.zip" }, callSnapshot);
+            CollectionAssert.AreEqual(new[] { "failure", "inactive", "inactive", "completion", "inactive" }, eventOrderSnapshot);
+            Assert.AreEqual(3, terminals.Count);
+            CollectionAssert.AreEqual(new[] { true, true, true }, batchAdmissions, "batchの観測も受付解放後に配送します。");
+            Assert.AreEqual(1, terminals.Select(terminal => terminal.Generation).Distinct().Count());
+            Assert.AreEqual(3, terminals.Select(terminal => terminal.BatchId).Distinct().Count());
+            Assert.AreEqual(installedRequest.BatchId, terminals[2].BatchId);
+            Assert.IsNull(terminals[2].Failure);
+            Assert.AreSame(installedPackage, terminals[2].CommandResult.RegisteredPackages.Single());
+            Assert.AreEqual(failedRequest.BatchId, failureSnapshot.Single().BatchId);
+            Assert.AreSame(expectedFailure, failureSnapshot.Single().Exception);
+            Assert.IsNotNull(installedCompletion);
+            Assert.AreEqual(installedRequest.BatchId, installedCompletion.BatchId);
+            Assert.AreSame(installedPackage, installedCompletion.Packages.Single());
             CollectionAssert.AreEqual(new[] { true, true }, terminalAdmissions,
                 "失敗・完了の subscriber を呼ぶ前に共通受付を解放する。");
             Assert.IsTrue(owner.IsIdle, "The workflow must be idle after its terminal inactive status.");
@@ -1682,9 +1732,11 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         }
     }
 
-    /// <summary>反映中に取消を要求しても反映portが正常に返した確定結果を失わせず、対象一件の完了receiptを通知する。</summary>
+    /// <summary>反映前の取消は実結果を合成せず、反映中の取消後に返った実結果は保持し、同じ要求の終端を受付解放後に通知する。</summary>
     [TestMethod]
-    public async Task CancelAfterLiveApplyReturns_PublishesCompletionReceipt()
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task CancelAfterLiveApplyReturns_PublishesCompletionReceipt(bool cancelBeforeApply)
     {
         var databaseScope = new ApplicationDatabaseScope();
 
@@ -1698,33 +1750,71 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         {
             var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, string.Empty);
             var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var terminal = new TaskCompletionSource<(PackageInstallBatchTerminal Result, bool AdmissionReleased)>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var activity = new ChartMutationActivityOwner();
+            var operations = new ChartFileOperationSynchronizer();
+            var returnedResult = new PackageInstallCommandResult([new ChartPackage()], null);
+            PackageInstallCompletionReceipt? completion = null;
+            int failures = 0;
+            int mutationCalls = 0;
             owner = CreateOwner(
                 (current, paths, token, progressWriter) =>
                 {
+                    Interlocked.Increment(ref mutationCalls);
                     started.TrySetResult(true);
                     release.Wait();
                     Assert.IsTrue(token.IsCancellationRequested, "The test must cancel while live apply is in progress.");
-                    return new PackageInstallCommandResult([new ChartPackage()], null);
+                    return returnedResult;
                 },
                 action =>
                 {
                     action();
                     return true;
-                });
-            owner.CompletionPublished += receipt =>
+                }, chartFileOperations: operations, chartMutationActivity: activity);
+            activity.ActivityChanged += (_, _) =>
             {
-                Assert.AreEqual(1, receipt.Packages.Count);
-                completion.TrySetResult(true);
+                if (cancelBeforeApply && activity.IsActive) { owner.CancelAll(); }
+            };
+            owner.CompletionPublished += receipt => completion = receipt;
+            owner.FailurePublished += _ => Interlocked.Increment(ref failures);
+            owner.BatchTerminated += result =>
+            {
+                bool admitted = operations.TryEnter(out IDisposable lease);
+                lease?.Dispose();
+                terminal.TrySetResult((result, admitted));
             };
             owner.AttachLibrary(library);
-            owner.Enqueue([Path.Combine(root, "cancelled-after-apply.zip")]);
-            await TestUiDispatcherHost.AwaitNotificationAsync(started.Task, owner.WaitForIdleAsync(), "PackageInstallWorkflowOwnerTests.started");
-            owner.CancelAll();
-            release.Set();
+            var request = new DroppedInstallBatchRequest([Path.Combine(root, "cancelled-after-apply.zip")]);
+            if (cancelBeforeApply) { release.Set(); }
+            Assert.IsTrue(owner.TryEnqueue(request));
+            if (!cancelBeforeApply)
+            {
+                await TestUiDispatcherHost.AwaitNotificationAsync(started.Task, owner.WaitForIdleAsync(), "PackageInstallWorkflowOwnerTests.started");
+                owner.CancelAll();
+                release.Set();
+            }
 
-            await TestUiDispatcherHost.AwaitNotificationAsync(completion.Task, owner.WaitForIdleAsync(), "PackageInstallWorkflowOwnerTests.completion");
+            await TestUiDispatcherHost.AwaitNotificationAsync(terminal.Task, owner.WaitForIdleAsync(), "PackageInstallWorkflowOwnerTests.batchTerminal");
             await owner.WaitForIdleAsync();
+            (PackageInstallBatchTerminal Result, bool AdmissionReleased) observed = await terminal.Task;
+            Assert.AreEqual(request.BatchId, observed.Result.BatchId);
+            Assert.IsTrue(observed.AdmissionReleased);
+            Assert.IsNull(observed.Result.Failure);
+            Assert.AreEqual(0, failures);
+            if (cancelBeforeApply)
+            {
+                Assert.AreEqual(0, mutationCalls);
+                Assert.IsNull(observed.Result.CommandResult);
+                Assert.IsNull(completion);
+            }
+            else
+            {
+                Assert.AreEqual(1, mutationCalls);
+                Assert.AreSame(returnedResult, observed.Result.CommandResult);
+                Assert.IsNotNull(completion);
+                Assert.AreEqual(1, completion.Packages.Count);
+                Assert.AreEqual(request.BatchId, completion.BatchId);
+            }
         }
         finally
         {
@@ -1946,7 +2036,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         }
     }
 
-    /// <summary>statusや完了subscriberの失敗でqueueを停止させず、後続の明示要求も実処理を終える。</summary>
+    /// <summary>status・完了・実batch終端subscriberの失敗でqueueや業務結果を壊さず、後続の明示要求も実処理を終える。</summary>
     [TestMethod]
     public async Task NotificationFailure_DoesNotStopQueueLifecycle()
     {
@@ -1961,6 +2051,10 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, string.Empty);
             int mutationCalls = 0;
             var secondFinished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var secondTerminal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var returnedResult = new PackageInstallCommandResult([new ChartPackage()], null);
+            var observedResults = new List<PackageInstallCommandResult>();
+            int completions = 0;
             PackageInstallWorkflowOwner owner = CreateOwner(
                 (current, paths, token, progressWriter) =>
                 {
@@ -1969,7 +2063,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                     {
                         secondFinished.TrySetResult(true);
                     }
-                    return new PackageInstallCommandResult([new ChartPackage()], null);
+                    return returnedResult;
                 },
                 action =>
                 {
@@ -1978,14 +2072,30 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 });
             owner.AttachLibrary(library);
             owner.StatusChanged += _ => throw new InvalidOperationException("status publication failed");
-            owner.CompletionPublished += _ => throw new InvalidOperationException("completion publication failed");
+            owner.CompletionPublished += _ =>
+            {
+                Interlocked.Increment(ref completions);
+                throw new InvalidOperationException("completion publication failed");
+            };
+            owner.BatchTerminated += terminal =>
+            {
+                lock (observedResults)
+                {
+                    observedResults.Add(terminal.CommandResult);
+                    if (observedResults.Count == 2) { secondTerminal.TrySetResult(true); }
+                }
+                throw new InvalidOperationException("batch terminal observation failed");
+            };
             owner.Enqueue([Path.Combine(root, "first.zip")]);
             await owner.WaitForIdleAsync();
             owner.Enqueue([Path.Combine(root, "second.zip")]);
 
             await TestUiDispatcherHost.AwaitNotificationAsync(secondFinished.Task, owner.WaitForIdleAsync(), "PackageInstallWorkflowOwnerTests.secondFinished");
+            await TestUiDispatcherHost.AwaitNotificationAsync(secondTerminal.Task, owner.WaitForIdleAsync(), "PackageInstallWorkflowOwnerTests.secondTerminal");
             await owner.WaitForIdleAsync();
             Assert.AreEqual(2, mutationCalls);
+            Assert.AreEqual(2, completions);
+            lock (observedResults) { CollectionAssert.AreEqual(new[] { returnedResult, returnedResult }, observedResults); }
         }
         finally
         {
@@ -2370,12 +2480,13 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Func<Action, bool> dispatchToUi,
         Action<Exception>? reportNotificationFailure = null,
         DroppedInstallIngressMaterializer? droppedInstallIngressMaterializer = null,
-        ChartFileOperationSynchronizer? chartFileOperations = null)
+        ChartFileOperationSynchronizer? chartFileOperations = null,
+        ChartMutationActivityOwner? chartMutationActivity = null)
     {
         return new PackageInstallWorkflowOwner(
             new FileDbReportRecordingDialogs(),
             chartFileOperations ?? new ChartFileOperationSynchronizer(),
-            new ChartMutationActivityOwner(),
+            chartMutationActivity ?? new ChartMutationActivityOwner(),
             new DelegatePackageInstallMutationPort(installBatch),
             new NoOpChartMutationPlaybackPort(),
             dispatchToUi,

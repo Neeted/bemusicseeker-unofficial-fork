@@ -18,7 +18,7 @@ using BeMusicSeeker.Views;
 namespace BeMusicSeeker.Runtime;
 
 /// <summary>明示test sessionだけで、固定要求を通常のUI操作境界へ配送します。処理待機中もpipeを読み続けます。</summary>
-internal sealed class ApplicationScenarioControl : IAsyncDisposable
+internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
 {
     private readonly NamedPipeClientStream pipe;
     private readonly StreamReader reader;
@@ -158,6 +158,9 @@ internal sealed class ApplicationScenarioControl : IAsyncDisposable
         { return new ScenarioSnapshotCompleted(request.RequestId, CaptureSnapshot(model)); }
         if (!model.IsInitializationCompleted)
         { throw new InvalidOperationException("The library is not ready for this command."); }
+        if (request is ScenarioDropCommand drop) { return await DropAsync(model, drop); }
+        if (request is ScenarioPackageViewCommand view) { return await NavigatePackagesAsync(model, view.RequestId, view.Pending); }
+        if (request is ScenarioPendingCommand pending) { return await ApplyPendingAsync(model, pending); }
         if (request is ScenarioReloadCommand)
         {
             StartupInitializationResult? result = await model.ReloadFileDiffAsync().WaitAsync(stopping.Token);

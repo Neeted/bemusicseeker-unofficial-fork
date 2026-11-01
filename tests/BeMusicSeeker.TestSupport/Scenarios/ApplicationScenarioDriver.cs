@@ -122,6 +122,19 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
     internal Task<ScenarioReloadCompleted> ReloadAsync(ProcessDeadline deadline)
         => RequestAsync<ScenarioReloadCompleted>(id => new ScenarioReloadCommand(id), deadline);
 
+    /// <summary>実Dropの入力確保と、同じBatchIdの導入終端を待ちます。</summary>
+    internal Task<ScenarioDropCompleted> DropAsync(IEnumerable<string> paths, ProcessDeadline deadline)
+        => RequestAsync<ScenarioDropCompleted>(id => new ScenarioDropCommand(id, [.. paths]), deadline);
+
+    /// <summary>通常の保留・新規一覧へ移動し、表示Task終端後の実行を読みます。</summary>
+    internal Task<ScenarioPackageViewCompleted> NavigatePackagesAsync(bool pending, ProcessDeadline deadline)
+        => RequestAsync<ScenarioPackageViewCompleted>(id => new ScenarioPackageViewCommand(id, pending), deadline);
+
+    /// <summary>実保留行を対象に既存操作を行い、操作結果とその後の一覧移動結果を返します。</summary>
+    internal Task<ScenarioPendingCompleted> ApplyPendingAsync(ScenarioPendingAction action, IEnumerable<string> chartPaths,
+        ProcessDeadline deadline, string? destination = null)
+        => RequestAsync<ScenarioPendingCompleted>(id => new ScenarioPendingCommand(id, action, [.. chartPaths], destination), deadline);
+
     /// <summary>実Window.Closeを要求し、root・両出力pipe・全所有子孫の正常退出まで待ちます。</summary>
     internal async Task CloseAsync(ProcessDeadline deadline)
     {

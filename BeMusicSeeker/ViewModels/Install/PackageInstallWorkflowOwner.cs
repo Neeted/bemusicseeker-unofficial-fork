@@ -71,11 +71,14 @@ internal sealed class BmsLibraryPackageInstallMutationPort : IPackageInstallMuta
 
 internal sealed class PackageInstallCompletionReceipt : EventArgs
 {
+    /// <summary>実結果とライブラリ世代・受付要求IDを保持し、入力所有者の可変状態を公開しません。</summary>
     internal PackageInstallCompletionReceipt(
         long generation,
         IEnumerable<ChartPackage> packages,
-        PackageInstallCommandResult commandResult = null)
+        PackageInstallCommandResult commandResult = null,
+        Guid batchId = default)
     {
+        BatchId = batchId;
         Generation = generation;
         Packages = [.. (packages ?? []).Where(package => package != null)];
         CommandResult = commandResult;
@@ -86,6 +89,9 @@ internal sealed class PackageInstallCompletionReceipt : EventArgs
     internal PackageInstallCommandResult CommandResult { get; }
 
     internal long Generation { get; }
+
+    /// <summary>実受付要求から引き継ぐ相関IDです。ライブラリ世代と要求の同一性を分けます。</summary>
+    internal Guid BatchId { get; }
 
     internal IReadOnlyList<ChartPackage> Packages { get; }
 
@@ -110,10 +116,11 @@ internal sealed class PackageInstallCompletionReceipt : EventArgs
 
 internal sealed class PackageInstallFailure : EventArgs
 {
-    /// <summary>Retains a completed mutation's facts when outer workflow cleanup fails.</summary>
+    /// <summary>外側の回収が失敗しても、同じ要求の確定事実と元例外を保持します。</summary>
     internal PackageInstallFailure(long generation, IEnumerable<string> paths, Exception exception,
-        PackageInstallCommandResult commandResult = null)
+        PackageInstallCommandResult commandResult = null, Guid batchId = default)
     {
+        BatchId = batchId;
         Generation = generation;
         Paths = [.. (paths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
         Exception = exception ?? throw new ArgumentNullException(nameof(exception));
@@ -126,9 +133,19 @@ internal sealed class PackageInstallFailure : EventArgs
 
     internal Exception Exception { get; }
 
+    /// <summary>故障した実受付要求の相関IDです。可変な入力所有者は公開しません。</summary>
+    internal Guid BatchId { get; }
+
     /// <summary>Gets mutation facts produced before the lifecycle failure.</summary>
     internal PackageInstallCommandResult CommandResult { get; }
 }
+
+/// <summary>実batchの終端事実です。保留のみの正常結果も、利用者向け完了通知を増やさず伝えます。</summary>
+/// <param name="BatchId">実受付要求の相関IDです。</param>
+/// <param name="Generation">要求を処理したライブラリ世代です。</param>
+/// <param name="CommandResult">実処理が返した確定事実です。未実行・取消・結果生成前の例外ではnullです。</param>
+/// <param name="Failure">入力回収を含む実workflowの故障です。</param>
+internal sealed record PackageInstallBatchTerminal(Guid BatchId, long Generation, PackageInstallCommandResult CommandResult, Exception Failure);
 
 /// <summary>
 /// パッケージ導入の全入口を所有し、一要求の受付、ライブラリ世代、
@@ -201,6 +218,9 @@ internal sealed class PackageInstallWorkflowOwner
     internal event Action<PackageInstallCompletionReceipt> CompletionPublished;
 
     internal event Action<PackageInstallFailure> FailurePublished;
+
+    /// <summary>利用者向け通知の有無と別に、実処理と入力回収後の同一batch結果を読取り専用で通知します。</summary>
+    internal event Action<PackageInstallBatchTerminal> BatchTerminated;
 
     /// <summary>
     /// Reports that the package-install owner received a cancellation request.
@@ -483,6 +503,8 @@ internal sealed class PackageInstallWorkflowOwner
         var progressWriter = new PackageInstallProgressWriter(this, context);
         (PackageInstallCommandResult commandResult, Exception terminalFailure) = await ExecuteInstallBatchAsync(
             context, currentGeneration, currentLibrary, request, token, progressWriter, context.OperationLease, lease => context.PlaylistLease = lease).ConfigureAwait(false);
+        // 既存通知の空集合判定と、実処理が結果を生成したかの観測を分けます。
+        PackageInstallCommandResult actualResult = commandResult;
         commandResult ??= new PackageInstallCommandResult([], null);
         IReadOnlyList<ChartPackage> packages = commandResult.RegisteredPackages;
         if (!IsCurrentGeneration(currentGeneration, currentLibrary))
@@ -492,7 +514,7 @@ internal sealed class PackageInstallWorkflowOwner
         if (terminalFailure != null)
         {
             var failure = new PackageInstallFailure(currentGeneration, request.OriginalPaths,
-                terminalFailure, commandResult);
+                terminalFailure, commandResult, request.BatchId);
             QueueTerminalNotification(context, () =>
             {
                 if (IsCurrentGeneration(currentGeneration, currentLibrary))
@@ -500,6 +522,7 @@ internal sealed class PackageInstallWorkflowOwner
                     FailurePublished?.Invoke(failure);
                 }
             }, terminalFailure);
+            QueueBatchTerminal(context, request.BatchId, actualResult, terminalFailure);
             return;
         }
         if (packages.Count == 0
@@ -508,15 +531,30 @@ internal sealed class PackageInstallWorkflowOwner
             && !commandResult.CompletedWithCleanupFailure
             && commandResult.UnprocessedPackages.Count == 0)
         {
+            QueueBatchTerminal(context, request.BatchId, actualResult, null);
             return;
         }
-        var receipt = new PackageInstallCompletionReceipt(currentGeneration, packages, commandResult);
+        var receipt = new PackageInstallCompletionReceipt(currentGeneration, packages, commandResult, request.BatchId);
         QueueTerminalNotification(context, () =>
         {
             if (IsCurrentGeneration(currentGeneration, currentLibrary))
             {
                 CompletionPublished?.Invoke(receipt);
             }
+        });
+        QueueBatchTerminal(context, request.BatchId, actualResult, null);
+    }
+
+    private void QueueBatchTerminal(QueueProcessorContext context, Guid batchId, PackageInstallCommandResult result, Exception failure)
+    {
+        // 事前購読がない通常経路には空のDispatcher通知を増やしません。
+        if (BatchTerminated is null) { return; }
+        var terminal = new PackageInstallBatchTerminal(batchId, context.Generation, result, failure);
+        // 既存通知とは別に配送し、observer故障を業務結果や利用者通知へ混ぜません。
+        // queueが入力を回収して受付を解放するまで、外部observerを呼びません。
+        QueueTerminalNotification(context, () =>
+        {
+            if (IsCurrentGeneration(context.Generation, context.Library)) { BatchTerminated?.Invoke(terminal); }
         });
     }
 
@@ -535,7 +573,7 @@ internal sealed class PackageInstallWorkflowOwner
             .Where(path => !string.IsNullOrWhiteSpace(path))];
         if (normalizedInstallPaths.Length == 0 || token.IsCancellationRequested)
         {
-            return (new PackageInstallCommandResult([], null), null);
+            return (null, null);
         }
 
         BMSLibrary.OperationDialogScope dialogScope = null;
@@ -631,14 +669,14 @@ internal sealed class PackageInstallWorkflowOwner
             case 0:
                 return (mutationAllowed
                     ? commandResult
-                    : new PackageInstallCommandResult([], commandResult?.SessionReceipt), null);
+                    : null, null);
             case 1:
                 failures[0].Throw();
                 break;
             default:
                 throw new AggregateException(failures.Select(failure => failure.SourceException));
         }
-        return (new PackageInstallCommandResult([], commandResult?.SessionReceipt), null);
+        return (null, null);
     }
 
     private static void CaptureCleanupFailure(Action cleanup, List<ExceptionDispatchInfo> failures)
@@ -879,7 +917,8 @@ internal sealed class PackageInstallWorkflowOwner
             ReportNotificationFailure(exception);
             return;
         }
-        var failure = new PackageInstallFailure(context.Generation, context.ActiveBatch?.OriginalPaths, exception);
+        var failure = new PackageInstallFailure(context.Generation, context.ActiveBatch?.OriginalPaths, exception,
+            batchId: context.ActiveBatch?.BatchId ?? Guid.Empty);
         QueueTerminalNotification(context, () =>
         {
             if (IsCurrentGeneration(context.Generation, context.Library))
@@ -891,6 +930,7 @@ internal sealed class PackageInstallWorkflowOwner
                 ReportNotificationFailure(exception);
             }
         }, exception);
+        QueueBatchTerminal(context, failure.BatchId, null, exception);
     }
 
     private void QueueTerminalNotification(

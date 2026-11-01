@@ -35,6 +35,9 @@ internal sealed class DroppedInstallBatchRequest
     /// </summary>
     internal string[] OriginalPaths { get; }
 
+    /// <summary>同じ入力パスの再受付も区別する、この要求だけの相関IDです。所有権や永続状態を表しません。</summary>
+    internal Guid BatchId { get; } = Guid.NewGuid();
+
     /// <summary>コピー前に全項目選択と捕捉した親directoryです。nullは未捕捉、空集合は捕捉済みです。</summary>
     internal IReadOnlySet<string> FullySelectedDirectories { get; }
 

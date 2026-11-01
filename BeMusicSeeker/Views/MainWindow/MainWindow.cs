@@ -8083,12 +8083,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        var request = PendingInstallPackageOperationRequest.CreateForceInstall(targets);
         if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
         e.Handled = true;
+        await ForceInstallSelectedPendingChartsAsync(targets);
+    }
+
+    /// <summary>選択した実保留譜面の新規導入と必要表示を共用し、同じ実結果を返します。</summary>
+    internal async Task<PendingPackageMutationResult> ForceInstallSelectedPendingChartsAsync(IReadOnlyList<ChartOperationTarget> targets)
+    {
+        var request = PendingInstallPackageOperationRequest.CreateForceInstall(targets);
         PackageCatalogSelectionPlan selectionPlan = treeViewItemInstallPending.IsSelected
             ? PackageCatalogSelectionPlan.None
             : CaptureNextSiblingOrRoot(
@@ -8106,6 +8112,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 ClearMainGridSelection();
                 selectionPlan.Apply(this);
             });
+        return result;
     }
 
     private async void manualInstallSelectedPendingCharts(object sender, RoutedEventArgs e)
@@ -8144,8 +8151,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         await ManualInstallSelectedPendingChartsAsync(targets);
     }
 
-    /// <summary>選択譜面の導入要求と完了後の選択・ツリー反映をメニューと操作バーで共用します。</summary>
-    private async Task ManualInstallSelectedPendingChartsAsync(IReadOnlyList<ChartOperationTarget> targets)
+    /// <summary>選択譜面の実導入と必要表示を共用し、拒否・失敗を含む同じ操作結果を呼出元へ返します。</summary>
+    internal async Task<PendingPackageMutationResult> ManualInstallSelectedPendingChartsAsync(IReadOnlyList<ChartOperationTarget> targets)
     {
         var request = PendingInstallPackageOperationRequest.CreateManualInstall(targets);
         PackageCatalogSelectionPlan selectionPlan = treeViewItemInstallPending.IsSelected
@@ -8165,6 +8172,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 ClearMainGridSelection();
                 selectionPlan.Apply(this);
             });
+        return result;
     }
 
     private async void searchInstallDestinationSelectedPendingCharts(object sender, RoutedEventArgs e)
