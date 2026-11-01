@@ -14,7 +14,7 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
     /// <remarks>専用設定ファイルと本番providerを使い、生成SettingsとXML保存値の両方で旧形式の受理を確認する。</remarks>
     [TestMethod]
     public Task PlayerPanelState_PreservesPersistedKeyNamesAndValues()
-        => FreshPlaybackProbe.RunAsync("PlayerPanelState_PreservesPersistedKeyNamesAndValues", TestContext.CancellationToken);
+        => WindowsProcessProbeRunner.RunAsync("playback", "PlayerPanelState_PreservesPersistedKeyNamesAndValues", TestContext.CancellationToken);
 
     /// <summary>
     /// 保証：旧数値の正規化保存が置換ロックで失敗すると元ファイルを保持し、Settingsの読取りにはメモリ内の正規化値を渡す。
@@ -22,5 +22,5 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
     /// <remarks>実ファイルの共有モードで置換を失敗させ、原本バイトと本番設定providerの読取りを観測する。</remarks>
     [TestMethod]
     public Task PlayerPanelState_AtomicNormalizationFailurePreservesOriginalAndMaterializesCanonicalValue()
-        => FreshPlaybackProbe.RunAsync("PlayerPanelState_AtomicNormalizationFailurePreservesOriginalAndMaterializesCanonicalValue", TestContext.CancellationToken);
+        => WindowsProcessProbeRunner.RunAsync("playback", "PlayerPanelState_AtomicNormalizationFailurePreservesOriginalAndMaterializesCanonicalValue", TestContext.CancellationToken);
 }

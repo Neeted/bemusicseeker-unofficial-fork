@@ -7,10 +7,10 @@ using BeMusicSeeker.TestSupport.Processes;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>既存Windows probeの一回の実行と、root・両pipe・Job・領域の終端を所有します。</summary>
-internal static class FreshPlaybackProbe
+internal static class WindowsProcessProbeRunner
 {
     /// <summary>旧専用hostの360秒を全実行phaseで共有し、caseの取消を実行待機へ渡し、失敗・取消時も独立した10秒期限で回収します。</summary>
-    internal static async Task RunAsync(string caseName, CancellationToken cancellationToken)
+    internal static async Task RunAsync(string mode, string caseName, CancellationToken cancellationToken)
     {
         var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         OwnedProcess? process = null;
@@ -19,7 +19,7 @@ internal static class FreshPlaybackProbe
         try
         {
             string executable = Path.Combine(AppContext.BaseDirectory, "fixtures", "windows-process-probe", "WindowsProcessProbe.exe");
-            var request = new ProcessStartRequest(executable, ["playback", caseName], workspace.RootDirectory,
+            var request = new ProcessStartRequest(executable, [mode, caseName], workspace.RootDirectory,
                 new Dictionary<string, string?> { [TestRunDirectory.EnvironmentVariable] = workspace.GetPath("child") });
             var deadline = ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(360));
             process = OwnedProcess.Start(request);

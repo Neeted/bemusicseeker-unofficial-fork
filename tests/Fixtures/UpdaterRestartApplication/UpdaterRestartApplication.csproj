@@ -13,4 +13,11 @@
     <EnableSingleFileAnalyzer>false</EnableSingleFileAnalyzer>
     <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
   </PropertyGroup>
+  <!-- 同じproject/global propertiesのPublish結果を全consumerで共有します。 -->
+  <Target Name="GetUpdaterRestartApplicationFixture" DependsOnTargets="Publish" Returns="@(_UpdaterRestartApplicationFixture)">
+    <ItemGroup>
+      <_UpdaterRestartApplicationFixture Include="$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(PublishDir)', '$(AssemblyName).exe'))" />
+    </ItemGroup>
+    <Error Condition="!Exists('@(_UpdaterRestartApplicationFixture)')" Text="更新再起動fixtureの公開exeがありません。" />
+  </Target>
 </Project>

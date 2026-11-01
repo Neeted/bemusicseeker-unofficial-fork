@@ -190,6 +190,8 @@ ownerはsong/score別の再入可能なMonitorと接続寿命を管理します�
 
 自ownerのreadonly待機とmetadata所有Taskの待機は、終了側の`wait_start`到達通知をClose Taskと競合して待ち、対象待機の呼出し脱落を動的に識別します。待機呼出しを残したまま`await`だけを除く変更まで動的に保証するものではありません。`CollectShutdownPreparationResultAsync`からSQLite idle・startup scheduler待機への二つの呼出しと、それぞれのhelper内の`await`接続は独立静的レビューで確認します。
 
+更新Gatewayによる実プロセスの停止は [`UpdaterProcessGatewayTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Update/UpdaterProcessGatewayTests.cs) が担う。stdinのreleaseを送らず、製品Gatewayによる実root終了と両pipeのEOFを観測し、その後の親Job回収を正常停止の表明には使わない。
+
 ## 関連資料
 
 [起動](startup.md)、[設定](settings.md)、[音声基盤](audio.md)、[外部起動](../ui/external-launch.md)、[自動更新](../integration/portable-update.md)を参照します。

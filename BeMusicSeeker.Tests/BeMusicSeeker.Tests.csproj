@@ -16,7 +16,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="Fixtures\UpdaterRestartApplication\**\*.cs" />
     <PackageReference Include="sqlite-net-pcl" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
     <PackageReference Include="ManagedBass" />
@@ -86,11 +85,6 @@
            Text="SevenZipExtractor x64 native test asset is missing: $(PkgSevenZipExtractor)\build\x64\7z.dll" />
   </Target>
 
-  <Target Name="PublishUpdaterRestartApplicationFixture" AfterTargets="Build">
-    <!-- テスト専用WinExeは独立発行し、親のCompileやpackage依存へ混ぜません。 -->
-    <MSBuild Projects="$(MSBuildProjectDirectory)\Fixtures\UpdaterRestartApplication\UpdaterRestartApplication.csproj"
-             Targets="Restore;Publish"
-             Properties="Configuration=$(Configuration);Platform=x64;PublishDir=$(TargetDir)updater-restart-application\" />
-  </Target>
+  <Import Project="../tests/Fixtures/UpdaterRestartApplication/UpdaterRestartApplication.targets" />
 
 </Project>

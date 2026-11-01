@@ -19,7 +19,10 @@ internal static class Program
             {
                 Console.WriteLine("BMS_TEST_FIXTURE_READY");
                 Console.Out.Flush();
-                if (Console.ReadLine() != "release") throw new InvalidDataException("release入力がありません。");
+                if (Console.ReadLine() != "release")
+                {
+                    throw new InvalidDataException("release入力がありません。");
+                }
             }
             else if (configuration.MarkerFile is string marker)
             {

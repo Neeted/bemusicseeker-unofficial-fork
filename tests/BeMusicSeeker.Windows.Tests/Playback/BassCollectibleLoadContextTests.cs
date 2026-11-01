@@ -10,5 +10,5 @@ public sealed class BassCollectibleLoadContextTests
     /// <summary>player型の静的初期化だけではnative読込みと機器列挙を開始せず、専用collectible contextの解放を妨げない。</summary>
     [TestMethod]
     public Task BassAudioPlayer_StaticInitializationDoesNotEnumerateOrLoadNativeRuntime()
-        => FreshPlaybackProbe.RunAsync("BassAudioPlayer_StaticInitializationDoesNotEnumerateOrLoadNativeRuntime", TestContext.CancellationToken);
+        => WindowsProcessProbeRunner.RunAsync("playback", "BassAudioPlayer_StaticInitializationDoesNotEnumerateOrLoadNativeRuntime", TestContext.CancellationToken);
 }

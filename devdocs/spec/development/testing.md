@@ -170,6 +170,8 @@ Windows moduleの `BassCollectibleLoadContextTests` と `PlayerPanelStateSetting
 
 `EnvironmentIntegration` を他カテゴリと併記しても、Fullでは専用phaseで一回だけ実行します。環境不足を `Ignore` / `Inconclusive` で飛ばさず失敗にし、未実施のFullを成功扱いにしません。
 
+Windows moduleの実プロセス境界は [`ExternalPlayerProcessGatewayTests`](../../../tests/BeMusicSeeker.Windows.Tests/Processes/ExternalPlayerProcessGatewayTests.cs)、[`UpdaterProcessGatewayTests`](../../../tests/BeMusicSeeker.Windows.Tests/Update/UpdaterProcessGatewayTests.cs)、[`UpdaterDeploymentBoundaryTests`](../../../tests/BeMusicSeeker.Windows.Tests/Update/UpdaterDeploymentBoundaryTests.cs) が日常検証で担います。更新マーカー2件は `ProcessIntegration` 属性を維持しつつ、module全件を選択する新入口では日常検証に含めます。外部起動2件と更新Gateway5件は既存Windows probeを起動し、fresh playbackと同じ全終端360秒・独立回収10秒・取消・唯一の成功JSONの判定を使います。公開引数3行は実PowerShell関数を直接 `OwnedProcess` で呼び、起動前からroot・両pipe・Jobの終端まで60秒、失敗回収は一度確定した独立5秒を共有します。元の製品期限・停止表明を回収による停止で代替しません。
+
 カテゴリは実行特性を表します。小さい互換性テストや、少数の実部品を接続する検証は通常検証に含められます。`ProcessIntegration` は別プロセス等を扱う区分であり、主体間の接続を確認するすべてのテストを指しません。
 
 ### 資源の分離と共有
@@ -287,7 +289,7 @@ constructor-only harnessは `PrepareConstructorOnlyShell` で既存のshell acti
 
 `UpdaterPackageSyncTests` はクラス全体が `EnvironmentIntegration` であり、HKCUの回復登録を使います。実プロセスの終了とreadyファイルで順序を制御し、[非同期処理の待機](#非同期処理の待機)に従います。通常の終了・受付確認には局所期限を追加せず、標準入口の検証全体の期限を使います。生存アプリの模擬プロセスは準備通知後に使い、検査が終わるまで入力待ちで生存させます。決定前・排他競合中に終了しないことは通常完了と別に観測します。ケース固有のアプリディレクトリと回復登録を使い、所有プロセスと出力の回収後に登録・一時領域を清掃します。
 
-再起動先と生存アプリには、[テスト専用GUI stub](../../../BeMusicSeeker.Tests/Fixtures/UpdaterRestartApplication/Program.cs)を使います。既定Terminalへconsoleの寿命を渡さないよう本番と同じWinExeとし、追加引数なしの本番ShellExecuteを通します。版ごとのmarker内容・生存gateは隣接入力をpackage・backupとともに移動させます。marker生成は終了の代わりにせず、root・両pipeのEOF・Job内の全子終了を待ちます。直接Updaterとそのexecution gateの起動は引き続き画面を作りません。stubは.NET 10 runtimeのある検証環境で動くframework依存の単一exeで、通常のテストbuildから独立発行します。
+再起動先と生存アプリには、[テスト専用GUI stub](../../../tests/Fixtures/UpdaterRestartApplication/Program.cs)を使います。既定Terminalへconsoleの寿命を渡さないよう本番と同じWinExeとし、追加引数なしの本番ShellExecuteを通します。版ごとのmarker内容・生存gateは隣接入力をpackage・backupとともに移動させます。marker生成は終了の代わりにせず、root・両pipeのEOF・Job内の全子終了を待ちます。直接Updaterとそのexecution gateの起動は引き続き画面を作りません。stubは.NET 10 runtimeのある検証環境で動くframework依存の単一exeで、通常のProjectReferenceでbuildし、同じ構成・global propertyの一つの公開targetから旧テストとWindows probeへ単一exeを配布します。
 
 ### 公開旧版からの移行とリリース判定
 

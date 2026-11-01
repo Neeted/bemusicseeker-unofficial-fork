@@ -1,0 +1,25 @@
+<Project>
+  <ItemGroup>
+    <!-- 通常の参照解決を維持し、SDKが確定した構成・framework・除外global propertyを配布でも使います。 -->
+    <ProjectReference Include="$(MSBuildThisFileDirectory)UpdaterRestartApplication.csproj"
+                      ReferenceOutputAssembly="false"
+                      PrivateAssets="all"
+                      UpdaterRestartApplicationFixture="true" />
+  </ItemGroup>
+  <Target Name="CopyUpdaterRestartApplicationFixture" AfterTargets="Build" DependsOnTargets="ResolveProjectReferences">
+    <ItemGroup>
+      <_UpdaterRestartApplicationReference Include="@(_MSBuildProjectReferenceExistent)"
+                                           Condition="'%(_MSBuildProjectReferenceExistent.UpdaterRestartApplicationFixture)' == 'true'" />
+    </ItemGroup>
+    <MSBuild Projects="@(_UpdaterRestartApplicationReference)"
+             Targets="GetUpdaterRestartApplicationFixture"
+             BuildInParallel="$(BuildInParallel)"
+             Properties="%(_UpdaterRestartApplicationReference.SetConfiguration);%(_UpdaterRestartApplicationReference.SetPlatform);%(_UpdaterRestartApplicationReference.SetTargetFramework)"
+             RemoveProperties="%(_UpdaterRestartApplicationReference.GlobalPropertiesToRemove);$(_GlobalPropertiesToRemoveFromProjectReferences)">
+      <Output TaskParameter="TargetOutputs" ItemName="_UpdaterRestartApplicationPublishedExe" />
+    </MSBuild>
+    <Copy SourceFiles="@(_UpdaterRestartApplicationPublishedExe)"
+          DestinationFolder="$(TargetDir)updater-restart-application"
+          SkipUnchangedFiles="true" />
+  </Target>
+</Project>

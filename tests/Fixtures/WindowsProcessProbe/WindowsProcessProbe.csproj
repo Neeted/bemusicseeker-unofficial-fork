@@ -8,4 +8,5 @@
     <ProjectReference Include="../../../BeMusicSeeker/BeMusicSeeker.csproj" />
     <ProjectReference Include="../../BeMusicSeeker.TestSupport/BeMusicSeeker.TestSupport.csproj" />
   </ItemGroup>
+  <Import Project="../UpdaterRestartApplication/UpdaterRestartApplication.targets" />
 </Project>

@@ -1,17 +1,13 @@
-using System;
 using System.Diagnostics;
-using System.Threading;
 using BeMusicSeeker.Models.Utils;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.WindowsProcessProbe;
 
-[TestClass]
-public sealed partial class ExternalPlayerProcessGatewayTests
+/// <summary>親Job内で外部プレイヤーの実起動・終了通知の接続を検証します。</summary>
+internal sealed class ExternalPlayerProcessProbe
 {
     /// <summary>実Windows processの終了通知でadapter自身をsenderとして渡し、利用側が別のprocess instanceを参照しません。</summary>
-    [TestMethod]
-    public void WindowsProcessSessionPublishesItselfAsExitSender()
+    internal void WindowsProcessSessionPublishesItselfAsExitSender()
     {
         using var process = new Process
         {
@@ -41,19 +37,18 @@ public sealed partial class ExternalPlayerProcessGatewayTests
     }
 
     /// <summary>終了の速い実processでも準備後の購読が起動前に成立し、終了通知を取り逃しません。</summary>
-    [TestMethod]
-    public void WindowsGatewaySubscribesBeforeStartingPreparedSession()
+    internal void WindowsGatewaySubscribesBeforeStartingPreparedSession()
     {
         string? commandProcessor = Environment.GetEnvironmentVariable("ComSpec");
         if (string.IsNullOrWhiteSpace(commandProcessor))
         {
-            Assert.Inconclusive("The Windows command processor is unavailable.");
+            throw new InvalidOperationException("The Windows command processor is unavailable.");
         }
 
         var gateway = new WindowsExternalPlayerProcessGateway();
         IExternalPlayerProcessSession session = gateway.Prepare(
             ExternalPlayerProcessLaunchRequest.Create(
-                commandProcessor!,
+                commandProcessor,
                 "/c exit 0",
                 ProcessWindowStyle.Hidden));
         bool exitObserved = false;

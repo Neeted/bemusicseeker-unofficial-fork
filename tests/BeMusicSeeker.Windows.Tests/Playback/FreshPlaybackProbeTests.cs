@@ -11,5 +11,5 @@ public sealed class FreshPlaybackProbeTests
     [DataRow(0, "{\"Case\":\"requested\",\"Passed\":true}\n{\"Case\":\"requested\",\"Passed\":true}", "")]
     [DataRow(0, "{\"Case\":\"requested\",\"Passed\":true}", "failure")]
     public void InvalidCompletionDoesNotSatisfyFreshProbeSuccess(int exitCode, string output, string error)
-        => Assert.ThrowsExactly<AssertFailedException>(() => FreshPlaybackProbe.AssertSuccessfulResult("requested", new(exitCode, output, error)));
+        => Assert.ThrowsExactly<AssertFailedException>(() => WindowsProcessProbeRunner.AssertSuccessfulResult("requested", new(exitCode, output, error)));
 }
