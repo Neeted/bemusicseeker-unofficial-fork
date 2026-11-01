@@ -884,24 +884,10 @@ public sealed class SettingDialogCategoryPersistenceTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
-    /// <summary>各カテゴリの実compiled editorを変更して実保存し、専用providerの新reader、稼働側の設定窓口、新dialogの値を接続します。新しい取消編集は保存済み値へ戻し、別設定と別Web actionを保持します。</summary>
+    /// <summary>14入力の実compiled editorを同じWindowで確定し、各入力直後の全保存keyと稼働readerを確認します。新provider・新VMと同VM再表示の全Binding、未確定recordの取消、別設定・別actionの保持を同processで接続します。</summary>
     /// <remarks>各副作用の条件表は既存設定・player・導入・playlist系列へ分担し、この実Window系列はBindingと保存の正常接続だけを補います。文化・テーマ・共有通知・Window一覧を準備から終端と復元まで所有します。</remarks>
     [TestMethod]
-    [DataRow("General", "Language")]
-    [DataRow("Install", "FolderNameFormat")]
-    [DataRow("Playlist", "OverwritePlaylistUrlsWithCompletion")]
-    [DataRow("Appearance", "CustomTableRowHeight")]
-    [DataRow("Playback", "IsSaveLR2bodyWindowPosition")]
-    [DataRow("Audio", "PlayerResamplingQuality")]
-    [DataRow("Recording", "EncoderAmplifier")]
-    [DataRow("Backup", "LR2BackupNum")]
-    [DataRow("Install", "KeepInstallablePackagesPending")]
-    [DataRow("Install", "RequireCompleteUsedResourcesForAutoInstall")]
-    [DataRow("Install", "AutoApplyAmbiguousInstallDestination")]
-    [DataRow("Install", "AutoInstallAfterAutomaticEstimation")]
-    [DataRow("Install", "InstallDestinationAutoApplyMinAudioHealth")]
-    [DataRow("RightClick", "RightClickActionSettingsEditor.SelectedWebAction.Name")]
-    public void CompiledCategoryEditor_SaveReachesFreshProviderLiveSettingsAndNewDialog(string category, string bindingPath)
+    public void CompiledCategoryEditors_SaveReachesFreshProviderLiveSettingsAndNewDialog()
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
@@ -938,7 +924,7 @@ public sealed class SettingDialogCategoryPersistenceTests
                 values.AutoApplyAmbiguousInstallDestination = false;
                 values.AutoInstallAfterAutomaticEstimation = false;
                 // 範囲外の保存値は画面初期化で丸めず、選び直して97%へ修正します。
-                values.InstallDestinationAutoApplyMinAudioHealth = bindingPath == "InstallDestinationAutoApplyMinAudioHealth" ? 89 : 100;
+                values.InstallDestinationAutoApplyMinAudioHealth = 89;
                 values.FolderNameFormat = "%TITLE%";
                 values.RightClickActionsJson = "{\"webActions\":[{\"id\":\"edited\",\"name\":\"Before\",\"urlTemplate\":\"https://example.com/{md5}\",\"enabled\":true,\"chartKind\":\"All\"},{\"id\":\"kept\",\"name\":\"Other\",\"urlTemplate\":\"https://example.org/{md5}\",\"enabled\":true,\"chartKind\":\"BmsOnly\"}],\"programActions\":[]}";
                 values.Save();
@@ -950,60 +936,84 @@ public sealed class SettingDialogCategoryPersistenceTests
                 owner.SettingDialog.AttachPresentationPort(presentation);
                 window = OpenSettingsWindow(scope, owner.SettingDialog);
                 presentation.CurrentWindow = window;
-                object before = ReadCategoryEditor(window, category, bindingPath);
-                if (bindingPath == "InstallDestinationAutoApplyMinAudioHealth")
+                string japanese = TestApplicationContext.CreateCultureCatalog().Cultures.Single(pair => pair.Value == "ja-JP").Key;
+                string english = TestApplicationContext.CreateCultureCatalog().Cultures.Single(pair => pair.Value == "en-US").Key;
+                (string Category, string Path, object Before, object Expected)[] inputs =
+                [
+                    ("General", "Language", japanese, english),
+                    ("Install", "FolderNameFormat", "%TITLE%", "%ARTIST% - %TITLE%"),
+                    ("Playlist", "OverwritePlaylistUrlsWithCompletion", false, true),
+                    ("Appearance", "CustomTableRowHeight", 22d, 31d),
+                    ("Playback", "IsSaveLR2bodyWindowPosition", false, true),
+                    ("Audio", "PlayerResamplingQuality", 2, 4),
+                    ("Recording", "EncoderAmplifier", 1d, (double)1.3f),
+                    ("Backup", "LR2BackupNum", 2, 5),
+                    ("Install", "KeepInstallablePackagesPending", false, true),
+                    ("Install", "RequireCompleteUsedResourcesForAutoInstall", false, true),
+                    ("Install", "AutoApplyAmbiguousInstallDestination", false, true),
+                    ("Install", "AutoInstallAfterAutomaticEstimation", false, true),
+                    ("Install", "InstallDestinationAutoApplyMinAudioHealth", 89, 97),
+                    ("RightClick", "RightClickActionSettingsEditor.SelectedWebAction.Name", "Before", "Saved custom action")
+                ];
+                // 期待状態は既知の入力値だけから進め、観測した保存値を次の正解へ取り込みません。
+                Dictionary<string, object> expectedSaved = inputs.ToDictionary(input => input.Path, input => input.Before);
+                void AssertSavedState(Settings saved)
                 {
-                    Assert.IsNull(before);
-                    Assert.AreEqual(89, owner.SettingDialog.InstallDestinationAutoApplyMinAudioHealth);
-                    Assert.IsFalse(string.IsNullOrEmpty(owner.SettingDialog.InstallDestinationAutoApplyMinAudioHealthWarning));
+                    foreach ((string Category, string Path, object Before, object Expected) input in inputs) { AssertCategoryPersisted(saved, input.Path, expectedSaved[input.Path]); }
+                    Assert.AreEqual(expectedSaved["Language"].Equals(english) ? "en-US" : "ja-JP", saved.Lang);
+                    Assert.AreEqual(untouched, saved.EncodeFileNameFormat);
                 }
-                object expected = bindingPath switch
+                // 全項目を編集前に確認し、先行編集によって後続の成立条件が作られることを拒否します。
+                foreach ((string Category, string Path, object Before, object Expected) input in inputs)
                 {
-                    "InstallDestinationAutoApplyMinAudioHealth" => 97,
-                    "Language" => TestApplicationContext.CreateCultureCatalog().Cultures.Single(pair => pair.Value == "en-US").Key,
-                    "FolderNameFormat" => "%ARTIST% - %TITLE%",
-                    "OverwritePlaylistUrlsWithCompletion" or "IsSaveLR2bodyWindowPosition"
-                        or "KeepInstallablePackagesPending" or "RequireCompleteUsedResourcesForAutoInstall"
-                        or "AutoApplyAmbiguousInstallDestination" or "AutoInstallAfterAutomaticEstimation" => true,
-                    "CustomTableRowHeight" => 31d,
-                    "PlayerResamplingQuality" => 4,
-                    "EncoderAmplifier" => (double)1.3f,
-                    "LR2BackupNum" => 5,
-                    "RightClickActionSettingsEditor.SelectedWebAction.Name" => "Saved custom action",
-                    _ => throw new AssertFailedException(bindingPath)
-                };
-                Assert.AreNotEqual(before, expected);
-                EditCategoryControl(window, category, bindingPath, expected);
-                if (category == "RightClick")
-                {
-                    Button confirm = FindDescendants<Button>(window).Single(button => Equals(button.Tag, "confirm:web"));
-                    Task click = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => confirm.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, confirm)));
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(click, "category record confirmation");
+                    object before = ReadCategoryEditor(window, input.Category, input.Path);
+                    if (input.Path == "InstallDestinationAutoApplyMinAudioHealth")
+                    {
+                        Assert.IsNull(before);
+                        Assert.AreEqual(89, owner.SettingDialog.InstallDestinationAutoApplyMinAudioHealth);
+                        Assert.IsFalse(string.IsNullOrEmpty(owner.SettingDialog.InstallDestinationAutoApplyMinAudioHealthWarning));
+                    }
+                    else { Assert.AreEqual(input.Before, before, input.Path + " initial Binding"); }
+                    Assert.AreNotEqual(input.Before, input.Expected, input.Path);
                 }
-                Assert.IsTrue(window.IsVisible, "通常確定・record確定のいずれも同じWindowを保ちます。");
-                Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                AssertSavedState(TestSettingsFactory.OpenSettings(config));
+                foreach ((string Category, string Path, object Before, object Expected) input in inputs)
+                {
+                    EditCategoryControl(window, input.Category, input.Path, input.Expected);
+                    if (input.Category == "RightClick")
+                    {
+                        Button confirm = FindDescendants<Button>(window).Single(button => Equals(button.Tag, "confirm:web"));
+                        save = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => confirm.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, confirm)));
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(save, "category record confirmation");
+                    }
+                    Assert.IsTrue(window.IsVisible, "通常確定・record確定のいずれも同じWindowを保ちます。");
+                    Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                    expectedSaved[input.Path] = input.Expected;
+                    // 対象・先行確定済み・未編集の全keyを毎回検査し、後の編集が誤保存先を覆い隠さないようにします。
+                    AssertSavedState(TestSettingsFactory.OpenSettings(config));
+                    AssertCategoryRuntime(owner, input.Path);
+                }
                 window.CloseForOwnerShutdown();
-                AssertCategoryRuntime(owner, bindingPath);
+                foreach ((string Category, string Path, object Before, object Expected) input in inputs) { AssertCategoryRuntime(owner, input.Path); }
                 Settings fresh = TestSettingsFactory.OpenSettings(config);
-                AssertCategoryPersisted(fresh, bindingPath);
-                Assert.AreEqual(untouched, fresh.EncodeFileNameFormat);
+                AssertSavedState(fresh);
                 freshOwner = CreateViewModel(new SettingsEditSession(fresh), firstStartup: false);
                 SetActiveLibraryProfile(freshOwner, true);
                 var freshPresentation = new WindowClosingPresentationPort();
                 freshOwner.SettingDialog.AttachPresentationPort(freshPresentation);
                 reopened = OpenSettingsWindow(scope, freshOwner.SettingDialog);
                 freshPresentation.CurrentWindow = reopened;
-                Assert.AreEqual(expected, ReadCategoryEditor(reopened, category, bindingPath));
-                if (category == "RightClick") { EditCategoryControl(reopened, category, bindingPath, before); }
+                foreach ((string Category, string Path, object Before, object Expected) input in inputs) { Assert.AreEqual(input.Expected, ReadCategoryEditor(reopened, input.Category, input.Path), input.Path); }
+                EditCategoryControl(reopened, "RightClick", "RightClickActionSettingsEditor.SelectedWebAction.Name", "Before");
                 var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 reopened.Closed += (_, _) => cancelled.TrySetResult();
                 freshOwner.SettingDialog.CloseCommand.Execute();
                 TestUiDispatcherHost.AwaitPresentationOnDispatcher(cancelled.Task, "category Cancel close");
-                AssertCategoryRuntime(freshOwner, bindingPath);
-                AssertCategoryPersisted(TestSettingsFactory.OpenSettings(config), bindingPath);
+                foreach ((string Category, string Path, object Before, object Expected) input in inputs) { AssertCategoryRuntime(freshOwner, input.Path); }
+                AssertSavedState(TestSettingsFactory.OpenSettings(config));
                 reopened = OpenSettingsWindow(scope, freshOwner.SettingDialog);
                 freshPresentation.CurrentWindow = reopened;
-                Assert.AreEqual(expected, ReadCategoryEditor(reopened, category, bindingPath));
+                foreach ((string Category, string Path, object Before, object Expected) input in inputs) { Assert.AreEqual(input.Expected, ReadCategoryEditor(reopened, input.Category, input.Path), input.Path); }
             }
             catch (Exception failure)
             {
@@ -1071,7 +1081,7 @@ public sealed class SettingDialogCategoryPersistenceTests
         return control.GetValue(property);
     }
 
-    /// <summary>実controlを編集し、boolは標準の即時Binding伝播、それ以外は明示UpdateSourceで保存入力へ届けます。</summary>
+    /// <summary>実controlを編集し、boolは即時Binding、TextBoxはフォーカス離脱、Sliderは操作終端から保存入力へ届けます。</summary>
     private static void EditCategoryControl(SettingsWindow window, string category, string path, object value)
     {
         (FrameworkElement control, DependencyProperty property) = GetCategoryControl(window, category, path);
@@ -1117,48 +1127,45 @@ public sealed class SettingDialogCategoryPersistenceTests
                     "AutoInstallAfterAutomaticEstimation" => composition.BmsLibraryOptionsProvider().AutoInstallAfterAutomaticEstimation,
                     _ => throw new AssertFailedException(bindingPath)
                 }); break;
-            case "RightClickActionSettingsEditor.SelectedWebAction.Name": AssertCustomWebActions(((RightClickActionSettingsStore)ReadField(owner.SelectedChartExternalActions, "rightClickActionSettingsStore")).Load()); break;
+            case "RightClickActionSettingsEditor.SelectedWebAction.Name": AssertCustomWebActions(((RightClickActionSettingsStore)ReadField(owner.SelectedChartExternalActions, "rightClickActionSettingsStore")).Load(), "Saved custom action"); break;
         }
     }
 
-    /// <summary>同じSettings instanceの再確認と分け、新providerの実永続値をBinding先ごとに確認します。</summary>
-    private static void AssertCategoryPersisted(Settings settings, string bindingPath)
+    /// <summary>新providerの保存先を既知の期待状態と照合し、対象外keyへの誤保存と確定済み値の破壊を検出します。</summary>
+    private static void AssertCategoryPersisted(Settings settings, string bindingPath, object expected)
     {
-        switch (bindingPath)
+        if (bindingPath == "RightClickActionSettingsEditor.SelectedWebAction.Name")
         {
-            case "Language": Assert.AreEqual("en-US", settings.Lang); break;
-            case "FolderNameFormat": Assert.AreEqual("%ARTIST% - %TITLE%", settings.FolderNameFormat); break;
-            case "OverwritePlaylistUrlsWithCompletion": Assert.IsTrue(settings.OverwritePlaylistUrlsWithCompletion); break;
-            case "CustomTableRowHeight": Assert.AreEqual(31d, settings.CustomTableRowHeight); break;
-            case "IsSaveLR2bodyWindowPosition": Assert.IsTrue(settings.IsSaveLR2bodyWindowPosition); break;
-            case "PlayerResamplingQuality": Assert.AreEqual(4, settings.PlayerResamplingQuality); break;
-            case "EncoderAmplifier": Assert.AreEqual(1.3f, settings.EncoderAmplifier); break;
-            case "LR2BackupNum": Assert.AreEqual(5, settings.LR2BackupNum); break;
-            case "InstallDestinationAutoApplyMinAudioHealth":
-                Assert.AreEqual(97, settings.InstallDestinationAutoApplyMinAudioHealth); break;
-            case "KeepInstallablePackagesPending":
-            case "RequireCompleteUsedResourcesForAutoInstall":
-            case "AutoApplyAmbiguousInstallDestination":
-            case "AutoInstallAfterAutomaticEstimation":
-                Assert.IsTrue(bindingPath switch
-                {
-                    "RequireCompleteUsedResourcesForAutoInstall" => settings.RequireCompleteUsedResourcesForAutoInstall,
-                    "KeepInstallablePackagesPending" => settings.KeepInstallablePackagesPending,
-                    "AutoApplyAmbiguousInstallDestination" => settings.AutoApplyAmbiguousInstallDestination,
-                    "AutoInstallAfterAutomaticEstimation" => settings.AutoInstallAfterAutomaticEstimation,
-                    _ => throw new AssertFailedException(bindingPath)
-                }); break;
-            case "RightClickActionSettingsEditor.SelectedWebAction.Name": AssertCustomWebActions(new RightClickActionSettingsStore(() => settings).Load()); break;
+            AssertCustomWebActions(new RightClickActionSettingsStore(() => settings).Load(), (string)expected);
+            return;
         }
+        object actual = bindingPath switch
+        {
+            "Language" => settings.LangDisplayName,
+            "FolderNameFormat" => settings.FolderNameFormat,
+            "OverwritePlaylistUrlsWithCompletion" => settings.OverwritePlaylistUrlsWithCompletion,
+            "CustomTableRowHeight" => settings.CustomTableRowHeight,
+            "IsSaveLR2bodyWindowPosition" => settings.IsSaveLR2bodyWindowPosition,
+            "PlayerResamplingQuality" => settings.PlayerResamplingQuality,
+            "EncoderAmplifier" => (double)settings.EncoderAmplifier,
+            "LR2BackupNum" => settings.LR2BackupNum,
+            "InstallDestinationAutoApplyMinAudioHealth" => settings.InstallDestinationAutoApplyMinAudioHealth,
+            "KeepInstallablePackagesPending" => settings.KeepInstallablePackagesPending,
+            "RequireCompleteUsedResourcesForAutoInstall" => settings.RequireCompleteUsedResourcesForAutoInstall,
+            "AutoApplyAmbiguousInstallDestination" => settings.AutoApplyAmbiguousInstallDestination,
+            "AutoInstallAfterAutomaticEstimation" => settings.AutoInstallAfterAutomaticEstimation,
+            _ => throw new AssertFailedException(bindingPath)
+        };
+        Assert.AreEqual(expected, actual, bindingPath + " persisted value");
     }
 
     /// <summary>編集対象IDと別actionの指定値を保持し、名前だけが別actionへ誤適用された結果を拒否します。</summary>
-    private static void AssertCustomWebActions(RightClickActionSettingsParseResult parsed)
+    private static void AssertCustomWebActions(RightClickActionSettingsParseResult parsed, string expectedName)
     {
         Assert.IsNotNull(parsed.Settings, parsed.Error?.ToString());
         Assert.AreEqual(2, parsed.Settings.WebActions.Count);
         RightClickWebActionDefinition edited = parsed.Settings.WebActions.Single(action => action.Id == "edited");
-        Assert.AreEqual("Saved custom action", edited.Name);
+        Assert.AreEqual(expectedName, edited.Name);
         Assert.AreEqual("https://example.com/{md5}", edited.UrlTemplate);
         Assert.IsTrue(edited.Enabled);
         Assert.AreEqual(ExternalChartKind.All, edited.ChartKind);

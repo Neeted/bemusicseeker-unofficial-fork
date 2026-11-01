@@ -52,6 +52,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 int savedPriority;
                 using (var fixture = new CompletionFixture(isolateSortWarmup: true, settingsSessionFactory: values => new PriorityReloadSettingsSession(values, savedPriority: 0, beforeReloadPriority: 3)))
                 {
+                    UseOwnedEmptyCatalog(fixture);
                     fixture.OptionalRelease.TrySetResult();
                     Task<bool> initial = fixture.Start();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(initial, "startup-range-initial");
@@ -80,6 +81,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 }
                 using (var restarted = new CompletionFixture(isolateSortWarmup: true, settingsSessionFactory: values => new PriorityReloadSettingsSession(values, savedPriority, beforeReloadPriority: 0)))
                 {
+                    UseOwnedEmptyCatalog(restarted);
                     restarted.OptionalRelease.TrySetResult();
                     Task<bool> initial = restarted.Start();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(initial, "startup-range-restart");
@@ -122,6 +124,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         TestUiDispatcherHost.Invoke(() =>
         {
             using var fixture = new CompletionFixture(isolateSortWarmup: true, settingsSessionFactory: values => new PriorityReloadSettingsSession(values, priority, 1));
+            UseOwnedEmptyCatalog(fixture);
             fixture.OptionalRelease.TrySetResult();
             StartupPostInitializationWarmupOwner warmup = GetPrivateField<StartupPostInitializationWarmupOwner>(fixture.Owner, "startupPostInitializationWarmupOwner");
             FieldInfo callbackField = typeof(StartupPostInitializationWarmupOwner).GetField("completed", BindingFlags.Instance | BindingFlags.NonPublic)
@@ -148,6 +151,14 @@ public sealed class MainWindowViewModelStartupProgressTests
             RegularChartListOwner regular = GetPrivateField<RegularChartListOwner>(fixture.Owner, "regularChartListOwner");
             Assert.IsFalse(regular.IsVirtualOrderPrewarmRunning);
         });
+    }
+
+    /// <summary>取得失敗を扱わないケースだけに専有の空catalogを渡し、実file取得・解析とfixtureの全Task終端後の回収を保ちます。</summary>
+    private static void UseOwnedEmptyCatalog(CompletionFixture fixture)
+    {
+        string path = Path.Combine(fixture.Composition.ApplicationPathSnapshot.DataDirectoryPath, "empty-table-list.json");
+        File.WriteAllText(path, "[]");
+        fixture.Settings.TableListURL = new Uri(path);
     }
 
     /// <summary>Reload前後を意図的に変え、起動捕捉の時期を識別します。保存は次の構成へ渡す確定値を保持します。</summary>
@@ -317,6 +328,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         TestUiDispatcherHost.Invoke(() =>
         {
             using var fixture = new CompletionFixture();
+            UseOwnedEmptyCatalog(fixture);
             fixture.OptionalRelease.TrySetResult();
             Task<bool> initial = fixture.Start();
             TestUiDispatcherHost.AwaitTaskOnDispatcher(initial, "tree-full-initial");
@@ -382,6 +394,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 recorded.Add(presentation);
                 if (presenterThrows) { throw new InvalidOperationException("failure presenter failed"); }
             }));
+            UseOwnedEmptyCatalog(fixture);
             bool failUi = true;
             fixture.Owner.RequiredStartupUiApplying += () => { if (failUi) { throw failure; } };
             fixture.Ui.Arm();
@@ -420,6 +433,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         TestUiDispatcherHost.Invoke(() =>
         {
             using var fixture = new CompletionFixture(lifetime: new TestApplicationLifetime(firstStartup: false));
+            UseOwnedEmptyCatalog(fixture);
             fixture.OptionalRelease.TrySetResult();
             Task<bool> startup = fixture.Start();
             TestUiDispatcherHost.AwaitTaskOnDispatcher(startup, "limited-score-initial");
@@ -479,6 +493,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         TestUiDispatcherHost.Invoke(() =>
         {
             using var fixture = new CompletionFixture(lifetime: new TestApplicationLifetime(firstStartup: false));
+            UseOwnedEmptyCatalog(fixture);
             fixture.OptionalRelease.TrySetResult();
             Task<bool> startup = fixture.Start();
             TestUiDispatcherHost.AwaitTaskOnDispatcher(startup, "reload-tables-safety-initial");
@@ -535,6 +550,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 var failure = new IOException("initial completion notice failed");
                 var recorded = new List<StartupLibraryInitializationFailurePresentation>();
                 using var fixture = new CompletionFixture(new CallbackFailurePresenter(recorded.Add));
+                UseOwnedEmptyCatalog(fixture);
                 var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 var observed = new List<(string Message, bool LibraryBusy, bool PlaylistBusy, bool Initialized, bool ActiveProfile, bool FirstStartup, bool UiBlocked)>();
@@ -607,6 +623,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         {
             var recorded = new List<StartupLibraryInitializationFailurePresentation>();
             using var fixture = new CompletionFixture(new CallbackFailurePresenter(recorded.Add));
+            UseOwnedEmptyCatalog(fixture);
             fixture.Ui.Arm();
             Task<bool> initialization = fixture.Start();
             AwaitArrival(fixture.Ui.Entered.Task, initialization, "startup-ui-shutdown-arrival");
@@ -671,6 +688,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             var player = new FakeBmsPlayer { BeforeClose = () => { entered.TrySetResult(); release.Wait(); } };
             var failures = new List<StartupLibraryInitializationFailurePresentation>();
             using var fixture = new CompletionFixture(new CallbackFailurePresenter(failures.Add), () => player);
+            UseOwnedEmptyCatalog(fixture);
             fixture.Settings.UsePlayeruBMplay = true;
             fixture.Settings.uBMplayPath = Path.Combine(fixture.Composition.ApplicationPathSnapshot.DataDirectoryPath, "uBMplay.exe");
             File.WriteAllBytes(fixture.Settings.uBMplayPath, []);
@@ -711,6 +729,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         TestUiDispatcherHost.Invoke(() =>
         {
             using var fixture = new CompletionFixture(lr2Mode: true);
+            UseOwnedEmptyCatalog(fixture);
             Assert.IsTrue(fixture.Owner.SettingDialog.CheckValidationForInitialization(out string validationFailure), validationFailure);
             string folder = Path.Combine(fixture.Settings.BMSInstallDir, "Leap");
             Directory.CreateDirectory(folder);
@@ -1071,6 +1090,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         TestUiDispatcherHost.Invoke(() =>
         {
             using var fixture = new CompletionFixture();
+            UseOwnedEmptyCatalog(fixture);
             fixture.Ui.Arm();
             Task<bool> initialization = fixture.Start();
             AwaitArrival(fixture.Ui.Entered.Task, initialization, "startup-reader-ui-arrival");
@@ -1125,6 +1145,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         {
             var failures = new List<Exception>();
             using var fixture = new CompletionFixture(lr2Mode: true, lifetime: new TestApplicationLifetime(firstStartup: false), settingsFailureReporter: failures.Add);
+            UseOwnedEmptyCatalog(fixture);
             fixture.OptionalRelease.TrySetResult();
             var initialUrlProgress = new ConcurrentQueue<StartupBackgroundTaskProgressSnapshot>();
             fixture.Scheduler.ProgressChanged += progress =>
