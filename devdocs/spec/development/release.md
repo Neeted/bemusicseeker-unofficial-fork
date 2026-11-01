@@ -89,11 +89,11 @@ uv run scripts/build-doc-html.py --source-root . --output-root docs --site --sit
 
 ### バージョン更新
 
-[BeMusicSeeker/Properties/AssemblyInfo.cs](../../../BeMusicSeeker/Properties/AssemblyInfo.cs) の `AssemblyInformationalVersion` をパッケージ名、正式タグ、公開メタデータの版の正本とします。`AssemblyVersion` は互換性上の理由または明示指示がある場合だけ変更します。
+[ApplicationVersion.props](../../../ApplicationVersion.props) の `BeMusicSeekerAppVersion` を通常公開版の正本とし、appの `AssemblyInformationalVersion`、パッケージ名、正式タグ、公開メタデータへ同じ値を使います。InformationalVersionだけをbuild時に生成し、[AssemblyInfo.cs](../../../BeMusicSeeker/Properties/AssemblyInfo.cs) の `AssemblyVersion` とその他の属性は維持します。`AssemblyVersion` は互換性上の理由または明示指示がある場合だけ変更します。
 
 バージョン更新は通常 `dev` を起点に行い、次を同じ変更で揃えます。
 
-- `AssemblyInformationalVersion`。
+- `ApplicationVersion.props` の通常版。
 - [ReleaseNotesWindow.xaml](../../../BeMusicSeeker/Views/Dialogs/ReleaseNotesWindow.xaml) の `Update_history`。
 - `release notes/vX.X.X.X リリースノート.md`。GitHub Release本文として使える内容にする。
 
@@ -108,6 +108,12 @@ pwsh -NoProfile -File scripts/publish.ps1
 # メタデータ同梱版も生成する場合
 pwsh -NoProfile -File scripts/publish.ps1 -IncludeMetadata
 ```
+
+更新検証用の実行限定版は `-ApplicationVersion` に四成分の数値版を渡します。専有 `-ArtifactRoot` を必須とし、`-SkipBuild` との併用は拒否します。app/updaterそれぞれのrestore・build中間出力は指定root内のproject別 `obj/`・`bin/` に分離し、配布出力は `app/`・`updater/`・`dist/` へ置きます。既存の通常 `obj/`・`bin/` をsourceとして再取り込みません。版変更時には生成属性も更新し、正本の版値やAssemblyVersionを書き換えません。
+
+appの通常restoreは `BeMusicSeeker/packages.lock.json`、配布profileのrestore/publishは `BeMusicSeeker/packages.publish.lock.json` を使います。後者はSingleFile analyzerのSDK依存を含み、通常版・実行限定版・metadata同梱版で共有します。依存更新時は `dotnet restore BeMusicSeeker/BeMusicSeeker.csproj --runtime win-x64 --force-evaluate -p:Platform=x64 -p:Configuration=Release -p:PublishProfile=WinX64SelfContained` で配布lockも明示更新し、解決版の差分を確認します。通常のpublish経路はlocked restoreを維持し、lock欠落は出力変更前に拒否し、不一致時に再生成へ切り替えません。
+
+新しいC#検証入口 `tools/BeMusicSeeker.Verify full` の配布準備では、Vは通常版、VnextはVの実バイナリから読んだ版の末尾をcheckedで1増やした版です。両variantを各一回publishし、各180秒の範囲内で成果物も検査します。移行中の標準入口 `scripts/verify-refactor.ps1 -Mode Full` は従来の通常版配布と受入を維持します。通常公開のreleaseは正本の版を使い、ローカルのVnextを公開対象にしません。`-SkipBuild` の通常利用でも、既存appの実版とパッケージ版の一致を確認します。
 
 正式リリース前の公開候補に対して `Full` を実行します。通常開発のコミット・`dev` への統合と、変更の影響に応じた追加検証は[実行範囲の選択](testing.md#実行範囲の選択)に従います。Fullは検証用の `SkipDocHtml` 配布物を隔離された出力先に生成・共有します。正式配布用のZIPは、検証済みのソースからHTMLを含めて生成し、ソースを変更した場合は再生成します。
 

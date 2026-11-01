@@ -16,7 +16,8 @@ param(
     [switch]$IncludeMetadata,
     [string]$MetadataSource = "artifacts\chart-info-metadata\latest\chart-info-metadata.7z",
     [string]$MetadataPackageSuffix = "-with-metadata",
-    [string]$ArtifactRoot
+    [string]$ArtifactRoot,
+    [string]$ApplicationVersion
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,10 +26,19 @@ $ErrorActionPreference = "Stop"
 $devRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $configuration = "Release"
 $platform = "x64"
-$solution = Join-Path $devRoot "BeMusicSeeker.sln"
 $appProject = Join-Path $devRoot "BeMusicSeeker\BeMusicSeeker.csproj"
 $updaterProject = Join-Path $devRoot "BeMusicSeeker.Updater\BeMusicSeeker.Updater.csproj"
+. (Join-Path $PSScriptRoot "application-version.ps1")
 $artifactRootWasProvided = -not [string]::IsNullOrWhiteSpace($ArtifactRoot)
+$versionWasProvided = $PSBoundParameters.ContainsKey('ApplicationVersion')
+if ($versionWasProvided -and (-not $artifactRootWasProvided -or $SkipBuild)) {
+    throw "ApplicationVersionの指定には専有ArtifactRootと実buildが必要です。SkipBuildとは併用できません。"
+}
+$effectiveVersion = if ($versionWasProvided) { Assert-ApplicationVersion -Value $ApplicationVersion }
+else { Get-ApplicationVersion -RepositoryRoot $devRoot }
+if (-not $SkipBuild -and -not (Test-Path -LiteralPath (Join-Path $devRoot 'BeMusicSeeker/packages.publish.lock.json') -PathType Leaf)) {
+    throw 'App publish lock is missing: BeMusicSeeker/packages.publish.lock.json'
+}
 $artifactRootPath = if ($artifactRootWasProvided) {
     [System.IO.Path]::GetFullPath($ArtifactRoot)
 }
@@ -56,7 +66,8 @@ function Invoke-CheckedCommand {
         [string[]]$Arguments
     )
 
-    & $Command @Arguments
+    # package戻り値を破棄する呼出元でも、native診断を親stdoutへ残します。
+    & $Command @Arguments | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "Command failed with exit code $LASTEXITCODE`: $Command $($Arguments -join ' ')"
     }
@@ -67,27 +78,24 @@ function Invoke-SelfContainedPublish {
     if (Test-Path $updaterPublishOutput) { Remove-Item $updaterPublishOutput -Recurse -Force }
     New-Item -ItemType Directory -Path $appPublishOutput, $updaterPublishOutput -Force | Out-Null
 
-    Write-Host "  main app の managed-bundle ReadyToRun SCD を publish 中..."
-    & dotnet publish $appProject `
-        --configuration $configuration `
-        --runtime win-x64 `
-        --self-contained true `
-        --no-restore `
-        --property:Platform=$platform `
-        --property:PublishProfile=WinX64SelfContained `
-        --property:PublishDir=$appPublishOutput
-    if ($LASTEXITCODE -ne 0) { throw "main app の Self-contained publish に失敗しました" }
-
-    Write-Host "  updater の single-file SCD を publish 中..."
-    & dotnet publish $updaterProject `
-        --configuration $configuration `
-        --runtime win-x64 `
-        --self-contained true `
-        --no-restore `
-        --property:Platform=$platform `
-        --property:PublishProfile=WinX64SelfContainedSingleFile `
-        --property:PublishDir=$updaterPublishOutput
-    if ($LASTEXITCODE -ne 0) { throw "updater の Self-contained single-file publish に失敗しました" }
+    $projects = @(
+        @{ Name = 'BeMusicSeeker'; Project = $appProject; Profile = 'WinX64SelfContained'; Output = $appPublishOutput },
+        @{ Name = 'BeMusicSeeker.Updater'; Project = $updaterProject; Profile = 'WinX64SelfContainedSingleFile'; Output = $updaterPublishOutput }
+    )
+    foreach ($project in $projects) {
+        # restoreとpublishで同じ具体値を渡します。WPF一時project名へ再展開させません。
+        $properties = @("-p:Platform=$platform", "-p:Configuration=$configuration",
+            "-p:PublishProfile=$($project.Profile)", '-p:UseSharedCompilation=false')
+        if ($project.Name -eq 'BeMusicSeeker') { $properties += "-p:BeMusicSeekerAppVersion=$effectiveVersion" }
+        if ($artifactRootWasProvided) {
+            $intermediate = (Join-Path $artifactRootPath "obj/$($project.Name)") + [System.IO.Path]::DirectorySeparatorChar
+            $binary = (Join-Path $artifactRootPath "bin/$($project.Name)") + [System.IO.Path]::DirectorySeparatorChar
+            $properties += @("-p:BaseIntermediateOutputPath=$intermediate", "-p:MSBuildProjectExtensionsPath=$intermediate", "-p:BaseOutputPath=$binary")
+        }
+        Write-Host "  $($project.Name) の専有restore/publishを実行中..."
+        Invoke-CheckedCommand dotnet restore $project.Project '--runtime' 'win-x64' '--locked-mode' '--disable-build-servers' @properties
+        Invoke-CheckedCommand dotnet publish $project.Project '--runtime' 'win-x64' '--self-contained' 'true' '--no-restore' '--disable-build-servers' @properties "-p:PublishDir=$($project.Output)"
+    }
 
     Assert-SelfContainedPublishLayout $appPublishOutput $updaterPublishOutput
 }
@@ -131,16 +139,6 @@ function Assert-SelfContainedPublishLayout($appOutput, $updaterOutput) {
             throw "Single-file updater publish output contains a companion payload: $legacyCompanion"
         }
     }
-}
-
-# AssemblyInformationalVersion を読み取る
-function Get-AppVersion {
-    $asmInfoPath = Join-Path $devRoot "BeMusicSeeker\Properties\AssemblyInfo.cs"
-    $content = Get-Content $asmInfoPath -Raw
-    if ($content -match 'AssemblyInformationalVersion\("([^"]+)"\)') {
-        return $Matches[1]
-    }
-    throw "AssemblyInformationalVersion が見つかりません: $asmInfoPath"
 }
 
 function Resolve-MetadataSource {
@@ -318,7 +316,6 @@ function New-ReleasePackage {
         Write-Host "  配布用 Self-contained publish 中..."
         Push-Location $devRoot
         try {
-            Invoke-CheckedCommand dotnet restore $solution '-r' 'win-x64' '--locked-mode' '-p:PublishReadyToRun=true'
             Invoke-SelfContainedPublish
         }
         finally {
@@ -332,7 +329,9 @@ function New-ReleasePackage {
     }
 
     # バージョン取得
-    $version = Get-AppVersion
+    $version = $effectiveVersion
+    $binaryVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $appPublishOutput 'BeMusicSeeker.exe')).ProductVersion
+    if ($binaryVersion -cne $version) { throw "実appの版と配布版が一致しません: app=$binaryVersion package=$version" }
     Write-Host "  バージョン: $version"
 
     if (Test-Path $stagingRoot) { Remove-Item $stagingRoot -Recurse -Force }

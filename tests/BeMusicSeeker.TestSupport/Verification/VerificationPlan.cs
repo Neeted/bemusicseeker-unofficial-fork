@@ -21,6 +21,10 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
     {
         int budget = Math.Clamp(processors, 1, 16);
         bool full = profile == "full";
+        if (full && filter is not null)
+        {
+            throw new ArgumentException("正式fullでは --filter を指定できません。局所検証は対象projectを直接実行してください。");
+        }
         VerificationModule[] modules = profile switch
         {
             "dev" or "verify" or "full" => [
@@ -74,10 +78,20 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
         return Create(args[0], processors, suite, filter);
     }
 
-    /// <summary>日常の必須利用フローです。ケースのDataRowや全FQNの一覧には展開しません。</summary>
-    internal IReadOnlyDictionary<string, IReadOnlyList<string>> RequiredScenarioIds => Profile is "dev" or "verify"
-        ? new Dictionary<string, IReadOnlyList<string>> { ["Scenarios"] = ["SC-01", "SC-02", "SC-09"] }
-        : new Dictionary<string, IReadOnlyList<string>>();
+    /// <summary>選択した利用フローの短IDです。SC-07はCompatibilityに所属し、DataRowや全FQNへ展開しません。</summary>
+    internal IReadOnlyDictionary<string, IReadOnlyList<string>> RequiredScenarioIds => Profile switch
+    {
+        "dev" or "verify" => new Dictionary<string, IReadOnlyList<string>> { ["Scenarios"] = ["SC-01", "SC-02", "SC-09"] },
+        "full" => new Dictionary<string, IReadOnlyList<string>>
+        {
+            ["Scenarios"] = ["SC-01", "SC-02", "SC-03", "SC-04", "SC-05", "SC-06", "SC-08", "SC-09", "SC-10", "SC-11", "SC-12", "SC-13", "SC-14"],
+            ["Desktop.E2E"] = ["SC-15a", "SC-15b", "SC-16", "DT-01", "DT-02", "DT-03"],
+        },
+        _ => new Dictionary<string, IReadOnlyList<string>>(),
+    };
+
+    /// <summary>全test moduleに一度だけ与える上限です。Fullの600秒速度目標や配布準備時間とは区別します。</summary>
+    internal TimeSpan TestTimeout => TimeSpan.FromSeconds(Profile == "full" ? 1380 : 360);
 
     /// <summary>標準solution filterの選択先です。実行中のVerify自身は含めません。</summary>
     internal string SolutionFilter => $"tests/verification-{(Profile is "dev" or "verify" ? "dev" : Profile)}.slnf";

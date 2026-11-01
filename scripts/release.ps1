@@ -34,6 +34,7 @@ Push-Location $root
 try {
 
 . (Join-Path $PSScriptRoot "portable-package-layout.ps1")
+. (Join-Path $PSScriptRoot "application-version.ps1")
 
 function Invoke-GhOutput {
     param(
@@ -126,27 +127,6 @@ function Assert-WorkingTreeClean {
     }
 }
 
-function Get-AppVersion {
-    $asmInfoPath = Join-Path $root "BeMusicSeeker\Properties\AssemblyInfo.cs"
-    if (-not (Test-Path -LiteralPath $asmInfoPath -PathType Leaf)) {
-        throw "AssemblyInfo.cs が見つかりません: $asmInfoPath"
-    }
-
-    $content = Get-Content -LiteralPath $asmInfoPath -Raw
-    if ($content -notmatch 'AssemblyInformationalVersion\("([^"]+)"\)') {
-        throw "AssemblyInformationalVersion が見つかりません: $asmInfoPath"
-    }
-
-    $version = $Matches[1].Trim()
-    try {
-        [void][System.Version]::Parse($version)
-    }
-    catch {
-        throw "AssemblyInformationalVersion が System.Version として解釈できません: $version"
-    }
-    return $version
-}
-
 function Get-ReleaseAssetNamePriority {
     param(
         [Parameter(Mandatory)][string]$Name,
@@ -173,7 +153,7 @@ function Sort-UpdateManifestAssets {
 }
 
 function Get-ReleaseContext {
-    $version = Get-AppVersion
+    $version = Get-ApplicationVersion -RepositoryRoot $root
     $tag = "v$version"
     $notesPath = Join-Path $root "release notes\$tag リリースノート.md"
     if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) {

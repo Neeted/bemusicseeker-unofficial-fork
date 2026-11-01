@@ -33,11 +33,11 @@ public sealed class ReleaseScriptVersionSourceTests
     private sealed record ProcessCleanupResult(bool Succeeded, bool FoundResidual, string Diagnostic);
 
     /// <summary>
-    /// mainより複数commit先でもAssemblyInformationalVersionからdraftと資産manifestを生成し、生成物以外の変更のcommitやremote mainの先行更新を検出する。
+    /// mainより複数commit先でも通常版の正本propsからdraftと資産manifestを生成し、生成物以外の変更のcommitやremote mainの先行更新を検出する。
     /// </summary>
     /// <remarks>一時領域の実git履歴とremoteを実スクリプトへ渡す。gh/文書生成は局所fixtureに差し替える。</remarks>
     [TestMethod]
-    public void CreateDraftUsesAssemblyInformationalVersionAndCommitsOnlyGeneratedFilesWithMultipleAheadCommits()
+    public void CreateDraftUsesCanonicalVersionAndCommitsOnlyGeneratedFilesWithMultipleAheadCommits()
     {
         using var fixture = ReleaseFixture.Create(includeMetadata: true, includeCompatibilityFile: false);
         fixture.AddCommit("source-a.txt", "first ahead commit");
@@ -632,12 +632,13 @@ public sealed class ReleaseScriptVersionSourceTests
 
             string repositoryRoot = FindRepositoryRoot();
             File.Copy(Path.Combine(repositoryRoot, "scripts", "release.ps1"), ScriptPath);
+            File.Copy(Path.Combine(repositoryRoot, "scripts", "application-version.ps1"), Path.Combine(Root, "scripts", "application-version.ps1"));
             File.Copy(
                 Path.Combine(repositoryRoot, "scripts", "portable-package-layout.ps1"),
                 Path.Combine(Root, "scripts", "portable-package-layout.ps1"));
             File.WriteAllText(
-                Path.Combine(Root, "BeMusicSeeker", "Properties", "AssemblyInfo.cs"),
-                "[assembly: AssemblyInformationalVersion(\"9.9.9.9\")]",
+                Path.Combine(Root, "ApplicationVersion.props"),
+                "<Project><PropertyGroup><BeMusicSeekerAppVersion>9.9.9.9</BeMusicSeekerAppVersion></PropertyGroup></Project>",
                 Encoding.UTF8);
             string sourceNote = Directory.GetFiles(Path.Combine(repositoryRoot, "release notes"), "v2.1.6.0*").Single();
             File.Copy(sourceNote, Path.Combine(Root, "release notes", $"v{Version} リリースノート.md"));

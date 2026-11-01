@@ -34,6 +34,7 @@ $functionalReportingTargetSeconds = 180
 . (Join-Path $PSScriptRoot 'distribution-artifact.ps1')
 . (Join-Path $PSScriptRoot 'verification-test-outcomes.ps1')
 . (Join-Path $PSScriptRoot 'verification-test-discovery.ps1')
+. (Join-Path $PSScriptRoot 'application-version.ps1')
 $verificationRunnerContract = Get-VerificationRunnerContract
 
 $functionalExcludedCategories = @(
@@ -1365,20 +1366,10 @@ function Assert-ReleaseOutputLayout {
 }
 
 function Get-AssemblyInformationalVersion {
-    param(
-        [Parameter(Mandatory)]
-        [string]$Root
-    )
+    param([Parameter(Mandatory)][string]$Root)
 
-    $assemblyInfoPath = Join-Path $Root 'BeMusicSeeker\Properties\AssemblyInfo.cs'
-    if (-not (Test-Path -LiteralPath $assemblyInfoPath -PathType Leaf)) {
-        throw "AssemblyInfo.cs is missing: $assemblyInfoPath"
-    }
-    $content = Get-Content -LiteralPath $assemblyInfoPath -Raw
-    if ($content -notmatch 'AssemblyInformationalVersion\("([^"]+)"\)') {
-        throw "AssemblyInformationalVersion is missing: $assemblyInfoPath"
-    }
-    return $Matches[1]
+    # 旧Full入口が存続する間も、版の取得元は通常公開版の正本に揃えます。
+    return Get-ApplicationVersion -RepositoryRoot $Root
 }
 
 function Get-RepositoryHeadCommit {

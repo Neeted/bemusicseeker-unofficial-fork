@@ -48,10 +48,20 @@ public sealed class VerificationPlanTests
         Assert.IsNull(full.Modules[2].Filter);
         Assert.AreEqual("Release", full.Configuration);
         Assert.IsTrue(full.Format);
+        Assert.AreEqual(TimeSpan.FromSeconds(1380), full.TestTimeout);
+        CollectionAssert.AreEqual(new[] { "SC-01", "SC-02", "SC-03", "SC-04", "SC-05", "SC-06", "SC-08", "SC-09", "SC-10", "SC-11", "SC-12", "SC-13", "SC-14" }, full.RequiredScenarioIds["Scenarios"].ToArray());
+        CollectionAssert.AreEqual(new[] { "SC-15a", "SC-15b", "SC-16", "DT-01", "DT-02", "DT-03" }, full.RequiredScenarioIds["Desktop.E2E"].ToArray());
         Assert.IsTrue(VerificationPlan.Create("verify", 8).Format);
         Assert.IsFalse(VerificationPlan.Create("dev", 8).Format);
         Assert.AreEqual("TestCategory=Suite.Everything", VerificationPlan.Create("compatibility", 8, "Everything").Modules.Single().Filter);
         Assert.AreEqual("Performance", VerificationPlan.Create("performance", 8, "Scan").Modules.Single().Name);
         Assert.Throws<ArgumentException>(() => VerificationPlan.Create("compatibility", 8));
     }
+
+    /// <summary>正式Fullのfilterはplan生成時点で拒否し、準備・publish・test起動へ渡さないことを保証します。</summary>
+    [TestMethod]
+    [DataRow("TestCategory=Daily")]
+    [DataRow("")]
+    public void FullRejectsFilterBeforeCreatingAnExecutionPlan(string filter)
+        => Assert.Throws<ArgumentException>(() => VerificationPlan.Parse(["full", "--filter", filter], 8));
 }

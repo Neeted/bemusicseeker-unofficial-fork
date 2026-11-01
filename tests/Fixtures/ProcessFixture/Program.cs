@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using BeMusicSeeker.TestSupport.Processes;
 using BeMusicSeeker.TestSupport.Ui;
+using BeMusicSeeker.TestSupport.Verification;
 using Microsoft.Win32.SafeHandles;
 
 namespace BeMusicSeeker.ProcessFixture;
@@ -21,6 +22,19 @@ internal static class Program
                 return 0;
             case "runner-command":
                 return await RunnerCommand.ExecuteAsync(args[1]);
+            case "distribution-catalog":
+                // 親環境を変更せず、直接moduleと同じcatalog入口の成功・拒否を観測します。
+                try
+                {
+                    DistributionCatalog catalog = await DistributionCatalog.ReadFromEnvironmentAsync(args[1], ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(30)));
+                    Console.Write(catalog.Legacy.Version);
+                    return 0;
+                }
+                catch (Exception error)
+                {
+                    Console.Error.Write(error);
+                    return 3;
+                }
             case "assignment-failure":
                 return await ObserveAssignmentFailureAsync(args[1], args[2], args.Length > 3 && bool.Parse(args[3]));
             case "lease":

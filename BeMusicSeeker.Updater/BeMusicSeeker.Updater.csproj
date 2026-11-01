@@ -10,6 +10,8 @@
     <PublishAot>true</PublishAot>
     <IsAotCompatible>true</IsAotCompatible>
     <OptimizationPreference>Size</OptimizationPreference>
+    <!-- variant出力へ切り替えたときも通常bin/objをCompileへ混入させません。 -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin/**;obj/**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\BeMusicSeeker\Models\Update\UpdateMarkerPublisher.cs" Link="UpdateMarkerPublisher.cs" />

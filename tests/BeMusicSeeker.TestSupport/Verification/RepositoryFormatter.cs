@@ -5,12 +5,19 @@ namespace BeMusicSeeker.TestSupport.Verification;
 /// <summary>所有プロセスの実行境界です。引数をshell文字列へ連結しません。</summary>
 internal delegate Task<ProcessCompletion> ExecuteCommand(string executable, IReadOnlyList<string> arguments, ProcessDeadline deadline);
 
-/// <summary>Gitの変更集合を一回確定し、全style修正からwhitespace修正へ進めます。</summary>
+/// <summary>全体またはGitの変更集合を対象として、style修正からwhitespace修正へ進めます。</summary>
 internal static class RepositoryFormatter
 {
-    /// <summary>既存の変更C#だけを整形します。対象ゼロならformatterを起動しません。</summary>
-    internal static async Task FormatAsync(string repository, ExecuteCommand execute, ProcessDeadline deadline)
+    /// <summary>Fullは標準formatterの全体適用を各一回行います。変更範囲だけはGitで集合を確定し、対象ゼロなら起動しません。</summary>
+    internal static async Task FormatAsync(string repository, ExecuteCommand execute, ProcessDeadline deadline, bool allSources = false)
     {
+        if (allSources)
+        {
+            await FormatCategoryAsync("style", []);
+            await FormatCategoryAsync("whitespace", []);
+            return;
+        }
+
         IReadOnlyList<string> paths = await GetChangedPathsAsync(repository, execute, deadline);
         if (paths.Count == 0)
         {
@@ -22,12 +29,19 @@ internal static class RepositoryFormatter
         {
             foreach (IReadOnlyList<string> batch in batches)
             {
-                string[] prefix = category == "style"
-                    ? ["format", "style", Path.Combine(repository, "BeMusicSeeker.sln"), "--severity", "error", "--no-restore"]
-                    : ["format", "whitespace", repository, "--folder"];
-                ProcessCompletion result = await execute("dotnet", [.. prefix, "--verbosity", "minimal", "--include", .. batch], deadline);
-                RequireSuccess(result, "自動整形");
+                await FormatCategoryAsync(category, ["--include", .. batch]);
             }
+        }
+
+        async Task FormatCategoryAsync(string category, IReadOnlyList<string> includes)
+        {
+            string[] prefix = category == "style"
+                ? ["format", "style", Path.Combine(repository, "BeMusicSeeker.sln"), "--severity", "error", "--no-restore"]
+                : ["format", "whitespace", repository, "--folder"];
+            // folder適用でも、root直下とネストした生成先の通常C#を変更しません。
+            ProcessCompletion result = await execute("dotnet", [.. prefix, "--verbosity", "minimal", "--exclude",
+                "**/bin/**", "**/obj/**", "**/.tmp/**", "**/artifacts/verification/**", .. includes], deadline);
+            RequireSuccess(result, "自動整形");
         }
     }
 

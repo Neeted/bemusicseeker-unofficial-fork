@@ -24,14 +24,7 @@ $ErrorActionPreference = "Stop"
 $devRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
 $distDir = Join-Path $devRoot "dist"
 
-function Get-AppVersion {
-    $asmInfoPath = Join-Path $devRoot "BeMusicSeeker\Properties\AssemblyInfo.cs"
-    $content = Get-Content $asmInfoPath -Raw
-    if ($content -match 'AssemblyInformationalVersion\("([^"]+)"\)') {
-        return $Matches[1]
-    }
-    throw "AssemblyInformationalVersion が見つかりません: $asmInfoPath"
-}
+. (Join-Path $PSScriptRoot "application-version.ps1")
 
 function Resolve-PackagePath($path, $defaultName, $requiredMessage) {
     if (-not [string]::IsNullOrWhiteSpace($path)) {
@@ -113,7 +106,7 @@ if ($StopServer) {
 
 New-Item -ItemType Directory -Path $resolvedOutputDir -Force | Out-Null
 
-$currentVersion = Get-AppVersion
+$currentVersion = Get-ApplicationVersion -RepositoryRoot $devRoot
 $sourcePackagePath = Resolve-PackagePath `
     $PackagePath `
     "bemusicseeker-unofficial-fork-v$currentVersion.zip" `

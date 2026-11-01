@@ -5,6 +5,7 @@
 ```powershell
 dotnet run --project tools/BeMusicSeeker.Verify -- dev
 dotnet run --project tools/BeMusicSeeker.Verify -- verify
+dotnet run --project tools/BeMusicSeeker.Verify -- full
 dotnet run --project tools/BeMusicSeeker.Verify -- dev --filter "FullyQualifiedName~対象名"
 dotnet run --project tests/BeMusicSeeker.Core.Tests -- --filter "FullyQualifiedName~ResultGateTests" --minimum-expected-tests 1 --report-trx
 ```
@@ -13,9 +14,21 @@ dotnet run --project tests/BeMusicSeeker.Core.Tests -- --filter "FullyQualifiedN
 
 ## 移行中の実行範囲
 
-現在は共通基盤と6moduleの配置を先行して接続しています。既存ケースはまだ単一の `BeMusicSeeker.Tests` にあり、必須回帰の標準入口は `scripts/verify-refactor.ps1` のままです。新しい `dev/verify` で空moduleが選択された場合は不成功になります。新入口の全体合格には、既存ケースの移管とDailyシナリオの接続が必要です。
+現在は共通基盤と6moduleを接続し、既存ケースとシナリオを順次移管しています。移管は未完了のため、必須回帰の標準入口は `scripts/verify-refactor.ps1` のままです。新しい `dev/verify` で空moduleが選択された場合は不成功になります。新入口の全体合格には、既存ケースの移管とDailyシナリオの接続が必要です。
 
-`full`、`compatibility`、`performance` の固定module計画は定義していますが、配布準備・環境preflight・実行期限の接続が終わるまで入口で不成功を返します。`full` の10分という設計目標を、無断でtimeout値へ読み替えません。fresh-process probeのpayloadと通常wrapperも後続の移管対象です。
+`full` はReleaseのCore、Windows、Scenarios、Desktop.E2Eを各1回実行します。Scenariosは全件、SC-07はCompatibility所属のため対象外です。必須IDはScenariosのSC-01〜SC-14（SC-07を除く）、DesktopのSC-15a・SC-15b・SC-16・DT-01〜DT-03です。正式Fullは `--filter` を準備開始前に拒否します。局所検証は対象projectを直接実行します。
+
+Fullは全C# sourceの整形・build後、固定旧ZIP、現行V、次版Vnextを準備してからtest段階を開始します。Vは通常の公開版値、VnextはVの実バイナリの版から末尾をcheckedで1増やした実行限定の版です。通常の公開版値とAssemblyVersionを変えません。版指定はpublishの `-ApplicationVersion` から生成属性へ接続し、各ArtifactRoot内のproject別obj/binへ分離します。実シナリオは引き続き移行対象です。未接続によるpublish失敗や必須ID不足を成功扱いせず、fixtureを使う準備部品の検査だけで実Full成功としません。
+
+`compatibility` と `performance` はsuiteの実体・前提・有限仕事量と期限が確定するまで不成功を返します。未完成suiteを名前だけで有効化しません。
+
+## 配布物の受渡し
+
+固定旧ZIPのidentityは追跡された `devdocs/acceptance/v216-first-hop/artifact.json` を正本とします。有効cacheは取得せず、不正cacheは変更・再取得せず失敗します。不在時だけ一度取得し、size/hash検査済みの一時fileをatomicに公開します。
+
+VとVnextはrun内の別のArtifactRootへ各1回publishします。生成ZIPは実publishのapp/updaterと照合し、`update-managed-files.txt` 自身を除く全fileとの集合一致、既存layout、採用済nativeのhash/AMD64、test依存の混入を検査します。manifestの列挙順・改行は契約にしません。最上位config/data/log/logs/update_work/update_backupの6保護領域を含めません。imported_metadataはapp管理領域ですが、既存の配布layout禁止は維持します。この受入検査は製品updaterの入力受理を変更しません。bundle内の依存は既存の製品依存検査と分担し、一般依存の新しいhash台帳を作りません。
+
+全配布物の完成後だけ `distribution/catalog.json` をatomicに公開し、子環境の `BMS_TEST_DISTRIBUTION_CATALOG` で渡します。`DistributionCatalog.ReadFromEnvironmentAsync(repository, deadline)` は呼出元が明示したrepositoryの追跡manifestを正本としてcatalogの旧版identityを照合し、未指定・不正を失敗にします。catalogの自己申告や所在から正本を選ばず、自動探索・再取得は行いません。直接module実行でも検査済みcatalogを明示指定し、moduleからの自動publishは行いません。caseは `ExtractInstallationAsync` でTestWorkspace内の新しいinstallationへZIPを展開し、共有publish/ZIPを変更しません。通常はCurrentを使い、SC-15aの更新先にだけNextを使います。
 
 ## 所有と判定
 
@@ -27,7 +40,7 @@ Windows、Scenarios、Desktopは初期化前に同一ユーザー・Windows sess
 
 期待moduleごとの今回のTRX、process終了コード、全終端を照合し、選択結果が全件Passedの場合だけ成功します。部分skip、全skip、ゼロ件、report欠落・不正、timeout、回収失敗も不成功です。未選択moduleは「対象外」として区別します。
 
-`--filter` は標準MTP条件を各moduleへ渡し、module集合を変更しません。Dailyやsuiteの条件があるmoduleでは括弧で囲んだAND条件にします。`dev/verify` はScenariosの `[SC-01]`、`[SC-02]`、`[SC-09]` というtestName先頭の必須IDを照合し、filter指定時にも不足を成功として扱いません。
+`full` 以外の `--filter` は標準MTP条件を各moduleへ渡し、module集合を変更しません。Dailyやsuiteの条件があるmoduleでは括弧で囲んだAND条件にします。`dev/verify` はScenariosの `[SC-01]`、`[SC-02]`、`[SC-09]` というtestName先頭の必須IDを照合し、filter指定時にも不足を成功として扱いません。
 
 同じIDのDataRowが一つのmodule内で複数行になることは許可しますが、選択された全行のPassedが必要です。同じIDを別moduleへ重複配置することは許可しません。IDの後ろは空白・DataRowの括弧・文字列末尾で区切り、ケース全体のFQN一覧や独自DataRow展開は使いません。
 
@@ -37,9 +50,9 @@ Windows、Scenarios、Desktopは初期化前に同一ユーザー・Windows sess
 
 各runは `artifacts/verification/mtp-*` に独立した結果領域を作ります。TRX、stdout/stderr、`summary.json` を保存します。summaryにsource SHA、dirty、実SDK、OS、論理CPU数、worker数、configurationを記録し、computer nameや個人profile pathを転載しません。標準TRXの生データはローカル診断として扱います。
 
-`preparationMs` は復元・整形・実行条件取得、`buildMs` はbuildです。`executionMs` は最初のtest起動から、全reportの集約と所有childの終端までのwall timeです。module別の `ElapsedMs` はそのmoduleの起動から出力・所有childの回収までで、未起動ならnullです。`cleanupMs` は重なりを除いた回収区間で、`executionMs` の内数です。`totalMs` は入口全体のwall timeで、cleanupを重複加算しません。ケースdurationや並行moduleの時間の合計をwall timeと比較しません。
+`preparationMs` は復元・整形・実行条件取得、`buildMs` はbuild、`distributionMs` はFull配布準備です。`executionMs` は最初のtest起動から、全reportの集約と所有childの終端までのwall timeです。module別の `ElapsedMs` はそのmoduleの起動から出力・所有childの回収までで、未起動ならnullです。`cleanupMs` は重なりを除いた回収区間で、`executionMs` の内数です。`totalMs` は入口全体のwall timeで、cleanupを重複加算しません。ケースdurationや並行moduleの時間の合計をwall timeと比較しません。
 
-移行中のdev/verify実行期限は360秒、formatは180秒、restore/buildは各300秒、回収は10秒です。実行中の各待機で段階期限を作り直しません。日常実行の速度受入後にtest段階を180秒へ切り替えます。
+移行中のdev/verify実行期限は360秒、Fullは全testで共有する1380秒です。Fullの600秒速度目標とは区別し、整形・build・配布準備をtest時間へ含めません。個々のscenarioの180秒・updateの240秒も共通期限を延長しません。formatは180秒、restore/buildは各300秒、固定旧ZIP取得は180秒、V/Vnextのpublish＋検査は各variant独立180秒、回収は10秒です。実行中の各待機で段階期限を作り直しません。日常実行の速度受入後にdev/verifyのtest段階を180秒へ切り替えます。
 
 全format batchは一つの段階期限を共有し、restore/buildはそれぞれ別の段階です。test段階はCoreとUI laneで期限を共有します。正常Core終了時には致命失敗用の回収期限を確定しません。致命失敗を検出した時に、検出時刻+10秒と段階実行期限+10秒の早い方を一度だけ確定し、同段階の停止・出力保存で共有します。processごとの新しい10秒は与えません。
 

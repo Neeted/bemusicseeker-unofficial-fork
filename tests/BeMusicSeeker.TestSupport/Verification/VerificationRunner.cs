@@ -19,8 +19,10 @@ internal sealed record VerificationRun(string Repository, string RunRoot)
     internal TimeSpan PreparationTimeout { get; init; } = TimeSpan.FromSeconds(300);
     /// <summary>全formatter batchで共有する期限です。</summary>
     internal TimeSpan FormatTimeout { get; init; } = TimeSpan.FromSeconds(180);
-    /// <summary>全test moduleで共有する期限です。</summary>
-    internal TimeSpan TestTimeout { get; init; } = TimeSpan.FromSeconds(360);
+    /// <summary>接続検査で短い期限を使う場合の上書きです。通常実行はprofileの共通test期限を使います。</summary>
+    internal TimeSpan? TestTimeout { get; init; }
+    /// <summary>固定旧ZIP取得と、V・Vnext各publish＋検査にそれぞれ与える期限です。</summary>
+    internal TimeSpan DistributionTimeout { get; init; } = TimeSpan.FromSeconds(180);
     /// <summary>段階の致命失敗時に一度だけ確定する回収猶予です。</summary>
     internal TimeSpan CleanupGrace { get; init; } = TimeSpan.FromSeconds(10);
 }
@@ -77,6 +79,7 @@ internal static class VerificationRunner
         var total = Stopwatch.StartNew();
         var preparation = new Stopwatch();
         var build = new Stopwatch();
+        var distribution = new Stopwatch();
         var commands = new ConcurrentBag<VerificationCommandResult>();
         var executions = new ConcurrentBag<ModuleExecution>();
         var cleanupIntervals = new ConcurrentBag<(long Start, long End)>();
@@ -84,6 +87,7 @@ internal static class VerificationRunner
         Exception? primary = null;
         Exception? summaryFailure = null;
         string? source = null, sdk = null;
+        string? distributionCatalog = null;
         bool? dirty = null;
         long executionStart = 0;
         var summaryDeadline = ProcessDeadline.FromTimeout(run.MetadataTimeout);
@@ -112,7 +116,7 @@ internal static class VerificationRunner
             Console.WriteLine("選択: " + string.Join(", ", plan.Modules.Select(module => module.Name)));
             Console.WriteLine("対象外: " + string.Join(", ", new[] { "Core", "Windows", "Scenarios", "Desktop.E2E", "Compatibility", "Performance" }.Except(plan.Modules.Select(module => module.Name))));
             Console.WriteLine("結果: " + run.RunRoot);
-            if (plan.Profile is "full" or "compatibility" or "performance")
+            if (plan.Profile is "compatibility" or "performance")
             {
                 throw new InvalidOperationException("このprofileの配布物・環境preflight・期限は後続移行で接続します。未実施を成功として扱いません。");
             }
@@ -129,7 +133,8 @@ internal static class VerificationRunner
             {
                 using var format = new RunnerStage(run.FormatTimeout, run.CleanupGrace, cancellationToken);
                 await RepositoryFormatter.FormatAsync(run.Repository,
-                    (executable, arguments, _) => ExecutePreparation(executable, arguments, format), format.ExecutionDeadline);
+                    (executable, arguments, _) => ExecutePreparation(executable, arguments, format), format.ExecutionDeadline,
+                    allSources: plan.Profile == "full");
                 await ExecutePreparation("git", ["diff", "--check"], format);
             }
             preparation.Stop();
@@ -140,7 +145,31 @@ internal static class VerificationRunner
             }
             build.Stop();
 
-            using var testing = new RunnerStage(run.TestTimeout, run.CleanupGrace, cancellationToken);
+            if (plan.Profile == "full")
+            {
+                distribution.Start();
+                distributionCatalog = await DistributionPreparer.PrepareAsync(run.Repository, run.RunRoot, async (name, action) =>
+                {
+                    using var stage = new RunnerStage(run.DistributionTimeout, run.CleanupGrace, cancellationToken);
+                    Console.WriteLine("配布準備: " + name);
+                    try
+                    {
+                        stage.ThrowIfCannotStart();
+                        await action((executable, arguments, _) => ExecutePreparation(executable, arguments, stage),
+                            stage.ExecutionDeadline, stage.CancellationToken);
+                        stage.ThrowIfCannotStart();
+                    }
+                    catch
+                    {
+                        stage.Abort();
+                        throw;
+                    }
+                    finally { summaryDeadline = stage.CleanupDeadline; }
+                });
+                distribution.Stop();
+            }
+
+            using var testing = new RunnerStage(run.TestTimeout ?? plan.TestTimeout, run.CleanupGrace, cancellationToken);
             async Task RunModule(VerificationModule module)
             {
                 if (testing.Aborted) { return; }
@@ -156,7 +185,11 @@ internal static class VerificationRunner
                     string[] arguments = ["--results-directory", directory, "--report-trx", "--report-trx-filename", "results.trx",
                         "--minimum-expected-tests", "1", "--settings", settings, "--crashdump", .. module.Filter is null ? [] : new[] { "--filter", module.Filter }];
                     result = await ExecuteProcessAsync(run, testing, new ProcessStartRequest(executable, arguments, run.Repository,
-                        new Dictionary<string, string?> { [TestRunDirectory.EnvironmentVariable] = Path.Combine(directory, "cases") }),
+                        new Dictionary<string, string?>
+                        {
+                            [TestRunDirectory.EnvironmentVariable] = Path.Combine(directory, "cases"),
+                            [DistributionCatalog.EnvironmentVariable] = distributionCatalog,
+                        }),
                         directory, "process", started => Interlocked.CompareExchange(ref executionStart, started, 0), cleanupIntervals);
                 }
                 catch (Exception error)
@@ -200,6 +233,7 @@ internal static class VerificationRunner
         if (cancellationToken.IsCancellationRequested && primary is null) { primary = new OperationCanceledException(cancellationToken); }
         preparation.Stop();
         build.Stop();
+        distribution.Stop();
         TimeSpan executionTime = executionStart == 0 ? TimeSpan.Zero : Stopwatch.GetElapsedTime(executionStart);
         double cleanupMs = MeasureIntervalUnion(cleanupIntervals);
         total.Stop();
@@ -223,6 +257,8 @@ internal static class VerificationRunner
                 workers = plan.Modules.Select(module => new { module.Name, module.Workers }),
                 preparationMs = preparation.Elapsed.TotalMilliseconds,
                 buildMs = build.Elapsed.TotalMilliseconds,
+                distributionMs = distribution.Elapsed.TotalMilliseconds,
+                testTimeoutSeconds = (run.TestTimeout ?? plan.TestTimeout).TotalSeconds,
                 executionMs = executionTime.TotalMilliseconds,
                 cleanupMs,
                 totalMs = total.Elapsed.TotalMilliseconds,
