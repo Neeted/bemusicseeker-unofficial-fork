@@ -28,7 +28,8 @@ public partial class PlaybackPanelView : UserControl
     public static readonly DependencyProperty EffectivePlayerPanelStateProperty = DependencyProperty.Register(nameof(EffectivePlayerPanelState), typeof(PlayerPanelState), typeof(PlaybackPanelView), new PropertyMetadata(PlayerPanelState.TITLE_LARGE));
     public static readonly DependencyProperty SettingsCommandProperty = DependencyProperty.Register(nameof(SettingsCommand), typeof(ICommand), typeof(PlaybackPanelView), new PropertyMetadata(null));
     private readonly PlaybackPreviousButtonGesture previousButtonGesture = new();
-    private DispatcherTimer gridBMSPlayerControlsPreviousButtonClickTimer;
+    private readonly Func<Dispatcher, IPreviousButtonTimer> createPreviousButtonTimer;
+    private IPreviousButtonTimer gridBMSPlayerControlsPreviousButtonClickTimer;
     private PlaybackPanelViewModel subscribedPlaybackPanel;
     private PropertyChangedEventHandler subscribedPropertyChangedHandler;
     private EventHandler subscribedPlaybackStartingHandler;
@@ -39,8 +40,16 @@ public partial class PlaybackPanelView : UserControl
     private BitmapSource externalPanelImage;
     private bool isClosingOrClosed;
 
-    public PlaybackPanelView()
+    /// <summary>同じUI Dispatcher上の500msタイマーで前曲ボタンを判定するパネルを作成します。</summary>
+    public PlaybackPanelView() : this(dispatcher => new PreviousButtonDispatcherTimer(dispatcher))
     {
+    }
+
+    /// <summary>前曲ボタンの時計だけを差し替え、接続期間ごとの停止・購読解除を検証できるパネルを作成します。</summary>
+    /// <param name="createPreviousButtonTimer">ViewのDispatcherを受け取り、停止状態の新しいタイマーを返すファクトリー。</param>
+    internal PlaybackPanelView(Func<Dispatcher, IPreviousButtonTimer> createPreviousButtonTimer)
+    {
+        this.createPreviousButtonTimer = createPreviousButtonTimer ?? throw new ArgumentNullException(nameof(createPreviousButtonTimer));
         InitializeComponent();
         DataContextChanged += PlaybackPanelDataContextChanged;
         Loaded += PlaybackPanelLoaded;
@@ -656,6 +665,7 @@ public partial class PlaybackPanelView : UserControl
         HandlePreviousButtonClick(e.ClickCount);
     }
 
+    /// <summary>前曲ボタンのクリック回数を受け、単クリックの遅延判定または前曲への移動を開始します。</summary>
     internal void HandlePreviousButtonClick(int clickCount)
     {
         if (DataContext is not PlaybackPanelViewModel viewModel)
@@ -691,11 +701,44 @@ public partial class PlaybackPanelView : UserControl
         {
             return;
         }
-        gridBMSPlayerControlsPreviousButtonClickTimer = new DispatcherTimer(
-            new TimeSpan(0, 0, 0, 0, 500),
-            DispatcherPriority.Background,
-            gridBMSPlayerControlsPreviousButtonSingleClicked,
-            Dispatcher);
+        gridBMSPlayerControlsPreviousButtonClickTimer = createPreviousButtonTimer(Dispatcher);
+        gridBMSPlayerControlsPreviousButtonClickTimer.Tick += gridBMSPlayerControlsPreviousButtonSingleClicked;
+    }
+
+    /// <summary>前曲ボタン専用の遅延通知。Viewが開始・停止と購読の寿命を所有します。</summary>
+    internal interface IPreviousButtonTimer
+    {
+        /// <summary>遅延の経過を通知します。停止と購読解除は別の操作です。</summary>
+        event EventHandler Tick;
+
+        /// <summary>遅延通知を開始します。</summary>
+        void Start();
+
+        /// <summary>購読を保持したまま遅延通知を停止します。</summary>
+        void Stop();
+    }
+
+    private sealed class PreviousButtonDispatcherTimer : IPreviousButtonTimer
+    {
+        private readonly DispatcherTimer timer;
+
+        /// <summary>Viewと同じDispatcherへBackground優先度の500ms通知を接続します。</summary>
+        internal PreviousButtonDispatcherTimer(Dispatcher dispatcher)
+        {
+            timer = new DispatcherTimer(DispatcherPriority.Background, dispatcher)
+            {
+                Interval = TimeSpan.FromMilliseconds(500)
+            };
+        }
+
+        public event EventHandler Tick
+        {
+            add => timer.Tick += value;
+            remove => timer.Tick -= value;
+        }
+
+        public void Start() => timer.Start();
+        public void Stop() => timer.Stop();
     }
 
     private void StopPreviousButtonTimer()

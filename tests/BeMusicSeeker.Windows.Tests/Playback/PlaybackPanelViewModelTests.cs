@@ -1820,8 +1820,8 @@ public sealed class PlaybackPanelViewModelTests
         finally { DisposeWorkspace(); }
     }
 
-    /// <summary>DataContext交換・Unloadedで遅延した前曲button restartを取消し、旧購読通知とバナーを持ち越さず新VMの通知もUIへ安全に渡すことを確認します。</summary>
-    /// <remarks>実WindowのLoaded・compiled binding・子HWNDまたはanimationを観測するため表示し、共有WPF資源を使うこのケースだけ非並列にします。</remarks>
+    /// <summary>DataContext交換・Unloadedで遅延した前曲ボタンの再開を取消し、旧購読通知とバナーを持ち越さず新VMの通知もUIへ安全に渡すことを確認します。</summary>
+    /// <remarks>実WindowのLoaded・compiled binding・子HWNDまたはanimationを観測するため表示し、時計だけを明示配送へ置換します。共有WPF資源を使うため非並列にします。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void PlaybackPanelView_UnloadedCancelsPendingPreviousButtonRestart()
@@ -1832,7 +1832,15 @@ public sealed class PlaybackPanelViewModelTests
             PlaybackPanelViewModel panel = CreatePanel(testSettings, player);
             var replacementPlayer = new FakeBmsPlayer();
             PlaybackPanelViewModel replacementPanel = CreatePanel(testSettings, replacementPlayer);
-            var view = new PlaybackPanelView { DataContext = panel };
+            var timers = new List<ManualPreviousButtonTimer>();
+            var panels = new List<PlaybackPanelViewModel> { panel, replacementPanel };
+            var view = new PlaybackPanelView(_ =>
+            {
+                var timer = new ManualPreviousButtonTimer();
+                timers.Add(timer);
+                return timer;
+            })
+            { DataContext = panel };
             int viewStartingCount = 0;
             int viewStartedCount = 0;
             view.PlaybackStarting += (_, _) => viewStartingCount++;
@@ -1846,8 +1854,11 @@ public sealed class PlaybackPanelViewModelTests
                 WindowStyle = WindowStyle.None
             };
 
+            Dispatcher previousDispatcher = Livet.DispatcherHelper.UIDispatcher;
             try
             {
+                // 終了受付のコマンド通知も、このケースが所有するUI Dispatcherへ配送します。
+                Livet.DispatcherHelper.UIDispatcher = Dispatcher.CurrentDispatcher;
                 windowTest.ShowAndWaitForContentRendered(window);
                 Assert.IsTrue(view.IsLoaded);
 
@@ -1858,6 +1869,10 @@ public sealed class PlaybackPanelViewModelTests
 
                 Task restartObserved = player.WaitForCommandAsync("Restart");
                 view.HandlePreviousButtonClick(1);
+                ManualPreviousButtonTimer initialTimer = timers.Single();
+                Assert.AreEqual(1, initialTimer.StartCount);
+                Assert.AreEqual(1, initialTimer.SubscriberCount);
+                initialTimer.DeliverTick();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     restartObserved,
                     "PlaybackPanelView_UnloadedCancelsPendingPreviousButtonRestart.initial-restart");
@@ -1865,16 +1880,22 @@ public sealed class PlaybackPanelViewModelTests
                 {
                 }
 
+                Assert.AreEqual(1, initialTimer.DeliveryCount);
                 view.HandlePreviousButtonClick(1);
+                Assert.AreEqual(2, initialTimer.StartCount);
+                int initialStops = initialTimer.StopCount;
                 view.DataContext = replacementPanel;
-                // 取消後に製品の遅延Restartが発生しないことだけを、既存の観測期間で確認します。
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    Task.Delay(700), "previous-restart-cancellation-observation");
+                AssertPreviousButtonTimerCancelled(initialTimer, initialStops);
                 Assert.IsFalse(player.Commands.Contains("Restart"));
                 Assert.IsFalse(replacementPlayer.Commands.Contains("Restart"));
 
                 Task replacementRestartObserved = replacementPlayer.WaitForCommandAsync("Restart");
                 view.HandlePreviousButtonClick(1);
+                ManualPreviousButtonTimer replacementTimer = timers.Last();
+                Assert.AreNotSame(initialTimer, replacementTimer);
+                Assert.AreEqual(1, replacementTimer.StartCount);
+                Assert.AreEqual(1, replacementTimer.SubscriberCount);
+                replacementTimer.DeliverTick();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     replacementRestartObserved,
                     "PlaybackPanelView_UnloadedCancelsPendingPreviousButtonRestart.replacement-restart");
@@ -1891,6 +1912,7 @@ public sealed class PlaybackPanelViewModelTests
                     new FakePlaybackDialogService(),
                     _ => { },
                     new ChartFileOperationSynchronizer());
+                panels.Add(queuedPanel);
                 view.DataContext = queuedPanel;
                 long queuedGeneration = queuedPanel.BeginPlayback(ChartTestValues.Empty(), 0);
                 queuedPanel.NotifyPlaybackStarted(queuedGeneration);
@@ -1902,7 +1924,9 @@ public sealed class PlaybackPanelViewModelTests
                 var banner = (Border)view.FindName("gridBMSPlayerControlsBanner");
                 banner.Background = Brushes.Red;
                 banner.BorderThickness = new Thickness(1);
-                view.DataContext = CreatePanel(testSettings, new FakeBmsPlayer());
+                PlaybackPanelViewModel bannerPanel = CreatePanel(testSettings, new FakeBmsPlayer());
+                panels.Add(bannerPanel);
+                view.DataContext = bannerPanel;
                 Assert.IsNull(banner.Background);
                 Assert.AreEqual(new Thickness(0), banner.BorderThickness);
                 view.DataContext = replacementPanel;
@@ -1925,25 +1949,160 @@ public sealed class PlaybackPanelViewModelTests
                 Assert.IsNull(backgroundException);
 
                 view.HandlePreviousButtonClick(1);
+                ManualPreviousButtonTimer unloadedTimer = timers.Last();
+                Assert.AreEqual(1, unloadedTimer.StartCount);
+                Assert.AreEqual(1, unloadedTimer.SubscriberCount);
+                int unloadedStops = unloadedTimer.StopCount;
                 window.Content = null;
-                // 取消後に製品の遅延Restartが発生しないことだけを、既存の観測期間で確認します。
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    Task.Delay(700), "previous-restart-cancellation-observation");
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.IsFalse(view.IsLoaded);
+                AssertPreviousButtonTimerCancelled(unloadedTimer, unloadedStops);
                 Assert.IsFalse(replacementPlayer.Commands.Contains("Restart"));
+
+                window.Content = view;
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(view.IsLoaded);
+                Task reloadedRestartObserved = replacementPlayer.WaitForCommandAsync("Restart");
+                view.HandlePreviousButtonClick(1);
+                ManualPreviousButtonTimer reloadedTimer = timers.Last();
+                Assert.AreNotSame(unloadedTimer, reloadedTimer);
+                Assert.AreEqual(1, reloadedTimer.StartCount);
+                Assert.AreEqual(1, reloadedTimer.SubscriberCount);
+                unloadedTimer.DeliverTick();
+                Assert.AreEqual(0, unloadedTimer.DeliveryCount);
+                Assert.IsFalse(unloadedTimer.IsRunning);
+                reloadedTimer.DeliverTick();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    reloadedRestartObserved,
+                    "PlaybackPanelView_UnloadedCancelsPendingPreviousButtonRestart.reloaded-restart");
+                Assert.AreEqual(1, reloadedTimer.DeliveryCount);
             }
             finally
             {
-                view.DisposePlayerHost();
-                window.Content = null;
-                if (view.IsLoaded)
+                try
                 {
+                    window.Content = null;
                     view.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
+                    foreach (PlaybackPanelViewModel createdPanel in panels) { createdPanel.BeginShutdown(); }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        Task.WhenAll(panels.Select(createdPanel => createdPanel.CloseForShutdown())),
+                        "previous-button-cancellation-shutdown");
                 }
-                window.Close();
+                finally
+                {
+                    try { view.DisposePlayerHost(); }
+                    finally
+                    {
+                        try { window.Close(); }
+                        finally { Livet.DispatcherHelper.UIDispatcher = previousDispatcher; }
+                    }
+                }
             }
         });
+    }
+
+    /// <summary>公開の既定構成で500msの実Dispatcherタイマーから再開コマンドへ接続することを確認します。</summary>
+    /// <remarks>実Loadedと既定時計の接続だけを担い、取消しは明示配送、クリック判定はCoreのジェスチャーテストへ分担します。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void PlaybackPanelView_DefaultPreviousButtonTimerRestartsPlayback()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var player = new FakeBmsPlayer();
+            PlaybackPanelViewModel panel = CreatePanel(testSettings, player);
+            var view = new PlaybackPanelView { DataContext = panel };
+            var window = new Window
+            {
+                Width = 640d,
+                Height = 360d,
+                Content = view,
+                ShowInTaskbar = false,
+                WindowStyle = WindowStyle.None
+            };
+            Dispatcher previousDispatcher = Livet.DispatcherHelper.UIDispatcher;
+            try
+            {
+                // 終了受付のコマンド通知も、このケースが所有するUI Dispatcherへ配送します。
+                Livet.DispatcherHelper.UIDispatcher = Dispatcher.CurrentDispatcher;
+                windowTest.ShowAndWaitForContentRendered(window);
+                Assert.IsTrue(view.IsLoaded);
+                Task restartObserved = player.WaitForCommandAsync("Restart");
+                view.HandlePreviousButtonClick(1);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    restartObserved, "PlaybackPanelView_DefaultPreviousButtonTimerRestartsPlayback.restart");
+                Assert.AreEqual(1, player.Commands.Count(command => command == "Restart"));
+            }
+            finally
+            {
+                try
+                {
+                    window.Content = null;
+                    view.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
+                    panel.BeginShutdown();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(panel.CloseForShutdown(), "previous-button-default-shutdown");
+                }
+                finally
+                {
+                    try { view.DisposePlayerHost(); }
+                    finally
+                    {
+                        try { window.Close(); }
+                        finally { Livet.DispatcherHelper.UIDispatcher = previousDispatcher; }
+                    }
+                }
+            }
+        });
+    }
+
+    private static void AssertPreviousButtonTimerCancelled(ManualPreviousButtonTimer timer, int previousStopCount)
+    {
+        Assert.AreEqual(previousStopCount + 1, timer.StopCount, "Viewが保留中の時計を停止します。");
+        Assert.IsFalse(timer.IsRunning);
+        Assert.AreEqual(0, timer.SubscriberCount, "停止とは別にViewがTick購読を解除します。");
+        int attempts = timer.DeliveryAttemptCount;
+        int deliveries = timer.DeliveryCount;
+        timer.DeliverTick();
+        Assert.AreEqual(attempts + 1, timer.DeliveryAttemptCount);
+        Assert.AreEqual(deliveries, timer.DeliveryCount, "旧時計から明示配送してもViewは受信しません。");
+    }
+
+    /// <summary>停止と購読解除を独立して観測し、停止後も旧通知の配送を試せる前曲ボタン専用時計。</summary>
+    private sealed class ManualPreviousButtonTimer : PlaybackPanelView.IPreviousButtonTimer
+    {
+        public event EventHandler? Tick;
+        internal int StartCount { get; private set; }
+        internal int StopCount { get; private set; }
+        internal int DeliveryAttemptCount { get; private set; }
+        internal int DeliveryCount { get; private set; }
+        internal bool IsRunning { get; private set; }
+        internal int SubscriberCount => Tick?.GetInvocationList().Length ?? 0;
+
+        public void Start()
+        {
+            StartCount++;
+            IsRunning = true;
+        }
+
+        public void Stop()
+        {
+            StopCount++;
+            IsRunning = false;
+        }
+
+        internal void DeliverTick()
+        {
+            DeliveryAttemptCount++;
+            // Stopは購読を消さず、配送も抑えません。解除漏れを停止状態で隠さないためです。
+            foreach (EventHandler handler in Tick?.GetInvocationList() ?? [])
+            {
+                DeliveryCount++;
+                handler(this, EventArgs.Empty);
+            }
+        }
     }
 
     private static void AssertPlaybackPanelFinalState(PlaybackPanelView view, bool compact)
