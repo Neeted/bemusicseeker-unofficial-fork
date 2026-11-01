@@ -251,6 +251,13 @@
           "sqlite-net-pcl": "[1.11.285, )"
         }
       },
+      "bemusicseeker.testsupport": {
+        "type": "Project",
+        "dependencies": {
+          "BeMusicSeeker": "[1.0.0, )",
+          "MSTest.TestFramework": "[4.5.2, )"
+        }
+      },
       "LivetCask.Core": {
         "type": "CentralTransitive",
         "requested": "[4.0.2, )",

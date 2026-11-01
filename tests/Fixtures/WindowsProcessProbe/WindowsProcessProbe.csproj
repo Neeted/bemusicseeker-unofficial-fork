@@ -6,5 +6,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../../BeMusicSeeker/BeMusicSeeker.csproj" />
+    <ProjectReference Include="../../BeMusicSeeker.TestSupport/BeMusicSeeker.TestSupport.csproj" />
   </ItemGroup>
 </Project>

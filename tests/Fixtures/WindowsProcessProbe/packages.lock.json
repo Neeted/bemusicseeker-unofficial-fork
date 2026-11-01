@@ -17,6 +17,19 @@
         "resolved": "1.1.31",
         "contentHash": "LZpuf82ACZWldmfMuv3CTUMDh3o0xo0uHUaybR5HgqVLDBJJ9RZLykplQ/bTJd0/VDt3EhD4iDgUgbdIUAM+Kg=="
       },
+      "MSTest.Analyzers": {
+        "type": "Transitive",
+        "resolved": "4.5.2",
+        "contentHash": "t6Dj9AmWO9IfkMBi3yYTf7bfgSTAetsi4LFA3xGdKbJ+gBbSDqbo41U5vYiW9puD8UGl2elsizNeJVYtwNim0Q=="
+      },
+      "MSTest.TestFramework": {
+        "type": "Transitive",
+        "resolved": "4.5.2",
+        "contentHash": "9U+a6ZcsIEXnC2Q8D2RRBpvo3ro83RfGLfeCJC+NomPhiCD6gi9ehpk00A1TC0Za+nB7j5sn6V1VbDanqoohsA==",
+        "dependencies": {
+          "MSTest.Analyzers": "4.5.2"
+        }
+      },
       "SourceGear.sqlite3": {
         "type": "Transitive",
         "resolved": "3.53.3",
@@ -61,6 +74,13 @@
           "SQLitePCLRaw.bundle_e_sqlite3": "[3.0.4, )",
           "SevenZipExtractor": "[1.0.19, )",
           "sqlite-net-pcl": "[1.11.285, )"
+        }
+      },
+      "bemusicseeker.testsupport": {
+        "type": "Project",
+        "dependencies": {
+          "BeMusicSeeker": "[1.0.0, )",
+          "MSTest.TestFramework": "[4.5.2, )"
         }
       },
       "LivetCask.Core": {

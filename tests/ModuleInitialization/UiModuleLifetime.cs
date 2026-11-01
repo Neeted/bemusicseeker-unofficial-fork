@@ -1,6 +1,11 @@
+using System.Globalization;
+using System.IO;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Processes;
 using BeMusicSeeker.TestSupport.Ui;
+using BeMusicSeeker.TestSupport.Wpf;
 
 namespace BeMusicSeeker.Tests.Infrastructure;
 
@@ -14,11 +19,54 @@ public sealed class UiModuleLifetime
     [AssemblyInitialize]
     public static async Task Initialize(TestContext context)
     {
-        _ = TestRunDirectory.RootDirectory;
-        lease = await TestUiSessionLease.AcquireAsync(ProcessDeadline.FromTimeout(TimeSpan.FromMinutes(3)));
+        string runRoot = TestRunDirectory.RootDirectory;
+        TestUiSessionLease acquiredLease = await TestUiSessionLease.AcquireAsync(ProcessDeadline.FromTimeout(TimeSpan.FromMinutes(3)));
+        lease = acquiredLease;
+        try
+        {
+            string assets = AppContext.BaseDirectory;
+            string executable = Path.Combine(assets, "BeMusicSeeker.exe");
+            string language = Path.Combine(assets, "lang");
+            if (!File.Exists(executable) || !File.Exists(Path.Combine(language, "ja-JP.json")))
+            {
+                throw new FileNotFoundException("同じbuildの実行体と日本語辞書が必要です。", executable);
+            }
+            string profile = Path.Combine(runRoot, typeof(UiModuleLifetime).Assembly.GetName().Name + "-profile");
+            ApplicationPathPolicy.Configure(ApplicationPathSnapshot.FromLayout(executable, assets, profile,
+                language, Path.Combine(profile, "temp"), Path.Combine(profile, "legacy")));
+            Resources.Culture = CultureInfo.GetCultureInfo("ja-JP");
+        }
+        catch (Exception primary)
+        {
+            try { acquiredLease.Dispose(); }
+            catch (Exception cleanup) { primary.Data["UiModuleLifetime.LeaseCleanupFailure"] = cleanup; }
+            finally { lease = null; }
+            throw;
+        }
     }
 
-    /// <summary>全ケースのWindow・子process回収後にsession排他を解放します。</summary>
+    /// <summary>全ケースの子process回収後、共有Dispatcher・一時sessionの実終端を待ってsession排他を解放します。</summary>
     [AssemblyCleanup]
-    public static void Cleanup() => lease?.Dispose();
+    public static async Task Cleanup()
+    {
+        List<Exception> failures = [];
+        try
+        {
+            try { TestUiDispatcherHost.ShutdownApplication(); }
+            catch (Exception failure) { failures.Add(failure); }
+            try
+            {
+                await TempDirectoryPublisher.RemoveAllIfInitializedAsync((path, failure) =>
+                    throw new IOException("管理一時sessionの回収に失敗しました: " + path, failure));
+            }
+            catch (Exception failure) { failures.Add(failure); }
+        }
+        finally
+        {
+            try { lease?.Dispose(); }
+            catch (Exception failure) { failures.Add(failure); }
+            finally { lease = null; }
+        }
+        if (failures.Count != 0) { throw new AggregateException("UI moduleの回収に失敗しました。", failures); }
+    }
 }

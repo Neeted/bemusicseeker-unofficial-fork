@@ -204,6 +204,7 @@
       "bemusicseeker.testsupport": {
         "type": "Project",
         "dependencies": {
+          "BeMusicSeeker": "[1.0.0, )",
           "MSTest.TestFramework": "[4.5.2, )"
         }
       },

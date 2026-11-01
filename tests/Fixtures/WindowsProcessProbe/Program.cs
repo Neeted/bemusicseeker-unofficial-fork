@@ -13,6 +13,10 @@ internal static class Program
         {
             return RuntimeIsolationProbe.RunAsync(args[1..]);
         }
+        if (args.Length > 0 && args[0] == "wpf-host-lifecycle")
+        {
+            return WpfHostLifecycleProbe.RunAsync(args[1..]);
+        }
         Console.Error.WriteLine("指定されたprobeはまだ接続されていません: " + string.Join(" ", args));
         return Task.FromResult(2);
     }

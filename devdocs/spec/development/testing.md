@@ -221,7 +221,11 @@ DBの準備・観測は検証対象の処理と分けます。入力作成だけ
 
 保証の選び方は[画面に関わる保証の分担](test-authoring.md#画面に関わる保証の分担)に従います。以下は必要と判断した境界での実行・資源管理の規則です。
 
-WPFは `TestUiDispatcherHost` の一つの `Application` と専用STA Dispatcherを共有します。最初の `Dispatcher` / `Invoke` / `ProcessQueuedPresentation` / `RunWindowTest` 利用時に遅延起動し、テストごとに作りません。ウィンドウなしの操作は `Invoke`、実ウィンドウ・Popupは `RunWindowTest` と `TestWindowPresentationScope` を使います。
+WPFは `BeMusicSeeker.TestSupport.Wpf` の `TestUiDispatcherHost` にある一つの `Application` と専用STA Dispatcherをプロセス内で共有します。最初の `Dispatcher` / `Invoke` / `ProcessQueuedPresentation` / `RunWindowTest` 利用時に遅延起動し、テストごとに作りません。Supportの参照だけではWPF・設定を初期化せず、画面を使わないmoduleでは起動しません。ウィンドウなしの操作は `Invoke`、実ウィンドウ・Popupは `RunWindowTest` と `TestWindowPresentationScope` を使います。
+
+新しいUI moduleの `UiModuleLifetime` はrunRoot準備、session lease取得、runRoot内のmodule専有profileの `ApplicationPathSnapshot.FromLayout` / `ApplicationPathPolicy.Configure`、日本語リソース基準の順に初期化します。配置確定は `Settings.Default` の初読より前とし、実行体・Assets・langは同じbuild出力を指定します。必要素材の欠落を通常ユーザー領域へのfallbackで補いません。plain hostではAppの文化一覧を複製しません。旧Testsの既存初期化・cleanup順序は維持します。
+
+各ケースがOwnedProcessを回収した後、moduleは開始済みhostのWindow・Dispatcher終端とthread join、生成済み管理一時sessionの実Task終端、session lease解放の順に回収します。前段が失敗しても後段の回収を行い、失敗を保持します。初期化失敗時も取得済みleaseを解放します。未使用の管理一時sessionをcleanupのために生成しません。同じ親lease内で起動する共通WindowsProcessProbeはleaseを再取得せず、親ケースのOwnedProcessが子と両pipeを終端まで所有します。module全体の子process台帳は持ちません。
 
 表示入力の反映には共通の `ProcessQueuedPresentation` を使い、Loaded境界の後で実controlの値・選択・配置を確認します。この補助は機能処理、Background予約、閉鎖や全Dispatcherのidleを保証しません。実処理はconsumerのTaskまたは適用・終端通知を待ち、未完了の否定観測は到達gateを保持して行い、finallyで解放と開始済みTaskの回収を行います。入力TCSの完了だけをconsumer終端としません。成功後に追加作用を持たないイベントハンドラーは、compiled入口の引数・受理状態と委譲Taskの回収、委譲後に追加作用がない静的接続で分担します。
 
@@ -235,7 +239,7 @@ constructor-only harnessは `PrepareConstructorOnlyShell` で既存のshell acti
 
 共有hostの要求は実DispatcherOperationと既存のhost終端通知を観測します。hostが既に終了した場合と、要求の受理後に終了した場合は、所有threadをjoinして元host例外を返します。Dispatcher停止の二次失敗でも終端通知・joinを失わず、二次失敗を元例外へ添付します。健全なhost上のAction自身の失敗は保持し、後続要求は受理します。
 
-`ShowAndWaitForContentRendered` は表示前に通知を購読し、期限付きのDispatcher処理で読込み・描画・非ゼロの配置・HWNDを確認します。モーダル、即時終了、描画通知を制御する場合は、表示直前に `PrepareForOwnedPresentation` を呼びます。
+`ShowAndWaitForContentRendered` は表示前に通知を購読し、期限付きのDispatcher処理で読込み・描画・非ゼロの配置・HWNDを確認します。任意の `renderNotificationTimeout` はLoaded到達後のContentRendered通知待機だけに適用し、Loaded・Dispatcher・cleanupの期限へ流用しません。モーダル、即時終了、描画通知を制御する場合は、表示直前に `PrepareForOwnedPresentation` を呼びます。
 
 表示の観測待機は、実際の描画・配置・ネイティブ条件の成立を完了条件とします。成立後に、無関係な継続処理による一般的な `ApplicationIdle` 待ちを成功条件へ追加しません。描画通知がない場合、即時終了、ネイティブ観測の失敗、期限超過を成功へ置き換えず、表示観測と後片付けの待機を区別します。
 
@@ -362,7 +366,10 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Tes
 | 失敗時の差し戻し・再実行 | [エージェント運用](agent-workflow.md#不備の差し戻し)、本書 | 修正担当への差し戻し、同一版の再実行と修正後の検証、障害解決の条件を区別する。 |
 | UTF-8出力の読取りと保存、親環境の非変更 | [共通のプロセス処理](../../../scripts/verification-process-lifecycle.ps1) の `Set-VerificationRedirectedProcessEncoding` / `Start-VerificationRedirectedProcess`、[分割テストの起動](../../../scripts/verify-refactor.ps1) の `Start-FunctionalShardProcess` | [`VerificationProcessLifecycleTests`](../../../BeMusicSeeker.Tests/Verification/VerificationProcessLifecycleTests.cs) の `RedirectedUtf8OutputPreservesBothPipesAndArtifactsWithoutChangingParent`（`ProcessIntegration`）は、両ストリームと保存物の日本語・記号・絵文字、親設定の不変、残留プロセスなしを確認する。通常コマンドと分割テストが同じ設定処理を起動前に呼ぶことは、両入口を点検する。 |
 | 一時資源・共有状態・通常完了の待機 | [共通補助処理](../../../BeMusicSeeker.Tests/Helpers)、各機能のテスト準備 | 所有・復元、通知前の失敗、待合せの解放、実際の完了条件を確認する。 |
-| 画面の準備、表示、破棄 | [`TestUiDispatcherHost`](../../../BeMusicSeeker.Tests/Helpers/TestUiScheduler.cs)、[`TestWindowPresentationScope`](../../../BeMusicSeeker.Tests/Helpers/TestUiScheduler.cs) | [`SettingsControlPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs)、[`WpfTestApplicationHostTests`](../../../BeMusicSeeker.Tests/Helpers/WpfTestApplicationHostTests.cs)。一般idleへの到達とは別に実描画・配置・ネイティブ条件を確認し、所有資源と失敗優先順位を維持する。 |
+| Dispatcherの受付・終端・通常Task待機 | [`TestUiDispatcherHost`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestUiDispatcherHost.cs) | [`DispatcherHostTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/DispatcherHostTests.cs)。既終端・受理後終了と停止二次失敗、Action失敗後の継続、join、consumerの成功・失敗・取消・通知欠落、単一STAを確認する。 |
+| 画面の準備、表示、破棄 | [`TestWindowPresentationScope`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestWindowPresentationScope.cs) | [`SettingsControlPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs)、[`WindowPresentationScopeTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/WindowPresentationScopeTests.cs)。一般idleと別に実描画・配置・Win32結果、入れ子の所有資源、失敗優先順位を確認する。 |
+| 共有hostのテーマ・意味別リソース | [`TestUiDispatcherHost`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestUiDispatcherHost.cs) | [`WpfThemeResourceTests`](../../../tests/BeMusicSeeker.Windows.Tests/Themes/WpfThemeResourceTests.cs)。Lightと実コンストラクターの意味別ブラシへの到達を確認する。 |
+| UI moduleの配置と終了所有 | [`UiModuleLifetime`](../../../tests/ModuleInitialization/UiModuleLifetime.cs)、[`TempDirectoryPublisher`](../../../BeMusicSeeker/TempDirectoryPublisher.cs) | 初期化・例外時を含む回収順序とlease解放は静的確認。[`WpfHostLifecycleTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/WpfHostLifecycleTests.cs) と共通probeの [`WpfHostLifecycleProbe`](../../../tests/Fixtures/WindowsProcessProbe/WpfHostLifecycleProbe.cs) は同じSupport hostを使い、子の生存中にHWND・実thread・temp sessionの消失を確認し、release後に全childと両pipeを回収する。 |
 | 公開旧版のファイル適用、現行版の更新 | C#の旧更新受入、[現行更新の受入](../../../scripts/accept-net10-update.ps1) | [`LegacyUpdaterDistributionMigrationTests`](../../../BeMusicSeeker.Tests/Update/LegacyUpdaterDistributionMigrationTests.cs) は固定旧updaterによる実配布ZIPの適用・旧ファイル除去・利用者ファイル保持、[`UpdaterPackageSyncTests`](../../../BeMusicSeeker.Tests/Update/UpdaterPackageSyncTests.cs) は現行updaterのプロトコル・失敗・復元を確認する。 |
 | 利用済み設定の生成と非初回判定 | [受入設定の生成](../../../scripts/acceptance-settings-fixture.ps1)、[既存データ起動](../../../scripts/accept-net10-existing-data.ps1) | [`ApplicationSettingsLifecycleTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationSettingsLifecycleTests.cs) の `LegacySettingsFixtureGeneratorPreservesTypedVersionAndScalarValues` は生成した設定を実設定ストアで読み、版・設定値・非初回判定を確認する。現行配布物での既存設定の読取りはFullの既存データ起動で確認する。 |
 | 予期しない所有モーダルの拒否 | [共通の画面観測](../../../scripts/verification-ui-automation.ps1) | [`ExistingDataAcceptanceDialogContractTests`](../../../BeMusicSeeker.Tests/Verification/ExistingDataAcceptanceDialogContractTests.cs) はPID・所有先・可視・有効・モーダル条件とプロセス結果ゲートを確認する。自動応答は行わない。 |

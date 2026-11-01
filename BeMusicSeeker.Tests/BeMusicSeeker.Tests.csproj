@@ -29,6 +29,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BeMusicSeeker\BeMusicSeeker.csproj" />
+    <ProjectReference Include="..\tests\BeMusicSeeker.TestSupport\BeMusicSeeker.TestSupport.csproj" />
     <ProjectReference Include="..\BeMusicSeeker.Updater\BeMusicSeeker.Updater.csproj"
                       ReferenceOutputAssembly="false"
                       PrivateAssets="all" />

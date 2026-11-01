@@ -94,7 +94,7 @@
 | 実Dispatcherの所属、キュー、スレッド制約 | Windowを作らないDispatcherテスト。実Dispatcherが必要な部分だけを残す。 |
 | Binding、実control、入力イベント、Window・Popup・HWND・Closeの連携 | その接続を観測する代表的なWPFテスト。実CloseやDispatcher応答性を保証するためのWindow寿命も含む。 |
 
-狭い境界で十分なら重い境界を選びません。境界を分けるためだけにテストや本番APIを増やさず、まず既存の担当へ集約します。実WPFの表明が必要な場合も、準備や要素検索が不要な列順・メニュー位置・UI構造を固定していないか確認します。その解消だけのために汎用UI検索基盤は新設しません。基盤の使い分けと共有資源は[画面テストの分離](testing.md#画面テストの分離)に従います。
+狭い境界で十分なら重い境界を選びません。境界を分けるためだけにテストや本番APIを増やさず、まず既存の担当へ集約します。実WPFの表明が必要な場合も、準備や要素検索が不要な列順・メニュー位置・UI構造を固定していないか確認します。その解消だけのために汎用UI検索基盤は新設しません。共通WPF hostは [`TestSupport/Wpf`](../../../tests/BeMusicSeeker.TestSupport/Wpf) を使い、Dispatcher・表示scope・テーマの保証はWindows moduleへ置きます。style・monitor・矩形・HWNDの判定は共通hostのprivate実装を再利用せずWin32の実結果で確認します。基盤の使い分けと共有資源は[画面テストの分離](testing.md#画面テストの分離)に従います。
 
 ### 依存の制御と観測
 
