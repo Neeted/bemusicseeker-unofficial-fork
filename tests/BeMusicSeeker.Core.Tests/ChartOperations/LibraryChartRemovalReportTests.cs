@@ -1,0 +1,68 @@
+using System.Globalization;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
+
+namespace BeMusicSeeker.Tests;
+
+/// <summary>削除の対象別状態を通知へ写します。一般の長さ制約と失敗別表示はFileDbMutationReportTestsが担います。</summary>
+[TestClass]
+public sealed class LibraryChartRemovalReportTests
+{
+    /// <summary>
+    /// 保証：削除がすべて確定した場合は通知せず、未実行・未確認等の各状態では対象パスを含むエラーとして知らせる。
+    /// </summary>
+    [TestMethod]
+    public void NormalDeletionIsSilentAndEveryUnconfirmedStateIsAnError()
+    {
+        var normal = new LibraryChartRemovalOutcome([new("confirmed.bms", LibraryChartRemovalState.Confirmed)], true, true);
+        Assert.IsNull(LibraryChartRemovalReport.Create(normal));
+        foreach (LibraryChartRemovalState state in Enum.GetValues<LibraryChartRemovalState>().Where(state => state != LibraryChartRemovalState.Confirmed))
+        {
+            var outcome = new LibraryChartRemovalOutcome([new("check-this.bms", state)], true, true);
+            UiMessageRequest request = LibraryChartRemovalReport.Create(outcome);
+            Assert.IsNotNull(request, state.ToString());
+            Assert.AreEqual(System.Windows.MessageBoxImage.Error, request.Icon);
+            StringAssert.Contains(request.MessageBoxText, "check-this.bms");
+        }
+    }
+
+    /// <summary>
+    /// 保証：混在した削除結果の通知を各言語の長さ上限へ収め、通知先が失敗しても対象別事実と元のファイル・カタログ例外を保持する。
+    /// </summary>
+    [TestMethod]
+    public async Task MixedFactsStayIntactAcrossBoundedLocalizationAndReporterFailure()
+    {
+        var fsFailure = new IOException(new string('f', 900));
+        var catalogFailure = new IOException("catalog failure", new IOException("inner primary"));
+        LibraryChartRemovalTarget[] targets = [
+            new("confirmed.bms", LibraryChartRemovalState.Confirmed),
+            new("missing.bms", LibraryChartRemovalState.NotExecuted),
+            new(new string('p', 500), LibraryChartRemovalState.Unconfirmed, fsFailure),
+            new("omitted.bms", LibraryChartRemovalState.Unconfirmed, fsFailure)];
+        var registrationFailure = new IOException("registration-save-marker");
+        var outcome = new LibraryChartRemovalOutcome(targets, true, true, catalogFailure, registrationFailure);
+        foreach (string culture in new[] { "ja-JP", "en-US", "fr-FR", "ko-KR", "zh-CN", "zh-TW" })
+        {
+            UiMessageRequest request = LibraryChartRemovalReport.Create(outcome, culture: CultureInfo.GetCultureInfo(culture));
+            Assert.IsNotNull(request);
+            StringAssert.Contains(request.MessageBoxText, "catalog failure");
+            StringAssert.Contains(request.MessageBoxText, "registration-save-marker");
+            Assert.AreEqual(System.Windows.MessageBoxImage.Error, request.Icon);
+            Assert.IsTrue(request.MessageBoxText.Length <= 4096);
+            Assert.IsFalse(request.MessageBoxText.Contains(new string('p', 241), StringComparison.Ordinal));
+            Assert.IsFalse(request.MessageBoxText.Contains(new string('f', 401), StringComparison.Ordinal));
+            Assert.IsFalse(request.MessageBoxText.Contains("omitted.bms", StringComparison.Ordinal));
+        }
+        var dialogs = new FileDbReportRecordingDialogs { MessageFailure = new IOException("report failure") };
+        await LibraryChartRemovalReport.ShowAsync(dialogs, outcome);
+        Assert.AreEqual(1, dialogs.Messages.Count);
+        Assert.AreEqual(4, outcome.Targets.Count);
+        Assert.AreEqual(1, outcome.ConfirmedChartCount);
+        Assert.IsTrue(outcome.RequiredFinalizationFailed);
+        Assert.AreSame(catalogFailure, outcome.CatalogFailure);
+        Assert.AreSame(registrationFailure, outcome.RegistrationFailure);
+        Assert.AreSame(fsFailure, outcome.Targets[2].Failure);
+    }
+}

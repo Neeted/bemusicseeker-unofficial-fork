@@ -11,6 +11,7 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using static BeMusicSeeker.TestSupport.Components.PackageInstallPlaybackTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
@@ -64,15 +65,6 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             stop.TrySetResult();
             await owner.WaitForIdleAsync();
             Directory.Delete(root, recursive: true);
-        }
-    }
-
-    private sealed class AwaitablePlaybackStop(TaskCompletionSource entered, Task completion) : IChartMutationPlaybackPort
-    {
-        public Task StopPlaybackForMutationAsync()
-        {
-            entered.TrySetResult();
-            return completion;
         }
     }
 

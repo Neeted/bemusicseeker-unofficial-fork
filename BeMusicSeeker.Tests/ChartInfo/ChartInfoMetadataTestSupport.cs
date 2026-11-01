@@ -15,6 +15,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using ChartInfoExportTool;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using static BeMusicSeeker.TestSupport.Components.ChartInfoComponentTestSupport;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
@@ -23,17 +24,6 @@ namespace BeMusicSeeker.Tests;
 
 internal static class ChartInfoMetadataTestSupport
 {
-    internal const int FeatureMine = 2;
-
-    internal const int FeatureRandom = 4;
-
-    internal const int FeatureLongByLnMode = 8;
-
-    internal const int FeatureChargeNote = 16;
-
-    internal const int FeatureStop = 64;
-
-    internal const int FeatureScroll = 128;
 
     internal static readonly HashSet<string> ProductionDiffKnownTimeoutSha256s = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -42,101 +32,6 @@ internal static class ChartInfoMetadataTestSupport
         "ae3d8c2c5eb88da961df62a6e7fa6ca043b528f1a36de67643eb463b18864d6f",
         "bd496f28d4a61aba6e9315f61fda463209cd908f3b08f0c2e7e06150034e2e59"
     };
-
-
-
-    /// <summary>補完の実保存件数を読み取り専用接続で観測し、検査側でDBを更新しません。</summary>
-    /// <param name="databaseScope">補完対象ライブラリと共有する接続所有者。</param>
-    /// <param name="songDbPath">観測対象のsong.db。</param>
-    /// <param name="sha256">保存件数を観測する譜面のSHA-256。</param>
-    internal static long CountChartInfoRows(ApplicationDatabaseScope databaseScope, string songDbPath, string sha256)
-    {
-        using LR2SongDBExtended songDb = databaseScope.OpenSongReadOnly(songDbPath);
-        return songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", sha256);
-    }
-
-    internal static void AssertJavaDoubleParseBits(string value, string expectedHexBits)
-    {
-        Assert.AreEqual(expectedHexBits, JavaDoubleParserJdk17.ParseDoubleBits(value).ToString("x16", CultureInfo.InvariantCulture), value);
-    }
-
-    internal static void AssertChartInfoEquivalent(BeMusicSeeker.Models.ChartDetails expected, BeMusicSeeker.Models.ChartDetails actual)
-    {
-        Assert.AreEqual(expected.sha256, actual.sha256);
-        Assert.AreEqual(expected.md5, actual.md5);
-        Assert.AreEqual(expected.charthash, actual.charthash);
-        Assert.AreEqual(expected.level, actual.level);
-        Assert.AreEqual(expected.difficulty, actual.difficulty);
-        Assert.AreEqual(expected.difficulty_defined, actual.difficulty_defined);
-        Assert.AreEqual(expected.mainbpm, actual.mainbpm);
-        Assert.AreEqual(expected.maxbpm, actual.maxbpm);
-        Assert.AreEqual(expected.minbpm, actual.minbpm);
-        Assert.AreEqual(expected.length, actual.length);
-        Assert.AreEqual(expected.mode, actual.mode);
-        Assert.AreEqual(expected.judge, actual.judge);
-        Assert.AreEqual(expected.bga, actual.bga);
-        Assert.AreEqual(expected.exlevel, actual.exlevel);
-        Assert.AreEqual(expected.feature, actual.feature);
-        Assert.AreEqual(expected.notes, actual.notes);
-        Assert.AreEqual(expected.n, actual.n);
-        Assert.AreEqual(expected.ln, actual.ln);
-        Assert.AreEqual(expected.s, actual.s);
-        Assert.AreEqual(expected.ls, actual.ls);
-        Assert.AreEqual(expected.total, actual.total);
-        Assert.AreEqual(expected.total_defined, actual.total_defined);
-        Assert.AreEqual(expected.density, actual.density);
-        Assert.AreEqual(expected.peakdensity, actual.peakdensity);
-        Assert.AreEqual(expected.enddensity, actual.enddensity);
-        Assert.AreEqual(expected.distribution, actual.distribution);
-        Assert.AreEqual(expected.speedchange, actual.speedchange);
-        Assert.AreEqual(expected.speedchange_count, actual.speedchange_count);
-        Assert.AreEqual(expected.lanenotes, actual.lanenotes);
-        Assert.AreEqual(expected.parser_version, actual.parser_version);
-    }
-
-    internal static void AssertChartInfoDisplayProjectionEquivalent(BeMusicSeeker.Models.ChartDetails expected, BeMusicSeeker.Models.ChartDetails actual)
-    {
-        Assert.AreEqual(expected.sha256, actual.sha256);
-        Assert.AreEqual(expected.md5, actual.md5);
-        Assert.AreEqual(expected.level, actual.level);
-        Assert.AreEqual(expected.difficulty, actual.difficulty);
-        Assert.AreEqual(expected.difficulty_defined, actual.difficulty_defined);
-        Assert.AreEqual(expected.mainbpm, actual.mainbpm);
-        Assert.AreEqual(expected.maxbpm, actual.maxbpm);
-        Assert.AreEqual(expected.minbpm, actual.minbpm);
-        Assert.AreEqual(expected.length, actual.length);
-        Assert.AreEqual(expected.mode, actual.mode);
-        Assert.AreEqual(expected.judge, actual.judge);
-        Assert.AreEqual(expected.bga, actual.bga);
-        Assert.AreEqual(expected.exlevel, actual.exlevel);
-        Assert.AreEqual(expected.feature, actual.feature);
-        Assert.AreEqual(expected.notes, actual.notes);
-        Assert.AreEqual(expected.n, actual.n);
-        Assert.AreEqual(expected.ln, actual.ln);
-        Assert.AreEqual(expected.s, actual.s);
-        Assert.AreEqual(expected.ls, actual.ls);
-        Assert.AreEqual(expected.total, actual.total);
-        Assert.AreEqual(expected.total_defined, actual.total_defined);
-        Assert.AreEqual(expected.density, actual.density);
-        Assert.AreEqual(expected.peakdensity, actual.peakdensity);
-        Assert.AreEqual(expected.enddensity, actual.enddensity);
-        Assert.AreEqual(expected.speedchange_count, actual.speedchange_count);
-        Assert.AreEqual(expected.parser_version, actual.parser_version);
-        Assert.IsNull(actual.charthash);
-        Assert.IsNull(actual.distribution);
-        Assert.IsNull(actual.speedchange);
-        Assert.IsNull(actual.lanenotes);
-    }
-
-    internal static void AssertNullableDouble(double? expected, double? actual, string message)
-    {
-        if (!expected.HasValue || !actual.HasValue)
-        {
-            Assert.AreEqual(expected.HasValue, actual.HasValue, message);
-            return;
-        }
-        Assert.IsTrue(Math.Abs(expected.Value - actual.Value) <= 0.000001, message + " expected=" + expected.Value.ToString("R", CultureInfo.InvariantCulture) + " actual=" + actual.Value.ToString("R", CultureInfo.InvariantCulture));
-    }
 
     /// <summary>専用環境に導入済みの7-Zipを取得し、準備不足を失敗として返します。</summary>
     internal static string ResolveInstalledSevenZipPath()
@@ -245,79 +140,6 @@ internal static class ChartInfoMetadataTestSupport
         return "\"" + (value ?? string.Empty).Replace("\"", "\\\"") + "\"";
     }
 
-    internal static BeMusicSeeker.Models.ChartDetails CreateChartInfoRow(string sha256, string md5, int parserVersion)
-    {
-        return new BeMusicSeeker.Models.ChartDetails
-        {
-            sha256 = sha256,
-            md5 = md5,
-            charthash = new string('c', 64),
-            level = 1,
-            difficulty = 1,
-            difficulty_defined = true,
-            mainbpm = 120.0,
-            maxbpm = 120.0,
-            minbpm = 120.0,
-            length = 0,
-            mode = 7,
-            judge = 100,
-            bga = 0,
-            exlevel = 0,
-            feature = FeatureLongByLnMode,
-            notes = 1,
-            n = 1,
-            ln = 0,
-            s = 0,
-            ls = 0,
-            total = 260.0,
-            total_defined = false,
-            density = 1.0,
-            peakdensity = 1.0,
-            enddensity = 0.0,
-            distribution = "#",
-            speedchange = "120.0,0.0",
-            speedchange_count = 0,
-            lanenotes = "1,0,0",
-            parser_version = parserVersion,
-            updated_at = DateTime.UtcNow
-        };
-    }
-
-    internal static LR2SongDBExtended.chart_digest_map CreateChartDigestRow(string md5, string sha256)
-    {
-        return new LR2SongDBExtended.chart_digest_map
-        {
-            md5 = md5,
-            sha256 = sha256
-        };
-    }
-
-    internal static void InsertSongForSummary(LR2SongDBExtended songDb, string path, string md5)
-    {
-        ChartFile file = ChartTestValues.Empty() with
-        {
-            Path = path
-        };
-        file = file with { Md5 = md5 };
-        songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
-    }
-
-    internal static BeMusicSeeker.Models.ChartParseFailure CreateChartInfoParseFailureRow(string md5, string sha256, string path, int parserVersion, string failureKind, string exceptionType, string message, int? parseTimeoutMs)
-    {
-        return new BeMusicSeeker.Models.ChartParseFailure
-        {
-            md5 = md5,
-            sha256 = sha256,
-            path = path,
-            parser_version = parserVersion,
-            failure_kind = failureKind,
-            exception_type = exceptionType,
-            message = message,
-            parse_timeout_ms = parseTimeoutMs,
-            updated_at = DateTime.UtcNow
-        };
-    }
-
     internal static RealChartInfoExpectedRow CreateExpectedCompatibilityRow(string sha256, string charthash)
     {
         return new RealChartInfoExpectedRow
@@ -350,53 +172,6 @@ internal static class ChartInfoMetadataTestSupport
             speedchange_count = 0,
             lanenotes = "1,0,0"
         };
-    }
-
-    internal static string CreateBmsonLongNoteWithContinuation(int continuationY)
-    {
-        return "{"
-            + "\"version\":\"1.0.0\","
-            + "\"info\":{\"level\":1,\"mode_hint\":\"beat-7k\",\"init_bpm\":120,\"judge_rank\":100,\"total\":100,\"resolution\":240,\"ln_type\":2},"
-            + "\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":0,\"l\":480},{\"x\":0,\"y\":" + continuationY.ToString(System.Globalization.CultureInfo.InvariantCulture) + ",\"c\":true}]}]"
-            + "}";
-    }
-
-    internal static void WithTemporarySongDb(Action<string, string> testAction)
-    {
-        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartInfoTests_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempRootPath);
-        string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, []);
-        try
-        {
-            testAction(tempRootPath, songDbPath);
-        }
-        finally
-        {
-            if (Directory.Exists(tempRootPath))
-            {
-                Directory.Delete(tempRootPath, recursive: true);
-            }
-        }
-    }
-
-    internal static async Task WithTemporarySongDb(Func<string, string, Task> testAction)
-    {
-        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartInfoTests_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempRootPath);
-        string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, []);
-        try
-        {
-            await testAction(tempRootPath, songDbPath);
-        }
-        finally
-        {
-            if (Directory.Exists(tempRootPath))
-            {
-                Directory.Delete(tempRootPath, recursive: true);
-            }
-        }
     }
 
     /// <summary>取込み条件を作る入力行を一括準備し、本番exportの保存形式で局所bundleを生成します。</summary>
@@ -544,39 +319,6 @@ internal static class ChartInfoMetadataTestSupport
             directory = directory.Parent;
         }
         throw new DirectoryNotFoundException("Could not find repository root.");
-    }
-
-    internal static ChartInfoBackfillResult BackfillChartInfos(
-        ChartInfoBuildService service,
-        BmsLibraryDbGateway gateway,
-        IEnumerable<ChartFile>? currentFiles,
-        IEnumerable<ChartFile>? currentBmsonSongs,
-        Action<int, int, string>? reportProgress = null,
-        Action<string>? logInstallPerformance = null,
-        Action<string>? logInstallPerformanceWarn = null,
-        Action<ChartInfoStorageCommitPublication>? storageCommitPublished = null,
-        IReadOnlyDictionary<string, BeMusicSeeker.Models.ChartDetails>? existingRowsSnapshot = null)
-    {
-        var mutationOwner = new CatalogMutationOwner(new CatalogOwnedCollectionOwner(), gateway);
-        return service.BackfillChartInfos(
-            gateway,
-            CreateChartSnapshot(currentFiles, currentBmsonSongs),
-            reportProgress,
-            logInstallPerformance,
-            logInstallPerformanceWarn,
-            storageCommitPublished,
-            existingRowsSnapshot,
-            mutationOwner.ApplyChartInfoStorageWrite);
-    }
-
-    internal static List<ChartFile> CreateChartSnapshot(
-        IEnumerable<ChartFile>? currentFiles,
-        IEnumerable<ChartFile>? currentBmsonSongs)
-    {
-        List<ChartFile> charts = [];
-        charts.AddRange(currentFiles ?? []);
-        charts.AddRange(currentBmsonSongs ?? []);
-        return charts;
     }
 
     internal sealed class ColumnNameRow

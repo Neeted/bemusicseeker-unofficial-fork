@@ -1,0 +1,1842 @@
+using System.Collections.Concurrent;
+using System.Globalization;
+using System.Runtime.ExceptionServices;
+using System.Text;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Wpf;
+using static BeMusicSeeker.TestSupport.Components.ChartInfoComponentTestSupport;
+namespace BeMusicSeeker.Tests;
+
+/// <summary>
+/// 譜面情報の対象検索・補完・inline評価・候補分類を検査します。
+/// </summary>
+[TestClass]
+public sealed class ChartInfoInlineHydrationTests
+{
+    private TestWorkspace? ownedWorkspace;
+
+    /// <summary>ケース開始後だけ利用できる、可変ファイル領域の所有者です。</summary>
+    private TestWorkspace CaseWorkspace => ownedWorkspace
+        ?? throw new InvalidOperationException("ケースの可変媒体はTestInitialize後に利用します。");
+
+    /// <summary>constructorと既存field準備の成功後にケース専有領域を取得します。</summary>
+    [TestInitialize]
+    public void InitializeWorkspace() => ownedWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+
+    /// <summary>既存finallyと接続・Task終端の後にケース専有領域を回収します。</summary>
+    [TestCleanup]
+    public void CleanupWorkspace() => ownedWorkspace?.Dispose();
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
+    /// <summary>内部故障だけを同ownerの次の明示要求へ残し、正常な兄弟・現在の保存済み失敗と無関係なhealth変更では再解析しない。</summary>
+    /// <remarks>実serviceの解析関数だけ最初のXで故障させ、実SQLite・digest/current/indexと対象読取りを二要求の終端で確認する。</remarks>
+    [TestMethod]
+    public void BackfillInputCoverage_InternalFaultRetriesOnlyUnfinishedInputOnNextExplicitRequest()
+    {
+        WithTemporarySongDb((root, songDbPath) =>
+        {
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            ChartFile[] charts = CreateCoverageCharts(root, "S", "F", "X");
+            string successSha256 = charts[0].Sha256;
+            string internalFaultSha256 = charts[2].Sha256;
+            charts[0] = charts[0] with { Sha256 = string.Empty };
+            charts[2] = charts[2] with { Sha256 = string.Empty };
+            gateway.UpsertSongs(charts);
+            gateway.EnsureChartInfoBackfillSchema();
+            gateway.UpsertChartInfoParseFailures([CreateChartInfoParseFailureRow(charts[1].Md5, charts[1].Sha256, charts[1].Path,
+                BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "stored input failure", null)]);
+            using (LR2SongDBExtended prepared = databaseScope.OpenSongReadOnly(songDbPath))
+            {
+                // Fは準備時の生成行保存で既存digestも保存する。今回補完するS/Xの二行と区別する。
+                Assert.AreEqual(1, prepared.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_digest_map;"));
+                Assert.AreEqual(charts[1].Sha256, prepared.ExecuteScalar<string>("SELECT sha256 FROM chart_digest_map WHERE md5 = ?;", charts[1].Md5));
+            }
+            var rows = new CatalogOwnedCollectionOwner();
+            rows.ReplaceCharts(charts, []);
+            var reads = new ConcurrentQueue<string>();
+            var parses = new ConcurrentQueue<string>();
+            bool failX = true;
+            var service = new ChartInfoBuildService(path => { reads.Enqueue(path); return File.ReadAllBytes(path); }, workerCountOverride: 1, commitChunkSizeOverride: 1,
+                parseBytes: (bytes, path, md5, sha256, timeout) =>
+                {
+                    parses.Enqueue(path);
+                    if (path == charts[2].Path && failX) { failX = false; throw new InvalidOperationException("temporary internal parse failure"); }
+                    return ChartInfoParser.ParseBytesDetailed(bytes, path, md5, sha256, timeout: timeout, retainChartString: false);
+                });
+            var owner = new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, null, _ => { }, buildService: service);
+            owner.ConfigureWorkflow(gateway, new CatalogMutationOwner(rows, gateway), rows, _ => { }, _ => { });
+
+            owner.QueueBackfill("first", processSynchronously: true);
+            ChartFile success = rows.BmsRows.Single(chart => chart.Path == charts[0].Path);
+            Assert.IsNotNull(owner.ResolveChartInfo(success.Sha256, success.Md5));
+            Assert.IsNull(owner.ResolveChartInfo(charts[2].Sha256, charts[2].Md5));
+            Assert.AreEqual(successSha256, success.Sha256);
+            Assert.AreEqual(internalFaultSha256, rows.BmsRows.Single(chart => chart.Path == charts[2].Path).Sha256);
+            CollectionAssert.AreEquivalent(new[] { charts[0].Path, charts[2].Path }, reads.ToArray());
+            CollectionAssert.AreEquivalent(new[] { charts[0].Path, charts[2].Path }, parses.ToArray());
+            using (LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath))
+            {
+                Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
+                Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
+                Assert.AreEqual(3, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_digest_map;"));
+                Assert.AreEqual(successSha256, verify.ExecuteScalar<string>("SELECT sha256 FROM chart_digest_map WHERE md5 = ?;", charts[0].Md5));
+                Assert.AreEqual(charts[1].Sha256, verify.ExecuteScalar<string>("SELECT sha256 FROM chart_digest_map WHERE md5 = ?;", charts[1].Md5));
+                Assert.AreEqual(internalFaultSha256, verify.ExecuteScalar<string>("SELECT sha256 FROM chart_digest_map WHERE md5 = ?;", charts[2].Md5));
+                Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info_parse_failure WHERE md5 = ?;", charts[2].Md5));
+            }
+            Assert.IsTrue(rows.TryCapturePendingChartInfoInputs(out IReadOnlyList<ChartFile> pending));
+            CollectionAssert.AreEqual(new[] { charts[2].Path }, pending.Select(chart => chart.Path).ToArray());
+            rows.CommitCurrentValues([success], (current, _) => current with { WAVHealth = 0 });
+            reads.Clear();
+            parses.Clear();
+            owner.QueueBackfill("explicit_next", processSynchronously: true);
+            CollectionAssert.AreEqual(new[] { charts[2].Path }, reads.ToArray());
+            CollectionAssert.AreEqual(new[] { charts[2].Path }, parses.ToArray());
+            Assert.AreEqual(1, owner.ChartInfoBackfillTotalCount);
+            Assert.IsNotNull(owner.ResolveChartInfo(charts[2].Sha256, charts[2].Md5));
+            Assert.IsTrue(rows.TryCapturePendingChartInfoInputs(out pending));
+            Assert.AreEqual(0, pending.Count);
+            Assert.IsFalse(owner.ChartInfoBackfillRunning);
+            Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
+        });
+    }
+
+    /// <summary>後続chunkの実DB故障でも先行DB・current/index・完了証拠を保持し、同ownerの次要求は未確定対象だけ読む。</summary>
+    /// <remarks>各chunkを一対象に固定し、最初のchart_info確定後にだけ発火するSQLite triggerで失敗させる。対象の完了順は固定しない。</remarks>
+    [TestMethod]
+    public void BackfillInputCoverage_LaterChunkFaultPreservesEarlierProofAndRetriesOnlyPendingInputs()
+    {
+        WithTemporarySongDb((root, songDbPath) =>
+        {
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            ChartFile[] charts = CreateCoverageCharts(root, "one", "two", "three");
+            gateway.UpsertSongs(charts);
+            gateway.EnsureChartInfoBackfillSchema();
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
+            {
+                setup.Execute("CREATE TRIGGER fail_later_coverage BEFORE INSERT ON chart_info WHEN (SELECT COUNT(1) FROM chart_info) >= 1 BEGIN SELECT RAISE(ABORT, 'later coverage chunk fault'); END;");
+            }
+            var rows = new CatalogOwnedCollectionOwner();
+            rows.ReplaceCharts(charts, []);
+            var reads = new ConcurrentQueue<string>();
+            var service = new ChartInfoBuildService(path => { reads.Enqueue(path); return File.ReadAllBytes(path); }, workerCountOverride: 1, commitChunkSizeOverride: 1);
+            var owner = new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, null, _ => { }, buildService: service);
+            owner.ConfigureWorkflow(gateway, new CatalogMutationOwner(rows, gateway), rows, _ => { }, _ => { });
+            Exception? failure = null;
+            try { owner.QueueBackfill("later_failure", processSynchronously: true); }
+            catch (Exception ex) { failure = ex; }
+            Assert.IsNotNull(failure);
+            StringAssert.Contains(failure.ToString(), "later coverage chunk fault");
+            Assert.IsFalse(owner.ChartInfoBackfillRunning);
+            Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
+            string committedSha;
+            using (LR2SongDBExtended verify = databaseScope.OpenSongWrite(songDbPath))
+            {
+                Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
+                committedSha = verify.ExecuteScalar<string>("SELECT sha256 FROM chart_info;");
+                verify.Execute("DROP TRIGGER fail_later_coverage;");
+            }
+            ChartFile committed = rows.BmsRows.Single(chart => chart.Sha256 == committedSha);
+            Assert.IsNotNull(owner.ResolveChartInfo(committed.Sha256, committed.Md5));
+            Assert.IsTrue(rows.TryCapturePendingChartInfoInputs(out IReadOnlyList<ChartFile> pending));
+            string[] unfinishedPaths = charts.Where(chart => chart.Sha256 != committedSha).Select(chart => chart.Path).ToArray();
+            CollectionAssert.AreEquivalent(unfinishedPaths, pending.Select(chart => chart.Path).ToArray());
+            reads.Clear();
+            owner.QueueBackfill("explicit_next", processSynchronously: true);
+            CollectionAssert.AreEquivalent(unfinishedPaths, reads.ToArray());
+            Assert.AreEqual(2, owner.ChartInfoBackfillTotalCount);
+            Assert.IsTrue(rows.TryCapturePendingChartInfoInputs(out pending));
+            Assert.AreEqual(0, pending.Count);
+            foreach (ChartFile chart in rows.BmsRows) { Assert.IsNotNull(owner.ResolveChartInfo(chart.Sha256, chart.Md5)); }
+            using LR2SongDBExtended completed = databaseScope.OpenSongReadOnly(songDbPath);
+            Assert.AreEqual(3, completed.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
+        });
+    }
+
+    private static ChartFile[] CreateCoverageCharts(string root, params string[] names)
+        => names.Select(name =>
+        {
+            string path = Path.Combine(root, name + ".bms");
+            File.WriteAllText(path, $"#PLAYER 1\r\n#TITLE {name}\r\n#PLAYLEVEL 9\r\n#BPM 130\r\n#00111:01\r\n", Encoding.ASCII);
+            return BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path));
+        }).ToArray();
+
+    /// <summary>初回補完後のhealth変更は全体候補検索をせず、digest欠損一件の再補完は背景16/128件に関係なく対象だけを取得・投影する。</summary>
+    [TestMethod]
+    [DataRow(16)]
+    [DataRow(128)]
+    public void WarmBackfill_UsesChangedInputTokensInsteadOfGlobalCatalogRevision(int backgroundCount)
+    {
+        WithTemporarySongDb((root, songDbPath) =>
+        {
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            var observer = new BackfillInputWorkObserver();
+            var rows = new CatalogOwnedCollectionOwner(observer);
+            var charts = new List<ChartFile>();
+            for (int index = 0; index < backgroundCount; index++)
+            {
+                string path = Path.Combine(root, $"input-{index}.bms");
+                File.WriteAllText(path, $"#PLAYER 1\r\n#TITLE input {index}\r\n#PLAYLEVEL 9\r\n#BPM 130\r\n#00111:01\r\n", Encoding.ASCII);
+                charts.Add(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path)) with { Sha256 = string.Empty });
+            }
+            gateway.UpsertSongs(charts);
+            gateway.EnsureChartInfoBackfillSchema();
+            rows.ReplaceCharts(charts, []);
+            var logs = new List<string>();
+            var owner = new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, null, logs.Add);
+            owner.ConfigureWorkflow(gateway, new CatalogMutationOwner(rows, gateway), rows, _ => { }, _ => { });
+            owner.QueueBackfill("initial", processSynchronously: true);
+            ChartFile first = rows.BmsRows[0];
+            Assert.IsFalse(string.IsNullOrWhiteSpace(first.Sha256));
+            Assert.IsNotNull(owner.ResolveChartInfo(first.Sha256, first.Md5));
+            rows.CommitCurrentValues([first], (current, _) => current with { WAVHealth = 0 });
+            observer.Reset();
+            owner.QueueBackfill("health", processSynchronously: true);
+            Assert.AreEqual(0, observer.EntriesVisited);
+            Assert.AreEqual(0, owner.ChartInfoBackfillTotalCount);
+
+            rows.CommitCurrentValues([first], (current, _) => current with { Sha256 = string.Empty });
+            observer.Reset();
+            logs.Clear();
+            owner.QueueBackfill("one-input", processSynchronously: true);
+            Assert.IsTrue(observer.EntriesVisited < 16, $"背景{backgroundCount}件で{observer.EntriesVisited}件を取得しました。");
+            Assert.AreEqual(1, owner.ChartInfoBackfillTotalCount);
+            Assert.IsFalse(logs.Any(message => message.StartsWith("chart_info_backfill candidate_summary_start", StringComparison.Ordinal)));
+            Assert.AreEqual(first.Sha256, rows.BmsRows[0].Sha256);
+            Assert.IsFalse(owner.ChartInfoBackfillRunning);
+            Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
+        });
+    }
+
+    private sealed class BackfillInputWorkObserver : ICatalogStorageSequenceWorkObserver
+    {
+        internal int EntriesVisited { get; private set; }
+        internal void Reset() => EntriesVisited = 0;
+        public void ObserveAccess() { }
+        public void ObserveEnumeration() { }
+        public void ObserveEntryVisit() => EntriesVisited++;
+        public void ObserveMaterialization(int count) { }
+    }
+
+    /// <summary>候補取得前と受付後保存前のDB準備故障を隠さず、未採用のDB・現在値と実Taskの失敗を保持する。</summary>
+    /// <remarks>既存gatewayの接続初期化で候補取得または受付後の最初のDB準備だけを失敗させる。同じSQLiteの後続接続、要求終端と次の明示要求を確認する。</remarks>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task CatalogChartInfoOwner_PreparationFailureTerminatesAndNextExplicitRequestSucceeds(bool afterAcceptance)
+    {
+        await WithTemporarySongDb(async (root, songDbPath) =>
+        {
+            (ChartFile? file, CatalogOwnedCollectionOwner? rows) = CreateBackfillOwnerInput(root, songDbPath);
+            bool requestAccepted = false;
+            bool preparationFault = true;
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, initializeSongConnection: _ =>
+            {
+                if (preparationFault && (!afterAcceptance || requestAccepted))
+                {
+                    preparationFault = false;
+                    throw new InvalidOperationException(afterAcceptance ? "backfill DB preparation fault" : "candidate preparation fault");
+                }
+            });
+            var owner = new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, null, _ => { });
+            owner.ConfigureWorkflow(gateway, new CatalogMutationOwner(rows, gateway), rows, _ => { }, _ => { },
+                beginDigestMutationWindow: () =>
+                {
+                    requestAccepted = true;
+                    return new TestMutationWindow();
+                });
+            var operation = Task.Run(() => owner.QueueBackfill("preparation", processSynchronously: true));
+            try
+            {
+                await AssertOwnerBackfillFault(operation, afterAcceptance ? "backfill DB preparation fault" : "candidate preparation fault");
+                Assert.IsFalse(owner.ChartInfoBackfillRunning);
+                Assert.AreEqual(string.Empty, owner.ChartInfoBackfillCurrentPath);
+                Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
+                Assert.AreEqual(0, owner.ChartInfoBackfillDigestBackfilledCount);
+                Assert.IsNull(owner.ResolveChartInfo(null, file.Md5));
+                Assert.AreEqual(string.Empty, rows.BmsRows.Single().Sha256);
+                using (LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath))
+                {
+                    Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
+                    Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_digest_map;"));
+                    Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", file.Path));
+                }
+                await Task.Run(() => owner.QueueBackfill("explicit_next", processSynchronously: true));
+                Assert.IsFalse(owner.ChartInfoBackfillRunning);
+                Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
+                Assert.AreEqual(1, owner.ChartInfoBackfillDigestBackfilledCount);
+                Assert.IsNotNull(owner.ResolveChartInfo(rows.BmsRows.Single().Sha256, file.Md5));
+            }
+            finally
+            {
+                try { await operation; }
+                catch (Exception) { /* 実Task終端後にfixtureを解放し、一次表明を保ちます。 */ }
+            }
+        });
+    }
+
+    /// <summary>保存rollbackの失敗を隠さず、受理済みの別token要求を終端まで処理し、次の明示要求も実行できる。</summary>
+    /// <remarks>実SQLiteのABORTを使い、二つ目のmutation window開始ゲートで未確定非公開を観測してtriggerを除去する。最初のSQLite原因を保つ。finallyは全ゲート解放と実Task回収を所有する。</remarks>
+    [TestMethod]
+    public async Task CatalogChartInfoOwner_StorageFailureDrainsAcceptedRequestAndKeepsFirstFault()
+    {
+        await WithTemporarySongDb(async (root, songDbPath) =>
+        {
+            (ChartFile? file, CatalogOwnedCollectionOwner? rows) = CreateBackfillOwnerInput(root, songDbPath);
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
+            {
+                setup.Execute("CREATE TRIGGER fail_owner_backfill BEFORE INSERT ON chart_info BEGIN SELECT RAISE(ABORT, 'owner transaction fault'); END;");
+            }
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var nextEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var releaseFirst = new ManualResetEventSlim();
+            using var releaseNext = new ManualResetEventSlim();
+            var progress = new ConcurrentQueue<(OperationProgressRequest Request, bool Running)>();
+            int windows = 0;
+            long operationToken = 11;
+            var owner = new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, null, _ => { });
+            owner.ProgressRequestFactory = (name, version) => new(7, operationToken, name, version);
+            owner.RequestProgressReporter = (request, running) => progress.Enqueue((request, running));
+            owner.ConfigureWorkflow(gateway, new CatalogMutationOwner(rows, gateway), rows, _ => { }, _ => { },
+                beginDigestMutationWindow: () =>
+                {
+                    int window = Interlocked.Increment(ref windows);
+                    if (window == 1) { firstEntered.TrySetResult(); releaseFirst.Wait(); }
+                    if (window == 2) { nextEntered.TrySetResult(); releaseNext.Wait(); }
+                    return new TestMutationWindow();
+                });
+            var operation = Task.Run(() => owner.QueueBackfill("first_failure", processSynchronously: true));
+            try
+            {
+                await AwaitOwnerBackfillStage(firstEntered.Task, operation);
+                OperationProgressRequest firstRequest = owner.BackfillProgressRequest;
+                operationToken = 22;
+                owner.QueueBackfill("accepted_next");
+                OperationProgressRequest nextRequest = owner.BackfillProgressRequest;
+                Assert.IsTrue(nextRequest.Version > firstRequest.Version);
+                releaseFirst.Set();
+                await AwaitOwnerBackfillStage(nextEntered.Task, operation);
+                Assert.IsFalse(operation.IsCompleted);
+                Assert.IsNull(owner.ResolveChartInfo(null, file.Md5));
+                Assert.AreEqual(string.Empty, rows.BmsRows.Single().Sha256);
+                using (LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath))
+                {
+                    Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
+                    Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_digest_map;"));
+                    Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", file.Path));
+                }
+                using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath)) { setup.Execute("DROP TRIGGER fail_owner_backfill;"); }
+                releaseNext.Set();
+                await AssertOwnerBackfillFault(operation, "owner transaction fault");
+                Assert.IsFalse(owner.ChartInfoBackfillRunning);
+                Assert.AreEqual(string.Empty, owner.ChartInfoBackfillCurrentPath);
+                Assert.AreEqual(nextRequest.Version, owner.ChartInfoBackfillCompletedVersion);
+                Assert.IsTrue(progress.Contains((firstRequest, true)));
+                Assert.IsTrue(progress.Contains((firstRequest, false)));
+                Assert.IsTrue(progress.Contains((nextRequest, true)));
+                Assert.IsTrue(progress.Contains((nextRequest, false)));
+                Assert.AreEqual(11L, firstRequest.OperationToken);
+                Assert.AreEqual(22L, nextRequest.OperationToken);
+                Assert.AreEqual(1, owner.ChartInfoBackfillDigestBackfilledCount);
+                Assert.IsNotNull(owner.ResolveChartInfo(rows.BmsRows.Single().Sha256, file.Md5));
+                Assert.AreEqual(1L, CountChartInfoRows(databaseScope, songDbPath, rows.BmsRows.Single().Sha256));
+                await Task.Run(() => owner.QueueBackfill("explicit_after_drain", processSynchronously: true));
+                Assert.IsFalse(owner.ChartInfoBackfillRunning);
+                Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
+            }
+            finally
+            {
+                releaseFirst.Set();
+                releaseNext.Set();
+                try { await operation; }
+                catch (Exception) { /* 一次表明を保ち、全開始Taskの終端後だけfixtureを解放します。 */ }
+            }
+        });
+    }
+
+    /// <summary>DB確定後の必要digest準備故障は実Taskの失敗にし、要求終端と実確定件数・DBを保持する。</summary>
+    /// <remarks>SHA不足の実BMS一件で、本番LibraryMutationOwnerの派生反映を接続するprepare callbackを失敗させる。共有派生状態の安全続行や次操作の許可は保証しない。</remarks>
+    [TestMethod]
+    public async Task CatalogChartInfoOwner_RequiredPublicationFaultKeepsCommittedDigestCount()
+    {
+        await WithTemporarySongDb(async (root, songDbPath) =>
+        {
+            (ChartFile? file, CatalogOwnedCollectionOwner? rows) = CreateBackfillOwnerInput(root, songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            bool windowReleased = false;
+            var owner = new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, null, _ => { });
+            owner.ConfigureWorkflow(gateway, new CatalogMutationOwner(rows, gateway), rows, _ => { }, _ => { },
+                beginDigestMutationWindow: () => new TestMutationWindow(() => windowReleased = true),
+                prepareDigestPublication: (_, _, _) => throw new InvalidOperationException("digest preparation fault"));
+            var operation = Task.Run(() => owner.QueueBackfill("publication_failure", processSynchronously: true));
+            try
+            {
+                await AssertOwnerBackfillFault(operation, "digest preparation fault");
+                Assert.IsTrue(windowReleased);
+                Assert.IsFalse(owner.ChartInfoBackfillRunning);
+                Assert.AreEqual(string.Empty, owner.ChartInfoBackfillCurrentPath);
+                Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
+                Assert.AreEqual(1, owner.ChartInfoBackfillDigestBackfilledCount);
+                string sha256 = ChartFileContentReader.ReadSnapshot(file.Path).Sha256;
+                using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
+                Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", sha256));
+                Assert.AreEqual(sha256, verify.ExecuteScalar<string>("SELECT sha256 FROM chart_digest_map WHERE md5 = ?;", file.Md5));
+                Assert.AreEqual(9, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", file.Path));
+            }
+            finally
+            {
+                try { await operation; }
+                catch (Exception) { /* 実Taskを回収し、一次表明を保ちます。 */ }
+            }
+        });
+    }
+
+    /// <summary>保存後の計測checkpointが失敗しても、確定DB・必要索引公開と元要求の終了進捗を保持する。</summary>
+    /// <remarks>実本番after_releaseはProcessのメモリ計測を終了進捗より先に行う。その通常故障一代表を専用DBの実補完へ接続し、保存や要求終端を飛ばす誤りを検出する。</remarks>
+    [TestMethod]
+    public async Task CatalogChartInfoOwner_AfterReleaseCheckpointFailurePreservesCompletion()
+    {
+        await WithTemporarySongDb(async (root, songDbPath) =>
+        {
+            (ChartFile? file, CatalogOwnedCollectionOwner? rows) = CreateBackfillOwnerInput(root, songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            bool checkpointAttempted = false;
+            int indexPublications = 0;
+            var progress = new ConcurrentQueue<(OperationProgressRequest Request, bool Running)>();
+            var owner = new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, null, _ => { });
+            owner.ProgressRequestFactory = (name, version) => new(7, 11, name, version);
+            owner.RequestProgressReporter = (request, running) => progress.Enqueue((request, running));
+            owner.ConfigureWorkflow(gateway, new CatalogMutationOwner(rows, gateway), rows, _ => { }, ownerEvent =>
+            {
+                if (ownerEvent.Kind == CatalogChartInfoOwnerEventKind.IndexChanged) { Interlocked.Increment(ref indexPublications); }
+                if (ownerEvent.Kind == CatalogChartInfoOwnerEventKind.StartupMemoryCheckpoint
+                    && ownerEvent.CheckpointStatus == "after_release")
+                {
+                    checkpointAttempted = true;
+                    throw new System.ComponentModel.Win32Exception("checkpoint measurement unavailable");
+                }
+            });
+            var operation = Task.Run(() => owner.QueueBackfill("checkpoint_failure", processSynchronously: true));
+            try
+            {
+                await operation;
+                Assert.IsTrue(operation.IsCompletedSuccessfully);
+                Assert.IsTrue(checkpointAttempted);
+                Assert.IsTrue(indexPublications > 0);
+                OperationProgressRequest request = owner.BackfillProgressRequest;
+                CollectionAssert.AreEqual(new[] { (request, true), (request, false) }, progress.ToArray());
+                Assert.IsFalse(owner.ChartInfoBackfillRunning);
+                Assert.AreEqual(string.Empty, owner.ChartInfoBackfillCurrentPath);
+                Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
+                Assert.AreEqual(1, owner.ChartInfoBackfillDigestBackfilledCount);
+                ChartFile current = rows.BmsRows.Single();
+                Assert.AreEqual(9, current.Level);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(current.Sha256));
+                Assert.IsNotNull(owner.ResolveChartInfo(current.Sha256, file.Md5));
+                Assert.AreEqual(1L, CountChartInfoRows(databaseScope, songDbPath, current.Sha256));
+                using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
+                Assert.AreEqual(9, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", file.Path));
+                Assert.AreEqual(current.Sha256, verify.ExecuteScalar<string>("SELECT sha256 FROM chart_digest_map WHERE md5 = ?;", file.Md5));
+            }
+            finally { await operation; }
+        });
+    }
+
+    private static async Task AwaitOwnerBackfillStage(Task stage, Task operation)
+    {
+        Task completed = await Task.WhenAny(stage, operation);
+        if (completed == operation)
+        {
+            await operation;
+            Assert.Fail("要求の必要段階を観測する前に補完の実Taskが終わりました。");
+        }
+        await stage;
+    }
+
+    private (ChartFile File, CatalogOwnedCollectionOwner Rows) CreateBackfillOwnerInput(string root, string songDbPath)
+    {
+        string path = Path.Combine(root, "owner-backfill.bms");
+        File.WriteAllText(path, "#PLAYER 1\r\n#TITLE owner\r\n#PLAYLEVEL 9\r\n#BPM 130\r\n#00111:01\r\n", Encoding.ASCII);
+        ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path)) with { Sha256 = string.Empty, Level = 2 };
+        var setup = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+        setup.UpsertSongs([file]);
+        setup.EnsureChartInfoBackfillSchema();
+        var rows = new CatalogOwnedCollectionOwner();
+        rows.ReplaceCharts([file], null, replaceBmson: false);
+        return (file, rows);
+    }
+
+    private static async Task AssertOwnerBackfillFault(Task operation, string expectedCause)
+    {
+        Exception? failure = null;
+        try { await operation; }
+        catch (Exception ex) { failure = ex; }
+        Assert.IsNotNull(failure, "実補完Taskが失敗を成功へ変換しました。");
+        // 原因の観測だけを要求し、集約の形・個数・参照同一性は固定しません。
+        Assert.IsTrue(failure.ToString().Contains(expectedCause, StringComparison.Ordinal), failure.ToString());
+        Assert.IsTrue(operation.IsFaulted);
+    }
+
+    /// <summary>
+    /// 保存済み情報の必須反映は任意候補要約を待たずに終端し、後続は元要求を保持して補完する。終了先着時は要約・補完を始める誤りを検出する。
+    /// </summary>
+    /// <remarks>専用SQLiteに異なる現行条件の保存行を投入し、候補要約の実検索を確認する。合成した要約だけでDB条件の保証を代用しない。</remarks>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task RequiredHydration_DefersCandidateSummaryAndBackfillWithOriginalRequest(bool shutdownBeforeFollowup)
+    {
+        await WithTemporarySongDb(async (root, songDbPath) =>
+        {
+            string currentMd5 = new('a', 32);
+            string currentSha = new('1', 64);
+            string currentPath = Path.Combine(root, "current.bms");
+            string missingPath = Path.Combine(root, "missing-info.bms");
+            File.WriteAllText(missingPath, "#PLAYER 1\n#TITLE followup\n#BPM 130\n#00111:01\n", Encoding.ASCII);
+            ChartFile missing = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(missingPath));
+            ChartFile current = ChartTestValues.Empty() with { Path = currentPath, Md5 = currentMd5, Sha256 = currentSha };
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
+            {
+                db.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(db);
+                BmsLibraryDbGateway.EnsureChartInfoSchema(db);
+                InsertSongForSummary(db, currentPath, currentMd5);
+                InsertSongForSummary(db, missingPath, missing.Md5);
+                db.InsertOrReplace(CreateChartDigestRow(currentMd5, currentSha), typeof(LR2SongDBExtended.chart_digest_map));
+                db.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(currentSha, currentMd5,
+                    BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
+            }
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            var rows = new CatalogOwnedCollectionOwner();
+            rows.ReplaceCharts([current, missing], null, replaceBmson: false);
+            var mutation = new CatalogMutationOwner(rows, gateway);
+            var admission = new ChartFileOperationSynchronizer();
+            Assert.IsTrue(admission.TryEnter(out IDisposable parent));
+            var summaryEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var releaseSummary = new ManualResetEventSlim();
+            var workCaptured = new TaskCompletionSource<Func<Task>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var logs = new ConcurrentQueue<string>();
+            var progress = new ConcurrentQueue<(OperationProgressRequest Request, bool Running)>();
+            bool shutdown = false;
+            var owner = new CatalogChartInfoOwner(_ => { }, () => shutdown, (_, _) => shutdown,
+                () => (name, reason, dependency, work) =>
+                {
+                    Assert.AreEqual("chart_info_backfill", name);
+                    Assert.IsNull(dependency);
+                    workCaptured.TrySetResult(work);
+                    return true;
+                }, message =>
+                {
+                    logs.Enqueue(message);
+                    if (message.StartsWith("chart_info_backfill candidate_summary_start", StringComparison.Ordinal))
+                    {
+                        Assert.IsTrue(admission.IsActive);
+                        summaryEntered.TrySetResult();
+                        releaseSummary.Wait();
+                    }
+                }, admission);
+            owner.ConfigureWorkflow(gateway, mutation, rows, _ => { }, _ => { });
+            owner.RequestProgressReporter = (request, running) => progress.Enqueue((request, running));
+            var origin = new OperationProgressRequest(7, 11, "required_initialization", 1);
+            Task<RequiredChartInfoHydrationResult> required = Task.Run(() => owner.HydrateRequiredForStartup("required_initialization", origin));
+            Task? followup = null;
+            try
+            {
+                await Task.WhenAny(required, summaryEntered.Task);
+                Assert.IsTrue(required.IsCompleted, "必須読込みが任意の候補要約を待っています。");
+                RequiredChartInfoHydrationResult result = await required;
+                Assert.IsFalse(workCaptured.Task.IsCompleted, "必須読込みが任意補完を暗黙予約しています。");
+                owner.ScheduleRequiredHydrationBackfill("required_initialization", result);
+                Assert.IsTrue(workCaptured.Task.IsCompletedSuccessfully);
+                Assert.IsFalse(summaryEntered.Task.IsCompleted);
+                Assert.IsNotNull(owner.ResolveChartInfo(currentSha, currentMd5));
+                Assert.AreEqual(owner.ChartInfoHydrationRequestedVersion, owner.ChartInfoHydrationCompletedVersion);
+                Assert.AreEqual(0, owner.ChartInfoBackfillRequestedVersion);
+                parent.Dispose();
+                Assert.IsFalse(admission.IsActive);
+                shutdown = shutdownBeforeFollowup;
+                followup = Task.Run(await workCaptured.Task);
+                if (!shutdownBeforeFollowup)
+                {
+                    await Task.WhenAny(summaryEntered.Task, followup);
+                    Assert.IsTrue(summaryEntered.Task.IsCompletedSuccessfully);
+                    Assert.IsFalse(followup.IsCompleted);
+                    Assert.IsTrue(required.IsCompletedSuccessfully);
+                    releaseSummary.Set();
+                }
+                await followup;
+                Assert.IsFalse(admission.IsActive);
+                if (shutdownBeforeFollowup)
+                {
+                    Assert.IsFalse(summaryEntered.Task.IsCompleted);
+                    Assert.AreEqual(0, owner.ChartInfoBackfillRequestedVersion);
+                }
+                else
+                {
+                    Assert.IsTrue(logs.Any(message => message.StartsWith("chart_info_backfill candidate_summary_done", StringComparison.Ordinal)));
+                    Assert.IsNotNull(owner.ResolveChartInfo(missing.Sha256, missing.Md5));
+                    OperationProgressRequest backfill = owner.BackfillProgressRequest;
+                    Assert.AreEqual(origin.Generation, backfill.Generation);
+                    Assert.AreEqual(origin.OperationToken, backfill.OperationToken);
+                    Assert.AreEqual("chart_info_backfill", backfill.Source);
+                    Assert.IsTrue(progress.Contains((backfill, true)));
+                    Assert.IsTrue(progress.Contains((backfill, false)));
+                    Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
+                }
+            }
+            finally
+            {
+                releaseSummary.Set();
+                parent.Dispose();
+                await required;
+                if (followup != null) { await followup; }
+            }
+        });
+    }
+
+    /// <summary>
+    /// 背景失敗行を16から128へ増やしても対象一件だけを読取り、実SQLiteの全走査数とVM処理が背景件数に比例する退行を検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの対象検索を使う。SQL観測/共有Monitor保持条件は、結果配列だけでは分からない対象読取りの境界を確かめるために必要。</remarks>
+    [TestMethod]
+    public void LoadCurrentChartInfoParseFailuresByMd5_QueriesOnlyRequestedRows()
+    {
+        TargetedFailureQueryRun smallRun = ExecuteTargetedFailureQueryCase(backgroundCount: 16);
+        TargetedFailureQueryRun largeRun = ExecuteTargetedFailureQueryCase(backgroundCount: 128);
+
+        Assert.AreEqual(1, smallRun.ReturnedRows);
+        Assert.AreEqual(1, largeRun.ReturnedRows);
+        Assert.IsTrue(smallRun.ProfileCount > 0, "16行背景の対象 failure query のPROFILE callbackを観測できませんでした。");
+        Assert.IsTrue(largeRun.ProfileCount > 0, "128行背景の対象 failure query のPROFILE callbackを観測できませんでした。");
+        Assert.AreEqual(
+            smallRun.FullScanSteps,
+            largeRun.FullScanSteps,
+            "対象 failure query の FULLSCAN_STEP が背景行数に依存しました。16="
+            + smallRun.FullScanSteps + ", 128=" + largeRun.FullScanSteps);
+        Assert.AreEqual(
+            smallRun.VmSteps,
+            largeRun.VmSteps,
+            "対象 failure query の VM_STEP が背景行数に依存しました。16="
+            + smallRun.VmSteps + ", 128=" + largeRun.VmSteps);
+    }
+
+    /// <summary>
+    /// 対象MD5が空なら空結果を返して失敗表を読まず、不要な全失敗行検索を始める誤りを実SQL観測で検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの対象検索を使う。SQL観測/共有Monitor保持条件は、結果配列だけでは分からない対象読取りの境界を確かめるために必要。</remarks>
+    [TestMethod]
+    public void LoadCurrentChartInfoParseFailuresByMd5_EmptyInputDoesNotReadFailureTable()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            using var observation = new SqliteStatementObservation();
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, initializeSongConnection: observation.Attach);
+
+            Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> result = gateway.LoadCurrentChartInfoParseFailuresByMd5(
+                [],
+                TimeSpan.FromSeconds(60));
+            observation.ThrowIfCallbackFailed();
+
+            Assert.AreEqual(0, result.Count);
+            Assert.IsFalse(
+                observation.Statements.Any(statement => statement.Sql.Contains(
+                    "chart_info_parse_failure",
+                    StringComparison.OrdinalIgnoreCase)),
+                "空の対象集合で failure table への SQL が実行されました。");
+        });
+    }
+
+    /// <summary>
+    /// 対象失敗のparser版とtimeout条件を照合し、古いparserや短い期限の失敗の再利用と、旧未知例外名による現行記録の救済削除を検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの対象検索を使う。SQL観測/共有Monitor保持条件は、結果配列だけでは分からない対象読取りの境界を確かめるために必要。</remarks>
+    [TestMethod]
+    public void LoadCurrentChartInfoParseFailuresByMd5_PreservesParserAndTimeoutCurrentness()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string currentMd5 = new('a', 32);
+            string staleParserMd5 = new('b', 32);
+            string shortTimeoutMd5 = new('c', 32);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            gateway.EnsureChartInfoSchema();
+            gateway.UpsertChartInfoParseFailures(
+            [
+                CreateChartInfoParseFailureRow(
+                    currentMd5,
+                    new string('1', 64),
+                    Path.Combine(tempRootPath, "current.bms"),
+                    BmsLibraryDbGateway.CurrentChartInfoParserVersion,
+                    "parse_failed",
+                    "InvalidOperationException",
+                    "current",
+                    null),
+                CreateChartInfoParseFailureRow(
+                    staleParserMd5,
+                    new string('2', 64),
+                    Path.Combine(tempRootPath, "stale-parser.bms"),
+                    BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1,
+                    "parse_failed",
+                    "InvalidDataException",
+                    "stale parser",
+                    null),
+                CreateChartInfoParseFailureRow(
+                    shortTimeoutMd5,
+                    new string('3', 64),
+                    Path.Combine(tempRootPath, "short-timeout.bms"),
+                    BmsLibraryDbGateway.CurrentChartInfoParserVersion,
+                    "timeout",
+                    "ChartInfoParseTimeoutException",
+                    "short timeout",
+                    500)
+            ]);
+
+            Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> result = gateway.LoadCurrentChartInfoParseFailuresByMd5(
+                [currentMd5, staleParserMd5, shortTimeoutMd5],
+                TimeSpan.FromSeconds(1));
+
+            Assert.AreEqual(1, result.Count);
+            Assert.IsTrue(result.ContainsKey(currentMd5));
+            Assert.IsFalse(result.ContainsKey(staleParserMd5));
+            Assert.IsFalse(result.ContainsKey(shortTimeoutMd5));
+            ChartFile current = ChartTestValues.Empty() with { Path = result[currentMd5].path, Md5 = currentMd5, Sha256 = result[currentMd5].sha256 };
+            var service = new ChartInfoBuildService(null, parseBytes: (_, _, _, _, _) => throw new AssertFailedException("現行失敗は再評価しません。"));
+            var snapshot = new ChartFileSnapshot(current.Path, Encoding.ASCII.GetBytes("#BPM 120\r\n#00111:01\r\n"), DateTime.UtcNow, current.Md5, current.Sha256);
+            ChartInfoBuildService.ChartInfoSnapshotBuildResult skipped = service.EvaluateSnapshot(snapshot, ChartInfoBuildTargetMapper.Create(current), null, result.ContainsKey(currentMd5));
+            Assert.IsTrue(skipped.SkippedPersistedFailure);
+            Assert.IsFalse(skipped.ParseFailed);
+            Assert.IsNull(skipped.ParseFailureRow);
+            Assert.IsTrue(string.IsNullOrEmpty(skipped.ParseFailureDeleteMd5));
+            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
+            Assert.AreEqual("InvalidOperationException", verify.ExecuteScalar<string>("SELECT exception_type FROM chart_info_parse_failure WHERE md5 = ?;", currentMd5));
+            Assert.AreEqual(3, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
+        });
+    }
+
+    /// <summary>
+    /// 指定SHAだけを読み、同じMD5に複数SHAがある場合は安定した代表を選ぶ。無関係行の混入と投入順に依存する代表選択を検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの対象検索を使う。SQL観測/共有Monitor保持条件は、結果配列だけでは分からない対象読取りの境界を確かめるために必要。</remarks>
+    [TestMethod]
+    public void LoadChartInfosByHash_LoadsRequestedRowsAndUsesStableMd5Representative()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            string md5 = new('a', 32);
+            string firstSha = new('1', 64);
+            string secondSha = new('2', 64);
+            string unrelatedSha = new('3', 64);
+            gateway.UpsertChartInfos(
+            [
+                CreateChartInfoRow(secondSha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion),
+                CreateChartInfoRow(firstSha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion),
+                CreateChartInfoRow(unrelatedSha, new string('b', 32), BmsLibraryDbGateway.CurrentChartInfoParserVersion)
+            ]);
+
+            Dictionary<string, BeMusicSeeker.Models.ChartDetails> bySha256 = gateway.LoadChartInfosBySha256([secondSha]);
+            Dictionary<string, BeMusicSeeker.Models.ChartDetails> byMd5 = gateway.LoadChartInfosByMd5([md5]);
+
+            Assert.AreEqual(1, bySha256.Count);
+            Assert.AreEqual(secondSha, bySha256[secondSha].sha256);
+            Assert.AreEqual(1, byMd5.Count);
+            Assert.AreEqual(firstSha, byMd5[md5].sha256);
+            Assert.IsFalse(bySha256.ContainsKey(unrelatedSha));
+        });
+    }
+
+    /// <summary>
+    /// 共有書込みMonitorを別workerが保持しても現行schemaの読取りが保持中に完了し、不必要に書込みlockへ入る誤りを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの対象検索を使う。SQL観測/共有Monitor保持条件は、結果配列だけでは分からない対象読取りの境界を確かめるために必要。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task LoadChartInfosByHash_UsesReadOnlyCurrentSchemaWhileProcessLockHeld()
+    {
+        await WithTemporarySongDb(async (tempRootPath, songDbPath) =>
+        {
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            string md5 = new('a', 32);
+            string sha256 = new('1', 64);
+            gateway.UpsertChartInfos([CreateChartInfoRow(sha256, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
+            var lockAcquired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var releaseLock = new ManualResetEventSlim(false);
+            var lockHolder = Task.Run(() =>
+            {
+                IDisposable? gateLease = databaseScope.TryEnterSong(TimeSpan.FromSeconds(5));
+                Assert.IsNotNull(gateLease);
+                try
+                {
+                    lockAcquired.TrySetResult();
+                    releaseLock.Wait();
+                }
+                finally
+                {
+                    gateLease.Dispose();
+                }
+            });
+            Task<Dictionary<string, BeMusicSeeker.Models.ChartDetails>>? lookupTask = null;
+            Exception? primaryFailure = null;
+            try
+            {
+                await TestUiDispatcherHost.AwaitNotificationAsync(lockAcquired.Task, lockHolder, "chart-info.write-lock-acquired");
+                Assert.IsFalse(lockHolder.IsCompleted);
+                lookupTask = Task.Run(() => gateway.LoadChartInfosBySha256([sha256]));
+                // 共有書込みlock保持中に読取りが完了するかを観測する既存2秒。
+                Task first = await Task.WhenAny(lookupTask, lockHolder, Task.Delay(TimeSpan.FromSeconds(2)));
+                Assert.AreSame(lookupTask, first, "chart_info lookup should not wait for the writable process lock when schema is current.");
+                Dictionary<string, BeMusicSeeker.Models.ChartDetails> rows = await lookupTask;
+                Assert.IsFalse(lockHolder.IsCompleted);
+                Assert.AreEqual(1, rows.Count);
+                Assert.AreEqual(md5, rows[sha256].md5);
+            }
+            catch (Exception exception)
+            {
+                primaryFailure = exception;
+            }
+            finally
+            {
+                releaseLock.Set();
+                try
+                {
+                    await Task.WhenAll(lookupTask is null ? new Task[] { lockHolder } : new Task[] { lockHolder, lookupTask });
+                }
+                catch (Exception cleanupFailure)
+                {
+                    if (primaryFailure is null)
+                    {
+                        primaryFailure = cleanupFailure;
+                    }
+                    else
+                    {
+                        primaryFailure.Data["WorkerSecondaryDiagnostics"] = cleanupFailure.ToString();
+                    }
+                }
+            }
+            if (primaryFailure is not null)
+            {
+                ExceptionDispatchInfo.Capture(primaryFailure).Throw();
+            }
+        });
+    }
+
+    /// <summary>
+    /// 同内容の二つのsnapshotを一回の解析にまとめつつ両パスへ保存適用を渡し、重複解析と片側の反映欠落を検出する。
+    /// </summary>
+    /// <remarks>実ファイルsnapshotとDBの既存情報照合を使い、同MD5の解析集約から各パスへの保存適用結果を観測する。commit自体は保存ケースが分担する。</remarks>
+    [TestMethod]
+    public void ChartInfoInlineBuildService_GroupsDuplicateBmsMd5AndFansOutStorageApplications()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string firstPath = Path.Combine(tempRootPath, "duplicate-a.bms");
+            string secondPath = Path.Combine(tempRootPath, "duplicate-b.bms");
+            const string content = "#PLAYER 1\r\n#TITLE duplicate\r\n#PLAYLEVEL 9\r\n#BPM 140\r\n#00111:01\r\n";
+            File.WriteAllText(firstPath, content, Encoding.ASCII);
+            File.WriteAllText(secondPath, content, Encoding.ASCII);
+            ChartFileSnapshot firstSnapshot = ChartFileContentReader.ReadSnapshot(firstPath);
+            ChartFileSnapshot secondSnapshot = ChartFileContentReader.ReadSnapshot(secondPath);
+            ChartFile firstFile = (ChartTestValues.Empty() with { Path = firstPath });
+            ChartFile secondFile = (ChartTestValues.Empty() with { Path = secondPath });
+            firstFile = firstFile with { Md5 = firstSnapshot.Md5 };
+            secondFile = secondFile with { Md5 = secondSnapshot.Md5 };
+            var service = new ChartInfoInlineBuildService(new ChartInfoBuildService(), parserDegree: 1);
+
+            ChartInfoInlineBuildResult result = service.BuildForSnapshots(
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
+                [
+                    InlineChartSnapshotTarget.FromChart((firstFile), firstSnapshot),
+                    InlineChartSnapshotTarget.FromChart((secondFile), secondSnapshot)
+                ],
+                new Dictionary<string, BeMusicSeeker.Models.ChartParseFailure>(StringComparer.OrdinalIgnoreCase));
+
+            Assert.AreEqual(firstSnapshot.Md5, secondSnapshot.Md5);
+            Assert.AreEqual(1, result.TargetCount);
+            Assert.AreEqual(1, result.SuccessCount);
+            Assert.AreEqual(1, result.ChartInfoRows.Count);
+            Assert.AreEqual(1, result.AppliedRows.Count);
+            Assert.AreEqual(2, result.StorageApplications.Count);
+            CollectionAssert.AreEquivalent(
+                new[] { firstPath, secondPath },
+                result.StorageApplications.Select(application => application.Chart.Path).ToArray());
+            Assert.IsTrue(result.StorageApplications.All(application =>
+                application.Row == result.ChartInfoRows[0]));
+        });
+    }
+
+    /// <summary>
+    /// 読取りbatchを跨ぐ同MD5も一回の解析にまとめて両パスへ適用し、batch境界で重複排除を失う誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルsnapshotとDBの既存情報照合を使い、同MD5の解析集約から各パスへの保存適用結果を観測する。commit自体は保存ケースが分担する。</remarks>
+    [TestMethod]
+    public void ChartInfoInlineBuildService_GroupsDuplicateBmsMd5AcrossReadBatches()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string firstPath = Path.Combine(tempRootPath, "duplicate-batch-a.bms");
+            string secondPath = Path.Combine(tempRootPath, "duplicate-batch-b.bms");
+            const string content = "#PLAYER 1\r\n#TITLE duplicate batch\r\n#PLAYLEVEL 6\r\n#BPM 125\r\n#00111:01\r\n";
+            File.WriteAllText(firstPath, content, Encoding.ASCII);
+            File.WriteAllText(secondPath, content, Encoding.ASCII);
+            ChartFileSnapshot firstSnapshot = ChartFileContentReader.ReadSnapshot(firstPath);
+            ChartFile firstFile = (ChartTestValues.Empty() with { Path = firstPath });
+            ChartFile secondFile = (ChartTestValues.Empty() with { Path = secondPath });
+            firstFile = firstFile with { Md5 = firstSnapshot.Md5 };
+            secondFile = secondFile with { Md5 = firstSnapshot.Md5 };
+            var service = new ChartInfoInlineBuildService(
+                new ChartInfoBuildService(),
+                parserDegree: 1,
+                batchSizeOverride: 1);
+
+            ChartInfoInlineBuildResult result = service.BuildForExistingCharts(
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
+                [
+                    (firstFile),
+                    (secondFile)
+                ]);
+
+            Assert.AreEqual(1, result.TargetCount);
+            Assert.AreEqual(1, result.SuccessCount);
+            Assert.AreEqual(1, result.ChartInfoRows.Count);
+            Assert.AreEqual(1, result.AppliedRows.Count);
+            Assert.AreEqual(2, result.StorageApplications.Count);
+            CollectionAssert.AreEquivalent(
+                new[] { firstPath, secondPath },
+                result.StorageApplications.Select(application => application.Chart.Path).ToArray());
+        });
+    }
+
+    /// <summary>
+    /// 現行保存行と現行失敗が併存しても保存行を再利用して適用し、不要な再解析や失敗側を優先する誤りを検出する。
+    /// </summary>
+    /// <remarks>実DBの現行保存行を解析serviceへ接続し、再利用判定と適用結果を観測する。ここでは新規commitを保証しない。</remarks>
+    [TestMethod]
+    public void ChartInfoInlineBuildService_AppliesExistingCurrentRowWithoutParsing()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "already-current.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE current\r\n", Encoding.ASCII);
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            ChartFile file = ChartTestValues.Empty() with
+            {
+                Path = chartPath
+            };
+            file = file with { Md5 = snapshot.Md5 };
+            file = file with { Sha256 = snapshot.Sha256 };
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            BeMusicSeeker.Models.ChartDetails expected = CreateChartInfoRow(file.Sha256, file.Md5, parserVersion: BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+            gateway.UpsertChartInfos([expected]);
+            var service = new ChartInfoInlineBuildService(new ChartInfoBuildService(), parserDegree: 1);
+            var currentFailures = new Dictionary<string, BeMusicSeeker.Models.ChartParseFailure>(StringComparer.OrdinalIgnoreCase)
+            {
+                [file.Md5] = CreateChartInfoParseFailureRow(
+                    file.Md5,
+                    file.Sha256,
+                    chartPath,
+                    BmsLibraryDbGateway.CurrentChartInfoParserVersion,
+                    "parse_failed",
+                    "InvalidDataException",
+                    "current failure must lose to current info",
+                    null)
+            };
+
+            ChartInfoInlineBuildResult result = service.BuildForSnapshots(
+                gateway,
+                [InlineChartSnapshotTarget.FromChart((file), snapshot)],
+                currentFailures);
+
+            Assert.AreEqual(1, result.TargetCount);
+            Assert.AreEqual(0, result.SuccessCount);
+            Assert.AreEqual(1, result.CurrentSkippedCount);
+            Assert.AreEqual(1, result.AppliedRows.Count);
+            Assert.AreEqual(expected.sha256, result.AppliedRows[0].sha256);
+            Assert.AreEqual(expected.md5, result.AppliedRows[0].md5);
+        });
+    }
+
+    /// <summary>
+    /// 解析不能なbytesでも同一identityの現行行を優先し、現行失敗で有効保存行を隠したり再解析したりする誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    public void ChartInfoSnapshotEvaluator_CurrentRowTakesPrecedenceOverCurrentFailure()
+    {
+        string md5 = new('a', 32);
+        string sha256 = new('b', 64);
+        byte[] bytes = Encoding.ASCII.GetBytes("not a parseable chart");
+        ChartFile file = (ChartTestValues.Empty() with { Path = @"C:\Charts\current.bms" });
+        file = file with { Md5 = md5 };
+        file = file with { Sha256 = sha256 };
+        var snapshot = new ChartFileSnapshot(file.Path, bytes, DateTime.UtcNow, md5, sha256);
+        ChartInfoBuildTarget target = ChartInfoBuildTargetMapper.Create(
+            (file));
+        BeMusicSeeker.Models.ChartDetails currentRow = CreateChartInfoRow(
+            sha256,
+            md5,
+            BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+
+        ChartInfoBuildService.ChartInfoSnapshotBuildResult result = new ChartInfoBuildService().EvaluateSnapshot(
+            snapshot,
+            target,
+            currentRow,
+            hasCurrentParseFailure: true);
+
+        Assert.AreSame(currentRow, result.Row);
+        Assert.IsTrue(result.CurrentRowSkipped);
+        Assert.IsFalse(result.SkippedPersistedFailure);
+        Assert.IsFalse(result.ParseFailed);
+    }
+
+    /// <summary>
+    /// MD5不一致の保存行を再利用せず実snapshotを解析し、失敗を対象identityと一行の長さ制限付きmessageへ正規化することを確かめる。
+    /// </summary>
+    [TestMethod]
+    public void ChartInfoSnapshotEvaluator_IdentityMismatchParsesAndNormalizesFailure()
+    {
+        string md5 = new('c', 32);
+        string sha256 = new('d', 64);
+        byte[] bytes = Encoding.ASCII.GetBytes("#PLAYER 1\r\n#TITLE bad\r\n#00111:01\r\n");
+        ChartFile file = (ChartTestValues.Empty() with { Path = @"C:\Charts\mismatch.bms" });
+        file = file with { Md5 = md5 };
+        file = file with { Sha256 = sha256 };
+        var snapshot = new ChartFileSnapshot(file.Path, bytes, DateTime.UtcNow, md5, sha256);
+        ChartInfoBuildTarget target = ChartInfoBuildTargetMapper.Create(
+            (file));
+        BeMusicSeeker.Models.ChartDetails incompatibleRow = CreateChartInfoRow(
+            sha256,
+            new string('e', 32),
+            BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+
+        ChartInfoBuildService.ChartInfoSnapshotBuildResult result = new ChartInfoBuildService().EvaluateSnapshot(
+            snapshot,
+            target,
+            incompatibleRow,
+            hasCurrentParseFailure: false);
+
+        Assert.IsTrue(result.ParseFailed);
+        Assert.IsFalse(result.CurrentRowSkipped);
+        Assert.IsNotNull(result.ParseFailureRow);
+        Assert.AreEqual(md5, result.ParseFailureRow.md5);
+        Assert.IsFalse(result.ParseFailureRow.message.Contains('\r'));
+        Assert.IsFalse(result.ParseFailureRow.message.Contains('\n'));
+        Assert.IsTrue(result.ParseFailureRow.message.Length <= 1024);
+    }
+
+    /// <summary>
+    /// 解析失敗でもsong/digestと失敗行を同じ保存適用へ渡し、元入力を変更せずcommit後に正しいhash・失敗分類を保持することを確かめる。
+    /// </summary>
+    /// <remarks>実解析結果をCatalogMutationOwnerの保存適用へ渡し、専用SQLiteのdigest/情報/失敗表をcommit後に読んで失敗保持を確かめる。</remarks>
+    [TestMethod]
+    public void ChartInfoInlineBuildService_ParseFailureCanBePersistedWithSong()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "bad-target.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE bad\r\n#00111:01\r\n", Encoding.ASCII);
+            ChartFile captured = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath)) with { Sha256 = string.Empty };
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            var service = new ChartInfoInlineBuildService(new ChartInfoBuildService(), parserDegree: 1);
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+            }
+
+            ChartInfoInlineBuildResult result = service.BuildForExistingCharts(
+                gateway,
+                [captured]);
+
+            Assert.AreEqual(1, result.TargetCount);
+            Assert.AreEqual(1, result.ParseFailedCount);
+            Assert.AreEqual(0, result.SuccessCount);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(captured.Sha256));
+            Assert.AreEqual(1, result.StorageApplications.Count);
+            var mutationOwner = new CatalogMutationOwner(new CatalogOwnedCollectionOwner(), gateway);
+            CatalogChartInfoStorageWriteReceipt receipt = mutationOwner.ApplyChartInfoStorageWrite(
+                new CatalogChartInfoStorageWriteRequest(
+                    result.StorageApplications.Select(application => application.CreateCurrentValue()),
+                    new CatalogChartInfoWriteRequest(
+                        chartInfoRows: result.ChartInfoRows,
+                        parseFailureRows: result.ParseFailureRows,
+                        parseFailureDeleteMd5s: result.ParseFailureDeleteMd5s)));
+            Assert.IsTrue(receipt.Applied);
+            ChartFile committed = result.StorageApplications.Single().CreateCurrentValue();
+            Assert.IsFalse(string.IsNullOrWhiteSpace(committed.Sha256));
+            Assert.IsTrue(string.IsNullOrWhiteSpace(captured.Sha256));
+            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + committed.Md5 + "' AND sha256 = '" + committed.Sha256 + "';"));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
+            BeMusicSeeker.Models.ChartParseFailure failure = verify.Query<BeMusicSeeker.Models.ChartParseFailure>("SELECT * FROM chart_info_parse_failure WHERE md5 = ?;", committed.Md5).Single();
+            Assert.AreEqual(committed.Sha256, failure.sha256);
+            Assert.AreEqual(chartPath, failure.path);
+            Assert.AreEqual(BmsLibraryDbGateway.CurrentChartInfoParserVersion, failure.parser_version);
+            Assert.AreEqual("parse_failed", failure.failure_kind);
+            Assert.AreEqual("InvalidDataException", failure.exception_type);
+            Assert.IsFalse(failure.parse_timeout_ms.HasValue);
+        });
+    }
+
+    /// <summary>
+    /// 所有snapshotの全行が現行なら候補要約を省いてskipped checkpointを公開し、不要なDB要約や補完を開始する誤りを検出する。
+    /// </summary>
+    /// <remarks>実CatalogChartInfoOwnerのacceptedWorkと専用SQLiteを使い、受付版・元要求・索引/補完の通知と処理終端を観測する。</remarks>
+    [TestMethod]
+    public async Task CatalogChartInfoOwner_ActualDataAllCurrentSnapshotSkipsCandidateSummary()
+    {
+        await WithTemporarySongDb(async delegate (string tempRootPath, string songDbPath)
+        {
+            string md5 = new('a', 32);
+            string sha256 = new('1', 64);
+            string chartPath = Path.Combine(tempRootPath, "current-snapshot.bms");
+            ChartFile file = ChartTestValues.Empty() with
+            {
+                Path = chartPath
+            };
+            file = file with { Md5 = md5 };
+            file = file with { Sha256 = sha256 };
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
+                InsertSongForSummary(songDb, chartPath, md5);
+                songDb.InsertOrReplace(CreateChartDigestRow(md5, sha256), typeof(LR2SongDBExtended.chart_digest_map));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(
+                    CreateChartInfoRow(sha256, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
+            }
+
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            var storageRowsOwner = new CatalogOwnedCollectionOwner();
+            storageRowsOwner.ReplaceCharts([file], null, replaceBmson: false);
+            CatalogOwnedCollectionOwner ownedCollectionOwner = storageRowsOwner;
+            var mutationOwner = new CatalogMutationOwner(storageRowsOwner, gateway);
+            var logs = new ConcurrentQueue<string>();
+            var events = new ConcurrentQueue<CatalogChartInfoOwnerEvent>();
+            var completion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var scheduled = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+            CatalogChartInfoOwner? owner = null;
+            void SignalCompletion()
+            {
+                try
+                {
+                    CatalogChartInfoOwner currentOwner = owner!;
+                    if (currentOwner.ChartInfoHydrationRequestedVersion > 0
+                        && currentOwner.ChartInfoHydrationCompletedVersion == currentOwner.ChartInfoHydrationRequestedVersion
+                        && currentOwner.ChartInfoBackfillRequestedVersion > 0
+                        && currentOwner.ChartInfoBackfillCompletedVersion == currentOwner.ChartInfoBackfillRequestedVersion
+                        && !currentOwner.ChartInfoHydrationRunning
+                        && !currentOwner.ChartInfoBackfillRunning)
+                    {
+                        completion.TrySetResult(null);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    completion.TrySetException(exception);
+                }
+            }
+            owner = new CatalogChartInfoOwner(
+                _ => SignalCompletion(),
+                () => false,
+                (_, _) => false,
+                () => (_, _, _, work) =>
+                {
+                    scheduled.TrySetResult(Task.Run(work));
+                    return true;
+                },
+                logs.Enqueue);
+            owner.ConfigureWorkflow(gateway, mutationOwner, ownedCollectionOwner, logs.Enqueue, events.Enqueue);
+
+            Exception? primaryFailure = null;
+            try
+            {
+                owner.QueueDeferredHydration("unit_test_all_current", queueFullBackfillAfterHydration: true);
+
+                Assert.IsTrue(scheduled.Task.IsCompletedSuccessfully, "Hydration must hand its accepted work to the configured scheduler.");
+                Task worker = await scheduled.Task;
+                SignalCompletion();
+                await TestUiDispatcherHost.AwaitNotificationAsync(completion.Task, worker, "chart-info.all-current-completion");
+                await worker;
+                Assert.IsTrue(logs.Any(message => message.StartsWith("chart_info_backfill skipped reason=hydration_all_current", StringComparison.Ordinal)));
+                Assert.IsFalse(logs.Any(message => message.StartsWith("chart_info_backfill candidate_summary_start", StringComparison.Ordinal)));
+                Assert.AreEqual(0, owner.ChartInfoBackfillTotalCount);
+                Assert.AreEqual(0, owner.ChartInfoBackfillProcessedCount);
+                Assert.IsTrue(events.Any(ownerEvent =>
+                    ownerEvent.Kind == CatalogChartInfoOwnerEventKind.StartupMemoryCheckpoint
+                    && ownerEvent.CheckpointStage == "chart_info_backfill"
+                    && ownerEvent.CheckpointStatus == "skipped"));
+            }
+            catch (Exception exception)
+            {
+                primaryFailure = exception;
+            }
+            finally
+            {
+                if (scheduled.Task.IsCompletedSuccessfully)
+                {
+                    try
+                    {
+                        await (await scheduled.Task);
+                    }
+                    catch (Exception cleanupFailure)
+                    {
+                        if (primaryFailure is null)
+                        {
+                            primaryFailure = cleanupFailure;
+                        }
+                        else
+                        {
+                            primaryFailure.Data["WorkerSecondaryDiagnostics"] = cleanupFailure.ToString();
+                        }
+                    }
+                }
+            }
+            if (primaryFailure is not null)
+            {
+                ExceptionDispatchInfo.Capture(primaryFailure).Throw();
+            }
+        });
+    }
+
+    /// <summary>
+    /// 補完中の再受付後も処理済みprogressと開始/終了通知を捕捉した元要求へ紐付け、次要求のtokenや件数で上書きする誤りを検出する。
+    /// </summary>
+    /// <remarks>実CatalogChartInfoOwnerのacceptedWorkと専用SQLiteを使い、受付版・元要求・索引/補完の通知と処理終端を観測する。</remarks>
+    [TestMethod]
+    public async Task CatalogChartInfoOwner_BackfillProgressKeepsCapturedRequestWhenAnotherRequestIsAccepted()
+    {
+        await WithTemporarySongDb(async (tempRootPath, songDbPath) =>
+        {
+            string chartPath = Path.Combine(tempRootPath, "request-progress.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE progress\r\n#BPM 130\r\n#00111:01\r\n", Encoding.ASCII);
+            ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
+                InsertSongForSummary(songDb, chartPath, file.Md5);
+            }
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            var storageRowsOwner = new CatalogOwnedCollectionOwner();
+            storageRowsOwner.ReplaceCharts([file], null, replaceBmson: false);
+            CatalogOwnedCollectionOwner ownedCollectionOwner = storageRowsOwner;
+            var mutationOwner = new CatalogMutationOwner(storageRowsOwner, gateway);
+            long operationToken = 11;
+            var execution = new ConcurrentQueue<(OperationProgressRequest Request, bool Running)>();
+            var snapshots = new ConcurrentQueue<ChartInfoWorkflowProgressSnapshot>();
+            var processedRequests = new ConcurrentQueue<int>();
+            var captured = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var release = new ManualResetEventSlim(false);
+            int gateUsed = 0;
+            CatalogChartInfoOwner? owner = null;
+            owner = new CatalogChartInfoOwner(
+                propertyName =>
+                {
+                    if (propertyName == nameof(BMSLibrary.ChartInfoBackfillProgressSnapshot)
+                        && owner is { } currentOwner)
+                    {
+                        snapshots.Enqueue(currentOwner.BackfillProgressSnapshot);
+                    }
+                },
+                () => false,
+                (_, _) => false,
+                null,
+                _ => { });
+            owner.ProgressRequestFactory = (name, version) => new(7, operationToken, name, version);
+            owner.RequestProgressReporter = (request, running) => execution.Enqueue((request, running));
+            owner.ConfigureWorkflow(gateway, mutationOwner, ownedCollectionOwner, _ => { }, _ => { }, beginDigestMutationWindow: () =>
+                {
+                    processedRequests.Enqueue(owner.ChartInfoBackfillRequestedVersion);
+                    if (Interlocked.Exchange(ref gateUsed, 1) == 0)
+                    {
+                        captured.TrySetResult(owner.ChartInfoBackfillRequestedVersion);
+                        release.Wait();
+                    }
+                    return new TestMutationWindow();
+                });
+
+            var worker = Task.Run(() => owner.QueueBackfill("first", processSynchronously: true));
+            try
+            {
+                Task first = await Task.WhenAny(captured.Task, worker);
+                if (first == worker)
+                {
+                    await worker;
+                    Assert.Fail("Backfillの実処理が要求版捕捉ゲートへ到達しませんでした。");
+                }
+                int firstVersion = await captured.Task;
+                operationToken = 22;
+                owner.QueueBackfill("next");
+                int nextVersion = owner.ChartInfoBackfillRequestedVersion;
+                Assert.IsTrue(nextVersion > firstVersion);
+                snapshots.Clear();
+                release.Set();
+                await worker;
+
+                ChartInfoWorkflowProgressSnapshot retainedFirst = snapshots.First(snapshot =>
+                    snapshot.RequestVersion == firstVersion && snapshot.ProcessedCount > 0);
+                Assert.AreEqual(1, retainedFirst.TotalCount);
+                Assert.AreEqual(1, retainedFirst.ProcessedCount);
+                Assert.AreEqual(chartPath, retainedFirst.CurrentPath);
+                Assert.IsTrue(snapshots.Any(snapshot => snapshot.RequestVersion == nextVersion
+                    && snapshot.TotalCount == 0 && snapshot.ProcessedCount == 0));
+                Assert.IsTrue(processedRequests.Contains(nextVersion));
+                Assert.AreEqual(nextVersion, owner.BackfillProgressSnapshot.RequestVersion);
+                Assert.AreEqual(nextVersion, owner.ChartInfoBackfillCompletedVersion);
+                Assert.IsFalse(owner.ChartInfoBackfillRunning);
+                Assert.AreEqual(new OperationProgressRequest(7, 11, "chart_info_backfill", firstVersion), retainedFirst.Request);
+                Assert.IsTrue(execution.Contains((new(7, 11, "chart_info_backfill", firstVersion), true)));
+                Assert.IsTrue(execution.Contains((new(7, 11, "chart_info_backfill", firstVersion), false)));
+                Assert.IsTrue(execution.Contains((new(7, 22, "chart_info_backfill", nextVersion), true)));
+                Assert.IsTrue(execution.Contains((new(7, 22, "chart_info_backfill", nextVersion), false)));
+                Assert.AreEqual(firstVersion, retainedFirst.RequestVersion);
+                Assert.AreEqual(1, retainedFirst.ProcessedCount);
+                Assert.AreEqual(chartPath, retainedFirst.CurrentPath);
+            }
+            finally
+            {
+                release.Set();
+                await worker;
+            }
+        });
+    }
+
+    /// <summary>
+    /// 索引反映中の再受付でも前後のprogress・開始/終了通知を各要求へ保持し、要求版や操作tokenを混同する誤りを検出する。
+    /// </summary>
+    /// <remarks>実CatalogChartInfoOwnerのacceptedWorkと専用SQLiteを使い、受付版・元要求・索引/補完の通知と処理終端を観測する。</remarks>
+    [TestMethod]
+    public async Task CatalogChartInfoOwner_HydrationProgressKeepsCapturedRequestWhenAnotherRequestIsAccepted()
+    {
+        await WithTemporarySongDb(async (tempRootPath, songDbPath) =>
+        {
+            string md5 = new('a', 32);
+            string sha256 = new('1', 64);
+            string chartPath = Path.Combine(tempRootPath, "hydration-progress.bms");
+            ChartFile file = (ChartTestValues.Empty() with { Path = chartPath });
+            file = file with { Md5 = md5 };
+            file = file with { Sha256 = sha256 };
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
+                InsertSongForSummary(songDb, chartPath, md5);
+                songDb.InsertOrReplace(CreateChartDigestRow(md5, sha256), typeof(LR2SongDBExtended.chart_digest_map));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(sha256, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
+            }
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            var storageRowsOwner = new CatalogOwnedCollectionOwner();
+            storageRowsOwner.ReplaceCharts([file], null, replaceBmson: false);
+            CatalogOwnedCollectionOwner ownedCollectionOwner = storageRowsOwner;
+            var mutationOwner = new CatalogMutationOwner(storageRowsOwner, gateway);
+            long operationToken = 11;
+            var execution = new ConcurrentQueue<(OperationProgressRequest Request, bool Running)>();
+            var snapshots = new ConcurrentQueue<ChartInfoWorkflowProgressSnapshot>();
+            var captured = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var release = new ManualResetEventSlim(false);
+            Func<Task>? scheduledProcess = null;
+            int gateUsed = 0;
+            CatalogChartInfoOwner? owner = null;
+            owner = new CatalogChartInfoOwner(
+                propertyName =>
+                {
+                    if (owner is not { } currentOwner)
+                    {
+                        return;
+                    }
+                    if (propertyName == nameof(BMSLibrary.ChartInfoHydrationProgressSnapshot))
+                    {
+                        snapshots.Enqueue(currentOwner.HydrationProgressSnapshot);
+                    }
+                    if (propertyName == nameof(BMSLibrary.ChartInfoIndexVersion)
+                        && Interlocked.Exchange(ref gateUsed, 1) == 0)
+                    {
+                        captured.TrySetResult(currentOwner.ChartInfoHydrationRequestedVersion);
+                        release.Wait();
+                    }
+                },
+                () => false,
+                (_, _) => false,
+                () => (_, _, _, process) =>
+                {
+                    scheduledProcess = process;
+                    return true;
+                },
+                _ => { });
+            owner.ProgressRequestFactory = (name, version) => new(7, operationToken, name, version);
+            owner.RequestProgressReporter = (request, running) => execution.Enqueue((request, running));
+            owner.ConfigureWorkflow(gateway, mutationOwner, ownedCollectionOwner, _ => { }, _ => { });
+            owner.QueueDeferredHydration("first", queueFullBackfillAfterHydration: false);
+            Assert.IsNotNull(scheduledProcess);
+            var worker = Task.Run(scheduledProcess);
+            try
+            {
+                Task first = await Task.WhenAny(captured.Task, worker);
+                if (first == worker)
+                {
+                    await worker;
+                    Assert.Fail("Hydrationの実処理が索引変更ゲートへ到達しませんでした。");
+                }
+                int firstVersion = await captured.Task;
+                operationToken = 22;
+                owner.QueueDeferredHydration("next", queueFullBackfillAfterHydration: false);
+                int nextVersion = owner.ChartInfoHydrationRequestedVersion;
+                Assert.IsTrue(nextVersion > firstVersion);
+                snapshots.Clear();
+                release.Set();
+                await worker;
+
+                ChartInfoWorkflowProgressSnapshot retainedFirst = snapshots.First(snapshot =>
+                    snapshot.RequestVersion == firstVersion && snapshot.TotalCount == 1);
+                Assert.AreEqual(0, retainedFirst.ProcessedCount);
+                Assert.IsTrue(snapshots.Any(snapshot => snapshot.RequestVersion == nextVersion
+                    && snapshot.TotalCount == 1 && snapshot.ProcessedCount == 0));
+                Assert.AreEqual(nextVersion, owner.HydrationProgressSnapshot.RequestVersion);
+                Assert.AreEqual(nextVersion, owner.ChartInfoHydrationCompletedVersion);
+                Assert.IsFalse(owner.ChartInfoHydrationRunning);
+                Assert.AreEqual(0, owner.ChartInfoBackfillRequestedVersion);
+                Assert.AreEqual(new OperationProgressRequest(7, 11, "chart_info_hydration", firstVersion), retainedFirst.Request);
+                Assert.IsTrue(execution.Contains((new(7, 11, "chart_info_hydration", firstVersion), true)));
+                Assert.IsTrue(execution.Contains((new(7, 11, "chart_info_hydration", firstVersion), false)));
+                Assert.IsTrue(execution.Contains((new(7, 22, "chart_info_hydration", nextVersion), true)));
+                Assert.IsTrue(execution.Contains((new(7, 22, "chart_info_hydration", nextVersion), false)));
+                Assert.AreEqual(firstVersion, retainedFirst.RequestVersion);
+                Assert.AreEqual(1, retainedFirst.TotalCount);
+                Assert.AreEqual(0, retainedFirst.ProcessedCount);
+            }
+            finally
+            {
+                release.Set();
+                await worker;
+            }
+        });
+    }
+
+    /// <summary>
+    /// 保存行の表示射影と更新時刻を保ってparser版/timeoutから現行集合を分類し、軽量読込みで情報や再試行条件を失う誤りを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteを異なるownerのraw/SQLite.NET/raw snapshotで読み、表示射影と完全行を各方式に応じて照合します。文化設定は必ず復元します。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow("en-US")]
+    [DataRow("de-DE")]
+    [DataRow("th-TH")]
+    public void LoadChartInfoHydrationData_UsesRawProjectionAndPreservesCurrentness(string cultureName)
+    {
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+            WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+            {
+                var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+                string currentMd5 = new('a', 32);
+                string staleMd5 = new('b', 32);
+                string currentFailureMd5 = new('c', 32);
+                string staleFailureMd5 = new('d', 32);
+                string currentSha = new('1', 64);
+                string staleSha = new('2', 64);
+                string currentFailureSha = new('3', 64);
+                string staleFailureSha = new('4', 64);
+                BeMusicSeeker.Models.ChartDetails currentRow = CreateChartInfoRow(currentSha, currentMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+                currentRow = currentRow with { level = null };
+                currentRow = currentRow with { difficulty = 3 };
+                currentRow = currentRow with { difficulty_defined = false };
+                currentRow = currentRow with { mainbpm = Math.BitIncrement(1.5) };
+                currentRow = currentRow with { total = null };
+                currentRow = currentRow with { total_defined = true };
+                currentRow = currentRow with { density = 12.25 };
+                currentRow = currentRow with { speedchange_count = 2 };
+                currentRow = currentRow with { updated_at = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1) };
+                BeMusicSeeker.Models.ChartDetails staleRow = CreateChartInfoRow(staleSha, staleMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1);
+                staleRow = staleRow with { charthash = new string('e', 64) };
+                staleRow = staleRow with { distribution = "1,2,3" };
+                staleRow = staleRow with { speedchange = "120.0,0.0;240.0,1.0" };
+                staleRow = staleRow with { lanenotes = "1,2,3,4" };
+
+                using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
+                {
+                    BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
+                    songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(currentRow), typeof(LR2SongDBExtended.chart_info));
+                    songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(staleRow), typeof(LR2SongDBExtended.chart_info));
+                    Assert.AreEqual("real|integer|null", songDb.ExecuteScalar<string>("SELECT typeof(mainbpm) || '|' || typeof(updated_at) || '|' || typeof(level) FROM chart_info WHERE sha256 = ?;", currentSha));
+                    songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(
+                        CreateChartInfoParseFailureRow(currentFailureMd5, currentFailureSha, Path.Combine(tempRootPath, "current-failure.bms"), BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad", null)), typeof(LR2SongDBExtended.chart_info_parse_failure));
+                    songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(
+                        CreateChartInfoParseFailureRow(staleFailureMd5, staleFailureSha, Path.Combine(tempRootPath, "stale-timeout.bms"), BmsLibraryDbGateway.CurrentChartInfoParserVersion, "timeout", "ChartInfoParseTimeoutException", "old timeout", 500)), typeof(LR2SongDBExtended.chart_info_parse_failure));
+                }
+
+                var mappedScope = new ApplicationDatabaseScope();
+                var mappedGateway = new BmsLibraryDbGateway(mappedScope, new BmsDatabaseLoadOptions(true, true, false), songDbPath);
+                foreach ((BmsLibraryDbGateway reader, bool raw) in new[] { (gateway, true), (mappedGateway, false), (gateway, true) })
+                {
+                    ChartInfoHydrationLoadResult result = reader.LoadChartInfoHydrationData(TimeSpan.FromMilliseconds(1000));
+
+                    Assert.AreEqual(raw ? "raw_typed_display" : "sqlite_net", result.MaterializeMode);
+                    Assert.AreEqual(2, result.ChartInfoRows);
+                    Assert.AreEqual(2, result.ParseFailureRows);
+                    Assert.AreEqual(raw ? 4 : 0, result.RawRows);
+                    Assert.AreEqual(2, result.ChartInfoBySha256.Count);
+                    Assert.IsTrue(result.CurrentChartInfoSha256s.Contains(currentSha));
+                    Assert.IsFalse(result.CurrentChartInfoSha256s.Contains(staleSha));
+                    Assert.IsTrue(result.CurrentParseFailureMd5s.Contains(currentFailureMd5));
+                    Assert.IsFalse(result.CurrentParseFailureMd5s.Contains(staleFailureMd5));
+                    if (raw)
+                    {
+                        AssertChartInfoDisplayProjectionEquivalent(currentRow, result.ChartInfoBySha256[currentSha]);
+                        AssertChartInfoDisplayProjectionEquivalent(staleRow, result.ChartInfoBySha256[staleSha]);
+                    }
+                    else
+                    {
+                        AssertChartInfoEquivalent(currentRow, result.ChartInfoBySha256[currentSha]);
+                        AssertChartInfoEquivalent(staleRow, result.ChartInfoBySha256[staleSha]);
+                    }
+                    Assert.AreEqual(BitConverter.DoubleToInt64Bits(Math.BitIncrement(1.5)), BitConverter.DoubleToInt64Bits(result.ChartInfoBySha256[currentSha].mainbpm ?? double.NaN));
+                    Assert.AreEqual(639029198450000001L, result.ChartInfoBySha256[currentSha].updated_at.Ticks);
+                    Assert.AreEqual(currentRow.updated_at, result.ChartInfoBySha256[currentSha].updated_at);
+                    Assert.AreEqual(staleRow.updated_at, result.ChartInfoBySha256[staleSha].updated_at);
+
+                    Dictionary<string, BeMusicSeeker.Models.ChartDetails> fullRows = reader.LoadChartInfosBySha256([currentSha, staleSha]);
+
+                    AssertChartInfoEquivalent(currentRow, fullRows[currentSha]);
+                    AssertChartInfoEquivalent(staleRow, fullRows[staleSha]);
+                }
+            });
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
+    }
+
+    /// <summary>旧TEXT列の固定数値互換と型不適合時のnull・0・既定日時を最終辞書で確認し、native coercionや地域日時推測を検出します。</summary>
+    /// <remarks>変換条件の全表はruntimeへ分担します。実SQLiteのaffinityをtypeofで確認し、読取りによる保存値の書換えも検出します。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void LoadChartInfoHydrationData_PreservesFixedTextCompatibilityAndInvalidDefaults()
+    {
+        WithTemporarySongDb((_, path) =>
+        {
+            string firstSha = new('5', 64), secondSha = new('6', 64);
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(path))
+            {
+                BmsLibraryDbGateway.EnsureChartInfoSchema(db);
+                // schema準備後に入力だけの表を作り、補修による通常型への置換を避けて旧TEXT互換へ到達します。
+                string projection = string.Join(", ", db.GetMapping(typeof(LR2SongDBExtended.chart_info)).Columns.Select(column => column.Name switch
+                {
+                    "level" or "difficulty_defined" or "notes" or "updated_at" => $"CAST({column.Name} AS TEXT) AS {column.Name}",
+                    "difficulty" => "+difficulty AS difficulty",
+                    _ => column.Name
+                }));
+                db.Execute($"CREATE TABLE chart_info_fixture AS SELECT {projection} FROM chart_info WHERE 0;");
+                db.Execute("DROP TABLE chart_info;");
+                db.Execute("ALTER TABLE chart_info_fixture RENAME TO chart_info;");
+                db.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(firstSha, new string('e', 32), BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
+                db.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(secondSha, new string('f', 32), BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
+                db.Execute("UPDATE chart_info SET level = '12', difficulty = 3.5, difficulty_defined = 'True', mainbpm = '1,234.5', feature = 2147483648, notes = '34', updated_at = '2026/1/2' WHERE sha256 = ?;", firstSha);
+                db.Execute("UPDATE chart_info SET level = '2147483648', difficulty = NULL, difficulty_defined = 'false', mainbpm = 'invalid', notes = 'invalid', updated_at = '639029198450000001' WHERE sha256 = ?;", secondSha);
+                Assert.AreEqual("text|real|text|integer|text|text", db.ExecuteScalar<string>("SELECT typeof(level) || '|' || typeof(difficulty) || '|' || typeof(mainbpm) || '|' || typeof(feature) || '|' || typeof(notes) || '|' || typeof(updated_at) FROM chart_info WHERE sha256 = ?;", firstSha));
+            }
+
+            ChartInfoHydrationLoadResult result = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), path).LoadChartInfoHydrationData(TimeSpan.FromSeconds(1));
+            Assert.AreEqual(2, result.ChartInfoBySha256.Count);
+            Assert.AreEqual(2, result.CurrentChartInfoSha256s.Count);
+            ChartDetails first = result.ChartInfoBySha256[firstSha];
+            Assert.AreEqual(12, first.level);
+            Assert.IsNull(first.difficulty);
+            Assert.IsTrue(first.difficulty_defined);
+            Assert.AreEqual(1234.5, first.mainbpm);
+            Assert.AreEqual(0, first.feature);
+            Assert.AreEqual(34, first.notes);
+            Assert.AreEqual(default(DateTime), first.updated_at);
+            ChartDetails second = result.ChartInfoBySha256[secondSha];
+            Assert.IsNull(second.level);
+            Assert.IsNull(second.difficulty);
+            Assert.IsFalse(second.difficulty_defined);
+            Assert.IsNull(second.mainbpm);
+            Assert.AreEqual(0, second.notes);
+            Assert.AreEqual(639029198450000001L, second.updated_at.Ticks);
+            Assert.IsTrue(result.ReadOnly);
+            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(path);
+            Assert.AreEqual("2026/1/2|34|2147483648", verify.ExecuteScalar<string>("SELECT updated_at || '|' || notes || '|' || feature FROM chart_info WHERE sha256 = ?;", firstSha));
+            Assert.AreEqual("invalid", verify.ExecuteScalar<string>("SELECT notes FROM chart_info WHERE sha256 = ?;", secondSha));
+        });
+    }
+
+    /// <summary>
+    /// 現行情報・現行失敗・digest欠落・旧情報を実保存行から分類し、再解析不要な行を候補へ含めたり必要行を落としたりする誤りを検出する。
+    /// </summary>
+    /// <remarks>専用SQLiteに異なる現行条件の保存行を投入し、候補要約の実検索を確認する。合成した要約だけでDB条件の保証を代用しない。</remarks>
+    [TestMethod]
+    public void GetChartInfoBackfillCandidateSummary_ClassifiesCurrentFailureAndStaleRows()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            string currentMd5 = new('a', 32);
+            string missingDigestMd5 = new('b', 32);
+            string staleMd5 = new('c', 32);
+            string failureMd5 = new('d', 32);
+            string currentSha = new('1', 64);
+            string staleSha = new('2', 64);
+            string failureSha = new('3', 64);
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
+                InsertSongForSummary(songDb, Path.Combine(tempRootPath, "current.bms"), currentMd5);
+                InsertSongForSummary(songDb, Path.Combine(tempRootPath, "missing-digest.bms"), missingDigestMd5);
+                InsertSongForSummary(songDb, Path.Combine(tempRootPath, "stale.bms"), staleMd5);
+                InsertSongForSummary(songDb, Path.Combine(tempRootPath, "failure.bms"), failureMd5);
+                songDb.InsertOrReplace(CreateChartDigestRow(currentMd5, currentSha), typeof(LR2SongDBExtended.chart_digest_map));
+                songDb.InsertOrReplace(CreateChartDigestRow(staleMd5, staleSha), typeof(LR2SongDBExtended.chart_digest_map));
+                songDb.InsertOrReplace(CreateChartDigestRow(failureMd5, failureSha), typeof(LR2SongDBExtended.chart_digest_map));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(currentSha, currentMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(staleSha, staleMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1)), typeof(LR2SongDBExtended.chart_info));
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(
+                    CreateChartInfoParseFailureRow(failureMd5, failureSha, Path.Combine(tempRootPath, "failure.bms"), BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad", null)), typeof(LR2SongDBExtended.chart_info_parse_failure));
+            }
+
+            ChartInfoBackfillCandidateSummary summary = gateway.GetChartInfoBackfillCandidateSummary(TimeSpan.FromSeconds(30));
+
+            Assert.AreEqual(4, summary.BmsOwnerCount);
+            Assert.AreEqual(0, summary.BmsonOwnerCount);
+            Assert.AreEqual(1, summary.CurrentChartInfoOwnerCount);
+            Assert.AreEqual(1, summary.CurrentParseFailureOwnerCount);
+            Assert.AreEqual(1, summary.MissingDigestOwnerCount);
+            Assert.AreEqual(0, summary.MissingChartInfoOwnerCount);
+            Assert.AreEqual(1, summary.StaleChartInfoOwnerCount);
+            Assert.AreEqual(2, summary.CandidateOwnerCount);
+        });
+    }
+
+    /// <summary>実snapshotの未知の解析故障は今回の非採用にし、失敗事実を残して恒久失敗行・削除候補・取消へ変換しない。</summary>
+    [TestMethod]
+    public void ChartInfoSnapshotEvaluator_InternalFaultSkipsWithoutPersistentFailure()
+    {
+        string md5 = new('a', 32);
+        string sha256 = new('b', 64);
+        ChartFile file = ChartTestValues.Empty() with { Path = "valid.bms", Md5 = md5, Sha256 = sha256 };
+        var snapshot = new ChartFileSnapshot(file.Path, Encoding.ASCII.GetBytes("#BPM 120\r\n#00111:01\r\n"), DateTime.UtcNow, md5, sha256);
+        var service = new ChartInfoBuildService(null, parseBytes: (_, _, _, _, _) => throw new InvalidOperationException("injected internal fault"));
+        ChartInfoBuildService.ChartInfoSnapshotBuildResult result = service.EvaluateSnapshot(snapshot, ChartInfoBuildTargetMapper.Create(file), null, false);
+
+        Assert.IsNull(result.Row);
+        Assert.IsTrue(result.ParseFailed);
+        Assert.IsFalse(result.TimeoutFailed);
+        Assert.IsFalse(result.ShouldPersistRow);
+        Assert.IsFalse(result.SkippedPersistedFailure);
+        Assert.IsNull(result.ParseFailureRow);
+        Assert.IsTrue(string.IsNullOrEmpty(result.ParseFailureDeleteMd5));
+    }
+
+    /// <summary>配置先の未知の取得不能と警告先故障が重なっても正常対象を集約・保存し、既存基本値と恒久失敗表を保持する。</summary>
+    /// <remarks>固有の実ファイル・SQLite・保存ownerを使う。NULを含むpathの取得失敗を使い、基本解析やDB保存の故障へ置き換えない。</remarks>
+    [TestMethod]
+    public void ChartInfoInlineBuildService_UnknownReadFailurePreservesSiblingAndStoredBasic()
+    {
+        WithTemporarySongDb((root, songDbPath) =>
+        {
+            List<ChartFile> charts = [];
+            for (int index = 0; index < 2; index++)
+            {
+                string path = Path.Combine(root, index + ".bms");
+                File.WriteAllText(path, "#TITLE inline" + index + "\r\n#PLAYLEVEL 9\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+                charts.Add(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path)) with { Level = 2 });
+            }
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            gateway.UpsertSongs(charts);
+            gateway.EnsureChartInfoBackfillSchema();
+            var service = new ChartInfoInlineBuildService(new ChartInfoBuildService(), parserDegree: 1);
+            ChartInfoInlineBuildResult result = service.BuildForExistingCharts(gateway,
+                [charts[0] with { Path = charts[0].Path + "\0" }, charts[1]],
+                logInstallPerformanceWarn: _ => throw new InvalidOperationException("warning sink failed"));
+
+            Assert.AreEqual(1, result.ReadFailedCount);
+            Assert.AreEqual(1, result.SuccessCount);
+            Assert.AreEqual(0, result.FailurePersistedCount);
+            Assert.AreEqual(1, result.StorageApplications.Count);
+            Assert.AreEqual(charts[1].Path, result.StorageApplications.Single().Chart.Path);
+            Assert.AreEqual(1, result.ChartInfoRows.Count);
+            var owner = new CatalogMutationOwner(new CatalogOwnedCollectionOwner(), gateway);
+            CatalogChartInfoStorageWriteReceipt receipt = owner.ApplyChartInfoStorageWrite(new CatalogChartInfoStorageWriteRequest(
+                result.StorageApplications.Select(application => application.CreateCurrentValue()),
+                new CatalogChartInfoWriteRequest(chartInfoRows: result.ChartInfoRows,
+                    parseFailureRows: result.ParseFailureRows, parseFailureDeleteMd5s: result.ParseFailureDeleteMd5s)));
+            Assert.IsTrue(receipt.Applied);
+            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
+            Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", charts[0].Path));
+            Assert.AreEqual(9, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", charts[1].Path));
+            Assert.AreEqual(charts[0].Md5, verify.ExecuteScalar<string>("SELECT hash FROM song WHERE path = ?;", charts[0].Path));
+            Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", charts[1].Sha256));
+            Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
+        });
+    }
+
+    /// <summary>実snapshotの成功診断が入力失敗型を投げても、成功行と失敗履歴削除の事実を保つことを確かめる。</summary>
+    [TestMethod]
+    public void ChartInfoSnapshotEvaluator_DiagnosticFailurePreservesSuccessfulRow()
+    {
+        string md5 = new('a', 32);
+        string sha256 = new('b', 64);
+        byte[] bytes = Encoding.ASCII.GetBytes("#BPM 1\r\n#STOP01 90000\r\n#00009:"
+            + string.Concat(Enumerable.Repeat("01", 40)) + "\r\n#00111:01\r\n");
+        ChartFile file = ChartTestValues.Empty() with { Path = "diagnostic.bms", Md5 = md5, Sha256 = sha256 };
+        var snapshot = new ChartFileSnapshot(file.Path, bytes, DateTime.UtcNow, md5, sha256);
+        int diagnostics = 0;
+
+        ChartInfoBuildService.ChartInfoSnapshotBuildResult result = new ChartInfoBuildService().EvaluateSnapshot(
+            snapshot, ChartInfoBuildTargetMapper.Create(file), null, hasCurrentParseFailure: false,
+            logInstallPerformance: _ => { diagnostics++; throw new InvalidDataException("diagnostic sink failed"); });
+
+        Assert.AreEqual(1, diagnostics);
+        Assert.IsNotNull(result.Row);
+        Assert.IsTrue(result.ShouldPersistRow);
+        Assert.IsFalse(result.ParseFailed);
+        Assert.IsNull(result.ParseFailureRow);
+        Assert.AreEqual(md5, result.ParseFailureDeleteMd5);
+    }
+
+    /// <summary>入力解析失敗と期限切れを実snapshotで発生させ、警告先の故障で元の失敗分類・永続行を失わないことを確かめる。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ChartInfoSnapshotEvaluator_WarningFailurePreservesInputFailure(bool timeout)
+    {
+        string md5 = new('c', 32);
+        string sha256 = new('d', 64);
+        byte[] bytes = Encoding.ASCII.GetBytes("#PLAYER 1\r\n#00111:01\r\n");
+        ChartFile file = ChartTestValues.Empty() with { Path = "invalid.bms", Md5 = md5, Sha256 = sha256 };
+        var snapshot = new ChartFileSnapshot(file.Path, bytes, DateTime.UtcNow, md5, sha256);
+        int warnings = 0;
+
+        ChartInfoBuildService.ChartInfoSnapshotBuildResult result = new ChartInfoBuildService().EvaluateSnapshot(
+            snapshot, ChartInfoBuildTargetMapper.Create(file), null, hasCurrentParseFailure: false,
+            parseTimeout: timeout ? TimeSpan.Zero : TimeSpan.FromSeconds(60),
+            logInstallPerformanceWarn: _ => { warnings++; throw new InvalidOperationException("warning sink failed"); });
+
+        Assert.AreEqual(1, warnings);
+        Assert.IsTrue(result.ParseFailed);
+        Assert.IsNull(result.Row);
+        Assert.IsNotNull(result.ParseFailureRow);
+        Assert.AreEqual(timeout, result.TimeoutFailed);
+        Assert.AreEqual(timeout ? "timeout" : "parse_failed", result.ParseFailureRow.failure_kind);
+        Assert.AreEqual(timeout ? "ChartInfoParseTimeoutException" : "InvalidDataException", result.ParseFailureRow.exception_type);
+        Assert.AreEqual(md5, result.ParseFailureRow.md5);
+    }
+
+    /// <summary>BMSONの整数範囲外入力を数値変換の局所境界で形式失敗にし、内部故障と区別して永続失敗を生成する。</summary>
+    [TestMethod]
+    public void ChartInfoSnapshotEvaluator_BmsonNumericInputFailureRemainsPersistent()
+    {
+        string md5 = new('e', 32);
+        string sha256 = new('f', 64);
+        byte[] bytes = Encoding.UTF8.GetBytes("{\"info\":{\"level\":9223372036854775807}}");
+        ChartFile file = ChartTestValues.Empty() with { Path = "invalid.bmson", Md5 = md5, Sha256 = sha256 };
+        var snapshot = new ChartFileSnapshot(file.Path, bytes, DateTime.UtcNow, md5, sha256);
+
+        ChartInfoBuildService.ChartInfoSnapshotBuildResult result = new ChartInfoBuildService().EvaluateSnapshot(
+            snapshot, ChartInfoBuildTargetMapper.Create(file), null, hasCurrentParseFailure: false);
+
+        Assert.IsTrue(result.ParseFailed);
+        Assert.IsFalse(result.TimeoutFailed);
+        Assert.IsNotNull(result.ParseFailureRow);
+        Assert.AreEqual("JsonSerializationException", result.ParseFailureRow.exception_type);
+    }
+
+    private TargetedFailureQueryRun ExecuteTargetedFailureQueryCase(int backgroundCount)
+    {
+        const string targetMd5 = "ffffffffffffffffffffffffffffffff";
+        string tempRootPath = Path.Combine(
+            CaseWorkspace.RootDirectory,
+            "BeMusicSeeker_ChartInfoTargetedFailureQuery_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            var setupGateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            setupGateway.EnsureChartInfoSchema();
+            setupGateway.UpsertChartInfoParseFailures(
+                Enumerable.Range(0, backgroundCount)
+                    .Select(index => CreateChartInfoParseFailureRow(
+                        index.ToString("x32", CultureInfo.InvariantCulture),
+                        index.ToString("x64", CultureInfo.InvariantCulture),
+                        Path.Combine(tempRootPath, "background-" + index.ToString(CultureInfo.InvariantCulture) + ".bms"),
+                        BmsLibraryDbGateway.CurrentChartInfoParserVersion,
+                        "parse_failed",
+                        "InvalidDataException",
+                        "background",
+                        null))
+                    .Append(CreateChartInfoParseFailureRow(
+                        targetMd5,
+                        new string('e', 64),
+                        Path.Combine(tempRootPath, "target.bms"),
+                        BmsLibraryDbGateway.CurrentChartInfoParserVersion,
+                        "parse_failed",
+                        "InvalidDataException",
+                        "target",
+                        null)));
+
+            using var observation = new SqliteStatementObservation();
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, initializeSongConnection: observation.Attach);
+            Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> result = gateway.LoadCurrentChartInfoParseFailuresByMd5(
+                [targetMd5],
+                TimeSpan.FromSeconds(60));
+            observation.ThrowIfCallbackFailed();
+
+            IReadOnlyList<SqliteStatementObservation.SqliteObservedStatement> statements = observation.Statements;
+            SqliteStatementObservation.SqliteObservedStatement[] targetedStatements = statements
+                .Where(IsTargetedFailureStatement)
+                .ToArray();
+            Assert.AreEqual(1, targetedStatements.Length, "対象 failure query が一つにまとまりませんでした。");
+            SqliteStatementObservation.SqliteObservedStatement targetedStatement = targetedStatements[0];
+            Assert.AreEqual(1, targetedStatement.RowCount);
+            Assert.IsTrue(targetedStatement.ProfileCount > 0, "対象 failure query の PROFILE callback を観測できませんでした。");
+            Assert.IsTrue(targetedStatement.VmSteps > 0, "対象 failure query の VM_STEP を観測できませんでした。");
+            Assert.AreEqual(0, targetedStatement.FullScanSteps, "対象 failure query が全表走査になりました。");
+            Assert.AreEqual(1, result.Count);
+            Assert.IsTrue(result.ContainsKey(targetMd5));
+            return new TargetedFailureQueryRun(
+                targetedStatement.RowCount,
+                targetedStatement.FullScanSteps,
+                targetedStatement.VmSteps,
+                targetedStatement.ProfileCount);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    private static bool IsTargetedFailureStatement(SqliteStatementObservation.SqliteObservedStatement statement)
+    {
+        return statement != null
+            && statement.Sql.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase)
+            && statement.Sql.Contains(
+                "FROM chart_info_parse_failure",
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class TestMutationWindow(Action? onDispose = null) : IDisposable
+    {
+        public void Dispose() { onDispose?.Invoke(); }
+    }
+
+    private sealed record TargetedFailureQueryRun(
+        int ReturnedRows,
+        int FullScanSteps,
+        int VmSteps,
+        int ProfileCount);
+
+}

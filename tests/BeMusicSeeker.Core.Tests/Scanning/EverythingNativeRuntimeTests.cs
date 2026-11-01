@@ -1,0 +1,94 @@
+using System.Security.Cryptography;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.TestSupport.Files;
+
+namespace BeMusicSeeker.Tests;
+
+[TestClass]
+public sealed class EverythingNativeRuntimeTests
+{
+    private TestWorkspace? ownedWorkspace;
+
+    /// <summary>ケース開始後だけ利用できる、可変ファイル領域の所有者です。</summary>
+    private TestWorkspace CaseWorkspace => ownedWorkspace
+        ?? throw new InvalidOperationException("ケースの可変媒体はTestInitialize後に利用します。");
+
+    /// <summary>constructorと既存field準備の成功後にケース専有領域を取得します。</summary>
+    [TestInitialize]
+    public void InitializeWorkspace() => ownedWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+
+    /// <summary>既存finallyと接続・Task終端の後にケース専有領域を回収します。</summary>
+    [TestCleanup]
+    public void CleanupWorkspace() => ownedWorkspace?.Dispose();
+
+    /// <summary>
+    /// 保証：指定アプリ基準のbridgeが欠落したら、その正確なパスを含む欠落診断と失敗を返す。
+    /// </summary>
+    [TestMethod]
+    public void MissingBridgeIsReportedWithoutUsingCurrentDirectory()
+    {
+        string root = Path.Combine(CaseWorkspace.RootDirectory, nameof(EverythingNativeRuntimeTests), Guid.NewGuid().ToString("N"));
+        var snapshot = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe"));
+        var native = new EverythingNative(snapshot);
+
+        try
+        {
+            ChartScanExecutionResult result = native.ExecuteScan("chart", "audio", "image", "movie");
+
+            Assert.IsFalse(result.Success);
+            StringAssert.StartsWith(result.NativeBridgeReason, "bridge_dll_not_found:");
+            StringAssert.Contains(result.NativeBridgeReason, Path.Combine(snapshot.BaseDirectory, "native", "EverythingBridge_x64.dll"));
+        }
+        finally
+        {
+            native.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// 保証：配布対象Everything DLLとbridgeのx64形式と承認済みハッシュを確認し、誤アーキテクチャや別バイナリへの置換を検出する。
+    /// </summary>
+    [TestMethod]
+    public void TrackedEverythingNativeAssetsAreX64AndHashPinned()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        AssertX64AndHash(
+            Path.Combine(repositoryRoot, "native", "Everything3_x64.dll"),
+            "BE25B01C73BBF359B50DDF30255133225F93B4BC40A8D208173319373BCDAA5C");
+        AssertX64AndHash(
+            Path.Combine(repositoryRoot, "native", "EverythingBridge_x64.dll"),
+            "886298F310E3FE3F73E635431E380277E21A740844D5D3E093AB5AFC867F2E3B");
+    }
+
+    private static void AssertX64AndHash(string path, string expectedHash)
+    {
+        byte[] image = File.ReadAllBytes(path);
+        Assert.IsTrue(image.Length > 0x40, $"Native asset is too small to be a PE image: {path}");
+        Assert.AreEqual((byte)'M', image[0], $"Native asset is not an MZ image: {path}");
+        Assert.AreEqual((byte)'Z', image[1], $"Native asset is not an MZ image: {path}");
+        int peOffset = BitConverter.ToInt32(image, 0x3c);
+        Assert.IsTrue(peOffset >= 0 && peOffset + 6 <= image.Length, $"PE header is outside the native asset: {path}");
+        Assert.AreEqual((byte)'P', image[peOffset], $"Native asset is not a PE image: {path}");
+        Assert.AreEqual((byte)'E', image[peOffset + 1], $"Native asset is not a PE image: {path}");
+        Assert.AreEqual((ushort)0x8664, BitConverter.ToUInt16(image, peOffset + 4), $"Native asset must be x64: {path}");
+        Assert.AreEqual(expectedHash, Convert.ToHexString(SHA256.HashData(image)), $"Native asset hash changed: {path}");
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        string? directoryPath = AppContext.BaseDirectory;
+        while (!string.IsNullOrWhiteSpace(directoryPath))
+        {
+            if (File.Exists(Path.Combine(directoryPath, "BeMusicSeeker.sln")))
+            {
+                return directoryPath!;
+            }
+
+            directoryPath = Directory.GetParent(directoryPath)?.FullName;
+        }
+
+        throw new DirectoryNotFoundException("Repository root was not found.");
+    }
+
+}

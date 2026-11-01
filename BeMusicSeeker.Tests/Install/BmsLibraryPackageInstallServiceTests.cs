@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
@@ -19,6 +18,7 @@ using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualBasic.FileIO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using static BeMusicSeeker.TestSupport.Components.InstallServiceComponentTestSupport;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
@@ -8965,14 +8965,6 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             && receipt.TerminalState != FileDbMutationTerminalState.DurableFinalizationFailed;
     }
 
-    private static string CreateBmsFile(string directoryPath, string fileName, string titleLine)
-    {
-        Directory.CreateDirectory(directoryPath);
-        string filePath = Path.Combine(directoryPath, fileName);
-        File.WriteAllText(filePath, "#PLAYER 1\r\n" + titleLine + "\r\n#ARTIST Test\r\n");
-        return filePath;
-    }
-
     private static string CreateBmsFileWithResources(
         string directoryPath,
         string fileName,
@@ -9053,55 +9045,6 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         Assert.IsFalse(gate.IsReadLockHeld, fieldName + " reader was held by the subscriber thread.");
         Assert.IsFalse(gate.IsWriteLockHeld, fieldName + " writer was held by the subscriber thread.");
         Assert.IsFalse(gate.IsUpgradeableReadLockHeld, fieldName + " upgradeable reader was held by the subscriber thread.");
-    }
-
-    private static void WithTemporaryDirectory(Action<string> testAction)
-    {
-        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PackageInstallTests_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectoryPath);
-        try
-        {
-            testAction(tempDirectoryPath);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDirectoryPath))
-            {
-                Directory.Delete(tempDirectoryPath, recursive: true);
-            }
-        }
-    }
-
-    private static ObservableCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
-    {
-        return new ObservableCollection<ChartPackage>([.. (packages ?? [])]);
-    }
-
-    private static void WithTemporarySongDb(Action<string, string> testAction)
-    {
-        var databaseScope = new ApplicationDatabaseScope();
-        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PackageInstallSongDbTests_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempRootPath);
-        string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, []);
-        try
-        {
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
-            {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDB.folder>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
-            });
-            testAction(songDbPath, tempRootPath);
-        }
-        finally
-        {
-            if (Directory.Exists(tempRootPath))
-            {
-                Directory.Delete(tempRootPath, recursive: true);
-            }
-        }
     }
 
     private static async Task WithTemporarySongDbAsync(Func<string, string, Task> action)
@@ -9385,17 +9328,6 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         }
     }
 
-    private sealed class RecordingDialogService : IBmsLibraryDialogService
-    {
-        public List<string> Messages { get; } = [];
-
-        public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
-        {
-            Messages.Add(messageBoxText);
-            return defaultResult;
-        }
-    }
-
     /// <summary>新規導入確認の役割、回数と返した応答を観測します。</summary>
     private sealed class PendingInstallConfirmationDialogService(MessageBoxResult response) : IBmsLibraryDialogService
     {
@@ -9594,116 +9526,6 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
 
         public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null!)
             => inner.SetTimestamps(path, isDirectory, creationTime, lastWriteTime, options);
-    }
-
-    private sealed class RealFileMutationService : IFileMutationService
-    {
-        /// <summary>実ファイル・フォルダのコピー直前に入力を観測し、未設定なら観測を行わない。</summary>
-        public Action<string>? BeforeCopy { get; set; }
-
-        public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
-        {
-            if (!string.IsNullOrWhiteSpace(directoryPath))
-            {
-                Directory.CreateDirectory(directoryPath);
-            }
-        }
-
-        public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
-        {
-            string? destinationDirectoryPath = Path.GetDirectoryName(destinationPath);
-            if (!string.IsNullOrWhiteSpace(destinationDirectoryPath))
-            {
-                Directory.CreateDirectory(destinationDirectoryPath);
-            }
-            if (overwrite && File.Exists(destinationPath))
-            {
-                File.Delete(destinationPath);
-            }
-            File.Move(sourcePath, destinationPath);
-        }
-
-        public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
-        {
-            if (overwrite && Directory.Exists(destinationPath))
-            {
-                Directory.Delete(destinationPath, recursive: true);
-            }
-            string? destinationParentDirectoryPath = Path.GetDirectoryName(destinationPath);
-            if (!string.IsNullOrWhiteSpace(destinationParentDirectoryPath))
-            {
-                Directory.CreateDirectory(destinationParentDirectoryPath);
-            }
-            Directory.Move(sourcePath, destinationPath);
-        }
-
-        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
-        {
-            BeforeCopy?.Invoke(sourcePath);
-            string? destinationParent = Path.GetDirectoryName(destinationPath);
-            if (!string.IsNullOrWhiteSpace(destinationParent))
-            {
-                Directory.CreateDirectory(destinationParent);
-            }
-            File.Copy(sourcePath, destinationPath, overwrite);
-        }
-
-        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
-        {
-            BeforeCopy?.Invoke(sourcePath);
-            Directory.CreateDirectory(destinationPath);
-            foreach (string directoryPath in Directory.GetDirectories(sourcePath, "*", System.IO.SearchOption.AllDirectories))
-            {
-                Directory.CreateDirectory(directoryPath.Replace(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase));
-            }
-            foreach (string filePath in Directory.GetFiles(sourcePath, "*", System.IO.SearchOption.AllDirectories))
-            {
-                string destinationFilePath = filePath.Replace(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase);
-                Directory.CreateDirectory(Path.GetDirectoryName(destinationFilePath)!);
-                File.Copy(filePath, destinationFilePath, overwrite);
-            }
-        }
-
-        public void DeleteFileDirect(string filePath, FileMutationOptions options = null!)
-        {
-            if (File.Exists(filePath))
-            {
-                File.Delete(filePath);
-            }
-        }
-
-        public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
-        {
-            DeleteFileDirect(filePath, options);
-        }
-
-        public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions options = null!)
-        {
-            if (Directory.Exists(directoryPath))
-            {
-                Directory.Delete(directoryPath, recursive);
-            }
-        }
-
-        public void DeleteDirectoryShell(string directoryPath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
-        {
-            DeleteDirectoryDirect(directoryPath, recursive: true, options);
-        }
-
-        public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null!)
-        {
-            if (lastWriteTime.HasValue)
-            {
-                if (isDirectory)
-                {
-                    Directory.SetLastWriteTime(path, lastWriteTime.Value);
-                }
-                else
-                {
-                    File.SetLastWriteTime(path, lastWriteTime.Value);
-                }
-            }
-        }
     }
 
 }

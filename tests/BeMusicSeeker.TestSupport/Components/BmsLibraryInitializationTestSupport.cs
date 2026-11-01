@@ -2,6 +2,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.TestSupport.Files;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
@@ -18,45 +19,29 @@ internal static class BmsLibraryInitializationTestSupport
         => new BmsLibraryInitializationService().LoadFolderTableSnapshot(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
             new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true });
 
+    /// <summary>LR2filesの相対構造と実DBを専有媒体へ準備し、callback終端後または準備失敗時に回収します。</summary>
     internal static void WithTemporaryLr2SongDb(Action<string, string> testAction)
     {
-        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_InitTests_" + Guid.NewGuid().ToString("N"));
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string tempRootPath = Path.Combine(workspace.RootDirectory, "BeMusicSeeker_InitTests_" + Guid.NewGuid().ToString("N"));
         string lr2FilesPath = Path.Combine(tempRootPath, "LR2files");
         string databaseDirectoryPath = Path.Combine(lr2FilesPath, "Database");
         string songDbPath = Path.Combine(databaseDirectoryPath, "song.db");
         Directory.CreateDirectory(databaseDirectoryPath);
         File.WriteAllBytes(songDbPath, []);
-        try
-        {
-            testAction(tempRootPath, songDbPath);
-        }
-        finally
-        {
-            if (Directory.Exists(tempRootPath))
-            {
-                Directory.Delete(LongPathFileSystem.ToExtendedPath(tempRootPath), recursive: true);
-            }
-        }
+        testAction(tempRootPath, songDbPath);
     }
 
+    /// <summary>単独動作のdata相対構造と実DBを専有媒体へ準備し、callback終端後または準備失敗時に回収します。</summary>
     internal static void WithTemporaryStandaloneSongDb(Action<string, string> testAction)
     {
-        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_StandaloneInitTests_" + Guid.NewGuid().ToString("N"));
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string tempRootPath = Path.Combine(workspace.RootDirectory, "BeMusicSeeker_StandaloneInitTests_" + Guid.NewGuid().ToString("N"));
         string databaseDirectoryPath = Path.Combine(tempRootPath, "data");
         string songDbPath = Path.Combine(databaseDirectoryPath, "song.db");
         Directory.CreateDirectory(databaseDirectoryPath);
         File.WriteAllBytes(songDbPath, []);
-        try
-        {
-            testAction(tempRootPath, songDbPath);
-        }
-        finally
-        {
-            if (Directory.Exists(tempRootPath))
-            {
-                Directory.Delete(LongPathFileSystem.ToExtendedPath(tempRootPath), recursive: true);
-            }
-        }
+        testAction(tempRootPath, songDbPath);
     }
 
     /// <summary>

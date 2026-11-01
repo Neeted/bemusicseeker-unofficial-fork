@@ -7,7 +7,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using static BeMusicSeeker.Tests.BmsLibraryStateApplierTestSupport;
+using static BeMusicSeeker.TestSupport.Components.BmsLibraryStateApplierTestSupport;
 using PackageStateMutationApplier = BeMusicSeeker.Models.BmsLibraryInternal.PackageLifecycleOwner.PackageStateMutationApplier;
 
 namespace BeMusicSeeker.Tests;

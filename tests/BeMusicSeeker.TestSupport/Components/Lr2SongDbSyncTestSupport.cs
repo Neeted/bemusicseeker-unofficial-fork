@@ -3,6 +3,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.TestSupport.Files;
 
 namespace BeMusicSeeker.TestSupport.Components;
 
@@ -16,6 +17,7 @@ internal static class Lr2SongDbSyncTestSupport
     /// </summary>
     internal sealed class TestDatabaseScope : IDisposable
     {
+        private readonly TestWorkspace workspace;
         /// <summary>
         /// このfixture内のモデルと接続で共有するDBの所有者を返します。
         /// </summary>
@@ -31,8 +33,9 @@ internal static class Lr2SongDbSyncTestSupport
         /// </summary>
         internal string SongDbPath { get; }
 
-        private TestDatabaseScope(string directoryPath)
+        private TestDatabaseScope(TestWorkspace workspace, string directoryPath)
         {
+            this.workspace = workspace;
             DirectoryPath = directoryPath;
             SongDbPath = Path.Combine(directoryPath, "song.db");
             using LR2SongDBExtended _ = DatabaseScope.OpenSongWrite(SongDbPath);
@@ -44,9 +47,18 @@ internal static class Lr2SongDbSyncTestSupport
         /// <returns>一時ディレクトリとDBを所有するscope。</returns>
         internal static TestDatabaseScope Create()
         {
-            string directoryPath = Path.Combine(Path.GetTempPath(), nameof(Lr2SongDbSyncTestSupport), Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(directoryPath);
-            return new TestDatabaseScope(directoryPath);
+            var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+            try
+            {
+                string directoryPath = Path.Combine(workspace.RootDirectory, nameof(Lr2SongDbSyncTestSupport), Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(directoryPath);
+                return new TestDatabaseScope(workspace, directoryPath);
+            }
+            catch
+            {
+                workspace.Dispose();
+                throw;
+            }
         }
 
         /// <summary>
@@ -54,10 +66,7 @@ internal static class Lr2SongDbSyncTestSupport
         /// </summary>
         public void Dispose()
         {
-            if (Directory.Exists(DirectoryPath))
-            {
-                Directory.Delete(DirectoryPath, recursive: true);
-            }
+            workspace.Dispose();
         }
     }
 

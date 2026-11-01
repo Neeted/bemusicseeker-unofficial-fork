@@ -56,7 +56,7 @@ internal sealed class MaintenanceMetadataSongFixture : IDisposable
         ChartFile parsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(Path));
         gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
         gateway.EnsureChartInfoBackfillSchema();
-        gateway.UpsertChartInfos([ChartInfoMetadataTestSupport.CreateChartInfoRow(parsed.Sha256, parsed.Md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
+        gateway.UpsertChartInfos([ChartInfoComponentTestSupport.CreateChartInfoRow(parsed.Sha256, parsed.Md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
         BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, db =>
         {
             LR2SongDB.song row = CreateRow(Path, parsed.Md5);
@@ -66,7 +66,7 @@ internal sealed class MaintenanceMetadataSongFixture : IDisposable
             }
             db.InsertOrReplace(row);
             db.InsertOrReplace(CreateRow(backgroundPath, new string('d', 32)));
-            db.InsertOrReplace(ChartInfoMetadataTestSupport.CreateChartDigestRow(parsed.Md5, parsed.Sha256));
+            db.InsertOrReplace(ChartInfoComponentTestSupport.CreateChartDigestRow(parsed.Md5, parsed.Sha256));
             db.InsertOrReplace(new LR2SongDBExtended.maintenance { path = Path, hash = parsed.Md5, encoding = "utf-8", is_encoding_fixed = fixedEncoding });
         });
         SongTableLoadResult loaded = new BmsLibraryInitializationService().LoadSongTable(gateway,

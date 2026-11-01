@@ -745,7 +745,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(), fileDbMutationDialogService: dialogs);
-            var fixture = new PackageInstallWorkflowOwnerTests.AutomaticContinuationFixture(composition.DatabaseScope, true, false,
+            var fixture = new PackageInstallComponentTestSupport.AutomaticContinuationFixture(composition.DatabaseScope, true, false,
                 operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission,
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
             MainWindowViewModel? viewModel = null;

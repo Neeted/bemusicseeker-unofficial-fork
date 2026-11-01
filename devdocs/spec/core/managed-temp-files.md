@@ -39,7 +39,7 @@ URL取込みとアーカイブ導入で作る一時ファイルを、利用者�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| 作成印、セッション内外、管理下にないファイルの保護 | [`TempDirectoryPublisher`](../../../BeMusicSeeker/TempDirectoryPublisher.cs) | [`TempDirectoryPublisherTests`](../../../BeMusicSeeker.Tests/FileOperations/TempDirectoryPublisherTests.cs) |
+| 作成印、セッション内外、管理下にないファイルの保護 | [`TempDirectoryPublisher`](../../../BeMusicSeeker/TempDirectoryPublisher.cs) | [`TempDirectoryPublisherTests`](../../../tests/BeMusicSeeker.Core.Tests/FileOperations/TempDirectoryPublisherTests.cs) |
 | 並列の初回取得、返却時の作成印、同じセッション内の独立した領域 | `TempDirectoryPublisher.Get` / `EnsureSessionDirectory` | `TempDirectoryPublisherTests.ConcurrentFirstGetsReturnDistinctDirectoriesWithCompletedSessionMarker` は実製品の分離ロードで未使用セッションから並列取得し、各返却直後に作成印を読む。内部I/Oの交錯の強制はせず、存在確認から書込み完了までの排他と失敗伝播は静的確認で補う。 |
 | 並列に確保した入力の寿命と一括解放 | [`temporarilyCopyFiles`](../../../BeMusicSeeker/ViewModels/ChartOperations/temporarilyCopyFiles.cs) | [`TemporaryCopyFilesTests`](../../../BeMusicSeeker.Tests/ChartOperations/TemporaryCopyFilesTests.cs) |
 | 展開・保留・削除に伴う寿命 | [導入入口](../library/drop-install.md)と[パッケージ変更](../library/mutations.md) | 各仕様の実入口テストで確認する。 |

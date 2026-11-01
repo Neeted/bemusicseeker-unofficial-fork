@@ -15,6 +15,9 @@
   <ItemGroup>
     <ProjectReference Include="../Fixtures/ProcessFixture/ProcessFixture.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="../../BeMusicSeeker.Tests/TestData/lr2_builtin_custom_folder_real/**/*" Link="TestData/lr2_builtin_custom_folder_real/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
   <Target Name="CopyProcessFixture" AfterTargets="Build">
     <Error Condition="'$(TargetDir)' == '' Or !$([System.IO.Path]::IsPathFullyQualified('$(TargetDir)'))" Text="Test output directory must be absolute and nonempty." />
     <PropertyGroup>

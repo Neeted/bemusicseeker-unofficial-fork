@@ -10,9 +10,9 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-
 using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
 using static BeMusicSeeker.Tests.PlaylistSummaryAggregationTestSupport;
+using static BeMusicSeeker.TestSupport.Components.ChartInfoComponentTestSupport;
 
 namespace BeMusicSeeker.Tests;
 

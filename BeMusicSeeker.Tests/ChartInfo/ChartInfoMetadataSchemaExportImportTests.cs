@@ -11,6 +11,7 @@ using ChartInfoExportTool;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SQLite;
 using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
+using static BeMusicSeeker.TestSupport.Components.ChartInfoComponentTestSupport;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>

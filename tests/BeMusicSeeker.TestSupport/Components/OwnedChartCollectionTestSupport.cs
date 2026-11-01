@@ -3,6 +3,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
 using Microsoft.VisualBasic.FileIO;
 
@@ -171,31 +172,22 @@ internal static class OwnedChartCollectionTestSupport
 
     internal static void WithTemporarySongDb(Action<string> testAction)
     {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         var databaseScope = new ApplicationDatabaseScope();
-        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_OwnedChartCollection_" + Guid.NewGuid().ToString("N"));
+        string tempRootPath = Path.Combine(workspace.RootDirectory, "BeMusicSeeker_OwnedChartCollection_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
-        try
+        using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
         {
-            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
+            songDb.RunInTransaction(() =>
             {
-                songDb.RunInTransaction(() =>
-                {
-                    songDb.CreateTable<LR2SongDB.song>();
-                    songDb.CreateTable<LR2SongDB.folder>();
-                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                    songDb.CreateTable<LR2SongDBExtended.bmson_song>();
-                });
-            }
-            testAction(songDbPath);
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+            });
         }
-        finally
-        {
-            if (Directory.Exists(tempRootPath))
-            {
-                Directory.Delete(tempRootPath, recursive: true);
-            }
-        }
+        testAction(songDbPath);
     }
 
     /// <summary>非同期の確認接続試験にも、同じ独立した最小DBと後片付けを提供します。</summary>

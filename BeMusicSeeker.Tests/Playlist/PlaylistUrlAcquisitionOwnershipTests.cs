@@ -2139,7 +2139,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     [DoNotParallelize]
     public async Task DownloadedChart_RealEstimationRetainsPendingBytesForLaterManualInstall(string ingress)
     {
-        await using var fixture = new PackageInstallWorkflowOwnerTests.AutomaticContinuationFixture(databaseScope, true, false);
+        await using var fixture = new PackageInstallComponentTestSupport.AutomaticContinuationFixture(databaseScope, true, false);
         await fixture.InitializeAsync();
         int estimationApplied = 0;
         fixture.Observer.Applied = () => Interlocked.Increment(ref estimationApplied);

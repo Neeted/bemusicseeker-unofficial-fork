@@ -27,7 +27,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
     public async Task InstallPendingAsync_ResourceBearingNestedChartsCannotBeBypassedBySelectedParentOrChild(bool manual, bool childRow, bool failNormal)
     {
         var databaseScope = new ApplicationDatabaseScope();
-        await using var fixture = new PackageInstallWorkflowOwnerTests.AutomaticContinuationFixture(databaseScope, false, false);
+        await using var fixture = new PackageInstallComponentTestSupport.AutomaticContinuationFixture(databaseScope, false, false);
         string source = fixture.WriteInput("Nested", "parent.bms", "nested-parent");
         string child = fixture.WriteInput(Path.Combine("Nested", "child"), "child.bms", "nested-child");
         File.WriteAllBytes(Path.Combine(source, "sound.wav"), [3, 4]);
@@ -91,7 +91,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
     public async Task InstallPendingAsync_AllResourceBearingNestedChartsReportNonExceptionalRefusalAfterRelease(bool manual)
     {
         var databaseScope = new ApplicationDatabaseScope();
-        await using var fixture = new PackageInstallWorkflowOwnerTests.AutomaticContinuationFixture(databaseScope, false, false);
+        await using var fixture = new PackageInstallComponentTestSupport.AutomaticContinuationFixture(databaseScope, false, false);
         string source = fixture.WriteInput("Nested", "parent.bms", "nested-parent");
         string child = fixture.WriteInput(Path.Combine("Nested", "child"), "child.bms", "nested-child");
         File.WriteAllBytes(Path.Combine(source, "sound.wav"), [3, 4]);
@@ -161,7 +161,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         var databaseScope = new ApplicationDatabaseScope();
         string[] identities = ["nested-parent", "nested-child", "independent-normal"];
         string[] bodies = identities.Select(identity => CreateValidBmsText("Song") + "#GENRE " + identity + "\n").ToArray();
-        await using var fixture = new PackageInstallWorkflowOwnerTests.AutomaticContinuationFixture(databaseScope, false, true, installedChartBodies: bodies);
+        await using var fixture = new PackageInstallComponentTestSupport.AutomaticContinuationFixture(databaseScope, false, true, installedChartBodies: bodies);
         string source = fixture.WriteInput("Nested", "parent.bms", identities[0]);
         string child = fixture.WriteInput(Path.Combine("Nested", "child"), "child.bms", identities[1]);
         string normal = fixture.WriteInput("Normal", "normal.bms", identities[2]);

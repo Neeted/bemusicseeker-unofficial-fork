@@ -1,0 +1,566 @@
+using System.ComponentModel;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
+
+namespace BeMusicSeeker.Tests;
+
+[TestClass]
+public sealed class Lr2SynchronizationArchitectureTests
+{
+    private TestWorkspace? ownedWorkspace;
+
+    /// <summary>ケース開始後だけ利用できる、可変ファイル領域の所有者です。</summary>
+    private TestWorkspace CaseWorkspace => ownedWorkspace
+        ?? throw new InvalidOperationException("ケースの可変媒体はTestInitialize後に利用します。");
+
+    /// <summary>constructorと既存field準備の成功後にケース専有領域を取得します。</summary>
+    [TestInitialize]
+    public void InitializeWorkspace() => ownedWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+
+    /// <summary>既存finallyと接続・Task終端の後にケース専有領域を回収します。</summary>
+    [TestCleanup]
+    public void CleanupWorkspace() => ownedWorkspace?.Dispose();
+
+    /// <summary>
+    /// 保証：フォルダ移動の受付後に決めた順序で必要lockだけを保持・逆順解放し、変更権限の明示失効後は再利用を拒否する。
+    /// </summary>
+    [TestMethod]
+    public void FolderMoveSnapshotScope_UsesCanonicalLocksAndInvalidatesCapabilityBeforeRelease()
+    {
+        List<string> events = [];
+        var boundary = new RecordingMutationBoundary(events);
+        ReaderWriterLockSlimWrapper initializedAll = CreateObservedLock("initialized-all", events);
+        ReaderWriterLockSlimWrapper initializedMin = CreateObservedLock("initialized-min", events);
+        ReaderWriterLockSlimWrapper pendingInstall = CreateObservedLock("pending-install", events);
+        ReaderWriterLockSlimWrapper bmsFiles = CreateObservedLock("bms-files", events);
+        LibraryFileMutationLease? scope = null;
+
+        try
+        {
+            var synchronization = new LibraryFileOperationSynchronization(
+                boundary,
+                initializedAll,
+                initializedMin,
+                pendingInstall,
+                bmsFiles, new ReaderWriterLockSlimWrapper());
+
+            scope = synchronization.EnterFolderMoveWriteScope();
+
+            Assert.IsNotNull(scope);
+            LibraryFileMutationCapability capability = scope.CreateMutationCapability();
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "mutation-reservation.enter:library_folder_move:True"
+                },
+                events);
+
+            using (synchronization.EnterFolderMoveSnapshotScope())
+            {
+                CollectionAssert.AreEqual(
+                    new[]
+                    {
+                        "mutation-reservation.enter:library_folder_move:True",
+                        "initialized-min.read.enter",
+                        "pending-install.write.enter",
+                        "bms-files.write.enter"
+                    },
+                    events);
+                Assert.AreEqual(1u, initializedMin.LockingReadCount);
+                Assert.AreEqual(1u, pendingInstall.LockingWriteCount);
+                Assert.AreEqual(1u, bmsFiles.LockingWriteCount);
+                Assert.AreEqual(0u, initializedAll.LockingReadCount);
+                Assert.AreEqual(0u, initializedAll.LockingWriteCount);
+            }
+
+            Assert.AreEqual(0u, initializedMin.LockingReadCount);
+            Assert.AreEqual(0u, pendingInstall.LockingWriteCount);
+            Assert.AreEqual(0u, bmsFiles.LockingWriteCount);
+            capability.Validate(boundary);
+            capability.Dispose();
+            Assert.ThrowsExactly<InvalidOperationException>(() => capability.Validate(boundary));
+            scope.Dispose();
+            scope = null;
+
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "mutation-reservation.enter:library_folder_move:True",
+                    "initialized-min.read.enter",
+                    "pending-install.write.enter",
+                    "bms-files.write.enter",
+                    "bms-files.write.exit",
+                    "pending-install.write.exit",
+                    "initialized-min.read.exit",
+                    "mutation-lease.dispose"
+                },
+                events);
+            Assert.AreEqual(0u, initializedMin.LockingReadCount);
+            Assert.AreEqual(0u, pendingInstall.LockingWriteCount);
+            Assert.AreEqual(0u, bmsFiles.LockingWriteCount);
+            Assert.IsFalse(boundary.LeaseActive);
+
+            using LibraryFileMutationLease freshLease = synchronization.EnterFolderMoveWriteScope();
+            using LibraryFileMutationCapability freshCapability = freshLease.CreateMutationCapability();
+            freshCapability.Validate(boundary);
+            Assert.IsTrue(boundary.LeaseActive);
+        }
+        finally
+        {
+            scope?.Dispose();
+            initializedAll.Dispose();
+            initializedMin.Dispose();
+            pendingInstall.Dispose();
+            bmsFiles.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// 保証：3つの実lockの取得・解放表示が毎回throwしてもscopeのbodyへ到達し、成功またはbodyの元失敗を維持して全lockを解放し、次の明示scopeを取得できます。
+    /// </summary>
+    /// <remarks>実EnterFolderMoveSnapshotScopeを通し、通知故障を必須release失敗と誤分類してbodyの型・message・stackを上書きする誤りを検出します。</remarks>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void FolderMoveSnapshotScope_ThrowingDisplayObserversPreserveBodyOutcomeAndReleaseAllLocks(bool failBody)
+    {
+        List<string> events = [];
+        var boundary = new RecordingMutationBoundary(events);
+        ReaderWriterLockSlimWrapper initializedAll = CreateObservedLock("initialized-all", events);
+        ReaderWriterLockSlimWrapper initializedMin = CreateObservedLock("initialized-min", events);
+        ReaderWriterLockSlimWrapper pendingInstall = CreateObservedLock("pending-install", events);
+        ReaderWriterLockSlimWrapper bmsFiles = CreateObservedLock("bms-files", events);
+        ReaderWriterLockSlimWrapper[] snapshotLocks = [initializedMin, pendingInstall, bmsFiles];
+        int notificationCount = 0;
+        PropertyChangedEventHandler observer = (_, _) =>
+        {
+            notificationCount++;
+            throw new InvalidOperationException("folder snapshot display notification failure");
+        };
+        foreach (ReaderWriterLockSlimWrapper gate in snapshotLocks)
+        {
+            gate.PropertyChanged += observer;
+        }
+        try
+        {
+            var synchronization = new LibraryFileOperationSynchronization(
+                boundary, initializedAll, initializedMin, pendingInstall, bmsFiles, new ReaderWriterLockSlimWrapper());
+            bool bodyReached = false;
+            Action executeBody = () =>
+            {
+                using (synchronization.EnterFolderMoveSnapshotScope())
+                {
+                    bodyReached = true;
+                    Assert.AreEqual(1u, initializedMin.LockingReadCount);
+                    Assert.IsTrue(initializedMin.IsReadLockHeld);
+                    Assert.AreEqual(1u, pendingInstall.LockingWriteCount);
+                    Assert.IsTrue(pendingInstall.IsWriteLockHeld);
+                    Assert.AreEqual(1u, bmsFiles.LockingWriteCount);
+                    Assert.IsTrue(bmsFiles.IsWriteLockHeld);
+                    if (failBody)
+                    {
+                        ThrowFolderMoveSnapshotBodyFailure();
+                    }
+                }
+            };
+            if (failBody)
+            {
+                InvalidOperationException exception = Assert.ThrowsExactly<InvalidOperationException>(executeBody);
+                Assert.AreEqual("folder snapshot body failure", exception.Message);
+                StringAssert.Contains(exception.StackTrace, nameof(ThrowFolderMoveSnapshotBodyFailure));
+            }
+            else
+            {
+                executeBody();
+            }
+            Assert.IsTrue(bodyReached);
+            AssertSnapshotLocksReleased([initializedAll, .. snapshotLocks]);
+            Assert.AreEqual(6, notificationCount);
+            CollectionAssert.AreEqual(new[]
+            {
+                "initialized-min.read.enter", "pending-install.write.enter", "bms-files.write.enter",
+                "bms-files.write.exit", "pending-install.write.exit", "initialized-min.read.exit"
+            }, events);
+
+            // 自動再試行ではなく、通知故障が続く同じwrapperへの次の明示scopeです。
+            using (synchronization.EnterFolderMoveSnapshotScope())
+            {
+                Assert.IsTrue(initializedMin.IsReadLockHeld);
+                Assert.IsTrue(pendingInstall.IsWriteLockHeld);
+                Assert.IsTrue(bmsFiles.IsWriteLockHeld);
+            }
+            AssertSnapshotLocksReleased([initializedAll, .. snapshotLocks]);
+            Assert.AreEqual(12, notificationCount);
+        }
+        finally
+        {
+            foreach (ReaderWriterLockSlimWrapper gate in snapshotLocks)
+            {
+                gate.PropertyChanged -= observer;
+            }
+            // guardが返らない修正前の通知故障でも、取得threadで残った実lockを回収します。
+            foreach (ReaderWriterLockSlimWrapper gate in new[] { bmsFiles, pendingInstall, initializedMin, initializedAll })
+            {
+                if (gate.IsWriteLockHeld) { gate.ExitWriteLock(); }
+                if (gate.IsUpgradeableReadLockHeld) { gate.ExitUpgradeableReadLock(); }
+                if (gate.IsReadLockHeld) { gate.ExitReadLock(); }
+                gate.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 保証：フォルダ移動の受付拒否は各lock取得より先に終わり、予約・読み書きlock・活動中権限を残さない。
+    /// </summary>
+    [TestMethod]
+    public void FolderMoveAdmission_RejectionDoesNotAcquireLocks()
+    {
+        List<string> events = [];
+        var boundary = new RecordingMutationBoundary(events)
+        {
+            RejectReservation = true
+        };
+        ReaderWriterLockSlimWrapper initializedAll = CreateObservedLock("initialized-all", events);
+        ReaderWriterLockSlimWrapper initializedMin = CreateObservedLock("initialized-min", events);
+        ReaderWriterLockSlimWrapper pendingInstall = CreateObservedLock("pending-install", events);
+        ReaderWriterLockSlimWrapper bmsFiles = CreateObservedLock("bms-files", events);
+
+        try
+        {
+            var synchronization = new LibraryFileOperationSynchronization(
+                boundary,
+                initializedAll,
+                initializedMin,
+                pendingInstall,
+                bmsFiles, new ReaderWriterLockSlimWrapper());
+
+            LibraryFileMutationLease? scope = synchronization.EnterFolderMoveWriteScope();
+
+            Assert.IsNull(scope);
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "mutation-reservation.enter:library_folder_move:True"
+                },
+                events);
+            Assert.IsNull(boundary.Reservation);
+            Assert.AreEqual(0u, initializedAll.LockingReadCount);
+            Assert.AreEqual(0u, initializedAll.LockingWriteCount);
+            Assert.AreEqual(0u, initializedMin.LockingReadCount);
+            Assert.AreEqual(0u, initializedMin.LockingWriteCount);
+            Assert.AreEqual(0u, pendingInstall.LockingReadCount);
+            Assert.AreEqual(0u, pendingInstall.LockingWriteCount);
+            Assert.AreEqual(0u, bmsFiles.LockingReadCount);
+            Assert.AreEqual(0u, bmsFiles.LockingWriteCount);
+
+            scope = null;
+        }
+        finally
+        {
+            initializedAll.Dispose();
+            initializedMin.Dispose();
+            pendingInstall.Dispose();
+            bmsFiles.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// 保証：LR2譜面情報の権限を保持しても元管理主体を強参照せず、退役した主体をGC可能にする。
+    /// </summary>
+    [TestMethod]
+    public void ChartInfoCapabilityDoesNotRetainOwner()
+    {
+        Lr2ChartInfoCapability capability;
+        WeakReference ownerReference = CreateChartInfoCapabilityOwnerReference(out capability);
+        for (int attempt = 0; attempt < 3 && ownerReference.IsAlive; attempt++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+        }
+
+        Assert.IsFalse(ownerReference.IsAlive);
+        GC.KeepAlive(capability);
+    }
+
+    /// <summary>
+    /// 保証：LR2同期入力の行とパスは捕捉後の所持集合変更に影響されず、同期途中で新旧データを混在させない。
+    /// </summary>
+    [TestMethod]
+    public void InputRowSnapshotIsExposedAsOneImmutableContract()
+    {
+        var storageRowsOwner = new CatalogOwnedCollectionOwner();
+        ChartFile file = ChartTestValues.Empty() with
+        {
+            Path = "chart.bms",
+            Md5 = new string('a', 32)
+        };
+        storageRowsOwner.ReplaceChartsAndCaptureSnapshot([file], []);
+        var mutationOwner = new CatalogMutationOwner(storageRowsOwner, null);
+
+        Lr2SongDbSyncInputRowSnapshot snapshot = mutationOwner.CaptureLr2SynchronizationInputRowSnapshot();
+        Assert.AreEqual(1, snapshot.SongRows.Count);
+        Assert.AreEqual(file.Path, snapshot.ChartPaths.Single());
+        storageRowsOwner.ReplaceCharts([], [], replaceBmson: true);
+        Assert.AreEqual(file.Md5, snapshot.SongRows.Single().Md5);
+        Assert.AreEqual(file.Path, snapshot.ChartPaths.Single());
+    }
+
+    /// <summary>
+    /// 保証：変更scope中の警告はFlushまで実通知を遅らせ、scope外の警告は直ちに通知してlock中の対話待ちを防ぐ。
+    /// </summary>
+    [TestMethod]
+    public void MutationWarningUsesScopedOperationDialogCapability()
+    {
+        Assert.IsTrue(typeof(IBmsLibraryDialogService).IsAssignableFrom(typeof(ScopedOperationDialogCoordinator)));
+        MethodInfo? showMethod = typeof(Lr2SynchronizationRuntimePort).GetMethod(
+            "ShowOperationDialog",
+            BindingFlags.Instance | BindingFlags.Public);
+        Assert.IsNotNull(showMethod);
+        Assert.AreEqual(typeof(UiDialogDefaultResult), showMethod!.ReturnType);
+
+        var dialogs = new RecordingDialogService();
+        var coordinator = new ScopedOperationDialogCoordinator(dialogs);
+        using (ScopedOperationDialogCoordinator.Scope scope = coordinator.BeginScope())
+        {
+            UiDialogDefaultResult result = coordinator.Show(
+                "warning",
+                "caption",
+                UiDialogButton.OK,
+                UiDialogIcon.Exclamation,
+                UiDialogDefaultResult.OK);
+
+            Assert.AreEqual(UiDialogDefaultResult.OK, result);
+            Assert.AreEqual(0, dialogs.CallCount);
+            Assert.AreEqual(1, scope.Messages.Count);
+            scope.Flush();
+            Assert.AreEqual(1, dialogs.CallCount);
+        }
+
+        coordinator.Show(
+            "after",
+            "caption",
+            UiDialogButton.OK,
+            UiDialogIcon.Exclamation,
+            UiDialogDefaultResult.OK);
+        Assert.AreEqual(2, dialogs.CallCount);
+    }
+
+    /// <summary>
+    /// 保証：LR2検索先から管理出力基点と子孫を除外し、独立モードではLR2設定に依存しない。
+    /// </summary>
+    [TestMethod]
+    public void SearchRootSnapshotPreservesExcludedDescendantsAndStandaloneRoots()
+    {
+        string tempRoot = Path.Combine(
+            CaseWorkspace.RootDirectory,
+            "BeMusicSeeker_Lr2SearchRoot_" + Guid.NewGuid().ToString("N"));
+        string excludedRoot = Path.Combine(tempRoot, "generated");
+        string excludedChild = Path.Combine(excludedRoot, "nested");
+        string retainedRoot = Path.Combine(tempRoot, "songs");
+        Directory.CreateDirectory(excludedChild);
+        Directory.CreateDirectory(retainedRoot);
+
+        try
+        {
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+                LR2CustomFolderOutputBaseDirRootType = excludedRoot
+            };
+            Settings settings = TestBmsFactory.CreateRootSettings([excludedRoot, excludedChild, retainedRoot], lr2: true);
+            var config = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(new BeMusicSeeker.Models.LR2.LR2Config(settings.LR2ConfigXmlPath));
+            config.SetPlacement(options.CaptureOutputPlacement());
+            var owner = new Lr2SearchRootSnapshotOwner(config, () => options);
+
+            CollectionAssert.AreEqual(new[] { retainedRoot }, owner.Capture().Roots.ToArray());
+
+            Settings normalModeSettings = TestBmsFactory.CreateRootSettings([retainedRoot]);
+            BmsLibraryOptionsSnapshot normalModeOptions = BmsLibraryOptionsSnapshot.CreateCurrent(normalModeSettings) with
+            {
+                StandaloneBmsRootPaths = BmsRootRegistrationStore.CaptureStandaloneRoots(normalModeSettings)
+            };
+            var normalModeOwner = new Lr2SearchRootSnapshotOwner(null, () => normalModeOptions);
+
+            CollectionAssert.AreEqual(new[] { retainedRoot }, normalModeOwner.Capture().Roots.ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 保証：必須の操作設定providerが値を返さない場合は検索先捕捉を失敗させ、暗黙の既定設定で走査しない。
+    /// </summary>
+    [TestMethod]
+    public void SearchRootSnapshotRejectsNullOptionsProvider()
+    {
+        var owner = new Lr2SearchRootSnapshotOwner(
+            null,
+            () => null);
+
+        Assert.ThrowsExactly<InvalidOperationException>(() => owner.Capture());
+    }
+
+    /// <summary>
+    /// 保証：長い管理出力パスの子孫も検索先から除外し、通常パス長を超えた出力を譜面として再取込みしない。
+    /// </summary>
+    [TestMethod]
+    public void SearchRootSnapshotExcludesLongCustomOutputDescendants()
+    {
+        string tempRoot = Path.Combine(
+            CaseWorkspace.RootDirectory,
+            "BeMusicSeeker_Lr2LongSearchRoot_" + Guid.NewGuid().ToString("N"));
+        string excludedRoot = Path.Combine(
+            tempRoot,
+            string.Join(Path.DirectorySeparatorChar.ToString(), Enumerable.Repeat(new string('x', 24), 12)));
+        string excludedChild = Path.Combine(excludedRoot, "nested");
+        LongPathFileSystem.CreateDirectory(excludedChild);
+
+        try
+        {
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+                LR2CustomFolderAdditionalOutputBaseDirs = [excludedRoot]
+            };
+            Settings settings = TestBmsFactory.CreateRootSettings([excludedRoot, excludedChild], lr2: true);
+            var config = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(new BeMusicSeeker.Models.LR2.LR2Config(settings.LR2ConfigXmlPath));
+            config.SetPlacement(options.CaptureOutputPlacement());
+            var owner = new Lr2SearchRootSnapshotOwner(config, () => options);
+
+            CollectionAssert.AreEqual(Array.Empty<string>(), owner.Capture().Roots.ToArray());
+        }
+        finally
+        {
+            if (LongPathFileSystem.DirectoryExists(tempRoot))
+            {
+                LongPathFileSystem.DeleteDirectory(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void ThrowFolderMoveSnapshotBodyFailure()
+    {
+        throw new InvalidOperationException("folder snapshot body failure");
+    }
+
+    private static void AssertSnapshotLocksReleased(IEnumerable<ReaderWriterLockSlimWrapper> locks)
+    {
+        foreach (ReaderWriterLockSlimWrapper gate in locks)
+        {
+            Assert.AreEqual(0u, gate.LockingReadCount);
+            Assert.AreEqual(0u, gate.LockingWriteCount);
+            Assert.AreEqual(0u, gate.LockingUpgradeCount);
+            Assert.IsFalse(gate.IsReadLockHeld);
+            Assert.IsFalse(gate.IsWriteLockHeld);
+            Assert.IsFalse(gate.IsUpgradeableReadLockHeld);
+        }
+    }
+
+    private static WeakReference CreateChartInfoCapabilityOwnerReference(
+        out Lr2ChartInfoCapability capability)
+    {
+        CatalogChartInfoOwner owner = new(
+            _ => { },
+            () => false,
+            (_, _) => false,
+            () => null,
+            _ => { });
+        WeakReference reference = new(owner);
+        capability = new Lr2ChartInfoCapability(owner);
+        return reference;
+    }
+
+    private static ReaderWriterLockSlimWrapper CreateObservedLock(
+        string name,
+        List<string> events)
+    {
+        var gate = new ReaderWriterLockSlimWrapper();
+        gate.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(ReaderWriterLockSlimWrapper.LockingReadCount))
+            {
+                events.Add($"{name}.read.{(gate.LockingReadCount > 0 ? "enter" : "exit")}");
+            }
+            else if (args.PropertyName == nameof(ReaderWriterLockSlimWrapper.LockingWriteCount))
+            {
+                events.Add($"{name}.write.{(gate.LockingWriteCount > 0 ? "enter" : "exit")}");
+            }
+        };
+        return gate;
+    }
+
+    private sealed class RecordingMutationBoundary : ILibraryFileOperationMutationBoundary
+    {
+        private readonly List<string> events;
+
+        internal RecordingMutationBoundary(List<string> events)
+        {
+            this.events = events;
+        }
+
+        internal bool RejectReservation { get; init; }
+
+        internal LibraryFileMutationLease? Reservation { get; private set; }
+
+        internal bool LeaseActive { get; private set; } = true;
+
+        public LibraryFileMutationLease? TryBeginMutation(string operation, bool showMessage, LibraryFileMutationCapability? capability = null)
+        {
+            events.Add($"mutation-reservation.enter:{operation}:{showMessage}");
+            if (RejectReservation)
+            {
+                return null!;
+            }
+
+            // A new reservation starts a new capability lifetime.  The
+            // previous lease's release callback leaves the boundary inactive
+            // until admission succeeds again.
+            LeaseActive = true;
+            Reservation = new LibraryFileMutationLease(
+                this,
+                () => LeaseActive,
+                () =>
+                {
+                    LeaseActive = false;
+                    events.Add("mutation-lease.dispose");
+                });
+            return Reservation;
+        }
+
+        public bool TryBlockMutation(string operation, bool showMessage, LibraryFileMutationCapability? capability = null)
+        {
+            events.Add($"mutation-block:{operation}:{showMessage}");
+            return false;
+        }
+
+    }
+
+    private sealed class RecordingDialogService : IBmsLibraryDialogService
+    {
+        internal int CallCount { get; private set; }
+
+        public UiDialogDefaultResult Show(
+            string messageBoxText,
+            string caption,
+            UiDialogButton button,
+            UiDialogIcon icon,
+            UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None)
+        {
+            CallCount++;
+            return defaultResult;
+        }
+    }
+}
