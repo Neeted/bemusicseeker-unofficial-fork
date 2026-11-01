@@ -1,0 +1,19 @@
+<Project Sdk="MSTest.Sdk">
+  <PropertyGroup>
+    <UseWPF>true</UseWPF>
+    <EnableMicrosoftTestingExtensionsTrxReport>true</EnableMicrosoftTestingExtensionsTrxReport>
+    <EnableMicrosoftTestingExtensionsCrashDump>true</EnableMicrosoftTestingExtensionsCrashDump>
+    <EnableMicrosoftTestingExtensionsHangDump>true</EnableMicrosoftTestingExtensionsHangDump>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../BeMusicSeeker.TestSupport/BeMusicSeeker.TestSupport.csproj" />
+    <ProjectReference Include="../../BeMusicSeeker/BeMusicSeeker.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../ModuleInitialization/UiModuleLifetime.cs" Link="Infrastructure/ModuleLifetime.cs" />
+    <Compile Include="../ModuleInitialization/AssemblySettings.cs" Link="Infrastructure/AssemblySettings.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="FlaUI.UIA3" />
+  </ItemGroup>
+</Project>

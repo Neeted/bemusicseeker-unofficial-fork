@@ -1,5 +1,5 @@
 <Project>
-  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'BeMusicSeeker' Or '$(MSBuildProjectName)' == 'BeMusicSeeker.Updater' Or '$(MSBuildProjectName)' == 'BeMusicSeeker.Tests'">
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'BeMusicSeeker' Or '$(MSBuildProjectName)' == 'BeMusicSeeker.Updater' Or '$(MSBuildProjectName)' == 'BeMusicSeeker.TestSupport' Or $([System.String]::Copy('$(MSBuildProjectName)').EndsWith('.Tests'))">
     <WarningsAsErrors>$(WarningsAsErrors);nullable</WarningsAsErrors>
   </PropertyGroup>
 </Project>

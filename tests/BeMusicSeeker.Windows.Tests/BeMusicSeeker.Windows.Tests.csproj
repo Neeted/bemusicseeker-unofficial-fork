@@ -1,0 +1,25 @@
+<Project Sdk="MSTest.Sdk">
+  <PropertyGroup>
+    <UseWPF>true</UseWPF>
+    <EnableMicrosoftTestingExtensionsTrxReport>true</EnableMicrosoftTestingExtensionsTrxReport>
+    <EnableMicrosoftTestingExtensionsCrashDump>true</EnableMicrosoftTestingExtensionsCrashDump>
+    <EnableMicrosoftTestingExtensionsHangDump>true</EnableMicrosoftTestingExtensionsHangDump>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../BeMusicSeeker.TestSupport/BeMusicSeeker.TestSupport.csproj" />
+    <ProjectReference Include="../../BeMusicSeeker/BeMusicSeeker.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../ModuleInitialization/UiModuleLifetime.cs" Link="Infrastructure/ModuleLifetime.cs" />
+    <Compile Include="../ModuleInitialization/AssemblySettings.cs" Link="Infrastructure/AssemblySettings.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Fixtures/WindowsProcessProbe/WindowsProcessProbe.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <Target Name="CopyWindowsProcessProbe" AfterTargets="Build">
+    <MSBuild Projects="../Fixtures/WindowsProcessProbe/WindowsProcessProbe.csproj" Targets="GetTestFixtureFiles" Properties="Configuration=$(Configuration);Platform=$(Platform)">
+      <Output TaskParameter="TargetOutputs" ItemName="_WindowsProbeFiles" />
+    </MSBuild>
+    <Copy SourceFiles="@(_WindowsProbeFiles)" DestinationFiles="@(_WindowsProbeFiles->'$(TargetDir)fixtures/windows-process-probe/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

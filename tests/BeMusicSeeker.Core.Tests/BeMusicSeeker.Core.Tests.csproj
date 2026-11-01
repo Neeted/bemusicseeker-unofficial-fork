@@ -1,0 +1,24 @@
+<Project Sdk="MSTest.Sdk">
+  <PropertyGroup>
+    <EnableMicrosoftTestingExtensionsTrxReport>true</EnableMicrosoftTestingExtensionsTrxReport>
+    <EnableMicrosoftTestingExtensionsCrashDump>true</EnableMicrosoftTestingExtensionsCrashDump>
+    <EnableMicrosoftTestingExtensionsHangDump>true</EnableMicrosoftTestingExtensionsHangDump>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../BeMusicSeeker.TestSupport/BeMusicSeeker.TestSupport.csproj" />
+    <ProjectReference Include="../../BeMusicSeeker/BeMusicSeeker.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../ModuleInitialization/ModuleLifetime.cs" Link="Infrastructure/ModuleLifetime.cs" />
+    <Compile Include="../ModuleInitialization/AssemblySettings.cs" Link="Infrastructure/AssemblySettings.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Fixtures/ProcessFixture/ProcessFixture.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <Target Name="CopyProcessFixture" AfterTargets="Build">
+    <MSBuild Projects="../Fixtures/ProcessFixture/ProcessFixture.csproj" Targets="GetTestFixtureFiles" Properties="Configuration=$(Configuration);Platform=$(Platform)">
+      <Output TaskParameter="TargetOutputs" ItemName="_ProcessFixtureFiles" />
+    </MSBuild>
+    <Copy SourceFiles="@(_ProcessFixtureFiles)" DestinationFiles="@(_ProcessFixtureFiles->'$(TargetDir)ProcessFixture/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

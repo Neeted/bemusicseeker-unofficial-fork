@@ -1,0 +1,5 @@
+<Project Sdk="MSTest.Sdk">
+  <PropertyGroup>
+    <IsTestApplication>false</IsTestApplication>
+  </PropertyGroup>
+</Project>

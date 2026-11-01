@@ -1,0 +1,341 @@
+using System.Diagnostics;
+using System.IO.Pipes;
+using System.Text;
+
+namespace BeMusicSeeker.TestSupport.Processes;
+
+/// <summary>実行体、UTF-8 出力、子孫の寿命を一つの所有境界として回収します。</summary>
+public sealed class OwnedProcess : IAsyncDisposable
+{
+    private readonly Process process;
+    private readonly WindowsProcessJob? job;
+    private readonly StreamReader stdout;
+    private readonly StreamReader stderr;
+    private long completedTimestamp;
+    private Exception? primaryFailure;
+    private Task<ProcessStopResult>? stopping;
+    private bool disposed;
+
+    private OwnedProcess(Process process, WindowsProcessJob? job, StreamReader stdout, StreamReader stderr)
+    {
+        this.process = process;
+        this.job = job;
+        this.stdout = stdout;
+        this.stderr = stderr;
+        ProcessId = process.Id;
+        StandardOutput = stdout.ReadToEndAsync();
+        StandardError = stderr.ReadToEndAsync();
+        Completion = CollectAsync();
+    }
+
+    /// <summary>保持した root の識別子です。停止対象の再発見には使いません。</summary>
+    public int ProcessId { get; }
+    /// <summary>起動直後から非同期に回収する標準出力です。</summary>
+    public Task<string> StandardOutput { get; }
+    /// <summary>起動直後から非同期に回収する標準エラーです。</summary>
+    public Task<string> StandardError { get; }
+    /// <summary>root、両 pipe、Job の全子孫の終端です。</summary>
+    public Task<ProcessCompletion> Completion { get; }
+    /// <summary>最初の非成功終了・待機失敗です。回収失敗とは別に保持します。</summary>
+    public Exception? PrimaryFailure => primaryFailure;
+    /// <summary>正常終了要求・強制停止・回収で発生した失敗です。</summary>
+    public Exception? CleanupFailure { get; private set; }
+
+    /// <summary>要求を忠実に渡し、所有を確立してから子のコードを実行します。</summary>
+    public static OwnedProcess Start(ProcessStartRequest request)
+    {
+        var info = new ProcessStartInfo(request.FileName)
+        {
+            WorkingDirectory = request.WorkingDirectory,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = new UTF8Encoding(false),
+            StandardErrorEncoding = new UTF8Encoding(false),
+        };
+        foreach (string argument in request.Arguments)
+        {
+            info.ArgumentList.Add(argument);
+        }
+
+        foreach (KeyValuePair<string, string?> pair in request.Environment)
+        {
+            if (pair.Value is null)
+            {
+                info.Environment.Remove(pair.Key);
+            }
+            else
+            {
+                info.Environment[pair.Key] = pair.Value;
+            }
+        }
+        Process? process = null;
+        WindowsProcessJob? job = null;
+        AnonymousPipeServerStream? output = null;
+        AnonymousPipeServerStream? error = null;
+        try
+        {
+            if (request.OwnershipPolicy == ProcessOwnershipPolicy.Preparation)
+            {
+                info.Environment["DOTNET_CLI_FORCE_UTF8_ENCODING"] = "1";
+                info.Environment["DOTNET_CLI_USE_MSBUILD_SERVER"] = "0";
+                info.Environment["MSBUILDDISABLENODEREUSE"] = "1";
+                info.Environment["UseSharedCompilation"] = "false";
+                process = Process.Start(info) ?? throw new InvalidOperationException("プロセスを起動できません。");
+                return new OwnedProcess(process, null, process.StandardOutput, process.StandardError);
+            }
+            if (!OperatingSystem.IsWindows())
+            {
+                throw new PlatformNotSupportedException("Application の所有には Windows Job が必要です。");
+            }
+
+            job = WindowsProcessJob.Create();
+            output = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
+            error = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
+            process = job.Start(info, output, error);
+            output.DisposeLocalCopyOfClientHandle();
+            error.DisposeLocalCopyOfClientHandle();
+            return new OwnedProcess(process, job,
+                new StreamReader(output, new UTF8Encoding(false), false),
+                new StreamReader(error, new UTF8Encoding(false), false));
+        }
+        catch (Exception primary)
+        {
+            Exception? cleanup = null;
+            try
+            {
+                if (job is not null)
+                {
+                    job.Terminate();
+                }
+                else if (process is not null && !process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+            }
+            catch (Exception failure) { cleanup = failure; }
+            finally
+            {
+                process?.Dispose();
+                output?.Dispose();
+                error?.Dispose();
+                job?.Dispose();
+            }
+            if (primary is OwnedProcessStartException && cleanup is null)
+            {
+                throw;
+            }
+
+            throw new OwnedProcessStartException(primary, cleanup);
+        }
+    }
+
+    /// <summary>段階で共有する絶対期限まで全終端を待ちます。期限超過と取消は主失敗として再送出します。</summary>
+    public async Task<ProcessCompletion> WaitForExitAsync(ProcessDeadline deadline, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await WaitForCompletionAsync(deadline, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            Interlocked.CompareExchange(ref primaryFailure, failure, null);
+            throw;
+        }
+    }
+
+    /// <summary>正常終了を先に要求し、残期限で所有対象だけを強制停止・回収します。繰返し呼出しでも期限は更新しません。</summary>
+    public Task<ProcessStopResult> StopAsync(Func<CancellationToken, Task>? requestGracefulExit, ProcessDeadline cleanupDeadline)
+        => stopping ??= StopCoreAsync(requestGracefulExit, cleanupDeadline);
+
+    private async Task<ProcessCompletion> WaitForCompletionAsync(ProcessDeadline deadline, CancellationToken cancellationToken = default)
+    {
+        ProcessCompletion result;
+        try
+        {
+            result = await Completion.WaitAsync(deadline.Remaining, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException) when (Completion.IsCompletedSuccessfully && deadline.Includes(Volatile.Read(ref completedTimestamp)))
+        {
+            // タイマーと継続の配送順だけで、期限内に完了した実行を失敗へ変えない。
+            result = await Completion.ConfigureAwait(false);
+        }
+        if (!deadline.Includes(Volatile.Read(ref completedTimestamp)))
+        {
+            throw new TimeoutException("所有プロセスの終端が期限を超えました。");
+        }
+        return result;
+    }
+
+    private async Task<ProcessStopResult> StopCoreAsync(Func<CancellationToken, Task>? requestGracefulExit, ProcessDeadline deadline)
+    {
+        var failures = new List<Exception>();
+        if (!Completion.IsCompletedSuccessfully)
+        {
+            // 後半を強制停止と pipe 回収に残し、正常終了要求のハングで全予算を使い切らない。
+            var grace = TimeSpan.FromTicks(deadline.Remaining.Ticks / 2);
+            var gracefulDeadline = ProcessDeadline.FromTimeout(grace);
+            using var cancellation = new CancellationTokenSource(grace);
+            Task? gracefulRequest = null;
+            try
+            {
+                bool requested = requestGracefulExit is not null;
+                if (requestGracefulExit is not null)
+                {
+                    gracefulRequest = requestGracefulExit(cancellation.Token);
+                    await gracefulRequest.WaitAsync(gracefulDeadline.Remaining).ConfigureAwait(false);
+                }
+                else if (!process.HasExited)
+                {
+                    requested = process.CloseMainWindow();
+                }
+
+                if (requested)
+                {
+                    await WaitForCompletionAsync(gracefulDeadline).ConfigureAwait(false);
+                }
+            }
+            catch (TimeoutException failure)
+            {
+                if (gracefulRequest is { IsCompleted: false })
+                {
+                    failures.Add(failure);
+                }
+            }
+            catch (OperationCanceledException failure) when (cancellation.IsCancellationRequested)
+            {
+                if (gracefulRequest is { IsCompleted: false })
+                {
+                    failures.Add(failure);
+                }
+            }
+            catch (Exception failure) { failures.Add(failure); }
+            try { cancellation.Cancel(); }
+            catch (Exception failure) { failures.Add(failure); }
+            if (gracefulRequest is { IsCompleted: false })
+            {
+                // 取消を無視した要求の後発例外も観測する。未終端自体は上の回収失敗へ残す。
+                _ = gracefulRequest.ContinueWith(task => _ = task.Exception, TaskContinuationOptions.OnlyOnFaulted);
+            }
+        }
+        if (!Completion.IsCompletedSuccessfully)
+        {
+            try
+            {
+                if (job is not null)
+                {
+                    job.Terminate();
+                }
+                else if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+            }
+            catch (Exception failure) { failures.Add(failure); }
+        }
+        try { await WaitForCompletionAsync(deadline).ConfigureAwait(false); }
+        catch (Exception failure)
+        {
+            failures.Add(failure);
+            try
+            {
+                // 出力回収が faulted でも、生存している root と Job の終端を独立に確認する。
+                await ConfirmOwnedExitAsync(deadline).ConfigureAwait(false);
+            }
+            catch (Exception cleanupFailure) { failures.Add(cleanupFailure); }
+        }
+        CleanupFailure = failures.Count switch { 0 => null, 1 => failures[0], _ => new AggregateException(failures) };
+        return new ProcessStopResult(CleanupFailure);
+    }
+
+    private async Task ConfirmOwnedExitAsync(ProcessDeadline deadline)
+    {
+        using var cancellation = new CancellationTokenSource(deadline.Remaining);
+        Task<long> ownedExit = ObserveOwnedExitAsync(cancellation.Token);
+        try
+        {
+            long observedTimestamp;
+            try
+            {
+                observedTimestamp = await ownedExit.WaitAsync(deadline.Remaining).ConfigureAwait(false);
+            }
+            catch (TimeoutException) when (ownedExit.IsCompletedSuccessfully)
+            {
+                observedTimestamp = await ownedExit.ConfigureAwait(false);
+            }
+            if (!deadline.Includes(observedTimestamp))
+            {
+                throw new TimeoutException("所有対象の回収確認が期限を超えました。");
+            }
+        }
+        finally
+        {
+            // WaitAsync のタイマーが先に通知した場合も、残った Job 待機を打ち切る。
+            cancellation.Cancel();
+            _ = ownedExit.ContinueWith(task => _ = task.Exception, TaskContinuationOptions.OnlyOnFaulted);
+        }
+    }
+
+    private async Task<long> ObserveOwnedExitAsync(CancellationToken cancellationToken)
+    {
+        Task rootExit = process.WaitForExitAsync(cancellationToken);
+        Task jobExit = job?.WaitForEmptyAsync(cancellationToken) ?? Task.CompletedTask;
+        await Task.WhenAll(rootExit, jobExit).ConfigureAwait(false);
+        return Stopwatch.GetTimestamp();
+    }
+
+    private async Task<ProcessCompletion> CollectAsync()
+    {
+        try
+        {
+            await process.WaitForExitAsync().ConfigureAwait(false);
+            if (process.ExitCode != 0)
+            {
+                Interlocked.CompareExchange(ref primaryFailure, new InvalidOperationException($"プロセスが終了コード {process.ExitCode} で失敗しました。"), null);
+            }
+
+            await Task.WhenAll(StandardOutput, StandardError).ConfigureAwait(false);
+            if (job is not null)
+            {
+                await job.WaitForEmptyAsync().ConfigureAwait(false);
+            }
+
+            var result = new ProcessCompletion(process.ExitCode, await StandardOutput.ConfigureAwait(false), await StandardError.ConfigureAwait(false));
+            Volatile.Write(ref completedTimestamp, Stopwatch.GetTimestamp());
+            return result;
+        }
+        catch (Exception failure)
+        {
+            Interlocked.CompareExchange(ref primaryFailure, failure, null);
+            throw;
+        }
+    }
+
+    /// <summary>未停止なら10秒の回収期限で停止し、既存の停止があればその期限を引き継いでハンドルを解放します。</summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (disposed)
+        {
+            return;
+        }
+
+        disposed = true;
+        try
+        {
+            ProcessStopResult result = await StopAsync(null, ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(10))).ConfigureAwait(false);
+            // await using の本体が失敗した際に、回収例外でその主失敗を置き換えない。
+            if (result.CleanupFailure is not null && PrimaryFailure is null)
+            {
+                throw result.CleanupFailure;
+            }
+        }
+        finally
+        {
+            job?.Dispose();
+            stdout.Dispose();
+            stderr.Dispose();
+            process.Dispose();
+        }
+    }
+}

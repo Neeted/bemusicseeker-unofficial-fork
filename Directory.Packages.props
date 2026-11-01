@@ -3,6 +3,7 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
+    <PackageVersion Include="FlaUI.UIA3" Version="5.0.0" />
     <PackageVersion Include="LivetCask.Core" Version="4.0.2" />
     <PackageVersion Include="LivetCask.EventListeners" Version="4.0.2" />
     <PackageVersion Include="LivetCask.Mvvm" Version="4.0.2" />

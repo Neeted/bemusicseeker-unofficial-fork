@@ -6,7 +6,7 @@
 
 ## 採用する方針
 
-MSTest.Sdkとnative MTPを共通基盤とし、発見・DataRow展開・実行・標準結果をMTPへ任せる。次の作業では `tools/BeMusicSeeker.Verify` に薄いC#入口を置き、Core、Windows、Scenarios、Desktop.E2E、Compatibility、Performanceの6テストプロジェクトと用途別の共通補助へ分ける。
+MSTest.Sdkとnative MTPを共通基盤とし、発見・DataRow展開・実行・標準結果をMTPへ任せる。`tools/BeMusicSeeker.Verify` の薄いC#入口、Core、Windows、Scenarios、Desktop.E2E、Compatibility、Performanceの6テストプロジェクト、用途別の共通補助へ、既存ケースと配布検証を順次接続する。
 
 単一Testsに残るPowerShellの分割計画・メタデータ発見・FQN列挙は移行中の接続であり、恒久構成にしない。以下を一体で置換する。
 
@@ -15,6 +15,23 @@ MSTest.Sdkとnative MTPを共通基盤とし、発見・DataRow展開・実行�
 - 旧runner専用の検査とMTP接続用の一時fixtureは、新入口の保証が成立した時点で統合・削除する。ゼロ件、全skip、非成功exit、missing report、timeout、cleanup失敗を成功にしない保証は維持する。
 - 旧 `VerificationProcessLifecycleTests` の固定時刻に依存するstream待機・複数root cleanupの検査は、新しいprocess所有の検査へ引き継ぐ。旧VSTestでも失敗する条件があるため、移行時の失敗をMTP固有と決めつけず、実終了・両pipe回収・所有子の残留を独立して観測する。期限・期待値の緩和や恒久的な除外で解消した扱いにしない。
 - 共有DB・設定・言語・一時領域・WPF/native資源の所有を先に整理してから並列度を調整する。旧6ホストの名前・割当規則を新基盤の契約として引き継がない。
+
+## 共通入口から後続へ渡す接続
+
+- `tests/` の6moduleはケース移管先です。新しいdev/verifyの全体成功は全選択moduleとDailyシナリオの実体化後に確認します。移行中の必須回帰は単一MTP Testsで継続し、空moduleの除外やdummy成功で置き換えません。
+- `tools/BeMusicSeeker.Verify` のFull/Compatibility/Performanceは固定planまでです。配布V/Vnext、環境preflight、各profileの実行期限、必須シナリオの短IDとTRXへの載せ方を接続するまで入口は不成功にします。
+- `tests/Fixtures/WindowsProcessProbe` のbuild/copy先はWindows module出力の `fixtures/windows-process-probe/` です。portable保存互換2件とBASS collectible1件のpayload・通常wrapperを移し、同じ変更で旧Compile所属から外します。
+- `UiModuleLifetime` はsession lease取得後・解放前に本番経路のWPF host初期化・shutdownを接続します。TestWorkspaceはファイル領域だけを所有し、DB/runtimeの集約managerにしません。
+- 固定native資産のhash/x64と配布manifestの保証は配布準備側へ移管してから元ケースを退役させます。通常起動の単一instanceとテスト専用profile排他、更新成功・rollback失敗、SQL復元後終了の異なる終端を、同じ成功判定へまとめません。
+
+### 旧検証契約の移管
+
+| 現在の保証 | 後継と残作業 |
+| --- | --- |
+| runnerの選択・結果欠落・全Passed | 新しいVerificationPlan / ResultGate。旧shard形状とPE発見を保持せず、旧runnerの撤去時に旧検査も退役します。 |
+| 変更C#の選択・整形順・前段失敗 | RepositoryFormatterの実Git契約検査。旧PowerShell probeは旧入口の撤去と同時に退役します。 |
+| UTF-8両pipe・所有child・期限・主失敗保全 | 共通OwnedProcessと単一ProcessFixture。固定時刻依存の旧検査を恒久除外せず、必要な外部保証の成立後に置換します。 |
+| 実artifact・modal・native資産 | 後続の配布準備・Desktop・Compatibilityへ接続するまで元検査を残します。 |
 
 ## 完了条件
 
