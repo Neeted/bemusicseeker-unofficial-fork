@@ -16,6 +16,8 @@ dotnet run --project tests/BeMusicSeeker.Core.Tests -- --filter "FullyQualifiedN
 
 現在は共通基盤と6moduleを接続し、既存ケースとシナリオを順次移管しています。移管は未完了のため、必須回帰の標準入口は `scripts/verify-refactor.ps1` のままです。新しい `dev/verify` で空moduleが選択された場合は不成功になります。新入口の全体合格には、既存ケースの移管とDailyシナリオの接続が必要です。
 
+外部プレイヤーの起動判断・更新要求・runtime引数の通常解析はCore、ログ構成と相対manifestのCWDを扱うcaseはWindowsへ配置します。設定互換とBASS collectibleの三caseはWindowsから一case一fresh `WindowsProcessProbe` を起動し、子内の表明と回収を成功JSONの前に完了します。旧入口は残存対象の4ホストを実行し、移管済みfresh caseを旧専用ホストで重ねて実行しません。
+
 `full` はReleaseのCore、Windows、Scenarios、Desktop.E2Eを各1回実行します。Scenariosは全件、SC-07はCompatibility所属のため対象外です。必須IDはScenariosのSC-01〜SC-14（SC-07を除く）、DesktopのSC-15a・SC-15b・SC-16・DT-01〜DT-03です。正式Fullは `--filter` を準備開始前に拒否します。局所検証は対象projectを直接実行します。
 
 Fullは全C# sourceの整形・build後、固定旧ZIP、現行V、次版Vnextを準備してからtest段階を開始します。Vは通常の公開版値、VnextはVの実バイナリの版から末尾をcheckedで1増やした実行限定の版です。通常の公開版値とAssemblyVersionを変えません。版指定はpublishの `-ApplicationVersion` から生成属性へ接続し、各ArtifactRoot内のproject別obj/binへ分離します。実シナリオは引き続き移行対象です。未接続によるpublish失敗や必須ID不足を成功扱いせず、fixtureを使う準備部品の検査だけで実Full成功としません。

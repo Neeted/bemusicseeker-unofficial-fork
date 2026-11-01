@@ -1,12 +1,8 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Text.Json.Nodes;
 using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Runtime;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using BeMusicSeeker.TestSupport.Components;
 
 namespace BeMusicSeeker.Tests;
 
@@ -70,83 +66,9 @@ public sealed class ApplicationRuntimeOptionsParserTests
             CommandLineSwitches.HasInvalidLogLevelValue, CommandLineSwitches.InvalidLogLevelValue));
     }
 
-    /// <summary>ログoptionと同じ先頭を持つ相対manifestは値として消費し、ログ指定へ再解釈しません。前Errorのみ・指定なし・後Warningを分担し、ログ結果と全引数の保持を共有ログ状態を変えずに確認します。</summary>
-    [TestMethod]
-    [DataRow("--test-session", "Error", null, NormalLogLevel.Error)]
-    [DataRow("--TeSt-SeSsIoN", null, null, NormalLogLevel.Info)]
-    [DataRow("--TEST-SESSION", "Error", "warning", NormalLogLevel.Warn)]
-    public void ManifestValueWithLogOptionPrefixDoesNotOverrideCapturedLogging(string sessionSwitch, string? beforeLevel, string? afterLevel, NormalLogLevel expectedLevel)
-    {
-        (NormalLogLevel LogLevel, bool IsInfoLoggingEnabled, bool HasInvalidLogLevelValue, string InvalidLogLevelValue) processLoggingBefore = (CommandLineSwitches.LogLevel, CommandLineSwitches.IsInfoLoggingEnabled,
-            CommandLineSwitches.HasInvalidLogLevelValue, CommandLineSwitches.InvalidLogLevelValue);
-        string currentDirectory = Environment.CurrentDirectory;
-        const string rootNamePrefix = "--log-level=case-";
-        using var fixture = new ManifestFixture(currentDirectory, rootNamePrefix);
-        fixture.Write(fixture.CreateDocument());
-        string relativeManifest = Path.GetRelativePath(currentDirectory, fixture.ManifestPath);
-        Assert.IsFalse(Path.IsPathFullyQualified(relativeManifest));
-        StringAssert.StartsWith(relativeManifest, rootNamePrefix);
-        Assert.IsTrue(File.Exists(relativeManifest), "実在する相対manifestを解析へ渡します。");
-        var arguments = new List<string> { "unknown value" };
-        if (beforeLevel is not null) { arguments.Add("--log-level=" + beforeLevel); }
-        arguments.Add(sessionSwitch);
-        int manifestArgumentIndex = arguments.Count;
-        arguments.Add(relativeManifest);
-        if (afterLevel is not null) { arguments.Add("--LOG-LEVEL=" + afterLevel); }
-        string[] inputArguments = arguments.ToArray();
-        string[] expectedRestartArguments = arguments.ToArray();
-        expectedRestartArguments[manifestArgumentIndex] = fixture.ManifestPath;
 
-        ApplicationRuntimeOptions options = ApplicationRuntimeOptionsParser.Capture(ExecutablePath, inputArguments);
 
-        Assert.IsNotNull(options.TestSession);
-        Assert.AreEqual(fixture.ManifestPath, options.TestSession.ManifestPath);
-        Assert.AreEqual(expectedLevel, options.LogOptions.Level);
-        Assert.AreEqual(string.Empty, options.LogOptions.InvalidValue);
-        CollectionAssert.AreEqual(expectedRestartArguments, options.RestartArguments.ToArray());
-        CollectionAssert.AreEqual(arguments, inputArguments, "呼出元の引数配列を書き換えません。");
-        Assert.AreEqual(currentDirectory, Environment.CurrentDirectory);
-        fixture.AssertOnlyManifestExists();
-        Assert.AreEqual(processLoggingBefore, (CommandLineSwitches.LogLevel, CommandLineSwitches.IsInfoLoggingEnabled,
-            CommandLineSwitches.HasInvalidLogLevelValue, CommandLineSwitches.InvalidLogLevelValue));
-    }
 
-    /// <summary>更新URLのoptionと同じ先頭を持つ相対manifestも値として一度だけ消費し、そのパスだけを絶対化します。URLの前指定のみ・指定なし・前後指定を分担し、それぞれ前URL・既定値・後URLを返して、他の引数・元配列・CWDを保持します。</summary>
-    [TestMethod]
-    [DataRow("--test-session", "https://example.invalid/before.json", null, "https://example.invalid/before.json")]
-    [DataRow("--TeSt-SeSsIoN", null, null, null)]
-    [DataRow("--TEST-SESSION", "https://example.invalid/before.json", "https://example.invalid/after.json", "https://example.invalid/after.json")]
-    public void TestSessionCanonicalizesManifestAndPreservesOtherRestartArguments(string sessionSwitch, string? beforeUrl, string? afterUrl, string? expectedUrl)
-    {
-        string currentDirectory = Environment.CurrentDirectory;
-        const string rootNamePrefix = "--update-manifest-url=case-";
-        // CWDを変更せず相対パスを必ず入力できるよう、このケースだけCWD内の専有rootを使います。
-        using var fixture = new ManifestFixture(currentDirectory, rootNamePrefix);
-        fixture.Write(fixture.CreateDocument());
-        string relativeManifest = Path.GetRelativePath(currentDirectory, fixture.ManifestPath);
-        Assert.IsFalse(Path.IsPathFullyQualified(relativeManifest));
-        StringAssert.StartsWith(relativeManifest, rootNamePrefix);
-        Assert.IsTrue(File.Exists(relativeManifest), "実在する相対manifestを解析へ渡します。");
-        var arguments = new List<string> { "unknown value" };
-        if (beforeUrl is not null) { arguments.Add("--update-manifest-url=" + beforeUrl); }
-        arguments.Add(sessionSwitch);
-        int manifestArgumentIndex = arguments.Count;
-        arguments.Add(relativeManifest);
-        if (afterUrl is not null) { arguments.Add("--UPDATE-MANIFEST-URL=" + afterUrl); }
-        string[] inputArguments = arguments.ToArray();
-        string[] expectedRestartArguments = arguments.ToArray();
-        expectedRestartArguments[manifestArgumentIndex] = fixture.ManifestPath;
-
-        ApplicationRuntimeOptions options = ApplicationRuntimeOptionsParser.Capture(ExecutablePath, inputArguments);
-
-        Assert.IsNotNull(options.TestSession);
-        Assert.AreEqual(fixture.ManifestPath, options.TestSession.ManifestPath);
-        CollectionAssert.AreEqual(expectedRestartArguments, options.RestartArguments.ToArray());
-        CollectionAssert.AreEqual(arguments, inputArguments, "呼出元の引数配列を書き換えません。");
-        Assert.AreEqual(expectedUrl ?? UpdateCheckService.DefaultManifestUrl, options.UpdateManifestUrl);
-        Assert.AreEqual(currentDirectory, Environment.CurrentDirectory);
-        fixture.AssertOnlyManifestExists();
-    }
 
     /// <summary>最小manifestと、省略・空object・file-system指定のproviderを受理し、素材は実行体、言語・一時領域・移行元は専有profileの子へ解決します。</summary>
     [TestMethod]
@@ -155,7 +77,7 @@ public sealed class ApplicationRuntimeOptionsParserTests
     [DataRow("{\"fileEnumeration\":\"file-system\"}")]
     public void MinimalSessionResolvesDefaultLayoutAndAcceptsSupportedProvider(string? providers)
     {
-        using var fixture = new ManifestFixture();
+        using var fixture = new RuntimeOptionsManifestFixture();
         JsonObject document = fixture.CreateDocument();
         if (providers is not null) { document["providers"] = JsonNode.Parse(providers); }
         fixture.Write(document);
@@ -182,7 +104,7 @@ public sealed class ApplicationRuntimeOptionsParserTests
     [DataRow("https://example.invalid/session.json")]
     public void ExplicitSessionLayoutAndUpdateUrlTakePriority(string manifestUrl)
     {
-        using var fixture = new ManifestFixture();
+        using var fixture = new RuntimeOptionsManifestFixture();
         JsonObject document = fixture.CreateDocument();
         document["profileDirectory"] = Path.Combine(fixture.Root, "unused", "..", "profile");
         document["assetsDirectory"] = Path.Combine(fixture.Root, "assets", ".");
@@ -209,7 +131,7 @@ public sealed class ApplicationRuntimeOptionsParserTests
     [TestMethod]
     public void InvalidTestSessionSwitchFormsAreRejectedWithoutCreatingProfile()
     {
-        using var fixture = new ManifestFixture();
+        using var fixture = new RuntimeOptionsManifestFixture();
         fixture.Write(fixture.CreateDocument());
         string[][] invalidArguments =
         [
@@ -229,7 +151,7 @@ public sealed class ApplicationRuntimeOptionsParserTests
     [TestMethod]
     public void InvalidManifestRootAndSchemaVersionAreRejected()
     {
-        using var fixture = new ManifestFixture();
+        using var fixture = new RuntimeOptionsManifestFixture();
         foreach (string invalidRoot in new[] { "null", "[]", "true", "\"text\"", "{" })
         {
             fixture.AssertRejected(invalidRoot);
@@ -252,7 +174,7 @@ public sealed class ApplicationRuntimeOptionsParserTests
     [DataRow("controlPipeName")]
     public void RequiredSessionIdentifiersRejectMissingOrInvalidValues(string field)
     {
-        using var fixture = new ManifestFixture();
+        using var fixture = new RuntimeOptionsManifestFixture();
         JsonObject missing = fixture.CreateDocument();
         missing.Remove(field);
         fixture.AssertRejected(missing.ToJsonString());
@@ -273,7 +195,7 @@ public sealed class ApplicationRuntimeOptionsParserTests
     [DataRow("legacySettingsDirectory")]
     public void SessionPathsRequireAbsoluteNonemptyStringsWhenSpecified(string field)
     {
-        using var fixture = new ManifestFixture();
+        using var fixture = new RuntimeOptionsManifestFixture();
         if (field == "profileDirectory")
         {
             JsonObject missing = fixture.CreateDocument();
@@ -292,7 +214,7 @@ public sealed class ApplicationRuntimeOptionsParserTests
     [TestMethod]
     public void UnknownDuplicateOrUnsupportedManifestFieldsAndProvidersAreRejected()
     {
-        using var fixture = new ManifestFixture();
+        using var fixture = new RuntimeOptionsManifestFixture();
         string prefix = fixture.CreateDocument().ToJsonString()[..^1] + ",";
         string[] invalidFields =
         [
@@ -314,7 +236,7 @@ public sealed class ApplicationRuntimeOptionsParserTests
     [TestMethod]
     public void ExplicitManifestUpdateUrlRejectsInvalidValuesWithoutFallingBack()
     {
-        using var fixture = new ManifestFixture();
+        using var fixture = new RuntimeOptionsManifestFixture();
         foreach (string invalidUrl in new[] { "null", "\"\"", "\"  \"", "\"relative.json\"", "\"ftp://example.invalid/update.json\"", "42" })
         {
             JsonObject document = fixture.CreateDocument();
@@ -326,60 +248,4 @@ public sealed class ApplicationRuntimeOptionsParserTests
     private static string ExecutablePath => Environment.ProcessPath
         ?? throw new InvalidOperationException("実行ファイルの位置を取得できません。");
 
-    /// <summary>解析入力だけを専有rootに用意し、profileへの書込みを検出して全入力を回収します。</summary>
-    private sealed class ManifestFixture : IDisposable
-    {
-        /// <summary>通常は一時領域、相対パスの検査では指定したCWDの下に、指定prefixとGUIDで専有rootを作ります。</summary>
-        internal ManifestFixture(string? baseDirectory = null, string rootNamePrefix = "Bms runtime parser 検証 ")
-        {
-            Root = Path.Combine(baseDirectory ?? Path.GetTempPath(), rootNamePrefix + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(Root);
-        }
-
-        /// <summary>このfixtureだけが所有し、終了時に回収するディレクトリです。</summary>
-        internal string Root { get; }
-
-        /// <summary>解析時に未作成のまま保つprofileの絶対パスです。</summary>
-        internal string ProfileDirectory => Path.Combine(Root, "profile");
-
-        /// <summary>専有するmanifest入力の絶対パスです。</summary>
-        internal string ManifestPath => Path.Combine(Root, "session.json");
-
-        /// <summary>既定配置の判定と不正値への置換に使う、必須fieldだけの入力を返します。</summary>
-        internal JsonObject CreateDocument() => new()
-        {
-            ["schemaVersion"] = 1,
-            ["profileDirectory"] = ProfileDirectory,
-            ["runId"] = "run-id",
-            ["caseId"] = "case-id",
-            ["controlPipeName"] = "control-pipe"
-        };
-
-        /// <summary>新しい解析入力を専有ファイルへ書き込みます。</summary>
-        internal void Write(JsonObject document) => File.WriteAllText(ManifestPath, document.ToJsonString());
-
-        /// <summary>実起動と同じparserへmanifest指定と追加引数を渡します。</summary>
-        internal ApplicationRuntimeOptions Capture(params string[] additionalArguments)
-            => ApplicationRuntimeOptionsParser.Capture(ExecutablePath, new[] { "--test-session", ManifestPath }.Concat(additionalArguments));
-
-        /// <summary>入力失敗後もmanifestのbytesと、profile未作成を含む専有rootの内容を保持することを確認します。</summary>
-        internal void AssertRejected(string json, params string[] additionalArguments)
-        {
-            File.WriteAllText(ManifestPath, json);
-            byte[] before = File.ReadAllBytes(ManifestPath);
-            Assert.Throws<Exception>(() => Capture(additionalArguments), json);
-            CollectionAssert.AreEqual(before, File.ReadAllBytes(ManifestPath));
-            AssertOnlyManifestExists();
-        }
-
-        /// <summary>解析の前後にprofileなどの出力が作られず、専有rootに入力だけが残ることを確認します。</summary>
-        internal void AssertOnlyManifestExists()
-        {
-            Assert.IsFalse(Directory.Exists(ProfileDirectory), "解析だけでprofileを作成しません。");
-            CollectionAssert.AreEqual(new[] { ManifestPath }, Directory.GetFileSystemEntries(Root));
-        }
-
-        /// <summary>自分で生成した専有rootと入力だけを回収します。</summary>
-        public void Dispose() => Directory.Delete(Root, recursive: true);
-    }
 }

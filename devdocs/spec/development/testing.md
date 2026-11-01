@@ -135,24 +135,22 @@ C# の正規形は [`.editorconfig`](../../../.editorconfig) を正本とし、�
 
 ### 通常テストの分割と並列実行
 
-コンパイル済みテストDLLを型のロードなしで一回走査し、実際の実行に使う6プロセス分の計画を同じメタデータから生成・検証して使用します。ポータブル設定だけを先に完了し、成功後は同じ計画から残る5プロセスを追加の待機段階なしで起動します。classとmethodの `TestCategory` の和集合を読み、既知の通常除外カテゴリを分割前に除きます。`DoNotParallelize` は名前空間を含む属性名で判定し、型属性はその型の全テストメソッドへ、メソッド属性はそのメソッドへ適用します。
+コンパイル済みテストDLLを型のロードなしで一回走査し、実際の実行に使う4プロセス分の計画を同じメタデータから生成・検証して使用します。全領域とrunsettingsを準備してから、同じ計画の4プロセスを一つの起動ループで開始します。最初の起動直前に作る360秒の共通期限で全entryを監視し、失敗時は共通の10秒回収期限を維持します。classとmethodの `TestCategory` の和集合を読み、既知の通常除外カテゴリを分割前に除きます。`DoNotParallelize` は名前空間を含む属性名で判定し、型属性はその型の全テストメソッドへ、メソッド属性はそのメソッドへ適用します。
 
 | プロセス | 並列数・範囲 | 担当 |
 | --- | --- | --- |
-| `portable-settings` | 1、`MethodLevel` | `PlayerPanelStateSettingsCompatibilityTests` の全テスト。 |
-| `bass-collectible` | 1、`MethodLevel` | `BassCollectibleLoadContextTests`。ポータブル設定完了後に独立して実行する。 |
 | `shared-state-a` | 1、`MethodLevel` | `DoNotParallelize` の完全修飾名をOrdinal順に並べ、偶数番目を交互割当した集合。 |
 | `shared-state-b` | 1、`MethodLevel` | 同じ集合の奇数番目を交互割当した集合。 |
-| `parallel-a` | `ProcessorCount`、`MethodLevel` | 専用ホストと`DoNotParallelize`を除く通常テストの完全修飾名をUTF-8でSHA-256へ通し、先頭バイトが偶数となる集合。 |
+| `parallel-a` | `ProcessorCount`、`MethodLevel` | `DoNotParallelize`を除く通常テストの完全修飾名をUTF-8でSHA-256へ通し、先頭バイトが偶数となる集合。 |
 | `parallel-b` | `ProcessorCount`、`MethodLevel` | 同じ通常テストのSHA-256先頭バイトが奇数となる集合。 |
 
-クラス・メソッドの所属は `verify-refactor.ps1` がコンパイル済みDLLのメタデータから作る実行計画を正本とします。全ホストが同じ判定から生成した完全修飾名のinclude条件をrunsettingsへ渡します。通常テストは完全修飾名の固定ハッシュで二つのホストへ割り当て、入力順や無関係な追加・削除で既存メソッドの所属を変えません。ハッシュは所属だけに用い、テストの識別には完全一致の名前を使います。`parallel-a` と `parallel-b` の和が通常テスト全体になることを重複・漏れなく検査します。専用クラス、共有状態、通常テストの集合を一回ずつ実行し、表示名や`DataRow`表示値による分割は行いません。最大同時実行数は `3 + 2 * ProcessorCount` です。通常テストは追跡対象ファイルを変えず、実行順・並列度によらず結果を維持します。負荷を下げるためだけの並列数制限ではなく、共有資源と競合を修正します。
+クラス・メソッドの所属は `verify-refactor.ps1` がコンパイル済みDLLのメタデータから作る実行計画を正本とします。全ホストが同じ判定から生成した完全修飾名のinclude条件をrunsettingsへ渡します。通常テストは完全修飾名の固定ハッシュで二つのホストへ割り当て、入力順や無関係な追加・削除で既存メソッドの所属を変えません。ハッシュは所属だけに用い、テストの識別には完全一致の名前を使います。`parallel-a` と `parallel-b` の和が通常テスト全体になることを重複・漏れなく検査します。共有状態と通常テストの集合を一回ずつ実行し、表示名や`DataRow`表示値による分割は行いません。最大同時実行数は `2 + 2 * ProcessorCount` です。通常テストは追跡対象ファイルを変えず、実行順・並列度によらず結果を維持します。負荷を下げるためだけの並列数制限ではなく、共有資源と競合を修正します。
 
-`LR2SongDBExtended` は全DBで共通のstatic `Monitor`を使います。一つの通常ホストでは互いに無関係な一時DBの処理まで直列化されるため、通常テストを二つのプロセスへ分けます。`parallel-a` / `parallel-b` の固定ハッシュ割当は、メソッド追加に伴う大量の所属反転を避けながら負荷を分散する規則です。特定の名前や実行結果に合わせた例外・調整は設けません。共有資源の安全性はこの割当順には依存させず、fixtureの所有、`DoNotParallelize` の共有状態ホスト、専用ホストで保ちます。
+`LR2SongDBExtended` は全DBで共通のstatic `Monitor`を使います。一つの通常ホストでは互いに無関係な一時DBの処理まで直列化されるため、通常テストを二つのプロセスへ分けます。`parallel-a` / `parallel-b` の固定ハッシュ割当は、メソッド追加に伴う大量の所属反転を避けながら負荷を分散する規則です。特定の名前や実行結果に合わせた例外・調整は設けません。共有資源の安全性はこの割当順には依存させず、fixtureの所有、`DoNotParallelize` の共有状態ホストで保ちます。
 
 テストアセンブリの`AssemblyInitialize`では、既存のIO完了ポート下限を保持したまま、worker下限を `max(既存値, 7 * ProcessorCount + ProcessorCount)` に設定します。7は小規模fixtureで同時に占有される既知のパイプライン主体（テスト本体、reader、parser、post-parse、2つのcollector、writer）の数であり、本番の最大値や厳密な上限ではありません。各通常ホストの最大ProcessorCount並列に継続処理用のProcessorCount分を加え、同期的なテスト待機によるworker補充遅延を避けるテスト環境専用の設定です。設定に失敗した場合は検証を失敗として扱います。この設定はテストアセンブリだけに適用し、本番のスレッドプール設定や上限・監視は変更しません。
 
-`BassCollectibleLoadContextTests` はWPFのホスト・リソースを解決しない専用プロセスで、回収可能なロードコンテキストと、BASSの静的初期化がネイティブDLLをロードしない条件を確認します。通常テストの譜面情報の保存・解析・補完を含むテスト群は専用の接頭辞分割を作らず、`parallel-a` / `parallel-b` のメソッド単位実行を使用します。
+Windows moduleの `BassCollectibleLoadContextTests` と `PlayerPanelStateSettingsCompatibilityTests` は、一case一fresh `WindowsProcessProbe` を既存 `OwnedProcess` で起動します。前者はWPFのホスト・リソースを解決せず、子生存中に回収可能なロードコンテキストの解放とnative未読込みを表明します。後者は元の設定名・enum値・実provider往復と正規化保存失敗を表明し、設定領域の回収後だけ成功JSONを出します。親は共通360秒watchdog内のroot・両pipe・Job全体の終端、exit 0、stderr空、一致する唯一の結果を要求し、失敗後も独立10秒の停止・解放・領域回収を試みます。外側moduleの期限を延長せず、主失敗と回収失敗を分離します。通常テストの譜面情報の保存・解析・補完を含むテスト群は専用の接頭辞分割を作らず、`parallel-a` / `parallel-b` のメソッド単位実行を使用します。
 
 ### テスト区分
 
@@ -317,7 +315,7 @@ C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2
 
 通常の共通計画とFull各phaseでは、選択methodごとに結果一件以上を要求し、返った各DataRowを全件確認します。DataRowの事前全展開は行いません。任意filterのQuickは独自filter解釈をせず、DLL上の既知method集合・非空結果・全Passedを検査し、選択methodの欠落照合は共通計画/Fullへ分担します。
 
-Fullは通常6ホスト、一般 `ProcessIntegration`、専用 `EnvironmentIntegration`、`ReleaseAcceptance` の実TRXを合算し、`release-outcomes.json` を生成します。専用phaseを含む必要なTRXの欠落は失敗です。旧更新受入も実C#テストの完全修飾名と結果を使います。固定配布物rosterの必須項目だけは正確に一件の `Passed` を要求し、欠落・重複を拒否します。通常のDataRowをこの一件制限へ含めません。
+Fullは通常4ホスト、一般 `ProcessIntegration`、専用 `EnvironmentIntegration`、`ReleaseAcceptance` の実TRXを合算し、`release-outcomes.json` を生成します。専用phaseを含む必要なTRXの欠落は失敗です。旧更新受入も実C#テストの完全修飾名と結果を使います。固定配布物rosterの必須項目だけは正確に一件の `Passed` を要求し、欠落・重複を拒否します。通常のDataRowをこの一件制限へ含めません。
 
 ### 解析・大規模データ・外部エンコーダー
 

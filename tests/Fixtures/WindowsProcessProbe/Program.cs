@@ -17,6 +17,10 @@ internal static class Program
         {
             return WpfHostLifecycleProbe.RunAsync(args[1..]);
         }
+        if (args.Length == 2 && args[0] == "playback")
+        {
+            return Task.FromResult(PlaybackProbe.Run(args[1]));
+        }
         Console.Error.WriteLine("指定されたprobeはまだ接続されていません: " + string.Join(" ", args));
         return Task.FromResult(2);
     }

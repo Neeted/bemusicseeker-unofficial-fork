@@ -93,10 +93,6 @@ function Assert-FullVerificationTestOutcomes {
         -RosterPath $v216ArtifactMetadataPath -ReceiptPath $ReceiptPath
 }
 
-$functionalPortableSettingsClass =
-    'BeMusicSeeker.Tests.PlayerPanelStateSettingsCompatibilityTests'
-$functionalBassCollectibleLoadContextClass =
-    'BeMusicSeeker.Tests.BassCollectibleLoadContextTests'
 $functionalTestAssemblyPath = Join-Path `
     $repoRoot `
     'BeMusicSeeker.Tests\bin\x64\Release\net10.0-windows\BeMusicSeeker.Tests.dll'
@@ -104,8 +100,6 @@ $functionalParallelWorkers = [Math]::Max(
     1,
     [Environment]::ProcessorCount)
 $functionalHostNames = @(
-    'portable-settings'
-    'bass-collectible'
     'shared-state-a'
     'shared-state-b'
     'parallel-a'
@@ -135,17 +129,8 @@ function New-FunctionalShardPlan {
         throw "Compiled test assembly contains no MSTest test methods: $functionalTestAssemblyPath"
     }
 
-    $dedicatedClassNames = [string[]]@(
-        $functionalPortableSettingsClass
-        $functionalBassCollectibleLoadContextClass)
-    $dedicatedTests = @($metadata | Where-Object {
-            $dedicatedClassNames -contains [string]$_.ClassName
-        })
-    $regularTests = @($metadata | Where-Object {
-            $dedicatedClassNames -notcontains [string]$_.ClassName
-        })
-    $serialTests = @($regularTests | Where-Object { [bool]$_.DoNotParallelize })
-    $parallelTests = @($regularTests | Where-Object { -not [bool]$_.DoNotParallelize })
+    $serialTests = @($metadata | Where-Object { [bool]$_.DoNotParallelize })
+    $parallelTests = @($metadata | Where-Object { -not [bool]$_.DoNotParallelize })
     $parallelATests = @()
     $parallelBTests = @()
     foreach ($test in $parallelTests) {
@@ -181,42 +166,11 @@ function New-FunctionalShardPlan {
     $serialStateANames = [string[]]@($serialStateA | ForEach-Object { $_.FullyQualifiedName })
     $serialStateBNames = [string[]]@($serialStateB | ForEach-Object { $_.FullyQualifiedName })
 
-    $portableTests = @($metadata | Where-Object {
-            $_.ClassName -ceq $functionalPortableSettingsClass
-        })
-    $bassTests = @($metadata | Where-Object {
-            $_.ClassName -ceq $functionalBassCollectibleLoadContextClass
-        })
-    if ($portableTests.Count -eq 0) {
-        throw 'Portable settings host must contain at least one test method from its dedicated class.'
-    }
-
     $shards = @(
-        [pscustomobject][ordered]@{
-            Name = 'portable-settings'
-            Workers = 1
-            Scope = 'MethodLevel'
-            Classes = [string[]]@($functionalPortableSettingsClass)
-            TestNames = [string[]]@($portableTests | ForEach-Object { $_.FullyQualifiedName })
-            Filter = New-FunctionalTestCaseFilter `
-                -BaseFilter $functionalFilter `
-                -IncludeFullyQualifiedNames @($portableTests | ForEach-Object { $_.FullyQualifiedName })
-        }
-        [pscustomobject][ordered]@{
-            Name = 'bass-collectible'
-            Workers = 1
-            Scope = 'MethodLevel'
-            Classes = [string[]]@($functionalBassCollectibleLoadContextClass)
-            TestNames = [string[]]@($bassTests | ForEach-Object { $_.FullyQualifiedName })
-            Filter = New-FunctionalTestCaseFilter `
-                -BaseFilter $functionalFilter `
-                -IncludeFullyQualifiedNames @($bassTests | ForEach-Object { $_.FullyQualifiedName })
-        }
         [pscustomobject][ordered]@{
             Name = 'shared-state-a'
             Workers = 1
             Scope = 'MethodLevel'
-            Classes = [string[]]@()
             TestNames = $serialStateANames
             Filter = New-FunctionalTestCaseFilter `
                 -BaseFilter $functionalFilter `
@@ -226,7 +180,6 @@ function New-FunctionalShardPlan {
             Name = 'shared-state-b'
             Workers = 1
             Scope = 'MethodLevel'
-            Classes = [string[]]@()
             TestNames = $serialStateBNames
             Filter = New-FunctionalTestCaseFilter `
                 -BaseFilter $functionalFilter `
@@ -236,7 +189,6 @@ function New-FunctionalShardPlan {
             Name = 'parallel-a'
             Workers = $functionalParallelWorkers
             Scope = 'MethodLevel'
-            Classes = [string[]]@()
             TestNames = [string[]]@($parallelATests | ForEach-Object { $_.FullyQualifiedName })
             Filter = New-FunctionalTestCaseFilter `
                 -BaseFilter $functionalFilter `
@@ -246,7 +198,6 @@ function New-FunctionalShardPlan {
             Name = 'parallel-b'
             Workers = $functionalParallelWorkers
             Scope = 'MethodLevel'
-            Classes = [string[]]@()
             TestNames = [string[]]@($parallelBTests | ForEach-Object { $_.FullyQualifiedName })
             Filter = New-FunctionalTestCaseFilter `
                 -BaseFilter $functionalFilter `
@@ -256,7 +207,6 @@ function New-FunctionalShardPlan {
     return [pscustomobject][ordered]@{
         Shards = [object[]]$shards
         Metadata = [object[]]$metadata
-        DedicatedTests = [object[]]$dedicatedTests
         SerialTests = [object[]]$serialTests
         ParallelTests = [object[]]$parallelTests
         ParallelATests = [object[]]$parallelATests
@@ -279,10 +229,10 @@ function Assert-FunctionalShardConfiguration {
     $names = @($shards | ForEach-Object { [string]$_.Name })
     if (@(Compare-Object -ReferenceObject $functionalHostNames -DifferenceObject $names -CaseSensitive).Count -ne 0 -or
         ($functionalHostNames -join '|') -cne ($names -join '|')) {
-        throw 'Functional launch hosts must be portable, BASS, shared-state A, shared-state B, and parallel A/B in that order.'
+        throw 'Functional launch hosts must be shared-state A/B and parallel A/B in that order.'
     }
     foreach ($shard in $shards) {
-        if ($shard.Workers -lt 1 -or $shard.Scope -cne 'MethodLevel' -or
+        if (@($shard.TestNames).Count -eq 0 -or $shard.Workers -lt 1 -or $shard.Scope -cne 'MethodLevel' -or
             [string]::IsNullOrWhiteSpace([string]$shard.Filter) -or
             -not ([string]$shard.Filter).StartsWith(
                 "($functionalFilter)",
@@ -296,8 +246,6 @@ function Assert-FunctionalShardConfiguration {
     if (($metadataNames | Sort-Object -Unique).Count -ne $metadataNames.Count) {
         throw 'Compiled test metadata contains duplicate fully qualified names.'
     }
-    $portableShard = @($shards | Where-Object Name -ceq 'portable-settings')[0]
-    $bassShard = @($shards | Where-Object Name -ceq 'bass-collectible')[0]
     $serialA = @($shards | Where-Object Name -ceq 'shared-state-a')[0]
     $serialB = @($shards | Where-Object Name -ceq 'shared-state-b')[0]
     $parallelA = @($shards | Where-Object Name -ceq 'parallel-a')[0]
@@ -318,39 +266,9 @@ function Assert-FunctionalShardConfiguration {
             throw 'Functional regular metadata must be ordered by ordinal fully qualified name.'
         }
     }
-    if ($portableShard.Workers -ne 1 -or
-        @($portableShard.Classes).Count -ne 1 -or
-        $portableShard.Classes[0] -ne $functionalPortableSettingsClass -or
-        @($Plan.DedicatedTests | Where-Object ClassName -ceq $functionalPortableSettingsClass).Count -eq 0) {
-        throw 'Functional portable settings host must own every test method from its nonempty dedicated class.'
-    }
-    if ($bassShard.Workers -ne 1 -or
-        @($bassShard.Classes).Count -ne 1 -or
-        $bassShard.Classes[0] -ne $functionalBassCollectibleLoadContextClass -or
-        @($Plan.DedicatedTests | Where-Object ClassName -ceq $functionalBassCollectibleLoadContextClass).Count -eq 0) {
-        throw 'Functional BASS host must own every test method from its nonempty independent class.'
-    }
-    $portableNames = [string[]]@($Plan.DedicatedTests |
-        Where-Object ClassName -ceq $functionalPortableSettingsClass |
-        ForEach-Object { $_.FullyQualifiedName })
-    $bassNames = [string[]]@($Plan.DedicatedTests |
-        Where-Object ClassName -ceq $functionalBassCollectibleLoadContextClass |
-        ForEach-Object { $_.FullyQualifiedName })
-    if (@(Compare-Object -ReferenceObject $portableNames -DifferenceObject $portableShard.TestNames -CaseSensitive).Count -ne 0 -or
-        @(Compare-Object -ReferenceObject $bassNames -DifferenceObject $bassShard.TestNames -CaseSensitive).Count -ne 0 -or
-        $portableShard.Filter -cne (New-FunctionalTestCaseFilter `
-            -BaseFilter $functionalFilter `
-            -IncludeFullyQualifiedNames $portableNames) -or
-        $bassShard.Filter -cne (New-FunctionalTestCaseFilter `
-            -BaseFilter $functionalFilter `
-            -IncludeFullyQualifiedNames $bassNames)) {
-        throw 'Dedicated Functional filters must cover their complete nonempty classes and retain the common category filter.'
-    }
     if ($serialA.Workers -ne 1 -or $serialB.Workers -ne 1 -or
-        @($serialA.Classes).Count -ne 0 -or @($serialB.Classes).Count -ne 0 -or
         $parallelA.Workers -ne $functionalParallelWorkers -or
-        $parallelB.Workers -ne $functionalParallelWorkers -or
-        @($parallelA.Classes).Count -ne 0 -or @($parallelB.Classes).Count -ne 0) {
+        $parallelB.Workers -ne $functionalParallelWorkers) {
         throw 'Functional shared-state hosts must use one worker and each parallel host must use ProcessorCount workers.'
     }
 
@@ -375,7 +293,7 @@ function Assert-FunctionalShardConfiguration {
         @(Compare-Object -ReferenceObject $parallelB.TestNames -DifferenceObject $expectedParallelBNames -CaseSensitive).Count -ne 0 -or
         @($parallelA.TestNames | Where-Object { $parallelB.TestNames -contains $_ }).Count -ne 0 -or
         @(Compare-Object -ReferenceObject $parallelNames -DifferenceObject $expectedParallelNames -CaseSensitive).Count -ne 0) {
-        throw 'Parallel A/B metadata must partition every non-DoNotParallelize test outside the dedicated hosts exactly once.'
+        throw 'Parallel A/B metadata must partition every non-DoNotParallelize test exactly once.'
     }
     if ($parallelA.Filter -cne (New-FunctionalTestCaseFilter `
             -BaseFilter $functionalFilter `
@@ -386,8 +304,7 @@ function Assert-FunctionalShardConfiguration {
         throw 'Parallel A/B filters must be generated from their assigned metadata names.'
     }
 
-    $dedicatedNames = [string[]]@($Plan.DedicatedTests | ForEach-Object { $_.FullyQualifiedName })
-    $partitionNames = @($dedicatedNames + $serialANames + $serialBNames + $parallelNames)
+    $partitionNames = @($serialANames + $serialBNames + $parallelNames)
     if (($partitionNames | Sort-Object -Unique).Count -ne $partitionNames.Count -or
         @(Compare-Object -ReferenceObject $metadataNames -DifferenceObject $partitionNames -CaseSensitive).Count -ne 0) {
         throw 'Functional metadata partitions must cover every compiled test method exactly once.'
@@ -1016,17 +933,6 @@ function Invoke-ParallelFunctionalTestShards {
     $shardPlan = New-FunctionalShardPlan
     Assert-FunctionalShardConfiguration -Plan $shardPlan
     $shards = @($shardPlan.Shards)
-    $portableShard = @($shards | Where-Object { $_.Name -ceq 'portable-settings' })[0]
-    $fanoutShards = @($shards | Where-Object { $_.Name -cne 'portable-settings' })
-    if ($fanoutShards.Count -ne 5) {
-        throw 'Functional launch plan must start exactly five hosts after portable settings completes.'
-    }
-    foreach ($fanoutShard in $fanoutShards) {
-        if (@($shards | Where-Object { [object]::ReferenceEquals($_, $fanoutShard) }).Count -ne 1) {
-            throw 'Functional fanout must use the exact validated host objects.'
-        }
-    }
-
     # Allocate every Functional entry directory before any monitored process is launched.
     # Lifecycle cleanup receives only pre-created paths and therefore cannot begin a new
     # filesystem operation for a later entry after the shared cleanup deadline.
@@ -1047,8 +953,6 @@ function Invoke-ParallelFunctionalTestShards {
             -TestCaseFilter $shard.Filter
         $shardRunSettingsPaths[$shard.Name] = $runSettingsPath
     }
-    $portableDirectory = Join-Path $DiagnosticsDirectory $portableShard.Name
-    $portableRunSettingsPath = [string]$shardRunSettingsPaths[$portableShard.Name]
     $entries = [System.Collections.Generic.List[object]]::new()
     $ownedProcessRecords = [System.Collections.Generic.List[object]]::new()
     $timedOut = $false
@@ -1066,9 +970,7 @@ function Invoke-ParallelFunctionalTestShards {
     $deadlinePolicy = $null
 
     try {
-        # The Functional budget starts at the portable MTP process boundary.  Everything
-        # above this point is test setup; the same policy then covers portable completion,
-        # fanout launch, and every test host until the last host exits.
+        # 全領域と設定の準備後、最初の起動直前から全4ホストが一つの期限を共有する。
         $testExecutionStartedUtc = [DateTime]::UtcNow
         $deadlinePolicy = New-FunctionalDeadlinePolicy `
             -StartUtc $testExecutionStartedUtc `
@@ -1076,61 +978,16 @@ function Invoke-ParallelFunctionalTestShards {
         $executionDeadlineUtc = [DateTime]$deadlinePolicy.ExecutionDeadlineUtc
         $failureCleanupDeadlineUtc = [DateTime]$deadlinePolicy.FailureCleanupDeadlineUtc
         $testExecutionStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-        $portableEntry = Start-FunctionalShardProcess `
-            -Shard $portableShard `
-            -DiagnosticsDirectory $portableDirectory `
-            -Entries $entries `
-            -OwnedProcessRecords $ownedProcessRecords `
-            -PostStartFaultGuard $InternalTestGuard `
-            -RunSettingsPath $portableRunSettingsPath
-
-        $portableExitTimeUtc = $null
-        while ($true) {
-            if ($retainedFunctionalExitTimesUtc.ContainsKey($portableEntry.Name)) {
-                $portableExitTimeUtc = $retainedFunctionalExitTimesUtc[$portableEntry.Name]
-            }
-            else {
-                $portableExitTimeUtc = Get-FunctionalProcessExitTimeUtc -Process $portableEntry.Process
-                if ($null -ne $portableExitTimeUtc) {
-                    $retainedFunctionalExitTimesUtc[$portableEntry.Name] = $portableExitTimeUtc
-                }
-            }
-            if ($null -ne $portableExitTimeUtc) {
-                break
-            }
-            if ([DateTime]::UtcNow -ge $executionDeadlineUtc) {
-                $timedOut = $true
-                $timedOutHostNames = @($portableEntry.Name)
-                Write-Warning "Functional portable test host reached the configured execution deadline $($executionDeadlineUtc.ToString('O')). Owned-process cleanup is bounded by $($failureCleanupDeadlineUtc.ToString('O'))."
-                break
-            }
-            Start-Sleep -Milliseconds 100
-        }
-
-        if (-not $timedOut -and $null -ne $portableExitTimeUtc) {
-            if ($portableExitTimeUtc -gt $executionDeadlineUtc) {
-                $timedOut = $true
-                $timedOutHostNames = @($portableEntry.Name)
-                Write-Warning "Functional portable test host exited at $($portableExitTimeUtc.ToString('O')), after the configured execution deadline $($executionDeadlineUtc.ToString('O')). Owned-process cleanup is bounded by $($failureCleanupDeadlineUtc.ToString('O'))."
-            }
-            elseif ($portableEntry.Process.ExitCode -ne 0) {
-                $failedHost = $portableEntry
-            }
-        }
-
-        # The five hosts begin from this same validated array without a phase barrier.
-        if (-not $timedOut -and $null -eq $failedHost -and $null -ne $portableExitTimeUtc) {
-            foreach ($fanoutShard in $fanoutShards) {
-                Assert-FunctionalExecutionDeadline -DeadlinePolicy $deadlinePolicy -StageName "starting $($fanoutShard.Name)"
-                $shardDirectory = Join-Path $DiagnosticsDirectory $fanoutShard.Name
-                [void](Start-FunctionalShardProcess `
-                    -Shard $fanoutShard `
-                    -DiagnosticsDirectory $shardDirectory `
-                    -Entries $entries `
-                    -OwnedProcessRecords $ownedProcessRecords `
-                    -PostStartFaultGuard $InternalTestGuard `
-                    -RunSettingsPath ([string]$shardRunSettingsPaths[$fanoutShard.Name]))
-            }
+        foreach ($shard in $shards) {
+            Assert-FunctionalExecutionDeadline -DeadlinePolicy $deadlinePolicy -StageName "starting $($shard.Name)"
+            $shardDirectory = Join-Path $DiagnosticsDirectory $shard.Name
+            [void](Start-FunctionalShardProcess `
+                -Shard $shard `
+                -DiagnosticsDirectory $shardDirectory `
+                -Entries $entries `
+                -OwnedProcessRecords $ownedProcessRecords `
+                -PostStartFaultGuard $InternalTestGuard `
+                -RunSettingsPath ([string]$shardRunSettingsPaths[$shard.Name]))
         }
 
         $hostSummary = ($shards | ForEach-Object { "$($_.Name)=$($_.Workers) workers" }) -join ', '
@@ -1266,7 +1123,7 @@ function Invoke-ParallelFunctionalTestShards {
         ($deadlinePolicy.ExecutionDeadlineUtc - $deadlinePolicy.StartUtc).TotalSeconds
     }
     elseif ($null -ne $functionalExitTimeUtc -and $null -ne $deadlinePolicy) {
-        # Use the same portable-boundary StartUtc and the latest retained process
+        # Use the same first-process StartUtc and the latest retained process
         # ExitTime that drives success classification; never substitute poll time.
         ($functionalExitTimeUtc - $deadlinePolicy.StartUtc).TotalSeconds
     }

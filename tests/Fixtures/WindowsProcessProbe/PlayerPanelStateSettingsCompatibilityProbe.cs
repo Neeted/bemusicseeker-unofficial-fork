@@ -1,23 +1,18 @@
-using System;
 using System.Configuration;
 using System.IO;
-using System.Linq;
 using System.Xml.Linq;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.ViewModels;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.WindowsProcessProbe;
 
-[TestClass]
-[DoNotParallelize]
-public sealed class PlayerPanelStateSettingsCompatibilityTests
+internal sealed class PlayerPanelStateSettingsCompatibilityProbe
 {
     /// <summary>
     /// 保証：既存の表示状態名と組合せを実設定ストアで読み保存再読込して同じ状態へ戻し、永続キーと既存enum値の互換性を守る。
     /// </summary>
     /// <remarks>専用設定ファイルと本番providerを使い、生成SettingsとXML保存値の両方で旧形式の受理を確認する。</remarks>
-    [TestMethod]
     public void PlayerPanelState_PreservesPersistedKeyNamesAndValues()
     {
         Assert.AreEqual(0, (int)PlayerPanelState.TITLE_LARGE);
@@ -42,7 +37,6 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
     /// 保証：旧数値の正規化保存が置換ロックで失敗すると元ファイルを保持し、Settingsの読取りにはメモリ内の正規化値を渡す。
     /// </summary>
     /// <remarks>実ファイルの共有モードで置換を失敗させ、原本バイトと本番設定providerの読取りを観測する。</remarks>
-    [TestMethod]
     public void PlayerPanelState_AtomicNormalizationFailurePreservesOriginalAndMaterializesCanonicalValue()
     {
         using var files = new SettingsFiles();

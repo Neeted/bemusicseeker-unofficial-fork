@@ -43,9 +43,7 @@ public sealed class VerificationRunnerContractTests
             JsonElement[] selectedMetadata = GetProperty(first.RootElement, "Metadata").EnumerateArray()
                 .Where(item => !GetProperty(item, "Categories").EnumerateArray().Select(GetRequiredString).Intersect(excludedCategories).Any()).ToArray();
             string[] expectedNames = selectedMetadata
-                .Where(item => !GetProperty(item, "DoNotParallelize").GetBoolean()
-                    && GetRequiredString(GetProperty(item, "ClassName")) is not
-                        ("BeMusicSeeker.Tests.PlayerPanelStateSettingsCompatibilityTests" or "BeMusicSeeker.Tests.BassCollectibleLoadContextTests"))
+                .Where(item => !GetProperty(item, "DoNotParallelize").GetBoolean())
                 .Select(item => GetRequiredString(GetProperty(item, "FullyQualifiedName")))
                 .ToArray();
             JsonElement plans = GetProperty(first.RootElement, "Plans");
@@ -71,7 +69,7 @@ public sealed class VerificationRunnerContractTests
             using JsonDocument secondProcess = ReadFunctionalPlanProbe(root, "baseline");
             AssertSameMembership(baseline, ReadParallelMembership(GetProperty(secondProcess.RootElement, "Plans")[0], expectedNames));
 
-            string[] hostNames = ["portable-settings", "bass-collectible", "shared-state-a", "shared-state-b", "parallel-a", "parallel-b"];
+            string[] hostNames = ["shared-state-a", "shared-state-b", "parallel-a", "parallel-b"];
             CollectionAssert.AreEqual(hostNames, GetProperty(plans[0], "Shards").EnumerateArray()
                 .Select(shard => GetRequiredString(GetProperty(shard, "Name"))).ToArray());
             const string categoryFilter = "TestCategory!=Net10Performance&TestCategory!=Performance&TestCategory!=LargeFixture&TestCategory!=ParserCompatibilityFull&TestCategory!=ParserCompatibilitySlow&TestCategory!=ProductionDiffFull&TestCategory!=ProcessIntegration&TestCategory!=ReleaseAcceptance&TestCategory!=EnvironmentIntegration";
@@ -267,7 +265,7 @@ public sealed class VerificationRunnerContractTests
         Directory.CreateDirectory(root);
         try
         {
-            foreach (string host in new[] { "portable-settings", "bass-collectible", "shared-state-a", "shared-state-b", "parallel-a", "parallel-b" })
+            foreach (string host in new[] { "shared-state-a", "shared-state-b", "parallel-a", "parallel-b" })
             {
                 string directory = Path.Combine(root, "functional", host);
                 Directory.CreateDirectory(directory);
@@ -382,13 +380,11 @@ public sealed class VerificationRunnerContractTests
                 . {{QuotePowerShellLiteral(Path.Combine(repositoryRoot, "scripts", "verify-refactor.ps1"))}} -InternalTestGuard $guard
                 $originalMetadata = @(Get-VerificationTestMetadata -AssemblyPath $functionalTestAssemblyPath)
                 $ordinary = @(Get-FunctionalTestMetadata | Where-Object {
-                    -not $_.DoNotParallelize -and $_.ClassName -cne 'BeMusicSeeker.Tests.PlayerPanelStateSettingsCompatibilityTests' -and
-                    $_.ClassName -cne 'BeMusicSeeker.Tests.BassCollectibleLoadContextTests'
+                    -not $_.DoNotParallelize
                 })
                 if ({{QuotePowerShellLiteral(scenario)}} -eq 'single') {
                     $script:probeMetadata = @($originalMetadata | Where-Object {
-                        $_.DoNotParallelize -or $_.ClassName -ceq 'BeMusicSeeker.Tests.PlayerPanelStateSettingsCompatibilityTests' -or
-                        $_.ClassName -ceq 'BeMusicSeeker.Tests.BassCollectibleLoadContextTests'
+                        $_.DoNotParallelize
                     }) + @($ordinary[0])
                     function Get-VerificationTestMetadata { param($AssemblyPath) $script:probeMetadata }
                     $caught = $null

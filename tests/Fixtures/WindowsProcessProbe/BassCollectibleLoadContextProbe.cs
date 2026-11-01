@@ -1,17 +1,13 @@
-using System;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.WindowsProcessProbe;
 
-[TestClass]
-public sealed class BassCollectibleLoadContextTests
+internal sealed class BassCollectibleLoadContextProbe
 {
     /// <summary>player型の静的初期化だけではnative読込みと機器列挙を開始せず、専用collectible contextの解放を妨げない。</summary>
-    [TestMethod]
     public void BassAudioPlayer_StaticInitializationDoesNotEnumerateOrLoadNativeRuntime()
     {
         WeakReference? loadContextReference = null;
