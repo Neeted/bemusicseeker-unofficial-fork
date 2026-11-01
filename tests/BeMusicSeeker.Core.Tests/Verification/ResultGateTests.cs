@@ -8,6 +8,39 @@ namespace BeMusicSeeker.Core.Tests.Verification;
 [TestClass]
 public sealed class ResultGateTests
 {
+    /// <summary>標準reportの短IDをDataRow名から集約し、同moduleの複数成功を許しながら欠落・skip・別module重複を拒否します。</summary>
+    [TestMethod]
+    [DataRow("single", true)]
+    [DataRow("rows", true)]
+    [DataRow("missing", false)]
+    [DataRow("prefix", false)]
+    [DataRow("skip", false)]
+    [DataRow("wrong-module", false)]
+    [DataRow("duplicate-module", false)]
+    public void ScenarioIdsMatchRequiredFlowsWithoutLimitingDataRows(string condition, bool expected)
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string core = workspace.GetPath("core.trx");
+        string scenarios = workspace.GetPath("scenarios.trx");
+        CreateReport(["Passed"], [condition is "wrong-module" or "duplicate-module" ? "[SC-01] misplaced" : "Core component"]).Save(core);
+        string[] names = condition switch
+        {
+            "rows" => ["[SC-01] flow (1)", "[SC-01] flow (2)"],
+            "missing" or "wrong-module" => ["[SC-02] other flow"],
+            "prefix" => ["[SC-010] neighbor"],
+            _ => ["[SC-01] flow"],
+        };
+        CreateReport(names.Select(_ => condition == "skip" ? "NotExecuted" : "Passed").ToArray(), names).Save(scenarios);
+        IReadOnlyList<ModuleOutcome> results = ResultGate.Evaluate(["Core", "Scenarios"],
+            [new("Core", core, 0, true), new("Scenarios", scenarios, 0, true)],
+            new Dictionary<string, IReadOnlyList<string>> { ["Scenarios"] = ["SC-01"] });
+        Assert.AreEqual(expected, results.All(result => result.Passed), string.Join(";", results.SelectMany(result => result.Errors)));
+        if (condition == "rows")
+        {
+            Assert.AreEqual(2, results.Single(result => result.Name == "Scenarios").Cases);
+        }
+    }
+
     /// <summary>実行完了・exit0・全行Passedが揃う場合は、DataRow相当の複数結果を落とさず成功させます。</summary>
     [TestMethod]
     [DataRow(1)]
@@ -35,6 +68,9 @@ public sealed class ResultGateTests
     [DataRow("skipped-counter")]
     [DataRow("invalid-counter")]
     [DataRow("summary")]
+    [DataRow("duplicate-results")]
+    [DataRow("duplicate-summary")]
+    [DataRow("duplicate-counters")]
     [DataRow("exit")]
     [DataRow("incomplete")]
     [DataRow("timeout")]
@@ -61,6 +97,22 @@ public sealed class ResultGateTests
         if (condition == "summary")
         {
             document.Descendants(ns + "ResultSummary").Single().SetAttributeValue("outcome", "Aborted");
+        }
+
+        string? duplicatedElement = condition switch
+        {
+            "duplicate-results" => "Results",
+            "duplicate-summary" => "ResultSummary",
+            "duplicate-counters" => "Counters",
+            _ => null,
+        };
+        if (duplicatedElement is not null)
+        {
+            XElement original = document.Descendants(ns + duplicatedElement).Single();
+            var duplicate = new XElement(original);
+            if (duplicatedElement == "Results") { duplicate.Elements().Single().SetAttributeValue("outcome", "Failed"); }
+            else { duplicate.SetAttributeValue(duplicatedElement == "Counters" ? "failed" : "outcome", duplicatedElement == "Counters" ? "1" : "Aborted"); }
+            original.AddAfterSelf(duplicate);
         }
 
         if (condition != "missing")
@@ -93,11 +145,11 @@ public sealed class ResultGateTests
         Assert.AreEqual("Scenarios", results.Single().Name);
     }
 
-    private static XDocument CreateReport(string[] outcomes)
+    private static XDocument CreateReport(string[] outcomes, string[]? names = null)
     {
         XNamespace ns = "http://microsoft.com/schemas/VisualStudio/TeamTest/2010";
         return new XDocument(new XElement(ns + "TestRun", new XElement(ns + "Results", outcomes.Select((outcome, index) =>
-            new XElement(ns + "UnitTestResult", new XAttribute("testName", "case-" + index), new XAttribute("outcome", outcome)))),
+            new XElement(ns + "UnitTestResult", new XAttribute("testName", names is null ? "case-" + index : names[index]), new XAttribute("outcome", outcome)))),
             new XElement(ns + "ResultSummary", new XAttribute("outcome", "Completed"),
                 new XElement(ns + "Counters", new XAttribute("total", outcomes.Length), new XAttribute("executed", outcomes.Length), new XAttribute("passed", outcomes.Count(outcome => outcome == "Passed"))))));
     }

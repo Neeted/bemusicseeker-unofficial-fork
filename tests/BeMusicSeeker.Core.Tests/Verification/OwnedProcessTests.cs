@@ -24,20 +24,31 @@ public sealed class OwnedProcessTests
         Assert.IsNull(process.PrimaryFailure);
     }
 
-    /// <summary>CreateProcess 後の Job 割当を実際に失敗させ、ready 未生成・両 pipe の EOF・元の native 失敗保持から、再開や回収漏れを検出します。</summary>
+    /// <summary>実 Job 割当失敗の未再開・両 pipe EOF・native 主失敗を保持します。回収期限 callback の正常/例外でも実停止を続け、callback による回収迂回を検出します。</summary>
     [TestMethod]
-    public async Task JobAssignmentFailureDoesNotResumeAndReclaimsCreatedProcess()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task JobAssignmentFailureDoesNotResumeAndReclaimsCreatedProcess(bool failCleanupCallback)
     {
         using var workspace = new Workspace();
         ProcessDeadline deadline = Deadline();
         // fixture と割当失敗の target を外側の Job で囲い、内側の回収が壊れても所有を失わない。
-        await using OwnedProcess owner = Start("assignment-failure", workspace.Ready, workspace.Release);
+        await using OwnedProcess owner = Start("assignment-failure", workspace.Ready, workspace.Release, failCleanupCallback.ToString());
         ProcessCompletion result = await owner.WaitForExitAsync(deadline);
         Assert.AreEqual(0, result.ExitCode);
         Assert.AreEqual(string.Empty, result.StandardError);
         using var observation = JsonDocument.Parse(result.StandardOutput);
         Assert.AreEqual(6, observation.RootElement.GetProperty("NativeErrorCode").GetInt32()); // ERROR_INVALID_HANDLE
-        Assert.AreEqual(JsonValueKind.Null, observation.RootElement.GetProperty("CleanupFailure").ValueKind);
+        Assert.AreEqual(1, observation.RootElement.GetProperty("FailureCleanupBegins").GetInt32());
+        JsonElement cleanupFailure = observation.RootElement.GetProperty("CleanupFailure");
+        if (failCleanupCallback)
+        {
+            Assert.IsTrue(cleanupFailure.GetString()?.Contains("回収期限 callback の故障注入", StringComparison.Ordinal) == true);
+        }
+        else
+        {
+            Assert.AreEqual(JsonValueKind.Null, cleanupFailure.ValueKind);
+        }
         Assert.AreEqual(string.Empty, observation.RootElement.GetProperty("StandardOutput").GetString());
         Assert.AreEqual(string.Empty, observation.RootElement.GetProperty("StandardError").GetString());
         Assert.IsFalse(File.Exists(workspace.Ready));
@@ -66,9 +77,14 @@ public sealed class OwnedProcessTests
             ? ["1", "0", "1", "false"] : ["request-encoding", "request-server", "request-node", "request-compiler"];
         Assert.AreEqual(string.Join(Environment.NewLine, expectedEnvironment.Concat(arguments)) + Environment.NewLine, result.StandardOutput);
         CollectionAssert.AreEqual(before, ServerEnvironment());
+        if (policy == ProcessOwnershipPolicy.Preparation)
+        {
+            using var current = Process.GetCurrentProcess();
+            Assert.Throws<NotSupportedException>(() => process.ContainsProcess(current));
+        }
     }
 
-    /// <summary>即時生成した child が root 終了後に残る条件で完了を拒否し、所有 Job の回収後だけ終端することを確認します。</summary>
+    /// <summary>即時生成した child が root 単独終了後も同じ Job に残ることを読み取り、Job の回収前に全体完了とする誤りを検出します。</summary>
     [TestMethod]
     public async Task RootExitDoesNotCompleteUntilImmediateChildTerminates()
     {
@@ -76,16 +92,11 @@ public sealed class OwnedProcessTests
         await using OwnedProcess process = Start("child", workspace.Ready, workspace.Release, "exit");
         await workspace.WaitReadyAsync();
         using var child = Process.GetProcessById(int.Parse(File.ReadAllText(workspace.Ready)));
-        // fixture root は 7 で終了する。保持 handle による終了観測を待ち、終了済み PID の再取得を避ける。
         ProcessDeadline rootDeadline = Deadline();
-        while (process.PrimaryFailure is null)
-        {
-            if (rootDeadline.Remaining == TimeSpan.Zero)
-            {
-                throw new TimeoutException("fixture root が終了しません。");
-            }
-            await Task.Delay(10);
-        }
+        Assert.AreEqual(7, await process.WaitForRootExitAsync(rootDeadline));
+        Assert.IsTrue(process.RootExit.IsCompletedSuccessfully);
+        Assert.IsNotNull(process.PrimaryFailure);
+        Assert.IsTrue(process.ContainsProcess(child));
         Assert.IsFalse(process.Completion.IsCompleted);
         Assert.IsFalse(child.HasExited);
         ProcessStopResult cleanup = await process.StopAsync(null, Deadline());
@@ -95,7 +106,7 @@ public sealed class OwnedProcessTests
         Assert.IsNotNull(process.PrimaryFailure);
     }
 
-    /// <summary>hang に対する期限失敗と正常終了要求の失敗を別々に残し、同名の無関係な process を停止する誤実装を検出します。</summary>
+    /// <summary>hang の期限失敗と回収失敗を分離し、Job 所属と無関係な同名 process を区別します。未関連・閉鎖 handle の偽成功と無関係な停止を検出します。</summary>
     [TestMethod]
     public async Task TimeoutAndCleanupFailureRemainSeparateWithoutStoppingUnrelatedProcess()
     {
@@ -105,6 +116,14 @@ public sealed class OwnedProcessTests
         await using OwnedProcess target = Start("child", workspace.Ready, workspace.Release, "wait");
         await Task.WhenAll(workspace.WaitReadyAsync(), otherWorkspace.WaitReadyAsync());
         using var child = Process.GetProcessById(int.Parse(File.ReadAllText(workspace.Ready)));
+        using var other = Process.GetProcessById(int.Parse(File.ReadAllText(otherWorkspace.Ready)));
+        Assert.IsTrue(target.ContainsProcess(child));
+        Assert.IsFalse(target.ContainsProcess(other));
+        using var missing = new Process();
+        Assert.Throws<InvalidOperationException>(() => target.ContainsProcess(missing));
+        using var closed = Process.GetCurrentProcess();
+        closed.SafeHandle.Dispose();
+        Assert.Throws<InvalidOperationException>(() => target.ContainsProcess(closed));
         await Assert.ThrowsAsync<TimeoutException>(() => target.WaitForExitAsync(ProcessDeadline.FromTimeout(TimeSpan.Zero)));
         Exception? primary = target.PrimaryFailure;
         var injected = new IOException("正常終了要求に失敗");
@@ -165,7 +184,9 @@ public sealed class OwnedProcessTests
         await using OwnedProcess process = Start("output");
         await process.Completion.WaitAsync(TimeSpan.FromSeconds(10));
         var deadlineAfterCompletion = ProcessDeadline.FromTimeout(TimeSpan.Zero);
+        Assert.AreEqual(0, await process.WaitForRootExitAsync(deadlineAfterCompletion));
         Assert.AreEqual(0, (await process.WaitForExitAsync(deadlineAfterCompletion)).ExitCode);
+        await Assert.ThrowsAsync<TimeoutException>(() => process.WaitForRootExitAsync(expiredBeforeStart));
         await Assert.ThrowsAsync<TimeoutException>(() => process.WaitForExitAsync(expiredBeforeStart));
         Assert.IsInstanceOfType<TimeoutException>(process.PrimaryFailure);
     }
@@ -174,19 +195,29 @@ public sealed class OwnedProcessTests
     [TestMethod]
     public async Task StartFailureCancellationAndSharedDeadlineRemainFailures()
     {
+        int failureCleanupBegins = 0;
+        ProcessDeadline startFailureCleanup = Deadline();
         Assert.Throws<OwnedProcessStartException>(() => OwnedProcess.Start(new ProcessStartRequest(
-            Path.Combine(AppContext.BaseDirectory, Guid.NewGuid() + ".exe"), [], AppContext.BaseDirectory)));
+            Path.Combine(AppContext.BaseDirectory, Guid.NewGuid() + ".exe"), [], AppContext.BaseDirectory), () =>
+            {
+                failureCleanupBegins++;
+                return startFailureCleanup;
+            }));
+        Assert.AreEqual(1, failureCleanupBegins);
         using var workspace = new Workspace();
         await using OwnedProcess process = Start("hang", workspace.Ready, workspace.Release);
         await workspace.WaitReadyAsync();
         var shared = ProcessDeadline.FromTimeout(TimeSpan.FromMilliseconds(40));
         await Assert.ThrowsAsync<TimeoutException>(() => process.WaitForExitAsync(shared));
+        await Assert.ThrowsAsync<TimeoutException>(() => process.WaitForRootExitAsync(shared));
         Assert.AreEqual(TimeSpan.Zero, shared.Remaining);
         await Assert.ThrowsAsync<TimeoutException>(() => process.WaitForExitAsync(shared));
         using var canceled = new CancellationTokenSource();
         canceled.Cancel();
         await Assert.ThrowsAsync<TaskCanceledException>(() => process.WaitForExitAsync(Deadline(), canceled.Token));
+        await Assert.ThrowsAsync<TaskCanceledException>(() => process.WaitForRootExitAsync(Deadline(), canceled.Token));
         File.WriteAllText(workspace.Release, "release");
+        Assert.AreEqual(0, await process.WaitForRootExitAsync(Deadline()));
         await process.WaitForExitAsync(Deadline());
         Assert.IsInstanceOfType<TimeoutException>(process.PrimaryFailure);
     }

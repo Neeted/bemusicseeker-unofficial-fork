@@ -36,8 +36,9 @@ internal sealed class WindowsProcessJob : IDisposable
         return job;
     }
 
-    /// <summary>停止した primary thread を Job に割り当ててから再開します。</summary>
-    internal Process Start(ProcessStartInfo info, AnonymousPipeServerStream stdout, AnonymousPipeServerStream stderr)
+    /// <summary>停止した primary thread を Job に割り当ててから再開します。失敗時は停止より前に共通の回収期限を取得し、追加猶予を作りません。</summary>
+    internal Process Start(ProcessStartInfo info, AnonymousPipeServerStream stdout, AnonymousPipeServerStream stderr,
+        Func<ProcessDeadline>? beginFailureCleanup = null)
     {
         var security = new Native.SecurityAttributes { Length = Marshal.SizeOf<Native.SecurityAttributes>(), InheritHandle = true };
         using SafeFileHandle input = Native.CreateFileW("NUL", 0x80000000, 3, ref security, 3, 0, IntPtr.Zero);
@@ -53,6 +54,7 @@ internal sealed class WindowsProcessJob : IDisposable
         IntPtr environment = IntPtr.Zero;
         bool initialized = false;
         Native.ProcessInformation created = default;
+        Process? process = null;
         try
         {
             if (!Native.InitializeProcThreadAttributeList(attributes, 1, 0, ref size))
@@ -101,42 +103,58 @@ internal sealed class WindowsProcessJob : IDisposable
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             }
 
-            var process = Process.GetProcessById(created.ProcessId);
-            try
+            process = Process.GetProcessById(created.ProcessId);
+            // managed Process にも生存中の root handle を確保し、PID 再利用へ依存しない。
+            _ = process.Handle;
+            if (Native.ResumeThread(created.Thread) == uint.MaxValue)
             {
-                // managed Process にも生存中の root handle を確保し、PID 再利用へ依存しない。
-                _ = process.Handle;
-                if (Native.ResumeThread(created.Thread) == uint.MaxValue)
-                {
-                    throw new Win32Exception(Marshal.GetLastWin32Error());
-                }
-
-                return process;
+                throw new Win32Exception(Marshal.GetLastWin32Error());
             }
-            catch
-            {
-                process.Dispose();
-                throw;
-            }
+            Process started = process;
+            process = null;
+            return started;
         }
         catch (Exception primary)
         {
-            Exception? cleanup = null;
+            var cleanupFailures = new List<Exception>();
+            ProcessDeadline? cleanupDeadline = null;
+            try
+            {
+                cleanupDeadline = beginFailureCleanup is null
+                    ? ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(10)) : beginFailureCleanup();
+            }
+            catch (Exception failure)
+            {
+                cleanupFailures.Add(failure);
+            }
+            // callback が失敗しても、保持した native handle への停止と有限観測を省略しない。
             if (created.Process != IntPtr.Zero)
             {
                 if (!Native.TerminateProcess(created.Process, 1))
                 {
-                    cleanup = new Win32Exception(Marshal.GetLastWin32Error());
+                    cleanupFailures.Add(new Win32Exception(Marshal.GetLastWin32Error()));
                 }
-                else if (Native.WaitForSingleObject(created.Process, 10000) != 0)
+                else
                 {
-                    cleanup = new TimeoutException("起動失敗したプロセスを回収できません。");
+                    // INFINITE は渡さず、共有 cutoff の残時間を超えないミリ秒へ切り下げる。
+                    uint waitMilliseconds = (uint)Math.Min(uint.MaxValue - 1d, Math.Floor((cleanupDeadline?.Remaining ?? TimeSpan.Zero).TotalMilliseconds));
+                    uint waitResult = Native.WaitForSingleObject(created.Process, waitMilliseconds);
+                    if (waitResult == uint.MaxValue)
+                    {
+                        cleanupFailures.Add(new Win32Exception(Marshal.GetLastWin32Error()));
+                    }
+                    else if (waitResult != 0 || (cleanupDeadline is not null && !cleanupDeadline.Includes(Stopwatch.GetTimestamp())))
+                    {
+                        cleanupFailures.Add(new TimeoutException("起動失敗したプロセスを回収できません。"));
+                    }
                 }
             }
+            Exception? cleanup = cleanupFailures.Count switch { 0 => null, 1 => cleanupFailures[0], _ => new AggregateException(cleanupFailures) };
             throw new OwnedProcessStartException(primary, cleanup);
         }
         finally
         {
+            process?.Dispose();
             if (created.Thread != IntPtr.Zero)
             {
                 Native.CloseHandle(created.Thread);
@@ -186,6 +204,28 @@ internal sealed class WindowsProcessJob : IDisposable
         }
     }
 
+    /// <summary>保持した process ハンドルの、この Job への所属だけを照会します。無効なハンドルや native 失敗を false へ置き換えません。</summary>
+    internal bool ContainsProcess(Process process)
+    {
+        ObjectDisposedException.ThrowIf(handle.IsClosed, this);
+        if (handle.IsInvalid)
+        {
+            // NULL Job は IsProcessInJob では「任意の Job」を意味するため渡さない。
+            throw new InvalidOperationException("所属照会に使う Job ハンドルが無効です。");
+        }
+        SafeProcessHandle processHandle = process.SafeHandle;
+        ObjectDisposedException.ThrowIf(processHandle.IsClosed, process);
+        if (processHandle.IsInvalid)
+        {
+            throw new InvalidOperationException("所属照会に使う Process ハンドルが無効です。");
+        }
+        if (!Native.IsProcessInJob(processHandle, handle, out bool contained))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+        return contained;
+    }
+
     /// <summary>自分の Job だけを強制終了します。</summary>
     internal void Terminate()
     {
@@ -225,6 +265,7 @@ internal sealed class WindowsProcessJob : IDisposable
         [DllImport("kernel32.dll", SetLastError = true)][return: MarshalAs(UnmanagedType.Bool)] internal static extern bool SetInformationJobObject(SafeFileHandle job, int informationClass, ref ExtendedLimits information, int length);
         [DllImport("kernel32.dll", SetLastError = true)][return: MarshalAs(UnmanagedType.Bool)] internal static extern bool QueryInformationJobObject(SafeFileHandle job, int informationClass, out Accounting information, int length, IntPtr returnLength);
         [DllImport("kernel32.dll", SetLastError = true)][return: MarshalAs(UnmanagedType.Bool)] internal static extern bool AssignProcessToJobObject(SafeFileHandle job, IntPtr process);
+        [DllImport("kernel32.dll", SetLastError = true)][return: MarshalAs(UnmanagedType.Bool)] internal static extern bool IsProcessInJob(SafeProcessHandle process, SafeFileHandle job, [MarshalAs(UnmanagedType.Bool)] out bool result);
         [DllImport("kernel32.dll", SetLastError = true)][return: MarshalAs(UnmanagedType.Bool)] internal static extern bool TerminateJobObject(SafeFileHandle job, uint code);
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)] internal static extern SafeFileHandle CreateFileW(string name, uint access, uint sharing, ref SecurityAttributes security, uint disposition, uint flags, IntPtr template);
         [DllImport("kernel32.dll", SetLastError = true)][return: MarshalAs(UnmanagedType.Bool)] internal static extern bool InitializeProcThreadAttributeList(IntPtr attributes, int count, int flags, ref IntPtr size);

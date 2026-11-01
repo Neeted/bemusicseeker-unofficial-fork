@@ -1,9 +1,0 @@
-<Project>
-  <!-- 親moduleはfixtureの通常build成果物を取得します。restore/publishは繰り返しません。 -->
-  <Target Name="GetTestFixtureFiles" DependsOnTargets="GetTargetPath" Returns="@(_TestFixtureFile)">
-    <Error Condition="'$(TargetDir)' == ''" Text="Fixture output directory is unavailable." />
-    <ItemGroup>
-      <_TestFixtureFile Include="$(TargetDir)**/*" />
-    </ItemGroup>
-  </Target>
-</Project>

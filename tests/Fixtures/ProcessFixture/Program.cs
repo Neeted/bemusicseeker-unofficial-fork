@@ -17,8 +17,12 @@ internal static class Program
         Console.OutputEncoding = new UTF8Encoding(false);
         switch (args[0])
         {
+            case "exit":
+                return 0;
+            case "runner-command":
+                return await RunnerCommand.ExecuteAsync(args[1]);
             case "assignment-failure":
-                return await ObserveAssignmentFailureAsync(args[1], args[2]);
+                return await ObserveAssignmentFailureAsync(args[1], args[2], args.Length > 3 && bool.Parse(args[3]));
             case "lease":
                 using (TestUiSessionLease lease = await TestUiSessionLease.AcquireFileAsync(args[3], ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(10))))
                 {
@@ -79,9 +83,10 @@ internal static class Program
         }
     }
 
-    private static async Task<int> ObserveAssignmentFailureAsync(string readyPath, string releasePath)
+    private static async Task<int> ObserveAssignmentFailureAsync(string readyPath, string releasePath, bool failCleanupCallback)
     {
         var deadline = ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(10));
+        int failureCleanupBegins = 0;
         // 未破棄のゼロ値なら marshaller ではなく、実際の Job 割当が無効ハンドルで失敗する。
         using var job = new WindowsProcessJob(new SafeFileHandle(IntPtr.Zero, ownsHandle: true));
         using var output = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
@@ -103,7 +108,15 @@ internal static class Program
         OwnedProcessStartException startFailure;
         try
         {
-            using Process unexpected = job.Start(info, output, error);
+            using Process unexpected = job.Start(info, output, error, () =>
+            {
+                failureCleanupBegins++;
+                if (failCleanupCallback)
+                {
+                    throw new IOException("回収期限 callback の故障注入");
+                }
+                return deadline;
+            });
             throw new InvalidOperationException("無効な Job への割当が成功しました。");
         }
         catch (OwnedProcessStartException failure)
@@ -121,6 +134,7 @@ internal static class Program
         Console.Write(JsonSerializer.Serialize(new
         {
             NativeErrorCode = startFailure.InnerException is Win32Exception nativeFailure ? (int?)nativeFailure.NativeErrorCode : null,
+            FailureCleanupBegins = failureCleanupBegins,
             CleanupFailure = startFailure.CleanupFailure?.ToString(),
             StandardOutput = await standardOutput,
             StandardError = await standardError,

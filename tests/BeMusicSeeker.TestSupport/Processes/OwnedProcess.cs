@@ -11,12 +11,14 @@ public sealed class OwnedProcess : IAsyncDisposable
     private readonly WindowsProcessJob? job;
     private readonly StreamReader stdout;
     private readonly StreamReader stderr;
+    private long rootExitedTimestamp;
     private long completedTimestamp;
     private Exception? primaryFailure;
     private Task<ProcessStopResult>? stopping;
     private bool disposed;
 
-    private OwnedProcess(Process process, WindowsProcessJob? job, StreamReader stdout, StreamReader stderr)
+    /// <summary>起動時の所属を確立済みの root と Job、両 reader の所有を成功時に引き受けます。reader 単独の待機条件もこの境界で検証できます。</summary>
+    internal OwnedProcess(Process process, WindowsProcessJob? job, StreamReader stdout, StreamReader stderr)
     {
         this.process = process;
         this.job = job;
@@ -25,6 +27,7 @@ public sealed class OwnedProcess : IAsyncDisposable
         ProcessId = process.Id;
         StandardOutput = stdout.ReadToEndAsync();
         StandardError = stderr.ReadToEndAsync();
+        RootExit = ObserveRootExitAsync();
         Completion = CollectAsync();
     }
 
@@ -34,6 +37,8 @@ public sealed class OwnedProcess : IAsyncDisposable
     public Task<string> StandardOutput { get; }
     /// <summary>起動直後から非同期に回収する標準エラーです。</summary>
     public Task<string> StandardError { get; }
+    /// <summary>保持した root だけの終了コードです。両 pipe と Job の子孫回収は Completion で別に待ちます。</summary>
+    public Task<int> RootExit { get; }
     /// <summary>root、両 pipe、Job の全子孫の終端です。</summary>
     public Task<ProcessCompletion> Completion { get; }
     /// <summary>最初の非成功終了・待機失敗です。回収失敗とは別に保持します。</summary>
@@ -41,41 +46,64 @@ public sealed class OwnedProcess : IAsyncDisposable
     /// <summary>正常終了要求・強制停止・回収で発生した失敗です。</summary>
     public Exception? CleanupFailure { get; private set; }
 
-    /// <summary>要求を忠実に渡し、所有を確立してから子のコードを実行します。</summary>
-    public static OwnedProcess Start(ProcessStartRequest request)
+    /// <summary>渡された保持 Process ハンドルの、この所有 Job への所属を読み取ります。登録・再割当は行いません。</summary>
+    /// <returns>この Job に所属する場合は true、別 Job または Job に所属しない場合は false です。</returns>
+    /// <exception cref="NotSupportedException">Preparation は Job を持たないため所属を判定できません。</exception>
+    /// <exception cref="InvalidOperationException">Process が未関連、または照会に使うハンドルが無効です。</exception>
+    /// <exception cref="ObjectDisposedException">所有者または照会に使うハンドルが閉じられています。</exception>
+    /// <exception cref="System.ComponentModel.Win32Exception">所属照会の native API が失敗しました。</exception>
+    public bool ContainsProcess(Process process)
     {
-        var info = new ProcessStartInfo(request.FileName)
+        ObjectDisposedException.ThrowIf(disposed, this);
+        ArgumentNullException.ThrowIfNull(process);
+        if (job is null)
         {
-            WorkingDirectory = request.WorkingDirectory,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = new UTF8Encoding(false),
-            StandardErrorEncoding = new UTF8Encoding(false),
-        };
-        foreach (string argument in request.Arguments)
-        {
-            info.ArgumentList.Add(argument);
+            throw new NotSupportedException("Preparation は Job の所属照会を提供しません。");
         }
+        return job.ContainsProcess(process);
+    }
 
-        foreach (KeyValuePair<string, string?> pair in request.Environment)
-        {
-            if (pair.Value is null)
-            {
-                info.Environment.Remove(pair.Key);
-            }
-            else
-            {
-                info.Environment[pair.Key] = pair.Value;
-            }
-        }
+    /// <summary>要求を忠実に渡し、所有を確立してから子のコードを実行します。独立起動の失敗回収には最初の失敗から10秒を使います。</summary>
+    public static OwnedProcess Start(ProcessStartRequest request)
+        => Start(request, static () => ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(10)));
+
+    /// <summary>起動失敗を最初に検出した時点で共通の回収期限を確定し、低位・上位の失敗回収へ同じ期限を渡します。</summary>
+    /// <remarks>callback が失敗しても停止を続けます。その失敗を回収失敗へ残し、新しい猶予は作りません。</remarks>
+    internal static OwnedProcess Start(ProcessStartRequest request, Func<ProcessDeadline> beginFailureCleanup)
+    {
+        // callback の例外も保存し、catch を重ねても新しい猶予を取得しない。
+        var failureCleanup = new Lazy<ProcessDeadline>(beginFailureCleanup);
         Process? process = null;
         WindowsProcessJob? job = null;
         AnonymousPipeServerStream? output = null;
         AnonymousPipeServerStream? error = null;
         try
         {
+            var info = new ProcessStartInfo(request.FileName)
+            {
+                WorkingDirectory = request.WorkingDirectory,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                StandardOutputEncoding = new UTF8Encoding(false),
+                StandardErrorEncoding = new UTF8Encoding(false),
+            };
+            foreach (string argument in request.Arguments)
+            {
+                info.ArgumentList.Add(argument);
+            }
+            foreach (KeyValuePair<string, string?> pair in request.Environment)
+            {
+                if (pair.Value is null)
+                {
+                    info.Environment.Remove(pair.Key);
+                }
+                else
+                {
+                    info.Environment[pair.Key] = pair.Value;
+                }
+            }
             if (request.OwnershipPolicy == ProcessOwnershipPolicy.Preparation)
             {
                 info.Environment["DOTNET_CLI_FORCE_UTF8_ENCODING"] = "1";
@@ -93,7 +121,7 @@ public sealed class OwnedProcess : IAsyncDisposable
             job = WindowsProcessJob.Create();
             output = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
             error = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
-            process = job.Start(info, output, error);
+            process = job.Start(info, output, error, () => failureCleanup.Value);
             output.DisposeLocalCopyOfClientHandle();
             error.DisposeLocalCopyOfClientHandle();
             return new OwnedProcess(process, job,
@@ -102,7 +130,26 @@ public sealed class OwnedProcess : IAsyncDisposable
         }
         catch (Exception primary)
         {
-            Exception? cleanup = null;
+            var cleanupFailures = new List<Exception>();
+            var lowLevelFailure = primary as OwnedProcessStartException;
+            if (lowLevelFailure?.CleanupFailure is Exception priorCleanupFailure)
+            {
+                cleanupFailures.Add(priorCleanupFailure);
+            }
+            int priorFailureCount = cleanupFailures.Count;
+            ProcessDeadline? cleanupDeadline = null;
+            try
+            {
+                cleanupDeadline = failureCleanup.Value;
+            }
+            catch (Exception failure)
+            {
+                // 低位で callback の失敗を保存済みなら、同じ失敗を再び追加しない。
+                if (lowLevelFailure?.CleanupFailure is null)
+                {
+                    cleanupFailures.Add(failure);
+                }
+            }
             try
             {
                 if (job is not null)
@@ -114,7 +161,20 @@ public sealed class OwnedProcess : IAsyncDisposable
                     process.Kill(entireProcessTree: true);
                 }
             }
-            catch (Exception failure) { cleanup = failure; }
+            catch (Exception failure) { cleanupFailures.Add(failure); }
+            try
+            {
+                if (process is not null)
+                {
+                    // cutoff を取得できなければ追加猶予を作らず、停止要求後の有限 poll だけを行う。
+                    int waitMilliseconds = (int)Math.Min(int.MaxValue, Math.Floor((cleanupDeadline?.Remaining ?? TimeSpan.Zero).TotalMilliseconds));
+                    if (!process.WaitForExit(waitMilliseconds) || (cleanupDeadline is not null && !cleanupDeadline.Includes(Stopwatch.GetTimestamp())))
+                    {
+                        cleanupFailures.Add(new TimeoutException("起動失敗したプロセスを回収できません。"));
+                    }
+                }
+            }
+            catch (Exception failure) { cleanupFailures.Add(failure); }
             finally
             {
                 process?.Dispose();
@@ -122,12 +182,12 @@ public sealed class OwnedProcess : IAsyncDisposable
                 error?.Dispose();
                 job?.Dispose();
             }
-            if (primary is OwnedProcessStartException && cleanup is null)
+            if (lowLevelFailure is not null && cleanupFailures.Count == priorFailureCount)
             {
                 throw;
             }
-
-            throw new OwnedProcessStartException(primary, cleanup);
+            Exception? cleanup = cleanupFailures.Count switch { 0 => null, 1 => cleanupFailures[0], _ => new AggregateException(cleanupFailures) };
+            throw new OwnedProcessStartException(lowLevelFailure?.InnerException ?? primary, cleanup);
         }
     }
 
@@ -137,6 +197,33 @@ public sealed class OwnedProcess : IAsyncDisposable
         try
         {
             return await WaitForCompletionAsync(deadline, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            Interlocked.CompareExchange(ref primaryFailure, failure, null);
+            throw;
+        }
+    }
+
+    /// <summary>保持した root の終了だけを共有期限内で待ちます。終了観測時刻が期限後なら、後から待っても期限超過を保持します。</summary>
+    public async Task<int> WaitForRootExitAsync(ProcessDeadline deadline, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            int exitCode;
+            try
+            {
+                exitCode = await RootExit.WaitAsync(deadline.Remaining, cancellationToken).ConfigureAwait(false);
+            }
+            catch (TimeoutException) when (RootExit.IsCompletedSuccessfully && deadline.Includes(Volatile.Read(ref rootExitedTimestamp)))
+            {
+                exitCode = await RootExit.ConfigureAwait(false);
+            }
+            if (!deadline.Includes(Volatile.Read(ref rootExitedTimestamp)))
+            {
+                throw new TimeoutException("root プロセスの終端が期限を超えました。");
+            }
+            return exitCode;
         }
         catch (Exception failure)
         {
@@ -285,23 +372,38 @@ public sealed class OwnedProcess : IAsyncDisposable
         return Stopwatch.GetTimestamp();
     }
 
-    private async Task<ProcessCompletion> CollectAsync()
+    private async Task<int> ObserveRootExitAsync()
     {
         try
         {
             await process.WaitForExitAsync().ConfigureAwait(false);
-            if (process.ExitCode != 0)
+            int exitCode = process.ExitCode;
+            Volatile.Write(ref rootExitedTimestamp, Stopwatch.GetTimestamp());
+            if (exitCode != 0)
             {
-                Interlocked.CompareExchange(ref primaryFailure, new InvalidOperationException($"プロセスが終了コード {process.ExitCode} で失敗しました。"), null);
+                Interlocked.CompareExchange(ref primaryFailure, new InvalidOperationException($"プロセスが終了コード {exitCode} で失敗しました。"), null);
             }
+            return exitCode;
+        }
+        catch (Exception failure)
+        {
+            Interlocked.CompareExchange(ref primaryFailure, failure, null);
+            throw;
+        }
+    }
 
+    private async Task<ProcessCompletion> CollectAsync()
+    {
+        try
+        {
+            int exitCode = await RootExit.ConfigureAwait(false);
             await Task.WhenAll(StandardOutput, StandardError).ConfigureAwait(false);
             if (job is not null)
             {
                 await job.WaitForEmptyAsync().ConfigureAwait(false);
             }
 
-            var result = new ProcessCompletion(process.ExitCode, await StandardOutput.ConfigureAwait(false), await StandardError.ConfigureAwait(false));
+            var result = new ProcessCompletion(exitCode, await StandardOutput.ConfigureAwait(false), await StandardError.ConfigureAwait(false));
             Volatile.Write(ref completedTimestamp, Stopwatch.GetTimestamp());
             return result;
         }

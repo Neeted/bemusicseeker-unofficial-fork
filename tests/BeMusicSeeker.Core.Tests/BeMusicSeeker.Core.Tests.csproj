@@ -16,9 +16,25 @@
     <ProjectReference Include="../Fixtures/ProcessFixture/ProcessFixture.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
   <Target Name="CopyProcessFixture" AfterTargets="Build">
-    <MSBuild Projects="../Fixtures/ProcessFixture/ProcessFixture.csproj" Targets="GetTestFixtureFiles" Properties="Configuration=$(Configuration);Platform=$(Platform)">
-      <Output TaskParameter="TargetOutputs" ItemName="_ProcessFixtureFiles" />
+    <Error Condition="'$(TargetDir)' == '' Or !$([System.IO.Path]::IsPathFullyQualified('$(TargetDir)'))" Text="Test output directory must be absolute and nonempty." />
+    <PropertyGroup>
+      <_ProcessFixtureDestination>$([System.IO.Path]::GetFullPath($([System.IO.Path]::Combine('$(TargetDir)', 'ProcessFixture'))))</_ProcessFixtureDestination>
+      <_ProcessFixtureDestinationRoot>$([System.IO.Path]::GetPathRoot('$(_ProcessFixtureDestination)'))</_ProcessFixtureDestinationRoot>
+      <_ProcessFixtureOutputRoot>$([System.IO.Path]::GetFullPath('$(TargetDir)'))</_ProcessFixtureOutputRoot>
+    </PropertyGroup>
+    <Error Condition="'$(_ProcessFixtureDestination)' == '$(_ProcessFixtureDestinationRoot)' Or '$(_ProcessFixtureDestination)' == '$(_ProcessFixtureOutputRoot)'" Text="Fixture directory must be a dedicated child of the test output directory." />
+    <MSBuild Projects="../Fixtures/ProcessFixture/ProcessFixture.csproj" Targets="GetTargetPath" Properties="Configuration=$(Configuration);Platform=$(Platform)">
+      <Output TaskParameter="TargetOutputs" ItemName="_ProcessFixtureTarget" />
     </MSBuild>
-    <Copy SourceFiles="@(_ProcessFixtureFiles)" DestinationFiles="@(_ProcessFixtureFiles->'$(TargetDir)ProcessFixture/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+    <PropertyGroup>
+      <_ProcessFixtureSource>@(_ProcessFixtureTarget->'%(RootDir)%(Directory)')</_ProcessFixtureSource>
+    </PropertyGroup>
+    <Error Condition="'$(_ProcessFixtureSource)' == ''" Text="Process fixture output directory is unavailable." />
+    <ItemGroup>
+      <_ProcessFixtureFiles Include="$(_ProcessFixtureSource)**/*" />
+    </ItemGroup>
+    <!-- 専有 leaf だけを再生成し、以前の平坦化コピーや退役した依存の残骸を残しません。 -->
+    <RemoveDir Directories="$(_ProcessFixtureDestination)" />
+    <Copy SourceFiles="@(_ProcessFixtureFiles)" DestinationFiles="@(_ProcessFixtureFiles->'$(_ProcessFixtureDestination)/%(RecursiveDir)%(Filename)%(Extension)')" />
   </Target>
 </Project>

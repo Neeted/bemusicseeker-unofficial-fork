@@ -6,6 +6,23 @@ namespace BeMusicSeeker.Core.Tests.Verification;
 [TestClass]
 public sealed class VerificationPlanTests
 {
+    /// <summary>標準filterを独自解釈せず渡し、OR条件全体にDaily制約を結合してmoduleや必須フローを除外しないことを確認します。</summary>
+    [TestMethod]
+    public void StandardFilterKeepsModuleSelectionAndRequiredDailyScenarios()
+    {
+        const string filter = "FullyQualifiedName~A|TestCategory=Named";
+        var plan = VerificationPlan.Parse(["verify", "--filter", filter], 2);
+        CollectionAssert.AreEqual(new[] { "Core", "Windows", "Scenarios" }, plan.Modules.Select(module => module.Name).ToArray());
+        Assert.AreEqual(filter, plan.Modules[0].Filter);
+        Assert.AreEqual(filter, plan.Modules[1].Filter);
+        Assert.AreEqual($"(TestCategory=Daily)&({filter})", plan.Modules[2].Filter);
+        CollectionAssert.AreEqual(new[] { "SC-01", "SC-02", "SC-09" }, plan.RequiredScenarioIds["Scenarios"].ToArray());
+        Assert.AreEqual($"(TestCategory=Suite.Everything)&({filter})",
+            VerificationPlan.Parse(["compatibility", "--filter", filter, "--suite", "Everything"], 2).Modules.Single().Filter);
+        Assert.Throws<ArgumentException>(() => VerificationPlan.Parse(["dev", "--filter"], 2));
+        Assert.Throws<ArgumentException>(() => VerificationPlan.Parse(["dev", "--filter", filter, "--filter", filter], 2));
+    }
+
     /// <summary>CPU予算をCoreと一つのUI laneへ分け、単一CPUと上限超過でも過剰なworkerを要求しないことを保証します。</summary>
     [TestMethod]
     [DataRow(1, 1, 1)]
