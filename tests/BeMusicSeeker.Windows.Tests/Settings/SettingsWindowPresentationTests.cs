@@ -3290,6 +3290,8 @@ public sealed class SettingsWindowPresentationTests
                 {
                     navigation.SelectedItem = window.FindName(categoryName);
                     TestUiDispatcherHost.ProcessQueuedPresentation();
+                    // 再接続したページの配置を確定し、templateの見出しが実表示へ接続した後で可視性を観測する。
+                    window.UpdateLayout();
                     foreach (string heading in headings)
                     {
                         SettingsSection section = FindDescendants<SettingsSection>((FrameworkElement)host.Content)
