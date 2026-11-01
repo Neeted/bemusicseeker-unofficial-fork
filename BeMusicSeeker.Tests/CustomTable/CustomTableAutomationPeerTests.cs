@@ -25,7 +25,7 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class CustomTableAutomationPeerTests
 {
-    /// <summary>21万行の画面外検索と全選択provider取得がprojection・scroll・選択を暗黙変更せず、可視行と返却placeholderだけを同じ親へ接続し、保持providerが後発要求・scroll後も同じ対象を指すことを確認します。</summary>
+    /// <summary>21万行の画面外検索と全選択provider取得が投影済みkey集合・scroll・選択を暗黙変更せず、可視行と返却placeholderだけを同じ親へ接続し、保持providerが後発要求・scroll後も同じ対象を指すことを確認します。可視行の再照会回数は固定しません。</summary>
     [TestMethod]
     public void VirtualRows_SearchSelectionAndRealizeKeepProjectionLimitedToRequestedAndVisibleRows()
     {
@@ -39,25 +39,25 @@ public sealed class CustomTableAutomationPeerTests
             Assert.IsNull(root.GetPattern(PatternInterface.Grid));
             Assert.IsNull(root.GetPattern(PatternInterface.Table));
             Assert.AreEqual(AutomationControlType.List, root.GetAutomationControlType());
-            int reads = source.ProjectionReads;
+            int[] projectedKeys = source.GetProjectedKeysSnapshot();
             int firstVisible = table.FirstVisibleRowIndex;
             IRawElementProviderSimple farProvider = container.FindItemByProperty(null, AutomationElementIdentifiers.AutomationIdProperty.Id, "record:180000");
             AutomationPeer far = Peer(farProvider);
             IRawElementProviderSimple fartherProvider = container.FindItemByProperty(null, AutomationElementIdentifiers.AutomationIdProperty.Id, "record:200000");
             AutomationPeer farther = Peer(fartherProvider);
-            Assert.AreEqual(reads, source.ProjectionReads);
+            CollectionAssert.AreEquivalent(projectedKeys, source.GetProjectedKeysSnapshot());
             Assert.AreEqual(firstVisible, table.FirstVisibleRowIndex);
             Assert.AreSame(far, root.GetChildren().Single(child => child.GetAutomationId() == "record:180000"));
             Assert.AreSame(farther, root.GetChildren().Single(child => child.GetAutomationId() == "record:200000"));
             Assert.AreSame(root, far.GetParent()); Assert.AreSame(root, farther.GetParent());
             Assert.AreEqual(string.Empty, far.GetName());
             Assert.AreEqual(string.Empty, farther.GetName());
-            Assert.AreEqual(reads, source.ProjectionReads);
+            CollectionAssert.AreEquivalent(projectedKeys, source.GetProjectedKeysSnapshot());
             Assert.AreEqual(0, selection.GetSelection().Length);
             Assert.IsNull(container.FindItemByProperty(farProvider, AutomationElementIdentifiers.AutomationIdProperty.Id, "record:180000"));
             Pattern<ISelectionItemProvider>(far, PatternInterface.SelectionItem).Select();
             Pattern<ISelectionItemProvider>(farther, PatternInterface.SelectionItem).AddToSelection();
-            reads = source.ProjectionReads;
+            projectedKeys = source.GetProjectedKeysSnapshot();
             IRawElementProviderSimple[] selectedProviders = selection.GetSelection();
             CollectionAssert.AreEquivalent(new[] { "record:180000", "record:200000" }, selectedProviders.Select(value => Peer(value).GetAutomationId()).ToArray());
             foreach (IRawElementProviderSimple provider in selectedProviders)
@@ -66,7 +66,7 @@ public sealed class CustomTableAutomationPeerTests
                 Assert.IsTrue(root.GetChildren().Contains(selectedPeer));
                 Assert.AreSame(root, selectedPeer.GetParent());
             }
-            Assert.AreEqual(reads, source.ProjectionReads, "選択provider取得だけでは画面外の行を再投影しません。");
+            CollectionAssert.AreEquivalent(projectedKeys, source.GetProjectedKeysSnapshot(), "選択provider取得だけでは新しい行を投影しません。");
             Pattern<ISelectionItemProvider>(far, PatternInterface.SelectionItem).RemoveFromSelection();
             Assert.IsFalse(table.IsRowSelected(180000));
             Assert.IsTrue(table.IsRowSelected(200000));
@@ -373,8 +373,10 @@ public sealed class CustomTableAutomationPeerTests
         private readonly Dictionary<object, int> indices = new(ReferenceEqualityComparer.Instance);
         private readonly Func<int, object> factory;
         private readonly object scope;
-        internal int ProjectionReads { get; private set; }
         internal int ProjectedCount => tokens.Count(token => token.Row != null);
+
+        /// <summary>indexer・factory・UIAプロパティを呼ばず、既に投影した生存keyだけを捕捉します。</summary>
+        internal int[] GetProjectedKeysSnapshot() => tokens.Where(token => token.Row != null).Select(token => token.Key).ToArray();
 
         internal RecordingSource(int count, Func<int, object>? factory = null)
             : this(Enumerable.Range(0, count).Select(key => new Token(key)).ToList(), new object(), factory ?? (key => new TestRow(key))) { }
@@ -401,7 +403,7 @@ public sealed class CustomTableAutomationPeerTests
         public event EventHandler? SelectionUpdateCompleted;
         public event NotifyCollectionChangedEventHandler? CollectionChanged;
         public int Count => tokens.Count;
-        public object? this[int index] { get { ProjectionReads++; return tokens[index].Row ??= factory(tokens[index].Key); } set => throw new NotSupportedException(); }
+        public object? this[int index] { get => tokens[index].Row ??= factory(tokens[index].Key); set => throw new NotSupportedException(); }
         public bool IsFixedSize => true;
         public bool IsReadOnly => true;
         public bool IsSynchronized => false;
