@@ -1,6 +1,4 @@
-using System;
-using System.IO;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using BeMusicSeeker.TestSupport.Files;
 using Ribbit.Media;
 
 namespace BeMusicSeeker.Tests;
@@ -25,23 +23,13 @@ public sealed class BassAudioWriterTests
 
     private static void WithCollisionFixture(string extension, Action<string> assertion)
     {
-        string directoryPath = Path.Combine(
-            Path.GetTempPath(),
-            "BeMusicSeekerWriterContracts",
-            Guid.NewGuid().ToString("N"));
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string directoryPath = workspace.RootDirectory;
         string pathWithoutExtension = Path.Combine(directoryPath, "sample");
-        try
-        {
-            Directory.CreateDirectory(directoryPath);
-            File.WriteAllText(pathWithoutExtension + extension, string.Empty);
-            assertion(pathWithoutExtension);
-        }
-        finally
-        {
-            if (Directory.Exists(directoryPath))
-            {
-                Directory.Delete(directoryPath, recursive: true);
-            }
-        }
+
+        Directory.CreateDirectory(directoryPath);
+        File.WriteAllText(pathWithoutExtension + extension, string.Empty);
+        assertion(pathWithoutExtension);
+
     }
 }

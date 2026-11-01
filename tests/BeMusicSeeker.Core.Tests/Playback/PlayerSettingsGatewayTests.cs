@@ -1,7 +1,8 @@
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
 
@@ -17,28 +18,27 @@ public sealed class PlayerSettingsGatewayTests
     [TestMethod]
     public void CapturedPlacementUpdatesMemoryWithoutRequestingOrWritingSettingsSave()
     {
-        string directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BmsPlacement-" + System.Guid.NewGuid().ToString("N"));
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string directory = workspace.RootDirectory;
         System.IO.Directory.CreateDirectory(directory);
         string path = System.IO.Path.Combine(directory, "user.config");
-        try
-        {
-            Settings settings = TestSettingsFactory.OpenSettings(path);
-            var first = new WindowPlacement(0, 1, 0, 0, 0, 0, 10, 20, 810, 620);
-            var captured = new WindowPlacement(0, 1, 0, 0, 0, 0, 30, 40, 830, 640);
-            settings.LR2bodyWindowPlacement = BeMusicSeeker.Models.Utils.Win32WindowPlacementAdapter.ToNative(first);
-            settings.Save();
-            byte[] before = System.IO.File.ReadAllBytes(path);
-            int saves = 0;
-            settings.SettingsSaving += (_, _) => saves++;
 
-            new SettingsPlayerSettingsGateway(() => settings).UpdateWindowPlacement(captured);
+        Settings settings = TestSettingsFactory.OpenSettings(path);
+        var first = new WindowPlacement(0, 1, 0, 0, 0, 0, 10, 20, 810, 620);
+        var captured = new WindowPlacement(0, 1, 0, 0, 0, 0, 30, 40, 830, 640);
+        settings.LR2bodyWindowPlacement = BeMusicSeeker.Models.Utils.Win32WindowPlacementAdapter.ToNative(first);
+        settings.Save();
+        byte[] before = System.IO.File.ReadAllBytes(path);
+        int saves = 0;
+        settings.SettingsSaving += (_, _) => saves++;
 
-            Assert.AreEqual(0, saves);
-            Assert.AreEqual(Win32WindowPlacementAdapter.ToNative(captured), settings.LR2bodyWindowPlacement);
-            CollectionAssert.AreEqual(before, System.IO.File.ReadAllBytes(path));
-            Assert.AreEqual(Win32WindowPlacementAdapter.ToNative(first), TestSettingsFactory.OpenSettings(path).LR2bodyWindowPlacement);
-        }
-        finally { System.IO.Directory.Delete(directory, true); }
+        new SettingsPlayerSettingsGateway(() => settings).UpdateWindowPlacement(captured);
+
+        Assert.AreEqual(0, saves);
+        Assert.AreEqual(Win32WindowPlacementAdapter.ToNative(captured), settings.LR2bodyWindowPlacement);
+        CollectionAssert.AreEqual(before, System.IO.File.ReadAllBytes(path));
+        Assert.AreEqual(Win32WindowPlacementAdapter.ToNative(first), TestSettingsFactory.OpenSettings(path).LR2bodyWindowPlacement);
+
     }
 
     private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();

@@ -1,17 +1,10 @@
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.TestSupport.Components;
 
 /// <summary>
 /// テストが所有する loopback 接続を既定で一度、または指定された有限回だけ受け付ける HTTP サーバーです。

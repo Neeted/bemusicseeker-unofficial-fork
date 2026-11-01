@@ -1,10 +1,6 @@
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views.Dialogs;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using BmsAudioFrameEvent = Ribbit.BMS.BmsAudioFrameEvent;
 using BmsScheduledAudioException = Ribbit.BMS.BmsScheduledAudioException;
 

@@ -1,10 +1,8 @@
-using System;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.TestSupport.Wpf;
 
 /// <summary>再生面の所有・寿命・物理配置を、読取り専用のWin32呼出しで観測します。</summary>
 internal static class ExternalPlayerHostObservation

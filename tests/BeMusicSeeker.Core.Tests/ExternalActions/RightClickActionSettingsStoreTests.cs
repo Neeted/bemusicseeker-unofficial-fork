@@ -1,8 +1,6 @@
-using System.IO;
-using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using BeMusicSeeker.TestSupport.Components;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 

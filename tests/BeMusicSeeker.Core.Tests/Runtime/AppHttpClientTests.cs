@@ -1,16 +1,10 @@
-using System;
-using System.Collections.Generic;
 using System.Collections.Specialized;
-using System.IO;
-using System.Linq;
 using System.Net;
-using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Web;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
 using Ribbit.Net;
 
 namespace BeMusicSeeker.Tests;
@@ -225,12 +219,13 @@ public sealed class AppHttpClientTests
     [TestCategory("Http")]
     public async Task Preparation_CancelledWaitRetainsLateResultAndFailure(bool failPreparation)
     {
+        var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         using var operation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
         operation.CancelAfter(TimeSpan.FromSeconds(30));
         using var cancelledWait = CancellationTokenSource.CreateLinkedTokenSource(operation.Token);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var owned = new List<Task>();
-        string directory = Path.Combine(Path.GetTempPath(), nameof(AppHttpClientTests), Guid.NewGuid().ToString("N"));
+        string directory = workspace.RootDirectory;
         var expected = new IOException("late preparation failure");
         Task<string>? preparation = null;
         Exception? primaryFailure = null;
@@ -277,7 +272,7 @@ public sealed class AppHttpClientTests
             try
             {
                 Assert.IsTrue(preparation == null || preparation.IsCompleted, "準備Task未回収では返却資源を解放しません。");
-                if (Directory.Exists(directory)) { Directory.Delete(directory, true); }
+                if (Directory.Exists(directory)) { workspace.Dispose(); }
             }
             catch (Exception failure) { failures.Add(failure); }
             if (failures.Count > 0)
@@ -301,7 +296,8 @@ public sealed class AppHttpClientTests
     [TestCategory("Http")]
     public void GetString_FileUri_StripsUtf8Bom()
     {
-        string filePath = CreateTempFileWithBytes(CreateUtf8BomBytes("header-json"));
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string filePath = CreateTempFileWithBytes(workspace, CreateUtf8BomBytes("header-json"));
         try
         {
             string actual = AppHttpClient.Shared.GetString(new Uri(filePath), Encoding.UTF8);
@@ -319,7 +315,8 @@ public sealed class AppHttpClientTests
     [TestCategory("Http")]
     public async Task GetStringAsync_FileUri_StripsUtf8Bom()
     {
-        string filePath = CreateTempFileWithBytes(CreateUtf8BomBytes("async-json"));
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string filePath = CreateTempFileWithBytes(workspace, CreateUtf8BomBytes("async-json"));
         try
         {
             string actual = await AppHttpClient.Shared.GetStringAsync(new Uri(filePath), Encoding.UTF8);
@@ -337,7 +334,8 @@ public sealed class AppHttpClientTests
     [TestCategory("Http")]
     public void GetString_FileUri_PreservesPlainUtf8()
     {
-        string filePath = CreateTempFileWithBytes(Encoding.UTF8.GetBytes("plain-json"));
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string filePath = CreateTempFileWithBytes(workspace, Encoding.UTF8.GetBytes("plain-json"));
         try
         {
             string actual = AppHttpClient.Shared.GetString(new Uri(filePath), Encoding.UTF8);
@@ -392,12 +390,13 @@ public sealed class AppHttpClientTests
     [TestCategory("Http")]
     public async Task PostFile_PreservesUtf8FileNameAndBytesAndStripsResponseBom(string fileName)
     {
+        var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
         httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
         Task<string>? request = null;
         SingleRequestHttpServer? server = null;
 
-        string uploadDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        string uploadDirectory = workspace.RootDirectory;
         Directory.CreateDirectory(uploadDirectory);
         Exception? httpFailure = null;
         try
@@ -452,7 +451,7 @@ public sealed class AppHttpClientTests
             try
             {
                 httpCleanup.Token.ThrowIfCancellationRequested();
-                Directory.Delete(uploadDirectory, recursive: true);
+                workspace.Dispose();
             }
             catch (Exception cleanupFailure) when (httpFailure != null) { throw new AggregateException(httpFailure, cleanupFailure); }
         }
@@ -689,9 +688,9 @@ public sealed class AppHttpClientTests
         return [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(text)];
     }
 
-    private static string CreateTempFileWithBytes(byte[] bytes)
+    private static string CreateTempFileWithBytes(TestWorkspace workspace, byte[] bytes)
     {
-        string filePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".txt");
+        string filePath = Path.Combine(workspace.RootDirectory, Guid.NewGuid().ToString("N") + ".txt");
         File.WriteAllBytes(filePath, bytes);
         return filePath;
     }
