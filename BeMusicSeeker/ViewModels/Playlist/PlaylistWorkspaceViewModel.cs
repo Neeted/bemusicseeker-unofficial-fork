@@ -1546,6 +1546,12 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         }
     }
 
+    /// <summary>実表示へ採用済みの集計世代です。要求の受付・Task正常終端とは区別します。</summary>
+    internal long AppliedPlaylistSummaryDataGeneration
+    {
+        get { lock (playlistSummaryTransitionLock) { return lastPlaylistSummaryAppliedDataGeneration; } }
+    }
+
     internal long CurrentPlaylistSummaryDataRebuildGeneration
     {
         get

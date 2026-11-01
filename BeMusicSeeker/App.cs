@@ -159,6 +159,8 @@ public partial class App : System.Windows.Application
             {
                 var composition = new ApplicationComposition(
                     runtimeOptions: applicationRuntimeOptions,
+                    settingsDialogService: scenarioControl?.Dialogs,
+                    playlistWorkspaceDialogService: scenarioControl?.Dialogs,
                     rootFileEnumerator: applicationRuntimeOptions.TestSession == null ? null : new FastRootFileEnumerator(),
                     chartFileScanner: applicationRuntimeOptions.TestSession == null ? null : new FastDirectoryFileScanner(),
                     uiScheduler: new WpfUiScheduler(() => base.Dispatcher),
@@ -172,7 +174,7 @@ public partial class App : System.Windows.Application
             assignViewModelResource: viewModel => Resources["vm"] = viewModel,
             createMainWindow: viewModel =>
             {
-                var window = new MainWindow(viewModel);
+                var window = new MainWindow(viewModel, settingsWindowCreated: null, playlistWorkspaceDialogService: scenarioControl?.Dialogs);
                 scenarioControl?.Attach(viewModel, window);
                 return window;
             },

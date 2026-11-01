@@ -244,7 +244,10 @@ public partial class MainWindowViewModel : ViewModel,
 
     private readonly ApplicationComposition applicationComposition;
 
-    /// <summary>Provides the shared optional mutation-report dialog boundary to view terminals.</summary>
+    /// <summary>構成で選ばれた設定画面の表示・操作窓口をshellへ渡します。</summary>
+    internal IUiDialogService SettingsDialogService => applicationComposition.SettingsDialogService;
+
+    /// <summary>任意の変更結果通知に使う共有dialog窓口を画面へ渡します。</summary>
     internal IUiDialogService FileDbMutationDialogs => applicationComposition.FileDbMutationDialogs;
 
     private readonly PlayHistoryRuntimeEventReporter playHistoryRuntimeEventReporter;
@@ -2629,6 +2632,9 @@ public partial class MainWindowViewModel : ViewModel,
         request.Presentation = RefreshChartRowsViewCaptured(request.Mode, request.Parameter, navigation: request.Navigation);
     }
 
+    /// <summary>実ツリー選択が開始した詳細表示Taskと要求版を読取り専用で通知します。</summary>
+    internal event Action<int, Task> PlaylistDetailSelectionStarted;
+
     private void PlaylistWorkspaceTreeSelectionActivated(
         object sender,
         PlaylistTreeSelectionActivatedEventArgs request)
@@ -2654,11 +2660,22 @@ public partial class MainWindowViewModel : ViewModel,
         {
             UpdateChartKeywordSearchContext();
         }
-        RefreshChartRowsViewCaptured(
+        Task presentation = RefreshChartRowsViewCaptured(
             selection.Filter == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected
                 ? MainViewUpdateMode.PlaylistNotOwnedFilterSelected
                 : MainViewUpdateMode.PlaylistFilterSelected,
             selection, navigation: request.Navigation);
+        Action<int, Task> observers = PlaylistDetailSelectionStarted;
+        if (observers != null)
+        {
+            int version;
+            lock (PlaylistWorkspace.DetailBuildState.SyncRoot) { version = PlaylistWorkspace.DetailBuildState.RequestVersion; }
+            foreach (Action<int, Task> observer in observers.GetInvocationList())
+            {
+                try { observer(version, presentation); }
+                catch (Exception failure) { Task.FromException(failure).ObserveFault("playlistDetailSelectionObserver"); }
+            }
+        }
     }
 
     private void PlaylistWorkspacePlaylistDetailReloadRefreshRequested(object sender, EventArgs e)

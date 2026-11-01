@@ -1290,7 +1290,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         PlaybackOverlayVisibility = Visibility.Visible;
         try
         {
-            UiWindowDialogResult<SettingsWindowCloseReason> result = new UiDialogCoordinator()
+            UiWindowDialogResult<SettingsWindowCloseReason> result = ((MainWindowViewModel)DataContext).SettingsDialogService
                 .ShowWindowAsync(new UiWindowDialogRequest<SettingsWindow, SettingsWindowCloseReason>(
                     () =>
                     {
@@ -1328,9 +1328,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     }
 
     /// <summary>
-    /// Constructs one settings presentation bound to the shell-owned child composition.
+    /// shell所有の設定sessionと同じdialog窓口を実設定画面へ接続します。
     /// </summary>
-    /// <returns>An unshown settings window ready for the window-dialog coordinator.</returns>
+    /// <returns>通常の所有者付き表示へ渡す未表示の設定画面。</returns>
     internal SettingsWindow CreateSettingsWindowForPresentation()
     {
         if (base.DataContext is not MainWindowViewModel viewModel)
@@ -1338,7 +1338,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             throw new InvalidOperationException("Main window view model is unavailable.");
         }
 
-        SettingsWindow createdWindow = new(CompleteSettingsWindowApplicationExit)
+        SettingsWindow createdWindow = new(viewModel.SettingsDialogService, CompleteSettingsWindowApplicationExit)
         {
             DataContext = viewModel.SettingDialog,
             PlaybackPanel = viewModel.PlaybackPanel,
@@ -4303,7 +4303,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    private async Task OpenPlaylistPropertyDialogAsync(
+    /// <summary>通常メニューと同じ実プロパティ表示・保存・閉鎖の終端まで待ちます。</summary>
+    internal async Task OpenPlaylistPropertyDialogAsync(
         MainWindowViewModel viewModel,
         BMSTable table)
     {
@@ -4988,39 +4989,25 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// </summary>
     private async void treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel viewModel || sender is not MenuItem)
+        if (base.DataContext is not MainWindowViewModel || sender is not MenuItem)
         {
             return;
         }
-        PlaylistPropertyDialogViewModel dialog;
-        try
-        {
-            dialog = await viewModel.PlaylistWorkspace
-                .CreatePlaylistPropertyDialogAsync();
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
+        try { await CreatePlaylistWithPropertiesAsync(); }
+        catch (OperationCanceledException) { }
         catch (Exception exception)
         {
             await NotifyMainWindowOperationFailureAsync(exception, "treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick");
-            return;
         }
-        if (dialog != null)
-        {
-            try
-            {
-                await ShowPlaylistPropertyDialogAsync(viewModel, dialog);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (Exception exception)
-            {
-                await NotifyMainWindowOperationFailureAsync(exception, "treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick");
-            }
-        }
+    }
+
+    /// <summary>通常の新規作成操作を共有し、draftの準備から実画面の終端・workspaceの後片付けまで待ちます。</summary>
+    internal async Task CreatePlaylistWithPropertiesAsync()
+    {
+        if (DataContext is not MainWindowViewModel viewModel)
+        { throw new InvalidOperationException("Main window view model is unavailable."); }
+        PlaylistPropertyDialogViewModel dialog = await viewModel.PlaylistWorkspace.CreatePlaylistPropertyDialogAsync();
+        if (dialog != null) { await ShowPlaylistPropertyDialogAsync(viewModel, dialog); }
     }
 
     private async void PlaylistImportClick(object sender, RoutedEventArgs e)

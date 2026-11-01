@@ -13,6 +13,9 @@ public sealed partial class PlaylistWorkspaceViewModel
 {
     private const string ExternalPlaylistImportProgressSource = "external_playlist_import";
 
+    /// <summary>受付で開始した同じ実Taskを読取り専用の観測先へ渡します。集計通知より後の資源解放もTask終端に含みます。</summary>
+    internal event Action<Task> ExternalPlaylistImportStarted;
+
     internal event EventHandler<ExternalPlaylistImportQueueSummaryReadyEventArgs> ExternalPlaylistImportQueueSummaryReady;
 
     internal event EventHandler<ExternalPlaylistImportSummaryRefreshFailedEventArgs> ExternalPlaylistImportSummaryRefreshFailed;
@@ -96,7 +99,17 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
 
             handedOff = true;
-            ImportExternalPlaylistsAsync(tables, targets, skipped, admission).ObserveFault("ImportExternalPlaylistsAsync");
+            Task operation = ImportExternalPlaylistsAsync(tables, targets, skipped, admission);
+            operation.ObserveFault("ImportExternalPlaylistsAsync");
+            Action<Task> observers = ExternalPlaylistImportStarted;
+            if (observers != null)
+            {
+                foreach (Action<Task> observer in observers.GetInvocationList())
+                {
+                    try { observer(operation); }
+                    catch (Exception failure) { Task.FromException(failure).ObserveFault("playlistImportObserver"); }
+                }
+            }
             return new PlaylistImportStartResult(PlaylistImportStartStatus.Started, targets.Count, skipped.Count);
         }
         finally

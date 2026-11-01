@@ -32,6 +32,9 @@ internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
     private Task? reading;
     private Task? startupObservation;
 
+    /// <summary>明示test sessionだけで共有する、操作ごとに一回だけ固定入力を受け付ける窓口です。</summary>
+    internal ApplicationScenarioDialogs Dialogs { get; } = new();
+
     private ApplicationScenarioControl(NamedPipeClientStream pipe, Dispatcher dispatcher)
     {
         this.dispatcher = dispatcher;
@@ -170,6 +173,10 @@ internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
         { return new ScenarioSnapshotCompleted(request.RequestId, CaptureSnapshot(model)); }
         if (!model.IsInitializationCompleted)
         { throw new InvalidOperationException("The library is not ready for this command."); }
+        if (request is ScenarioPlaylistImportCommand or ScenarioPlaylistCreateCommand or ScenarioPlaylistSelectCommand
+            or ScenarioPlaylistEditCommand or ScenarioPlaylistAddCommand or ScenarioPlaylistFolderCommand
+            or ScenarioPlaylistOrderCommand or ScenarioPlaylistExportCommand or ScenarioSettingsEditCommand)
+        { return await ExecutePlaylistAsync(model, request); }
         if (request is ScenarioDropCommand drop) { return await DropAsync(model, drop); }
         if (request is ScenarioPackageViewCommand view) { return await NavigatePackagesAsync(model, view.RequestId, view.Pending); }
         if (request is ScenarioPendingCommand pending) { return await ApplyPendingAsync(model, pending); }

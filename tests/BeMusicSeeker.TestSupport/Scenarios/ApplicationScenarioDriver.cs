@@ -139,6 +139,42 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
         ProcessDeadline deadline, string? destination = null)
         => RequestAsync<ScenarioPendingCompleted>(id => new ScenarioPendingCommand(id, action, [.. chartPaths], destination), deadline);
 
+    /// <summary>既存の外部表インポートの実Task終端と対象別結果を取得します。</summary>
+    internal Task<ScenarioPlaylistCompleted> ImportPlaylistAsync(string url, ProcessDeadline deadline)
+        => RequestAsync<ScenarioPlaylistCompleted>(id => new ScenarioPlaylistImportCommand(id, url), deadline);
+
+    /// <summary>実propertyの入力とOKから登録・閉鎖まで待ちます。</summary>
+    internal Task<ScenarioPlaylistCompleted> CreatePlaylistAsync(string name, string symbol, ProcessDeadline deadline)
+        => RequestAsync<ScenarioPlaylistCompleted>(id => new ScenarioPlaylistCreateCommand(id, name, symbol), deadline);
+
+    /// <summary>通常ツリー選択が開始する実表示Taskと採用を待ちます。</summary>
+    internal Task<ScenarioPlaylistCompleted> SelectPlaylistAsync(int? tableId, ProcessDeadline deadline)
+        => RequestAsync<ScenarioPlaylistCompleted>(id => new ScenarioPlaylistSelectCommand(id, tableId), deadline);
+
+    /// <summary>表示中の実詳細行のMEMOまたはLevelを確定します。</summary>
+    internal Task<ScenarioPlaylistCompleted> EditPlaylistAsync(string md5, string text, bool level, ProcessDeadline deadline)
+        => RequestAsync<ScenarioPlaylistCompleted>(id => new ScenarioPlaylistEditCommand(id, md5, text, level), deadline);
+
+    /// <summary>通常行の追加または表示中の詳細行のフォルダ移動を実行します。</summary>
+    internal Task<ScenarioPlaylistCompleted> AddPlaylistRowsAsync(int tableId, IEnumerable<string> md5s, string? folder, ProcessDeadline deadline)
+        => RequestAsync<ScenarioPlaylistCompleted>(id => new ScenarioPlaylistAddCommand(id, tableId, [.. md5s], folder), deadline);
+
+    /// <summary>既存作成・改名を通じてフォルダ名を保存します。</summary>
+    internal Task<ScenarioPlaylistCompleted> CreatePlaylistFolderAsync(int tableId, string name, ProcessDeadline deadline)
+        => RequestAsync<ScenarioPlaylistCompleted>(id => new ScenarioPlaylistFolderCommand(id, tableId, name), deadline);
+
+    /// <summary>実propertyの上下操作一回とOKを通します。</summary>
+    internal Task<ScenarioPlaylistCompleted> MovePlaylistFolderAsync(int tableId, string folder, bool down, ProcessDeadline deadline)
+        => RequestAsync<ScenarioPlaylistCompleted>(id => new ScenarioPlaylistOrderCommand(id, tableId, folder, down), deadline);
+
+    /// <summary>宣言済み二pathへ実JSON出力と通知session終端を待ちます。</summary>
+    internal Task<ScenarioPlaylistCompleted> ExportPlaylistAsync(int tableId, string header, string data, ProcessDeadline deadline)
+        => RequestAsync<ScenarioPlaylistCompleted>(id => new ScenarioPlaylistExportCommand(id, tableId, header, data), deadline);
+
+    /// <summary>通常設定画面のfont即時commitとCloseによるpath候補取消を通します。</summary>
+    internal Task<ScenarioPlaylistCompleted> EditSettingsAsync(double fontSize, string candidatePath, ProcessDeadline deadline)
+        => RequestAsync<ScenarioPlaylistCompleted>(id => new ScenarioSettingsEditCommand(id, fontSize, candidatePath), deadline);
+
     /// <summary>実Window.Closeを要求し、root・両出力pipe・全所有子孫の正常退出まで待ちます。</summary>
     internal async Task CloseAsync(ProcessDeadline deadline)
     {

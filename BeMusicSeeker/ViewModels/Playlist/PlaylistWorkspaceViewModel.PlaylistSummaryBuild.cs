@@ -15,6 +15,20 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
+    /// <summary>実集計要求の同じTaskと世代を通知します。TaskはUI採用の試行とbuild寿命の解放まで含みます。</summary>
+    internal event Action<long, Task> PlaylistSummaryBuildStarted;
+
+    private void PublishSummaryBuildStarted(long generation, Task task)
+    {
+        Action<long, Task> observers = PlaylistSummaryBuildStarted;
+        if (observers == null) { return; }
+        foreach (Action<long, Task> observer in observers.GetInvocationList())
+        {
+            try { observer(generation, task); }
+            catch (Exception failure) { Task.FromException(failure).ObserveFault("playlistSummaryBuildObserver"); }
+        }
+    }
+
     /// <summary>
     /// P取得後に開始時と同じstoreの全正本参照を検証し、BMT選択の保存と必要出力を同じ権限で待ちます。
     /// </summary>
@@ -219,10 +233,13 @@ public sealed partial class PlaylistWorkspaceViewModel
                 throw;
             }
             buildTask.ObserveFault("RebuildPlaylistSummaryView");
+            PublishSummaryBuildStarted(dataRebuildGeneration, buildTask);
         }
         else
         {
-            Action().ObserveFault("RebuildPlaylistSummaryView");
+            Task buildTask = Action();
+            buildTask.ObserveFault("RebuildPlaylistSummaryView");
+            PublishSummaryBuildStarted(dataRebuildGeneration, buildTask);
         }
         return dataRebuildGeneration;
     }

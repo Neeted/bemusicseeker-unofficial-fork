@@ -16,12 +16,15 @@ internal sealed class ScenarioStartupFixture : IAsyncDisposable
     private readonly TcpListener listener = new(IPAddress.Loopback, 0);
     private readonly CancellationTokenSource stop = new();
     private readonly Task serve;
+    private readonly IReadOnlyDictionary<string, string> responses;
 
-    private ScenarioStartupFixture(string settingsPath, string libraryRoot, Action<Settings>? configure)
+    private ScenarioStartupFixture(string settingsPath, string libraryRoot, Action<Settings>? configure, IReadOnlyDictionary<string, string>? responses)
     {
+        this.responses = responses ?? new Dictionary<string, string>();
         listener.Start();
         string baseUrl = $"http://127.0.0.1:{((IPEndPoint)listener.LocalEndpoint).Port}";
         UpdateManifestUrl = baseUrl + "/update.json";
+        BaseUrl = baseUrl;
         try
         {
             WriteSettings(settingsPath, libraryRoot, new Uri(baseUrl + "/table-list.json"), configure);
@@ -38,9 +41,13 @@ internal sealed class ScenarioStartupFixture : IAsyncDisposable
     /// <summary>標準更新確認へ渡す、固定 NoUpdate manifest の専有 loopback URL です。</summary>
     internal string UpdateManifestUrl { get; }
 
+    /// <summary>宣言済み固定HTTP入力への絶対URLを作る専有基点です。</summary>
+    internal string BaseUrl { get; }
+
     /// <summary>専有ファイルへ Standalone の起動前設定を保存し、必要な追加設定だけを呼出元が指定します。</summary>
-    internal static ScenarioStartupFixture Create(string settingsPath, string libraryRoot, Action<Settings>? configure = null)
-        => new(settingsPath, libraryRoot, configure);
+    internal static ScenarioStartupFixture Create(string settingsPath, string libraryRoot, Action<Settings>? configure = null,
+        IReadOnlyDictionary<string, string>? responses = null)
+        => new(settingsPath, libraryRoot, configure, responses);
 
     /// <summary>実アプリ終了後に HTTP 待受と処理中接続を終了し、障害は呼出元へ返します。</summary>
     public async ValueTask DisposeAsync()
@@ -97,7 +104,7 @@ internal sealed class ScenarioStartupFixture : IAsyncDisposable
             {
                 "/update.json" => ("200 OK", updateManifest),
                 "/table-list.json" => ("200 OK", "[]"),
-                _ => ("404 Not Found", "{}")
+                _ => responses.TryGetValue(path, out string? declaredBody) ? ("200 OK", declaredBody) : ("404 Not Found", "{}")
             };
             byte[] bodyBytes = Encoding.UTF8.GetBytes(body);
             byte[] response = [.. Encoding.ASCII.GetBytes($"HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {bodyBytes.Length}\r\nConnection: close\r\n\r\n"), .. bodyBytes];

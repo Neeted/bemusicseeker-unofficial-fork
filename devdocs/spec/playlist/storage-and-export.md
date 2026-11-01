@@ -258,6 +258,12 @@ LR2モードではDB置換前の実効絶対配置・基点・ROOT種別を今�
 
 SQL読取りは `SQLITE_ROW` と `SQLITE_DONE` 以外を失敗とし、途中行をダンプ・復元・表示へ公開しません。読取り失敗を解放失敗より主原因にします。同期 `LoadPlaylistDump` は移行等のDB専用入口に限り、設定画面は非同期復元を使います。
 
+### 通常操作から次回起動までの保存接続
+
+日常の代表フローでは、外部同期ONの表を通常importで登録し、MEMOだけを実詳細編集で保存します。独立した同期OFFのローカル表は、通常新規作成から実propertyのOK・登録・必要処理・閉鎖を通し、実通常行の追加、数値Level・MEMO、フォルダ作成・改名・詳細行移動、propertyの上下操作を保存します。フォルダ順はDBのJSON配列と実ノードの表示順をそれぞれ確認します。
+
+JSON二出力は既存export処理の通知receipt終端後に両ファイルを独立解析します。全entryのhash・title・artist・所属と数値 `org_level`、フォルダ互換表現 `level`、headerの名前・symbol・`folder_order` を照合し、MEMOはDB・表示・次起動へ分担します。保存後にテスト側から値を補充せず、通常終了後の別processで同じ登録IDとentry集合、編集値を確認します。
+
 ## 実装とテストの対応
 
 フォルダ改名・別フォルダの更新・NO SONG・内容あり削除から空名フォルダへの移動・空フォルダ削除から表本体への移動は [`PlaylistWorkspaceActionWorkflowTests.PlaylistFolderMutation_PreservesOrRemapsSelectionAndDetail`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs) が実保存、選択requestと詳細hashを確認します。前後空白名への改名では他所属を含む完全なhash・title・folder集合を独立DB読取りと新storeのヘッダー読込み・entry hydration後に照合し、新しい表での再選択と詳細表示も確認します。同クラスの `PlaylistPropertySave_PrefixReceiptUpdatesExistingDetailAndLaterRequests` は通常のprefix追従と後続編集、`PlaylistPropertySave_NewExplicitSelectionDoesNotApplyOldPrefixMap` は確定後の同キー明示選択を守る境界を担います。実ツリーの選択同期は [一覧仕様](../ui/table-view.md#実装とテストの対応) のWPF代表へ分担します。
@@ -325,6 +331,8 @@ SQL読取りは `SQLITE_ROW` と `SQLITE_DONE` 以外を失敗とし、途中行
 | 借用した読取りの解放、参照先の確定と操作の受付 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistWorkspaceActionWorkflowTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs) |
 
 設定画面のBMT出力はBMT組の明示確定から全表再更新し、通常・ルート出力先はフォルダ選択と既存確認から、追加先は追加・削除・改名から必要な変更だけ確定して既存移行を実行します。両者は[設定変更](../runtime/settings.md)の局所保存単位に従い、他セクションの候補や通常項目保存を出力の開始条件にしません。
+
+通常操作の保存接続は `tests/BeMusicSeeker.Scenarios.Tests/Playlist/PlaylistDailyScenarioTests.cs`、独立したSQLite・JSON・設定読取りは同ディレクトリの `Sc09PlaylistOracle.cs` が担います。下位の編集権限、フォルダ正規化、JSON部分書込み失敗の保証は維持し、同じ条件表をこの代表へ重複させません。
 
 ## 関連資料
 
