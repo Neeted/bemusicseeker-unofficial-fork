@@ -16,6 +16,7 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
     private const int MeasuredTempoInputReadAheadFrames = 4096;
 
     private readonly object sync = new();
+    private readonly Func<long> getTimestamp;
     private readonly BmsAudioFrameSchedule schedule;
     private readonly IReadOnlyList<BmsAudioResource?> resourcesByIndex;
     private readonly BassAudioSession session;
@@ -37,6 +38,15 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
     private bool disposed;
 
     /// <summary>閉じたoutput pull境界で一つのBMS区間を構成し、最初の範囲を予約します。</summary>
+    /// <param name="schedule">出力rate上の発音scheduleです。</param>
+    /// <param name="resourcesByIndex">発音に使う復号済み音源です。</param>
+    /// <param name="session">mixerを所有する実sessionです。</param>
+    /// <param name="native">予約・voice操作を行うnative境界です。</param>
+    /// <param name="duration">曲の終了時刻です。</param>
+    /// <param name="segmentStartSongFrame">開始またはseek先の曲内frameです。</param>
+    /// <param name="playbackRate">この区間の再生速度です。</param>
+    /// <param name="generation">区間世代です。</param>
+    /// <param name="getTimestamp">同一のStopwatch tick単位を使う時計です。省略時は実時計を使います。</param>
     internal BmsRealtimeAudioScheduler(
         BmsAudioFrameSchedule schedule,
         IReadOnlyList<BmsAudioResource?> resourcesByIndex,
@@ -45,8 +55,10 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
         TimeSpan duration,
         long segmentStartSongFrame,
         float playbackRate,
-        int generation)
+        int generation,
+        Func<long>? getTimestamp = null)
     {
+        this.getTimestamp = getTimestamp ?? Stopwatch.GetTimestamp;
         this.schedule = schedule ?? throw new ArgumentNullException(nameof(schedule));
         this.resourcesByIndex = resourcesByIndex ?? throw new ArgumentNullException(nameof(resourcesByIndex));
         this.session = session ?? throw new ArgumentNullException(nameof(session));
@@ -152,7 +164,7 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
         lock (sync)
         {
             ThrowIfDisposed();
-            long now = Stopwatch.GetTimestamp();
+            long now = getTimestamp();
             if (lastTickTimestamp != 0)
             {
                 UpdateMaximum(ref maximumTickIntervalTicks, now - lastTickTimestamp);
@@ -175,7 +187,7 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
                 exclusiveSongFrame = checked(segmentStartSongFrame + 1);
             }
 
-            long reservationStarted = Stopwatch.GetTimestamp();
+            long reservationStarted = getTimestamp();
             try
             {
                 scheduledMixer.ReserveBeforeFrame(
@@ -187,7 +199,7 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
             }
             finally
             {
-                UpdateMaximum(ref maximumReservationTicks, Stopwatch.GetTimestamp() - reservationStarted);
+                UpdateMaximum(ref maximumReservationTicks, getTimestamp() - reservationStarted);
             }
 
             if (advanceNullOutput && session.ActualBackend == BassAudioPlayer.DeviceDriver.NULL_DEVICE)
@@ -208,7 +220,7 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
             ReserveLead(rate);
             applyNativeRate();
             playbackRate = rate;
-            lastTickTimestamp = Stopwatch.GetTimestamp();
+            lastTickTimestamp = getTimestamp();
         }
     }
 
@@ -233,17 +245,21 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
             scheduledMixer.Dispose();
             generation = checked(generation + 1);
             segmentStartSongFrame = System.Math.Min(songFrame, durationSongFrame);
-            lastTickTimestamp = Stopwatch.GetTimestamp();
+            lastTickTimestamp = getTimestamp();
             CreateSegment(segmentStartSongFrame, initial: false);
         }
     }
 
-    /// <summary>pause時間を予約marginのwall-clock観測へ含めないよう基準を更新します。</summary>
+    /// <summary>pause時間を予約marginへ含めず、Processed無音出力では取得時計からも除外します。</summary>
     internal void ResetControlInterval()
     {
         lock (sync)
         {
-            lastTickTimestamp = Stopwatch.GetTimestamp();
+            lastTickTimestamp = getTimestamp();
+            if (session.NullOutputProcessing == NullOutputProcessing.Processed)
+            {
+                lastNullPullTimestamp = lastTickTimestamp;
+            }
         }
     }
 
@@ -268,7 +284,7 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
         {
             horizon = checked(songStartFrame + 1);
         }
-        long reservationStarted = Stopwatch.GetTimestamp();
+        long reservationStarted = getTimestamp();
         try
         {
             scheduledMixer.ReserveSegmentBeforeFrame(songStartFrame, horizon);
@@ -281,12 +297,12 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
         finally
         {
             // 初回開始とSeekは出力を凍結して準備するが、処理時間は再開後の予約余裕に反映する。
-            UpdateMaximum(ref maximumReservationTicks, Stopwatch.GetTimestamp() - reservationStarted);
+            UpdateMaximum(ref maximumReservationTicks, getTimestamp() - reservationStarted);
         }
         if (session.ActualBackend == BassAudioPlayer.DeviceDriver.NULL_DEVICE)
         {
             InitializeNullDevicePull();
-            lastNullPullTimestamp = Stopwatch.GetTimestamp();
+            lastNullPullTimestamp = getTimestamp();
         }
     }
 
@@ -335,7 +351,7 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
             exclusive = checked(segmentStartSongFrame + 1);
         }
 
-        long reserveStarted = Stopwatch.GetTimestamp();
+        long reserveStarted = getTimestamp();
         try
         {
             scheduledMixer.ReserveBeforeFrame(
@@ -346,7 +362,7 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
         }
         finally
         {
-            UpdateMaximum(ref maximumReservationTicks, Stopwatch.GetTimestamp() - reserveStarted);
+            UpdateMaximum(ref maximumReservationTicks, getTimestamp() - reserveStarted);
         }
     }
 
@@ -377,8 +393,10 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
         {
             throw new InvalidOperationException("The BMS NullDevice output format does not match the audio schedule.");
         }
-        nullDeviceRenderer = new AudioPcmRenderer(outputHandle, info.Frequency, info.Channels);
-        nullDeviceBuffer = new float[checked(4096 * info.Channels)];
+        nullDeviceRenderer = session.NullOutputProcessing == NullOutputProcessing.Processed
+            ? session.CallbackPcmRenderer ?? throw new InvalidOperationException("The processed null output renderer is unavailable.")
+            : new AudioPcmRenderer(outputHandle, info.Frequency, info.Channels);
+        nullDeviceBuffer = new float[checked(BassAudioSession.NullOutputBlockFrames * info.Channels)];
     }
 
     private void AdvanceNullDevice(long currentTimestamp)
@@ -407,6 +425,12 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
         while (framesToPull > 0)
         {
             int frames = checked((int)System.Math.Min(framesToPull, buffer.Length / renderer.ChannelCount));
+            if (session.NullOutputProcessing == NullOutputProcessing.Processed)
+            {
+                _ = BassAudioPlayer.ReadNullOutputFrames(session, buffer, frames);
+                framesToPull -= frames;
+                continue;
+            }
             if (!renderer.TryReadFrames(
                     outputHandle,
                     buffer,

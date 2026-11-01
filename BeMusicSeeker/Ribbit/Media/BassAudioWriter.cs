@@ -103,6 +103,16 @@ public class BassAudioWriter : BassAudioPlayer
             sampleRateConversionQuality);
     }
 
+    /// <summary>捕捉rate・SRC品質・無音取得方式を明示して、所有sessionを初期化します。</summary>
+    internal static void InitializeOwnedSession(
+        out BassAudioSession ownedSession,
+        SampleRate sampleRate,
+        int sampleRateConversionQuality,
+        NullOutputProcessing processing,
+        float initialGain)
+        => BassAudioPlayer.InitializeNullOwned(
+            sampleRate, sampleRateConversionQuality, processing, initialGain, out ownedSession);
+
     private static string GetEncoderDirectory(EncoderType encodeType)
     {
         return encodeType.SearchEncoderBinary(LongPathFileSystem.DirectoryExists(EncoderDirectory) ? EncoderDirectory : null);

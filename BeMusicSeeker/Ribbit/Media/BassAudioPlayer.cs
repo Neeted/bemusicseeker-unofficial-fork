@@ -859,6 +859,18 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             Array.Empty<object>());
     }
 
+    /// <summary>捕捉rateと構築条件をnative受付の内側へ渡し、明示無音graphを作ります。</summary>
+    internal static void InitializeNullOwned(
+        SampleRate sampleRate,
+        int sampleRateConversionQuality,
+        NullOutputProcessing processing,
+        float initialGain,
+        out BassAudioSession ownedSession)
+        => InitializeOwnedCore(
+            DeviceDriver.NULL_DEVICE, default, 0f, out ownedSession,
+            sampleRateConversionQuality, null, null, Array.Empty<object>(),
+            sampleRate, processing, initialGain);
+
     private static DeviceDescriptor InitializeOwnedCore(
         DeviceDriver driver,
         DeviceDescriptor desc,
@@ -867,7 +879,10 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         int sampleRateConversionQuality,
         AudioOutputRequest outputRequest,
         int? playerVolume,
-        object[] param)
+        object[] param,
+        SampleRate? capturedNullRate = null,
+        NullOutputProcessing nullOutputProcessing = NullOutputProcessing.Raw,
+        float nullOutputGain = 1f)
     {
         AudioResamplingQuality.Validate(sampleRateConversionQuality, nameof(sampleRateConversionQuality));
         ownedSession = null;
@@ -961,8 +976,10 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                         "Audio initialization was requested with an invalid backend.");
                 }
 
-                SampleRate requestedFrequency = outputRequest?.Rate ?? _frequency;
-                SampleFormat requestedFormat = outputRequest?.Format ?? _format;
+                SampleRate requestedFrequency = outputRequest?.Rate ?? capturedNullRate ?? _frequency;
+                SampleFormat requestedFormat = nullOutputProcessing == NullOutputProcessing.Processed
+                    ? SampleFormat.SAMPLE_FLOAT_32BIT
+                    : outputRequest?.Format ?? _format;
                 bool requestedEventMode = outputRequest?.EventMode ?? (param.Length != 0
                     && param[0] is bool eventMode
                     && eventMode);
@@ -988,7 +1005,8 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                             driver,
                             desc,
                             out session,
-                            sampleRateConversionQuality)
+                            sampleRateConversionQuality,
+                            nullOutputProcessing)
                         : SessionLifecycle.TryBegin(outputRequest, out session);
                     if (!beganSession)
                     {
@@ -1041,6 +1059,13 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                             DeviceDriver.NULL_DEVICE when outputRequest == null => InitializeNullDevice(),
                             _ => throw new ArgumentOutOfRangeException(nameof(driver))
                         };
+                        if (backend == DeviceDriver.NULL_DEVICE
+                            && session.NullOutputProcessing == NullOutputProcessing.Processed)
+                        {
+                            session.CallbackPcmRenderer = new AudioPcmRenderer(outputMixer, (int)Frequency, 2);
+                            session.OutputProcessor = new AudioOutputProcessor((int)Frequency, nullOutputGain);
+                            session.PublishCallbackOutputHandle(outputMixer);
+                        }
                         if (session.NegotiationResult != null && earlierAttempts.Count != 0)
                         {
                             string earlierFallbackReason = string.Join(
@@ -2158,8 +2183,14 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             : GetEffectiveDeviceVolumeForInitialization(deviceVolume, isMuted);
 
     /// <summary>公開されたfloat出力を読み、後段gainを適用します。故障は管理側へ保留します。</summary>
-    internal static unsafe int ReadPublishedCallbackOutput(BassAudioSession? session, IntPtr buffer, int length)
+    internal static int ReadPublishedCallbackOutput(BassAudioSession? session, IntPtr buffer, int length)
+        => ReadPublishedCallbackOutput(session, buffer, length, out _);
+
+    /// <summary>実renderer取得とprocessor完了の両方が成功したframe数を返します。ゼロ埋めは成功に数えません。</summary>
+    internal static unsafe int ReadPublishedCallbackOutput(
+        BassAudioSession? session, IntPtr buffer, int length, out int processedFrames)
     {
+        processedFrames = 0;
         if (buffer == IntPtr.Zero || length < 0)
         {
             session?.TryRecordCallbackOutputFailure(AudioPcmRenderStage.InvalidReadLength);
@@ -2171,7 +2202,8 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             return 0;
         }
 
-        return session.WithCallbackOutputPull(paused =>
+        int successfulFrames = 0;
+        int returnedBytes = session.WithCallbackOutputPull(paused =>
         {
             Span<byte> bytes = new((void*)buffer, length);
             bytes.Clear();
@@ -2204,7 +2236,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 }
 
                 if (!renderer.TryReadFrames(session.CallbackOutputHandle, pcm, requestedFrames,
-                        out _, out AudioPcmRenderStage stage, out Errors? nativeError))
+                        out AudioPcmReadResult read, out AudioPcmRenderStage stage, out Errors? nativeError))
                 {
                     session.TryRecordCallbackOutputFailure(stage, nativeError);
                     bytes.Clear();
@@ -2234,6 +2266,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 {
                     session.TryMarkOutputOverLevelPending();
                 }
+                successfulFrames = read.FramesRead;
                 return length;
             }
             catch
@@ -2243,6 +2276,39 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 return length;
             }
         });
+        processedFrames = successfulFrames;
+        return returnedBytes;
+    }
+
+    /// <summary>明示無音出力を一回だけ実取得し、callbackと同じgain・故障判定を適用します。</summary>
+    internal static unsafe int ReadNullOutputFrames(BassAudioSession session, float[] buffer, int frames)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(buffer);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(frames);
+        using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
+        if (!ReferenceEquals(CurrentSessionForAdmittedOperation, session)
+            || session.State != BassAudioSessionState.Active
+            || session.NullOutputProcessing != NullOutputProcessing.Processed)
+        {
+            throw new InvalidOperationException("An active processed null output session is required.");
+        }
+        AudioPcmRenderer renderer = session.CallbackPcmRenderer
+            ?? throw new InvalidOperationException("The null output renderer is unavailable.");
+        int sampleCount = checked(frames * renderer.ChannelCount);
+        if (frames > BassAudioSession.NullOutputBlockFrames || sampleCount > buffer.Length)
+        {
+            throw new ArgumentOutOfRangeException(nameof(frames));
+        }
+        Bass.CurrentDevice = session.CoreDeviceIndex;
+        int processedFrames;
+        fixed (float* pointer = buffer)
+        {
+            ReadPublishedCallbackOutput(session, (IntPtr)pointer,
+                checked(sampleCount * sizeof(float)), out processedFrames);
+        }
+        session.ThrowIfCallbackOutputFailed();
+        return processedFrames;
     }
 
     private static int ReadCallbackOutput(IntPtr buffer, int length)

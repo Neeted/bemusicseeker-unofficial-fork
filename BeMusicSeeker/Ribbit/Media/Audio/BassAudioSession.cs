@@ -53,6 +53,15 @@ internal sealed class AudioCallbackOutputFailureException : InvalidOperationExce
     internal AudioCallbackOutputFailure Failure { get; }
 }
 
+/// <summary>無音graphの取得経路を構築時に固定します。既存変換・手動取得はRawを使います。</summary>
+internal enum NullOutputProcessing
+{
+    /// <summary>既存の変換・手動NULL取得としてgainを通さず読みます。</summary>
+    Raw,
+    /// <summary>明示無音再生としてcallback共通のgainと故障判定を通します。</summary>
+    Processed
+}
+
 /// <summary>
 /// Records native ownership for one BASS audio graph from the start of initialization
 /// until every acquired layer has been released.
@@ -71,23 +80,31 @@ internal sealed class BassAudioSession
     private int maximumCallbackFrames;
     private readonly TaskCompletionSource firstCallbackObserved = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    /// <summary>要求backend、endpoint、SRC品質を捕捉した初期化中sessionを作成します。</summary>
+    /// <summary>要求backend、endpoint、SRC品質、無音取得方式を捕捉した初期化中sessionを作成します。</summary>
     internal BassAudioSession(
         BassAudioPlayer.DeviceDriver requestedBackend,
         BassAudioPlayer.DeviceDescriptor requestedDevice = default,
         int sampleRateConversionQuality = AudioResamplingQuality.Default,
-        AudioOutputRequest outputRequest = null)
+        AudioOutputRequest outputRequest = null,
+        NullOutputProcessing nullOutputProcessing = NullOutputProcessing.Raw)
     {
         RequestedBackend = requestedBackend;
         RequestedDevice = requestedDevice;
         SampleRateConversionQuality = AudioResamplingQuality.Validate(sampleRateConversionQuality);
         OutputRequest = outputRequest;
+        NullOutputProcessing = nullOutputProcessing;
         ActualBackend = BassAudioPlayer.DeviceDriver.INVALID;
         CoreDeviceIndex = -1;
         WasapiDeviceIndex = -1;
         AsioDeviceIndex = -1;
         State = BassAudioSessionState.Initializing;
     }
+
+    /// <summary>無音出力で共通callback処理を通すかを示す、不変の構築条件です。</summary>
+    internal NullOutputProcessing NullOutputProcessing { get; }
+
+    /// <summary>初回観測とschedulerが共有する無音出力の最大取得frame数です。</summary>
+    internal const int NullOutputBlockFrames = 4096;
 
     /// <summary>初期化時に捕捉した、このsessionが使うSRC品質を取得します。</summary>
     internal int SampleRateConversionQuality { get; }
@@ -678,12 +695,13 @@ internal sealed class BassAudioSessionLifecycle
     internal bool HasUnconfirmedOwnership =>
         currentSession?.State is BassAudioSessionState.Initializing or BassAudioSessionState.CleanupPending;
 
-    /// <summary>有効なsessionや解放保留sessionがない場合、新しい初期化の所有sessionを開始します。</summary>
+    /// <summary>既存所有がなければ、SRC品質と無音取得方式を固定した初期化sessionを開始します。</summary>
     internal bool TryBegin(
         BassAudioPlayer.DeviceDriver requestedBackend,
         BassAudioPlayer.DeviceDescriptor requestedDevice,
         out BassAudioSession session,
-        int sampleRateConversionQuality = AudioResamplingQuality.Default)
+        int sampleRateConversionQuality = AudioResamplingQuality.Default,
+        NullOutputProcessing nullOutputProcessing = NullOutputProcessing.Raw)
     {
         EnsureEntered();
         if (currentSession != null)
@@ -692,7 +710,8 @@ internal sealed class BassAudioSessionLifecycle
             return false;
         }
 
-        session = new BassAudioSession(requestedBackend, requestedDevice, sampleRateConversionQuality);
+        session = new BassAudioSession(requestedBackend, requestedDevice, sampleRateConversionQuality,
+            nullOutputProcessing: nullOutputProcessing);
         Volatile.Write(ref currentSession, session);
         return true;
     }
