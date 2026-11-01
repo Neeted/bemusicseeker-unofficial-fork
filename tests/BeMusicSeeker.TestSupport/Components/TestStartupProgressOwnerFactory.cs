@@ -1,8 +1,6 @@
-using System;
-using System.Threading.Tasks;
 using BeMusicSeeker.ViewModels;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.TestSupport.Components;
 
 internal static class TestStartupProgressOwnerFactory
 {

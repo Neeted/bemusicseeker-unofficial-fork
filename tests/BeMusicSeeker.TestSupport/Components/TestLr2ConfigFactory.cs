@@ -1,9 +1,7 @@
-using System.IO;
-using System.Linq;
 using System.Text;
 using BeMusicSeeker.Models.LR2;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.TestSupport.Components;
 
 /// <summary>呼出し側が所有する領域へ実LR2設定を準備し、設定ファイルの読込み境界を共有します。</summary>
 internal static class TestLr2ConfigFactory

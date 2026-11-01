@@ -1,16 +1,13 @@
-using System;
-using System.Collections.Generic;
 using System.Reflection;
-using System.Threading;
-using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.Runtime;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.ViewModels;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.TestSupport.Wpf;
 
 internal static class MainWindowViewModelTestFactory
 {

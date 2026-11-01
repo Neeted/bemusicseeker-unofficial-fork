@@ -1,10 +1,8 @@
-using System;
 using System.Collections.Concurrent;
 using System.Configuration;
-using System.IO;
 using BeMusicSeeker.Properties;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.TestSupport.Components;
 
 /// <summary>画面やテストクラスへ依存せず、専用設定とホスト終端まで保持する領域を準備します。</summary>
 internal static class TestSettingsFactory

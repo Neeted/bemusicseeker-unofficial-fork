@@ -1,11 +1,9 @@
-using System;
-using System.Collections.Generic;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.TestSupport.Components;
 
 /// <summary>呼出し側のDB所有者で実LR2行同期を行い、試験ごとの観測と故障入力を受け付けます。</summary>
 internal sealed class TestLr2PlaylistFolderSynchronizationPort : ILr2PlaylistFolderSynchronizationPort

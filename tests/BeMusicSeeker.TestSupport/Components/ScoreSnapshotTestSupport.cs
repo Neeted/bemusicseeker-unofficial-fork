@@ -1,8 +1,7 @@
-using System;
 using System.ComponentModel;
 using BeMusicSeeker.Models;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.TestSupport.Components;
 
 /// <summary>UI consumerのないmodel fixtureで、実score生産を通常queueから一回だけ観測します。</summary>
 internal static class ScoreSnapshotTestSupport

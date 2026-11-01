@@ -1,11 +1,8 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.InteropServices;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 
-namespace BeMusicSeeker.Tests.Helpers;
+namespace BeMusicSeeker.TestSupport.Components;
 
 /// <summary>
 /// 個別の実SQLite接続に対するtrace_v2の観測を、テストの接続lifecycle内だけで行います。

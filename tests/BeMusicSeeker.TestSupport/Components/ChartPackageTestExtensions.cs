@@ -1,9 +1,7 @@
-using System.Collections.Generic;
-using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.TestSupport.Components;
 
 internal static class ChartPackageTestExtensions
 {

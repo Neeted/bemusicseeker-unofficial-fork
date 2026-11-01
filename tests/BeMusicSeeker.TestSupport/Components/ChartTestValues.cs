@@ -1,10 +1,8 @@
-using System.Collections.Generic;
-using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.TestSupport.Components;
 
 /// <summary>各試験が必要な基本値を明示して構成するための不変fixtureです。</summary>
 internal static class ChartTestValues

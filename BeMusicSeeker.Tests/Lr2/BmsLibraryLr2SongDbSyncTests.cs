@@ -17,7 +17,7 @@ using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using static BeMusicSeeker.Tests.Lr2SongDbSyncTestSupport;
+using static BeMusicSeeker.TestSupport.Components.Lr2SongDbSyncTestSupport;
 
 namespace BeMusicSeeker.Tests;
 

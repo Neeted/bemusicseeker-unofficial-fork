@@ -1,11 +1,9 @@
-using System;
 using System.Runtime.ExceptionServices;
-using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.TestSupport.Wpf;
 
 /// <summary>実MainWindowの終端、設定購読と共有Resourcesの復元を同じ所有単位へ集めます。</summary>
 internal sealed class MainWindowTestLifetime : IDisposable

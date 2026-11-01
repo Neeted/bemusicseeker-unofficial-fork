@@ -6,7 +6,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using static BeMusicSeeker.Tests.StartupLibraryConstructionTestSupport;
+using static BeMusicSeeker.TestSupport.Components.StartupLibraryConstructionTestSupport;
 namespace BeMusicSeeker.Tests;
 
 

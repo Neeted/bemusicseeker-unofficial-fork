@@ -11,7 +11,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using static BeMusicSeeker.Tests.BmsLibraryInitializationTestSupport;
+using static BeMusicSeeker.TestSupport.Components.BmsLibraryInitializationTestSupport;
 
 namespace BeMusicSeeker.Tests;
 

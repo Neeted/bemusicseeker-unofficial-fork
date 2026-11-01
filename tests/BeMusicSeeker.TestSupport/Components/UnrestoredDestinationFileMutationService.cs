@@ -1,9 +1,7 @@
-using System;
-using System.IO;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualBasic.FileIO;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.TestSupport.Components;
 
 /// <summary>既存資源の実退避後に公開と復元を失敗させ、実producerの復元不能を観測する小さなI/O代替です。</summary>
 internal sealed class UnrestoredDestinationFileMutationService(string destination) : IFileMutationService

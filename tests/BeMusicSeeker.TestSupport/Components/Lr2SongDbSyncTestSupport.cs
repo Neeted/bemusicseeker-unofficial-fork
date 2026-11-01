@@ -1,13 +1,10 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
 using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.TestSupport.Components;
 
 /// <summary>
 /// LR2同期の固定入力とケース専有のFS資源を準備します。

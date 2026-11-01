@@ -13,7 +13,7 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SQLitePCL;
-using static BeMusicSeeker.Tests.Lr2SongDbSyncTestSupport;
+using static BeMusicSeeker.TestSupport.Components.Lr2SongDbSyncTestSupport;
 
 namespace BeMusicSeeker.Tests;
 

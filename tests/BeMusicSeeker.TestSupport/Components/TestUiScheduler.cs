@@ -1,11 +1,8 @@
-using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.TestSupport.Components;
 
 /// <summary>
 /// Keeps headless tests deterministic without changing the production WPF scheduler contract.

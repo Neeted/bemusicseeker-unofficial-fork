@@ -1,9 +1,7 @@
-using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.TestSupport.Components;
 
 /// <summary>リソース消費先のテストに取得済みの不変入力を渡します。</summary>
 internal static class TestChartResources

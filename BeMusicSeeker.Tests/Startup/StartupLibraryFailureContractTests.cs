@@ -10,7 +10,7 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using static BeMusicSeeker.Tests.StartupLibraryConstructionTestSupport;
+using static BeMusicSeeker.TestSupport.Components.StartupLibraryConstructionTestSupport;
 namespace BeMusicSeeker.Tests;
 
 
