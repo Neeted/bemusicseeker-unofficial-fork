@@ -35,6 +35,15 @@ public sealed class SettingDialogLr2OwnerTests
     /// <summary>このクラスの準備とモデルで共有するDBの所有者です。</summary>
     private readonly ApplicationDatabaseScope databaseScope = new();
 
+    /// <summary>LR2の保証に関与しないカタログ入力を空の成功一覧に固定し、HTTP接続拒否の待機を除きます。</summary>
+    /// <remarks>保存後の再起動でも同じファイルを読み、起動後続とshell終了の待機後にfixtureのrootとともに回収します。</remarks>
+    private static void PrepareEmptyTableList(string root, Settings values)
+    {
+        string path = Path.Combine(root, "table-list.json");
+        File.WriteAllText(path, "[]");
+        values.TableListURL = new Uri(path, UriKind.Absolute);
+    }
+
     /// <summary>無変更の二周期・Greekのlive表記訂正・ASCIIの次回起動での初検出を分担し、管理表/CLEAR FOLDERの全親とCRCを同じ操作で確定します。fresh起動は全体同期や任意修復による救済と区別します。</summary>
     [TestMethod]
     [DataRow("NormalOutput", "NormalOutput", false)]
@@ -52,6 +61,7 @@ public sealed class SettingDialogLr2OwnerTests
         Dictionary<string, DateTime> stableFiles = new(StringComparer.Ordinal);
         WithInitializedLr2Owner(CaseWorkspace, (root, values) =>
         {
+            PrepareEmptyTableList(root, values);
             string initialBase = Path.Combine(root, initialName);
             // WindowsではCreateDirectoryだけで既存名の大文字小文字が変わらないため、初回の物理表記も揃えます。
             if (!string.Equals(values.LR2CustomFolderOutputBaseDir, initialBase, StringComparison.Ordinal))
@@ -308,6 +318,7 @@ public sealed class SettingDialogLr2OwnerTests
     {
         WithInitializedLr2Owner(CaseWorkspace, (root, values) =>
         {
+            PrepareEmptyTableList(root, values);
             LR2Config initial = new(values.LR2ConfigXmlPath);
             initial.AddBMSSearchDirectories([values.LR2CustomFolderOutputBaseDir]);
             initial.Save(initial.ConfigFilePath);
@@ -352,6 +363,7 @@ public sealed class SettingDialogLr2OwnerTests
     {
         WithInitializedLr2Owner(CaseWorkspace, (root, values) =>
         {
+            PrepareEmptyTableList(root, values);
             string user = Directory.CreateDirectory(Path.Combine(root, "UserU")).FullName;
             string removed = Directory.CreateDirectory(Path.Combine(root, "RemovedUser")).FullName;
             File.WriteAllText(Path.Combine(user, "general.txt"), "keep general file");
@@ -424,7 +436,7 @@ public sealed class SettingDialogLr2OwnerTests
     [TestMethod]
     public void Lr2PartialBmsSaveRetainsDeletedManagedRootThroughExplicitRetry()
     {
-        WithInitializedLr2Owner(CaseWorkspace, null, (root, values, composition, shell, factory, failures, dialogs) =>
+        WithInitializedLr2Owner(CaseWorkspace, PrepareEmptyTableList, (root, values, composition, shell, factory, failures, dialogs) =>
         {
             BMSPlaylist playlist = factory.CreatedPlaylist ?? throw new AssertFailedException();
             BMSLibrary library = factory.CreatedLibrary ?? throw new AssertFailedException();
@@ -467,7 +479,7 @@ public sealed class SettingDialogLr2OwnerTests
     [TestMethod]
     public void Lr2InitialSettingsSaveIsInheritedByFirstLibraryConstruction()
     {
-        WithInitializedLr2Owner(CaseWorkspace, null, (root, values, composition, shell, factory, failures, dialogs) =>
+        WithInitializedLr2Owner(CaseWorkspace, PrepareEmptyTableList, (root, values, composition, shell, factory, failures, dialogs) =>
         {
             string added = Path.Combine(root, "InitialB");
             Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
@@ -487,7 +499,7 @@ public sealed class SettingDialogLr2OwnerTests
     [TestMethod]
     public void Lr2AdoptedEnvironmentIgnoresExternalXmlAndTimestampChanges()
     {
-        WithInitializedLr2Owner(CaseWorkspace, null, (root, values, composition, shell, factory, failures, dialogs) =>
+        WithInitializedLr2Owner(CaseWorkspace, PrepareEmptyTableList, (root, values, composition, shell, factory, failures, dialogs) =>
         {
             string adopted = values.LR2ConfigXmlPath;
             string alternative = Path.Combine(Path.GetDirectoryName(adopted) ?? throw new AssertFailedException(), "config.xmh");
