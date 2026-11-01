@@ -9,6 +9,10 @@ internal static class Program
     private static Task<int> Main(string[] args)
     {
         Console.OutputEncoding = new UTF8Encoding(false);
+        if (args.Length == 3 && args[0] == "update-package")
+        {
+            return UpdaterPackageProbe.RunAsync(args[1], args[2]);
+        }
         if (args.Length > 0 && args[0] == "runtime-isolation")
         {
             return RuntimeIsolationProbe.RunAsync(args[1..]);

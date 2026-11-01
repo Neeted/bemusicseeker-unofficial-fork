@@ -29,9 +29,6 @@
   <ItemGroup>
     <ProjectReference Include="..\BeMusicSeeker\BeMusicSeeker.csproj" />
     <ProjectReference Include="..\tests\BeMusicSeeker.TestSupport\BeMusicSeeker.TestSupport.csproj" />
-    <ProjectReference Include="..\BeMusicSeeker.Updater\BeMusicSeeker.Updater.csproj"
-                      ReferenceOutputAssembly="false"
-                      PrivateAssets="all" />
     <Compile Include="..\tools\chart-info-compare\ChartInfoCompareCore.cs" Link="Tools\ChartInfoCompareCore.cs" />
     <Compile Include="..\tools\chart-info-export\ChartInfoExportCore.cs" Link="Tools\ChartInfoExportCore.cs" />
   </ItemGroup>

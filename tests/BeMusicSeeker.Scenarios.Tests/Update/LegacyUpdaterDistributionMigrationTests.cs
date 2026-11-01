@@ -1,15 +1,14 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
-using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Threading.Tasks;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Processes;
+using BeMusicSeeker.TestSupport.Verification;
 
 namespace BeMusicSeeker.Tests;
 
@@ -17,41 +16,30 @@ namespace BeMusicSeeker.Tests;
 [TestCategory("ReleaseAcceptance")]
 public sealed class LegacyUpdaterDistributionMigrationTests
 {
-    private const string ArtifactPathEnvironmentVariable = "BMS_LEGACY_UPDATER_ARTIFACT_PATH";
-    private const string CurrentPackagePathEnvironmentVariable = "BMS_LEGACY_UPDATER_CURRENT_PACKAGE_PATH";
-    private const string ExecutionDeadlineEnvironmentVariable = "BMS_LEGACY_UPDATER_EXECUTION_DEADLINE_UTC";
-    private const string CleanupDeadlineEnvironmentVariable = "BMS_LEGACY_UPDATER_CLEANUP_DEADLINE_UTC";
-
-    /// <summary>
-    /// 固定v2.1.6.0配布物の実ツールで現配布ZIPを適用し、全管理ファイルの内容・旧不要ファイルの削除・利用者ツリー保持を照合して移行退行を検出する。
-    /// </summary>
-    /// <remarks>旧ツールのバイナリ互換性を検査するため固定配布ZIPと実プロセスを使用する。Fullが渡す実行・回収の期限を守り、ソース再構築品へ置換しない。</remarks>
+    /// <summary>固定v2.1.6.0実updaterがCurrent ZIPを適用し、全管理bytes・集合・旧不要file退役・利用者データ保持を確認します。</summary>
     [TestMethod]
     public async Task PublishedLegacyUpdater_MigratesManagedFilesAndPreservesUserFiles()
     {
-        string repositoryRoot = FindRepositoryRoot();
-        string legacyPackagePath = ValidatePinnedArtifact(repositoryRoot, GetRequiredEnvironmentPath(ArtifactPathEnvironmentVariable));
-        string currentPackagePath = GetRequiredEnvironmentPath(CurrentPackagePathEnvironmentVariable);
-        ValidateCurrentPackageName(currentPackagePath);
-        (DateTime executionDeadlineUtc, DateTime cleanupDeadlineUtc) = ReadDeadlines();
-
-        string sandboxRoot = Path.Combine(
-            Path.GetTempPath(),
-            "BeMusicSeeker-LegacyUpdaterDistributionMigration",
-            Guid.NewGuid().ToString("N"));
-        string appRoot = Path.Combine(sandboxRoot, "app");
-        Directory.CreateDirectory(appRoot);
-        string updaterPackagePath = Path.Combine(sandboxRoot, Path.GetFileName(currentPackagePath));
-
-        ExceptionDispatchInfo? primaryFailure = null;
-        string? cleanupFailure = null;
+        var deadline = ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(180));
+        var cleanupDeadline = new Lazy<ProcessDeadline>(() => ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(10)));
+        var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string appRoot = workspace.GetPath("app");
+        var processes = new List<OwnedProcess>();
+        var cleanupFailures = new List<Exception>();
+        Exception? primaryFailure = null;
         try
         {
+            string repositoryRoot = UpdateDeploymentTestSupport.FindRepositoryRoot();
+            DistributionCatalog catalog = await DistributionCatalog.ReadFromEnvironmentAsync(repositoryRoot, deadline);
+            string legacyPackagePath = ValidatePinnedArtifact(repositoryRoot, catalog.Legacy.PackagePath);
+            string currentPackagePath = catalog.Current.PackagePath;
+            ValidateCurrentPackageName(currentPackagePath);
+            string updaterPackagePath = workspace.GetPath(Path.GetFileName(currentPackagePath));
             ArchiveFile currentPackageIdentity = ReadFile(currentPackagePath);
             File.Copy(currentPackagePath, updaterPackagePath);
             AssertArchiveFileMatches(currentPackageIdentity, ReadFile(updaterPackagePath), Path.GetFileName(currentPackagePath));
 
-            ZipFile.ExtractToDirectory(legacyPackagePath, appRoot);
+            await catalog.Legacy.ExtractInstallationAsync(workspace, "app", deadline);
 
             string updaterPath = Path.Combine(appRoot, "BeMusicSeeker.Updater.exe");
             Assert.IsTrue(File.Exists(updaterPath), "The pinned v2.1.6.0 distribution does not contain its released updater.");
@@ -105,10 +93,10 @@ public sealed class LegacyUpdaterDistributionMigrationTests
             startInfo.ArgumentList.Add("--pid");
             startInfo.ArgumentList.Add("0");
 
-            UpdaterProcessResult updaterResult = await RunOwnedUpdaterAsync(
-                startInfo,
-                executionDeadlineUtc,
-                cleanupDeadlineUtc);
+            DistributionValidation.CheckDeadline(deadline, CancellationToken.None);
+            var process = OwnedProcess.Start(new ProcessStartRequest(startInfo.FileName, startInfo.ArgumentList.ToArray(), appRoot), () => cleanupDeadline.Value);
+            processes.Add(process);
+            ProcessCompletion updaterResult = await process.WaitForExitAsync(deadline);
             Assert.AreEqual(
                 0,
                 updaterResult.ExitCode,
@@ -140,190 +128,36 @@ public sealed class LegacyUpdaterDistributionMigrationTests
 
             FileSnapshot preservedAfter = CapturePreservedFiles(appRoot);
             AssertSnapshotsEqual(preservedBefore, preservedAfter);
+            DistributionValidation.CheckDeadline(deadline, CancellationToken.None);
         }
         catch (Exception exception)
         {
-            primaryFailure = ExceptionDispatchInfo.Capture(exception);
+            primaryFailure = exception;
+            if (exception is OwnedProcessStartException { CleanupFailure: not null } failed) { cleanupFailures.Add(failed.CleanupFailure); }
         }
         finally
         {
-            try
-            {
-                if (Directory.Exists(sandboxRoot))
-                {
-                    Directory.Delete(sandboxRoot, recursive: true);
-                }
-            }
-            catch (Exception exception)
-            {
-                cleanupFailure = $"Acceptance sandbox cleanup failed for '{sandboxRoot}': {exception.GetType().Name}: {exception.Message}";
-            }
-        }
-
-        if (primaryFailure is not null)
-        {
-            if (!string.IsNullOrWhiteSpace(cleanupFailure))
-            {
-                primaryFailure.SourceException.Data["Secondary sandbox cleanup failure"] = cleanupFailure;
-            }
-
-            primaryFailure.Throw();
-        }
-
-        if (!string.IsNullOrWhiteSpace(cleanupFailure))
-        {
-            Assert.Fail(cleanupFailure);
-        }
-    }
-
-    private static async Task<UpdaterProcessResult> RunOwnedUpdaterAsync(
-        ProcessStartInfo startInfo,
-        DateTime executionDeadlineUtc,
-        DateTime cleanupDeadlineUtc)
-    {
-        using var process = new Process { StartInfo = startInfo };
-        Task<string>? standardOutputTask = null;
-        Task<string>? standardErrorTask = null;
-        int? processId = null;
-        bool started = false;
-        ExceptionDispatchInfo? primaryFailure = null;
-        var cleanupFailures = new List<string>();
-        UpdaterProcessResult? result = null;
-
-        try
-        {
-            if (!process.Start())
-            {
-                throw new AssertFailedException("The released v2.1.6.0 updater did not start.");
-            }
-
-            started = true;
-            processId = process.Id;
-            standardOutputTask = process.StandardOutput.ReadToEndAsync();
-            standardErrorTask = process.StandardError.ReadToEndAsync();
-
-            TimeSpan processWait = executionDeadlineUtc - DateTime.UtcNow;
-            if (processWait <= TimeSpan.Zero)
-            {
-                throw new TimeoutException("The ReleaseAcceptance execution deadline elapsed before the legacy updater could finish.");
-            }
-
-            try
-            {
-                await process.WaitForExitAsync().WaitAsync(processWait);
-            }
-            catch (TimeoutException exception)
-            {
-                throw new AssertFailedException(
-                    $"The released v2.1.6.0 updater exceeded its remaining {processWait.TotalSeconds:F1}-second ReleaseAcceptance deadline (PID {processId}).",
-                    exception);
-            }
-
-            TimeSpan streamWait = GetRemaining(executionDeadlineUtc, "legacy updater redirected-stream completion");
-            try
-            {
-                await Task.WhenAll(standardOutputTask, standardErrorTask).WaitAsync(streamWait);
-            }
-            catch (TimeoutException exception)
-            {
-                throw new AssertFailedException(
-                    $"The released v2.1.6.0 updater output did not close before the execution deadline (PID {processId}).",
-                    exception);
-            }
-
-            result = new UpdaterProcessResult(
-                process.ExitCode,
-                standardOutputTask.GetAwaiter().GetResult(),
-                standardErrorTask.GetAwaiter().GetResult());
-        }
-        catch (Exception exception)
-        {
-            primaryFailure = ExceptionDispatchInfo.Capture(exception);
-        }
-        finally
-        {
-            if (started)
+            foreach (OwnedProcess owned in processes.AsEnumerable().Reverse())
             {
                 try
                 {
-                    if (!process.HasExited)
-                    {
-                        process.Kill(entireProcessTree: true);
-                    }
+                    ProcessStopResult stopped = await owned.StopAsync(null, cleanupDeadline.Value);
+                    if (stopped.CleanupFailure is not null) { cleanupFailures.Add(stopped.CleanupFailure); }
+                    await owned.DisposeAsync();
                 }
-                catch (Exception exception)
-                {
-                    cleanupFailures.Add($"Could not stop owned updater PID {processId}: {exception.GetType().Name}: {exception.Message}");
-                }
-
-                try
-                {
-                    if (!process.HasExited)
-                    {
-                        await process.WaitForExitAsync().WaitAsync(GetRemaining(cleanupDeadlineUtc, "owned updater process cleanup"));
-                    }
-                }
-                catch (Exception exception)
-                {
-                    cleanupFailures.Add($"Could not reap owned updater PID {processId}: {exception.GetType().Name}: {exception.Message}");
-                }
-
-                await DrainOutputAsync(standardOutputTask, "stdout", processId, cleanupDeadlineUtc, cleanupFailures);
-                await DrainOutputAsync(standardErrorTask, "stderr", processId, cleanupDeadlineUtc, cleanupFailures);
+                catch (Exception exception) { cleanupFailures.Add(exception); }
             }
+            if (primaryFailure is not null || cleanupFailures.Count > 0) { workspace.PreserveArtifacts(); }
+            try { workspace.Dispose(); }
+            catch (Exception exception) { cleanupFailures.Add(exception); }
         }
-
         if (primaryFailure is not null)
         {
-            if (cleanupFailures.Count > 0)
-            {
-                primaryFailure.SourceException.Data["Secondary legacy updater cleanup failure"] = string.Join("; ", cleanupFailures);
-            }
-
-            primaryFailure.Throw();
+            if (cleanupFailures.Count > 0) { primaryFailure.Data["UpdaterCleanupSecondaryDiagnostics"] = new AggregateException(cleanupFailures); }
+            ExceptionDispatchInfo.Capture(primaryFailure).Throw();
         }
-
-        if (cleanupFailures.Count > 0)
-        {
-            throw new AssertFailedException("Legacy updater process cleanup failed: " + string.Join("; ", cleanupFailures));
-        }
-
-        return result ?? throw new AssertFailedException("The legacy updater produced no process result.");
+        if (cleanupFailures.Count > 0) { throw new AggregateException(cleanupFailures); }
     }
-
-    private static async Task DrainOutputAsync(
-        Task<string>? outputTask,
-        string streamName,
-        int? processId,
-        DateTime cleanupDeadlineUtc,
-        List<string> failures)
-    {
-        if (outputTask is null)
-        {
-            return;
-        }
-
-        try
-        {
-            await outputTask.WaitAsync(GetRemaining(cleanupDeadlineUtc, $"legacy updater {streamName} drain"));
-        }
-        catch (Exception exception)
-        {
-            failures.Add($"Could not drain legacy updater {streamName} for PID {processId}: {exception.GetType().Name}: {exception.Message}");
-        }
-    }
-
-    private static TimeSpan GetRemaining(DateTime deadlineUtc, string operation)
-    {
-        TimeSpan remaining = deadlineUtc - DateTime.UtcNow;
-        if (remaining <= TimeSpan.Zero)
-        {
-            throw new TimeoutException($"The ReleaseAcceptance cleanup deadline elapsed during {operation}.");
-        }
-
-        return remaining;
-    }
-
     private static string ValidatePinnedArtifact(string repositoryRoot, string artifactPath)
     {
         string metadataPath = Path.Combine(repositoryRoot, "devdocs", "acceptance", "v216-first-hop", "artifact.json");
@@ -337,12 +171,6 @@ public sealed class LegacyUpdaterDistributionMigrationTests
         Assert.AreEqual(1, root.GetProperty("packageFormatVersion").GetInt32());
         Assert.AreEqual("published-bemusicseeker-unofficial-fork-v2.1.6.0.zip", root.GetProperty("fileName").GetString());
         Assert.IsTrue(root.GetProperty("sealed").GetBoolean(), "The pinned legacy artifact must remain sealed.");
-
-        string metadataArtifactPath = root.GetProperty("artifactPath").GetString()
-            ?? throw new AssertFailedException("The pinned legacy artifact metadata has no artifactPath.");
-        string expectedPath = Path.GetFullPath(Path.Combine(repositoryRoot, metadataArtifactPath.Replace('/', Path.DirectorySeparatorChar)));
-        Assert.AreEqual(expectedPath, artifactPath, ignoreCase: true, "The updater source must be the pinned v2.1.6.0 ZIP.");
-        Assert.AreEqual(root.GetProperty("fileName").GetString(), Path.GetFileName(artifactPath));
 
         var artifactFile = new FileInfo(artifactPath);
         Assert.IsTrue(artifactFile.Exists, "The pinned v2.1.6.0 ZIP is missing: " + artifactPath);
@@ -368,38 +196,6 @@ public sealed class LegacyUpdaterDistributionMigrationTests
                 System.Text.RegularExpressions.RegexOptions.CultureInvariant),
             "The current distribution package has an invalid versioned name: " + fileName);
         Assert.AreNotEqual("2.1.6.0", System.Text.RegularExpressions.Regex.Match(fileName, @"v(?<version>\d+\.\d+\.\d+\.\d+)").Groups["version"].Value);
-    }
-
-    private static (DateTime ExecutionDeadlineUtc, DateTime CleanupDeadlineUtc) ReadDeadlines()
-    {
-        DateTime executionDeadlineUtc = ReadDeadline(ExecutionDeadlineEnvironmentVariable);
-        DateTime cleanupDeadlineUtc = ReadDeadline(CleanupDeadlineEnvironmentVariable);
-        Assert.IsTrue(cleanupDeadlineUtc >= executionDeadlineUtc, "ReleaseAcceptance cleanup deadline precedes its execution deadline.");
-        Assert.IsTrue(executionDeadlineUtc > DateTime.UtcNow, "The ReleaseAcceptance execution deadline has elapsed.");
-        return (executionDeadlineUtc, cleanupDeadlineUtc);
-    }
-
-    private static DateTime ReadDeadline(string environmentVariableName)
-    {
-        string? value = Environment.GetEnvironmentVariable(environmentVariableName);
-        Assert.IsFalse(string.IsNullOrWhiteSpace(value), "Missing ReleaseAcceptance deadline: " + environmentVariableName);
-        Assert.IsTrue(
-            DateTime.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out DateTime deadlineUtc),
-            "Invalid ReleaseAcceptance deadline: " + environmentVariableName);
-        return deadlineUtc;
-    }
-
-    private static string GetRequiredEnvironmentPath(string environmentVariableName)
-    {
-        string? value = Environment.GetEnvironmentVariable(environmentVariableName);
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            throw new AssertFailedException("Missing ReleaseAcceptance input: " + environmentVariableName);
-        }
-
-        string path = Path.GetFullPath(value);
-        Assert.IsTrue(File.Exists(path), "ReleaseAcceptance input file is missing: " + path);
-        return path;
     }
 
     private static Dictionary<string, ZipArchiveEntry> ReadArchiveEntries(ZipArchive archive)
@@ -581,25 +377,8 @@ public sealed class LegacyUpdaterDistributionMigrationTests
         }
     }
 
-    private static string FindRepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            if (File.Exists(Path.Combine(directory.FullName, "BeMusicSeeker.sln")))
-            {
-                return directory.FullName;
-            }
-
-            directory = directory.Parent;
-        }
-
-        throw new DirectoryNotFoundException("The repository root was not found from the ReleaseAcceptance test output directory.");
-    }
-
     private sealed record ArchiveFile(long Length, string Sha256);
 
     private sealed record FileSnapshot(HashSet<string> Directories, Dictionary<string, ArchiveFile> Files);
 
-    private sealed record UpdaterProcessResult(int ExitCode, string StandardOutput, string StandardError);
 }

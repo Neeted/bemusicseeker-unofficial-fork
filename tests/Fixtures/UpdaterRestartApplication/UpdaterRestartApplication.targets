@@ -5,6 +5,9 @@
                       ReferenceOutputAssembly="false"
                       PrivateAssets="all"
                       UpdaterRestartApplicationFixture="true" />
+    <!-- callback境界はNativeAOT配布とは分けた同一構成のmanaged buildを使用します。 -->
+    <ProjectReference Include="$(MSBuildThisFileDirectory)../../../BeMusicSeeker.Updater/BeMusicSeeker.Updater.csproj"
+                      ReferenceOutputAssembly="false" PrivateAssets="all" ManagedUpdaterFixture="true" />
   </ItemGroup>
   <Target Name="CopyUpdaterRestartApplicationFixture" AfterTargets="Build" DependsOnTargets="ResolveProjectReferences">
     <ItemGroup>
@@ -21,5 +24,26 @@
     <Copy SourceFiles="@(_UpdaterRestartApplicationPublishedExe)"
           DestinationFolder="$(TargetDir)updater-restart-application"
           SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="CopyManagedUpdaterFixture" AfterTargets="Build" DependsOnTargets="ResolveProjectReferences">
+    <ItemGroup>
+      <_ManagedUpdaterReference Include="@(_MSBuildProjectReferenceExistent)"
+                                Condition="'%(_MSBuildProjectReferenceExistent.ManagedUpdaterFixture)' == 'true'" />
+    </ItemGroup>
+    <MSBuild Projects="@(_ManagedUpdaterReference)" Targets="GetTargetPath"
+             BuildInParallel="$(BuildInParallel)"
+             Properties="%(_ManagedUpdaterReference.SetConfiguration);%(_ManagedUpdaterReference.SetPlatform);%(_ManagedUpdaterReference.SetTargetFramework)"
+             RemoveProperties="%(_ManagedUpdaterReference.GlobalPropertiesToRemove);$(_GlobalPropertiesToRemoveFromProjectReferences)">
+      <Output TaskParameter="TargetOutputs" ItemName="_ManagedUpdaterTarget" />
+    </MSBuild>
+    <PropertyGroup>
+      <_ManagedUpdaterSource>@(_ManagedUpdaterTarget->'%(RootDir)%(Directory)')</_ManagedUpdaterSource>
+    </PropertyGroup>
+    <Error Condition="'$(_ManagedUpdaterSource)' == '' Or '$(TargetDir)' == '' Or !$([System.IO.Path]::IsPathFullyQualified('$(TargetDir)'))" Text="Managed updater fixture output must be absolute and available." />
+    <ItemGroup>
+      <_ManagedUpdaterFiles Include="$(_ManagedUpdaterSource)BeMusicSeeker.Updater.*" />
+    </ItemGroup>
+    <RemoveDir Directories="$(TargetDir)fixtures/managed-updater" />
+    <Copy SourceFiles="@(_ManagedUpdaterFiles)" DestinationFolder="$(TargetDir)fixtures/managed-updater" />
   </Target>
 </Project>
