@@ -1646,6 +1646,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             }
             using var releaseFirst = new ManualResetEventSlim();
             using var releaseSecond = new ManualResetEventSlim();
+            ManualResetEventSlim[] prefixPairGates = [.. Enumerable.Range(0, sqlFailure ? 2 : 1).Select(_ => new ManualResetEventSlim())];
             var heldEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var firstHeldExited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var failureReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1659,6 +1660,13 @@ public sealed class BmsLibraryInitializationFileScanTests
                 int firstHeldCall = sqlFailure ? 5 : 3;
                 try
                 {
+                    // 2workerの先行入力を一組ずつ揃え、到着順の逆転で未確定prefixを後続holdへ閉じ込めません。
+                    if (call < firstHeldCall)
+                    {
+                        ManualResetEventSlim pairGate = prefixPairGates[(call - 1) / 2];
+                        if (call % 2 == 0) { pairGate.Set(); }
+                        pairGate.Wait();
+                    }
                     if (call == firstHeldCall || call == firstHeldCall + 1)
                     {
                         if (Interlocked.Increment(ref heldWorkers) == 2) { heldEntered.TrySetResult(); }
@@ -1738,9 +1746,11 @@ public sealed class BmsLibraryInitializationFileScanTests
             }
             finally
             {
+                foreach (ManualResetEventSlim pairGate in prefixPairGates) { pairGate.Set(); }
                 releaseFirst.Set();
                 releaseSecond.Set();
                 try { operation.GetAwaiter().GetResult(); } catch { /* 元原因を維持して全pipelineを回収してからDBを解放します。 */ }
+                foreach (ManualResetEventSlim pairGate in prefixPairGates) { pairGate.Dispose(); }
             }
         });
     }
