@@ -1,12 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading.Tasks;
@@ -16,9 +14,7 @@ using BeMusicSeeker.Models.LR2;
 using ChartInfoExportTool;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.TestSupport.Components.ChartInfoComponentTestSupport;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
+using static BeMusicSeeker.TestSupport.Components.ChartInfoHydrationTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
@@ -240,63 +236,6 @@ internal static class ChartInfoMetadataTestSupport
             nameof(BMSLibrary.ChartInfoBackfillRunning));
     }
 
-    internal static void InvokeDeferredChartInfoHydration(BMSLibrary library, string reason, bool queueFullBackfillAfterHydration)
-    {
-        MethodInfo? method = typeof(BMSLibrary).GetMethod("QueueDeferredChartInfoHydration", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(method, "QueueDeferredChartInfoHydration method was not found.");
-        method!.Invoke(library, [reason, queueFullBackfillAfterHydration]);
-    }
-
-    internal static Task AwaitChartInfoHydrationAsync(BMSLibrary library)
-    {
-        return AwaitChartInfoStateAsync(
-            library,
-            current => current.ChartInfoHydrationRequestedVersion > 0
-                && current.ChartInfoHydrationCompletedVersion == current.ChartInfoHydrationRequestedVersion
-                && !current.ChartInfoHydrationRunning,
-            nameof(BMSLibrary.ChartInfoHydrationRequestedVersion),
-            nameof(BMSLibrary.ChartInfoHydrationCompletedVersion),
-            nameof(BMSLibrary.ChartInfoHydrationRunning));
-    }
-
-    private static Task AwaitChartInfoStateAsync(
-        BMSLibrary library,
-        Func<BMSLibrary, bool> isComplete,
-        params string[] observedPropertyNames)
-    {
-        var completion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        void CompleteIfReady()
-        {
-            try
-            {
-                if (isComplete(library))
-                {
-                    library.PropertyChanged -= OnPropertyChanged;
-                    completion.TrySetResult(null);
-                }
-            }
-            catch (Exception exception)
-            {
-                library.PropertyChanged -= OnPropertyChanged;
-                completion.TrySetException(exception);
-            }
-        }
-
-        void OnPropertyChanged(object? sender, PropertyChangedEventArgs args)
-        {
-            if (args.PropertyName is null || Array.IndexOf(observedPropertyNames, args.PropertyName) >= 0)
-            {
-                CompleteIfReady();
-            }
-        }
-
-        library.PropertyChanged += OnPropertyChanged;
-        CompleteIfReady();
-        // 状態を受信したTask自体を返し、後続continuationの実行遅延を通知欠落と誤認しない。
-        return completion.Task;
-    }
-
     internal static int ReadPositiveIntEnvironmentVariable(string name, int defaultValue)
     {
         string? value = Environment.GetEnvironmentVariable(name);
@@ -341,15 +280,6 @@ internal static class ChartInfoMetadataTestSupport
         public int chart_info_count { get; set; }
 
         public int chart_digest_count { get; set; }
-    }
-
-
-    internal sealed class RecordingDialogService : IBmsLibraryDialogService
-    {
-        public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
-        {
-            return defaultResult == MessageBoxResult.None ? MessageBoxResult.OK : defaultResult;
-        }
     }
 
     internal sealed class RealChartInfoExpectedRow

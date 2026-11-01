@@ -6,6 +6,7 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
@@ -87,10 +88,11 @@ internal static class StartupCompletionTestFixture
         }
     }
 
-    /// <summary>通常起動の実構成・DB・L/Pを使い、必須UIと既存任意workだけを到達前に捕捉します。</summary>
+    /// <summary>通常起動の実構成・DB・L/Pを使い、必須UIと既存任意workだけを到達前に捕捉します。OS一時領域の専有媒体は受理済み処理とshutdownの実終端後に回収します。</summary>
     internal sealed class CompletionFixture : IDisposable
     {
-        private readonly string directory = Path.Combine(Path.GetTempPath(), "StartupCompletion-" + Guid.NewGuid().ToString("N"));
+        private readonly TestWorkspace ownedWorkspace = TestWorkspace.Create(Path.GetTempPath());
+        private readonly string directory;
         private readonly List<Task> tasks = [];
         private Func<string, string, string, Func<Task>, bool>? wrappedScheduler;
         private readonly bool isolateSortWarmup;
@@ -146,6 +148,7 @@ internal static class StartupCompletionTestFixture
             Func<IBMSPlayer>? defaultPlayer = null, bool lr2Mode = false, IApplicationLifetimePort? lifetime = null,
             Action<Exception>? settingsFailureReporter = null, Func<Settings, ISettingsEditSession>? settingsSessionFactory = null, bool isolateSortWarmup = false, IRootFileEnumerator? rootFileEnumerator = null, bool ownHttpSettings = false)
         {
+            directory = Path.Combine(ownedWorkspace.RootDirectory, "StartupCompletion-" + Guid.NewGuid().ToString("N"));
             this.isolateSortWarmup = isolateSortWarmup;
             Lifetime = lifetime ?? new TestApplicationLifetime(firstStartup: true);
             Directory.CreateDirectory(directory);
@@ -336,7 +339,7 @@ internal static class StartupCompletionTestFixture
                 catch (Exception failure) { failures.Add(failure); }
                 try { Owner.SettingDialog.Dispose(); }
                 catch (Exception failure) { failures.Add(failure); }
-                try { Directory.Delete(directory, recursive: true); }
+                try { Directory.Delete(directory, recursive: true); ownedWorkspace.Dispose(); }
                 catch (Exception failure) { failures.Add(failure); }
             }
             else
@@ -354,11 +357,25 @@ internal static class StartupCompletionTestFixture
             try { ReleaseDeferredMaintenance(); }
             finally
             {
-                try { TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(tasks), "startup-completion-fixture-accepted-tasks"); }
+                var accepted = Task.WhenAll(tasks);
+                Task? shutdown = null;
+                try { TestUiDispatcherHost.AwaitTaskOnDispatcher(accepted, "startup-completion-fixture-accepted-tasks"); }
                 finally
                 {
-                    try { TestUiDispatcherHost.AwaitTaskOnDispatcher(Owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "startup-completion-fixture-shutdown"); }
-                    finally { Owner.SettingDialog.Dispose(); Directory.Delete(directory, recursive: true); }
+                    try
+                    {
+                        shutdown = Owner.ShellShutdownWorkflow.RequestWindowCloseAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(shutdown, "startup-completion-fixture-shutdown");
+                    }
+                    finally
+                    {
+                        if (accepted.IsCompleted && shutdown is { IsCompleted: true })
+                        {
+                            Owner.SettingDialog.Dispose();
+                            Directory.Delete(directory, recursive: true);
+                            ownedWorkspace.Dispose();
+                        }
+                    }
                 }
             }
         }
@@ -395,6 +412,11 @@ internal static class StartupCompletionTestFixture
         }
         public async Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(UiWindowDialogRequest<TWindow, TResult> request, CancellationToken cancellationToken = default) where TWindow : Window
         {
+            // Settingsの型組だけ実モーダルへ渡し、起動復元の固定応答は既存の観測境界に残します。
+            if (typeof(TWindow) == typeof(SettingsWindow) && typeof(TResult) == typeof(SettingsWindowCloseReason))
+            {
+                return await new UiDialogCoordinator().ShowWindowAsync(request, cancellationToken);
+            }
             if (typeof(TWindow) != typeof(PendingPackageRestoreWindow) || PendingRestoreObservedAsync == null) { throw new NotSupportedException(); }
             PendingRestoreCount++;
             return (UiWindowDialogResult<TResult>)(object)await PendingRestoreObservedAsync();

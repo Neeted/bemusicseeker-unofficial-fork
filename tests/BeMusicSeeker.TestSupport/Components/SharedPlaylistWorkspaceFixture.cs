@@ -159,6 +159,7 @@ internal static class SharedPlaylistWorkspaceFixture
     /// <param name="databaseScope">復元する接続・ライブラリ・プレイリストが共有するDB所有者。</param>
     /// <param name="libraryOverride">復元のL/Pとモデルのbindingへ共通に渡す、テストが所有するlibrary。</param>
     /// <param name="reloadFailureLog">通知表示などの二次失敗を観測する診断先。省略時は記録しません。</param>
+    /// <param name="modelUiScheduler">モデルと復元wrapperの内側だけに渡す配送境界。省略時は共有Dispatcherを維持します。</param>
     internal static PlaylistWorkspaceViewModel CreateBackupWorkspace(
         ApplicationDatabaseScope databaseScope,
         string songDbPath,
@@ -168,14 +169,16 @@ internal static class SharedPlaylistWorkspaceFixture
         Func<Action, Task>? restoreUiApplyScheduler = null,
         Func<bool>? restoreUiThreadCheck = null,
         TestBmsLibrary? libraryOverride = null,
-        Action<Exception, string>? reloadFailureLog = null)
+        Action<Exception, string>? reloadFailureLog = null, IUiScheduler? modelUiScheduler = null)
     {
         PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
         Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
             });
-        TestBmsLibrary library = libraryOverride ?? MainWindowViewModelTestFactory.CreateLibrary(databaseScope, songDbPath, settings);
+        TestBmsLibrary library = libraryOverride ?? (modelUiScheduler == null
+            ? MainWindowViewModelTestFactory.CreateLibrary(databaseScope, songDbPath, settings)
+            : new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, modelUiScheduler, settings: settings));
         var createdPlaylist = new BMSPlaylist(
             new BmsPlaylistLibraryBindings(library),
             songDbPath, null, null,
@@ -183,7 +186,7 @@ internal static class SharedPlaylistWorkspaceFixture
             () => new BeatorajaBmtOptionsSnapshot(),
             () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings),
             TestBmsFactory.MissingEverythingBridge,
-            new RestoreUiScheduler(restoreUiApplyScheduler, restoreUiThreadCheck))
+            new RestoreUiScheduler(restoreUiApplyScheduler, restoreUiThreadCheck, modelUiScheduler))
         {
             BMSTables = new ObservableCollection<BMSTable>(tables)
         };
@@ -205,11 +208,12 @@ internal static class SharedPlaylistWorkspaceFixture
     }
 
     /// <summary>復元テストの既存 callback を、本番 owner と同じ UI operation の完了境界へ接続します。</summary>
+    /// <param name="modelUiScheduler">既存callbackの内側でcollectionへ適用する配送境界。省略時だけ共有Dispatcherを選びます。</param>
     internal sealed class RestoreUiScheduler(
         Func<Action, Task>? schedule,
-        Func<bool>? threadCheck) : IUiScheduler
+        Func<bool>? threadCheck, IUiScheduler? modelUiScheduler = null) : IUiScheduler
     {
-        private readonly TestUiScheduler inner = new(() => TestUiDispatcherHost.Dispatcher);
+        private readonly IUiScheduler inner = modelUiScheduler ?? new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher);
 
         public bool IsAvailable => inner.IsAvailable;
         public bool CanExecuteInline => inner.CanExecuteInline;
@@ -225,7 +229,7 @@ internal static class SharedPlaylistWorkspaceFixture
                     {
                         throw new InvalidOperationException("Controlled restore UI thread rejection.");
                     }
-                    // 注入 callback は受付/完了を制御する。実 collection event は常に共有 dispatcher に配送する。
+                    // 注入 callback は受付/完了を制御し、collection event は選択したモデル配送境界へ渡す。
                     inner.Invoke(action, priority);
                 }
                 if (schedule == null)

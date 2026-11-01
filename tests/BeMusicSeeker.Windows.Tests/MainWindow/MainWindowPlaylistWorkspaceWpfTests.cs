@@ -1,0 +1,7357 @@
+using System.Collections;
+using System.Collections.Concurrent;
+using System.Collections.ObjectModel;
+using System.Globalization;
+using System.IO;
+using System.Net;
+using System.Net.Sockets;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Data;
+using System.Windows.Documents;
+using System.Windows.Input;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Threading;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Properties;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Wpf;
+using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Dialogs;
+using Ribbit.Windows;
+using static BeMusicSeeker.TestSupport.Components.BmsPlaylistTestSupport;
+
+namespace BeMusicSeeker.Tests;
+
+
+/// <summary>実プレイリスト画面の編集・通知・所有モーダル・終了と、compiled操作の配送を検証します。</summary>
+/// <remarks>保存・候補・受付条件の網羅はPlaylistの管理主体へ分担し、ここでは実DB/HTTPからの表示反映とWindow所有、イベント接続を観測します。</remarks>
+[TestClass]
+// 実MainWindowと所有モーダルがApplication資源・共通SQLite/native音声終端へ到達するため並列化しません。
+[DoNotParallelize]
+public sealed class MainWindowPlaylistWorkspaceWpfTests
+{
+    private TestWorkspace? ownedCaseWorkspace;
+
+    /// <summary>返却されたfixtureの終端まで、ケースが専有媒体の親領域を保持します。</summary>
+    private TestWorkspace CaseWorkspace => ownedCaseWorkspace ?? throw new InvalidOperationException("ケースの媒体は初期化後に使用します。");
+
+    /// <summary>ケース専有領域を開始し、既存の相対pathの存在条件を維持します。</summary>
+    [TestInitialize]
+    public void InitializeCaseWorkspace() => ownedCaseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+
+    /// <summary>ケース本文のfinallyとfixtureの終端後に外側の媒体を回収します。</summary>
+    [TestCleanup]
+    public void CleanupCaseWorkspace() => ownedCaseWorkspace?.Dispose();
+
+    private const string NativeModalFixturePlaylistName = "Native modal fixture";
+
+    /// <summary>実表見出しと実子folderのheaderからOSファイルをrouted Dropし、既存導入ownerの一回受付・保留登録とDBを確認します。プレイリストへ取り込む誤配線も検出します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PlaylistTreeFileDrop_ReachesInstallOwnerOnceWithoutChangingPlaylist(bool childFolder)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ActualMainWindowFixture fixture = CreatePlaylistDropFixture(scope, configureSettings: settings =>
+            {
+                settings.AutoInstall = false;
+                settings.AutoInstallAfterAutomaticEstimation = false;
+            });
+            PackageInstallWorkflowOwner owner = fixture.ViewModel.PackageInstallWorkflow;
+            var failures = new ConcurrentQueue<PackageInstallFailure>();
+            string[] managedInputs = [];
+            TestWorkspace? inputWorkspace = null;
+            Exception? bodyFailure = null;
+            int completions = 0;
+            Action<PackageInstallCompletionReceipt> completed = _ => Interlocked.Increment(ref completions);
+            Action<PackageInstallFailure> failed = failure => failures.Enqueue(failure);
+            owner.CompletionPublished += completed;
+            owner.FailurePublished += failed;
+            try
+            {
+                inputWorkspace = TestWorkspace.Create(Path.GetTempPath());
+                fixture.Table.entry_type = LR2SongDBExtended.playlist.EntryUnitType.Folder;
+                fixture.Table.Folder_order = [string.Empty];
+                fixture.Table.entries = [new BMSTableEntry { md5 = new string('b', 32), title = "Kept", folder = "", memo = "Kept memo" }];
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                TreeViewItem table = MaterializePlaylistDropTable(fixture);
+                table.IsExpanded = true;
+                MaterializePlaylistDropItems(table);
+                TreeViewItem target = childFolder ? FindDescendants<TreeViewItem>(table).Single(item => item.DataContext is PlaylistFolderNode { IsSpecial: false, FolderName: "" }) : table;
+                string input = inputWorkspace.GetPath("external.bms");
+                Assert.IsTrue(string.Equals(
+                    Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.Combine(inputWorkspace.RootDirectory, ".."))),
+                    Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath())),
+                    StringComparison.OrdinalIgnoreCase), "外部一時入力はOSの一時ディレクトリ直下の専有領域に置きます。");
+                Assert.IsFalse(TempDirectoryPublisher.IsManagedPath(input), "Drop前の入力はアプリ管理領域外です。");
+                byte[] bytes = Encoding.ASCII.GetBytes("#TITLE External drop\n#ARTIST Fixture\n#BPM 120\n#00111:01\n");
+                File.WriteAllBytes(input, bytes);
+                var data = new CountingFileDropDataObject(input);
+
+                DragEventArgs drop = RaisePlaylistHeaderDrag(target, data, DragDrop.DropEvent);
+                Assert.AreEqual(1, data.ExtractionCount, "一つのrouted Dropを二重に導入受付へ渡しません。");
+                Assert.IsTrue(drop.Handled);
+                Assert.AreEqual(DragDropEffects.Copy, drop.Effects);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.WaitForIdleAsync(), "playlist-file-drop-owner-idle");
+
+                Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures.Select(failure => failure.Exception.ToString())));
+                Assert.AreEqual(0, completions, "保留だけの正常終了では導入済み成功通知を発行しません。");
+                Assert.AreEqual(1, fixture.Library.ChartPackagesPending.Count);
+                Assert.AreEqual(0, fixture.Library.ChartPackagesInstalled.Count);
+                ChartPackage pending = fixture.Library.ChartPackagesPending.Single();
+                PackageChartEntry entry = pending.ChartEntries.Single();
+                Assert.IsTrue(TempDirectoryPublisher.IsManagedPath(pending.path));
+                Assert.IsTrue(TempDirectoryPublisher.IsManagedPath(entry.Chart.Path));
+                Assert.IsFalse(string.Equals(input, entry.Chart.Path, StringComparison.OrdinalIgnoreCase));
+                CollectionAssert.AreEqual(bytes, File.ReadAllBytes(entry.Chart.Path));
+                Assert.AreEqual("External drop", entry.Chart.RawTitle);
+                Assert.AreEqual("Fixture", entry.Chart.Artist);
+                string songDb = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(fixture.Root, "BeMusicSeeker.exe")).StandaloneSongDbPath;
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).OpenSongDbReadOnly();
+                Assert.AreEqual(pending.path, db.Table<LR2SongDBExtended.install>().Single().path);
+                Assert.AreEqual(0, db.Table<LR2SongDB.song>().Count());
+                Assert.AreEqual(1, db.Table<LR2SongDBExtended.playlist>().Count());
+                LR2SongDBExtended.playlist_entry saved = db.Table<LR2SongDBExtended.playlist_entry>().Single();
+                Assert.AreEqual(new string('b', 32), saved.md5);
+                Assert.AreEqual("", saved.folder);
+                Assert.AreEqual("Kept memo", saved.memo);
+                Assert.AreEqual(1, fixture.Table.entries.Count);
+                CollectionAssert.AreEqual(bytes, File.ReadAllBytes(input));
+            }
+            catch (Exception failure)
+            {
+                bodyFailure = failure;
+                throw;
+            }
+            finally
+            {
+                try
+                {
+                    try
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.WaitForIdleAsync(), "playlist-file-drop-final-idle");
+                        managedInputs = fixture.Library.ChartPackagesPending.Select(package => package.path).Where(TempDirectoryPublisher.IsManagedPath).ToArray();
+                    }
+                    finally
+                    {
+                        owner.CompletionPublished -= completed;
+                        owner.FailurePublished -= failed;
+                        try { fixture.Close(); }
+                        finally
+                        {
+                            foreach (string path in managedInputs)
+                            {
+                                // テストの終了処理はアプリ全体の一時領域を回収しないため、今回の入力だけ回収します。
+                                if (File.Exists(path) || Directory.Exists(path))
+                                {
+                                    Exception? deletionFailure = null;
+                                    TempDirectoryPublisher.TryDeleteManagedPath(path, logWarning: (_, failure) => deletionFailure = failure);
+                                    if (deletionFailure != null) { throw new IOException("今回の保留入力の回収に失敗しました。", deletionFailure); }
+                                }
+                                Assert.IsFalse(File.Exists(path) || Directory.Exists(path), "今回の保留入力が終端後に残っていません。");
+                            }
+                        }
+                    }
+                    inputWorkspace?.Dispose();
+                }
+                catch (Exception cleanupFailure) when (bodyFailure != null)
+                {
+                    bodyFailure.Data["PlaylistDropCleanupFailure"] = cleanupFailure.ToString();
+                }
+            }
+        });
+    }
+
+    /// <summary>正規の内部行DataObjectを実headerへ配送し、表rootの分類と空名実folderの所属を分けます。Dropはhoverを解除し、受理時のP実終端とasyncイベントを回収してからDBを読みます。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PlaylistTreeRowDrop_UsesHitNodeAndClearsHover(bool childFolder)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ActualMainWindowFixture fixture = CreatePlaylistDropFixture(scope);
+            try
+            {
+                fixture.Table.entry_type = LR2SongDBExtended.playlist.EntryUnitType.Folder;
+                fixture.Table.is_root_folder = true;
+                fixture.Table.Folder_order = [string.Empty];
+                fixture.Table.entries = [new BMSTableEntry { md5 = new string('b', 32), title = "Kept", folder = "" }];
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                string path = Path.Combine(fixture.Root, "charts", "input.bms");
+                Directory.CreateDirectory(Path.GetDirectoryName(path) ?? throw new InvalidOperationException());
+                byte[] bytes = Encoding.ASCII.GetBytes("#TITLE Classified input\n#BPM 120\n");
+                File.WriteAllBytes(path, bytes);
+                string[] values = PlaylistWorkspaceTestDataSupport.CreateSongTableRow(new string('a', 32), path);
+                values[1] = "Classified input";
+                ChartFile chart = ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(values));
+                fixture.Library.BmsCharts = [chart];
+                DataObject data = CustomTableDataTransfer.CreateSelectedRowsDataObject([LibraryChartRow.FromChartFile(chart)], CustomTableRowDragKind.PlaylistDropCandidateRows);
+                TreeViewItem next = AddSecondPlaylistDropTable(fixture);
+                TreeViewItem table = MaterializePlaylistDropTable(fixture);
+                table.IsExpanded = childFolder;
+                MaterializePlaylistDropItems(table);
+                TreeViewItem target = childFolder ? FindDescendants<TreeViewItem>(table).Single(item => item.DataContext is PlaylistFolderNode { IsSpecial: false, FolderName: "" }) : table;
+                RaisePlaylistHeaderDrag(target, data, DragDrop.PreviewDragEnterEvent);
+                Assert.AreEqual(SystemColors.HighlightBrush, target.Background);
+
+                RunAcceptedPlaylistHeaderDrop(fixture, target, data);
+
+                Assert.AreEqual(Brushes.Transparent, target.Background);
+                Assert.AreEqual(childFolder, table.IsExpanded, "Drop後に古いhoverが見出しを展開しません。");
+                string expectedFolder = childFolder ? "" : "Classified input";
+                Assert.AreEqual(expectedFolder, fixture.Table.entries.Single(entry => entry.md5 == new string('a', 32) && !entry.is_removed).folder);
+                string songDb = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(fixture.Root, "BeMusicSeeker.exe")).StandaloneSongDbPath;
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).OpenSongDbReadOnly();
+                Assert.AreEqual(expectedFolder, db.Table<LR2SongDBExtended.playlist_entry>().Single(entry => entry.md5 == new string('a', 32) && !entry.is_removed).folder);
+                CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path));
+                // 次のdragが正常に開く間も、Dropで終端した旧見出しの要求は再開しません。
+                RaisePlaylistHeaderDrag(next, data, DragDrop.PreviewDragEnterEvent);
+                CompletePlaylistHover(fixture.Window);
+                Assert.IsTrue(next.IsExpanded);
+                Assert.AreEqual(childFolder, table.IsExpanded);
+                RaisePlaylistHeaderDrag(next, data, DragDrop.PreviewDragLeaveEvent);
+                Assert.AreEqual(Brushes.Transparent, next.Background);
+            }
+            finally { fixture.Close(); }
+        });
+    }
+
+    /// <summary>実compiled hoverで未展開だけを開きます。Leave（OLE取消の既存入力先）後の次drag完了でも旧対象を開かず、展開済み見出しは閉じません。</summary>
+    [TestMethod]
+    public void PlaylistTreeHover_OnlyOpensCollapsedHeaderAndLeaveCancelsOldTarget()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ActualMainWindowFixture fixture = CreatePlaylistDropFixture(scope);
+            try
+            {
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                TreeViewItem next = AddSecondPlaylistDropTable(fixture);
+                TreeViewItem table = MaterializePlaylistDropTable(fixture);
+                var source = new BMSTableEntry { md5 = new string('a', 32), title = "Source" };
+                DataObject data = CustomTableDataTransfer.CreateSelectedRowsDataObject([new PlaylistDetailSourceRow(source, null).CreateViewRow()], CustomTableRowDragKind.PlaylistDropCandidateRows);
+                table.IsExpanded = false;
+                RaisePlaylistHeaderDrag(table, data, DragDrop.PreviewDragEnterEvent);
+                Assert.AreEqual(SystemColors.HighlightBrush, table.Background);
+                RaisePlaylistHeaderDrag(table, data, DragDrop.PreviewDragLeaveEvent);
+                Assert.AreEqual(Brushes.Transparent, table.Background);
+                Assert.IsFalse(table.IsExpanded);
+                RaisePlaylistHeaderDrag(next, data, DragDrop.PreviewDragEnterEvent);
+                CompletePlaylistHover(fixture.Window);
+                Assert.IsTrue(next.IsExpanded);
+                Assert.IsFalse(table.IsExpanded, "Leaveで失効した旧clockは次dragの完了でも再開しません。");
+                RaisePlaylistHeaderDrag(next, data, DragDrop.PreviewDragLeaveEvent);
+                RaisePlaylistHeaderDrag(next, data, DragDrop.PreviewDragEnterEvent);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(next.IsExpanded);
+                RaisePlaylistHeaderDrag(next, data, DragDrop.PreviewDragLeaveEvent);
+                RaisePlaylistHeaderDrag(table, data, DragDrop.PreviewDragEnterEvent);
+                CompletePlaylistHover(fixture.Window);
+                Assert.IsTrue(table.IsExpanded);
+                Assert.IsTrue(next.IsExpanded);
+                RaisePlaylistHeaderDrag(table, data, DragDrop.PreviewDragLeaveEvent);
+            }
+            finally { fixture.Close(); }
+        });
+    }
+
+    // 専用providerの未保存配置は零矩形・Hideのため、native復元で最小寸法へ縮みます。実hit用の保存済み通常配置を入力します。
+    private ActualMainWindowFixture CreatePlaylistDropFixture(TestWindowPresentationScope scope, Action<Settings>? configureSettings = null)
+    {
+        return CreateActualMainWindowFixture(scope, configureSettings: settings =>
+        {
+            settings.WindowPlacement = new Win32API.WINDOWPLACEMENT
+            {
+                ShowCmd = Win32API.ShowWindowCommands.Normal,
+                NormalPosition = new Win32API.RECT(0, 0, 1000, 800)
+            };
+            configureSettings?.Invoke(settings);
+        });
+    }
+
+    private static TreeViewItem MaterializePlaylistDropTable(ActualMainWindowFixture fixture, BMSTable? table = null)
+    {
+        var tree = (TreeView)fixture.Window.FindName("treeViewPlaylist");
+        tree.ClearValue(FrameworkElement.HeightProperty);
+        TestUiDispatcherHost.ProcessQueuedPresentation();
+        var root = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+        root.IsExpanded = true;
+        MaterializePlaylistDropItems(root);
+        return root.ItemContainerGenerator.ContainerFromItem(table ?? fixture.Table) as TreeViewItem
+            ?? throw new AssertFailedException("実表の表示コンテナがありません。");
+    }
+
+    private static TreeViewItem AddSecondPlaylistDropTable(ActualMainWindowFixture fixture)
+    {
+        var table = new BMSTable { playlist_id = 2, name = "Next hover", is_bmt_output = false };
+        fixture.Playlist.BMSTables.Add(table);
+        fixture.Playlist.CommitBMSTableWithEntriesToDB(table);
+        fixture.ViewModel.PlaylistWorkspace.RefreshPlaylistTreeTables(fixture.Playlist, fixture.Library);
+        TreeViewItem item = MaterializePlaylistDropTable(fixture, table);
+        item.IsExpanded = false;
+        return item;
+    }
+
+    // 実hitを使うケースでは子を手動Arrangeせず、表示Windowの親layoutから位置とclipを確定します。
+    private static void MaterializePlaylistDropItems(TreeViewItem item)
+    {
+        item.ApplyTemplate();
+        Window window = Window.GetWindow(item) ?? throw new AssertFailedException("ツリー表示のWindowがありません。");
+        window.UpdateLayout();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
+        window.UpdateLayout();
+    }
+
+    // DragEventArgsの公開ctorがないため入力生成だけを局所反射し、描画済みheader内の座標で実hitした要素へ配送します。
+    private static DragEventArgs RaisePlaylistHeaderDrag(TreeViewItem item, IDataObject data, RoutedEvent routedEvent)
+    {
+        item.ApplyTemplate();
+        item.UpdateLayout();
+        ContentPresenter header = item.Template.FindName("PART_Header", item) as ContentPresenter
+            ?? throw new AssertFailedException("実TreeViewItemのheaderがありません。");
+        Window window = Window.GetWindow(item) ?? throw new AssertFailedException("実headerの表示Windowがありません。");
+        item.BringIntoView();
+        var presented = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        EventHandler rendered = (_, _) =>
+        {
+            if (header.IsVisible && header.IsMeasureValid && header.IsArrangeValid && header.ActualWidth > 0 && header.ActualHeight > 0)
+            {
+                presented.TrySetResult();
+            }
+        };
+        CompositionTarget.Rendering += rendered;
+        try
+        {
+            window.UpdateLayout();
+            header.InvalidateVisual();
+            TestUiDispatcherHost.AwaitPresentationOnDispatcher(presented.Task, "playlist-drag-header-rendered");
+        }
+        finally { CompositionTarget.Rendering -= rendered; }
+        TextBlock label = FindDescendants<TextBlock>(header).FirstOrDefault(text => text.IsVisible && text.ActualWidth > 0 && text.ActualHeight > 0)
+            ?? throw new AssertFailedException("描画済みheader内の文字領域がありません。");
+        Point windowPoint = label.TranslatePoint(new Point(Math.Min(8d, label.ActualWidth / 2d), label.ActualHeight / 2d), window);
+        IInputElement? inputHit = window.InputHitTest(windowPoint);
+        string hitDiagnostic = $"point={windowPoint}, window={window.RenderSize}, header={header.RenderSize}, label={label.Text}, hit={inputHit?.GetType().Name ?? "null"}, target={item.DataContext}";
+        UIElement hit = inputHit as UIElement
+            ?? throw new AssertFailedException("描画済みheaderの指定座標に実ヒット要素がありません。" + hitDiagnostic);
+        DependencyObject? ancestor = hit;
+        bool insideHeader = false;
+        while (ancestor != null && ancestor is not TreeViewItem)
+        {
+            insideHeader |= ReferenceEquals(ancestor, header);
+            ancestor = VisualTreeHelper.GetParent(ancestor);
+        }
+        Assert.IsTrue(insideHeader, "Windowの実hitが対象headerの描画領域内にあります。" + hitDiagnostic);
+        Assert.AreSame(item, ancestor, "実hitの最寄りTreeViewItemが要求した表/子folderと一致します。" + hitDiagnostic);
+        ConstructorInfo constructor = typeof(DragEventArgs).GetConstructor(BindingFlags.Instance | BindingFlags.NonPublic, null,
+            [typeof(IDataObject), typeof(DragDropKeyStates), typeof(DragDropEffects), typeof(DependencyObject), typeof(Point)], null)
+            ?? throw new AssertFailedException("DragEventArgsの入力生成ctorがありません。");
+        var args = (DragEventArgs)constructor.Invoke([data, DragDropKeyStates.None, DragDropEffects.Copy, hit, window.TranslatePoint(windowPoint, hit)]);
+        args.RoutedEvent = routedEvent;
+        hit.RaiseEvent(args);
+        return args;
+    }
+
+    private static Storyboard ReadPlaylistHoverStoryboard(MainWindow window)
+        => typeof(MainWindow).GetField("treeViewItemInstantStoryBoardPlaylistTable", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(window) as Storyboard
+            ?? throw new AssertFailedException("既存hoverの待機対象がありません。");
+
+    // 本番clockの時間だけを進め、Completedからの実IsExpandedを各ケースで判定します。
+    private static void CompletePlaylistHover(MainWindow window)
+    {
+        Storyboard storyboard = ReadPlaylistHoverStoryboard(window);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        EventHandler handler = (_, _) =>
+        {
+            if (storyboard.GetCurrentState(window) != ClockState.Active) { completed.TrySetResult(); }
+        };
+        CompositionTarget.Rendering += handler;
+        try
+        {
+            storyboard.SeekAlignedToLastTick(window, TimeSpan.FromSeconds(2), TimeSeekOrigin.BeginTime);
+            TestUiDispatcherHost.AwaitPresentationOnDispatcher(completed.Task, "playlist-hover-clock-completed");
+        }
+        finally { CompositionTarget.Rendering -= handler; }
+    }
+
+    private static void RunAcceptedPlaylistHeaderDrop(ActualMainWindowFixture fixture, TreeViewItem target, IDataObject data)
+    {
+        ChartFileOperationSynchronizer admission = fixture.Library.Lr2Synchronization.PlaylistOperationAdmission;
+        var accepted = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var rejected = new ConcurrentQueue<PlaylistWorkspaceMutationRejectedEventArgs>();
+        EventHandler availability = (_, _) =>
+        {
+            if (admission.IsActive) { accepted.TrySetResult(admission.WaitForIdleAsync()); }
+        };
+        EventHandler<PlaylistWorkspaceMutationRejectedEventArgs> rejection = (_, args) => { rejected.Enqueue(args); accepted.TrySetException(new AssertFailedException("内部dropが拒否されました。")); };
+        admission.AvailabilityChanged += availability;
+        fixture.ViewModel.PlaylistWorkspace.MutationRejected += rejection;
+        Task? operation = null;
+        try
+        {
+            DragEventArgs? args = null;
+            operation = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => args = RaisePlaylistHeaderDrag(target, data, DragDrop.DropEvent));
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(accepted.Task.Unwrap(), "playlist-row-drop-accepted-terminal");
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "playlist-row-drop-event-terminal");
+            Assert.AreEqual(0, rejected.Count);
+            Assert.IsNotNull(args);
+            Assert.IsTrue(args.Handled);
+            Assert.AreEqual(DragDropEffects.Copy, args.Effects);
+        }
+        finally
+        {
+            try
+            {
+                if (accepted.Task.IsCompletedSuccessfully) { TestUiDispatcherHost.AwaitTaskOnDispatcher(accepted.Task.Result, "playlist-row-drop-final-terminal"); }
+                if (operation != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "playlist-row-drop-final-event"); }
+            }
+            finally
+            {
+                admission.AvailabilityChanged -= availability;
+                fixture.ViewModel.PlaylistWorkspace.MutationRejected -= rejection;
+            }
+        }
+    }
+
+    private sealed class CountingFileDropDataObject(string path) : IDataObject
+    {
+        private readonly DataObject data = new(DataFormats.FileDrop, new[] { path });
+        internal int ExtractionCount { get; private set; }
+        public object? GetData(string format, bool autoConvert)
+        {
+            if (format == DataFormats.FileDrop) { ExtractionCount++; }
+            return data.GetData(format, autoConvert);
+        }
+        public object? GetData(string format) => GetData(format, true);
+        public object? GetData(Type format) => data.GetData(format);
+        public bool GetDataPresent(string format, bool autoConvert) => data.GetDataPresent(format, autoConvert);
+        public bool GetDataPresent(string format) => data.GetDataPresent(format);
+        public bool GetDataPresent(Type format) => data.GetDataPresent(format);
+        public string[] GetFormats(bool autoConvert) => data.GetFormats(autoConvert);
+        public string[] GetFormats() => data.GetFormats();
+        public void SetData(string format, object value, bool autoConvert) => throw new NotSupportedException();
+        public void SetData(string format, object value) => throw new NotSupportedException();
+        public void SetData(Type format, object value) => throw new NotSupportedException();
+        public void SetData(object value) => throw new NotSupportedException();
+    }
+
+    /// <summary>実summary Bindingの行投影交換で主添字が不変でも副選択をIDで保ち、BMTドラッグの確定対象は更新直前の別選択より優先します。</summary>
+    /// <remarks>表の選択行とTSV対象を観測します。保存・config・受付終端の網羅はBmtOrderCommandsへ分担します。</remarks>
+    [TestMethod]
+    public void SummaryRowsReplacement_KeepsSelectedIdsAndPrioritizesBmtDropIntent()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope);
+            Task? operation = null;
+            try
+            {
+                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                BMSTable[] tables = Enumerable.Range(1, 4).Select(id => new BMSTable
+                { playlist_id = id, name = "Selection " + id, bmt_sort = id, is_bmt_output = false }).ToArray();
+                fixture.Playlist.BMSTables = new ObservableCollection<BMSTable>(tables);
+                fixture.Playlist.CommitBMSTableHeadersToDB(tables);
+                workspace.RefreshPlaylistTreeTables(fixture.Playlist, fixture.Library);
+                workspace.SetPlaylistSummaryMode(true);
+                workspace.RebuildPlaylistSummaryView(runAsync: false);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "selection-summary-idle");
+                var table = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                Assert.AreSame(workspace.PlaylistSummaryView, table.ItemsSource);
+                table.Width = 500; table.Height = 180;
+                table.Measure(new Size(500, 180)); table.Arrange(new Rect(0, 0, 500, 180));
+                table.UpdateLayout();
+                void Apply(params int[] ids)
+                {
+                    Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
+                    {
+                        Rows = new ObservableCollection<PlaylistSummaryRow>(ids.Select(id => CreatePlaylistSummaryRow(tables[id - 1]))),
+                        PresentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration()
+                    }));
+                }
+                int[] Selected() => table.GetSelectedRowsSnapshot().Cast<PlaylistSummaryRow>().Select(row => row.PlaylistId ?? -1).ToArray();
+                Apply(1, 2, 3, 4);
+                table.SelectRowsByPredicate(row => row is PlaylistSummaryRow summary && summary.PlaylistId is 1 or 3,
+                    row => row is PlaylistSummaryRow summary && summary.PlaylistId == 1);
+                object[] before = table.GetSelectedRowsSnapshot().ToArray();
+                Apply(1, 2, 4, 3);
+                Assert.AreEqual(0, table.SelectedIndex);
+                CollectionAssert.AreEqual(new[] { 1, 3 }, Selected());
+                Assert.AreNotSame(before[0], table.GetSelectedRowsSnapshot()[0]);
+                Assert.AreNotSame(before[1], table.GetSelectedRowsSnapshot()[1]);
+                Assert.IsTrue(CustomTableDataTransfer.TryBuildTsv(table.GetSelectedRowsSnapshot(), table.VisibleColumns, out string tsv));
+                StringAssert.Contains(tsv, "Selection 1"); StringAssert.Contains(tsv, "Selection 3");
+                Assert.IsFalse(tsv.Contains("Selection 4", StringComparison.Ordinal));
+                // 新しい利用者選択を直前に変更し、旧要求の開始時選択を使う実装を区別します。
+                table.SelectRowsByPredicate(row => row is PlaylistSummaryRow summary && summary.PlaylistId == 4);
+                Apply(3, 2, 1, 4);
+                CollectionAssert.AreEqual(new[] { 4 }, Selected());
+                // OwnedCharts更新の全体Reset前に、同値Name編集の同期再入を旧ABC表示で完結させます。
+                workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.OwnedCharts), System.ComponentModel.ListSortDirection.Descending);
+                workspace.RebuildPlaylistSummaryView(runAsync: false);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "selection-owned-summary-idle");
+                PlaylistSummaryRow[] OwnedRows(params (int Id, int Owned)[] values) => values.Select(value =>
+                {
+                    PlaylistSummaryRow row = CreatePlaylistSummaryRow(tables[value.Id - 1]);
+                    row.OwnedCharts = value.Owned; row.TotalCharts = value.Owned;
+                    return row;
+                }).ToArray();
+                long oldGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
+                var oldIdentity = new PlaylistSummaryPresentationIdentity(oldGeneration, string.Empty, PlaylistOwnedFilter.All,
+                    nameof(PlaylistSummaryRow.OwnedCharts), System.ComponentModel.ListSortDirection.Descending);
+                PlaylistSummaryRow[] oldRows = OwnedRows((1, 4), (2, 3), (3, 1));
+                var unchanged = new PlaylistSummaryApplyRequest
+                { Rows = oldRows, Identity = oldIdentity, PresentationGeneration = oldGeneration };
+                Assert.IsTrue(workspace.TryApplyPlaylistSummary(unchanged));
+                CustomTableColumn[] previousColumns = table.Columns.ToArray();
+                table.Columns = [.. table.Columns.Where(column => column.EditPropertyName == nameof(PlaylistSummaryRow.Name))];
+                table.SelectedIndex = 1;
+                table.HandleKeyDown(Key.Up, ModifierKeys.Shift);
+                int editEnded = 0;
+                EventHandler<CustomTableCellEditEndedEventArgs> ended = (_, args) =>
+                {
+                    editEnded++;
+                    Assert.IsTrue(args.Commit);
+                    Assert.AreSame(oldRows[0], args.Row);
+                    Assert.AreEqual(nameof(PlaylistSummaryRow.Name), args.EditPropertyName);
+                    Assert.AreEqual(tables[0].name, args.Text);
+                    CollectionAssert.AreEqual(new[] { 1, 2, 3 }, table.ItemsSource.Cast<PlaylistSummaryRow>().Select(row => row.PlaylistId ?? -1).ToArray());
+                };
+                table.CellEditEnded += ended;
+                try
+                {
+                    Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                    TextBox editor = table.Children.OfType<Canvas>().SelectMany(canvas => canvas.Children.OfType<TextBox>()).Single();
+                    editor.Text = "unconfirmed summary draft";
+                    Assert.IsTrue(workspace.TryApplyPlaylistSummary(unchanged));
+                    Assert.AreSame(editor, table.Children.OfType<Canvas>().SelectMany(canvas => canvas.Children.OfType<TextBox>()).Single());
+                    Assert.AreEqual("unconfirmed summary draft", editor.Text);
+                    Assert.AreEqual(0, editEnded, "同じ表示の再適用ではeditorを終端しません。");
+                    editor.Text = tables[0].name;
+                    long nextGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
+                    var changed = new PlaylistSummaryApplyRequest
+                    {
+                        Rows = OwnedRows((3, 5), (1, 4), (2, 3)),
+                        PresentationGeneration = nextGeneration,
+                        Identity = new PlaylistSummaryPresentationIdentity(nextGeneration, string.Empty, PlaylistOwnedFilter.All,
+                            nameof(PlaylistSummaryRow.OwnedCharts), System.ComponentModel.ListSortDirection.Descending)
+                    };
+                    bool resetApplied = false;
+                    operation = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => resetApplied = workspace.TryApplyPlaylistSummary(changed));
+                    Assert.IsTrue(resetApplied);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "selection-summary-reset-edit-terminal");
+                    Assert.AreEqual(1, editEnded);
+                    CollectionAssert.AreEqual(new[] { 1, 2 }, Selected());
+                    Assert.AreEqual(1, table.SelectedIndex, "主行Aを新しい位置へ復元します。");
+                    Assert.IsTrue(CustomTableDataTransfer.TryBuildTsv(table.GetSelectedRowsSnapshot(), table.VisibleColumns, out tsv));
+                    StringAssert.Contains(tsv, "Selection 1"); StringAssert.Contains(tsv, "Selection 2");
+                    Assert.IsFalse(tsv.Contains("Selection 3", StringComparison.Ordinal));
+                    table.HandleKeyDown(Key.Down, ModifierKeys.Shift);
+                    CollectionAssert.AreEqual(new[] { 2 }, Selected(), "Shift基点Bを保持し、ShiftDownはBだけを選びます。");
+                }
+                finally
+                {
+                    table.CellEditEnded -= ended;
+                    table.Columns = previousColumns;
+                }
+                workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.BmtSort), System.ComponentModel.ListSortDirection.Ascending);
+                workspace.RebuildPlaylistSummaryView(runAsync: false);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "selection-bmt-summary-idle");
+                table.SelectRowsByPredicate(row => row is PlaylistSummaryRow summary && summary.PlaylistId == 1);
+                PlaylistSummaryRow[] visible = workspace.PlaylistSummaryView.ToArray();
+                PlaylistSummaryRow dragged = visible.Single(row => row.PlaylistId == 3);
+                var applied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var selectionSource = (ICustomTableSelectionIdentitySource)workspace.PlaylistSummaryView;
+                EventHandler matchingCompleted = (_, args) =>
+                {
+                    if (args is CustomTableSelectionUpdateEventArgs) { applied.TrySetResult(); }
+                };
+                selectionSource.SelectionUpdateCompleted += matchingCompleted;
+                try
+                {
+                    operation = workspace.DropSummaryRowsInBmtOrderAsync(visible, [dragged], 0, 3);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "selection-bmt-drop-terminal");
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(applied.Task, "selection-bmt-applied");
+                }
+                finally { selectionSource.SelectionUpdateCompleted -= matchingCompleted; }
+                CollectionAssert.AreEqual(new[] { 3 }, Selected());
+                PlaylistSummaryRow current = table.ItemsSource[table.SelectedIndex] as PlaylistSummaryRow ?? throw new AssertFailedException("BMTの主行がありません。");
+                Assert.AreEqual(3, current.PlaylistId);
+                Assert.IsNotNull(table.GetCurrentCellColumn(table.SelectedIndex));
+                table.HandleKeyDown(Key.Down, ModifierKeys.Shift);
+                Assert.AreEqual(2, Selected().Length, "BMTのShift基点も明示主行へ揃えます。");
+                table.SelectRowsByPredicate(row => row is PlaylistSummaryRow summary && summary.PlaylistId == 3);
+                visible = workspace.PlaylistSummaryView.ToArray();
+                long beforeNoChange = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+                operation = workspace.DropSummaryRowsInBmtOrderAsync(visible, [visible[0]], 0, 3);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "selection-bmt-no-change");
+                Assert.AreEqual(beforeNoChange, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
+                CollectionAssert.AreEqual(new[] { 3 }, Selected());
+                var supersededApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                long supersededGeneration = long.MaxValue;
+                EventHandler supersededCompleted = (_, _) =>
+                {
+                    if (workspace.CurrentPlaylistSummaryDataRebuildGeneration >= supersededGeneration) { supersededApplied.TrySetResult(); }
+                };
+                selectionSource.SelectionUpdateCompleted += supersededCompleted;
+                System.ComponentModel.PropertyChangedEventHandler? supersede = null;
+                supersede = (_, args) =>
+                {
+                    if (args.PropertyName != nameof(workspace.PlaylistSummaryView)) { return; }
+                    workspace.PropertyChanged -= supersede;
+                    supersededGeneration = workspace.RequestPlaylistSummaryDataRefresh("selection-notification-supersedes-bmt");
+                };
+                workspace.PropertyChanged += supersede;
+                try
+                {
+                    visible = workspace.PlaylistSummaryView.ToArray();
+                    operation = workspace.DropSummaryRowsInBmtOrderAsync(visible, [visible.Single(row => row.PlaylistId == 4)], 0, 4);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "selection-bmt-superseded-drop");
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(supersededApplied.Task, "selection-bmt-superseded-presentation");
+                    CollectionAssert.AreEqual(new[] { 3 }, Selected(), "通知中に世代更新された旧BMT意図では現選択を上書きしません。");
+                }
+                finally
+                {
+                    workspace.PropertyChanged -= supersede;
+                    selectionSource.SelectionUpdateCompleted -= supersededCompleted;
+                }
+                table.ItemsSource = null;
+                Apply(1, 2, 3, 4);
+                Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count, "解除済みの表へ旧sourceの更新を届けません。");
+            }
+            finally
+            {
+                try { if (operation != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "selection-summary-cleanup"); } }
+                finally { fixture.Close(); }
+            }
+        });
+    }
+
+    /// <summary>実詳細更新の同文脈view交換で同hashの別entryを区別し、主行・Shift基点とcompiled削除対象を保ち、別folderでは解除します。</summary>
+    /// <remarks>標準workspaceの詳細構築から実Binding・compiledメニューまでを接続し、物理削除の保存条件は既存mutation系列へ分担します。</remarks>
+    [TestMethod]
+    public void DetailRowsReplacement_KeepsEntrySelectionAndCompiledRemovalTargets()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            IReadOnlyList<object>? removed = null;
+            var removal = new MainWindowPlaylistEntryRemovalTerminal(rows => { removed = rows; return Task.CompletedTask; });
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope,
+                configureSettings: values =>
+                {
+                    string playerRoot = Path.Combine(values.BMSRootPath, "selection-history");
+                    string player = Path.Combine(playerRoot, "player", "selection");
+                    Directory.CreateDirectory(player);
+                    File.WriteAllText(Path.Combine(playerRoot, "beatoraja.jar"), string.Empty);
+                    File.WriteAllText(Path.Combine(playerRoot, BeatorajaConfigService.ConfigFileName), "{\"playername\":\"selection\"}");
+                    string sha256 = new('a', 64);
+                    string scorePath = Path.Combine(player, "score.db");
+                    using (SQLiteConnectionEx score = new ApplicationDatabaseScope().OpenProviderConnection(scorePath))
+                    {
+                        score.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
+                        score.Execute("INSERT INTO score VALUES (?, 0, 4, 50, 0, 0, 0, 100, 50, 5, 1, 1)", sha256);
+                        score.Execute("CREATE TABLE player (date INTEGER PRIMARY KEY, playcount INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, egd INTEGER, lgd INTEGER, ebd INTEGER, lbd INTEGER, epr INTEGER, lpr INTEGER, ems INTEGER, lms INTEGER, playtime INTEGER)");
+                    }
+                    using (SQLiteConnectionEx history = new ApplicationDatabaseScope().OpenProviderConnection(Path.Combine(player, "scorelog.db")))
+                    {
+                        history.Execute("CREATE TABLE scorelog (sha256 TEXT NOT NULL, mode INTEGER, clear INTEGER, oldclear INTEGER, score INTEGER, oldscore INTEGER, combo INTEGER, oldcombo INTEGER, minbp INTEGER, oldminbp INTEGER, date INTEGER)");
+                        history.Execute("INSERT INTO scorelog VALUES (?, 0, 4, 3, 100, 90, 50, 40, 5, 6, 1700000000)", sha256);
+                    }
+                    values.UseBeatorajaScoreDb = true;
+                    values.BeatorajaRootPath = playerRoot;
+                    values.BeatorajaPlayerId = "selection";
+                    values.BeatorajaScoreDbPath = scorePath;
+                }, playlistWorkspaceTerminals: CreateTerminals(entryRemoval: removal));
+            try
+            {
+                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                BMSTableEntry[] entries = Enumerable.Range(0, 4).Select(index => new BMSTableEntry
+                { md5 = index < 2 ? new string('a', 32) : index.ToString("x32"), title = "Entry " + index, folder = "Folder " + index, level = index }).ToArray();
+                fixture.Table.entries = entries.ToList();
+                fixture.Table.is_external_sync = false;
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var playlistRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                playlistRoot.IsExpanded = true;
+                MaterializeTreeItems(playlistRoot);
+                TreeViewItem tableItem = playlistRoot.ItemContainerGenerator.ContainerFromItem(fixture.Table) as TreeViewItem
+                    ?? throw new AssertFailedException("選択を検証する表の実ツリー項目がありません。");
+                tableItem.IsSelected = true;
+                workspace.RequestDetailSelection(fixture.Table);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                void Refresh()
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
+                        MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected, false, default), "entry-selection-refresh");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "entry-selection-idle");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                }
+                workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.Title), System.ComponentModel.ListSortDirection.Ascending);
+                Refresh();
+                var table = (CustomTableView)fixture.Window.FindName("customTableView");
+                Assert.AreSame(fixture.ViewModel.MainChartList.Rows, table.ItemsSource);
+                table.Width = 500; table.Height = 180;
+                table.Measure(new Size(500, 180)); table.Arrange(new Rect(0, 0, 500, 180));
+                table.UpdateLayout();
+                table.SelectedIndex = 1;
+                table.HandleKeyDown(Key.Up, ModifierKeys.Shift);
+                IList previous = table.ItemsSource;
+                int replacingCalls = 0;
+                EventHandler? beforeReplacing = null;
+                beforeReplacing = (_, _) =>
+                {
+                    fixture.ViewModel.MainChartList.RowsReplacing -= beforeReplacing;
+                    Assert.IsTrue(table.Dispatcher.CheckAccess(), "採用前の編集準備と選択操作をUI上で実行します。");
+                    replacingCalls++;
+                    table.SelectedIndex = 2;
+                    table.HandleKeyDown(Key.Up, ModifierKeys.Shift);
+                };
+                fixture.ViewModel.MainChartList.RowsReplacing += beforeReplacing;
+                try
+                {
+                    workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.Title), System.ComponentModel.ListSortDirection.Descending);
+                    Refresh();
+                }
+                finally { fixture.ViewModel.MainChartList.RowsReplacing -= beforeReplacing; }
+                Assert.AreEqual(1, replacingCalls);
+                Assert.AreNotSame(previous, table.ItemsSource);
+                Assert.AreSame(fixture.ViewModel.MainChartList.Rows, table.ItemsSource, "公開された実Bindingを補完せず観測します。");
+                CollectionAssert.AreEqual(new[] { entries[2], entries[1] }, table.GetSelectedRowsSnapshot().Cast<PlaylistDetailRow>().Select(row => row.Entry).ToArray());
+                PlaylistDetailRow current = table.ItemsSource[table.SelectedIndex] as PlaylistDetailRow ?? throw new AssertFailedException("詳細の主行がありません。");
+                Assert.AreSame(entries[1], current.Entry);
+                Assert.AreEqual(table.SelectedIndex, fixture.ViewModel.MainChartList.SelectedIndex);
+                var menu = (ContextMenu)fixture.Window.FindResource("tableContextMenu");
+                menu.PlacementTarget = table;
+                Assert.IsTrue(RaiseMenuClick(FindMenuItem(menu, "tableContextMenuItemDeleteEntry")).Handled);
+                Assert.IsNotNull(removed);
+                CollectionAssert.AreEqual(new[] { entries[2], entries[1] }, removed.Cast<PlaylistDetailRow>().Select(row => row.Entry).ToArray());
+                table.HandleKeyDown(Key.Up, ModifierKeys.Shift);
+                CollectionAssert.AreEqual(new[] { entries[2] }, table.GetSelectedRowsSnapshot().Cast<PlaylistDetailRow>().Select(row => row.Entry).ToArray());
+                workspace.RequestDetailSelection(fixture.Table, PlaylistFolderNode.CreateFolder("Folder 1"));
+                Refresh();
+                Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count);
+                Assert.AreEqual(-1, table.SelectedIndex);
+                Assert.AreEqual(-1, fixture.ViewModel.MainChartList.SelectedIndex);
+
+                var historyPublished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var detailPublished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                System.ComponentModel.PropertyChangedEventHandler published = (_, args) =>
+                {
+                    if (args.PropertyName != nameof(MainChartListViewModel.Rows)) { return; }
+                    if (fixture.ViewModel.MainChartList.Rows is PlayHistoryVirtualView) { historyPublished.TrySetResult(); }
+                    if (historyPublished.Task.IsCompleted && fixture.ViewModel.MainChartList.Rows is PlaylistDetailVirtualView)
+                    { detailPublished.TrySetResult(); }
+                };
+                fixture.ViewModel.MainChartList.PropertyChanged += published;
+                try
+                {
+                    var historyRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlayHistory");
+                    historyRoot.IsSelected = true;
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(historyPublished.Task, "entry-selection-history-binding");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsInstanceOfType<PlayHistoryVirtualView>(fixture.ViewModel.MainChartList.Rows);
+                    Assert.AreEqual(MainViewOperationSection.PlayHistory, fixture.ViewModel.MainChartList.CurrentOperationContext.OperationSection);
+                    Assert.AreSame(fixture.ViewModel.MainChartList.Rows, table.ItemsSource);
+                    Assert.AreEqual(1, table.ItemsSource.Count);
+                    table.SelectedIndex = 0;
+                    Assert.AreEqual(0, fixture.ViewModel.MainChartList.SelectedIndex);
+                    tableItem.IsSelected = true;
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(detailPublished.Task, "entry-selection-from-history-binding");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "entry-selection-from-history-idle");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsInstanceOfType<PlaylistDetailVirtualView>(fixture.ViewModel.MainChartList.Rows);
+                    Assert.AreSame(fixture.ViewModel.MainChartList.Rows, table.ItemsSource);
+                    Assert.IsTrue(table.ItemsSource.Count > 0);
+                    Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count);
+                    Assert.AreEqual(-1, table.SelectedIndex);
+                    Assert.AreEqual(-1, fixture.ViewModel.MainChartList.SelectedIndex);
+                    removed = null;
+                    RaiseMenuClick(FindMenuItem(menu, "tableContextMenuItemDeleteEntry"));
+                    Assert.IsTrue(removed == null || removed.Count == 0, "履歴から移動した詳細で、新しい選択なしに削除対象を渡しません。");
+                }
+                finally { fixture.ViewModel.MainChartList.PropertyChanged -= published; }
+            }
+            finally { fixture.Close(); }
+        });
+    }
+
+    /// <summary>fr-FRの実ENTRY LEVELセルで固定dot表示を無変更Enterし、Escape・不正入力の実通知・次の正常保存まで正本とDBを確認します。</summary>
+    /// <remarks>実列・Binding・F2/Enter/Escapeからdefault端末への接続を担当します。文化別の数値条件は保存主体へ分担し、数値文化と翻訳文化を分けます。</remarks>
+    [TestMethod]
+    public void EntryLevel_CurrentCultureRoundTripAndCancelKeepSavedNumber()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            CultureInfo previousCulture = CultureInfo.CurrentCulture;
+            CultureInfo previousUiCulture = CultureInfo.CurrentUICulture;
+            ActualMainWindowFixture? fixture = null;
+            Task? terminal = null;
+            Exception? primary = null;
+            try
+            {
+                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+                CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("en-US");
+                var messages = new List<UiMessageRequest>();
+                fixture = CreateActualMainWindowFixture(scope, messagePresenter: (_, request) =>
+                {
+                    messages.Add(request);
+                    return new ThemedMessageBoxResponse(MessageBoxResult.OK, false);
+                });
+                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                fixture.Table.is_external_sync = false;
+                var entry = new BMSTableEntry { md5 = new string('a', 32), title = "Culture target", level = 1.5 };
+                var other = new BMSTableEntry { md5 = new string('b', 32), title = "Other row", level = 7.5 };
+                fixture.Table.entries = [entry, other];
+                fixture.Playlist.BMSTables = new ObservableCollection<BMSTable>([fixture.Table]);
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var playlistRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                playlistRoot.IsExpanded = true;
+                MaterializeTreeItems(playlistRoot);
+                TreeViewItem tableItem = playlistRoot.ItemContainerGenerator.ContainerFromItem(fixture.Table) as TreeViewItem
+                    ?? throw new AssertFailedException("保存した表の実ツリー項目がありません。");
+                tableItem.IsSelected = true;
+                workspace.RequestDetailSelection(fixture.Table);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
+                    MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected, false, default), "culture-detail-build");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "culture-detail-owner-idle");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var table = (CustomTableView)fixture.Window.FindName("customTableView");
+                BindingOperations.GetBindingExpression(table, CustomTableView.ItemsSourceProperty)?.UpdateTarget();
+                var columns = new CustomTableColumnSettings();
+                columns.EntryLevel.Visibility = Visibility.Visible;
+                table.Columns = [.. CustomTableColumnFactory.CreateMainColumns(columns).Where(column => column.EditPropertyName == nameof(PlaylistDetailRow.Level))];
+                table.Width = 300; table.Height = 100;
+                table.Measure(new Size(300, 100)); table.Arrange(new Rect(0, 0, 300, 100));
+                table.SelectRowsByPredicate(row => row is PlaylistDetailRow detail && ReferenceEquals(detail.Entry, entry));
+                table.UpdateLayout();
+                Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                Assert.AreEqual("1.5", Editor()?.Text);
+                Assert.IsTrue(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+                // Pの終端は保存・必要表示・draft cleanupの後です。同値でDB差分がなくても実終端を待ちます。
+                Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
+                terminal = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "culture-level-enter-terminal");
+                AssertSavedNumberAndDisplay();
+
+                Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                TextBox editor = Editor() ?? throw new AssertFailedException("実ENTRY LEVELセルのeditorがありません。");
+                Assert.AreEqual("1.5", editor.Text);
+                editor.Text = "2,5";
+                Assert.IsTrue(table.HandleKeyDown(Key.Escape, ModifierKeys.None));
+                // 取消は保存せず同期的にdraft/sessionを終了します。受付終端も回収してから次の実セルを確認します。
+                terminal = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "culture-level-cancel-terminal");
+                AssertSavedNumberAndDisplay();
+
+                Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                TextBox invalidEditor = Editor() ?? throw new AssertFailedException("不正入力用editorがありません。");
+                invalidEditor.Text = "2,5";
+                Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
+                terminal = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "culture-level-invalid-terminal");
+                AssertSavedNumberAndDisplay();
+                Assert.AreEqual(1, messages.Count);
+                Assert.AreEqual(Resources.Error_PlaylistEntryLevelFormat, messages.Single().MessageBoxText);
+                Assert.AreSame(fixture.Window, messages.Single().Owner);
+                Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                TextBox nextEditor = Editor() ?? throw new AssertFailedException("次編集用editorがありません。");
+                nextEditor.Text = "2.5e1";
+                Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
+                terminal = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "culture-level-next-terminal");
+                Assert.AreEqual(25d, entry.level);
+                Assert.IsFalse(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+                Assert.AreEqual("25", fixture.ViewModel.MainChartList.Rows.OfType<PlaylistDetailRow>().Single(row => ReferenceEquals(row.Entry, entry)).Level);
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly())
+                { Assert.AreEqual(25d, db.ExecuteScalar<double?>("SELECT level FROM playlist_entry WHERE title = 'Culture target';")); }
+                Assert.AreEqual(1, messages.Count);
+
+                TextBox? Editor() => table.Children.OfType<Canvas>().SelectMany(canvas => canvas.Children.OfType<TextBox>()).SingleOrDefault();
+                void AssertSavedNumberAndDisplay()
+                {
+                    Assert.IsNull(Editor());
+                    Assert.IsFalse(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+                    Assert.AreEqual(1.5, entry.level);
+                    Assert.AreEqual(7.5, other.level);
+                    PlaylistDetailRow current = fixture.ViewModel.MainChartList.Rows.OfType<PlaylistDetailRow>().Single(row => ReferenceEquals(row.Entry, entry));
+                    Assert.AreEqual("1.5", current.Level);
+                    using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly();
+                    Assert.AreEqual(1.5, db.ExecuteScalar<double?>("SELECT level FROM playlist_entry WHERE title = 'Culture target';"));
+                    Assert.AreEqual(7.5, db.ExecuteScalar<double?>("SELECT level FROM playlist_entry WHERE title = 'Other row';"));
+                    Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                    Assert.AreEqual("1.5", Editor()?.Text);
+                    Assert.IsTrue(table.HandleKeyDown(Key.Escape, ModifierKeys.None));
+                    Assert.IsFalse(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+                }
+            }
+            catch (Exception failure) { primary = failure; throw; }
+            finally
+            {
+                try
+                {
+                    try { if (terminal != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "culture-level-cleanup"); } }
+                    catch (Exception cleanupFailure) when (primary != null) { primary.Data["EntryLevelTerminalCleanupFailure"] = cleanupFailure.ToString(); }
+                    finally
+                    {
+                        try { fixture?.Close(); }
+                        catch (Exception cleanupFailure) when (primary != null) { primary.Data["EntryLevelWindowCleanupFailure"] = cleanupFailure.ToString(); }
+                    }
+                }
+                finally
+                {
+                    CultureInfo.CurrentCulture = previousCulture;
+                    CultureInfo.CurrentUICulture = previousUiCulture;
+                }
+            }
+        });
+    }
+
+    /// <summary>実default端末のA LEVEL保存中はB MEMOの再クリック/F2/文字入力の開始を拒否し、選択と標準再生は保ちます。A終端の整列後はB選択を保ち、実クリックでMEMO列を明示して新F2編集を実DBへ保存し、summaryの必要表示/P終端も確認します。</summary>
+    /// <remarks>compiled入力・Binding・実MainWindow接続を担当します。詳細は同期void入口で受理した実P終端を待ち、P解放後にawait/pumpのない同一UI継続で最後のgate解除まで進む接続を使います。保存Task自身の終端はowner系列、summaryのasync void終端は既存Captureへ分担します。全属性・失敗条件と少数編集の仕事量はowner系列へ分担します。</remarks>
+    [TestMethod]
+    public void CellEdits_DefaultTerminalsDisplaySavedValuesBeforeAdmissionEnds()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            bool holdOutput = false;
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope, bmtOptionsProvider: () =>
+            {
+                if (holdOutput) { entered.TrySetResult(); release.Task.GetAwaiter().GetResult(); }
+                return new BeatorajaBmtOptionsSnapshot();
+            });
+            Task? terminal = null;
+            Exception? primary = null;
+            try
+            {
+                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                fixture.Table.is_external_sync = false;
+                BMSTableEntry aEntry = new() { md5 = new string('a', 32), title = "Cell A", level = 1 };
+                BMSTableEntry bEntry = new() { md5 = new string('b', 32), title = "Cell B", level = 5, memo = "memo before" };
+                string aPath = Path.Combine(fixture.Root, "edit-a.bms"), bPath = Path.Combine(fixture.Root, "edit-b.bms");
+                File.WriteAllText(aPath, "#TITLE A"); File.WriteAllText(bPath, "#TITLE B");
+                fixture.Library.BmsCharts = [ChartTestValues.Empty() with { Path = aPath, Md5 = aEntry.md5, RawTitle = "A" },
+                    ChartTestValues.Empty() with { Path = bPath, Md5 = bEntry.md5, RawTitle = "B" }];
+                fixture.Table.entries = [aEntry, bEntry];
+                var player = new FakeBmsPlayer();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.ViewModel.PlaybackPanel.ReplacePlayerAsync(player), "actual-detail-replace-player");
+                fixture.Playlist.BMSTables = new ObservableCollection<BMSTable>([fixture.Table]);
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var playlistRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                playlistRoot.IsExpanded = true;
+                MaterializeTreeItems(playlistRoot);
+                TreeViewItem tableItem = playlistRoot.ItemContainerGenerator.ContainerFromItem(fixture.Table) as TreeViewItem
+                    ?? throw new AssertFailedException("保存した表の実ツリー項目がありません。");
+                tableItem.IsSelected = true;
+                workspace.RequestDetailSelection(fixture.Table);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.Level), System.ComponentModel.ListSortDirection.Ascending);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
+                    MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected, false, default), "actual-cell-detail-build");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "actual-cell-detail-owner-idle");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var table = (CustomTableView)fixture.Window.FindName("customTableView");
+                var columns = new CustomTableColumnSettings();
+                columns.EntryLevel.Visibility = Visibility.Visible; columns.EntryLevel.DisplayIndex = 0;
+                columns.Memo.Visibility = Visibility.Visible; columns.Memo.DisplayIndex = 1; columns.Memo.Width = 160;
+                table.Columns = [.. CustomTableColumnFactory.CreateMainColumns(columns).Where(column => column.EditPropertyName is nameof(PlaylistDetailRow.Level) or nameof(PlaylistDetailRow.memo))];
+                CustomTableColumn memoColumn = table.Columns.Single(column => column.EditPropertyName == nameof(PlaylistDetailRow.memo));
+                table.Width = 300; table.Height = 100;
+                table.Measure(new Size(300, 100)); table.Arrange(new Rect(0, 0, 300, 100));
+                table.SelectRowsByPredicate(row => row is PlaylistDetailRow detail && ReferenceEquals(detail.Entry, aEntry));
+                table.UpdateLayout();
+                Assert.AreEqual(2, ((System.Collections.IList)table.ItemsSource).Count,
+                    $"entries={fixture.Table.entries.Count} source={workspace.DetailViewState.Source.Rows.Count} view={workspace.DetailViewState.View.Rows.Count} main={fixture.ViewModel.MainChartList.Rows.Count} active={ReferenceEquals(workspace.DetailViewState.Source.CurrentTable, fixture.Table)} binding={BindingOperations.GetBindingExpression(table, CustomTableView.ItemsSourceProperty)?.Status} "
+                    + workspace.DescribeDetailBuildState(value => value.ToString()));
+                Assert.AreEqual(nameof(PlaylistDetailRow.Level), table.GetCurrentCellColumn(table.SelectedIndex)?.EditPropertyName);
+                Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                TextBox editor = Editor(table) ?? throw new AssertFailedException("実詳細セルのeditorがありません。");
+                editor.Text = "12.5";
+                holdOutput = true;
+                Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
+                terminal = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, terminal,
+                    "actual-detail-output"), "actual-detail-output-entry");
+                Assert.IsNull(Editor(table));
+                Assert.IsTrue(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+                Assert.IsFalse(terminal.IsCompleted);
+                Assert.IsFalse(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable blocked)); blocked?.Dispose();
+                PlaylistDetailRow bRow = table.ItemsSource.Cast<PlaylistDetailRow>().Single(row => ReferenceEquals(row.Entry, bEntry));
+                var rejectedBeginnings = new List<bool>();
+                int bStarted = 0, bEnded = 0;
+                EventHandler<CustomTableCellEditBeginningEventArgs> beginning = (_, args) =>
+                {
+                    if (args.Row is PlaylistDetailRow detail && ReferenceEquals(detail.Entry, bEntry))
+                    { Assert.AreEqual(nameof(PlaylistDetailRow.memo), args.EditPropertyName); rejectedBeginnings.Add(args.Cancel); }
+                };
+                EventHandler<CustomTableCellEditStartedEventArgs> started = (_, args) => { if (args.Row is PlaylistDetailRow detail && ReferenceEquals(detail.Entry, bEntry)) { bStarted++; } };
+                EventHandler<CustomTableCellEditEndedEventArgs> ended = (_, args) => { if (args.Row is PlaylistDetailRow detail && ReferenceEquals(detail.Entry, bEntry)) { bEnded++; } };
+                table.CellEditBeginning += beginning; table.CellEditStarted += started; table.CellEditEnded += ended;
+                try
+                {
+                    Point point = new(table.VisibleColumns.TakeWhile(column => column.Id != memoColumn.Id).Sum(column => column.Width) + 5 - table.HorizontalOffset,
+                        table.HeaderHeight + table.RowHeight + 5);
+                    CustomTableHitTestResult hit = table.HitTestTable(point);
+                    Assert.AreSame(bRow, hit.Row); Assert.AreSame(memoColumn, hit.Column);
+                    Assert.IsTrue(table.HandleCellMouseDown(hit, MouseButton.Left, ModifierKeys.None, 1, point));
+                    Assert.AreEqual(1, table.SelectedIndex); Assert.AreEqual(1, fixture.ViewModel.MainChartList.SelectedIndex);
+                    Assert.AreEqual(0, rejectedBeginnings.Count, "Bへの初回クリックは選択だけを行います。");
+                    table.HandleCellMouseDown(hit, MouseButton.Left, ModifierKeys.None, 1, point);
+                    table.HandleKeyDown(Key.F2, ModifierKeys.None);
+                    table.RaiseEvent(new TextCompositionEventArgs(Keyboard.PrimaryDevice, new TextComposition(InputManager.Current, table, "7"))
+                    { RoutedEvent = TextCompositionManager.PreviewTextInputEvent, Source = table });
+                    CollectionAssert.AreEqual(new[] { true, true, true }, rejectedBeginnings.ToArray());
+                    Assert.AreEqual(0, bStarted); Assert.AreEqual(0, bEnded); Assert.IsNull(Editor(table));
+                    Assert.IsTrue(table.IsEnabled);
+                    Assert.AreSame(bRow, table.ItemsSource[table.SelectedIndex]);
+                    Assert.AreEqual(5d, bEntry.level); Assert.AreEqual("memo before", bEntry.memo);
+                    using (LR2SongDBExtended pending = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly())
+                    {
+                        BMSTableEntry pendingB = pending.Table<BMSTableEntry>().Single(value => value.md5 == bEntry.md5);
+                        Assert.AreEqual(5d, pendingB.level); Assert.AreEqual("memo before", pendingB.memo);
+                    }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Window.RequestPlaybackFromTable(table.SelectedIndex, bRow), "actual-detail-pending-playback");
+                    Assert.AreEqual(1, player.Commands.Count(command => command == "PlayStart:" + bPath));
+                    Assert.IsFalse(terminal.IsCompleted);
+                    holdOutput = false; release.TrySetResult();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "actual-detail-edit-terminal");
+                    Assert.IsFalse(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+                    PlaylistDetailRow firstAfterSave = table.ItemsSource[0] as PlaylistDetailRow
+                        ?? throw new AssertFailedException("保存後の先頭に詳細行がありません。");
+                    Assert.AreSame(bEntry, firstAfterSave.Entry); Assert.AreEqual(0, table.SelectedIndex);
+                    Assert.AreEqual(0, fixture.ViewModel.MainChartList.SelectedIndex);
+                    Assert.AreSame(firstAfterSave, table.GetSelectedRowsSnapshot().Single());
+                    Assert.AreEqual("12.5", table.ItemsSource.Cast<PlaylistDetailRow>().Single(row => ReferenceEquals(row.Entry, aEntry)).Level);
+                    Assert.IsNull(Editor(table)); Assert.AreEqual(0, bStarted); Assert.AreEqual(0, bEnded);
+                    Assert.AreEqual(bPath, fixture.ViewModel.PlaybackPanel.NowPlayingChart?.Path);
+                    Point nextPoint = new(table.VisibleColumns.TakeWhile(column => column.Id != memoColumn.Id).Sum(column => column.Width) + 5 - table.HorizontalOffset,
+                        table.HeaderHeight + 5);
+                    CustomTableHitTestResult nextHit = table.HitTestTable(nextPoint);
+                    Assert.AreSame(firstAfterSave, nextHit.Row); Assert.AreSame(memoColumn, nextHit.Column);
+                    Assert.IsTrue(table.HandleCellMouseDown(nextHit, MouseButton.Left, ModifierKeys.None, 1, nextPoint));
+                    Assert.AreEqual(nameof(PlaylistDetailRow.memo), table.GetCurrentCellColumn(table.SelectedIndex)?.EditPropertyName);
+                    Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                    Assert.AreEqual(false, rejectedBeginnings.Last());
+                    Assert.AreEqual(1, bStarted);
+                    TextBox nextEditor = Editor(table) ?? throw new AssertFailedException("終端後B MEMOの実editorがありません。");
+                    Assert.AreEqual("memo before", nextEditor.Text);
+                    nextEditor.Text = "saved B memo";
+                    Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
+                    terminal = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "actual-detail-next-explicit-save");
+                    Assert.AreEqual(1, bEnded); Assert.AreEqual("saved B memo", bEntry.memo); Assert.AreEqual(5d, bEntry.level);
+                    using LR2SongDBExtended saved = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly();
+                    BMSTableEntry savedB = saved.Table<BMSTableEntry>().Single(value => value.md5 == bEntry.md5);
+                    Assert.AreEqual("saved B memo", savedB.memo); Assert.AreEqual(5d, savedB.level);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.ViewModel.PlaybackPanel.StopPlayback(), "actual-detail-playback-cleanup");
+                }
+                finally { table.CellEditBeginning -= beginning; table.CellEditStarted -= started; table.CellEditEnded -= ended; }
+
+                workspace.SetPlaylistSummaryMode(true);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                workspace.RebuildPlaylistSummaryView(runAsync: false);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "actual-cell-summary-build");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                summary.Columns = [.. summary.Columns.Where(column => column.EditPropertyName == nameof(PlaylistSummaryRow.Name))];
+                summary.Width = 300; summary.Height = 100;
+                summary.Measure(new Size(300, 100)); summary.Arrange(new Rect(0, 0, 300, 100));
+                summary.SelectRowsByPredicate(_ => true);
+                summary.UpdateLayout();
+                entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                Assert.IsTrue(summary.HandleKeyDown(Key.F2, ModifierKeys.None));
+                editor = Editor(summary) ?? throw new AssertFailedException("実summaryセルのeditorがありません。");
+                editor.Text = "  Saved summary  ";
+                holdOutput = true;
+                Task summaryEvent = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => summary.HandleKeyDown(Key.Return, ModifierKeys.None));
+                terminal = summaryEvent;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, summaryEvent,
+                    "actual-summary-output"), "actual-summary-output-entry");
+                Assert.IsNull(Editor(summary));
+                Assert.IsFalse(summaryEvent.IsCompleted);
+                Assert.IsFalse(fixture.Playlist.TryEnterPlaylistMutation(out blocked)); blocked?.Dispose();
+                holdOutput = false; release.TrySetResult();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(summaryEvent, "actual-summary-edit-terminal");
+                Assert.AreEqual("Saved summary", workspace.PlaylistSummaryView.Single().Name);
+                Assert.IsTrue(summary.HandleKeyDown(Key.F2, ModifierKeys.None));
+                Assert.AreEqual("Saved summary", Editor(summary)?.Text);
+                summary.HandleKeyDown(Key.Escape, ModifierKeys.None);
+                using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly();
+                Assert.AreEqual(12.5, verify.Table<BMSTableEntry>().Single(entry => entry.playlist_id == fixture.Table.playlist_id && entry.md5 == aEntry.md5).level);
+                Assert.AreEqual("Saved summary", verify.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id=1;"));
+            }
+            catch (Exception failure) { primary = failure; throw; }
+            finally
+            {
+                holdOutput = false; release.TrySetResult();
+                try { if (terminal != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "actual-cell-cleanup"); } }
+                catch when (primary != null) { }
+                finally { fixture.Close(); }
+            }
+
+            static TextBox? Editor(CustomTableView table) => table.Children.OfType<Canvas>()
+                .SelectMany(canvas => canvas.Children.OfType<TextBox>()).SingleOrDefault();
+        });
+    }
+
+    /// <summary>実TreeViewの構造置換による親Selectedを発生させ、改名・prefix保存・別folder更新後の選択と詳細hashを確認します。復元配送前の明示選択とA/前後空白Aの実切替を通し、古い復元の優先と所属混同を検出します。</summary>
+    /// <remarks>compiled見出し・選択node・workspace・実詳細行の接続を担当し、空名の条件網羅と保存再読込みはworkspace系列へ分担します。OSフォーカス成功は要求しません。</remarks>
+    [TestMethod]
+    public void PlaylistFolderStructure_ActualTreeKeepsWorkspaceSelectionAndNewExplicitSelection()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope);
+            Exception? primaryFailure = null;
+            System.ComponentModel.DependencyPropertyDescriptor? descriptor = null;
+            TreeViewItem? observedItem = null;
+            TaskCompletionSource? bindingConsumer = null;
+            EventHandler targetChanged = (_, _) =>
+            {
+                if (bindingConsumer is TaskCompletionSource consumer)
+                {
+                    // 実target転送のmetadata callbackが予約したLoaded同期より後まで、UI consumerを待ちます。
+                    fixture.Window.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => consumer.TrySetResult()));
+                }
+            };
+            try
+            {
+                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                fixture.Table.compat_prefix = "P";
+                fixture.Table.entries = [new BMSTableEntry { md5 = new string('a', 32), title = "A", folder = "P1" },
+                new BMSTableEntry { md5 = new string('b', 32), title = "B", folder = "P2" }];
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                // fixtureの初期viewportでは特殊子だけが実体化するため、三つの対象子を表示できる領域を明示します。
+                var tree = (TreeView)fixture.Window.FindName("treeViewPlaylist");
+                tree.Height = 300;
+                tree.UpdateLayout();
+                var root = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                root.IsExpanded = true;
+                MaterializeTreeItems(root);
+                var tableItem = (TreeViewItem)root.ItemContainerGenerator.ContainerFromItem(fixture.Table);
+                observedItem = tableItem;
+                descriptor = System.ComponentModel.DependencyPropertyDescriptor.FromProperty(MainWindow.PlaylistFolderNodesProperty, typeof(TreeViewItem));
+                descriptor.AddValueChanged(tableItem, targetChanged);
+                tableItem.IsExpanded = true;
+                MaterializeTreeItems(tableItem);
+                Task ObserveStructureTransfer()
+                {
+                    bindingConsumer = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    return bindingConsumer.Task;
+                }
+                TreeViewItem Folder(string name)
+                {
+                    return FindDescendants<TreeViewItem>(tableItem).FirstOrDefault(item => item.DataContext is PlaylistFolderNode folder && !folder.IsSpecial && folder.FolderName == name)
+                        ?? throw new AssertFailedException($"フォルダ'{name}'の表示コンテナがありません（対象数={tableItem.Items.Count}、生成状態={tableItem.ItemContainerGenerator.Status}）。");
+                }
+                void AssertSelection(string name, string hash)
+                {
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "folder-tree-detail-idle");
+                    Assert.AreEqual(name, workspace.CapturePlaylistDetailSelection().FolderName);
+                    Assert.IsTrue(Folder(name).IsSelected);
+                    Assert.AreEqual(name, ((PlaylistFolderNode)((TreeView)fixture.Window.FindName("treeViewPlaylist")).SelectedItem).FolderName);
+                    CollectionAssert.AreEqual(new[] { hash }, workspace.DetailViewState.Source.Rows.Select(row => row.Entry.md5).ToArray());
+                }
+                Folder("P1").IsSelected = true;
+                AssertSelection("P1", new string('a', 32));
+                long beforeClick;
+                workspace.CapturePlaylistDetailSelection(out beforeClick);
+                Folder("P1").RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                { RoutedEvent = Mouse.PreviewMouseDownEvent });
+                workspace.CapturePlaylistDetailSelection(out long afterClick);
+                Assert.IsTrue(afterClick > beforeClick, "選択済みfolderの再クリックも実compiledイベントから要求を更新します。");
+                AssertSelection("P1", new string('a', 32));
+                int parentSelections = 0;
+                tableItem.AddHandler(TreeViewItem.SelectedEvent, new RoutedEventHandler((_, args) =>
+                {
+                    if (ReferenceEquals(args.OriginalSource, tableItem)) { parentSelections++; }
+                }), handledEventsToo: true);
+                Task renameTransfer = ObserveStructureTransfer();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.RenameFolderAsync(fixture.Table,
+                    PlaylistFolderNode.CreateFolder("P1"), "P3"), "folder-tree-rename");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(renameTransfer, "folder-tree-rename-ui-consumer");
+                AssertSelection("P3", new string('a', 32));
+                Assert.IsTrue(parentSelections > 0, "実ItemsSource置換の親選択イベントを通過します。");
+                Task<PlaylistPropertyDialogViewModel> opening = workspace.OpenPropertyDialogAsync(fixture.Table);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(opening, "folder-tree-property-open");
+                using (PlaylistPropertyDialogViewModel dialog = opening.Result)
+                {
+                    dialog.compat_prefix = "Q";
+                    Task prefixTransfer = ObserveStructureTransfer();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SaveAndApplyAsync(), "folder-tree-prefix-save");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(prefixTransfer, "folder-tree-prefix-ui-consumer");
+                }
+                AssertSelection("Q3", new string('a', 32));
+                Task otherTransfer = ObserveStructureTransfer();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.RenameFolderAsync(fixture.Table,
+                    PlaylistFolderNode.CreateFolder("Q2"), "Q4"), "folder-tree-other-rename");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(otherTransfer, "folder-tree-other-ui-consumer");
+                AssertSelection("Q3", new string('a', 32));
+
+                // 同じ共通更新境界をUI上で実行し、Loadedの復元を配送する前に別folderの実選択を確定します。
+                int beforeReplacement = parentSelections;
+                Task orderedTransfer = ObserveStructureTransfer();
+                fixture.Table.Folder_order = ["Q4", "Q3"];
+                BindingExpression structureBinding = BindingOperations.GetBindingExpression(tableItem, MainWindow.PlaylistFolderNodesProperty)
+                    ?? throw new AssertFailedException("compiledフォルダ構成Bindingがありません。");
+                structureBinding.UpdateTarget();
+                Assert.IsTrue(parentSelections > beforeReplacement, "復元配送前に実構造置換の親選択を発生させます。");
+                Assert.AreEqual("Q3", workspace.CapturePlaylistDetailSelection().FolderName, "構造置換の親選択を利用者の選択と解釈しません。");
+                tableItem.UpdateLayout();
+                Folder("Q4").IsSelected = true;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(orderedTransfer, "folder-tree-order-ui-consumer");
+                AssertSelection("Q4", new string('b', 32));
+
+                void RenameForCollision(string before, string after)
+                {
+                    Task transfer = ObserveStructureTransfer();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.RenameFolderAsync(fixture.Table,
+                        PlaylistFolderNode.CreateFolder(before), after), "folder-tree-collision-rename");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(transfer, "folder-tree-collision-rename-ui");
+                }
+                void SavePrefixBeforeFolderNotification(string prefix, Action choose)
+                {
+                    Task<PlaylistPropertyDialogViewModel> create = workspace.OpenPropertyDialogAsync(fixture.Table);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(create, "folder-tree-gated-property-open");
+                    using PlaylistPropertyDialogViewModel dialog = create.Result;
+                    using var release = new ManualResetEventSlim();
+                    var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    int held = 0;
+                    System.ComponentModel.PropertyChangedEventHandler hold = (_, args) =>
+                    {
+                        if (args.PropertyName != nameof(BMSTable.PlaylistEntriesRevision) || Interlocked.Exchange(ref held, 1) != 0) { return; }
+                        reached.TrySetResult();
+                        release.Wait();
+                    };
+                    fixture.Table.PropertyChanged += hold;
+                    Task transfer = ObserveStructureTransfer();
+                    Task? saving = null;
+                    Exception? stageFailure = null;
+                    try
+                    {
+                        dialog.compat_prefix = prefix;
+                        saving = dialog.SaveAndApplyAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(
+                            reached.Task, saving, "folder-tree-committed-before-notification"), "folder-tree-prefix-gate");
+                        choose();
+                    }
+                    catch (Exception failure) { stageFailure = failure; throw; }
+                    finally
+                    {
+                        release.Set();
+                        try { if (saving != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(saving, "folder-tree-prefix-gate-terminal"); } }
+                        catch (Exception cleanupFailure) when (stageFailure != null) { stageFailure.Data["PrefixGateCleanupFailure"] = cleanupFailure.ToString(); }
+                        finally { fixture.Table.PropertyChanged -= hold; }
+                    }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(transfer, "folder-tree-gated-prefix-ui-consumer");
+                }
+
+                // 旧表示QQ1と新表示QQ1が別hashを指す。モデル確定と画面配送の間で、実ItemsSource由来の要求を区別します。
+                RenameForCollision("Q3", "Q1");
+                RenameForCollision("Q4", "QQ1");
+                Folder("Q1").IsSelected = true;
+                AssertSelection("Q1", new string('a', 32));
+                object oldDisplayed = tableItem.ItemsSource;
+                SavePrefixBeforeFolderNotification("QQ", () =>
+                {
+                    Assert.AreSame(oldDisplayed, tableItem.ItemsSource, "保存後も旧構成を表示している区間です。");
+                    Assert.IsTrue(fixture.Table.FolderNodes.Any(node => !node.IsSpecial && node.FolderName == "QQQ1"));
+                    Folder("QQ1").IsSelected = true;
+                    Assert.AreEqual("QQ1", workspace.CapturePlaylistDetailSelection().FolderName);
+                });
+                AssertSelection("QQQ1", new string('b', 32));
+
+                SavePrefixBeforeFolderNotification("QQQ", () =>
+                {
+                    int oldParents = parentSelections;
+                    structureBinding.UpdateTarget();
+                    Assert.AreSame(fixture.Table.FolderNodes, tableItem.ItemsSource);
+                    Assert.IsTrue(parentSelections > oldParents, "新構成の実置換も親Selectedを通ります。");
+                    tableItem.UpdateLayout();
+                    Folder("QQQ1").IsSelected = true;
+                });
+                AssertSelection("QQQ1", new string('a', 32));
+
+                RenameForCollision("QQQ1", "A");
+                RenameForCollision("QQQQ1", " A ");
+                foreach ((string name, string hash, string title) in new[]
+                    { (" A ", new string('b', 32), "B"), ("A", new string('a', 32), "A"), (" A ", new string('b', 32), "B") })
+                {
+                    Folder(name).IsSelected = true;
+                    AssertSelection(name, hash);
+                    Assert.AreEqual(name, FindDescendants<EditableTextBlock>(Folder(name)).Single().Text,
+                        "compiled見出しは所属名の前後空白を保持します。");
+                    CollectionAssert.AreEqual(new[] { (hash, title, name) }, workspace.DetailViewState.View.Rows.Cast<PlaylistDetailRow>()
+                        .Select(row => (row.Entry.md5, row.Title, row.Folder)).ToArray());
+                }
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                if (observedItem != null) { descriptor?.RemoveValueChanged(observedItem, targetChanged); }
+                try { fixture.Close(); }
+                catch (Exception cleanupFailure) when (primaryFailure != null) { primaryFailure.Data["FolderTreeCleanupFailure"] = cleanupFailure.ToString(); }
+            }
+        });
+    }
+
+    /// <summary>選択済み見出しの再clickだけが一回の遅延編集を開始し、開始click中の対象内focusを許しても、後発操作・対象退役後に旧要求を再開しません。</summary>
+    /// <remarks>実compiled Preview/bubble入力と編集中のPreview要求、Window所有timerの実Tickと編集通知、検索の全文・選択、P未受付と独立DBを観測します。候補確定と保存は既存の編集ケースへ分担し、OS物理button押下・focusの取得を前提にしません。</remarks>
+    [TestMethod]
+    public void PlaylistFolderDelayedRename_ExpiresOnLaterInputAndTargetRetirement()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ActualMainWindowFixture fixture = CreatePlaylistDropFixture(scope);
+            ChartFileOperationSynchronizer admission = fixture.Library.Lr2Synchronization.PlaylistOperationAdmission;
+            var leases = new ConcurrentQueue<Task>();
+            int starts = 0;
+            int commits = 0;
+            TaskCompletionSource? nextStart = null;
+            EventHandler availability = (_, _) => { if (admission.IsActive) { leases.Enqueue(admission.WaitForIdleAsync()); } };
+            RoutedEventHandler changed = (_, args) =>
+            {
+                if (args.OriginalSource is EditableTextBlock { IsInEditMode: true })
+                {
+                    starts++;
+                    nextStart?.TrySetResult();
+                }
+                if (args is EditableTextBlockEditModeChangedEventArgs { CommittedText: not null }) { commits++; }
+            };
+            Exception? primary = null;
+            try
+            {
+                fixture.Table.is_external_sync = false;
+                fixture.Table.entries = [new BMSTableEntry { md5 = new string('a', 32), title = "A", folder = "A" },
+                    new BMSTableEntry { md5 = new string('b', 32), title = "B", folder = "B" }];
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                // fixtureのCommitも同じPを一回取得します。準備の実終端後から利用者操作の受付を観測します。
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(admission.WaitForIdleAsync(), "delayed-rename-fixture-persistence-idle");
+                TreeViewItem table = MaterializePlaylistDropTable(fixture);
+                ((TreeView)fixture.Window.FindName("treeViewPlaylist")).Height = 300;
+                table.IsExpanded = true;
+                MaterializePlaylistDropItems(table);
+                var search = (KeywordSearchEditor)fixture.Window.FindName("KeywordSearchEditor");
+                TextBox input = search.InputTextBoxControl;
+                Assert.IsFalse(admission.IsActive, "fixture保存の受付は操作開始前に解放されています。");
+                admission.AvailabilityChanged += availability;
+                fixture.Window.AddHandler(EditableTextBlock.EditModeChangedEvent, changed, true);
+                Folder("B").IsSelected = true;
+                EditableTextBlock first = Header();
+                Click(first);
+                Assert.IsNull(PendingTimer(), "未選択Aの最初のclickは遅延改名を予約しません。");
+                Assert.AreEqual(0, starts);
+                Folder("A").IsSelected = true;
+
+                // 元のPreviewから、同じ入力属性を持つ別argsのbubble終端までだけ、対象内へのfocusを許します。
+                EditableTextBlock normal = Header();
+                MouseButtonEventArgs initial = Preview(normal);
+                DispatcherTimer normalTimer = RequiredTimer();
+                FocusInto(normal, Folder("A"));
+                Assert.AreSame(normalTimer, PendingTimer());
+                Bubble(normal, initial);
+                BeginByClock(normal, normalTimer);
+                Assert.AreEqual("A", normal.CandidateText, "開始時の保存原値から候補を作ります。");
+                EndByEscape(normal);
+                AssertNoSave();
+
+                // 同一Windowで各失効を確認します。各回の次の明示clickが開始できることも監視解除の観測です。
+                foreach (string reason in new[] { "search", "focus-after-bubble", "key", "text-start", "text", "f2", "selection-roundtrip", "context", "header-context", "unloaded", "other-edit", "duplicate" })
+                {
+                    EditableTextBlock control = Header();
+                    Folder("A").IsSelected = true;
+                    Click(control);
+                    DispatcherTimer oldTimer = RequiredTimer();
+                    int before = starts;
+                    switch (reason)
+                    {
+                        case "search":
+                            FocusInto(input, control);
+                            input.Text = "search full text";
+                            input.Select(3, 4);
+                            break;
+                        case "focus-after-bubble":
+                            FocusInto(control, Folder("A"));
+                            break;
+                        case "key":
+                            RaiseKey(control, Key.Space, Keyboard.PreviewKeyDownEvent);
+                            break;
+                        case "text-start":
+                        case "text":
+                            // IME開始と確定を独立に配送し、開始→確定待ちの区間にも旧要求を残しません。
+                            input.RaiseEvent(new TextCompositionEventArgs(Keyboard.PrimaryDevice,
+                                new TextComposition(InputManager.Current, input, "x"))
+                            {
+                                RoutedEvent = reason == "text-start" ? TextCompositionManager.PreviewTextInputStartEvent : TextCompositionManager.PreviewTextInputEvent
+                            });
+                            break;
+                        case "f2":
+                            KeyEventArgs f2 = RaiseKey(Folder("A"), Key.F2, Keyboard.PreviewKeyDownEvent);
+                            f2.RoutedEvent = Keyboard.KeyDownEvent;
+                            Folder("A").RaiseEvent(f2);
+                            Assert.IsTrue(control.IsInEditMode);
+                            Assert.AreEqual(before + 1, starts);
+                            EndByEscape(control);
+                            before = starts;
+                            break;
+                        case "selection-roundtrip":
+                            Folder("B").IsSelected = true;
+                            Folder("A").IsSelected = true;
+                            break;
+                        case "context":
+                            control.DataContext = PlaylistFolderNode.CreateFolder("B");
+                            control.ClearValue(FrameworkElement.DataContextProperty);
+                            break;
+                        case "header-context":
+                            var presenter = (ContentPresenter)control.TemplatedParent;
+                            presenter.DataContext = PlaylistFolderNode.CreateFolder("B");
+                            presenter.ClearValue(FrameworkElement.DataContextProperty);
+                            break;
+                        case "unloaded":
+                            TreeViewItem owner = Folder("A");
+                            owner.SetCurrentValue(HeaderedItemsControl.HeaderTemplateProperty, null);
+                            fixture.Window.UpdateLayout();
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                            Assert.IsFalse(control.IsLoaded, "実headerから旧部品を切り離します。");
+                            owner.ClearValue(HeaderedItemsControl.HeaderTemplateProperty);
+                            fixture.Window.UpdateLayout();
+                            break;
+                        case "other-edit":
+                            EditableTextBlock other = FindDescendants<EditableTextBlock>(Folder("B")).Single();
+                            other.IsInEditMode = true;
+                            EndByEscape(other);
+                            before = starts;
+                            break;
+                        case "duplicate":
+                            Click(control);
+                            DispatcherTimer latest = RequiredTimer();
+                            Assert.AreNotSame(oldTimer, latest);
+                            Assert.IsFalse(oldTimer.IsEnabled);
+                            BeginByClock(control, latest);
+                            control.UpdateLayout();
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                            TextBox editor = FindDescendants<TextBox>(control).Single();
+                            Assert.IsTrue(editor.IsLoaded);
+                            Assert.IsTrue(control.IsInEditMode);
+                            int editingStarts = starts;
+                            // OSの物理button状態に依存するbubbleを避け、同editorからcompiled Previewの開始要求を配送します。
+                            Preview(editor);
+                            Assert.IsNull(PendingTimer());
+                            Assert.AreEqual(editingStarts, starts);
+                            Assert.AreSame(editor, FindDescendants<TextBox>(control).Single());
+                            Assert.IsTrue(control.IsInEditMode);
+                            EndByEscape(control, editor);
+                            before = starts;
+                            break;
+                    }
+                    Assert.IsNull(PendingTimer(), reason);
+                    Assert.IsFalse(oldTimer.IsEnabled, reason);
+                    Assert.IsFalse(control.IsInEditMode, reason);
+                    AssertNoSave();
+                    // 取消を同期配送した後のBackground境界を越えても、停止timerの公開Interval変更だけでは再開しません。
+                    oldTimer.Interval = TimeSpan.FromMilliseconds(1);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Window.Dispatcher.InvokeAsync(() => { },
+                        DispatcherPriority.Background).Task, "delayed-rename-cancel-background");
+                    Assert.IsFalse(oldTimer.IsEnabled, reason);
+                    Assert.AreEqual(before, starts, reason);
+                    Assert.IsFalse(control.IsInEditMode, reason);
+                    if (reason == "search")
+                    {
+                        Assert.AreEqual("search full text", input.Text);
+                        Assert.AreEqual(3, input.SelectionStart);
+                        Assert.AreEqual(4, input.SelectionLength);
+                        // 戻っても旧要求を復活させません。Focus/SelectAllへ進まないことは編集開始0との組で保証します。
+                        FocusInto(Header(), input);
+                        Assert.IsNull(PendingTimer());
+                    }
+                    EditableTextBlock fresh = Header();
+                    Click(fresh);
+                    BeginByClock(fresh, RequiredTimer());
+                    EndByEscape(fresh);
+                    AssertNoSave();
+                }
+
+                TreeViewItem Folder(string name) => FindDescendants<TreeViewItem>(table).Single(item =>
+                    item.DataContext is PlaylistFolderNode { IsSpecial: false } node && node.FolderName == name);
+                EditableTextBlock Header() => FindDescendants<EditableTextBlock>(Folder("A")).Single();
+                DispatcherTimer? PendingTimer()
+                {
+                    // 時計到達だけを制御する承認済みの局所反射です。MainWindow所有の当該timerだけを固定し、方式変更時は退役します。
+                    return typeof(MainWindow).GetField("pendingPlaylistFolderRenameTimer", BindingFlags.Instance | BindingFlags.NonPublic)
+                        ?.GetValue(fixture.Window) as DispatcherTimer;
+                }
+                DispatcherTimer RequiredTimer() => PendingTimer() ?? throw new AssertFailedException("再clickの改名timerがありません。");
+                static MouseButtonEventArgs Preview(UIElement control)
+                {
+                    var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left) { RoutedEvent = Mouse.PreviewMouseDownEvent };
+                    control.RaiseEvent(args);
+                    return args;
+                }
+                static void Bubble(EditableTextBlock control, MouseButtonEventArgs preview)
+                {
+                    // MouseDevice.PostProcessInputと同じく、Previewとbubbleには別argsを配送します。
+                    var down = new MouseButtonEventArgs(preview.MouseDevice, preview.Timestamp, preview.ChangedButton, preview.StylusDevice)
+                    {
+                        RoutedEvent = Mouse.MouseDownEvent
+                    };
+                    control.RaiseEvent(down);
+                }
+                static void Click(EditableTextBlock control) => Bubble(control, Preview(control));
+                static void FocusInto(UIElement destination, IInputElement previous) => destination.RaiseEvent(
+                    new KeyboardFocusChangedEventArgs(Keyboard.PrimaryDevice, 0, previous, destination) { RoutedEvent = Keyboard.GotKeyboardFocusEvent });
+                static KeyEventArgs RaiseKey(UIElement target, Key key, RoutedEvent routedEvent)
+                {
+                    PresentationSource source = PresentationSource.FromVisual(target) ?? throw new AssertFailedException("入力先の表示sourceがありません。");
+                    var args = new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key) { RoutedEvent = routedEvent };
+                    target.RaiseEvent(args);
+                    return args;
+                }
+                void BeginByClock(EditableTextBlock control, DispatcherTimer timer)
+                {
+                    int before = starts;
+                    nextStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    Assert.IsTrue(timer.IsEnabled);
+                    timer.Interval = TimeSpan.FromMilliseconds(1);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(nextStart.Task, "delayed-rename-edit-start");
+                    nextStart = null;
+                    Assert.AreEqual(before + 1, starts);
+                    Assert.IsTrue(control.IsInEditMode);
+                    Assert.IsFalse(timer.IsEnabled);
+                    Assert.IsNull(PendingTimer());
+                }
+                static void EndByEscape(EditableTextBlock control, TextBox? editor = null)
+                {
+                    control.UpdateLayout();
+                    editor ??= FindDescendants<TextBox>(control).Single();
+                    RaiseKey(editor, Key.Escape, Keyboard.KeyDownEvent);
+                    Assert.IsFalse(control.IsInEditMode);
+                    Window.GetWindow(control)?.UpdateLayout();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                }
+                void AssertNoSave()
+                {
+                    Assert.AreEqual(0, commits);
+                    Assert.AreEqual(0, leases.Count, "未確定の遅延開始と取消はP受付を開始しません。");
+                    using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly();
+                    foreach (string name in new[] { "A", "B" })
+                    {
+                        string hash = new string(name == "A" ? 'a' : 'b', 32);
+                        Assert.AreEqual(name, fixture.Table.entries.Single(entry => entry.md5 == hash).folder);
+                        Assert.AreEqual(name, db.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ?;", fixture.Table.playlist_id, hash));
+                    }
+                }
+            }
+            catch (Exception failure) { primary = failure; throw; }
+            finally
+            {
+                try { foreach (Task lease in leases) { TestUiDispatcherHost.AwaitTaskOnDispatcher(lease, "delayed-rename-cleanup-lease"); } }
+                catch (Exception cleanupFailure) when (primary != null) { primary.Data["DelayedRenameLeaseCleanupFailure"] = cleanupFailure.ToString(); }
+                finally
+                {
+                    admission.AvailabilityChanged -= availability;
+                    fixture.Window.RemoveHandler(EditableTextBlock.EditModeChangedEvent, changed);
+                    try { fixture.Close(); }
+                    catch (Exception cleanupFailure) when (primary != null) { primary.Data["DelayedRenameWindowCleanupFailure"] = cleanupFailure.ToString(); }
+                }
+            }
+        });
+    }
+
+    /// <summary>無変更/変更Escape後も原値・表示Bindingを保ち、実scrollで再利用した見出しから名前を外して、そのfolderだけを名前なしへ一回保存します。</summary>
+    /// <remarks>実compiled入力とMainWindow/DBへの接続を担当します。保存失敗・拒否・選択復元の条件差は既存owner/構造テストに分担し、OS入力・物理focus成功は要求しません。</remarks>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PlaylistFolderEdit_CancelKeepsBindingAndRecycledControlRenamesCurrentFolder(bool changeBeforeEscape)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            var messages = new List<UiMessageRequest>();
+            var failureNotified = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope, messagePresenter: (_, request) =>
+            {
+                messages.Add(request);
+                failureNotified.TrySetResult();
+                return new ThemedMessageBoxResponse(MessageBoxResult.OK, false);
+            });
+            PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+            ChartFileOperationSynchronizer admission = fixture.Library.Lr2Synchronization.PlaylistOperationAdmission;
+            var leases = new ConcurrentQueue<Task>();
+            var leaseStarted = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var rejected = new ConcurrentQueue<PlaylistWorkspaceMutationRejectedEventArgs>();
+            var commits = new List<string>();
+            Exception? primary = null;
+            EditableTextBlock? observed = null;
+            TreeViewItem? observedTable = null;
+            ScrollViewer? observedScroll = null;
+            System.ComponentModel.DependencyPropertyDescriptor? descriptor = null;
+            Task? structureConsumer = null;
+            TaskCompletionSource? structureTransferred = null;
+            string? expectedTransferredFolder = null;
+            int contextChanges = 0;
+            int scrollChanges = 0;
+            EventHandler availability = (_, _) =>
+            {
+                if (admission.IsActive)
+                {
+                    Task lease = admission.WaitForIdleAsync();
+                    leases.Enqueue(lease);
+                    leaseStarted.TrySetResult(lease);
+                }
+            };
+            EventHandler<PlaylistWorkspaceMutationRejectedEventArgs> rejection = (_, args) =>
+            {
+                rejected.Enqueue(args);
+                failureNotified.TrySetResult();
+            };
+            RoutedEventHandler editChanged = (_, args) =>
+            {
+                if (args is EditableTextBlockEditModeChangedEventArgs { CommittedText: string value })
+                {
+                    commits.Add(value);
+                }
+            };
+            DependencyPropertyChangedEventHandler contextChanged = (_, _) => contextChanges++;
+            ScrollChangedEventHandler scrolled = (_, args) => { if (args.VerticalChange != 0) { scrollChanges++; } };
+            EventHandler transferred = (_, _) =>
+            {
+                if (structureTransferred is TaskCompletionSource consumer
+                    && observedTable != null && expectedTransferredFolder is string expected
+                    && MainWindow.GetPlaylistFolderNodes(observedTable) is IEnumerable<PlaylistFolderNode> nodes
+                    && nodes.Any(node => !node.IsSpecial && node.FolderName == expected))
+                {
+                    structureConsumer = consumer.Task;
+                    fixture.Window.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => consumer.TrySetResult()));
+                }
+            };
+            try
+            {
+                fixture.Table.is_external_sync = false;
+                string[] names = Enumerable.Range(0, 240).Select(index => $"Folder {index:D3}").ToArray();
+                names[0] = "   ";
+                fixture.Table.entries = names.Select((name, index) => new BMSTableEntry
+                {
+                    md5 = (index + 1).ToString("x32", CultureInfo.InvariantCulture),
+                    title = name,
+                    folder = name
+                }).ToList();
+                var originalFolders = names.Select((name, index) =>
+                    new KeyValuePair<string, string>((index + 1).ToString("x32", CultureInfo.InvariantCulture), name))
+                    .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+                fixture.Table.Folder_order = names.ToList();
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(admission.WaitForIdleAsync(), "tree-edit-fixture-idle");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var tree = (TreeView)fixture.Window.FindName("treeViewPlaylist");
+                tree.Height = 180;
+                var root = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                root.IsExpanded = true;
+                tree.UpdateLayout();
+                TreeViewItem tableItem = root.ItemContainerGenerator.ContainerFromItem(fixture.Table) as TreeViewItem
+                    ?? throw new AssertFailedException("実表コンテナがありません。");
+                observedTable = tableItem;
+                tableItem.IsExpanded = true;
+                tree.Dispatcher.Invoke(DispatcherPriority.Loaded, new Action(tree.UpdateLayout));
+                TreeViewItem itemA = FindDescendants<TreeViewItem>(tableItem).FirstOrDefault(item =>
+                    item.DataContext is PlaylistFolderNode { IsSpecial: false } folder && folder.FolderName == names[0])
+                    ?? throw new AssertFailedException("実viewportに通常folder Aがありません。");
+                EditableTextBlock controlA = FindDescendants<EditableTextBlock>(itemA).Single();
+                observed = controlA;
+                var folderA = (PlaylistFolderNode)controlA.DataContext;
+                DisplayBinding(controlA, folderA, names[0]);
+                admission.AvailabilityChanged += availability;
+                workspace.MutationRejected += rejection;
+                controlA.EditModeChanged += editChanged;
+                controlA.DataContextChanged += contextChanged;
+                AssertFoldersUnchanged();
+                itemA.IsSelected = true;
+                controlA.IsInEditMode = true;
+                tree.UpdateLayout();
+                TextBox editorA = Editor(controlA);
+                Assert.AreEqual(names[0], editorA.Text);
+                DisplayBinding(controlA, folderA, names[0]);
+                if (changeBeforeEscape) { Type(editorA, "Discarded A candidate"); }
+                Assert.AreEqual(changeBeforeEscape ? "Discarded A candidate" : names[0], controlA.CandidateText);
+                DisplayBinding(controlA, folderA, names[0]);
+                AssertFoldersUnchanged();
+                SendKey(editorA, Key.Escape);
+                tree.UpdateLayout();
+                Assert.IsFalse(controlA.IsInEditMode);
+                DisplayBinding(controlA, folderA, names[0]);
+                Assert.AreEqual(names[0], FindDescendants<TextBlock>(controlA).Single().Text);
+                Assert.AreEqual(0, commits.Count);
+                Assert.AreEqual(0, leases.Count, "取消はP受付を開始しません。");
+                AssertFoldersUnchanged();
+
+                // 同じA参照の実recyclingを要求します。別部品取得・手動DataContext差替えで代用しません。
+                itemA.IsSelected = false;
+                FocusManager.SetFocusedElement(FocusManager.GetFocusScope(controlA), null);
+                Keyboard.ClearFocus();
+                ScrollViewer scroll = FindDescendants<ScrollViewer>(tree).First();
+                observedScroll = scroll;
+                scroll.ScrollChanged += scrolled;
+                Assert.IsTrue(scroll.ScrollableHeight > scroll.ViewportHeight, "離れた通常folderへscrollできる実領域が必要です。");
+                scroll.ScrollToVerticalOffset(scroll.ScrollableHeight / 2);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(tree.Dispatcher.InvokeAsync(tree.UpdateLayout,
+                    DispatcherPriority.Background).Task, "tree-edit-scroll-layout");
+                string scrollState = $"offset={scroll.VerticalOffset}, extent={scroll.ExtentHeight}, viewport={scroll.ViewportHeight}, changes={scrollChanges}, contexts={contextChanges}, generator={tableItem.ItemContainerGenerator.Status}, current={controlA.DataContext}";
+                Assert.IsTrue(scrollChanges > 0 && scroll.VerticalOffset > 0, "実ScrollChangedと移動後offsetを確認します。" + scrollState);
+                Assert.AreEqual(GeneratorStatus.ContainersGenerated, tableItem.ItemContainerGenerator.Status);
+                Assert.IsTrue(contextChanges > 0, "固定A部品のDataContextChangedが必要です。" + scrollState);
+                Assert.IsTrue(FindDescendants<EditableTextBlock>(tree).Any(control => ReferenceEquals(control, controlA)),
+                    "固定A部品が実treeへ再利用されていません。" + scrollState);
+                PlaylistFolderNode folderC = controlA.DataContext as PlaylistFolderNode
+                    ?? throw new AssertFailedException("再利用先が通常folderではありません。");
+                Assert.IsFalse(folderC.IsSpecial);
+                Assert.AreNotEqual(folderA.FolderName, folderC.FolderName);
+                Assert.IsTrue(names.Contains(folderC.FolderName, StringComparer.Ordinal));
+                DisplayBinding(controlA, folderC, folderC.FolderName);
+                Assert.AreEqual(folderC.FolderName, FindDescendants<TextBlock>(controlA).Single().Text);
+
+                descriptor = System.ComponentModel.DependencyPropertyDescriptor.FromProperty(MainWindow.PlaylistFolderNodesProperty, typeof(TreeViewItem))
+                    ?? throw new AssertFailedException("実構成Bindingのtarget監視を作れません。");
+                descriptor.AddValueChanged(tableItem, transferred);
+                TreeViewItem itemC = FindDescendants<TreeViewItem>(tableItem).Single(item => ReferenceEquals(item.DataContext, folderC));
+                itemC.IsSelected = true;
+                controlA.IsInEditMode = true;
+                tree.UpdateLayout();
+                TextBox editorC = Editor(controlA);
+                string savedName = string.Empty;
+                Type(editorC, savedName);
+                tree.Dispatcher.Invoke(DispatcherPriority.Loaded, new Action(tree.UpdateLayout));
+                Assert.AreEqual(savedName, controlA.CandidateText);
+                Assert.AreEqual(savedName, editorC.Text);
+                DisplayBinding(controlA, folderC, folderC.FolderName);
+                AssertFoldersUnchanged();
+                Assert.AreEqual(0, commits.Count, "Cの候補入力でも確定通知を出しません。");
+                Assert.AreEqual(0, leases.Count, "Cの候補入力ではP受付を開始しません。");
+                // 既存選択の転送では完了させず、今回の改名先を含む構成target転送だけを捕捉します。
+                expectedTransferredFolder = savedName;
+                structureTransferred = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                SendKey(editorC, Key.Return);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(leaseStarted.Task, failureNotified.Task), "tree-edit-rename-start-or-failure");
+                Assert.AreEqual(0, rejected.Count, "改名開始までに受付拒否を通知しません。");
+                Assert.AreEqual(0, messages.Count, "改名開始までに失敗を通知しません。");
+                Assert.IsTrue(leaseStarted.Task.IsCompletedSuccessfully, "当該Pの開始通知が必要です。");
+                // 開始通知から得た実P解放tokenを別に待ちます。RenameFolderAsync自体のTaskとは区別します。
+                Task lease = leaseStarted.Task.GetAwaiter().GetResult();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(lease, "tree-edit-rename-lease");
+                Assert.AreEqual(1, leases.Count, "確定はP受付を一回だけ開始します。");
+                structureConsumer = structureTransferred.Task;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(structureConsumer, "tree-edit-rename-binding-consumer");
+                Assert.AreEqual(1, commits.Count);
+                Assert.AreEqual(savedName, commits[0]);
+                Assert.AreEqual(0, rejected.Count);
+                Assert.AreEqual(0, messages.Count);
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly())
+                {
+                    Assert.AreEqual(originalFolders.Count, fixture.Table.entries.Count);
+                    foreach (KeyValuePair<string, string> original in originalFolders)
+                    {
+                        string expected = original.Value == folderC.FolderName ? savedName : original.Value;
+                        BMSTableEntry entry = fixture.Table.entries.Single(item => item.md5 == original.Key);
+                        Assert.AreEqual(expected, entry.folder);
+                        Assert.AreEqual(expected, db.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ?;", fixture.Table.playlist_id, original.Key));
+                    }
+                }
+                tree.UpdateLayout();
+                EditableTextBlock currentC = FindDescendants<EditableTextBlock>(tree).FirstOrDefault(control =>
+                    control.DataContext is PlaylistFolderNode folder && folder.FolderName == savedName)
+                    ?? throw new AssertFailedException("改名後の現treeにCの表示部品がありません。");
+                string unnamedLabel = "(" + Resources.No_folder_name + ")";
+                DisplayBinding(currentC, (PlaylistFolderNode)currentC.DataContext, unnamedLabel);
+                Assert.AreEqual(unnamedLabel, FindDescendants<TextBlock>(currentC).Single().Text);
+                Assert.AreEqual(string.Empty, workspace.CapturePlaylistDetailSelection().FolderName);
+                currentC.IsInEditMode = true;
+                tree.UpdateLayout();
+                TextBox unnamedEditor = Editor(currentC);
+                Assert.AreEqual(string.Empty, unnamedEditor.Text, "表示ラベルではなく保存原値で再編集します。");
+                SendKey(unnamedEditor, Key.Escape);
+                Assert.AreEqual(1, commits.Count);
+                // 保存時のItemsSource置換では旧部品が退役してもよく、以後のpool残留は要求しません。
+
+                void AssertFoldersUnchanged()
+                {
+                    using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly();
+                    Assert.AreEqual(originalFolders.Count, fixture.Table.entries.Count);
+                    foreach (KeyValuePair<string, string> original in originalFolders)
+                    {
+                        Assert.AreEqual(original.Value, fixture.Table.entries.Single(entry => entry.md5 == original.Key).folder);
+                        Assert.AreEqual(original.Value, db.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ?;", fixture.Table.playlist_id, original.Key));
+                    }
+                }
+                static void DisplayBinding(EditableTextBlock control, PlaylistFolderNode source, string expected)
+                {
+                    BindingExpression binding = BindingOperations.GetBindingExpression(control, EditableTextBlock.DisplayTextProperty)
+                        ?? throw new AssertFailedException("外側の表示Bindingが失われています。");
+                    Assert.AreEqual(BindingStatus.Active, binding.Status);
+                    Assert.AreSame(source, binding.DataItem);
+                    Assert.AreEqual(nameof(PlaylistFolderNode.DisplayName), binding.ParentBinding.Path.Path);
+                    Assert.AreEqual(BindingMode.OneWay, binding.ParentBinding.Mode);
+                    Assert.AreEqual(expected, source.DisplayName);
+                    Assert.AreEqual(expected, control.DisplayText);
+                    BindingExpression raw = BindingOperations.GetBindingExpression(control, EditableTextBlock.TextProperty)
+                        ?? throw new AssertFailedException("保存原値のBindingがありません。");
+                    Assert.AreEqual(BindingStatus.Active, raw.Status);
+                    Assert.AreSame(source, raw.DataItem);
+                    Assert.AreEqual(nameof(PlaylistFolderNode.FolderName), raw.ParentBinding.Path.Path);
+                    Assert.AreEqual(BindingMode.OneWay, raw.ParentBinding.Mode);
+                    Assert.AreEqual(source.FolderName, control.Text);
+                }
+                static TextBox Editor(EditableTextBlock control)
+                {
+                    TextBox editor = FindDescendants<TextBox>(control).Single();
+                    BindingExpression binding = BindingOperations.GetBindingExpression(editor, TextBox.TextProperty)
+                        ?? throw new AssertFailedException("内部の候補Bindingがありません。");
+                    Assert.AreSame(control, binding.DataItem);
+                    Assert.AreEqual(nameof(EditableTextBlock.CandidateText), binding.ParentBinding.Path.Path);
+                    return editor;
+                }
+                static void Type(TextBox editor, string value)
+                {
+                    editor.SelectAll();
+                    editor.SelectedText = value;
+                    Assert.IsNotNull(BindingOperations.GetBindingExpression(editor, TextBox.TextProperty));
+                }
+                static void SendKey(TextBox editor, Key key)
+                {
+                    PresentationSource source = PresentationSource.FromVisual(editor) ?? throw new AssertFailedException("実editorの表示sourceがありません。");
+                    var args = new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key) { RoutedEvent = Keyboard.KeyDownEvent };
+                    editor.RaiseEvent(args);
+                    Assert.IsTrue(args.Handled, "compiled KeyDown接続を通過します。");
+                }
+            }
+            catch (Exception failure) { primary = failure; throw; }
+            finally
+            {
+                // 捕捉した実受付/開始済みconsumerを回収してから購読とWindowを解放します。
+                try
+                {
+                    foreach (Task lease in leases) { TestUiDispatcherHost.AwaitTaskOnDispatcher(lease, "tree-edit-cleanup-lease"); }
+                    if (structureConsumer != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(structureConsumer, "tree-edit-cleanup-consumer"); }
+                }
+                catch (Exception cleanupFailure) when (primary != null) { primary.Data["TreeEditTerminalCleanupFailure"] = cleanupFailure.ToString(); }
+                finally
+                {
+                    admission.AvailabilityChanged -= availability;
+                    workspace.MutationRejected -= rejection;
+                    if (observed != null) { observed.EditModeChanged -= editChanged; observed.DataContextChanged -= contextChanged; }
+                    if (observedScroll != null) { observedScroll.ScrollChanged -= scrolled; }
+                    if (observedTable != null) { descriptor?.RemoveValueChanged(observedTable, transferred); }
+                    try { fixture.Close(); }
+                    catch (Exception cleanupFailure) when (primary != null)
+                    {
+                        primary.Data["TreeEditWindowCleanupFailure"] = cleanupFailure.ToString();
+                        if (Directory.Exists(fixture.Root)) { primary.Data["TreeEditRemainingOwnedPath"] = fixture.Root; }
+                    }
+                }
+            }
+        });
+    }
+
+    /// <summary>compiled編集部品で表示と編集原値を分け、候補寿命、不変通知、再入、取消と空文字の確定・無変更を確認します。旧空白原値も表示ラベルへ置き換えません。</summary>
+    /// <remarks>手動context交換は候補破棄だけの検査です。実TreeView再利用と保存対象は前の実MainWindowケースに分担します。</remarks>
+    [TestMethod]
+    public void EditableTreeHeader_CompiledEditorKeepsCandidateLifetimeAndImmutableCompletion()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            var sourceA = new TextBlock { Text = "Source A", Tag = "Display A" };
+            var sourceB = new TextBlock { Text = "Source B", Tag = "Display B" };
+            var control = new EditableTextBlock { Width = 300, Height = 40, DataContext = sourceA, IsEditable = false };
+            control.SetBinding(EditableTextBlock.TextProperty, new Binding(nameof(TextBlock.Text)) { Mode = BindingMode.OneWay });
+            control.SetBinding(EditableTextBlock.DisplayTextProperty, new Binding(nameof(TextBlock.Tag)) { Mode = BindingMode.OneWay });
+            var window = new Window { Width = 340, Height = 120, Content = control };
+            var notifications = new List<EditableTextBlockEditModeChangedEventArgs>();
+            RoutedEventHandler record = (_, args) => notifications.Add((EditableTextBlockEditModeChangedEventArgs)args);
+            control.EditModeChanged += record;
+            Exception? primary = null;
+            RoutedEventHandler? reenter = null;
+            try
+            {
+                scope.ShowAndWaitForContentRendered(window);
+                control.IsInEditMode = true;
+                Assert.IsFalse(control.IsInEditMode);
+                control.IsEditable = true;
+                Assert.IsFalse(control.IsInEditMode, "編集不可時の開始要求を予約として残しません。");
+                Assert.AreEqual(0, notifications.Count);
+                TextBox editorA = Begin("Source A");
+                Type(editorA, "Discard A");
+                control.IsInEditMode = true;
+                Assert.AreEqual("Discard A", control.CandidateText, "重複trueで候補を再初期化しません。");
+                control.DataContext = sourceB;
+                window.UpdateLayout();
+                Assert.IsFalse(control.IsInEditMode);
+                Assert.IsTrue(notifications.All(args => args.CommittedText == null));
+                AssertDisplay("Display B");
+                TextBox editorB = Begin("Source B");
+                Type(editorB, string.Empty);
+                SendKey(editorB, Key.Return);
+                editorB.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent));
+                EditableTextBlockEditModeChangedEventArgs empty = notifications.Single(args => args.CommittedText != null);
+                Assert.AreEqual(string.Empty, empty.CommittedText, "空文字は取消のnullと区別します。");
+                AssertDisplay("Display B");
+                sourceB.Text = "Published B";
+                sourceB.Tag = "Published label B";
+                AssertDisplay("Published label B");
+                TextBox cancelEditor = Begin("Published B");
+                Type(cancelEditor, "Discard B");
+                SendKey(cancelEditor, Key.Escape);
+                Assert.AreEqual(1, notifications.Count(args => args.CommittedText != null));
+                AssertDisplay("Published label B");
+
+                TextBox unloading = Begin("Published B");
+                Type(unloading, "Discard unloaded");
+                window.Content = null;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsFalse(control.IsInEditMode);
+                Assert.AreEqual(1, notifications.Count(args => args.CommittedText != null));
+                window.Content = control;
+                window.UpdateLayout();
+                reenter = (_, args) =>
+                {
+                    if (args is EditableTextBlockEditModeChangedEventArgs { CommittedText: "First completion" })
+                    {
+                        control.IsInEditMode = true;
+                        control.CandidateText = "Next candidate";
+                    }
+                };
+                control.EditModeChanged += reenter;
+                TextBox first = Begin("Published B");
+                Type(first, "First completion");
+                SendKey(first, Key.Return);
+                Assert.IsTrue(control.IsInEditMode);
+                Assert.AreEqual("Next candidate", control.CandidateText);
+                Assert.AreEqual(string.Empty, empty.CommittedText, "捕捉した前通知は次編集でも変わりません。");
+                EditableTextBlockEditModeChangedEventArgs completed = notifications.Single(args => args.CommittedText == "First completion");
+                window.UpdateLayout();
+                TextBox next = FindDescendants<TextBox>(control).Single();
+                SendKey(next, Key.Escape);
+                Assert.IsFalse(control.IsInEditMode);
+                Assert.AreEqual("First completion", completed.CommittedText);
+                Assert.AreEqual(2, notifications.Count(args => args.CommittedText != null));
+                sourceB.Text = "Published after completion";
+                sourceB.Tag = "Latest display";
+                AssertDisplay("Latest display");
+                sourceB.Text = string.Empty;
+                sourceB.Tag = "(" + Resources.No_folder_name + ")";
+                AssertDisplay("(" + Resources.No_folder_name + ")");
+                SendKey(Begin(string.Empty), Key.Return);
+                Assert.AreEqual(2, notifications.Count(args => args.CommittedText != null), "空欄の無変更ではラベルを確定しません。");
+                sourceB.Text = "   ";
+                sourceB.Tag = "   ";
+                AssertDisplay("   ");
+                SendKey(Begin("   "), Key.Return);
+                Assert.AreEqual(2, notifications.Count(args => args.CommittedText != null), "旧空白名の原文一致も無変更です。");
+
+                TextBox Begin(string expected)
+                {
+                    control.IsInEditMode = true;
+                    window.UpdateLayout();
+                    TextBox editor = FindDescendants<TextBox>(control).Single();
+                    Assert.AreEqual(expected, editor.Text);
+                    Assert.AreEqual(expected, control.CandidateText);
+                    BindingExpression candidateBinding = BindingOperations.GetBindingExpression(editor, TextBox.TextProperty)
+                        ?? throw new AssertFailedException("内部候補Bindingがありません。");
+                    Assert.AreEqual(nameof(EditableTextBlock.CandidateText), candidateBinding.ParentBinding.Path.Path);
+                    Assert.AreSame(control, candidateBinding.DataItem);
+                    return editor;
+                }
+                void AssertDisplay(string expected)
+                {
+                    window.UpdateLayout();
+                    BindingExpression binding = BindingOperations.GetBindingExpression(control, EditableTextBlock.DisplayTextProperty)
+                        ?? throw new AssertFailedException("外側の表示Bindingがありません。");
+                    Assert.AreEqual(BindingStatus.Active, binding.Status);
+                    Assert.AreSame(sourceB, binding.DataItem);
+                    Assert.AreEqual(nameof(TextBlock.Tag), binding.ParentBinding.Path.Path);
+                    Assert.AreEqual(BindingMode.OneWay, binding.ParentBinding.Mode);
+                    Assert.AreEqual(expected, control.DisplayText);
+                    Assert.AreEqual(sourceB.Text, control.Text);
+                    Assert.AreEqual(expected, FindDescendants<TextBlock>(control).Single().Text);
+                }
+                static void Type(TextBox editor, string text)
+                {
+                    editor.SelectAll();
+                    editor.SelectedText = text;
+                    Assert.IsNotNull(BindingOperations.GetBindingExpression(editor, TextBox.TextProperty));
+                }
+                static void SendKey(TextBox editor, Key key)
+                {
+                    PresentationSource source = PresentationSource.FromVisual(editor) ?? throw new AssertFailedException("compiled editorの表示sourceがありません。");
+                    var args = new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key) { RoutedEvent = Keyboard.KeyDownEvent };
+                    editor.RaiseEvent(args);
+                    Assert.IsTrue(args.Handled);
+                }
+            }
+            catch (Exception failure) { primary = failure; throw; }
+            finally
+            {
+                control.EditModeChanged -= record;
+                if (reenter != null) { control.EditModeChanged -= reenter; }
+                try { window.Close(); }
+                catch (Exception cleanupFailure) when (primary != null) { primary.Data["EditableHeaderWindowCleanupFailure"] = cleanupFailure.ToString(); }
+            }
+        });
+    }
+
+    /// <summary>実MainWindowの単一配送から、開いたplaylistへ保守値・独立score・別表参照を局所配送します。score測定は外部主行のBinding・選択と表示反映後から始め、実batch・行通知・drain終端と無関係行・実体化数不増を確認します。正の描画領域と現在セルはNext/Navigation/Editing系列へ分担します。</summary>
+    [TestMethod]
+    public void CatalogMaintenance_ActualMainWindowRefreshesOpenPlaylistAndBoundCells()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            Console.WriteLine("catalog_main_window fixture_begin");
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope, withScoreDatabase: true);
+            Console.WriteLine("catalog_main_window fixture_ready");
+            Task? opening = null;
+            Task? mutation = null;
+            try
+            {
+                string bmsPath = Path.Combine(fixture.Root, "bound.bms");
+                File.WriteAllText(bmsPath, "#PLAYER 1\r\n#TITLE A owned\r\n#WAV01 missing.wav\r\n#00111:01\r\n");
+                string bmsonPath = Path.Combine(fixture.Root, "unvisited.bmson");
+                File.WriteAllText(bmsonPath,
+                    "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Z bmson\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\",\"init_bpm\":120,\"resolution\":240},\"sound_channels\":[{\"name\":\"missing.wav\",\"notes\":[{\"x\":1,\"y\":0}]}]}");
+                ChartFile first = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsPath));
+                ChartFile last = BmsonChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsonPath));
+                var gateway = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(fixture.Root, "data", "song.db"));
+                gateway.UpsertSongs([first]);
+                gateway.UpsertBmsonSongs([last]);
+                using (SQLiteConnectionEx scoreDb = fixture.Library.DatabaseScope.OpenProviderConnection(Path.Combine(fixture.Root, "data", "score.db")))
+                {
+                    scoreDb.Insert(new LR2ScoreDB.score { hash = first.Md5, perfect = 1, totalnotes = 10 });
+                }
+                fixture.Library.InitializeScoresOnly(null);
+                bool catalogReady = false;
+                int deliveredCatalogRevision = -1;
+                EventHandler<NormalLibraryRefreshAppliedEventArgs> catalogApplied = (_, args) =>
+                {
+                    deliveredCatalogRevision = args.NotificationBatch.CatalogRevision;
+                    CatalogChartCollectionSnapshot? snapshot = args.NotificationBatch.CatalogCommits.LastOrDefault()?.Snapshot;
+                    if (snapshot != null && snapshot.BmsRows.Count == 1 && snapshot.BmsonRows.Count == 1) { catalogReady = true; }
+                };
+                fixture.ViewModel.RegularChartList.NormalLibraryRefreshApplied += catalogApplied;
+                try
+                {
+                    fixture.Library.BmsCharts = [first];
+                    fixture.Library.BmsonCharts = [last];
+                    CatalogChartCollectionSnapshot ready = fixture.Library.CaptureNormalLibraryChartSnapshot();
+                    Assert.AreEqual(1, ready.BmsRows.Count);
+                    Assert.AreEqual(1, ready.BmsonRows.Count);
+                    // 空のDispatcher操作ではなく、同じ確定batchのfanoutとscheduler Completionまで待ちます。
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        fixture.ViewModel.RegularChartList.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None),
+                        "catalog-main-window-fixture-delivery");
+                    Console.WriteLine("catalog_main_window initial_revision={0} delivered_revision={1}", ready.CatalogRevision, deliveredCatalogRevision);
+                    Assert.IsTrue(catalogReady, "初回の確定snapshotが実MainWindowの通常通知接続を通過します。");
+                }
+                finally { fixture.ViewModel.RegularChartList.NormalLibraryRefreshApplied -= catalogApplied; }
+                fixture.Table.is_external_sync = false;
+                fixture.Table.entries = new[] { new BMSTableEntry { playlist_id = 1, md5 = first.Md5, title = "A owned" } }
+                    .Concat(Enumerable.Range(1, 64).Select(index => new BMSTableEntry
+                    { playlist_id = 1, md5 = index.ToString("x32"), title = "M background " + index.ToString("D2") }))
+                    .Append(new BMSTableEntry { playlist_id = 1, md5 = last.Md5, title = "Z bmson" }).ToList();
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                var reference = new BMSTable { symbol = "REF", name = "Reference before", entries = [new BMSTableEntry(first)] };
+                fixture.Library.SynchronizeReferenceBMSTables([reference]);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    fixture.ViewModel.RegularChartList.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None), "catalog-main-window-reference-initial");
+                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+                workspace.InitializePlaylistDetailSort(new ChartListSortParameters
+                { ColumnsName = nameof(PlaylistDetailRow.Title), Direction = System.ComponentModel.ListSortDirection.Ascending });
+                workspace.RequestDetailSelection(fixture.Table);
+                opening = workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
+                    MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected,
+                    useCoalescingWindow: false, openReadiness: default);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(opening, "catalog-main-window-playlist-open");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "catalog-main-window-playlist-idle");
+                Console.WriteLine("catalog_main_window playlist_ready");
+                // 表示値を観測する列は、このfixtureで明示的に表示して既定の非表示設定へ依存しません。
+                fixture.ViewModel.MainChartList.ColumnsSettings.WavHealth.Visibility = Visibility.Visible;
+                fixture.ViewModel.MainChartList.ColumnsSettings.PlaylistSymbols.Visibility = Visibility.Visible;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var control = (CustomTableView)fixture.Window.FindName("customTableView");
+                Assert.AreSame(fixture.ViewModel.MainChartList, control.DataContext);
+                BindingExpression? rowsBinding = BindingOperations.GetBindingExpression(control, CustomTableView.ItemsSourceProperty);
+                Assert.IsNotNull(rowsBinding, "compiled画面の実Bindingを使います。");
+                rowsBinding.UpdateTarget();
+                System.Collections.IList rows = fixture.ViewModel.MainChartList.Rows;
+                Assert.AreSame(rows, control.ItemsSource);
+                Assert.AreEqual(66, rows.Count);
+                TextBlock summary = FindDescendants<TextBlock>(fixture.Window).Single(block =>
+                    BindingOperations.GetBindingExpression(block, TextBlock.TextProperty)?.ParentBinding.Path?.Path == "MainChartList.SummaryText");
+                BindingExpression summaryBinding = BindingOperations.GetBindingExpression(summary, TextBlock.TextProperty)
+                    ?? throw new AssertFailedException("compiled集計TextBlockのBindingがありません。");
+                summaryBinding.UpdateTarget();
+                Assert.AreEqual("[66" + Resources.Num_songs + "]", summary.Text);
+                PlaylistDetailRow visible = rows[0] as PlaylistDetailRow ?? throw new AssertFailedException("先頭の詳細行がありません。");
+                Assert.AreEqual("A owned", visible.Title);
+                Assert.IsNull(visible.WAVHealth);
+                IChartListViewMetadata metadata = rows as IChartListViewMetadata ?? throw new AssertFailedException();
+                int realized = metadata.RealizedRowCount;
+                Assert.IsTrue(realized < rows.Count, "画面外の行を残した状態で配送を検証します。");
+                bool updated = false;
+                System.ComponentModel.PropertyChangedEventHandler changed = (_, args) =>
+                {
+                    // source交換は全property通知を使う。個別名と同じく、その通知時の実値を観測する。
+                    if ((string.IsNullOrEmpty(args.PropertyName) || args.PropertyName == nameof(PlaylistDetailRow.WAVHealth))
+                        && visible.WAVHealth == 0)
+                    { updated = true; }
+                };
+                visible.PropertyChanged += changed;
+                try
+                {
+                    CatalogChartCollectionSnapshot current = fixture.Library.CaptureNormalLibraryChartSnapshot();
+                    mutation = Task.Run(() => fixture.Library.RescanResourceHealthCharts([current.BmsRows[0], current.BmsonRows[0]]));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(mutation, "catalog-main-window-maintenance-producer");
+                    Console.WriteLine("catalog_main_window maintenance_producer_complete revision={0}", fixture.Library.CatalogRevision);
+                    // 保守配送の実終端より前に次のscore変更を合流させないよう、正式な配送Taskを回収します。
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        fixture.ViewModel.RegularChartList.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None),
+                        "catalog-main-window-maintenance-delivery");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "catalog-main-window-maintenance-consumer");
+                    Assert.IsTrue(updated, "表示済みの行へWAVHealthのPropertyChangedが届きます。");
+                    Assert.AreSame(rows, control.ItemsSource);
+                    Assert.AreSame(visible, rows[0]);
+                    Assert.AreEqual(realized, metadata.RealizedRowCount);
+                    Assert.AreEqual("0%", control.Columns.Single(column => column.Id == "WavHealth").GetText(visible));
+                    PlaylistDetailRow unvisited = rows[rows.Count - 1] as PlaylistDetailRow ?? throw new AssertFailedException("画面外の詳細行がありません。");
+                    Assert.AreEqual("Z bmson", unvisited.Title);
+                    Assert.AreEqual(0, unvisited.WAVHealth);
+                    Assert.IsNull(first.WAVHealth);
+                    Assert.IsNull(last.WAVHealth);
+
+                    PlaylistDetailRow unrelated = rows[1] as PlaylistDetailRow ?? throw new AssertFailedException();
+                    var selectionApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    System.ComponentModel.DependencyPropertyDescriptor selection = System.ComponentModel.DependencyPropertyDescriptor.FromProperty(
+                        CustomTableView.SelectedIndexProperty, typeof(CustomTableView)) ?? throw new AssertFailedException("表の主行DPを観測できません。");
+                    void ObserveSelection(object? sender, EventArgs args)
+                    {
+                        if (control.SelectedIndex == 1) { selectionApplied.TrySetResult(); }
+                    }
+                    selection.AddValueChanged(control, ObserveSelection);
+                    try
+                    {
+                        fixture.ViewModel.MainChartList.SelectedIndex = 1;
+                        ObserveSelection(null, EventArgs.Empty);
+                        TestUiDispatcherHost.AwaitPresentationOnDispatcher(selectionApplied.Task, "catalog-main-window-score-selection-binding");
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.AreEqual(1, fixture.ViewModel.MainChartList.SelectedIndex); Assert.AreEqual(1, control.SelectedIndex);
+                        Assert.IsTrue(control.IsRowSelected(1)); Assert.AreSame(unrelated, control.GetSelectedRowsSnapshot().Single());
+                        Assert.AreSame(unrelated, control.ItemsSource[1]);
+                    }
+                    finally { selection.RemoveValueChanged(control, ObserveSelection); }
+                    // 新しい主行の可視化で必要な行を実体化してから、score配送だけの仕事量を測る。
+                    int scoreRealized = metadata.RealizedRowCount;
+                    var scoreWork = new List<string>();
+                    workspace.DetailWorkObserver = scoreWork.Add;
+                    int scoreVersion = fixture.Library.ScoreSnapshotVersion;
+                    var scoreBatchApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    var scoreRowUpdated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    Task initialScoreDelivery = Task.CompletedTask;
+                    Task targetScoreDelivery = Task.CompletedTask;
+                    Task initialScoreObservation = Task.CompletedTask;
+                    EventHandler<NormalLibraryRefreshAppliedEventArgs> scoreApplied = (_, args) =>
+                    {
+                        if (args.NotificationBatch.ScoreChanges.Any(change => change.Version > scoreVersion
+                            && change.Md5Keys.Contains(first.Md5, StringComparer.OrdinalIgnoreCase)))
+                        {
+                            targetScoreDelivery = fixture.ViewModel.RegularChartList.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None);
+                            scoreBatchApplied.TrySetResult();
+                        }
+                    };
+                    System.ComponentModel.PropertyChangedEventHandler scoreChanged = (_, args) =>
+                    {
+                        if ((string.IsNullOrEmpty(args.PropertyName) || args.PropertyName == nameof(PlaylistDetailRow.stddevVal))
+                            && visible.stddevVal == 7) { scoreRowUpdated.TrySetResult(); }
+                    };
+                    fixture.ViewModel.RegularChartList.NormalLibraryRefreshApplied += scoreApplied;
+                    visible.PropertyChanged += scoreChanged;
+                    try
+                    {
+                        BMSScore score = fixture.Library.GetBMSScores().Single();
+                        score.stddevVal = 7;
+                        initialScoreDelivery = fixture.ViewModel.RegularChartList.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None);
+                        // 旧drainの正常終端後に対象batchが予約される場合も待つ。失敗・取消だけは直ちに伝える。
+                        initialScoreObservation = initialScoreDelivery.ContinueWith(completed =>
+                        {
+                            if (completed.Exception is AggregateException failure) { scoreBatchApplied.TrySetException(failure.InnerExceptions); }
+                            else if (completed.IsCanceled) { scoreBatchApplied.TrySetCanceled(); }
+                        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                        TestUiDispatcherHost.AwaitPresentationOnDispatcher(scoreBatchApplied.Task, "catalog-main-window-score-batch");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(initialScoreDelivery, targetScoreDelivery), "catalog-main-window-score-delivery");
+                        TestUiDispatcherHost.AwaitPresentationOnDispatcher(scoreRowUpdated.Task, "catalog-main-window-score-row");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "catalog-main-window-score-consumer");
+                        Assert.AreEqual(7d, visible.stddevVal);
+                        Assert.AreSame(rows, fixture.ViewModel.MainChartList.Rows);
+                        Assert.AreSame(rows, control.ItemsSource);
+                        Assert.AreSame(visible, rows[0]);
+                        Assert.AreSame(unrelated, rows[1]);
+                        Assert.AreEqual(1, fixture.ViewModel.MainChartList.SelectedIndex);
+                        Assert.AreEqual(scoreRealized, metadata.RealizedRowCount);
+                        Assert.AreEqual(1, scoreWork.Count(kind => kind == "playlist_source_projection"));
+                        Assert.AreEqual(0, scoreWork.Count(kind => kind == "playlist_dependency_index_entry"));
+                        Assert.AreEqual(0, scoreWork.Count(kind => kind == "playlist_order_buffer"));
+                    }
+                    finally
+                    {
+                        fixture.ViewModel.RegularChartList.NormalLibraryRefreshApplied -= scoreApplied;
+                        visible.PropertyChanged -= scoreChanged;
+                        try
+                        {
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(initialScoreDelivery, targetScoreDelivery, initialScoreObservation),
+                                "catalog-main-window-score-cleanup");
+                        }
+                        finally { workspace.DetailWorkObserver = null; }
+                    }
+
+                    Assert.AreEqual("REF", visible.RefTablesSymbols);
+                    fixture.Library.ApplyPlaylistReferenceEntryCommits([], [new(reference, "NEW", "Reference after", 0, 0)]);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        fixture.ViewModel.RegularChartList.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None), "catalog-main-window-reference-fanout");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "catalog-main-window-reference-consumer");
+                    Assert.AreSame(rows, control.ItemsSource);
+                    Assert.AreSame(visible, rows[0]);
+                    Assert.AreSame(unrelated, rows[1]);
+                    Assert.AreEqual(scoreRealized, metadata.RealizedRowCount);
+                    Assert.AreEqual("NEW", control.Columns.Single(column => column.Id == "PlaylistSymbols").GetText(visible));
+                    Assert.AreEqual("Reference after", visible.RefTablesNames);
+                    summaryBinding.UpdateTarget();
+                    Assert.AreEqual("[66" + Resources.Num_songs + "]", summary.Text);
+                }
+                finally { visible.PropertyChanged -= changed; }
+            }
+            finally
+            {
+                try
+                {
+                    if (opening != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(opening, "catalog-main-window-open-cleanup"); }
+                    if (mutation != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(mutation, "catalog-main-window-mutation-cleanup"); }
+                }
+                finally { fixture.Close(); }
+            }
+        });
+    }
+
+    /// <summary>実新規メニュー・名前Binding・保存ボタンから初回LR2出力と閉鎖まで待ち、DBだけ成功して画面が残る退行を検出します。</summary>
+    [TestMethod]
+    public void PlaylistPropertyNewDraft_CompiledNameAndSaveCompleteFirstLr2Output()
+    {
+        // 実新規メニュー・名前Binding・保存ボタンをつなぎ、空名draftの旧先を基点と誤認して画面が閉じなくなる退行を検出します。
+        // 通常/追加/ROOTと失敗継続の条件差はworkspace系列へ分担し、ここではcompiled接続と実閉鎖後のDB/出力を確認します。
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope, configureSettings: values =>
+            {
+                string root = values.BMSRootPath;
+                values.OperationModeLR2DB = true;
+                values.LR2RootPath = root;
+                values.LR2SongDBPath = Path.Combine(root, "data", "song.db");
+                LR2Config config = TestLr2ConfigFactory.CreateLr2Config(root, Path.Combine(root, "Songs"));
+                values.LR2ConfigXmlPath = config.ConfigFilePath;
+                values.BMSRootPath = Path.Combine(root, "Songs");
+                values.BMSInstallDir = values.BMSRootPath;
+                Directory.CreateDirectory(values.BMSRootPath);
+                File.WriteAllBytes(Path.Combine(root, "LR2body.exe"), []);
+                values.LR2CustomFolderOutputBaseDir = Path.Combine(root, "custom");
+                values.LR2CustomFolderOutputBaseDirRootType = Path.Combine(root, "root-custom");
+                values.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+                Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDir);
+                Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDirRootType);
+                values.PlaylistDefaultIgnoreFolderOutput = (int)(LR2SongDBExtended.playlist.CustomFolderType.AllFolders & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder);
+            });
+            Exception? primaryFailure = null;
+            try
+            {
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                ModalObservation<PlaylistPropertyDialog> observation = OpenDialog<PlaylistPropertyDialog>(fixture.Window, summary,
+                    CreatePlaylistSummaryRow(fixture.Table), "Resources.Create_new", "new-playlist-first-lr2-output", (dialog, _) =>
+                    {
+                        TextBox name = FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, nameof(PlaylistPropertyDialogViewModel.name)));
+                        name.Text = "First compiled output";
+                        name.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+                        Assert.AreEqual("First compiled output", ((PlaylistPropertyDialogViewModel)dialog.DataContext).name);
+                        RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyAccept"));
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.WaitForOperationCompletionAsync(), "new-playlist-save-completion");
+                    }, invoke: () =>
+                    {
+                        var menu = (ContextMenu)fixture.Window.FindResource("treeViewPlaylistRootContextMenu");
+                        RaiseMenuClick(FindMenuItemByHeaderBindingPath(menu, "Resources.Create_new"));
+                    });
+                Assert.IsFalse(observation.Window.IsVisible);
+                Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                BMSTable saved = fixture.Playlist.BMSTables.Single(table => table.name == "First compiled output");
+                string file = Path.Combine(fixture.Root, "custom", "First compiled output", "0000.lr2folder");
+                Assert.IsTrue(File.Exists(file));
+                // 新規保存した同じ表を通常詳細で編集し、その後の構成更新まで接続します。分類・出力の条件網羅は下位へ分担します。
+                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                var sourceEntry = new BMSTableEntry { md5 = new string('a', 32), title = "Seed", folder = "Source" };
+                fixture.Table.entries = [sourceEntry];
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.AddRowsToFolderAsync(
+                    [new PlaylistDetailSourceRow(sourceEntry, resolvedChart: null).CreateViewRow()], saved), "new-playlist-add-row");
+                workspace.RequestDetailSelection(saved);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "new-playlist-open-detail");
+                PlaylistDetailRow edited = fixture.ViewModel.MainChartList.Rows[0] as PlaylistDetailRow
+                    ?? throw new AssertFailedException("新規保存した表の通常詳細行がありません。");
+                var edit = new MainChartListCellEditContext(edited, nameof(PlaylistDetailRow.memo), ChartOperationSourceScope.PlaylistMissing, MainViewOperationSection.Playlist);
+                workspace.BeginDetailEdit(edit);
+                edited.memo = "new playlist memo";
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.CompleteDetailEdit(
+                    new MainChartListCellEditEndedEventArgs(edit, "new playlist memo", commit: true)), "new-playlist-detail-edit");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.CreateFolderAsync(saved), "new-playlist-folder-update");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "new-playlist-after-folder-update");
+                Assert.AreSame(saved, workspace.CapturePlaylistDetailSelection().Table);
+                Assert.AreEqual(PlaylistDetailSelectionScope.OrdinaryRoot, workspace.CapturePlaylistDetailSelection().Scope);
+                Assert.AreEqual("new playlist memo", saved.entries.Single(entry => entry.md5 == new string('a', 32)).memo);
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly();
+                Assert.AreEqual(1, db.Table<BMSTable>().Count(table => table.name == "First compiled output"));
+                Assert.AreEqual(saved.playlist_id, db.Table<BMSTable>().Single(table => table.name == "First compiled output").playlist_id);
+                Assert.IsTrue(db.Table<LR2SongDB.folder>().Any(row => row.path == file));
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                try { fixture.Close(); }
+                catch (Exception cleanupFailure) when (primaryFailure != null) { primaryFailure.Data["NewPlaylistCleanupFailure"] = cleanupFailure.ToString(); }
+            }
+        });
+    }
+
+    /// <summary>実メニューで開くpropertyのPage空欄解除と相対Header/DataをOKから保存し、新DB接続の空文字・nullモデル・再表示を確認します。不正URLと別候補を取消しても保存値を保ちます。</summary>
+    /// <remarks>Page空欄だけは旧null setterへ一度明示反映し、実保存・読戻しまで観測します。Header/Dataは事前反映せずOKのBinding確定を保証し、同期条件表は保存サービス側へ分担します。</remarks>
+    [TestMethod]
+    public void PlaylistPropertyDialog_ClearPageAndRelativeSourcesPersistAndReopenWithoutSavingCancel()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope, closeNextMessage: () => true);
+            Exception? primaryFailure = null;
+            try
+            {
+                BMSTable current = fixture.Table;
+                current.Page_url = new Uri("https://example.test/original/");
+                current.Header_url = new Uri("https://example.test/original/header.json");
+                current.Data_url = new Uri("https://example.test/original/data.json");
+                current.symbol = "Saved symbol";
+                current.is_external_sync = false;
+                fixture.Playlist.CommitBMSTableHeaderToDB(current);
+                string dbPath = Path.Combine(fixture.Root, "data", "song.db");
+                var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                foreach (bool clearSources in new[] { false, true })
+                {
+                    // 1回目はPage解除と相対source、2回目はHeader/Dataも明示解除する。
+                    PlaylistSummaryRow row = CreatePlaylistSummaryRow(current);
+                    summary.ItemsSource = new List<PlaylistSummaryRow> { row };
+                    summary.SelectRowsByPredicate(_ => true);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    ModalObservation<PlaylistPropertyDialog> observation = OpenPropertyDialog(fixture.Window, summary, row,
+                        "property-url-clear-" + clearSources, (dialog, _) =>
+                        {
+                            TextBox page = FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, nameof(PlaylistPropertyDialogViewModel.Page_url)));
+                            TextBox header = FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, nameof(PlaylistPropertyDialogViewModel.Header_url)));
+                            TextBox data = FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, nameof(PlaylistPropertyDialogViewModel.Data_url)));
+                            if (clearSources)
+                            {
+                                Assert.AreEqual(string.Empty, page.Text);
+                                Assert.AreEqual("header.json", header.Text);
+                                Assert.AreEqual("data.json", data.Text);
+                            }
+                            page.Text = string.Empty;
+                            if (!clearSources)
+                            {
+                                BindingExpression binding = page.GetBindingExpression(TextBox.TextProperty)
+                                    ?? throw new AssertFailedException("Page URLの実Bindingがありません。");
+                                binding.UpdateSource();
+                            }
+                            header.Text = clearSources ? string.Empty : "header.json";
+                            data.Text = clearSources ? string.Empty : "data.json";
+                            bool closed = false;
+                            EventHandler onClosed = (_, _) => closed = true;
+                            dialog.Closed += onClosed;
+                            try
+                            {
+                                RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyAccept"));
+                                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.WaitForOperationCompletionAsync(), "property-url-clear-save");
+                                Assert.IsTrue(closed, "URL解除の保存完了後に同じ所有ダイアログが閉じます。");
+                            }
+                            finally { dialog.Closed -= onClosed; }
+                        });
+                    Assert.AreSame(fixture.Window, observation.Owner);
+                    Assert.IsFalse(observation.OwnerEnabled);
+                    Assert.AreEqual(1, observation.DataContextDetachCount);
+                    Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                    using (LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly())
+                    {
+                        BMSTable read = verify.Table<BMSTable>().Single(table => table.playlist_id == current.playlist_id);
+                        Assert.IsTrue(string.IsNullOrEmpty(verify.ExecuteScalar<string>("SELECT page_url FROM playlist WHERE playlist_id=?;", current.playlist_id)));
+                        Assert.IsNull(read.Page_url);
+                        string storedHeader = verify.ExecuteScalar<string>("SELECT header_url FROM playlist WHERE playlist_id=?;", current.playlist_id);
+                        string storedData = verify.ExecuteScalar<string>("SELECT data_url FROM playlist WHERE playlist_id=?;", current.playlist_id);
+                        if (clearSources)
+                        {
+                            Assert.IsTrue(string.IsNullOrEmpty(storedHeader));
+                            Assert.IsTrue(string.IsNullOrEmpty(storedData));
+                        }
+                        else
+                        {
+                            Assert.AreEqual("header.json", storedHeader);
+                            Assert.AreEqual("data.json", storedData);
+                        }
+                        Assert.AreEqual(clearSources ? null : new Uri("header.json", UriKind.Relative), read.Header_url);
+                        Assert.AreEqual(clearSources ? null : new Uri("data.json", UriKind.Relative), read.Data_url);
+                        Assert.AreEqual("Saved symbol", read.symbol);
+                        Assert.IsNull(current.Page_url);
+                        Assert.AreEqual(read.Header_url, current.Header_url);
+                        Assert.AreEqual(read.Data_url, current.Data_url);
+                        // 新接続から読んだモデルを正本にして、次の実メニューも保存済み値から開く。
+                        fixture.Playlist.BMSTables[0] = current = read;
+                    }
+                }
+                PlaylistSummaryRow reopenedRow = CreatePlaylistSummaryRow(current);
+                summary.ItemsSource = new List<PlaylistSummaryRow> { reopenedRow };
+                summary.SelectRowsByPredicate(_ => true);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                OpenPropertyDialog(fixture.Window, summary, reopenedRow, "property-url-clear-reopen-cancel", (dialog, _) =>
+                {
+                    foreach (string path in new[] { nameof(PlaylistPropertyDialogViewModel.Page_url), nameof(PlaylistPropertyDialogViewModel.Header_url), nameof(PlaylistPropertyDialogViewModel.Data_url) })
+                    {
+                        Assert.AreEqual(string.Empty, FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, path)).Text);
+                    }
+                    FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, nameof(PlaylistPropertyDialogViewModel.Page_url))).Text = "http://[invalid";
+                    TextBox symbol = FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, nameof(PlaylistPropertyDialogViewModel.symbol)));
+                    symbol.Text = "Cancelled symbol";
+                    symbol.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+                    Assert.AreEqual("Cancelled symbol", ((PlaylistPropertyDialogViewModel)dialog.DataContext).symbol);
+                    RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyCancel"));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.WaitForOperationCompletionAsync(), "property-url-cancel-terminal");
+                });
+                Assert.IsNull(current.Page_url);
+                Assert.IsNull(current.Header_url);
+                Assert.IsNull(current.Data_url);
+                Assert.AreEqual("Saved symbol", current.symbol);
+                Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                using LR2SongDBExtended afterCancel = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly();
+                BMSTable unchanged = afterCancel.Table<BMSTable>().Single(table => table.playlist_id == current.playlist_id);
+                Assert.IsNull(unchanged.Page_url);
+                Assert.IsNull(unchanged.Header_url);
+                Assert.IsNull(unchanged.Data_url);
+                Assert.AreEqual("Saved symbol", unchanged.symbol);
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                try { fixture.Close(); }
+                catch (Exception cleanupFailure) when (primaryFailure != null) { primaryFailure.Data["PropertyUrlClearCleanupFailure"] = cleanupFailure.ToString(); }
+            }
+        });
+    }
+
+    /// <summary>実propertyのURL3欄の変換失敗と相対PageをOKで拒否し、raw入力・別候補・DB・正本を保ちます。同じダイアログで訂正後に保存でき、旧typed URLによる部分保存を検出します。</summary>
+    /// <remarks>各URLを事前UpdateSourceせず実compiled OKを通します。所有通知の表明失敗は記録して実操作Task終端後に再表明し、任意通知のcatchへ隠しません。</remarks>
+    [TestMethod]
+    public void PlaylistPropertyDialog_UrlErrorsKeepDraftAndSavedValuesUntilCorrectedInSameDialog()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            PlaylistPropertyDialog? shown = null;
+            Exception? notificationObservationFailure = null;
+            var notifications = new List<UiMessageRequest>();
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope, messagePresenter: (owner, request) =>
+            {
+                notifications.Add(request);
+                try
+                {
+                    PlaylistPropertyDialog dialog = shown ?? throw new AssertFailedException("URL編集前に予期しない通知があります。");
+                    Assert.AreSame(dialog, owner);
+                    Assert.AreSame(dialog, request.Owner);
+                    Assert.IsTrue(dialog.IsVisible);
+                }
+                catch (Exception failure) { notificationObservationFailure = failure; }
+                return new ThemedMessageBoxResponse(MessageBoxResult.OK, closedWithoutSelection: false);
+            });
+            Exception? primaryFailure = null;
+            try
+            {
+                BMSTable table = fixture.Table;
+                table.Page_url = new Uri("https://example.test/original/");
+                table.Header_url = new Uri("https://example.test/original/header.json");
+                table.Data_url = new Uri("https://example.test/original/data.json");
+                table.is_external_sync = false;
+                table.symbol = "Original symbol";
+                fixture.Playlist.CommitBMSTableHeaderToDB(table);
+                string dbPath = Path.Combine(fixture.Root, "data", "song.db");
+                var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                foreach ((string path, string invalid, string corrected) in new[]
+                {
+                    (nameof(PlaylistPropertyDialogViewModel.Page_url), "http://[invalid", "https://example.test/corrected/"),
+                    (nameof(PlaylistPropertyDialogViewModel.Header_url), "http://[invalid", "corrected-header.json"),
+                    (nameof(PlaylistPropertyDialogViewModel.Data_url), "http://[invalid", "corrected-data.json"),
+                    (nameof(PlaylistPropertyDialogViewModel.Page_url), "relative-page/", "https://example.test/final/")
+                })
+                {
+                    // 変換失敗3欄と、Uriに変換できるがPage条件を満たさない相対指定を独立sessionで編集する。
+                    Uri oldPage = table.Page_url;
+                    Uri oldHeader = table.Header_url;
+                    Uri oldData = table.Data_url;
+                    string oldSymbol = table.symbol;
+                    string candidate = "Candidate " + path + " " + invalid;
+                    PlaylistSummaryRow row = CreatePlaylistSummaryRow(table);
+                    summary.ItemsSource = new List<PlaylistSummaryRow> { row };
+                    summary.SelectRowsByPredicate(_ => true);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    notifications.Clear();
+                    notificationObservationFailure = null;
+                    ModalObservation<PlaylistPropertyDialog> observation = OpenPropertyDialog(fixture.Window, summary, row,
+                        "property-url-invalid-" + path + "-" + invalid, (dialog, _) =>
+                        {
+                            shown = dialog;
+                            var draft = (PlaylistPropertyDialogViewModel)dialog.DataContext;
+                            TextBox source = FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, path));
+                            TextBox symbol = FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, nameof(PlaylistPropertyDialogViewModel.symbol)));
+                            source.Text = invalid;
+                            symbol.Text = candidate;
+                            symbol.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+                            Assert.AreEqual(candidate, draft.symbol);
+                            RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyAccept"));
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.WaitForOperationCompletionAsync(), "property-url-invalid-terminal");
+                            Assert.IsNull(notificationObservationFailure, "所有通知の観測に失敗しました。" + Environment.NewLine + notificationObservationFailure);
+                            Assert.IsTrue(notifications.Any(request => request.MessageBoxText == Resources.Error_PlaylistPropertiesInvalid), "入力不備を既存の検証失敗通知で伝えます。");
+                            Assert.IsTrue(dialog.IsVisible);
+                            Assert.IsTrue(dialog.IsEnabled);
+                            Assert.IsFalse(dialog.HasTerminalOutcome);
+                            Assert.AreSame(fixture.Window, dialog.Owner);
+                            Assert.AreSame(draft, fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                            Assert.AreEqual(invalid, source.Text);
+                            Assert.AreEqual(candidate, symbol.Text);
+                            Assert.AreEqual(candidate, draft.symbol);
+                            Assert.AreEqual(oldPage, table.Page_url);
+                            Assert.AreEqual(oldHeader, table.Header_url);
+                            Assert.AreEqual(oldData, table.Data_url);
+                            Assert.AreEqual(oldSymbol, table.symbol);
+                            using (LR2SongDBExtended unchanged = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly())
+                            {
+                                BMSTable read = unchanged.Table<BMSTable>().Single(item => item.playlist_id == table.playlist_id);
+                                Assert.AreEqual(oldPage, read.Page_url);
+                                Assert.AreEqual(oldHeader, read.Header_url);
+                                Assert.AreEqual(oldData, read.Data_url);
+                                Assert.AreEqual(oldSymbol, read.symbol);
+                            }
+                            source.Text = corrected;
+                            bool closed = false;
+                            EventHandler onClosed = (_, _) => closed = true;
+                            dialog.Closed += onClosed;
+                            try
+                            {
+                                RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyAccept"));
+                                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.WaitForOperationCompletionAsync(), "property-url-corrected-save");
+                                Assert.IsTrue(closed, "訂正後は同じダイアログの保存が成功して閉じます。");
+                                Assert.IsNull(notificationObservationFailure, "所有通知の観測に失敗しました。" + Environment.NewLine + notificationObservationFailure);
+                            }
+                            finally { dialog.Closed -= onClosed; }
+                        });
+                    shown = null;
+                    Assert.AreSame(fixture.Window, observation.Owner);
+                    Assert.IsFalse(observation.OwnerEnabled);
+                    Assert.AreEqual(1, observation.DataContextDetachCount);
+                    Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                    using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly();
+                    BMSTable saved = verify.Table<BMSTable>().Single(item => item.playlist_id == table.playlist_id);
+                    Uri correctedUri = new(corrected, UriKind.RelativeOrAbsolute);
+                    Assert.AreEqual(path == nameof(PlaylistPropertyDialogViewModel.Page_url) ? correctedUri : oldPage, saved.Page_url);
+                    Assert.AreEqual(path == nameof(PlaylistPropertyDialogViewModel.Header_url) ? correctedUri : oldHeader, saved.Header_url);
+                    Assert.AreEqual(path == nameof(PlaylistPropertyDialogViewModel.Data_url) ? correctedUri : oldData, saved.Data_url);
+                    Assert.AreEqual(candidate, saved.symbol);
+                    Assert.AreEqual(saved.Page_url, table.Page_url);
+                    Assert.AreEqual(saved.Header_url, table.Header_url);
+                    Assert.AreEqual(saved.Data_url, table.Data_url);
+                    Assert.AreEqual(candidate, table.symbol);
+                }
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                try { fixture.Close(); }
+                catch (Exception cleanupFailure) when (primaryFailure != null) { primaryFailure.Data["PropertyUrlInvalidCleanupFailure"] = cleanupFailure.ToString(); }
+            }
+        });
+    }
+
+    /// <summary>実出力名Bindingの未反映パス入力をOKで拒否し、専用理由・候補保持・DB不変を確認して、同画面の訂正保存または不正入力のまま取消できることを確認します。</summary>
+    /// <remarks>raw条件網羅はモデルへ分担し、実control・確定ゲート・所有モーダルと閉鎖の接続だけを確認します。</remarks>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PlaylistPropertyOutputName_InvalidBindingKeepsDraftAndAllowsCorrectionOrCancel(bool cancel)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            var notifications = new List<UiMessageRequest>();
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope,
+                messagePresenter: (_, request) =>
+                {
+                    notifications.Add(request);
+                    return new ThemedMessageBoxResponse(MessageBoxResult.OK, closedWithoutSelection: false);
+                }, configureSettings: values =>
+                {
+                    string root = values.BMSRootPath;
+                    values.OperationModeLR2DB = true;
+                    values.LR2RootPath = root;
+                    values.LR2SongDBPath = Path.Combine(root, "data", "song.db");
+                    values.LR2ConfigXmlPath = Path.Combine(root, "LR2files", "Config", "config.xml");
+                    Directory.CreateDirectory(Path.GetDirectoryName(values.LR2ConfigXmlPath) ?? throw new AssertFailedException());
+                    File.WriteAllText(values.LR2ConfigXmlPath, "<config><system /><jukebox /></config>");
+                    string songs = Path.Combine(root, "Songs");
+                    Directory.CreateDirectory(songs);
+                    values.BMSRootPath = values.BMSInstallDir = songs;
+                    var config = new LR2Config(values.LR2ConfigXmlPath);
+                    config.AddBMSSearchDirectories([songs]);
+                    config.Save(config.ConfigFilePath);
+                    File.WriteAllBytes(Path.Combine(root, "LR2body.exe"), []);
+                    values.LR2CustomFolderOutputBaseDir = Path.Combine(root, "custom");
+                    values.LR2CustomFolderOutputBaseDirRootType = Path.Combine(root, "root-custom");
+                    values.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+                    Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDir);
+                    Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDirRootType);
+                });
+            Exception? primaryFailure = null;
+            try
+            {
+                BMSTable table = fixture.Table;
+                table.Output_dir = "Alpha";
+                table.is_external_sync = false;
+                fixture.Playlist.CommitBMSTableHeaderToDB(table);
+                string previousSymbol = table.symbol;
+                string dbPath = Path.Combine(fixture.Root, "data", "song.db");
+                var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                PlaylistSummaryRow row = CreatePlaylistSummaryRow(table);
+                summary.ItemsSource = new[] { row };
+                summary.SelectRowsByPredicate(_ => true);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                OpenPropertyDialog(fixture.Window, summary, row, "property-output-name", (dialog, _) =>
+                {
+                    var draft = (PlaylistPropertyDialogViewModel)dialog.DataContext;
+                    var navigation = (ListBox)dialog.FindName("propertyNavigation");
+                    navigation.SelectedIndex = 2;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    TextBox output = FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, nameof(PlaylistPropertyDialogViewModel.output_dir)));
+                    TextBox symbol = FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, nameof(PlaylistPropertyDialogViewModel.symbol)));
+                    output.Text = "./Alpha";
+                    symbol.Text = "Candidate";
+                    symbol.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+                    RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyAccept"));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.WaitForOperationCompletionAsync(), "property-output-invalid");
+                    Assert.IsTrue(notifications.Any(request => request.MessageBoxText == Resources.Error_OutputFolderNameMustBeSingleName));
+                    Assert.IsTrue(dialog.IsVisible);
+                    Assert.IsTrue(dialog.IsEnabled);
+                    Assert.IsFalse(dialog.HasTerminalOutcome);
+                    Assert.AreEqual("./Alpha", output.Text);
+                    Assert.AreEqual("Candidate", draft.symbol);
+                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly())
+                    {
+                        BMSTable unchanged = db.Table<BMSTable>().Single(item => item.playlist_id == table.playlist_id);
+                        Assert.AreEqual("Alpha", unchanged.Output_dir);
+                        Assert.AreEqual(previousSymbol, unchanged.symbol);
+                    }
+                    if (!cancel) { output.Text = "Corrected"; }
+                    RaiseButtonClick(FindAutomationButton(dialog, cancel ? "PlaylistPropertyCancel" : "PlaylistPropertyAccept"));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.WaitForOperationCompletionAsync(), "property-output-terminal");
+                    Assert.IsTrue(dialog.HasTerminalOutcome);
+                });
+                using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly();
+                BMSTable saved = verify.Table<BMSTable>().Single(item => item.playlist_id == table.playlist_id);
+                Assert.AreEqual(cancel ? "Alpha" : "Corrected", saved.Output_dir);
+                Assert.AreEqual(cancel ? previousSymbol : "Candidate", saved.symbol);
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                try { fixture.Close(); }
+                catch (Exception cleanupFailure) when (primaryFailure != null) { primaryFailure.Data["OutputNameCleanupFailure"] = cleanupFailure.ToString(); }
+            }
+        });
+    }
+
+    /// <summary>実プロパティの上下移動・自然順を保存し、空文字だけの名前なし表示と旧空白名の原値を確認します。既存のLR2タイトル規則、保存前の正本と出力bytes、別表を保ちます。</summary>
+    /// <remarks>実controlの選択とイベント接続、所有モーダル・保存Task・native閉鎖をこの代表で確認し、LR2全出力種別の条件はcustom-folder系列へ分担します。</remarks>
+    [TestMethod]
+    public void PlaylistPropertyFolderControls_SaveDraftOrderToDatabaseAndRealLr2Output()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope, configureSettings: values =>
+            {
+                string root = values.BMSRootPath;
+                values.OperationModeLR2DB = true;
+                values.LR2RootPath = root;
+                values.LR2SongDBPath = Path.Combine(root, "data", "song.db");
+                values.LR2ConfigXmlPath = Path.Combine(root, "LR2files", "Config", "config.xml");
+                Directory.CreateDirectory(Path.GetDirectoryName(values.LR2ConfigXmlPath) ?? throw new AssertFailedException());
+                File.WriteAllText(values.LR2ConfigXmlPath, "<config><system /><jukebox /></config>");
+                string songs = Path.Combine(root, "Songs");
+                Directory.CreateDirectory(songs);
+                values.BMSRootPath = songs;
+                values.BMSInstallDir = songs;
+                var config = new LR2Config(values.LR2ConfigXmlPath);
+                config.AddBMSSearchDirectories([songs]);
+                config.Save(config.ConfigFilePath);
+                File.WriteAllBytes(Path.Combine(root, "LR2body.exe"), []);
+                values.LR2CustomFolderOutputBaseDir = Path.Combine(root, "custom");
+                values.LR2CustomFolderOutputBaseDirRootType = Path.Combine(root, "root-custom");
+                values.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+                Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDir);
+                Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDirRootType);
+            });
+            Task? operation = null;
+            Exception? primaryFailure = null;
+            try
+            {
+                string dbPath = Path.Combine(fixture.Root, "data", "song.db");
+                BMSTable table = fixture.Table;
+                table.name = "Order A";
+                table.Output_dir = "OrderA";
+                string symbol = table.symbol;
+                table.Folder_order = ["F10", "F2", "F1", "", "   "];
+                table.is_external_sync = false;
+                table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder;
+                table.entries = new[] { "F10", "F2", "F1", "", "   " }.Select((folder, index) => new BMSTableEntry
+                {
+                    playlist_id = table.playlist_id,
+                    md5 = new string((char)('a' + index), 32),
+                    title = "Song " + folder,
+                    folder = folder
+                }).ToList();
+                var other = new BMSTable
+                {
+                    playlist_id = 2,
+                    name = "Order B",
+                    symbol = "B",
+                    Output_dir = "OrderB",
+                    Folder_order = ["F2"],
+                    ignore_folder_output = table.ignore_folder_output,
+                    entries = [new BMSTableEntry { playlist_id = 2, md5 = new string('d', 32), title = "Other song", folder = "F2" }]
+                };
+                fixture.Playlist.BMSTables.Add(other);
+                fixture.Playlist.ReOutputCustomFolderAndCommitToDB(table);
+                fixture.Playlist.ReOutputCustomFolderAndCommitToDB(other);
+                string otherOutput = Path.Combine(fixture.Root, "custom", "OrderB", "0001.lr2folder");
+                byte[] otherBytes = File.ReadAllBytes(otherOutput);
+                var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                PlaylistSummaryRow row = CreatePlaylistSummaryRow(table);
+                summary.ItemsSource = new List<PlaylistSummaryRow> { row };
+                summary.SelectRowsByPredicate(_ => true);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                string[] saved = ["F10", "F2", "F1", "", "   "];
+                string[] savedEffective = saved;
+                var expectedTitles = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["F10"] = "F10",
+                    ["F2"] = "F2",
+                    ["F1"] = "F1",
+                    [""] = "Order A",
+                    ["   "] = "Order A"
+                };
+                BMSTable? naturalRead = null;
+                foreach ((string action, string selected, string[] planned) in new[]
+                {
+                    ("Up", "F1", new[] { "F10", "F1", "F2", "", "   " }),
+                    ("Down", "F10", new[] { "F1", "F10", "F2", "", "   " }),
+                    ("Natural", string.Empty, new[] { "", "   ", "F1", "F2", "F10" })
+                })
+                {
+                    string[] expected = planned;
+                    string outputRoot = Path.Combine(fixture.Root, "custom", "OrderA");
+                    Dictionary<string, byte[]> savedOutputBytes = Directory.GetFiles(outputRoot, "*.lr2folder", SearchOption.AllDirectories)
+                        .ToDictionary(path => path, File.ReadAllBytes);
+                    for (int index = 0; index < savedEffective.Length; index++)
+                    {
+                        string path = Path.Combine(outputRoot, (index + 1).ToString("D4", CultureInfo.InvariantCulture) + ".lr2folder");
+                        Assert.AreEqual("#TITLE " + expectedTitles[savedEffective[index]], File.ReadAllLines(path, Encoding.GetEncoding("shift_jis"))
+                            .Single(line => line.StartsWith("#TITLE ", StringComparison.Ordinal)));
+                    }
+                    OpenPropertyDialog(fixture.Window, summary, row, "property-folder-order-" + action, (dialog, _) =>
+                    {
+                        var draft = (PlaylistPropertyDialogViewModel)dialog.DataContext;
+                        var navigation = (FrameworkElement)dialog.FindName("propertyNavigation");
+                        var content = (FrameworkElement)dialog.FindName("propertyContent");
+                        ObservePropertyNavigation(navigation, content).ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        var list = (ListBox)dialog.FindName("foldersListBox");
+                        list.UpdateLayout();
+                        foreach ((string key, string label) in new[] { ("", Resources.No_folder_name), ("   ", "   ") })
+                        {
+                            ListBoxItem item = list.ItemContainerGenerator.ContainerFromItem(key) as ListBoxItem
+                                ?? throw new AssertFailedException("名前なし・旧空白名の順序項目がありません。");
+                            Assert.AreEqual(label, FindDescendants<TextBlock>(item).Single().Text);
+                        }
+                        if (action == "Natural")
+                        {
+                            ((CheckBox)dialog.FindName("checkBoxFolderNatueralSort")).IsChecked = true;
+                            CollectionAssert.AreEquivalent(planned, draft.folder_order.ToArray(), "自然順でも保存キーを統合しません。");
+                            CollectionAssert.AreEqual(new[] { "F1", "F2", "F10" }, draft.folder_order
+                                .Where(name => name is "F1" or "F2" or "F10").ToArray());
+                            // 空文字・旧空白名の一般ソート位置は契約化せず、選んだ順序の保存接続を観測します。
+                            expected = draft.folder_order.ToArray();
+                        }
+                        else
+                        {
+                            list.SelectedItems.Clear();
+                            list.SelectedItems.Add(selected);
+                            Button button = FindAutomationButton(dialog, "PlaylistPropertyFolderMove" + action);
+                            Assert.IsTrue(button.IsEnabled);
+                            RaiseButtonClick(button);
+                        }
+                        CollectionAssert.AreEqual(expected, draft.folder_order.ToArray());
+                        CollectionAssert.AreEqual(saved, table.Folder_order.ToArray());
+                        CollectionAssert.AreEqual(savedEffective, table.folder_list.ToArray());
+                        using (LR2SongDBExtended before = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly())
+                        { CollectionAssert.AreEqual(saved, before.Table<BMSTable>().Single(item => item.playlist_id == table.playlist_id).Folder_order.ToArray()); }
+                        CollectionAssert.AreEquivalent(savedOutputBytes.Keys.ToArray(), Directory.GetFiles(outputRoot, "*.lr2folder", SearchOption.AllDirectories));
+                        foreach ((string path, byte[] bytes) in savedOutputBytes) { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path)); }
+                        CollectionAssert.AreEqual(otherBytes, File.ReadAllBytes(otherOutput));
+                        RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyAccept"));
+                        operation = dialog.WaitForOperationCompletionAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "property-folder-save");
+                    });
+                    using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly();
+                    BMSTable read = verify.Table<BMSTable>().Single(item => item.playlist_id == table.playlist_id);
+                    Assert.AreEqual("Order A", read.name);
+                    Assert.AreEqual(symbol, read.symbol);
+                    Assert.AreEqual("OrderA", read.Output_dir);
+                    Assert.AreEqual(table.ignore_folder_output, read.ignore_folder_output);
+                    Assert.IsFalse(read.is_external_sync);
+                    if (action == "Natural")
+                    {
+                        read.entries = verify.Table<BMSTableEntry>().Where(entry => entry.playlist_id == table.playlist_id).ToList();
+                        CollectionAssert.AreEqual(expected, read.folder_list.ToArray());
+                        naturalRead = read;
+                    }
+                    else
+                    {
+                        CollectionAssert.AreEqual(expected, read.Folder_order.ToArray());
+                    }
+                    for (int index = 0; index < expected.Length; index++)
+                    {
+                        string path = Path.Combine(fixture.Root, "custom", "OrderA", (index + 1).ToString("D4", CultureInfo.InvariantCulture) + ".lr2folder");
+                        string titleLine = File.ReadAllLines(path, Encoding.GetEncoding("shift_jis"))
+                            .Single(line => line.StartsWith("#TITLE ", StringComparison.Ordinal));
+                        Assert.AreEqual("#TITLE " + expectedTitles[expected[index]], titleLine);
+                        LR2SongDB.folder folder = verify.Table<LR2SongDB.folder>().Single(item => item.path == path);
+                        Assert.AreEqual(expectedTitles[expected[index]], folder.title);
+                        Assert.AreEqual("Order A", folder.category);
+                    }
+                    BMSTable otherRead = verify.Table<BMSTable>().Single(item => item.playlist_id == 2);
+                    Assert.AreEqual("B", otherRead.symbol);
+                    CollectionAssert.AreEqual(new[] { "F2" }, otherRead.Folder_order.ToArray());
+                    CollectionAssert.AreEqual(otherBytes, File.ReadAllBytes(otherOutput));
+                    Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                    saved = read.Folder_order.ToArray();
+                    savedEffective = expected;
+                }
+                Assert.IsNotNull(naturalRead);
+                Assert.AreNotSame(table, naturalRead);
+                Assert.AreSame(table, fixture.Playlist.BMSTables[0]);
+                fixture.Playlist.BMSTables[0] = naturalRead;
+                PlaylistSummaryRow freshRow = CreatePlaylistSummaryRow(naturalRead);
+                summary.ItemsSource = new List<PlaylistSummaryRow> { freshRow };
+                summary.SelectRowsByPredicate(_ => true);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                OpenPropertyDialog(fixture.Window, summary, freshRow, "property-natural-order-reopen", (dialog, _) =>
+                {
+                    var navigation = (FrameworkElement)dialog.FindName("propertyNavigation");
+                    var content = (FrameworkElement)dialog.FindName("propertyContent");
+                    ObservePropertyNavigation(navigation, content).ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(true, ((CheckBox)dialog.FindName("checkBoxFolderNatueralSort")).IsChecked);
+                    CollectionAssert.AreEqual(savedEffective, ((PlaylistPropertyDialogViewModel)dialog.DataContext).folder_order.ToArray());
+                    Assert.IsFalse(FindAutomationButton(dialog, "PlaylistPropertyFolderMoveUp").IsEnabled);
+                    Assert.IsFalse(FindAutomationButton(dialog, "PlaylistPropertyFolderMoveDown").IsEnabled);
+                    RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyCancel"));
+                });
+                Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+            }
+            catch (Exception failure)
+            {
+                primaryFailure = failure;
+                throw;
+            }
+            finally
+            {
+                try
+                {
+                    if (operation != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "property folder operation cleanup"); }
+                }
+                catch (Exception cleanupFailure) when (primaryFailure != null) { Console.WriteLine(cleanupFailure); }
+                finally { fixture.Close(); }
+            }
+        });
+    }
+
+    /// <summary>外部再同期で置換された旧行の編集を実所有通知で拒否し、現行のlevel・URL・memoとDBを保ち、現行行の編集だけを保存します。</summary>
+    [TestMethod]
+    public void ResyncedDetailEdit_RejectsOldRowThroughOwnedNotificationAndSavesCurrentRow()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var displayed = new List<(Window Owner, UiMessageRequest Request)>();
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(windowTest,
+                messagePresenter: (owner, request) =>
+                {
+                    displayed.Add((owner, request));
+                    return new ThemedMessageBoxResponse(MessageBoxResult.OK, closedWithoutSelection: false);
+                });
+            var started = new List<Task>();
+            Exception? primaryFailure = null;
+            PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+            var diagnostics = new ConcurrentQueue<(long Sequence, string Message)>();
+            long diagnosticSequence = 0;
+            BMSTable? observedTable = null;
+            BMSTableEntry? observedEntry = null;
+            PlaylistDetailRow? observedRow = null;
+            object? editedView = null;
+            FieldInfo? rowSourceField = typeof(PlaylistDetailRow).GetField("source", BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo? realizedRowsField = typeof(PlaylistDetailVirtualView).GetField("realizedRows", BindingFlags.Instance | BindingFlags.NonPublic);
+            string Identity(object? value) => value == null ? "none" : System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(value).ToString(CultureInfo.InvariantCulture);
+            void Record(string message) => diagnostics.Enqueue((Interlocked.Increment(ref diagnosticSequence), "thread=" + Environment.CurrentManagedThreadId + " " + message));
+            void RecordState(string stage)
+            {
+                // 各管理主体のlockは別々に解放し、診断から新しいlock順序や待機を作りません。
+                try
+                {
+                    PlaylistDetailSelection? selection = workspace.CapturePlaylistDetailSelection(out long selectionRevision);
+                    string builds;
+                    lock (workspace.DetailBuildState.SyncRoot)
+                    {
+                        PlaylistDetailBuildState state = workspace.DetailBuildState;
+                        builds = $"request={state.RequestVersion} completed={state.CompletedRequestVersion} worker={state.WorkerRunning}"
+                            + $" currentBuild={Identity(state.CurrentBuildRequest)} pendingBuild={Identity(state.PendingRequest)}";
+                    }
+                    string projection;
+                    lock (workspace.DetailViewState.SyncRoot)
+                    {
+                        PlaylistDetailSourceSnapshotState source = workspace.DetailViewState.Source;
+                        PlaylistDetailViewSnapshotState view = workspace.DetailViewState.View;
+                        PlaylistDetailSourceRow? entryProjection = null;
+                        if (observedEntry != null && source.Dependencies != null) { source.Dependencies.TryGet(observedEntry, out entryProjection); }
+                        Dictionary<BMSTableEntry, PlaylistDetailRow>? realized = view.Rows is PlaylistDetailVirtualView virtualView
+                            ? realizedRowsField?.GetValue(virtualView) as Dictionary<BMSTableEntry, PlaylistDetailRow> : null;
+                        PlaylistDetailRow? realizedRow = null;
+                        if (observedEntry != null && realized != null) { realized.TryGetValue(observedEntry, out realizedRow); }
+                        PlaylistDetailSourceRow? editedSource = observedRow == null ? null : rowSourceField?.GetValue(observedRow) as PlaylistDetailSourceRow;
+                        projection = $"sourceRows={Identity(source.Rows)} sourceGeneration={source.GenerationId} sourceTable={Identity(source.CurrentTable)}"
+                            + $" appliedEntryRevision={source.LastBuiltPlaylistRevision} sourceEntry={Identity(entryProjection?.Entry)} sourceMemo=[{entryProjection?.memo}]"
+                            + $" viewRows={Identity(view.Rows)} viewGeneration={view.GenerationId} editedView={Identity(editedView)} mainRows={Identity(fixture.ViewModel.MainChartList.Rows)}"
+                            + $" cachedRow={Identity(realizedRow)} editedRow={Identity(observedRow)} editedSource={Identity(editedSource)} editedSourceMemo=[{editedSource?.memo}] editedMemo=[{observedRow?.memo}]";
+                    }
+                    Record($"state={stage} selectionRevision={selectionRevision} selectionTable={Identity(selection?.Table)} selectionScope={selection?.Scope} selectionFolder=[{selection?.FolderName}]"
+                        + $" table={Identity(observedTable)} tableEntryRevision={observedTable?.PlaylistEntriesRevision} entry={Identity(observedEntry)} entryMemo=[{observedEntry?.memo}] {builds} {projection}");
+                }
+                catch (Exception failure) { Record("diagnostic_read_failed stage=" + stage + " cause=" + failure); }
+            }
+            Action<string>? previousWorkObserver = workspace.DetailWorkObserver;
+            workspace.DetailWorkObserver = kind => { previousWorkObserver?.Invoke(kind); Record("detail_work=" + kind); };
+            EventHandler<PlaylistTreeSelectionActivatedEventArgs> treeSelectionChanged = (_, request) =>
+                Record($"tree_selection revision={request.SelectionRevision} summary={request.IsSummary} table={Identity(request.Detail?.Table)} scope={request.Detail?.Scope} folder=[{request.Detail?.FolderName}]");
+            System.ComponentModel.PropertyChangedEventHandler rowsChanged = (_, change) =>
+            {
+                if (change.PropertyName == nameof(MainChartListViewModel.Rows)) { Record("rows_published mainRows=" + Identity(fixture.ViewModel.MainChartList.Rows)); }
+            };
+            EventHandler entryCommitsAvailable = (_, _) => Record("entry_commits_available");
+            System.ComponentModel.PropertyChangedEventHandler rowChanged = (_, change) =>
+            {
+                // source参照と確定値の読取りだけを行い、行の実体化やreceipt drainは行いません。
+                try
+                {
+                    PlaylistDetailSourceRow? source = observedRow == null ? null : rowSourceField?.GetValue(observedRow) as PlaylistDetailSourceRow;
+                    Record($"edited_row_changed property=[{change.PropertyName}] row={Identity(observedRow)} source={Identity(source)} sourceMemo=[{source?.memo}] memo=[{observedRow?.memo}]");
+                }
+                catch (Exception failure) { Record("diagnostic_row_read_failed cause=" + failure); }
+            };
+            workspace.TreeSelectionActivated += treeSelectionChanged;
+            fixture.ViewModel.MainChartList.PropertyChanged += rowsChanged;
+            fixture.Playlist.PlaylistEntryCommitsAvailable += entryCommitsAvailable;
+            try
+            {
+                string header = Path.Combine(fixture.Root, "detail-header.json");
+                string data = Path.Combine(fixture.Root, "detail-data.json");
+                File.WriteAllText(header, "{\"name\":\"Detail reload\",\"symbol\":\"E\",\"data_url\":\"./detail-data.json\",\"level_order\":[1]}", new UTF8Encoding(true));
+                File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"level\":\"1\",\"url\":\"https://before.example/song\"}]", new UTF8Encoding(true));
+                Task<BMSTable> load = fixture.Playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(header));
+                started.Add(load);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(load, "detail-current-fixture-load");
+                BMSTable original = load.GetAwaiter().GetResult();
+                original.playlist_id = fixture.Table.playlist_id;
+                original.EnableExternalSync();
+                fixture.Playlist.BMSTables = new ObservableCollection<BMSTable>([original]);
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(original);
+                BMSTableEntry oldEntry = original.entries.Single();
+                workspace.RequestDetailSelection(original);
+                Task oldDetail = workspace.WaitForDetailBuildIdleAsync();
+                started.Add(oldDetail);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(oldDetail, "detail-original-row-presentation");
+                PlaylistDetailRow oldRow = fixture.ViewModel.MainChartList.Rows[0] as PlaylistDetailRow
+                    ?? throw new AssertFailedException("再同期前の実詳細行がありません。");
+                Assert.AreSame(oldEntry, oldRow.Entry);
+                File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"level\":\"9\",\"url\":\"https://current.example/song\"}]", new UTF8Encoding(true));
+                Task resync = workspace.ResyncPlaylistsAsync([original]);
+                started.Add(resync);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(resync, "detail-resync-actual-terminal");
+                BMSTable current = fixture.Playlist.BMSTables.Single();
+                BMSTableEntry currentEntry = current.entries.Single(entry => !entry.is_removed);
+                observedTable = current;
+                observedEntry = currentEntry;
+                RecordState("resync_terminal");
+                Assert.AreNotSame(original, current);
+                Assert.AreEqual(original.playlist_id, current.playlist_id);
+                Assert.AreEqual(oldEntry.md5, currentEntry.md5);
+                Assert.AreEqual(9d, currentEntry.level);
+                Assert.AreEqual("https://current.example/song", currentEntry.url);
+                Assert.IsFalse(MainWindowViewModelTestFactory.GetComposition(fixture.ViewModel).PlaylistOperationAdmission.IsActive);
+                displayed.Clear();
+                string expectedMemo = currentEntry.memo;
+                PlaylistWorkspaceMutationRejectedEventArgs? rejection = null;
+                workspace.MutationRejected += (_, request) => rejection = request;
+                var oldContext = new MainChartListCellEditContext(oldRow, nameof(PlaylistDetailRow.memo), ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+                Task rejected = workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(oldContext, "old edit C", commit: true));
+                started.Add(rejected);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(rejected, "detail-old-row-rejection-terminal");
+                Assert.IsNotNull(rejection);
+                Assert.IsTrue(rejection.IsStale);
+                Assert.IsFalse(rejection.IsBusy);
+                Assert.AreEqual(1, displayed.Count);
+                Assert.AreSame(fixture.Window, displayed.Single().Owner);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(displayed.Single().Request.MessageBoxText));
+                Assert.AreEqual(MessageBoxImage.Hand, displayed.Single().Request.Icon);
+                Assert.AreEqual(9d, currentEntry.level);
+                Assert.AreEqual("https://current.example/song", currentEntry.url);
+                Assert.AreEqual(expectedMemo, currentEntry.memo);
+                using (LR2SongDBExtended read = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly())
+                {
+                    BMSTableEntry persisted = read.Table<BMSTableEntry>().Single(entry => entry.playlist_id == current.playlist_id && !entry.is_removed);
+                    Assert.AreEqual(9d, persisted.level);
+                    Assert.AreEqual("https://current.example/song", persisted.url);
+                    Assert.AreEqual(expectedMemo, persisted.memo);
+                }
+                // 確定receiptの配送先である実source/viewから編集行を取得します。
+                // workspaceに所属しない手製投影へ特別同期する保証は設けません。
+                workspace.RequestDetailSelection(current);
+                Task currentDetail = workspace.WaitForDetailBuildIdleAsync();
+                started.Add(currentDetail);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(currentDetail, "detail-current-row-presentation");
+                PlaylistDetailRow currentRow = fixture.ViewModel.MainChartList.Rows[0] as PlaylistDetailRow
+                    ?? throw new AssertFailedException("再同期後の実詳細行がありません。");
+                Assert.AreSame(currentEntry, currentRow.Entry);
+                observedRow = currentRow;
+                editedView = fixture.ViewModel.MainChartList.Rows;
+                currentRow.PropertyChanged += rowChanged;
+                RecordState("before_begin_edit");
+                var currentContext = new MainChartListCellEditContext(currentRow, nameof(PlaylistDetailRow.memo), ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+                workspace.BeginDetailEdit(currentContext);
+                currentRow.memo = "fresh edit D";
+                RecordState("draft_set");
+                Assert.AreEqual(expectedMemo, currentEntry.memo, "入力draftは正規保存前にentryを変更しません。");
+                Task fresh = workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(currentContext, "fresh edit D", commit: true));
+                started.Add(fresh);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(fresh, "detail-current-row-save-terminal");
+                RecordState("save_terminal");
+                Assert.AreEqual(1, displayed.Count);
+                Assert.AreEqual("fresh edit D", currentEntry.memo);
+                Assert.AreEqual("fresh edit D", currentRow.memo);
+                Assert.IsFalse(MainWindowViewModelTestFactory.GetComposition(fixture.ViewModel).PlaylistOperationAdmission.IsActive);
+                using (LR2SongDBExtended read = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly())
+                {
+                    BMSTableEntry persisted = read.Table<BMSTableEntry>().Single(entry => entry.playlist_id == current.playlist_id && !entry.is_removed);
+                    Assert.AreEqual(9d, persisted.level);
+                    Assert.AreEqual("https://current.example/song", persisted.url);
+                    Assert.AreEqual("fresh edit D", persisted.memo);
+                }
+            }
+            catch (Exception failure)
+            {
+                primaryFailure = failure;
+                try
+                {
+                    RecordState("failure");
+                    foreach ((long sequence, string message) in diagnostics.OrderBy(item => item.Sequence))
+                    { Console.WriteLine("detail_edit_diagnostic sequence=" + sequence + " " + message); }
+                }
+                catch { /* 診断出力の失敗で元の表明・実処理失敗を置き換えません。 */ }
+                throw;
+            }
+            finally
+            {
+                try
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(started), "detail-edit-all-started-terminal");
+                }
+                catch when (primaryFailure != null) { }
+                finally
+                {
+                    if (observedRow != null) { observedRow.PropertyChanged -= rowChanged; }
+                    workspace.DetailWorkObserver = previousWorkObserver;
+                    workspace.TreeSelectionActivated -= treeSelectionChanged;
+                    fixture.ViewModel.MainChartList.PropertyChanged -= rowsChanged;
+                    fixture.Playlist.PlaylistEntryCommitsAvailable -= entryCommitsAvailable;
+                    fixture.Close();
+                }
+            }
+        });
+    }
+
+    /// <summary>全再読込み・単独同期・property保存から推薦表の自動名をDBと実ツリーへ反映し、名前の変更だけでは通知せず数値skill差だけを所有Windowへ通知します。</summary>
+    [TestMethod]
+    [DataRow("All", false)] // 全体再読込み、skill数値が変化。
+    [DataRow("All", true)] // 全体再読込み、名だけ変化しskillは同値。
+    [DataRow("Single", false)] // 単独同期、skill数値が変化。
+    [DataRow("Single", true)] // 単独同期、名だけ変化しskillは同値。
+    [DataRow("Property", false)] // propertyの同期有効化保存、skill数値が変化。
+    [DataRow("Property", true)] // propertyの同期有効化保存、名だけ変化しskillは同値。
+    [TestCategory("Playlist")]
+    public void RecommendationReload_ThreeEntriesPublishAutomaticNamesAndPresentOnlyNumericSkillChanges(
+        string entry, bool sameSkill)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var displayed = new List<(Window Owner, UiMessageRequest Request)>();
+            TaskCompletionSource<object?> skillDisplayed = NewCompletion();
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(windowTest,
+                recommendationScoreReader: _ => Task.FromResult(ReadWalkureInput("standard")),
+                configureSettings: settings => settings.ShowRecommUpdatedMsg = true,
+                messagePresenter: (owner, request) =>
+                {
+                    displayed.Add((owner, request));
+                    if (request.Caption == Resources.Recommend_SkillUpdatedTitle && request.Icon == MessageBoxImage.Information)
+                    {
+                        skillDisplayed.TrySetResult(null);
+                    }
+                    return new ThemedMessageBoxResponse(
+                        request.Button == MessageBoxButton.YesNo ? MessageBoxResult.Yes : MessageBoxResult.OK,
+                        closedWithoutSelection: false);
+                });
+            PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+            TaskCompletionSource<PlaylistExternalSyncCompletionEventArgs> deferredCompletion = NewCompletion<PlaylistExternalSyncCompletionEventArgs>();
+            EventHandler<PlaylistExternalSyncCompletionEventArgs> syncCompleted = (_, request) =>
+            {
+                if (request.FromReloadTables) { deferredCompletion.TrySetResult(request); }
+            };
+            workspace.PlaylistExternalSyncCompleted += syncCompleted;
+            Task? operation = null;
+            PlaylistPropertyDialogViewModel? property = null;
+            Exception? primaryFailure = null;
+            try
+            {
+                Task<BMSTable> initialLoad = fixture.Playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri("bmseeker:table.recommended"));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(initialLoad, "recommendation-fixture-load");
+                BMSTable original = initialLoad.GetAwaiter().GetResult();
+                original.playlist_id = fixture.Table.playlist_id;
+                original.name = "Manual name ★999";
+                original.org_name = sameSkill ? "旧方針 ★6.6" : "旧方針 ★3.87";
+                original.header_sha256 = null;
+                original.data_sha256 = null;
+                original.last_update = new DateTime(2024, 6, 1, 10, 20, 30);
+                original.is_bmt_output = false;
+                if (entry == "Property") { original.DisableExternalSync(); } else { original.EnableExternalSync(); }
+                fixture.Playlist.BMSTables = new ObservableCollection<BMSTable>([original]);
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(original);
+                displayed.Clear();
+                operation = ApplyEntryAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "recommendation-entry-terminal");
+
+                double skill = ReadWalkureCase("standard")["rating"]!.Value<double>("playerStarRating");
+                string expectedName = string.Format(Resources.RecommendFormat, Resources.Recommended_standard,
+                    skill.ToString("F2", CultureInfo.InvariantCulture));
+                BMSTable active = fixture.Playlist.BMSTables.Single();
+                Assert.AreEqual(expectedName, active.name);
+                Assert.AreEqual(expectedName, active.org_name);
+                Assert.AreEqual(original.last_update, active.last_update);
+                var repository = new PlaylistPersistenceRepository(fixture.Library.DatabaseScope, Path.Combine(fixture.Root, "data", "song.db"));
+                BMSTable persisted = repository.LoadPlaylistHeaders().Single();
+                Assert.AreEqual(expectedName, persisted.name);
+                Assert.AreEqual(expectedName, persisted.org_name);
+                Assert.AreEqual(original.last_update, persisted.last_update);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(persisted.header_sha256));
+                Assert.IsFalse(string.IsNullOrWhiteSpace(persisted.data_sha256));
+
+                // 実際に接続されたツリーのコンテナーと表示名を観測する。
+                var playlistRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                MaterializeTreeItems(playlistRoot);
+                var tableItem = playlistRoot.ItemContainerGenerator.ContainerFromItem(active) as TreeViewItem;
+                Assert.IsNotNull(tableItem);
+                Assert.IsTrue(FindDescendants<TextBlock>(tableItem!).Any(block => block.Text == expectedName));
+                (Window Owner, UiMessageRequest Request)[] skillMessages = displayed.Where(call => call.Request.Caption == Resources.Recommend_SkillUpdatedTitle
+                    && call.Request.Icon == MessageBoxImage.Information).ToArray();
+                Assert.AreEqual(sameSkill ? 0 : 1, skillMessages.Length);
+                if (!sameSkill)
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(skillDisplayed.Task, "recommendation-message-presenter");
+                    Assert.AreSame(fixture.Window, skillMessages[0].Owner);
+                    Assert.AreEqual(string.Format(Resources.Recommend_SkillUpdatedMessage, skill.ToString("F2"),
+                        (skill - 3.87).ToString(" (+#0.00); (-#0.00);")), skillMessages[0].Request.MessageBoxText);
+                }
+
+                async Task ApplyEntryAsync()
+                {
+                    switch (entry)
+                    {
+                        case "All":
+                            await fixture.ViewModel.ReloadTablesAsync();
+                            // 全体入口の完了後にも動く遅延同期の終端まで待つ。
+                            PlaylistExternalSyncCompletionEventArgs completed = await deferredCompletion.Task;
+                            Assert.IsTrue(completed.Succeeded);
+                            Assert.IsFalse(completed.WasSkipped);
+                            break;
+                        case "Single":
+                            await workspace.ResyncPlaylistTableAsync(original);
+                            break;
+                        case "Property":
+                            property = await workspace.OpenPropertyDialogAsync(original);
+                            Assert.IsNotNull(property);
+                            property!.is_external_sync = true;
+                            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await property.SaveAndApplyAsync());
+                            break;
+                        default: throw new AssertFailedException("Unknown entry.");
+                    }
+                }
+            }
+            catch (Exception exception) { primaryFailure = exception; throw; }
+            finally
+            {
+                try
+                {
+                    if (operation != null)
+                    {
+                        try { TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "recommendation-entry-drain"); }
+                        catch when (primaryFailure != null) { }
+                    }
+                    if (property != null)
+                    {
+                        workspace.ClosePropertyDialog(property);
+                        property.Dispose();
+                    }
+                    workspace.PlaylistExternalSyncCompleted -= syncCompleted;
+                    fixture.Close();
+                }
+                catch when (primaryFailure != null) { }
+            }
+        });
+    }
+
+    /// <summary>
+    /// 同じ所有プロパティ画面の実Bindingと保存ボタンから、外部置換後の実BMT失敗、
+    /// 実Warningの本文・ownerと採用後のHand通知、両表示失敗後も正常終了する待機Task、画面維持、旧失敗を含まない再保存成功とCloseを確認します。出力失敗点の組合せは保存サービス群へ分担します。
+    /// </summary>
+    [TestMethod]
+    [DataRow(false)] // 実BMT Warningと最終Hand通知が正常に終了。
+    [DataRow(true)] // 実BMT Warningと最終Handの表示も失敗するが、保存済み状態と次の明示操作を妨げない。
+    public void PlaylistPropertyDialog_ExternalReplacementBmtFailureKeepsOwnedDialogAndResavesSameId(bool failNotification)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            bool enableOutput = false;
+            string output = string.Empty;
+            PlaylistPropertyDialog? shown = null;
+            int failureNotices = 0;
+            Exception? notificationObservationFailure = null;
+            var notificationFailure = new IOException("property failure notification failed");
+            var warningPresentationFailure = new IOException("property BMT warning presentation failed");
+            var outputWarnings = new List<(Window Owner, UiMessageRequest Request)>();
+            var bmtFailures = new List<BmtTableExportService.FileOperationFailure>();
+            ActualMainWindowFixture? fixture = null;
+            FileStream? blocker = null;
+            try
+            {
+                fixture = CreateActualMainWindowFixture(windowTest,
+                    messagePresenter: (owner, request) =>
+                    {
+                        if (request.Icon == MessageBoxImage.Exclamation && request is not UiConfirmationRequest)
+                        {
+                            outputWarnings.Add((owner, request));
+                            // BMT ownerが独立して診断する表示故障であり、Workspaceのreload診断へ合算しません。
+                            if (failNotification) { throw warningPresentationFailure; }
+                        }
+                        if (request.Icon == MessageBoxImage.Hand)
+                        {
+                            failureNotices++;
+                            try
+                            {
+                                PlaylistPropertyDialog visible = shown ?? throw new AssertFailedException("Failure notification preceded dialog ownership.");
+                                ActualMainWindowFixture active = fixture ?? throw new AssertFailedException("Failure notification preceded fixture initialization.");
+                                Assert.AreSame(visible, owner);
+                                Assert.AreSame(visible, request.Owner);
+                                Assert.IsTrue(visible.IsVisible);
+                                Assert.AreEqual(1, active.Playlist.BMSTables.Count);
+                                Assert.AreNotSame(active.Table, active.Playlist.BMSTables.Single());
+                                var draft = (PlaylistPropertyDialogViewModel)visible.DataContext;
+                                CollectionAssert.AreEqual(active.Playlist.BMSTables.Single().folder_list.ToArray(), draft.folder_order.ToArray());
+                                Assert.AreEqual(active.Playlist.BMSTables.Single().last_update, draft.last_update,
+                                    "失敗通知より先にダイアログも確定参照を採用します。");
+                            }
+                            catch (Exception observationFailure)
+                            {
+                                // 本番の任意通知境界が表明失敗を捕捉しても、操作Taskの終端後に必ず検出する。
+                                notificationObservationFailure = observationFailure;
+                            }
+                            if (failNotification) { throw notificationFailure; }
+                        }
+                        return new ThemedMessageBoxResponse(MessageBoxResult.OK, closedWithoutSelection: false);
+                    },
+                    bmtOptionsProvider: () => enableOutput
+                        ? new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = output }
+                        : new BeatorajaBmtOptionsSnapshot());
+                Action<IReadOnlyList<BmtTableExportService.FileOperationFailure>> reportBmtFailures = fixture.Playlist.BmtOutput.FailureReporter;
+                Assert.IsNotNull(reportBmtFailures, "標準compositionの実BMT Warning接続を保持します。");
+                fixture.Playlist.BmtOutput.FailureReporter = failures =>
+                {
+                    bmtFailures.AddRange(failures);
+                    reportBmtFailures(failures);
+                };
+                output = Path.Combine(fixture.Root, "property-bmt");
+                Directory.CreateDirectory(output);
+                string manifest = Path.Combine(output, BmtTableExportService.ManifestFileName);
+                File.WriteAllText(manifest, "{\"files\":[],\"playlists\":{}}");
+                blocker = new FileStream(manifest, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+                string header = Path.Combine(fixture.Root, "external-header.json");
+                string data = Path.Combine(fixture.Root, "external-data.json");
+                File.WriteAllText(header, "{\"name\":\"External\",\"symbol\":\"E\",\"data_url\":\"external-data.json\"}");
+                File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"External song\",\"level\":\"1\"}]");
+                fixture.Table.Page_url = new Uri(Path.Combine(fixture.Root, "previous-header.json"));
+                fixture.Table.Header_url = fixture.Table.Page_url;
+                fixture.Table.Data_url = new Uri(data);
+                fixture.Table.Output_dir = "PropertyExternal";
+                fixture.Table.is_bmt_output = true;
+                Assert.IsTrue(fixture.Table.EnableExternalSync());
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                enableOutput = true;
+                string songPath = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(fixture.Root, "BeMusicSeeker.exe")).StandaloneSongDbPath;
+                var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                PlaylistSummaryRow row = CreatePlaylistSummaryRow(fixture.Table);
+                summary.ItemsSource = new List<PlaylistSummaryRow> { row };
+                summary.SelectRowsByPredicate(_ => true);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                ActualMainWindowFixture activeFixture = fixture;
+                ModalObservation<PlaylistPropertyDialog> observation = OpenPropertyDialog(fixture.Window, summary, row,
+                    "property-external-replacement-bmt-failure", (dialog, _) =>
+                    {
+                        shown = dialog;
+                        TextBox source = FindDescendants<TextBox>(dialog).Single(control =>
+                            HasBindingPath(control, nameof(PlaylistPropertyDialogViewModel.Page_url)));
+                        source.Text = new Uri(header).AbsoluteUri;
+                        source.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+                        Assert.AreEqual(new Uri(header), ((PlaylistPropertyDialogViewModel)dialog.DataContext).Page_url);
+                        RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyAccept"));
+                        Task firstSave = dialog.WaitForOperationCompletionAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(firstSave, "property-first-failed-save");
+                        Assert.IsTrue(firstSave.IsCompletedSuccessfully);
+                        Assert.IsNull(notificationObservationFailure,
+                            "通知時の所有者・可視状態・確定参照採用の観測が失敗しました。" + Environment.NewLine + notificationObservationFailure);
+                        Task ownerWaitAfterCompletion = dialog.WaitForOperationCompletionAsync();
+                        Assert.AreSame(firstSave, ownerWaitAfterCompletion);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(ownerWaitAfterCompletion, "property-owner-wait-after-notification");
+                        Assert.IsTrue(dialog.IsEnabled);
+                        Assert.AreEqual(1, failureNotices);
+                        Assert.AreEqual(1, outputWarnings.Count, "実manifest失敗のWarningを一回表示しようとします。");
+                        BmtTableExportService.FileOperationFailure manifestFailure = bmtFailures.Single();
+                        Assert.AreEqual(output, manifestFailure.Path, "manifest公開の例外はBMT出力先の失敗として通知されます。");
+                        StringAssert.Contains(manifestFailure.Cause, manifest);
+                        (Window warningOwner, UiMessageRequest warningRequest) = outputWarnings.Single();
+                        Assert.AreSame(dialog, warningOwner, "実coordinatorは開いているプロパティ画面をWarningのownerに解決します。");
+                        Assert.AreSame(activeFixture.Window, warningRequest.Owner);
+                        Assert.AreEqual(Resources.MessageBoxTitle_Warning, warningRequest.Caption);
+                        Assert.AreEqual(string.Format(Resources.Beatoraja_bmt_output_failure_format, manifestFailure.Path, manifestFailure.Cause),
+                            warningRequest.MessageBoxText);
+                        Assert.IsFalse(warningRequest.MessageBoxText.Contains(warningPresentationFailure.Message, StringComparison.Ordinal));
+                        Assert.IsTrue(dialog.IsVisible);
+                        Assert.IsFalse(dialog.HasTerminalOutcome);
+                        Assert.AreSame(dialog.DataContext, activeFixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                        BMSTable replacement = activeFixture.Playlist.BMSTables.Single();
+                        Assert.AreNotSame(activeFixture.Table, replacement);
+                        Assert.AreEqual(activeFixture.Table.playlist_id, replacement.playlist_id);
+                        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath).OpenSongDbReadOnly())
+                        {
+                            Assert.AreEqual(1, db.Table<BMSTable>().Count());
+                            Assert.AreEqual(1, db.Table<LR2SongDBExtended.playlist_entry>().Count(entry => entry.playlist_id == replacement.playlist_id));
+                        }
+                        (blocker ?? throw new AssertFailedException("Output blocker was released before the failed save.")).Dispose();
+                        blocker = null;
+                        File.Delete(header);
+                        File.Delete(data);
+                        RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyAccept"));
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.WaitForOperationCompletionAsync(), "property-resave-closes");
+                        Task ownerWaitAfterSuccess = dialog.WaitForOperationCompletionAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(ownerWaitAfterSuccess, "property-owner-wait-after-success");
+                        Assert.IsTrue(ownerWaitAfterSuccess.IsCompletedSuccessfully);
+                        Assert.AreNotSame(firstSave, ownerWaitAfterSuccess);
+                        Assert.IsTrue(dialog.HasTerminalOutcome);
+                        Assert.AreEqual(1, failureNotices);
+                        Assert.AreEqual(1, outputWarnings.Count, "次の保存へ旧Warningやその表示故障を持ち越しません。");
+                        Assert.AreSame(replacement, activeFixture.Playlist.BMSTables.Single());
+                    });
+                Assert.AreSame(fixture.Window, observation.Owner);
+                Assert.AreEqual(1, observation.DataContextDetachCount);
+                Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                Assert.IsTrue(File.Exists(manifest));
+                using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath).OpenSongDbReadOnly();
+                Assert.AreEqual(1, verify.Table<BMSTable>().Count());
+                Assert.AreEqual(1, verify.Table<LR2SongDBExtended.playlist_entry>().Count());
+            }
+            finally
+            {
+                try
+                {
+                    if (shown != null)
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(shown.WaitForOperationCompletionAsync(), "property-output-test-cleanup");
+                    }
+                }
+                finally
+                {
+                    blocker?.Dispose();
+                    fixture?.Close();
+                }
+            }
+        });
+    }
+
+    /// <summary>実所有モーダルの再表示・一括適用を通し、Busy・DB失敗・出力失敗・通知失敗でdraftと確定済み変更を区別し、終端後に親有効化とDataContext解除を完了します。</summary>
+    [TestMethod]
+    [DataRow("success")] // 必要な出力が成功してdraftをreset。
+    [DataRow("busy")] // 先行受付中なのでDBとdraftを変えない。
+    [DataRow("database_failure")] // DB保存が失敗し、同じdraftで次の明示適用を通す。
+    [DataRow("output_failure")] // DB確定後の出力が失敗して変更事実とdraftを保持。
+    [DataRow("notification_failure")] // 出力失敗通知も失敗しても、確定済み変更とdraftを保持して実Taskを終える。
+    [DataRow("confirmation_failure")] // 実確認中は適用Taskとclose guardを保持し、表示失敗では変更しない。
+    public void MainWindowPlaylistDialogs_UseOwnedNativeModalLifetimeAndCleanup(string bulkOutcome)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            bool captureOutput = false;
+            string outputDirectory = string.Empty;
+            using var releaseOutput = new ManualResetEventSlim();
+            var outputEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var displayed = new List<(Window Owner, UiMessageRequest Request)>();
+            var notificationFailure = new IOException("bulk output failure notification failed");
+            Task? confirmationApply = null;
+            bool confirmationApplyWasPending = false;
+            bool confirmationDialogWasDisabled = false;
+            bool confirmationCloseWasGuarded = false;
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(windowTest,
+                messagePresenter: (owner, request) =>
+                {
+                    displayed.Add((owner, request));
+                    if (bulkOutcome == "confirmation_failure"
+                        && request is UiConfirmationRequest
+                        && request.Owner is PlaylistSummaryBulkEditDialog confirmationDialog)
+                    {
+                        confirmationApply = confirmationDialog.WaitForApplyCompletionAsync();
+                        confirmationApplyWasPending = !confirmationApply.IsCompleted;
+                        confirmationDialogWasDisabled = !confirmationDialog.IsEnabled;
+                        confirmationDialog.Close();
+                        confirmationCloseWasGuarded = confirmationDialog.IsVisible;
+                        throw new IOException("bulk confirmation presentation failed");
+                    }
+                    if (bulkOutcome == "notification_failure" && request.Icon == MessageBoxImage.Hand && request.Owner is PlaylistSummaryBulkEditDialog) { throw notificationFailure; }
+                    return new ThemedMessageBoxResponse(MessageBoxResult.OK, closedWithoutSelection: false);
+                },
+                bmtOptionsProvider: () =>
+                {
+                    if (!captureOutput) { return new BeatorajaBmtOptionsSnapshot(); }
+                    outputEntered.TrySetResult();
+                    releaseOutput.Wait();
+                    return new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = outputDirectory };
+                });
+            IDisposable? busyLease = null;
+            FileStream? outputBlocker = null;
+            Task? apply = null;
+            try
+            {
+                var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                PlaylistSummaryRow row = CreatePlaylistSummaryRow(fixture.Table);
+                summary.ItemsSource = new List<PlaylistSummaryRow> { row };
+                summary.SelectRowsByPredicate(_ => true);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                ModalObservation<PlaylistPropertyDialog> first = OpenPropertyDialog(
+                    fixture.Window,
+                    summary,
+                    row,
+                    "MainWindowPlaylistWorkspaceWpfTests.property-open",
+                    (dialog, _) =>
+                    {
+                        FrameworkElement navigation = (FrameworkElement)dialog.FindName("propertyNavigation")
+                            ?? throw new AssertFailedException("Playlist property navigation was not materialized.");
+                        FrameworkElement contentHost = (FrameworkElement)dialog.FindName("propertyContent")
+                            ?? throw new AssertFailedException("Playlist property content host was not materialized.");
+                        PropertyNavigationObservation navigationState = ObservePropertyNavigation(navigation, contentHost);
+                        navigationState.ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        AssertSelectedPropertyCategory(navigationState, PropertyNavigationCategory.Folder);
+                        Assert.AreEqual(PropertyNavigationCategory.Folder, IdentifyVisiblePropertyCategory(contentHost));
+                        RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyCancel"));
+                    });
+                Assert.AreSame(fixture.Window, first.Owner);
+                Assert.IsFalse(first.OwnerEnabled);
+                Assert.IsInstanceOfType(first.DataContext, typeof(PlaylistPropertyDialogViewModel));
+                Assert.AreEqual(1, first.DataContextDetachCount);
+                Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                Assert.AreSame(fixture.Table, row.TableRef);
+                fixture.ModalPreparation.AssertLatest(first.Window, expectedCount: 1);
+
+                ModalObservation<PlaylistPropertyDialog> reopened = OpenPropertyDialog(
+                    fixture.Window,
+                    summary,
+                    row,
+                    "MainWindowPlaylistWorkspaceWpfTests.property-reopen",
+                    (dialog, _) =>
+                    {
+                        FrameworkElement reopenedNavigation = (FrameworkElement)dialog.FindName("propertyNavigation")
+                            ?? throw new AssertFailedException("Reopened playlist property navigation was not materialized.");
+                        FrameworkElement reopenedContent = (FrameworkElement)dialog.FindName("propertyContent")
+                            ?? throw new AssertFailedException("Reopened playlist property content host was not materialized.");
+                        PropertyNavigationObservation reopenedNavigationState = ObservePropertyNavigation(reopenedNavigation, reopenedContent);
+                        reopenedNavigationState.ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        AssertSelectedPropertyCategory(reopenedNavigationState, PropertyNavigationCategory.Folder);
+                        Assert.AreEqual(PropertyNavigationCategory.Folder, IdentifyVisiblePropertyCategory(reopenedContent));
+                        RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyCancel"));
+                    });
+                Assert.AreSame(fixture.Window, reopened.Owner);
+                Assert.IsFalse(reopened.OwnerEnabled);
+                Assert.AreNotSame(first.DataContext, reopened.DataContext);
+                Assert.AreEqual(1, reopened.DataContextDetachCount);
+                Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                fixture.ModalPreparation.AssertLatest(reopened.Window, expectedCount: 2);
+
+                outputDirectory = Path.Combine(fixture.Root, "bulk-table");
+                Directory.CreateDirectory(outputDirectory);
+                string manifest = Path.Combine(outputDirectory, BmtTableExportService.ManifestFileName);
+                File.WriteAllText(manifest, "{\"files\":[],\"playlists\":{}}");
+                fixture.Table.Output_dir = "BulkNative";
+                fixture.Table.entries = [new BMSTableEntry { playlist_id = fixture.Table.playlist_id, md5 = new string('a', 32), title = "A", folder = "1" }];
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                if (bulkOutcome is "output_failure" or "notification_failure") { outputBlocker = new FileStream(manifest, FileMode.Open, FileAccess.Read, FileShare.None); }
+                if (bulkOutcome == "database_failure")
+                {
+                    using LR2SongDBExtended database = fixture.Library.DatabaseScope.OpenSongWrite(Path.Combine(fixture.Root, "data", "song.db"));
+                    database.Execute("CREATE TRIGGER fail_bulk_save BEFORE INSERT ON playlist BEGIN SELECT RAISE(FAIL, 'forced bulk DB failure'); END;");
+                }
+                captureOutput = bulkOutcome is "success" or "output_failure" or "notification_failure";
+                ModalObservation<PlaylistSummaryBulkEditDialog> bulk = OpenBulkDialog(
+                    fixture.Window,
+                    summary,
+                    row,
+                    "MainWindowPlaylistWorkspaceWpfTests.bulk-open",
+                    (dialog, observation) =>
+                    {
+                        var draft = (PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel)dialog.DataContext;
+                        if (bulkOutcome == "busy") { Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out busyLease)); }
+                        draft.BmtOutputOption = draft.OnOption;
+                        if (bulkOutcome == "confirmation_failure") { draft.ExternalSyncOption = draft.OnOption; }
+                        RaiseButtonClick(FindAutomationButton(dialog, bulkOutcome == "confirmation_failure"
+                            ? "PlaylistSummaryApplyExternalSync"
+                            : "PlaylistSummaryApplyBmtOutput"));
+                        apply = confirmationApply ?? dialog.WaitForApplyCompletionAsync();
+                        if (captureOutput)
+                        {
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                                TestUiDispatcherHost.AwaitNotificationAsync(outputEntered.Task, apply, "bulk-required-output"), "bulk-output-arrival");
+                            Assert.IsFalse(apply.IsCompleted);
+                            Assert.IsFalse(dialog.IsEnabled);
+                            Assert.AreSame(draft.OnOption, draft.BmtOutputOption, "実出力前にはdraftをresetしません。");
+                            Assert.IsFalse(fixture.Playlist.TryEnterPlaylistMutation(out _));
+                            Assert.AreEqual(0, displayed.Count);
+                        }
+                        releaseOutput.Set();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "bulk-compiled-apply-terminal");
+                        if (bulkOutcome == "confirmation_failure")
+                        {
+                            Assert.IsNotNull(confirmationApply);
+                            Assert.IsTrue(confirmationApplyWasPending);
+                            Assert.IsTrue(confirmationDialogWasDisabled);
+                            Assert.IsTrue(confirmationCloseWasGuarded);
+                            Assert.IsFalse(fixture.Table.is_external_sync);
+                            Assert.AreSame(draft.OnOption, draft.ExternalSyncOption);
+                        }
+                        Assert.IsTrue(dialog.IsEnabled);
+                        Assert.AreSame(bulkOutcome == "success" ? draft.NoChangeOption : draft.OnOption, draft.BmtOutputOption);
+                        bool saved = bulkOutcome is "success" or "output_failure" or "notification_failure";
+                        Assert.AreEqual(saved, fixture.Table.is_bmt_output);
+                        using (LR2SongDBExtended database = fixture.Library.DatabaseScope.OpenSongWrite(Path.Combine(fixture.Root, "data", "song.db")))
+                        {
+                            Assert.AreEqual(saved ? 1L : 0L, database.ExecuteScalar<long>(
+                                "SELECT COUNT(1) FROM playlist WHERE playlist_id = ? AND is_bmt_output = 1;", fixture.Table.playlist_id));
+                            if (bulkOutcome == "database_failure")
+                            {
+                                database.Execute("DROP TRIGGER fail_bulk_save;");
+                            }
+                        }
+                        if (bulkOutcome == "database_failure")
+                        {
+                            RaiseButtonClick(FindAutomationButton(dialog, "PlaylistSummaryApplyBmtOutput"));
+                            apply = dialog.WaitForApplyCompletionAsync();
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "bulk-same-draft-after-db-failure");
+                            Assert.AreSame(draft.NoChangeOption, draft.BmtOutputOption);
+                            Assert.IsTrue(fixture.Table.is_bmt_output);
+                            using LR2SongDBExtended database = fixture.Library.DatabaseScope.OpenSongWrite(Path.Combine(fixture.Root, "data", "song.db"));
+                            Assert.AreEqual(1L, database.ExecuteScalar<long>(
+                                "SELECT COUNT(1) FROM playlist WHERE playlist_id = ? AND is_bmt_output = 1;", fixture.Table.playlist_id));
+                        }
+                        observation.VisibleAfterApply = dialog.IsVisible;
+                        RaiseButtonClick(FindAutomationButton(dialog, "PlaylistSummaryClose"));
+                    });
+                Assert.AreSame(fixture.Window, bulk.Owner);
+                Assert.IsFalse(bulk.OwnerEnabled);
+                Assert.IsInstanceOfType(
+                    bulk.DataContext,
+                    typeof(PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel));
+                Assert.IsTrue(bulk.VisibleAfterApply);
+                Assert.AreEqual(bulkOutcome is not ("busy" or "confirmation_failure"), fixture.Table.is_bmt_output);
+                var bulkFailures = displayed.Where(notification => notification.Request.Icon == MessageBoxImage.Hand).ToList();
+                Assert.AreEqual(bulkOutcome == "success" ? 0 : 1, bulkFailures.Count);
+                if (bulkFailures.Count != 0)
+                {
+                    Assert.AreSame(bulk.Window, bulkFailures.Single().Owner);
+                    Assert.AreSame(bulk.Window, bulkFailures.Single().Request.Owner);
+                    Assert.AreEqual(MessageBoxImage.Hand, bulkFailures.Single().Request.Icon);
+                    StringAssert.Contains(bulkFailures.Single().Request.MessageBoxText, Resources.Msg_error_unexpected);
+                }
+                var confirmations = displayed.Where(notification => notification.Request is UiConfirmationRequest).ToList();
+                Assert.AreEqual(bulkOutcome == "confirmation_failure" ? 1 : 0, confirmations.Count);
+                if (confirmations.Count != 0) { Assert.AreSame(bulk.Window, confirmations.Single().Request.Owner); }
+                var outputWarnings = displayed.Where(notification => notification.Request.Icon == MessageBoxImage.Exclamation
+                    && notification.Request is not UiConfirmationRequest).ToList();
+                Assert.AreEqual(bulkOutcome is "output_failure" or "notification_failure" ? 1 : 0, outputWarnings.Count);
+                if (outputWarnings.Count != 0)
+                {
+                    Assert.AreSame(bulk.Window, outputWarnings.Single().Owner, "実coordinatorは現在のmodalを通知ownerに解決します。");
+                    Assert.AreSame(fixture.Window, outputWarnings.Single().Request.Owner);
+                }
+                Assert.AreEqual(1, bulk.DataContextDetachCount);
+                Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActiveSummaryBulkEditDialog);
+                fixture.ModalPreparation.AssertLatest(bulk.Window, expectedCount: 3);
+            }
+            finally
+            {
+                releaseOutput.Set();
+                if (apply != null)
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "bulk-compiled-finally");
+                }
+                busyLease?.Dispose();
+                outputBlocker?.Dispose();
+                fixture.Close();
+            }
+        });
+    }
+
+    /// <summary>編集中propertyへ一回のnative Closeを送ると正本へresetして取消結果で閉じ、親を再有効化して所有状態とDataContextを解放します。</summary>
+    [TestMethod]
+    public void PlaylistPropertyDialog_NativeCloseRequestClosesAfterSynchronousReset()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(windowTest);
+            try
+            {
+                var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                PlaylistSummaryRow row = CreatePlaylistSummaryRow(fixture.Table);
+                summary.ItemsSource = new List<PlaylistSummaryRow> { row };
+                summary.SelectRowsByPredicate(_ => true);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                int nativeCloseRequestCount = 0;
+                bool closedAfterSingleNativeCloseRequest = false;
+                bool testOwnedRetryUsed = false;
+                string? nameAtClosed = null;
+                ModalObservation<PlaylistPropertyDialog> observation = OpenPropertyDialog(
+                    fixture.Window,
+                    summary,
+                    row,
+                    "MainWindowPlaylistWorkspaceWpfTests.property-native-close",
+                    (dialog, _) =>
+                    {
+                        const string draftPlaylistName = "Native modal draft";
+                        var draft =
+                            (PlaylistPropertyDialogViewModel)dialog.DataContext;
+                        draft.name = draftPlaylistName;
+                        Assert.AreEqual(draftPlaylistName, draft.name);
+
+                        TaskCompletionSource<object?> closed = NewCompletion();
+                        EventHandler closedHandler = (_, _) =>
+                        {
+                            if (dialog.DataContext is PlaylistPropertyDialogViewModel closedDraft)
+                            {
+                                nameAtClosed = closedDraft.name;
+                            }
+                            closed.TrySetResult(null);
+                        };
+                        dialog.Closed += closedHandler;
+                        try
+                        {
+                            nativeCloseRequestCount++;
+                            dialog.Close();
+                            try
+                            {
+                                TestUiDispatcherHost.AwaitPresentationOnDispatcher(
+                                    closed.Task,
+                                    "MainWindowPlaylistWorkspaceWpfTests.property-native-close.closed");
+                                closedAfterSingleNativeCloseRequest = true;
+                            }
+                            catch (TimeoutException)
+                            {
+                                // 一回Closeで閉じない失敗を記録した後、nested modal解放だけのために二回目を送ります。
+                                testOwnedRetryUsed = dialog.IsVisible;
+                                if (dialog.IsVisible)
+                                {
+                                    dialog.Close();
+                                }
+                            }
+                        }
+                        finally
+                        {
+                            dialog.Closed -= closedHandler;
+                        }
+                    });
+
+                Assert.AreEqual(
+                    1,
+                    nativeCloseRequestCount,
+                    "The title-bar close scenario must issue exactly one native close request.");
+                Assert.IsTrue(
+                    closedAfterSingleNativeCloseRequest,
+                    $"One native close request must close after reset completion. Test-owned retry used: {testOwnedRetryUsed}.");
+                Assert.AreEqual(
+                    NativeModalFixturePlaylistName,
+                    nameAtClosed,
+                    "Reset must restore the fixture's original playlist name before the native window raises Closed.");
+                Assert.IsTrue(
+                    observation.Window.DialogResult.HasValue && !observation.Window.DialogResult.Value,
+                    "A reset-backed native close must return the modal coordinator's cancelled/false result.");
+                Assert.IsTrue(fixture.Window.IsEnabled, "The owner must be re-enabled after the modal route returns.");
+                Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                Assert.IsNull(observation.Window.DataContext);
+                Assert.AreEqual(1, observation.DataContextDetachCount);
+            }
+            finally
+            {
+                fixture.Close();
+            }
+        });
+    }
+
+    /// <summary>実一括適用のDB書込み待ち中に親Closeが来ても、所有dialogを先に閉じて適用の実終端を待ち、終了入口を一回実行して所有状態を解放します。</summary>
+    [TestMethod]
+    public void MainWindowClose_WaitsForBulkApplyBeforeTerminalShutdownAndCleansOwnedState()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(windowTest);
+            bool applyWriteBlockerHeld = false;
+            Task? acceptedApplyCompletion = null;
+            try
+            {
+                var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                PlaylistSummaryRow row = CreatePlaylistSummaryRow(fixture.Table);
+                summary.ItemsSource = new List<PlaylistSummaryRow> { row };
+                summary.SelectRowsByPredicate(_ => true);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                void ReleaseApplyWriteBlocker()
+                {
+                    if (!applyWriteBlockerHeld)
+                    {
+                        return;
+                    }
+                    applyWriteBlockerHeld = false;
+                    fixture.Playlist.FreeWriterLockBMSTables();
+                }
+
+                ModalObservation<PlaylistSummaryBulkEditDialog> shutdown = OpenBulkDialog(
+                    fixture.Window,
+                    summary,
+                    row,
+                    "MainWindowPlaylistWorkspaceWpfTests.bulk-shutdown",
+                    (dialog, observation) =>
+                    {
+                        var draft =
+                            (PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel)dialog.DataContext;
+                        draft.BmtOutputOption = draft.OnOption;
+                        fixture.Playlist.AcquireWriterLockBMSTables();
+                        applyWriteBlockerHeld = true;
+                        RaiseButtonClick(FindAutomationButton(dialog, "PlaylistSummaryApplyBmtOutput"));
+                        Task applyCompletion = dialog.WaitForApplyCompletionAsync();
+                        acceptedApplyCompletion = applyCompletion;
+                        fixture.Lifetime.RequestShutdownAction = () =>
+                            observation.ApplyCompletedAtTerminalRequest = applyCompletion.IsCompleted;
+                        observation.ApplyWasPending = !dialog.IsEnabled;
+
+                        void ReleaseApplyAfterOwnerShutdownClose(object? sender, EventArgs args)
+                        {
+                            dialog.Closed -= ReleaseApplyAfterOwnerShutdownClose;
+                            Assert.IsTrue(
+                                dialog.IsOwnerShutdownClose,
+                                "Bulk dialog must close through the owner-shutdown path before the apply lock is released.");
+                            observation.ShutdownCountBeforeLockRelease = fixture.Lifetime.RequestShutdownCount;
+                            ReleaseApplyWriteBlocker();
+                        }
+                        dialog.Closed += ReleaseApplyAfterOwnerShutdownClose;
+                        fixture.Window.Close();
+                        observation.OwnerCloseWasCanceled = fixture.Window.IsVisible;
+                        observation.ShutdownCountBeforeApplyCompletion = fixture.Lifetime.RequestShutdownCount;
+                    });
+
+                fixture.ModalPreparation.AssertLatest(shutdown.Window, expectedCount: 1);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(fixture.Lifetime.ShutdownRequested.Task, fixture.Window.CloseCompletion, "MainWindowPlaylistWorkspaceWpfTests.bulk-shutdown.terminal-request"), "MainWindowPlaylistWorkspaceWpfTests.bulk-shutdown.terminal-request");
+                Assert.AreEqual(
+                    1,
+                    fixture.Lifetime.RequestShutdownCount,
+                    $"shutdown={fixture.Lifetime.RequestShutdownCount}, applyPending={shutdown.ApplyWasPending}, ownerCloseCanceled={shutdown.OwnerCloseWasCanceled}, beforeApply={shutdown.ShutdownCountBeforeApplyCompletion}, beforeRelease={shutdown.ShutdownCountBeforeLockRelease}, visible={fixture.Window.IsVisible}");
+                Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActiveSummaryBulkEditDialog);
+                Assert.IsNull(shutdown.Window.DataContext);
+                Assert.AreEqual(1, shutdown.DataContextDetachCount);
+                Assert.IsTrue(shutdown.ApplyWasPending);
+                Assert.IsTrue(shutdown.OwnerCloseWasCanceled);
+                Assert.AreEqual(0, shutdown.ShutdownCountBeforeApplyCompletion);
+                Assert.AreEqual(0, shutdown.ShutdownCountBeforeLockRelease);
+                Assert.IsTrue(shutdown.ApplyCompletedAtTerminalRequest);
+                fixture.Window.Close();
+                Assert.IsFalse(fixture.Window.IsVisible);
+
+                // 終端許可後に所有側の終了信号が再入しても一回の最終終了を保ちます。
+                fixture.ViewModel.ShellShutdownWorkflow.RequestTerminalApplicationShutdown();
+                Assert.AreEqual(1, fixture.Lifetime.RequestShutdownCount);
+            }
+            finally
+            {
+                if (applyWriteBlockerHeld)
+                {
+                    applyWriteBlockerHeld = false;
+                    fixture.Playlist.FreeWriterLockBMSTables();
+                }
+                try
+                {
+                    if (acceptedApplyCompletion != null)
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(acceptedApplyCompletion, "bulk-shutdown-finally-actual-apply");
+                    }
+                }
+                finally { fixture.Close(); }
+            }
+        });
+    }
+
+    /// <summary>
+    /// 実全体再読込みでBのHTTP本文を保持しても、保存済みAと取得失敗Cの今回サマリーを実画面へ公開し、
+    /// 未完了Bの旧内容・日時と操作全体のP・Busy・進捗・通知終端を保ちます。
+    /// </summary>
+    /// <remarks>
+    /// 実VM・DB再読込みからshell予約、summary build、compiled Bindingと描画セルまでの接続を担います。
+    /// A/C完了進捗から二段のDispatcher予約を回収し、全体終端までの抑制への退行を旧表示の値で検出します。進捗の件数と直近終了名は実TextBlock・ProgressBarのBindingで確認します。
+    /// メニュー配送と失敗・取消・必須出力の条件網羅は既存の入口・管理主体テストへ分担します。
+    /// </remarks>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void ReloadTables_ActualMainWindowPublishesCompletedSummariesWhileAnotherHttpBodyIsPending()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(windowTest, closeNextMessage: () => true);
+            BlockingPlaylistJsonServer? server = null;
+            Task? reload = null;
+            Task? producer = null;
+            Task? nextMutation = null;
+            Exception? primaryFailure = null;
+            try
+            {
+                const string oldData = "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"}]";
+                string goodHeader = Path.Combine(fixture.Root, "good-header.json");
+                string blockedHeader = Path.Combine(fixture.Root, "blocked-header.json");
+                string badHeader = Path.Combine(fixture.Root, "bad-header.json");
+                string goodData = Path.Combine(fixture.Root, "good-data.json");
+                string blockedData = Path.Combine(fixture.Root, "blocked-data.json");
+                File.WriteAllText(goodHeader, "{\"name\":\"A success\",\"symbol\":\"A\",\"data_url\":\"good-data.json\"}");
+                File.WriteAllText(blockedHeader, "{\"name\":\"B blocked\",\"symbol\":\"B\",\"data_url\":\"blocked-data.json\"}");
+                File.WriteAllText(badHeader, "{\"name\":\"C failed\",\"symbol\":\"C\",\"data_url\":\"blocked-data.json\"}");
+                File.WriteAllText(goodData, oldData);
+                File.WriteAllText(blockedData, oldData);
+                Task<BMSTable> goodLoad = fixture.Playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(goodHeader));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(goodLoad, "summary-reload.seed-a");
+                BMSTable good = goodLoad.Result;
+                Task<BMSTable> blockedLoad = fixture.Playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(blockedHeader));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(blockedLoad, "summary-reload.seed-b");
+                BMSTable blocked = blockedLoad.Result;
+                Task<BMSTable> badLoad = fixture.Playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(badHeader));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(badLoad, "summary-reload.seed-c");
+                BMSTable bad = badLoad.Result;
+                server = new BlockingPlaylistJsonServer(
+                    "{\"name\":\"B blocked\",\"symbol\":\"B\",\"data_url\":\"./score.json\"}",
+                    "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"B after\",\"level\":\"1\"}]");
+                blocked.Page_url = server.PageUri;
+                blocked.Header_url = server.PageUri;
+                blocked.Data_url = new Uri("./score.json", UriKind.Relative);
+                good.playlist_id = 7531;
+                blocked.playlist_id = 7532;
+                bad.playlist_id = 7533;
+                DateTime oldUpdate = new(2001, 2, 3, 4, 5, 6);
+                foreach (BMSTable table in new[] { good, blocked, bad })
+                {
+                    Assert.IsFalse(string.IsNullOrWhiteSpace(table.header_sha256));
+                    Assert.IsFalse(string.IsNullOrWhiteSpace(table.data_sha256));
+                    table.last_update = oldUpdate;
+                    table.is_bmt_output = false;
+                    Assert.IsTrue(table.EnableExternalSync());
+                }
+                bad.entries.Single().memo = "keep-failed-local";
+                fixture.Playlist.BMSTables = new ObservableCollection<BMSTable>([good, blocked, bad]);
+                fixture.Playlist.CommitBMSTablesWithEntriesToDB(fixture.Playlist.BMSTables);
+                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                workspace.RefreshPlaylistTreeTables(fixture.Playlist, fixture.Library);
+                workspace.SetPlaylistSummaryMode(true);
+                // 観測する二列だけを表示領域へ配置し、既定の全幅・列順には依存しない。
+                foreach (PlaylistSummaryColumnSettings.ColumnLayout layout in
+                    CustomTableColumnFactory.EnumeratePlaylistSummaryColumnLayouts(workspace.PlaylistSummaryColumnsSettings))
+                { layout.Visibility = Visibility.Collapsed; }
+                workspace.PlaylistSummaryColumnsSettings.LastUpdate.Visibility = Visibility.Visible;
+                workspace.PlaylistSummaryColumnsSettings.LastUpdate.DisplayIndex = 0;
+                workspace.PlaylistSummaryColumnsSettings.LastUpdate.Width = 170;
+                workspace.PlaylistSummaryColumnsSettings.Status.Visibility = Visibility.Visible;
+                workspace.PlaylistSummaryColumnsSettings.Status.DisplayIndex = 1;
+                workspace.PlaylistSummaryColumnsSettings.Status.Width = 130;
+                workspace.RebuildPlaylistSummaryView(runAsync: false);
+                PumpSummary(workspace, fixture.Window);
+                var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                Assert.IsNotNull(BindingOperations.GetBindingExpression(summary, CustomTableView.ItemsSourceProperty));
+                Assert.AreSame(workspace.PlaylistSummaryView, summary.ItemsSource);
+                foreach (BMSTable table in new[] { good, blocked, bad })
+                {
+                    PlaylistSummaryRow row = workspace.PlaylistSummaryView.Single(item => item.PlaylistId == table.playlist_id);
+                    Assert.AreSame(table, row.TableRef);
+                    Assert.AreEqual(oldUpdate, row.LastUpdate);
+                    Assert.AreEqual(Resources.Playlist_sync_status_none, row.Status);
+                    AssertSummaryCells(summary, row, oldUpdate, Resources.Playlist_sync_status_none);
+                }
+
+                TaskCompletionSource<PlaylistExternalSyncRequestEventArgs> queued = NewCompletion<PlaylistExternalSyncRequestEventArgs>();
+                TaskCompletionSource<object?> completedTargets = NewCompletion();
+                TaskCompletionSource<PlaylistExternalSyncCompletionEventArgs> completed = NewCompletion<PlaylistExternalSyncCompletionEventArgs>();
+                TaskCompletionSource<object?> progressTerminal = NewCompletion();
+                var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
+                int notificationTerminalCount = 0;
+                BMSTable? blockedAtSyncStart = null;
+                BMSTable? badAtSyncStart = null;
+                workspace.PlaylistExternalSyncQueued += (_, request) =>
+                {
+                    if (request.Reason != "ReloadTables") { return; }
+                    blockedAtSyncStart = fixture.Playlist.BMSTables.FirstOrDefault(table => table.playlist_id == blocked.playlist_id);
+                    badAtSyncStart = fixture.Playlist.BMSTables.FirstOrDefault(table => table.playlist_id == bad.playlist_id);
+                    queued.TrySetResult(request);
+                };
+                workspace.PlaylistSyncProgressChanged += (_, request) =>
+                {
+                    if (!queued.Task.IsCompletedSuccessfully
+                        || request.Snapshot.Source != "external_playlist_sync"
+                        || request.Snapshot.Request != queued.Task.Result.ProgressRequest
+                        || request.Snapshot.Request?.OperationToken != queued.Task.Result.OperationToken)
+                    { return; }
+                    progress.Enqueue(request.Snapshot);
+                    if (request.Snapshot.IsActive && request.Snapshot.CompletedTableCount == 2)
+                    { completedTargets.TrySetResult(null); }
+                    if (!request.Snapshot.IsActive) { progressTerminal.TrySetResult(null); }
+                };
+                workspace.PlaylistExternalSyncCompleted += (_, request) =>
+                {
+                    if (queued.Task.IsCompletedSuccessfully && request.Reason == "ReloadTables"
+                        && request.OperationToken == queued.Task.Result.OperationToken
+                        && request.Version == queued.Task.Result.Version)
+                    { completed.TrySetResult(request); }
+                };
+                workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
+                {
+                    if (request.RouteName == "external playlist sync notification")
+                    { Interlocked.Increment(ref notificationTerminalCount); }
+                };
+                File.WriteAllText(goodData, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"A after\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Added\",\"level\":\"2\"}]");
+                File.WriteAllText(badHeader, "{ invalid json }");
+                reload = fixture.ViewModel.ReloadTablesAsync();
+                producer = Task.WhenAny(reload, server.Completion).Unwrap();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(queued.Task, producer, "summary-reload.sync-start"), "summary-reload.sync-start");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(server.DataRequestAccepted.Task, producer, "summary-reload.http-body-gate"), "summary-reload.http-body-gate");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(completedTargets.Task, producer, "summary-reload.a-c-callbacks"), "summary-reload.a-c-callbacks");
+                PumpSummary(workspace, fixture.Window);
+                Assert.AreSame(workspace.PlaylistSummaryView, summary.ItemsSource);
+
+                PlaylistExternalSyncRequestEventArgs request = queued.Task.Result;
+                Assert.IsTrue(request.OperationToken > 0);
+                Assert.IsTrue(request.Version > 0);
+                Assert.IsNotNull(request.ProgressRequest);
+                Assert.IsTrue(request.FromReloadTables);
+                Assert.IsNotNull(blockedAtSyncStart);
+                Assert.IsNotNull(badAtSyncStart);
+                BMSTable confirmed = fixture.Playlist.BMSTables.Single(table => table.playlist_id == good.playlist_id);
+                Assert.AreEqual("A after", confirmed.entries.First().title);
+                Assert.AreNotEqual(oldUpdate, confirmed.last_update);
+                PlaylistSummaryRow goodRow = workspace.PlaylistSummaryView.Single(row => row.PlaylistId == good.playlist_id);
+                Assert.AreSame(confirmed, goodRow.TableRef);
+                Assert.AreEqual(confirmed.last_update, goodRow.LastUpdate);
+                Assert.AreEqual(Resources.Playlist_sync_status_updated, goodRow.Status);
+                Assert.IsFalse(goodRow.HasFailureStatus);
+                AssertSummaryCells(summary, goodRow, confirmed.last_update, Resources.Playlist_sync_status_updated);
+                PlaylistSummaryRow badRow = workspace.PlaylistSummaryView.Single(row => row.PlaylistId == bad.playlist_id);
+                Assert.AreSame(badAtSyncStart, badRow.TableRef);
+                Assert.AreSame(badAtSyncStart, fixture.Playlist.BMSTables.Single(table => table.playlist_id == bad.playlist_id));
+                Assert.AreEqual("Before", badAtSyncStart.entries.Single().title);
+                Assert.AreEqual("keep-failed-local", badAtSyncStart.entries.Single().memo);
+                Assert.AreEqual(oldUpdate, badRow.LastUpdate);
+                Assert.AreEqual(Resources.Playlist_sync_status_header, badRow.Status);
+                Assert.IsTrue(badRow.HasFailureStatus);
+                AssertSummaryCells(summary, badRow, oldUpdate, Resources.Playlist_sync_status_header);
+                PlaylistSummaryRow blockedRow = workspace.PlaylistSummaryView.Single(row => row.PlaylistId == blocked.playlist_id);
+                Assert.AreSame(blockedAtSyncStart, blockedRow.TableRef);
+                Assert.AreSame(blockedAtSyncStart, fixture.Playlist.BMSTables.Single(table => table.playlist_id == blocked.playlist_id));
+                Assert.AreEqual("Before", blockedAtSyncStart.entries.Single().title);
+                Assert.AreEqual(oldUpdate, blockedRow.LastUpdate);
+                Assert.AreEqual(Resources.Playlist_sync_status_none, blockedRow.Status);
+                AssertSummaryCells(summary, blockedRow, oldUpdate, Resources.Playlist_sync_status_none);
+                using (LR2SongDBExtended database = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly())
+                {
+                    Assert.AreEqual(confirmed.last_update, database.Table<BMSTable>().Single(table => table.playlist_id == good.playlist_id).last_update);
+                    Assert.AreEqual(2, database.Table<LR2SongDBExtended.playlist_entry>().Count(entry => entry.playlist_id == good.playlist_id));
+                    Assert.AreEqual(oldUpdate, database.Table<BMSTable>().Single(table => table.playlist_id == bad.playlist_id).last_update);
+                    LR2SongDBExtended.playlist_entry persistedBad = database.Table<LR2SongDBExtended.playlist_entry>().Single(entry => entry.playlist_id == bad.playlist_id);
+                    Assert.AreEqual("Before", persistedBad.title);
+                    Assert.AreEqual("keep-failed-local", persistedBad.memo);
+                    Assert.AreEqual(oldUpdate, database.Table<BMSTable>().Single(table => table.playlist_id == blocked.playlist_id).last_update);
+                    Assert.AreEqual("Before", database.Table<LR2SongDBExtended.playlist_entry>().Single(entry => entry.playlist_id == blocked.playlist_id).title);
+                }
+                Assert.IsFalse(reload.IsCompleted);
+                Assert.IsTrue(fixture.Playlist.IsPlaylistUpdating);
+                bool entered = fixture.Playlist.TryEnterPlaylistMutation(out IDisposable admission);
+                admission?.Dispose();
+                Assert.IsFalse(entered, "部分表示だけでは全体Pを解放しません。");
+                StartupProgressWorkflowOwner startup = fixture.ViewModel.ProgressHub.StartupProgress;
+                Assert.IsTrue(startup.IsOperationActive);
+                Assert.IsTrue(fixture.ViewModel.IsLibraryOperationInProgress);
+                Assert.AreEqual(request.OperationToken, startup.GetActiveStartupProgressOperationToken());
+                Assert.IsTrue(progress.Last().IsActive);
+                Assert.IsTrue(progress.Any(snapshot => snapshot.IsActive && snapshot.CompletedTableCount == 2));
+                Assert.IsFalse(completed.Task.IsCompleted);
+                Assert.IsFalse(progressTerminal.Task.IsCompleted);
+                Assert.AreEqual(0, Volatile.Read(ref notificationTerminalCount));
+                OperationProgressRow syncRow = fixture.ViewModel.ProgressHub.Rows.Single(row => row.Key.StartsWith("playlist:external_playlist_sync:", StringComparison.Ordinal));
+                Assert.AreEqual(2d, syncRow.Value);
+                Assert.AreEqual(3d, syncRow.Maximum);
+                Assert.AreEqual(string.Format(Resources.Playlist_reload_processed_label_format,
+                    Resources.Statusbar_progress_task_external_playlist_sync, 2, 3), syncRow.Label);
+                PlaylistSyncProgressSnapshot finished = progress.Last(snapshot => snapshot.IsActive && snapshot.CompletedTableCount == 2);
+                Assert.IsTrue(finished.CurrentTableName is "A success" or "C failed");
+                Assert.AreEqual(string.Format(Resources.Playlist_reload_last_processed_label_format, finished.CurrentTableName), syncRow.Detail);
+                var progressRows = (ItemsControl)fixture.Window.FindName("progressRows");
+                ProgressBar gauge = FindDescendants<ProgressBar>(progressRows).Single(bar => bar.DataContext is OperationProgressRow row && row.Key == syncRow.Key);
+                Assert.IsNotNull(BindingOperations.GetBindingExpression(gauge, ProgressBar.ValueProperty));
+                Assert.IsNotNull(BindingOperations.GetBindingExpression(gauge, ProgressBar.MaximumProperty));
+                Assert.AreEqual(2d, gauge.Value);
+                Assert.AreEqual(3d, gauge.Maximum);
+                TextBlock progressText = FindDescendants<TextBlock>(progressRows).Single(text => text.DataContext is OperationProgressRow row
+                    && row.Key == syncRow.Key && text.Inlines.Count > 0);
+                // 表示はTextプロパティではなく、各RunのLabel/DetailへのBindingが構成します。
+                Run[] progressRuns = progressText.Inlines.OfType<Run>().ToArray();
+                Run labelRun = progressRuns.Single(run => BindingOperations.GetBindingExpression(run, Run.TextProperty)
+                    ?.ParentBinding.Path?.Path == nameof(OperationProgressRow.Label));
+                Run detailRun = progressRuns.Single(run => BindingOperations.GetBindingExpression(run, Run.TextProperty)
+                    ?.ParentBinding.Path?.Path == nameof(OperationProgressRow.Detail));
+                Assert.AreEqual(syncRow.Label, labelRun.Text);
+                Assert.AreEqual(syncRow.Detail, detailRun.Text);
+                Assert.AreEqual(syncRow.Label + " " + syncRow.Detail, string.Concat(progressRuns.Select(run => run.Text)));
+                Assert.IsTrue(fixture.ViewModel.ProgressHub.Rows.Any(row => row.ParentKey == "startup"
+                    && (row.Key.StartsWith("background:external_playlist_sync:", StringComparison.Ordinal)
+                        || row.Key.StartsWith("playlist:external_playlist_sync:", StringComparison.Ordinal))));
+
+                server.ReleaseResponse();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(reload, "summary-reload.actual-terminal");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(completed.Task, reload, "summary-reload.completed"), "summary-reload.completed");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(progressTerminal.Task, reload, "summary-reload.progress-terminal"), "summary-reload.progress-terminal");
+                PumpSummary(workspace, fixture.Window);
+                Assert.IsFalse(completed.Task.Result.Succeeded, "通常取得失敗Cを全件成功へ読み替えません。");
+                Assert.AreEqual(1, Volatile.Read(ref notificationTerminalCount));
+                Assert.IsFalse(fixture.Playlist.IsPlaylistUpdating);
+                Assert.IsFalse(fixture.ViewModel.IsLibraryOperationInProgress);
+                Assert.IsFalse(progress.Last().IsActive);
+                Assert.IsTrue(progress.Any(snapshot => snapshot.TotalTableCount == 3 && snapshot.CompletedTableCount == 3));
+                BMSTable confirmedBlocked = fixture.Playlist.BMSTables.Single(table => table.playlist_id == blocked.playlist_id);
+                Assert.AreEqual("B after", confirmedBlocked.entries.Single().title);
+                Assert.AreNotEqual(oldUpdate, confirmedBlocked.last_update);
+                AssertSummaryCells(summary, workspace.PlaylistSummaryView.Single(row => row.PlaylistId == blocked.playlist_id),
+                    confirmedBlocked.last_update, Resources.Playlist_sync_status_updated);
+                AssertSummaryCells(summary, workspace.PlaylistSummaryView.Single(row => row.PlaylistId == good.playlist_id),
+                    confirmed.last_update, Resources.Playlist_sync_status_updated);
+                AssertSummaryCells(summary, workspace.PlaylistSummaryView.Single(row => row.PlaylistId == bad.playlist_id),
+                    oldUpdate, Resources.Playlist_sync_status_header);
+                nextMutation = workspace.ResyncPlaylistTableAsync(confirmed);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(nextMutation, "summary-reload.next-explicit-mutation");
+                Assert.AreEqual(PlaylistSyncStatusKind.Ok, workspace.CapturePlaylistSyncStatusSnapshot()["id:7531"].Kind);
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                server?.ReleaseResponse();
+                var cleanupFailures = new List<Exception>();
+                void Cleanup(Action action)
+                {
+                    try { action(); }
+                    catch (Exception failure) { cleanupFailures.Add(failure); }
+                }
+                if (reload != null) { Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(reload, "summary-reload.finally-reload")); }
+                if (producer != null) { Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(producer, "summary-reload.finally-producer")); }
+                if (nextMutation != null) { Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(nextMutation, "summary-reload.finally-next-mutation")); }
+                if (server != null) { Cleanup(server.Dispose); }
+                Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.ViewModel.PlaylistWorkspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "summary-reload.finally-summary"));
+                Cleanup(fixture.Close);
+                if (cleanupFailures.Count > 0)
+                {
+                    var cleanupFailure = new AggregateException("Summary reload fixture cleanup failed.", cleanupFailures);
+                    if (primaryFailure != null) { primaryFailure.Data["SummaryReloadCleanupFailure"] = cleanupFailure.ToString(); }
+                    else { throw cleanupFailure; }
+                }
+            }
+
+            static void PumpSummary(PlaylistWorkspaceViewModel workspace, MainWindow window)
+            {
+                // shellのBackground予約、worker、別予約のNormal反映を別々に回収する。
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle).Task,
+                    "summary-reload.shell-background");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "summary-reload.summary-build");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle).Task,
+                    "summary-reload.summary-reflect");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+            }
+
+            static void AssertSummaryCells(CustomTableView summary, PlaylistSummaryRow row, DateTime updated, string status)
+            {
+                Assert.IsTrue(summary.IsLoaded && summary.IsVisible);
+                var owner = Window.GetWindow(summary);
+                // 専用設定のnative配置復元後は表の高さが0になり得るため、観測する一行分だけ領域を確保する。
+                // 全行の同時表示や固定の画面寸法を前提にせず、既存の選択・スクロールで対象行を可視化する。
+                double missingHeight = summary.HeaderHeight + summary.RowHeight - summary.SurfaceHeight;
+                if (missingHeight > 0)
+                {
+                    owner.Height = owner.ActualHeight + missingHeight;
+                    owner.UpdateLayout();
+                }
+                summary.SelectRowsByPredicate(candidate => ReferenceEquals(candidate, row));
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(summary.ActualWidth > 0 && summary.ActualHeight > 0,
+                    $"Summary must be arranged: table={summary.ActualWidth}x{summary.ActualHeight}, surface={summary.SurfaceWidth}x{summary.SurfaceHeight}, owner={owner.ActualWidth}x{owner.ActualHeight}, measureValid={summary.IsMeasureValid}, arrangeValid={summary.IsArrangeValid}, first={summary.FirstVisibleRowIndex}, capacity={summary.CalculateFullVisibleRowCapacity()}, rowHeight={summary.RowHeight}, headerHeight={summary.HeaderHeight}.");
+                Assert.IsTrue(summary.ItemsSource.Contains(row));
+                int index = summary.ItemsSource.IndexOf(row);
+                Assert.IsTrue(index >= summary.FirstVisibleRowIndex
+                    && index < summary.FirstVisibleRowIndex + summary.CalculateFullVisibleRowCapacity(),
+                    $"Summary row must be visible: id={row.PlaylistId}, index={index}, first={summary.FirstVisibleRowIndex}, capacity={summary.CalculateFullVisibleRowCapacity()}, size={summary.ActualWidth}x{summary.ActualHeight}, rowHeight={summary.RowHeight}.");
+                CustomTableColumnLayoutSnapshot columns = summary.GetColumnLayoutSnapshot();
+                CustomTableColumn lastUpdate = columns.VisibleEntries.Single(entry => entry.Column.Id == "LastUpdate").Column;
+                CustomTableColumn statusColumn = columns.VisibleEntries.Single(entry => entry.Column.Id == "Status").Column;
+                Assert.AreEqual(updated.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture), summary.GetCellValue(row, lastUpdate, out _).Text);
+                Assert.AreEqual(status, summary.GetCellValue(row, statusColumn, out _).Text);
+            }
+        });
+    }
+
+    /// <summary>実HTTP応答を保持した手動・明示・全再同期中は別編集を拒否し、拒否要求を再実行せず、UI公開と進捗終端後の次の明示編集だけを受理します。</summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void MainWindowPlaylistSync_UsesHttpAndUiTerminalBeforeAcceptingAnotherEdit()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            ActualMainWindowFixture? fixture = null;
+            TaskCompletionSource<PlaylistWorkspaceMutationRejectedEventArgs>? busyRejection = null;
+            bool closeNextMutationNotification = false;
+            fixture = CreateActualMainWindowFixture(
+                windowTest,
+                closeNextMessage: () => closeNextMutationNotification);
+            try
+            {
+                BMSTable localTable = CreateAdmissionFixtureTable();
+                fixture.Playlist.BMSTables.Add(localTable);
+                PersistFixtureTable(fixture.Library.DatabaseScope, Path.Combine(fixture.Root, "data", "song.db"), localTable);
+
+                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                workspace.MutationRejected += (_, request) =>
+                {
+                    if (request.Kind == PlaylistWorkspaceMutationKind.RenameFolder && request.IsBusy)
+                    {
+                        busyRejection?.TrySetResult(request);
+                    }
+                };
+
+                TaskCompletionSource<object?> presentationTerminal = NewCompletion();
+                int presentationThreadId = 0;
+                workspace.PlaylistTablesPresentationChanged += (_, _) =>
+                {
+                    Interlocked.CompareExchange(
+                        ref presentationThreadId,
+                        Environment.CurrentManagedThreadId,
+                        comparand: 0);
+                    BMSTable? activeTarget = fixture!.Playlist.BMSTables
+                        .FirstOrDefault(table => table?.playlist_id == fixture!.Table.playlist_id);
+                    if (activeTarget?.entries?.Any(entry => entry?.title == "Manual result") == true)
+                    {
+                        presentationTerminal.TrySetResult(null);
+                    }
+                };
+
+                BMSTable manualTarget = fixture.Table;
+                using var manualServer = new BlockingPlaylistJsonServer(
+                    "{\"name\":\"Manual server table\",\"symbol\":\"M\",\"data_url\":\"./score.json\",\"level_order\":[1]}",
+                    "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Manual result\",\"artist\":\"Artist\",\"level\":\"1\"}]");
+                manualTarget.Page_url = manualServer.PageUri;
+                manualTarget.Header_url = manualServer.PageUri;
+                manualTarget.Data_url = new Uri("./score.json", UriKind.Relative);
+                manualTarget.EnableExternalSync();
+                Assert.IsTrue(workspace.ContainsActivePlaylistTable(manualTarget));
+                Assert.IsNotNull(manualTarget.Page_url);
+                Assert.IsFalse(fixture.Playlist.IsPlaylistUpdating);
+
+                Task manualReload = workspace.ResyncPlaylistTableAsync(manualTarget);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    Task.WhenAny(manualReload, manualServer.DataRequestAccepted.Task),
+                    "MainWindowPlaylistWorkspaceWpfTests.manual-data-request");
+                Assert.IsFalse(
+                    manualReload.IsCompleted,
+                    "Manual reload must remain admitted while the local HTTP score response is held.");
+
+                closeNextMutationNotification = true;
+                busyRejection = NewCompletion<PlaylistWorkspaceMutationRejectedEventArgs>();
+                Task busyRename = workspace.RenameFolderAsync(
+                    localTable,
+                    PlaylistFolderNode.CreateFolder("Local"),
+                    "Local while manual reload is active");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    busyRename,
+                    "MainWindowPlaylistWorkspaceWpfTests.manual-busy-rename");
+                closeNextMutationNotification = false;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    busyRejection.Task,
+                    "MainWindowPlaylistWorkspaceWpfTests.manual-busy-rejection");
+                Assert.IsTrue(busyRejection!.Task.Result.IsBusy);
+                Assert.AreEqual(PlaylistWorkspaceMutationKind.RenameFolder, busyRejection!.Task.Result.Kind);
+                Assert.AreEqual("Local", localTable.entries.Single().folder);
+                Assert.IsFalse(
+                    localTable.entries.Any(entry => entry.folder == "Local while manual reload is active"),
+                    "A rejected edit must not be replayed after the manual reload releases its admission.");
+
+                BlockingPlaylistJsonServer.ResponseStage deferredResponse = manualServer.EnqueueResponse(
+                    "{\"name\":\"Deferred server table\",\"symbol\":\"D\",\"data_url\":\"./score.json\",\"level_order\":[1]}",
+                    "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Deferred result\",\"artist\":\"Artist\",\"level\":\"1\"}]");
+                TaskCompletionSource<PlaylistExternalSyncCompletionEventArgs> deferredCompletion = NewCompletion<PlaylistExternalSyncCompletionEventArgs>();
+                workspace.PlaylistExternalSyncCompleted += (_, request) =>
+                {
+                    if (request.Reason == "real_deferred_sync")
+                    {
+                        deferredCompletion.TrySetResult(request);
+                    }
+                };
+                TaskCompletionSource<object?> deferredPresentation = NewCompletion();
+                workspace.PlaylistTablesPresentationChanged += (_, _) =>
+                {
+                    BMSTable? activeTarget = fixture!.Playlist.BMSTables
+                        .FirstOrDefault(table => table?.playlist_id == manualTarget.playlist_id);
+                    if (activeTarget?.entries?.Any(entry => entry?.title == "Deferred result") == true)
+                    {
+                        deferredPresentation.TrySetResult(null);
+                    }
+                };
+
+                var deferredProgress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
+                TaskCompletionSource<object?> deferredProgressTerminal = NewCompletion();
+                workspace.PlaylistSyncProgressChanged += (_, request) =>
+                {
+                    deferredProgress.Enqueue(request.Snapshot);
+                    if (request.Snapshot.Source == "external_playlist_sync" && !request.Snapshot.IsActive)
+                    { deferredProgressTerminal.TrySetResult(null); }
+                };
+                PlaylistExternalSyncCompletionEventArgs? skipped = null;
+                workspace.PlaylistExternalSyncCompleted += (_, result) =>
+                {
+                    if (result.Reason == "busy_optional_sync") { skipped = result; }
+                };
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    workspace.RunExternalPlaylistSyncAsync("busy_optional_sync", false, true, 0),
+                    "MainWindowPlaylistWorkspaceWpfTests.busy-optional-sync");
+                Assert.IsNotNull(skipped);
+                Assert.IsTrue(skipped.WasSkipped);
+                Assert.IsFalse(deferredResponse.DataRequestAccepted.Task.IsCompleted);
+
+                manualServer.ReleaseResponse();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    manualReload,
+                    "MainWindowPlaylistWorkspaceWpfTests.manual-reload");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    presentationTerminal.Task,
+                    "MainWindowPlaylistWorkspaceWpfTests.manual-ui-terminal");
+                Assert.AreEqual(
+                    TestUiDispatcherHost.Dispatcher.Thread.ManagedThreadId,
+                    Volatile.Read(ref presentationThreadId),
+                    "Playlist table presentation must finish on the shared UI dispatcher.");
+
+                BMSTable reloadedTarget = fixture.Playlist.BMSTables
+                    .Single(table => table.playlist_id == manualTarget.playlist_id);
+                Assert.AreNotSame(manualTarget, reloadedTarget);
+                Assert.AreEqual("Manual result", reloadedTarget.entries.Single().title);
+                Assert.IsFalse(deferredResponse.DataRequestAccepted.Task.IsCompleted, "Busy要求を解放後に自動実行しません。");
+                Task explicitSync = workspace.RunExternalPlaylistSyncAsync("real_deferred_sync", false, true, 0);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    Task.WhenAny(deferredResponse.DataRequestAccepted.Task, deferredCompletion.Task),
+                    "MainWindowPlaylistWorkspaceWpfTests.deferred-data-request");
+                Assert.IsTrue(
+                    deferredResponse.DataRequestAccepted.Task.IsCompleted,
+                    "The accepted deferred sync must reach its real HTTP request after the manual terminal.");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    deferredResponse.DataRequestAccepted.Task,
+                    "MainWindowPlaylistWorkspaceWpfTests.deferred-data-request-signal");
+                Assert.IsFalse(
+                    deferredCompletion.Task.IsCompleted,
+                    "Deferred sync must retain its accepted request while the HTTP score response is held.");
+
+                closeNextMutationNotification = true;
+                busyRejection = NewCompletion<PlaylistWorkspaceMutationRejectedEventArgs>();
+                Task deferredBusyRename = workspace.RenameFolderAsync(
+                    localTable,
+                    PlaylistFolderNode.CreateFolder("Local"),
+                    "Local while deferred sync is active");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    deferredBusyRename,
+                    "MainWindowPlaylistWorkspaceWpfTests.deferred-busy-rename");
+                closeNextMutationNotification = false;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    busyRejection.Task,
+                    "MainWindowPlaylistWorkspaceWpfTests.deferred-busy-rejection");
+                Assert.IsTrue(busyRejection!.Task.Result.IsBusy);
+                Assert.AreEqual(PlaylistWorkspaceMutationKind.RenameFolder, busyRejection!.Task.Result.Kind);
+                Assert.AreEqual("Local", localTable.entries.Single().folder);
+
+                deferredResponse.ReleaseResponse();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    deferredCompletion.Task,
+                    "MainWindowPlaylistWorkspaceWpfTests.deferred-completion");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    deferredPresentation.Task,
+                    "MainWindowPlaylistWorkspaceWpfTests.deferred-ui-terminal");
+                Assert.IsTrue(deferredCompletion.Task.Result.Succeeded);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(deferredProgressTerminal.Task, "MainWindowPlaylistWorkspaceWpfTests.deferred-progress-terminal");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                PlaylistSyncProgressSnapshot[] notifications = deferredProgress.Where(snapshot => snapshot.Source == "external_playlist_sync").ToArray();
+                Assert.IsTrue(notifications.Length > 0);
+                Assert.IsTrue(notifications.All(snapshot => snapshot.Source == "external_playlist_sync"));
+                Assert.IsTrue(notifications.All(snapshot => snapshot.OperationId == 0));
+                Assert.IsTrue(notifications.All(snapshot => snapshot.Request is { } request
+                    && request.OperationToken == 0 && request.Source == "external_playlist_sync" && request.Version > 0));
+                Assert.IsTrue(notifications.All(snapshot => snapshot.Request == notifications[0].Request));
+                Assert.IsFalse(fixture.ViewModel.ProgressHub.Rows.Any(row => row.Key.StartsWith("playlist:external_playlist_sync:", StringComparison.Ordinal)));
+                Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive
+                    && snapshot.CurrentUri?.AbsoluteUri == manualServer.PageUri.AbsoluteUri));
+                Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.CompletedTableCount > 0));
+                Assert.IsFalse(notifications[^1].IsActive);
+
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(explicitSync, "MainWindowPlaylistWorkspaceWpfTests.explicit-sync-actual-terminal");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Playlist.WaitForPlaylistMutationIdleAsync(),
+                    "MainWindowPlaylistWorkspaceWpfTests.playlist-actual-terminal");
+
+                closeNextMutationNotification = true;
+                try
+                {
+                    awaitOnDispatcher(
+                        workspace.RenameFolderAsync(
+                            localTable,
+                            PlaylistFolderNode.CreateFolder("Local"),
+                            "Local after deferred terminal"),
+                        "MainWindowPlaylistWorkspaceWpfTests.deferred-retry");
+                }
+                finally
+                {
+                    closeNextMutationNotification = false;
+                }
+                Assert.AreEqual("Local after deferred terminal", localTable.entries.Single().folder);
+
+                // MainWindow の実再読込み入口から、要求受付・HTTP・Owner・Hub まで接続する。
+                BlockingPlaylistJsonServer.ResponseStage reloadResponse = manualServer.EnqueueResponse(
+                    "{\"name\":\"Reloaded table\",\"symbol\":\"R\",\"data_url\":\"./score.json\",\"level_order\":[1]}",
+                    "[{\"md5\":\"cccccccccccccccccccccccccccccccc\",\"title\":\"ReloadTables result\",\"artist\":\"Artist\",\"level\":\"1\"}]");
+                TaskCompletionSource<PlaylistExternalSyncCompletionEventArgs> reloadCompletion = NewCompletion<PlaylistExternalSyncCompletionEventArgs>();
+                workspace.PlaylistExternalSyncCompleted += (_, request) =>
+                {
+                    if (request.Reason == "ReloadTables") { reloadCompletion.TrySetResult(request); }
+                };
+                TaskCompletionSource<object?> reloadProgressTerminal = NewCompletion();
+                workspace.PlaylistSyncProgressChanged += (_, request) =>
+                {
+                    if (request.Snapshot.Source == "external_playlist_sync" && !request.Snapshot.IsActive)
+                    { reloadProgressTerminal.TrySetResult(null); }
+                };
+                Task reloadOperation = fixture.ViewModel.ReloadTablesAsync();
+                try
+                {
+                    Task firstReloadOutcome = Task.WhenAny(reloadResponse.DataRequestAccepted.Task, reloadOperation);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(firstReloadOutcome, "MainWindowPlaylistWorkspaceWpfTests.reload-tables-arrival");
+                    if (reloadOperation.IsCompleted) { TestUiDispatcherHost.AwaitTaskOnDispatcher(reloadOperation, "reload-tables-early-failure"); }
+                    Assert.IsTrue(reloadResponse.DataRequestAccepted.Task.IsCompleted);
+                    Assert.IsFalse(reloadOperation.IsCompleted, "通信から必要出力・公開まで同じPの実Taskで待ちます。");
+                    Assert.IsFalse(fixture.Playlist.TryEnterPlaylistMutation(out _));
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    StartupProgressWorkflowOwner progress = fixture.ViewModel.ProgressHub.StartupProgress;
+                    long operationToken = progress.GetActiveStartupProgressOperationToken();
+                    Assert.IsTrue(operationToken > 0);
+                    OperationProgressRow progressRow = fixture.ViewModel.ProgressHub.Rows.Single(row =>
+                        row.Key.StartsWith("background:external_playlist_sync:", StringComparison.Ordinal)
+                        || row.Key.StartsWith("playlist:external_playlist_sync:", StringComparison.Ordinal));
+                    Assert.AreEqual("startup", progressRow.ParentKey);
+                    StringAssert.Contains(progressRow.Label, Resources.Statusbar_progress_task_external_playlist_sync);
+                    Assert.AreEqual(Resources.Statusbar_progress_reload_tables, progress.Label);
+                    reloadResponse.ReleaseResponse();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reloadOperation, "MainWindowPlaylistWorkspaceWpfTests.reload-tables-operation");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reloadCompletion.Task, "MainWindowPlaylistWorkspaceWpfTests.reload-tables-completion");
+                    Assert.IsTrue(reloadCompletion.Task.Result.Succeeded);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reloadProgressTerminal.Task, "MainWindowPlaylistWorkspaceWpfTests.reload-tables-progress-terminal");
+                    PlaylistSyncProgressSnapshot[] captured = deferredProgress.Where(snapshot => snapshot.Source == "external_playlist_sync"
+                        && snapshot.Request?.OperationToken == operationToken).ToArray();
+                    Assert.IsTrue(captured.Length > 0);
+                    Assert.IsTrue(captured.All(snapshot => snapshot.Request == captured[0].Request));
+                    Assert.IsFalse(captured[^1].IsActive);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsFalse(fixture.ViewModel.ProgressHub.Rows.Any(row => row.Key.StartsWith("playlist:external_playlist_sync:", StringComparison.Ordinal)));
+                }
+                finally
+                {
+                    reloadResponse.ReleaseResponse();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reloadOperation, "MainWindowPlaylistWorkspaceWpfTests.reload-tables-drain");
+                }
+
+            }
+            finally
+            {
+                closeNextMutationNotification = false;
+                ActualMainWindowFixture closingFixture = fixture!;
+                fixture = null;
+                closingFixture.Close();
+            }
+
+            static void awaitOnDispatcher(Task task, string operationName)
+            {
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(task, operationName);
+            }
+        });
+    }
+
+    /// <summary>compiled表再読込みクリックは未完了Taskでも処理済みにし、通常失敗と所有されない取消を一回通知し、終了取消・既通知警告を静穏に終えます。</summary>
+    [TestMethod]
+    [DataRow("success")] // 成功の既存接続と即時Handledを維持します。
+    [DataRow("failure")] // 非同期の普通の失敗は既存通知へ一回渡します。
+    [DataRow("cancellation")] // 終了要求のない取消を実失敗として通知します。
+    [DataRow("shutdown-cancellation")] // 実Window終了で所有された取消だけを通知しません。
+    [DataRow("preflight")] // 管理主体が通知済みの専用警告を重ねません。
+    public void PlaylistRootReload_UsesOneTypedTerminalAndHandlesBeforeAsyncCompletion(string terminalOutcome)
+    {
+        bool shutdown = terminalOutcome == "shutdown-cancellation";
+        int expectedNotifications = terminalOutcome is "failure" or "cancellation" ? 1 : 0;
+        TaskCompletionSource<object?> completion = NewCompletion();
+        string phase = "constructing";
+        var notificationDiagnostics = new List<string>();
+        var dialogs = new RecordingPlaylistWorkspaceDialogService
+        {
+            MessageObserved = request => notificationDiagnostics.Add(
+                $"phase={phase}, caption={request.Caption}, text={request.MessageBoxText}\n{Environment.StackTrace}")
+        };
+        int callCount = 0;
+        MainWindowPlaylistTablesReloadTerminal reloadTerminal =
+            new(() => ++callCount == 1 ? completion.Task : Task.CompletedTask);
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                Task reloadEvent = Task.CompletedTask;
+                try
+                {
+                    var menu = (ContextMenu)window.FindResource("treeViewPlaylistRootContextMenu");
+                    MenuItem reload = FindMenuItemByHeaderBindingPath(menu, "Resources.Reload");
+                    RoutedEventArgs? args = null;
+                    phase = "reload-click";
+                    reloadEvent = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => args = RaiseMenuClick(reload));
+                    Assert.IsNotNull(args);
+                    Assert.IsTrue(args.Handled);
+                    Assert.AreEqual(1, callCount);
+                    Assert.IsFalse(completion.Task.IsCompleted);
+                    if (shutdown)
+                    {
+                        phase = "window-close";
+                        window.Close();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(), "compiled-playlist-reload-owned-shutdown");
+                        Assert.IsTrue(viewModel.ShellShutdownWorkflow.IsShutdownRequested);
+                    }
+                    phase = "terminal-completion";
+                    switch (terminalOutcome)
+                    {
+                        case "failure": completion.TrySetException(new IOException("playlist root reload failed")); break;
+                        case "cancellation":
+                        case "shutdown-cancellation": completion.TrySetCanceled(); break;
+                        case "preflight":
+                            completion.TrySetException(new LibraryDirectoryPreflightException(
+                            LibraryDirectoryPreflightUse.BmsRoot, @"C:\missing-root", LibraryDirectoryPreflightFailureCause.NotFound, "missing")); break;
+                        default: completion.TrySetResult(null); break;
+                    }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reloadEvent, "compiled-playlist-reload-event-terminal");
+                    Assert.AreEqual(expectedNotifications, dialogs.MessageRequests.Count,
+                        $"outcome={terminalOutcome}, shutdown={viewModel.ShellShutdownWorkflow.IsShutdownRequested}, close={window.CloseCompletion.Status}\n"
+                        + string.Join("\n", notificationDiagnostics));
+                    if (terminalOutcome == "failure")
+                    {
+                        Assert.IsTrue(dialogs.MessageShown.Task.IsCompletedSuccessfully);
+                        Assert.AreEqual(Resources.Msg_error_unexpected, dialogs.MessageRequests.Single().MessageBoxText);
+                    }
+                    if (expectedNotifications != 0)
+                    {
+                        Assert.AreEqual(Resources.Msg_error_unexpected, dialogs.MessageRequests.Single().MessageBoxText);
+                    }
+                    if (!shutdown)
+                    {
+                        Assert.IsTrue(RaiseMenuClick(reload).Handled);
+                        Assert.AreEqual(2, callCount);
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.AreEqual(expectedNotifications, dialogs.MessageRequests.Count);
+                    }
+                }
+                finally
+                {
+                    completion.TrySetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reloadEvent, "compiled-playlist-reload-event-cleanup");
+                    if (shutdown)
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(window.CloseCompletion, "compiled-playlist-reload-close-cleanup");
+                    }
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                }
+            },
+            playlistWorkspaceTerminals: CreateTerminals(tablesReload: reloadTerminal),
+            playlistWorkspaceDialogService: dialogs);
+    }
+
+    /// <summary>プレイリストルートの実コンテキストメニューは所有モーダルを開き、取消・Escape・native Close・親終了でDataContextと全購読を回収します。再表示は入力・検索・選択が空で既定フィルターへ戻ります。</summary>
+    [TestMethod]
+    [DataRow("cancel")]
+    [DataRow("escape")]
+    [DataRow("native")]
+    [DataRow("owner")]
+    public void PlaylistImportDialog_UsesOwnedModalAndDiscardsSessionOnEveryClose(string closeKind)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope);
+            try
+            {
+                ModalObservation<PlaylistImportDialog> observation = OpenImportDialog(fixture, "import-" + closeKind, (dialog, _) =>
+                {
+                    var vm = (PlaylistImportDialogViewModel)dialog.DataContext;
+                    vm.UriInput = "https://example.test/unsubmitted";
+                    vm.SearchText = "draft";
+                    vm.HideRegisteredUrls = false;
+                    vm.HideSameNames = true;
+                    vm.SetSelected(new(new("https://example.test/selected"), "Draft"), true);
+                    switch (closeKind)
+                    {
+                        case "cancel": RaiseButtonClick((Button)dialog.FindName("cancelImportButton")); break;
+                        case "escape":
+                            PresentationSource source = PresentationSource.FromVisual(dialog) ?? throw new AssertFailedException("実表示のPresentationSourceがありません。");
+                            dialog.RaiseEvent(new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, source, 0, System.Windows.Input.Key.Escape) { RoutedEvent = System.Windows.Input.Keyboard.KeyDownEvent });
+                            break;
+                        case "native": dialog.Close(); break;
+                        case "owner": fixture.Window.Close(); break;
+                    }
+                });
+                Assert.AreSame(fixture.Window, observation.Owner);
+                Assert.IsFalse(observation.OwnerEnabled, "モーダル中は親のnative HWNDが無効であることを観測する。");
+                Assert.IsNull(observation.Window.DataContext);
+                Assert.AreEqual(1, observation.DataContextDetachCount);
+                var oldSession = (PlaylistImportDialogViewModel)observation.DataContext;
+                int oldNotifications = 0;
+                oldSession.PropertyChanged += (_, _) => oldNotifications++;
+                Task catalog = fixture.ViewModel.PlaylistWorkspace.LoadExternalTableCollectionAsync(new Uri("https://example.test/catalog"), (_, _) => Task.FromResult<IReadOnlyList<BMSTableSimple>>([]));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(catalog, "import-closed-catalog-update");
+                ResourceService.Current.ChangeCulture(Resources.Culture?.Name ?? "en-US");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(0, oldNotifications, "閉鎖セッションへカタログ・言語通知を配送しない。");
+                if (closeKind == "owner")
+                {
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(fixture.Window.CloseCompletion, "import-owner-close");
+                    Assert.AreEqual(1, fixture.Lifetime.RequestShutdownCount);
+                }
+                else
+                {
+                    Assert.IsTrue(IsNativeWindowEnabled(new WindowInteropHelper(fixture.Window).Handle));
+                    OpenImportDialog(fixture, "import-reopen", (dialog, _) =>
+                    {
+                        var fresh = (PlaylistImportDialogViewModel)dialog.DataContext;
+                        Assert.AreEqual(0, fresh.SelectedCount);
+                        Assert.AreEqual("", fresh.UriInput);
+                        Assert.AreEqual("", fresh.SearchText);
+                        Assert.IsTrue(fresh.HideRegisteredUrls);
+                        Assert.IsFalse(fresh.HideSameNames);
+                        dialog.Close();
+                    });
+                }
+            }
+            finally { fixture.Close(); }
+        });
+    }
+
+    /// <summary>実WindowのStarted後に子の閉鎖と購読回収を先に完了しても、実HTTP本文待ちの取込みはWorkspaceで継続します。同URL除外を含む結果応答の前にPを解放し、DB登録・BMT出力と結果発行も確認します。</summary>
+    [TestMethod]
+    public void PlaylistImportDialog_StartedClosesBeforeWorkspaceImportFinishes()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            string output = "";
+            Task? idle = null;
+            ActualMainWindowFixture? presenterFixture = null;
+            TaskCompletionSource<object?> responseProbe = NewCompletion<object?>();
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope,
+                messagePresenter: (owner, request) =>
+                {
+                    if (request.Caption == Resources.Playlist_import_result_title)
+                    {
+                        try
+                        {
+                            ActualMainWindowFixture active = presenterFixture ?? throw new AssertFailedException("結果表示より前にfixtureを作成します。");
+                            Task terminal = idle ?? throw new AssertFailedException("HTTP本文gate中に実P終端Taskを捕捉します。");
+                            Assert.AreSame(active.Window, owner);
+                            Assert.AreSame(active.Window, request.Owner);
+                            StringAssert.Contains(request.MessageBoxText, string.Format(Resources.Playlist_import_result_summary_format, 1, 1, 0, 0));
+                            // presenterからまだ応答していない間に、実処理がPを解放して次の明示操作を許可する。
+                            TestUiDispatcherHost.AwaitPresentationOnDispatcher(terminal, "import-admission-released-before-summary-response");
+                            Assert.IsTrue(active.Playlist.TryEnterPlaylistMutation(out IDisposable admission));
+                            admission.Dispose();
+                            responseProbe.TrySetResult(null);
+                        }
+                        catch (Exception failure)
+                        {
+                            // coordinatorがFailedへ変換しても、検証失敗をObserveFaultへ吸収させない。
+                            responseProbe.TrySetException(failure);
+                        }
+                    }
+                    return new ThemedMessageBoxResponse(MessageBoxResult.OK, closedWithoutSelection: false);
+                },
+                bmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = output });
+            presenterFixture = fixture;
+            var existingUri = new Uri("https://example.test/already-registered");
+            fixture.Table.Page_url = existingUri;
+            output = Path.Combine(fixture.Root, "import-bmt");
+            Directory.CreateDirectory(output);
+            using var server = new BlockingPlaylistJsonServer(
+                "{\"name\":\"Imported after dialog close\",\"symbol\":\"I\",\"data_url\":\"./score.json\"}",
+                "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Imported chart\",\"level\":\"1\"}]");
+            PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+            TaskCompletionSource<ExternalPlaylistImportQueueSummary> summary = NewCompletion<ExternalPlaylistImportQueueSummary>();
+            EventHandler<ExternalPlaylistImportQueueSummaryReadyEventArgs> summaryHandler = (_, e) => summary.TrySetResult(e.Summary);
+            workspace.ExternalPlaylistImportQueueSummaryReady += summaryHandler;
+            Exception? primaryFailure = null;
+            try
+            {
+                ModalObservation<PlaylistImportDialog> observation = OpenImportDialog(fixture, "import-start", (dialog, _) =>
+                {
+                    var vm = (PlaylistImportDialogViewModel)dialog.DataContext;
+                    vm.SetSelected(new(existingUri, "Existing"), true);
+                    vm.SetSelected(new(server.PageUri, "Import"), true);
+                    RaiseButtonClick((Button)dialog.FindName("startImportButton"));
+                });
+                Assert.IsNull(observation.Window.DataContext);
+                Assert.IsTrue(fixture.Window.IsEnabled);
+                idle = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
+                Task producer = Task.WhenAny(idle, server.Completion).Unwrap();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(server.DataRequestAccepted.Task, producer, "import-http-gate"), "import-http-gate");
+                Assert.IsFalse(idle.IsCompleted);
+                Assert.IsFalse(summary.Task.IsCompleted);
+                server.ReleaseResponse();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(idle, "import-workspace-terminal");
+                Assert.IsTrue(summary.Task.IsCompleted, "結果イベントを実処理終端までに発行する。");
+                Assert.AreEqual(1, summary.Task.Result.ImportedCount);
+                Assert.AreEqual(1, summary.Task.Result.SkippedDuplicateUrlCount);
+                // idleが先に終わる順序も正当なので、結果表示consumerは独立して回収します。
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(responseProbe.Task, "import-summary-response-probe");
+                using (LR2SongDBExtended read = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly())
+                {
+                    Assert.IsTrue(read.Table<LR2SongDBExtended.playlist>().Any(x => x.name == "Imported after dialog close"));
+                }
+
+                Assert.IsTrue(Directory.GetFiles(output, "*.bmt", SearchOption.AllDirectories).Length > 0);
+            }
+            catch (Exception exception) { primaryFailure = exception; throw; }
+            finally
+            {
+                try
+                {
+                    server.ReleaseResponse();
+                    try
+                    {
+                        if (idle != null)
+                        {
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(idle, "import-finally-terminal");
+                            TestUiDispatcherHost.AwaitPresentationOnDispatcher(responseProbe.Task, "import-finally-summary-response-probe");
+                        }
+                    }
+                    finally
+                    {
+                        workspace.ExternalPlaylistImportQueueSummaryReady -= summaryHandler;
+                        fixture.Close();
+                    }
+                }
+                catch when (primaryFailure != null) { }
+            }
+        });
+    }
+
+    /// <summary>実LR2必須出力のI/O失敗後も確定DBを保持し、同封receiptの警告へ応答する前に実処理とPを解放します。警告・集計の所有者と事実を実完了イベントへ照合します。</summary>
+    [TestMethod]
+    public void PlaylistImport_Lr2OutputFailurePreservesCommittedDatabaseAndReleasesAdmissionBeforeWarningResponse()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            const string tableName = "ImportOutputFailure";
+            const string chartTitle = "Committed chart after LR2 output failure";
+            string chartMd5 = new('a', 32);
+            string outputDirectory = "";
+            Task? idle = null;
+            ActualMainWindowFixture? presenterFixture = null;
+            TaskCompletionSource<ExternalPlaylistImportQueueSummaryReadyEventArgs> completion = NewCompletion<ExternalPlaylistImportQueueSummaryReadyEventArgs>();
+            TaskCompletionSource<object?> warningProbe = NewCompletion<object?>();
+            TaskCompletionSource<object?> summaryProbe = NewCompletion<object?>();
+            int completionCount = 0;
+            int warningCalls = 0;
+            int summaryCalls = 0;
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope,
+                configureSettings: values =>
+                {
+                    string root = values.BMSRootPath;
+                    values.OperationModeLR2DB = true;
+                    values.LR2RootPath = root;
+                    values.LR2SongDBPath = Path.Combine(root, "data", "song.db");
+                    values.LR2ConfigXmlPath = Path.Combine(root, "LR2files", "Config", "config.xml");
+                    Directory.CreateDirectory(Path.GetDirectoryName(values.LR2ConfigXmlPath) ?? throw new AssertFailedException());
+                    File.WriteAllText(values.LR2ConfigXmlPath, "<config><system /><jukebox /></config>");
+                    string songs = Path.Combine(root, "Songs");
+                    Directory.CreateDirectory(songs);
+                    values.BMSRootPath = songs;
+                    values.BMSInstallDir = songs;
+                    var config = new LR2Config(values.LR2ConfigXmlPath);
+                    config.AddBMSSearchDirectories([songs]);
+                    config.Save(config.ConfigFilePath);
+                    File.WriteAllBytes(Path.Combine(root, "LR2body.exe"), []);
+                    values.LR2CustomFolderOutputBaseDir = Path.Combine(root, "custom");
+                    values.LR2CustomFolderOutputBaseDirRootType = Path.Combine(root, "root-custom");
+                    values.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+                    values.PlaylistDefaultIgnoreFolderOutput = (int)(LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                        & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder);
+                    Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDir);
+                    Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDirRootType);
+                },
+                messagePresenter: (owner, request) =>
+                {
+                    bool isSummary = request.Caption == Resources.Playlist_import_result_title;
+                    TaskCompletionSource<object?> probe = isSummary ? summaryProbe : warningProbe;
+                    try
+                    {
+                        ActualMainWindowFixture active = presenterFixture ?? throw new AssertFailedException("通知より前にfixtureを作成します。");
+                        Task terminal = idle ?? throw new AssertFailedException("HTTP本文gate中に実P終端を捕捉します。");
+                        if (!isSummary)
+                        {
+                            // 旧同期警告経路では完了イベントも未発行のため、まず実P終端を期限付きで観測します。
+                            TestUiDispatcherHost.AwaitPresentationOnDispatcher(terminal, "import-output-failure-admission-before-warning-response");
+                        }
+                        Assert.IsTrue(completion.Task.IsCompleted, "P解放より前にreceiptと集計の完了イベントを発行する。");
+                        ExternalPlaylistImportQueueSummaryReadyEventArgs published = completion.Task.GetAwaiter().GetResult();
+                        Assert.AreSame(active.Window, owner);
+                        Assert.AreSame(active.Window, request.Owner);
+                        if (isSummary)
+                        {
+                            summaryCalls++;
+                            Assert.IsTrue(warningProbe.Task.IsCompletedSuccessfully, "警告の応答後に集計を表示する。");
+                            Assert.AreEqual(MessageBoxImage.Exclamation, request.Icon);
+                            StringAssert.Contains(request.MessageBoxText, string.Format(Resources.Playlist_import_result_summary_format, 0, 0, 0, 1));
+                            ExternalPlaylistImportOutcome failure = published.Summary.FailedOutcomes.Single();
+                            StringAssert.Contains(request.MessageBoxText, failure.Uri.AbsoluteUri);
+                        }
+                        else
+                        {
+                            warningCalls++;
+                            Assert.IsFalse(published.Receipt.IsEmpty);
+                            PlaylistOperationNotificationOwner.OperationNotification notification = published.Receipt.Notifications.Single();
+                            Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, notification.Severity);
+                            Assert.AreEqual(Resources.MessageBoxTitle_Warning, notification.Caption);
+                            Assert.AreEqual(string.Format(Resources.Warn_CustomFolderOutputFailed, tableName, outputDirectory), notification.Message);
+                            Assert.AreEqual(notification.Caption, request.Caption);
+                            Assert.AreEqual(notification.Message, request.MessageBoxText);
+                            Assert.AreEqual(MessageBoxImage.Exclamation, request.Icon);
+                            // 警告presenterの応答前でも、別の明示変更を受け付ける。
+                            Assert.IsTrue(active.Playlist.TryEnterPlaylistMutation(out IDisposable admission));
+                            admission.Dispose();
+                            using LR2SongDBExtended read = new BmsLibraryDbGateway(active.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(active.Root, "data", "song.db")).OpenSongDbReadOnly();
+                            LR2SongDBExtended.playlist persisted = read.Table<LR2SongDBExtended.playlist>().Single(row => row.name == tableName);
+                            int persistedId = persisted.playlist_id ?? throw new AssertFailedException("確定した表IDがありません。");
+                            ExternalPlaylistImportOutcome failure = published.Summary.FailedOutcomes.Single();
+                            // 直接JSONの取得元はヘッダーURLとして保存し、存在しないHTMLページURLを生成しません。
+                            Assert.AreEqual(failure.Uri.AbsoluteUri, persisted.header_url);
+                            Assert.IsTrue(string.IsNullOrEmpty(persisted.page_url));
+                            LR2SongDBExtended.playlist_entry entry = read.Table<LR2SongDBExtended.playlist_entry>().Single(row => row.playlist_id == persistedId);
+                            Assert.AreEqual(persistedId, entry.playlist_id);
+                            Assert.AreEqual(chartMd5, entry.md5);
+                            Assert.AreEqual(chartTitle, entry.title);
+                            Assert.AreEqual(7d, entry.level);
+                        }
+                        probe.TrySetResult(null);
+                    }
+                    catch (Exception failure)
+                    {
+                        // coordinatorのFailed変換や本番ObserveFaultで表明失敗を失わない。
+                        probe.TrySetException(failure);
+                    }
+                    return new ThemedMessageBoxResponse(MessageBoxResult.OK, closedWithoutSelection: false);
+                });
+            presenterFixture = fixture;
+            outputDirectory = Path.Combine(fixture.Root, "custom", tableName);
+            Directory.CreateDirectory(outputDirectory);
+            FileStream? outputBlocker = null;
+            var server = new BlockingPlaylistJsonServer(
+                "{\"name\":\"" + tableName + "\",\"symbol\":\"W\",\"output_dir\":\"" + tableName + "\",\"data_url\":\"./score.json\"}",
+                "[{\"md5\":\"" + chartMd5 + "\",\"title\":\"" + chartTitle + "\",\"level\":\"7\"}]");
+            PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+            EventHandler<ExternalPlaylistImportQueueSummaryReadyEventArgs> completed = (_, request) =>
+            {
+                completionCount++;
+                completion.TrySetResult(request);
+            };
+            workspace.ExternalPlaylistImportQueueSummaryReady += completed;
+            Exception? primaryFailure = null;
+            try
+            {
+                outputBlocker = new FileStream(Path.Combine(outputDirectory, "0000.lr2folder"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                PlaylistImportStartResult start = workspace.TryStartPlaylistImport([server.PageUri]);
+                Assert.AreEqual(PlaylistImportStartStatus.Started, start.Status);
+                idle = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
+                Task producer = Task.WhenAny(idle, server.Completion).Unwrap();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(server.DataRequestAccepted.Task, producer, "import-output-failure-http-gate"),
+                    "import-output-failure-http-gate");
+                Assert.IsFalse(idle.IsCompleted);
+                server.ReleaseResponse();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(idle, "import-output-failure-terminal");
+                Assert.IsTrue(completion.Task.IsCompleted, "実処理終端までにreceiptと集計を同じイベントで発行する。");
+                Assert.AreEqual(1, completionCount, "実処理終端までの完了イベントは一回です。");
+                ExternalPlaylistImportQueueSummaryReadyEventArgs published = completion.Task.GetAwaiter().GetResult();
+                Assert.IsFalse(published.Receipt.IsEmpty);
+                Assert.AreEqual(0, published.Summary.ImportedCount);
+                Assert.AreEqual(0, published.Summary.SkippedDuplicateUrlCount);
+                Assert.AreEqual(0, published.Summary.SkippedDuplicateNameCount);
+                Assert.AreEqual(1, published.Summary.FailedCount);
+                Assert.AreEqual(server.PageUri.AbsoluteUri, published.Summary.FailedOutcomes.Single().Uri.AbsoluteUri);
+                // idleとUI consumerの完了順を固定せず、警告と集計をそれぞれ回収する。
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(warningProbe.Task, "import-output-failure-warning-probe");
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(summaryProbe.Task, "import-output-failure-summary-probe");
+                Assert.AreEqual(1, warningCalls);
+                Assert.AreEqual(1, summaryCalls);
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                server.ReleaseResponse();
+                try
+                {
+                    if (idle != null)
+                    {
+                        try
+                        {
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(idle, "import-output-failure-finally-terminal");
+                            TestUiDispatcherHost.AwaitPresentationOnDispatcher(warningProbe.Task, "import-output-failure-finally-warning");
+                        }
+                        finally
+                        {
+                            TestUiDispatcherHost.AwaitPresentationOnDispatcher(summaryProbe.Task, "import-output-failure-finally-summary");
+                        }
+                    }
+                }
+                catch when (primaryFailure != null) { }
+                finally
+                {
+                    workspace.ExternalPlaylistImportQueueSummaryReady -= completed;
+                    try { outputBlocker?.Dispose(); }
+                    catch when (primaryFailure != null) { }
+                    finally
+                    {
+                        try { fixture.Close(); }
+                        catch when (primaryFailure != null) { }
+                        finally
+                        {
+                            try { server.Dispose(); }
+                            catch when (primaryFailure != null) { }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    /// <summary>実WPFの通常・未所持メニューの表示とClick接続を通し、単体右クリックの固定行、本体・差分区分、複数行の選択順と選択外の対象決定を確認します。セルクリックを別入口へ渡す接続もここで保証し、取得判断の条件網羅は責務側へ分担します。</summary>
+    [TestMethod]
+    public void PlaylistUrlBulkImport_IsOwnedByWorkspaceAndShellForwarded()
+    {
+        TaskCompletionSource<object?> singleCompletion = NewCompletion();
+        TaskCompletionSource<object?> bulkCompletion = NewCompletion();
+        var singleUrls = new List<Uri>();
+        var availabilityCalls = new List<(object Context, IReadOnlyList<object> Rows)>();
+        var bulkCalls = new List<(IReadOnlyList<object> Rows, bool IsDiff)>();
+        var externalLookupCalls = new List<IReadOnlyList<object>>();
+        int expansionCalls = 0;
+        PlaylistUrlInstallTreeExpansionEventSourceFake expansionEventSource = new();
+        BMSTable playlistTable = new() { name = "URL playlist" };
+        PlaylistDetailRow firstRow = CreatePlaylistUrlRow(
+            playlistTable,
+            "33333333333333333333333333333333",
+            "https://example.invalid/main-first.zip",
+            "https://example.invalid/diff-first.zip");
+        PlaylistDetailRow secondRow = CreatePlaylistUrlRow(
+            playlistTable,
+            "44444444444444444444444444444444",
+            "https://example.invalid/main-second.zip",
+            "https://example.invalid/diff-second.zip");
+        MainWindowPlaylistUrlAcquisitionTerminal urlAcquisition = new(
+            url =>
+            {
+                singleUrls.Add(url);
+                return singleCompletion.Task;
+            },
+            (rows, isDiff) =>
+            {
+                bulkCalls.Add((rows, isDiff));
+                return bulkCompletion.Task;
+            },
+            rows =>
+            {
+                externalLookupCalls.Add(rows);
+                return Task.CompletedTask;
+            },
+            (contextRow, rows) =>
+            {
+                availabilityCalls.Add((contextRow, rows));
+                return new PlaylistUrlContextMenuAvailability(
+                    isPlaylistContext: true,
+                    isBulkContext: rows.Count > 1,
+                    canOpenUrl: true,
+                    canOpenDiffUrl: true,
+                    canFindExternalPackage: true);
+            });
+        MainWindowPlaylistUrlInstallTreeExpansionTerminal expansion = new(() =>
+        {
+            Assert.IsTrue(bulkCompletion.Task.IsCompleted);
+            expansionCalls++;
+        });
+
+        try
+        {
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+                TestSettingsFactory.CreateIsolatedSettings(),
+                (scope, viewModel, window) =>
+                {
+                    try
+                    {
+                        var table = (CustomTableView)window.FindName("customTableView");
+                        table.ItemsSource = new List<object> { firstRow, secondRow };
+                        table.SelectRowsByPredicate(_ => true);
+                        viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+
+                        var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                        menu.PlacementTarget = new FrameworkElement { DataContext = firstRow };
+                        OpenContextMenu(menu);
+
+                        Assert.AreEqual(1, availabilityCalls.Count);
+                        Assert.AreSame(firstRow, availabilityCalls[0].Context);
+                        Assert.AreEqual(2, availabilityCalls[0].Rows.Count);
+                        Assert.AreSame(firstRow, availabilityCalls[0].Rows[0]);
+                        Assert.AreSame(secondRow, availabilityCalls[0].Rows[1]);
+
+                        MenuItem openUrl = FindMenuItem(menu, "tableContextMenuItemOpenURL");
+                        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Import_Selected_Url, openUrl.Header);
+                        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Import_Selected_Url_diff,
+                            FindMenuItem(menu, "tableContextMenuItemOpenURLdiff").Header);
+                        RoutedEventArgs openArgs = RaiseMenuClick(openUrl);
+                        Assert.IsTrue(openArgs.Handled);
+                        Assert.AreEqual(1, bulkCalls.Count);
+                        Assert.IsFalse(bulkCalls[0].IsDiff);
+                        Assert.AreEqual(2, bulkCalls[0].Rows.Count);
+                        Assert.AreSame(firstRow, bulkCalls[0].Rows[0]);
+                        Assert.AreSame(secondRow, bulkCalls[0].Rows[1]);
+                        Assert.IsFalse(bulkCompletion.Task.IsCompleted);
+                        Assert.AreEqual(0, expansionCalls);
+
+                        bulkCompletion.SetResult(null);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(bulkCompletion.Task, "compiled-bulk-url-terminal");
+
+                        RoutedEventArgs diffArgs = RaiseMenuClick(
+                            FindMenuItem(menu, "tableContextMenuItemOpenURLdiff"));
+                        Assert.IsTrue(diffArgs.Handled);
+                        Assert.AreEqual(2, bulkCalls.Count);
+                        Assert.IsTrue(bulkCalls[1].IsDiff);
+                        Assert.AreEqual(2, bulkCalls[1].Rows.Count);
+                        Assert.AreSame(firstRow, bulkCalls[1].Rows[0]);
+                        Assert.AreSame(secondRow, bulkCalls[1].Rows[1]);
+
+                        RoutedEventArgs lookupArgs = RaiseMenuClick(
+                            FindMenuItem(menu, "tableContextMenuItemFindExternalPackage"));
+                        Assert.IsTrue(lookupArgs.Handled);
+                        Assert.AreEqual(1, externalLookupCalls.Count);
+                        Assert.AreEqual(2, externalLookupCalls[0].Count);
+                        Assert.AreSame(firstRow, externalLookupCalls[0][0]);
+                        Assert.AreSame(secondRow, externalLookupCalls[0][1]);
+
+                        // OpenedとClickの実接続を通し、画面固有の行範囲・メニュー名の切替を観測します。
+                        foreach (string menuKey in new[] { "tableContextMenu", "tableContextMenuPlaylistMissing" })
+                        {
+                            var singleMenu = (ContextMenu)window.FindResource(menuKey);
+                            table.SelectRowsByPredicate(row => ReferenceEquals(row, firstRow));
+                            foreach (PlaylistDetailRow context in new[] { firstRow, secondRow })
+                            {
+                                singleMenu.PlacementTarget = new FrameworkElement { DataContext = context };
+                                OpenContextMenu(singleMenu);
+                                Assert.AreSame(context, availabilityCalls[^1].Context);
+                                CollectionAssert.AreEqual(new object[] { context }, availabilityCalls[^1].Rows.ToArray());
+                                foreach ((string name, bool isDiff, string header) in new[]
+                                {
+                                    ("tableContextMenuItemOpenURL", false, BeMusicSeeker.Properties.Resources.Open_Url),
+                                    ("tableContextMenuItemOpenURLdiff", true, BeMusicSeeker.Properties.Resources.Open_Url_diff)
+                                })
+                                {
+                                    MenuItem item = FindMenuItem(singleMenu, name);
+                                    Assert.AreEqual(header, item.Header);
+                                    int previousCalls = bulkCalls.Count;
+                                    Assert.IsTrue(RaiseMenuClick(item).Handled);
+                                    Assert.AreEqual(previousCalls + 1, bulkCalls.Count);
+                                    Assert.AreEqual(isDiff, bulkCalls[^1].IsDiff);
+                                    CollectionAssert.AreEqual(new object[] { context }, bulkCalls[^1].Rows.ToArray());
+                                    Assert.AreEqual(0, singleUrls.Count, "単体右クリックをセルクリックの入口へ配送しません。");
+                                }
+                            }
+                        }
+
+                        table.SelectRowsByPredicate(_ => true);
+                        var missingMenu = (ContextMenu)window.FindResource("tableContextMenuPlaylistMissing");
+                        missingMenu.PlacementTarget = new FrameworkElement { DataContext = firstRow };
+                        OpenContextMenu(missingMenu);
+                        foreach ((string name, bool isDiff, string header) in new[]
+                        {
+                            ("tableContextMenuItemOpenURL", false, BeMusicSeeker.Properties.Resources.Import_Selected_Url),
+                            ("tableContextMenuItemOpenURLdiff", true, BeMusicSeeker.Properties.Resources.Import_Selected_Url_diff)
+                        })
+                        {
+                            MenuItem item = FindMenuItem(missingMenu, name);
+                            Assert.AreEqual(header, item.Header);
+                            int previousCalls = bulkCalls.Count;
+                            Assert.IsTrue(RaiseMenuClick(item).Handled);
+                            Assert.AreEqual(previousCalls + 1, bulkCalls.Count);
+                            Assert.AreEqual(isDiff, bulkCalls[^1].IsDiff);
+                            CollectionAssert.AreEqual(new object[] { firstRow, secondRow }, bulkCalls[^1].Rows.ToArray());
+                        }
+
+                        expansionEventSource.Publish();
+                        Assert.AreEqual(1, expansionCalls);
+
+                        table.ItemsSource = new List<object> { firstRow };
+                        table.SelectRowsByPredicate(_ => true);
+                        table.Width = 120d;
+                        table.Height = 80d;
+                        table.HeaderHeight = 0d;
+                        table.RowHeight = 60d;
+                        table.Columns =
+                        [
+                            new CustomTableColumn(
+                                "Url1",
+                                "URL1",
+                                layout: null,
+                                fallbackOrder: 0,
+                                sortMemberPath: null,
+                                alignment: TextAlignment.Center,
+                                textSelector: _ => "download",
+                                minWidth: 40,
+                                maxWidth: 40,
+                                canResize: false,
+                                cellKind: CustomTableCellKind.DownloadIcon)
+                        ];
+                        MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+                        table.Measure(new Size(table.Width, table.Height));
+                        table.Arrange(new Rect(0d, 0d, table.Width, table.Height));
+                        table.UpdateLayout();
+
+                        CustomTableHitTestResult hit = table.HitTestTable(new Point(20d, 30d));
+                        Assert.AreEqual(CustomTableHitKind.Cell, hit.Kind);
+                        Assert.AreEqual(0, hit.RowIndex);
+                        Assert.AreSame(firstRow, hit.Row);
+                        Assert.AreEqual("Url1", hit.Column?.Id);
+                        Assert.AreEqual(CustomTableCellKind.DownloadIcon, hit.Column?.CellKind);
+
+                        // 物理カーソルを使わず実hitからcompiled購読先へ渡すため、既存イベントの購読delegateだけを反射で呼びます。
+                        FieldInfo actionField = typeof(CustomTableView).GetField(
+                            nameof(CustomTableView.CellActionRequested),
+                            BindingFlags.Instance | BindingFlags.NonPublic)!;
+                        var actionSubscriber = actionField.GetValue(table) as Delegate;
+                        Assert.IsNotNull(actionSubscriber);
+                        actionSubscriber.DynamicInvoke(table, new CustomTableCellActionRequestedEventArgs(hit));
+                        Assert.AreEqual(1, singleUrls.Count);
+                        Assert.AreEqual(firstRow.Url, singleUrls[0]);
+                        Assert.IsFalse(singleCompletion.Task.IsCompleted);
+                        singleCompletion.SetResult(null);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(singleCompletion.Task, "compiled-single-url-terminal");
+                    }
+                    finally
+                    {
+                        singleCompletion.TrySetResult(null);
+                        bulkCompletion.TrySetResult(null);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(singleCompletion.Task, "compiled-single-url-finally");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(bulkCompletion.Task, "compiled-bulk-url-finally");
+                    }
+                },
+                playlistWorkspaceTerminals: CreateTerminals(
+                    urlAcquisition: urlAcquisition,
+                    urlInstallTreeExpansionEventSource: expansionEventSource,
+                    urlInstallTreeExpansion: expansion));
+
+            Assert.AreEqual(0, expansionEventSource.SubscriberCount);
+            expansionEventSource.Publish();
+            Assert.AreEqual(1, expansionCalls);
+        }
+        finally
+        {
+            singleCompletion.TrySetResult(null);
+            bulkCompletion.TrySetResult(null);
+        }
+    }
+
+    /// <summary>所有側の導入完了イベントをcompiled画面が一度展開へ配送し、画面終了後のイベントでは展開しません。</summary>
+    [TestMethod]
+    public void PlaylistUrlInstallTreeExpansion_ForwardsOwnerEventAndUnsubscribes()
+    {
+        int expansionCalls = 0;
+        PlaylistUrlInstallTreeExpansionEventSourceFake expansionEventSource = new();
+        MainWindowPlaylistUrlInstallTreeExpansionTerminal expansion = new(() => expansionCalls++);
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (_, _) =>
+            {
+                Assert.AreEqual(1, expansionEventSource.SubscriberCount);
+
+                Assert.AreEqual(0, expansionCalls);
+                expansionEventSource.Publish();
+                Assert.AreEqual(1, expansionCalls);
+            },
+            playlistWorkspaceTerminals: CreateTerminals(
+                urlInstallTreeExpansionEventSource: expansionEventSource,
+                urlInstallTreeExpansion: expansion));
+
+        Assert.AreEqual(0, expansionEventSource.SubscriberCount);
+        expansionEventSource.Publish();
+        Assert.AreEqual(1, expansionCalls);
+    }
+
+    /// <summary>compiled表項目削除が元の選択二行を順序どおり終端へ渡し、非同期処理完了前にクリックを処理済みにします。</summary>
+    [TestMethod]
+    public void PlaylistEntryRemovalRoutesThroughWorkspaceOwner()
+    {
+        TaskCompletionSource<object?> completion = NewCompletion();
+        IReadOnlyList<object>? capturedRows = null;
+        int callCount = 0;
+        BMSTable playlistTable = new() { name = "Playlist" };
+        PlaylistDetailRow firstRow = CreatePlaylistRow(
+            playlistTable,
+            "11111111111111111111111111111111",
+            @"C:\wave6e-playlist\first.bms");
+        PlaylistDetailRow secondRow = CreatePlaylistRow(
+            playlistTable,
+            "22222222222222222222222222222222",
+            @"C:\wave6e-playlist\second.bms");
+        MainWindowPlaylistEntryRemovalTerminal entryRemoval = new(
+            rows =>
+            {
+                callCount++;
+                capturedRows = rows;
+                return completion.Task;
+            });
+
+        try
+        {
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+                TestSettingsFactory.CreateIsolatedSettings(),
+                (viewModel, window) =>
+                {
+                    try
+                    {
+
+                        var table = (CustomTableView)window.FindName("customTableView");
+                        table.ItemsSource = new List<object> { firstRow, secondRow };
+                        table.SelectRowsByPredicate(row => ReferenceEquals(row, firstRow) || ReferenceEquals(row, secondRow));
+                        viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+
+                        var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                        menu.PlacementTarget = new FrameworkElement { DataContext = firstRow };
+                        MenuItem removeEntry = FindMenuItem(menu, "tableContextMenuItemDeleteEntry");
+                        OpenContextMenu(menu);
+
+                        RoutedEventArgs args = RaiseMenuClick(removeEntry);
+
+                        Assert.IsTrue(args.Handled);
+                        Assert.AreEqual(1, callCount);
+                        Assert.IsFalse(completion.Task.IsCompleted);
+                        Assert.IsNotNull(capturedRows);
+                        Assert.AreEqual(2, capturedRows!.Count);
+                        Assert.AreSame(firstRow, capturedRows![0]);
+                        Assert.AreSame(secondRow, capturedRows![1]);
+
+                    }
+                    finally
+                    {
+                        completion.TrySetResult(null);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(completion.Task, "compiled-playlist-terminal-delegate");
+                    }
+
+                },
+                playlistWorkspaceTerminals: CreateTerminals(entryRemoval: entryRemoval));
+        }
+        finally
+        {
+            completion.TrySetResult(null);
+        }
+    }
+
+    /// <summary>compiledlevel上書きクリックが元表を一回だけ終端へ渡し、非同期処理完了前にイベントを処理済みにします。</summary>
+    [TestMethod]
+    public void PlaylistOverwriteLevel_RoutesThroughWorkflowOwner()
+    {
+        TaskCompletionSource<object?> completion = NewCompletion();
+        BMSTable? capturedTable = null;
+        int callCount = 0;
+        BMSTable table = new() { name = "Overwrite target" };
+        MainWindowPlaylistTableLevelOverwriteTerminal overwrite = new(
+            captured =>
+            {
+                callCount++;
+                capturedTable = captured;
+                return completion.Task;
+            });
+
+        try
+        {
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+                TestSettingsFactory.CreateIsolatedSettings(),
+                (_, window) =>
+                {
+                    try
+                    {
+
+                        var menu = (ContextMenu)window.FindResource("treeViewPlaylistTableContextMenu");
+                        menu.PlacementTarget = new TreeViewItem { DataContext = table };
+                        menu.DataContext = table;
+                        OpenContextMenu(menu);
+
+                        MenuItem overwriteLevel = FindMenuItem(
+                            menu,
+                            "treeViewPlaylistTableContextMenuItemOverwriteLevel");
+                        overwriteLevel.DataContext = table;
+                        RoutedEventArgs args = RaiseMenuClick(overwriteLevel);
+
+                        Assert.IsTrue(args.Handled);
+                        Assert.AreEqual(1, callCount);
+                        Assert.AreSame(table, capturedTable);
+                        Assert.IsFalse(completion.Task.IsCompleted);
+
+                    }
+                    finally
+                    {
+                        completion.TrySetResult(null);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(completion.Task, "compiled-playlist-terminal-delegate");
+                    }
+
+                },
+                playlistWorkspaceTerminals: CreateTerminals(tableLevelOverwrite: overwrite));
+        }
+        finally
+        {
+            completion.TrySetResult(null);
+        }
+    }
+
+    /// <summary>compiled表メニューでは外部同期中の新規folder作成だけを禁止し、再同期・ページ表示・上書き・削除の操作入口を利用可能に保ちます。</summary>
+    [TestMethod]
+    public void PlaylistTableContextMenu_PreservesActionsAndRejectsFolderCreationDuringExternalSync()
+    {
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (_, window) =>
+            {
+                var menu = (ContextMenu)window.FindResource("treeViewPlaylistTableContextMenu");
+                foreach (BMSTable table in new[]
+                {
+                    new BMSTable { Page_url = new Uri("https://example.test/external"), is_external_sync = true },
+                    new BMSTable { Page_url = new Uri("https://example.test/local"), is_external_sync = false }
+                })
+                {
+                    menu.PlacementTarget = new TreeViewItem { DataContext = table };
+                    menu.DataContext = table;
+                    OpenContextMenu(menu);
+
+                    Assert.IsTrue(FindMenuItem(menu, "treeViewPlaylistTableContextMenuItemReload").IsEnabled);
+                    Assert.IsTrue(FindMenuItem(menu, "treeViewPlaylistTableContextMenuItemOpenPageURI").IsEnabled);
+                    Assert.IsTrue(FindMenuItem(menu, "treeViewPlaylistTableContextMenuItemOverwriteLevel").IsEnabled);
+                    Assert.AreEqual(
+                        !table.is_external_sync,
+                        FindMenuItem(menu, "treeViewPlaylistTableContextMenuItemCreateNewFolder").IsEnabled);
+                    Assert.IsTrue(FindMenuItem(menu, "treeViewPlaylistTableContextMenuItemRemoveTable").IsEnabled);
+                }
+
+            });
+    }
+
+    /// <summary>全体lampからの実ナビゲーションはfolder選択を外して表rootを選び、その後に親のactivationとfocusを一度要求します。</summary>
+    [TestMethod]
+    public void PlaylistLampNavigation_SelectsTableRootThroughComposedMainWindowTerminal()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var foregroundOperations = new List<string>();
+            ActualMainWindowFixture? fixture = null;
+            fixture = CreateActualMainWindowFixture(
+                windowTest,
+                CreateForegroundTerminal(
+                    foregroundOperations,
+                    () =>
+                    {
+                        var playlistRoot = (TreeViewItem)fixture!.Window.FindName("treeViewItemPlaylist");
+                        var selectedTable = playlistRoot.ItemContainerGenerator
+                            .ContainerFromItem(fixture!.Table) as TreeViewItem;
+                        Assert.IsNotNull(selectedTable);
+                        Assert.IsTrue(
+                            selectedTable!.IsSelected,
+                            "the playlist root selection must be applied before foreground activation");
+                    }));
+            try
+            {
+                fixture.Table.entries =
+                [
+                    new BMSTableEntry
+                    {
+                        folder = "normal",
+                        md5 = new string('a', 32)
+                    }
+                ];
+                fixture.Table.Folder_order = ["normal"];
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                var playlistRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                MaterializeTreeItems(playlistRoot);
+                var tableItem = playlistRoot.ItemContainerGenerator
+                    .ContainerFromItem(fixture.Table) as TreeViewItem;
+                Assert.IsNotNull(tableItem, "the active playlist table must be materialized in the shell tree");
+                tableItem!.IsExpanded = true;
+                MaterializeTreeItems(tableItem);
+
+                TreeViewItem? folderItem = FindDescendants<TreeViewItem>(tableItem)
+                    .FirstOrDefault(item => item.DataContext is PlaylistFolderNode);
+                Assert.IsNotNull(
+                    folderItem,
+                    "a playlist folder child must be materialized for the root-selection route");
+                folderItem!.IsSelected = true;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(folderItem!.IsSelected);
+
+                var request = PlaylistLampViewerNavigationRequest.ForOverall(
+                    fixture.Table.playlist_id!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    PlaylistLampSegmentKind.Clear,
+                    PlaylistLampClearCategory.ASSIST,
+                    rankCategory: null);
+                Assert.IsTrue(fixture.ViewModel.PlaylistWorkspace.TryRequestPlaylistLampNavigation(request));
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                tableItem = playlistRoot.ItemContainerGenerator.ContainerFromItem(fixture.Table) as TreeViewItem;
+                Assert.IsNotNull(tableItem);
+                Assert.IsTrue(tableItem!.IsSelected, "overall lamp navigation must select the playlist table root");
+                Assert.IsFalse(
+                    FindDescendants<TreeViewItem>(tableItem!)
+                        .Where(item => !ReferenceEquals(item, tableItem))
+                        .Any(item => item.DataContext is PlaylistFolderNode && item.IsSelected),
+                    "overall lamp navigation must not leave a child folder selected");
+                CollectionAssert.AreEqual(
+                    new[] { "activate", "focus" },
+                    foregroundOperations,
+                    "successful overall navigation must focus the main shell exactly once");
+            }
+            finally
+            {
+                fixture!.Close();
+            }
+        });
+    }
+
+    /// <summary>folder lampからの実ナビゲーションは対象folderを選び、その選択反映後に親のactivationとfocusを一度要求します。</summary>
+    [TestMethod]
+    public void PlaylistLampNavigation_SelectsFolderThroughComposedMainWindowTerminal()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var foregroundOperations = new List<string>();
+            ActualMainWindowFixture? fixture = null;
+            fixture = CreateActualMainWindowFixture(
+                windowTest,
+                CreateForegroundTerminal(
+                    foregroundOperations,
+                    () =>
+                    {
+                        var playlistRoot = (TreeViewItem)fixture!.Window.FindName("treeViewItemPlaylist");
+                        var selectedTable = playlistRoot.ItemContainerGenerator
+                            .ContainerFromItem(fixture!.Table) as TreeViewItem;
+                        Assert.IsNotNull(selectedTable);
+                        TreeViewItem? selectedFolder = FindDescendants<TreeViewItem>(selectedTable!)
+                            .FirstOrDefault(item => item.DataContext is PlaylistFolderNode && item.IsSelected);
+                        Assert.IsNotNull(
+                            selectedFolder,
+                            "the folder selection must be applied before foreground activation");
+                        Assert.AreEqual(
+                            "normal",
+                            ((PlaylistFolderNode)selectedFolder!.DataContext).FolderName);
+                    }));
+            try
+            {
+                fixture.Table.entries =
+                [
+                    new BMSTableEntry
+                    {
+                        folder = "normal",
+                        md5 = new string('a', 32)
+                    }
+                ];
+                fixture.Table.Folder_order = ["normal"];
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                var playlistRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                MaterializeTreeItems(playlistRoot);
+                var tableItem = playlistRoot.ItemContainerGenerator
+                    .ContainerFromItem(fixture.Table) as TreeViewItem;
+                Assert.IsNotNull(tableItem, "the active playlist table must be materialized in the shell tree");
+                tableItem!.IsExpanded = true;
+                MaterializeTreeItems(tableItem);
+
+                TreeViewItem? folderItem = FindDescendants<TreeViewItem>(tableItem)
+                    .FirstOrDefault(item => item.DataContext is PlaylistFolderNode);
+                Assert.IsNotNull(
+                    folderItem,
+                    "a playlist folder child must be materialized for the folder-selection route");
+                tableItem!.IsSelected = true;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(tableItem!.IsSelected);
+
+                var request = PlaylistLampViewerNavigationRequest.ForFolder(
+                    PlaylistLampSegmentInvocationRequest.ForClear(
+                        fixture.Table.playlist_id!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        "normal",
+                        PlaylistLampClearCategory.ASSIST));
+                Assert.IsTrue(fixture.ViewModel.PlaylistWorkspace.TryRequestPlaylistLampNavigation(request));
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                tableItem = playlistRoot.ItemContainerGenerator.ContainerFromItem(fixture.Table) as TreeViewItem;
+                Assert.IsNotNull(tableItem);
+                TreeViewItem? selectedFolder = FindDescendants<TreeViewItem>(tableItem!)
+                    .FirstOrDefault(item => item.DataContext is PlaylistFolderNode && item.IsSelected);
+                Assert.IsNotNull(selectedFolder, "folder lamp navigation must select the target folder");
+                Assert.AreEqual("normal", ((PlaylistFolderNode)selectedFolder!.DataContext).FolderName);
+                CollectionAssert.AreEqual(
+                    new[] { "activate", "focus" },
+                    foregroundOperations,
+                    "successful folder navigation must focus the main shell exactly once");
+            }
+            finally
+            {
+                fixture!.Close();
+            }
+        });
+    }
+
+    /// <summary>compiled表削除は元表を一度配送し、拒否時に一覧を保ち、受理時に先に兄弟または空rootへ選択を移します。委譲先だけでなくfinallyの空root再要求を含む実イベント終端まで回収します。</summary>
+    [TestMethod]
+    public void PlaylistTableRemoval_RoutesThroughWorkflowOwner()
+    {
+        RunPlaylistTableRemovalRejectionScenario();
+        RunPlaylistTableRemovalSiblingFallbackScenario();
+        RunPlaylistTableRemovalEmptyRootScenario();
+    }
+
+    /// <summary>表削除の実メニューから元表を一度だけ渡し、Task失敗を一般通知で伝え、空rootの選択と詳細対象なしを維持します。</summary>
+    [TestMethod]
+    public void PlaylistTableRemovalFailure_NotifiesAndPreservesEmptyRootSelection()
+    {
+        RunPlaylistTableRemovalFailureScenario(
+            UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+    }
+
+    /// <summary>compiled表削除の失敗通知も成立しない場合に処理を再試行せず、一回の通知と空rootの選択を維持します。</summary>
+    [TestMethod]
+    public void PlaylistTableRemovalNotificationFailure_IsDiagnosticOnlyAndDoesNotRetry()
+    {
+        RunPlaylistTableRemovalFailureScenario(
+            UiDialogResult.Failed(new InvalidOperationException("playlist removal notification failed")));
+    }
+
+    /// <summary>確認dialogで取消した表削除は実操作や失敗通知を開始せず、元一覧とroot選択を保ちます。</summary>
+    [TestMethod]
+    public void PlaylistTableRemovalCancellation_DoesNotNotify()
+    {
+        // これは確認 dialog の Cancel であり、operation が OperationCanceledException になる経路とは分けて観測する。
+        var dialogs = new RecordingPlaylistWorkspaceDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
+        };
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (_, window) =>
+            {
+                (TreeViewItem playlistRoot, MenuItem removeTable) =
+                    PreparePlaylistTableRemovalContext(window, new BMSTable { name = "Cancelled" });
+
+                RoutedEventArgs args = RaiseMenuClick(removeTable);
+                Assert.IsTrue(args.Handled);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    dialogs.ConfirmationShown.Task,
+                    "playlist table removal cancellation confirmation");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                Assert.AreEqual(1, dialogs.ConfirmationRequests.Count);
+                Assert.AreEqual(0, dialogs.MessageRequests.Count);
+                Assert.IsTrue(playlistRoot.IsSelected);
+                Assert.AreEqual(1, playlistRoot.Items.Count);
+            },
+            playlistWorkspaceDialogService: dialogs);
+    }
+
+    /// <summary>受理後の削除Taskが取消になっても失敗通知を出さず、先に移した空root選択と詳細対象なしを維持します。</summary>
+    [TestMethod]
+    public void PlaylistTableRemovalOperationCancellation_DoesNotNotify()
+    {
+        TaskCompletionSource<object?> selectionCompletion = NewCompletion();
+        var dialogs = new RecordingPlaylistWorkspaceDialogService();
+        var cancellationToken = new CancellationToken(canceled: true);
+        int callCount = 0;
+        MainWindowPlaylistTableRemovalTerminal removal = new(
+            (_, applySelectionBeforeMutation) =>
+            {
+                callCount++;
+                applySelectionBeforeMutation();
+                return Task.FromCanceled(cancellationToken);
+            });
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                EventHandler<PlaylistTreeSelectionActivatedEventArgs> selectionActivated = (_, args) =>
+                {
+                    if (!args.IsSummary && args.Detail != null && args.Detail.Table == null)
+                    {
+                        selectionCompletion.TrySetResult(null);
+                    }
+                };
+                viewModel.PlaylistWorkspace.TreeSelectionActivated += selectionActivated;
+                try
+                {
+                    (TreeViewItem playlistRoot, MenuItem removeTable) =
+                        PreparePlaylistTableRemovalContext(window, new BMSTable { name = "Cancelled operation" });
+                    playlistRoot.Items.Clear();
+                    playlistRoot.IsSelected = true;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                    RoutedEventArgs args = RaiseMenuClick(removeTable);
+                    Assert.IsTrue(args.Handled);
+                    Assert.AreEqual(1, callCount);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        selectionCompletion.Task,
+                        "playlist table removal operation cancellation cleanup");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                    Assert.AreEqual(0, dialogs.MessageRequests.Count);
+                    Assert.IsTrue(playlistRoot.IsSelected);
+                    Assert.AreEqual(0, playlistRoot.Items.Count);
+                    Assert.IsNull(viewModel.PlaylistWorkspace.CapturePlaylistDetailSelection().Table);
+                }
+                finally
+                {
+                    viewModel.PlaylistWorkspace.TreeSelectionActivated -= selectionActivated;
+                }
+            },
+            playlistWorkspaceTerminals: CreateTerminals(tableRemoval: removal),
+            playlistWorkspaceDialogService: dialogs);
+    }
+
+    private static void RunPlaylistTableRemovalFailureScenario(UiDialogResult messageResult)
+    {
+        BMSTable firstTable = new() { name = "First" };
+        TaskCompletionSource<object?> selectionCompletion = NewCompletion();
+        var failure = new InvalidOperationException("playlist table removal persistence failed");
+        var dialogs = new RecordingPlaylistWorkspaceDialogService
+        {
+            MessageResult = messageResult
+        };
+        int callCount = 0;
+        BMSTable? capturedTable = null;
+        PlaylistTreeSelectionActivatedEventArgs? emptyRootSelection = null;
+        MainWindowPlaylistTableRemovalTerminal removal = new(
+            (table, applySelectionBeforeMutation) =>
+            {
+                callCount++;
+                capturedTable = table;
+                applySelectionBeforeMutation();
+                return Task.FromException(failure);
+            });
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                EventHandler<PlaylistTreeSelectionActivatedEventArgs> selectionActivated = (_, args) =>
+                {
+                    if (!args.IsSummary && args.Detail != null && args.Detail.Table == null)
+                    {
+                        emptyRootSelection = args;
+                        selectionCompletion.TrySetResult(null);
+                    }
+                };
+                viewModel.PlaylistWorkspace.TreeSelectionActivated += selectionActivated;
+                try
+                {
+                    (TreeViewItem playlistRoot, MenuItem removeTable) =
+                        PreparePlaylistTableRemovalContext(window, firstTable);
+                    playlistRoot.Items.Clear();
+                    playlistRoot.IsSelected = true;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                    RoutedEventArgs? args = null;
+                    Task terminal = MainWindowEventCompletion.CaptureAsyncEventCompletion(
+                        () => args = RaiseMenuClick(removeTable));
+                    // 通知開始だけでなく実イベント終端と空rootの選択通知まで待ちます。
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        Task.WhenAll(terminal, selectionCompletion.Task, dialogs.MessageShown.Task),
+                        "playlist table removal failure notification and empty-root cleanup");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsNotNull(args);
+                    Assert.IsTrue(args.Handled);
+                    Assert.AreEqual(1, callCount);
+                    Assert.AreSame(firstTable, capturedTable);
+
+                    Assert.IsNotNull(emptyRootSelection);
+                    Assert.IsFalse(emptyRootSelection!.IsSummary);
+                    Assert.IsNotNull(emptyRootSelection!.Detail);
+                    Assert.IsNull(emptyRootSelection!.Detail.Table);
+                    Assert.AreEqual(1, dialogs.MessageRequests.Count);
+                    Assert.AreEqual(Resources.Msg_error_unexpected, dialogs.MessageRequests[0].MessageBoxText);
+                    Assert.AreSame(window, dialogs.MessageRequests[0].Owner);
+                    Assert.AreEqual(MessageBoxImage.Hand, dialogs.MessageRequests[0].Icon);
+                    Assert.IsTrue(playlistRoot.IsSelected);
+                    Assert.AreEqual(0, playlistRoot.Items.Count);
+                    Assert.IsNull(viewModel.PlaylistWorkspace.CapturePlaylistDetailSelection().Table);
+                }
+                finally
+                {
+                    viewModel.PlaylistWorkspace.TreeSelectionActivated -= selectionActivated;
+                }
+            },
+            playlistWorkspaceTerminals: CreateTerminals(tableRemoval: removal),
+            playlistWorkspaceDialogService: dialogs);
+    }
+
+    private static void RunPlaylistTableRemovalRejectionScenario()
+    {
+        BMSTable firstTable = new() { name = "First" };
+        BMSTable secondTable = new() { name = "Second" };
+        TaskCompletionSource<object?> completion = NewCompletion();
+        int callCount = 0;
+        BMSTable? capturedTable = null;
+        MainWindowPlaylistTableRemovalTerminal removal = new(
+            (table, _) =>
+            {
+                callCount++;
+                capturedTable = table;
+                return completion.Task;
+            });
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (_, window) =>
+            {
+                Task handlerCompletion = Task.CompletedTask;
+                try
+                {
+                    (TreeViewItem playlistRoot, MenuItem removeTable) =
+                        PreparePlaylistTableRemovalContext(window, firstTable, secondTable);
+
+                    RoutedEventArgs? args = null;
+                    handlerCompletion = MainWindowEventCompletion.CaptureAsyncEventCompletion(
+                        () => args = RaiseMenuClick(removeTable));
+                    Assert.IsNotNull(args);
+                    Assert.IsTrue(args.Handled);
+                    Assert.AreEqual(1, callCount);
+                    Assert.AreSame(firstTable, capturedTable);
+                    Assert.IsTrue(playlistRoot.IsSelected);
+                    Assert.IsFalse(completion.Task.IsCompleted);
+
+                    QueueCompletion(completion);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        handlerCompletion,
+                        "playlist table removal rejection");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsTrue(playlistRoot.IsSelected);
+                    Assert.AreEqual(2, playlistRoot.Items.Count);
+                }
+                finally
+                {
+                    completion.TrySetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(handlerCompletion, "playlist-table-removal-rejection-event-cleanup");
+                }
+            },
+            playlistWorkspaceTerminals: CreateTerminals(tableRemoval: removal));
+    }
+
+    private static void RunPlaylistTableRemovalSiblingFallbackScenario()
+    {
+        BMSTable firstTable = new() { name = "First" };
+        BMSTable secondTable = new() { name = "Second" };
+        TaskCompletionSource<object?> completion = NewCompletion();
+        TaskCompletionSource<object?> selectionCompletion = NewCompletion();
+        int callbackInvocationCount = 0;
+        var callbacks = new List<System.Action>();
+        var capturedTables = new List<BMSTable>();
+        MainWindowPlaylistTableRemovalTerminal removal = new(
+            (table, applySelectionBeforeMutation) =>
+            {
+                capturedTables.Add(table);
+                callbacks.Add(applySelectionBeforeMutation);
+                callbackInvocationCount++;
+                applySelectionBeforeMutation();
+                return completion.Task;
+            });
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                EventHandler<PlaylistTreeSelectionActivatedEventArgs> selectionActivated = (_, args) =>
+                {
+                    if (!args.IsSummary && args.Detail != null && ReferenceEquals(args.Detail.Table, secondTable))
+                    {
+                        selectionCompletion.TrySetResult(null);
+                    }
+                };
+                viewModel.PlaylistWorkspace.TreeSelectionActivated += selectionActivated;
+                Task handlerCompletion = Task.CompletedTask;
+                try
+                {
+                    (TreeViewItem playlistRoot, MenuItem removeTable) =
+                        PreparePlaylistTableRemovalContext(window, firstTable, secondTable);
+
+                    RoutedEventArgs? args = null;
+                    handlerCompletion = MainWindowEventCompletion.CaptureAsyncEventCompletion(
+                        () => args = RaiseMenuClick(removeTable));
+                    Assert.IsNotNull(args);
+                    Assert.IsTrue(args.Handled);
+                    Assert.AreEqual(1, capturedTables.Count);
+                    Assert.AreSame(firstTable, capturedTables[0]);
+                    Assert.AreEqual(1, callbacks.Count);
+                    Assert.AreEqual(1, callbackInvocationCount);
+                    Assert.IsFalse(completion.Task.IsCompleted);
+
+                    QueueCompletion(completion);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        Task.WhenAll(handlerCompletion, selectionCompletion.Task),
+                        "playlist table removal sibling fallback");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                    var sibling = playlistRoot.ItemContainerGenerator.ContainerFromItem(secondTable) as TreeViewItem;
+                    Assert.IsNotNull(sibling);
+                    Assert.IsTrue(sibling!.IsSelected);
+                    Assert.AreSame(secondTable, sibling!.DataContext);
+                }
+                finally
+                {
+                    completion.TrySetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(handlerCompletion, "playlist-table-removal-sibling-event-cleanup");
+                    viewModel.PlaylistWorkspace.TreeSelectionActivated -= selectionActivated;
+                }
+            },
+            playlistWorkspaceTerminals: CreateTerminals(tableRemoval: removal));
+    }
+
+    private static void RunPlaylistTableRemovalEmptyRootScenario()
+    {
+        BMSTable firstTable = new() { name = "First" };
+        TaskCompletionSource<object?> completion = NewCompletion();
+        TaskCompletionSource<object?> selectionCompletion = NewCompletion();
+        PlaylistTreeSelectionActivatedEventArgs? emptyRootSelection = null;
+        int callbackInvocationCount = 0;
+        var callbacks = new List<System.Action>();
+        var capturedTables = new List<BMSTable>();
+        MainWindowPlaylistTableRemovalTerminal removal = new(
+            (table, applySelectionBeforeMutation) =>
+            {
+                capturedTables.Add(table);
+                callbacks.Add(applySelectionBeforeMutation);
+                callbackInvocationCount++;
+                applySelectionBeforeMutation();
+                return completion.Task;
+            });
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                EventHandler<PlaylistTreeSelectionActivatedEventArgs> selectionActivated = (_, args) =>
+                {
+                    if (!args.IsSummary && args.Detail != null && args.Detail.Table == null)
+                    {
+                        emptyRootSelection = args;
+                        selectionCompletion.TrySetResult(null);
+                    }
+                };
+                viewModel.PlaylistWorkspace.TreeSelectionActivated += selectionActivated;
+                Task handlerCompletion = Task.CompletedTask;
+                try
+                {
+                    (TreeViewItem playlistRoot, MenuItem removeTable) =
+                        PreparePlaylistTableRemovalContext(window, firstTable);
+                    playlistRoot.Items.Clear();
+                    playlistRoot.IsSelected = true;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                    RoutedEventArgs? args = null;
+                    handlerCompletion = MainWindowEventCompletion.CaptureAsyncEventCompletion(
+                        () => args = RaiseMenuClick(removeTable));
+                    Assert.IsNotNull(args);
+                    Assert.IsTrue(args.Handled);
+                    Assert.AreEqual(1, capturedTables.Count);
+                    Assert.AreSame(firstTable, capturedTables[0]);
+                    Assert.AreEqual(1, callbacks.Count);
+                    Assert.AreEqual(1, callbackInvocationCount);
+                    Assert.IsFalse(completion.Task.IsCompleted);
+
+                    QueueCompletion(completion);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        Task.WhenAll(handlerCompletion, selectionCompletion.Task),
+                        "playlist table removal empty-root detail selection");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                    Assert.IsNotNull(emptyRootSelection);
+                    Assert.IsFalse(emptyRootSelection!.IsSummary);
+                    Assert.IsNotNull(emptyRootSelection!.Detail);
+                    Assert.IsNull(emptyRootSelection!.Detail.Table);
+                    Assert.IsTrue(playlistRoot.IsSelected);
+                    Assert.AreEqual(0, playlistRoot.Items.Count);
+                    PlaylistDetailSelection emptyDetailSelection =
+                        viewModel.PlaylistWorkspace.CapturePlaylistDetailSelection();
+                    Assert.IsNotNull(emptyDetailSelection, "実削除イベントの終端後も空rootの詳細選択を保持します。");
+                    Assert.IsNull(emptyDetailSelection.Table);
+                }
+                finally
+                {
+                    completion.TrySetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(handlerCompletion, "playlist-table-removal-empty-root-event-cleanup");
+                    viewModel.PlaylistWorkspace.TreeSelectionActivated -= selectionActivated;
+                }
+            },
+            playlistWorkspaceTerminals: CreateTerminals(tableRemoval: removal));
+    }
+
+    private static (TreeViewItem PlaylistRoot, MenuItem RemoveTable) PreparePlaylistTableRemovalContext(
+        MainWindow window,
+        params BMSTable[] tables)
+    {
+        var playlistRoot = (TreeViewItem)window.FindName("treeViewItemPlaylist");
+        playlistRoot.ItemsSource = null;
+        playlistRoot.Items.Clear();
+        foreach (BMSTable table in tables)
+        {
+            playlistRoot.Items.Add(table);
+        }
+        MaterializeTreeItems(playlistRoot);
+        playlistRoot.IsSelected = true;
+        TestUiDispatcherHost.ProcessQueuedPresentation();
+
+        var menu = (ContextMenu)window.FindResource("treeViewPlaylistTableContextMenu");
+        BMSTable firstTable = tables[0];
+        menu.PlacementTarget = new TreeViewItem { DataContext = firstTable };
+        menu.DataContext = firstTable;
+        OpenContextMenu(menu);
+        MenuItem removeTable = FindMenuItem(
+            menu,
+            "treeViewPlaylistTableContextMenuItemRemoveTable");
+        removeTable.DataContext = firstTable;
+        return (playlistRoot, removeTable);
+    }
+
+    private static void QueueCompletion(TaskCompletionSource<object?> completion)
+    {
+        TestUiDispatcherHost.Dispatcher.BeginInvoke(
+            System.Windows.Threading.DispatcherPriority.Normal,
+            new Action(() => completion.TrySetResult(null)));
+    }
+
+    private static MainWindowPlaylistWorkspaceTerminals CreateTerminals(
+        MainWindowPlaylistEntryRemovalTerminal? entryRemoval = null,
+        MainWindowPlaylistTableLevelOverwriteTerminal? tableLevelOverwrite = null,
+        MainWindowPlaylistTableRemovalTerminal? tableRemoval = null,
+        MainWindowPlaylistUrlAcquisitionTerminal? urlAcquisition = null,
+        IMainWindowPlaylistUrlInstallTreeExpansionEventSource? urlInstallTreeExpansionEventSource = null,
+        MainWindowPlaylistUrlInstallTreeExpansionTerminal? urlInstallTreeExpansion = null,
+        MainWindowPlaylistTablesReloadTerminal? tablesReload = null)
+    {
+        return new MainWindowPlaylistWorkspaceTerminals(
+            entryRemoval ?? new MainWindowPlaylistEntryRemovalTerminal(_ => Task.CompletedTask),
+            tableLevelOverwrite ?? new MainWindowPlaylistTableLevelOverwriteTerminal(_ => Task.CompletedTask),
+            tableRemoval ?? new MainWindowPlaylistTableRemovalTerminal((_, _) => Task.CompletedTask),
+            urlAcquisition ?? new MainWindowPlaylistUrlAcquisitionTerminal(
+                (_) => Task.CompletedTask,
+                (_, _) => Task.CompletedTask,
+                (_) => Task.CompletedTask,
+                (_, _) => new PlaylistUrlContextMenuAvailability(
+                    isPlaylistContext: false,
+                    isBulkContext: false,
+                    canOpenUrl: false,
+                    canOpenDiffUrl: false,
+                    canFindExternalPackage: false)),
+            urlInstallTreeExpansionEventSource ?? new PlaylistUrlInstallTreeExpansionEventSourceFake(),
+            urlInstallTreeExpansion ?? new MainWindowPlaylistUrlInstallTreeExpansionTerminal(() => { }),
+            tablesReload ?? new MainWindowPlaylistTablesReloadTerminal(() => Task.CompletedTask));
+    }
+
+    private sealed class PlaylistUrlInstallTreeExpansionEventSourceFake
+        : IMainWindowPlaylistUrlInstallTreeExpansionEventSource
+    {
+        private Action? handlers;
+
+        internal int SubscriberCount => handlers?.GetInvocationList().Length ?? 0;
+
+        public void Subscribe(Action handler)
+        {
+            ArgumentNullException.ThrowIfNull(handler);
+            handlers += handler;
+        }
+
+        public void Unsubscribe(Action handler)
+        {
+            ArgumentNullException.ThrowIfNull(handler);
+            handlers -= handler;
+        }
+
+        internal void Publish()
+        {
+            handlers?.Invoke();
+        }
+    }
+
+    private static PlaylistDetailRow CreatePlaylistRow(BMSTable table, string md5, string path)
+    {
+        ChartFile file = ChartTestValues.Empty(ChartFileKind.Bmson) with { Md5 = md5, Path = path, RawTitle = md5 };
+        BMSTableEntry entry = new() { md5 = md5, parent = table };
+        return new PlaylistDetailSourceRow(
+            entry,
+            (file))
+            .CreateViewRow();
+    }
+
+    private static PlaylistDetailRow CreatePlaylistUrlRow(
+        BMSTable table,
+        string md5,
+        string url,
+        string urlDiff)
+    {
+        ChartFile file = ChartTestValues.Empty(ChartFileKind.Bmson) with
+        {
+            Md5 = md5,
+            Path = $@"C:\wave6e-playlist-url\{md5}.bms",
+            RawTitle = md5
+        };
+        BMSTableEntry entry = new()
+        {
+            md5 = md5,
+            parent = table,
+            Url = new Uri(url),
+            Url_diff = new Uri(urlDiff)
+        };
+        return new PlaylistDetailSourceRow(
+            entry,
+            (file))
+            .CreateViewRow();
+    }
+
+    private static TaskCompletionSource<object?> NewCompletion()
+        => new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private static TaskCompletionSource<T> NewCompletion<T>()
+        => new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private static BMSTable CreateAdmissionFixtureTable()
+    {
+        var entry = new BMSTableEntry
+        {
+            md5 = "cccccccccccccccccccccccccccccccc",
+            title = "Local admission entry",
+            folder = "Local"
+        };
+        return new BMSTable
+        {
+            playlist_id = 2,
+            name = "Local admission table",
+            symbol = "LOCAL",
+            entry_type = LR2SongDBExtended.playlist.EntryUnitType.File,
+            is_bmt_output = false,
+            ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.None,
+            Folder_order = ["Local"],
+            entries = [entry]
+        };
+    }
+
+    /// <summary>実fixtureと同じDB所有者で、後続の受理操作が使う表入力を保存します。</summary>
+    private static void PersistFixtureTable(ApplicationDatabaseScope databaseScope, string songDbPath, BMSTable table)
+    {
+        using LR2SongDBExtended database = databaseScope.OpenSongWrite(songDbPath);
+        database.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+        foreach (BMSTableEntry entry in table.entries ?? [])
+        {
+            database.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+        }
+        database.Commit();
+    }
+
+    private sealed class BlockingPlaylistJsonServer : IDisposable
+    {
+        private readonly TcpListener listener = new(IPAddress.Loopback, 0);
+        private readonly CancellationTokenSource lifetime = new();
+        private readonly object responseSync = new();
+        private readonly List<ResponseStage> responseStages = [];
+        private readonly Task serverTask;
+        private TcpClient? acceptedClient;
+        private ResponseStage? currentResponseStage;
+        private int nextResponseStageIndex;
+        private int disposed;
+
+        internal BlockingPlaylistJsonServer(string headerJson, string scoreJson)
+        {
+            EnqueueResponse(headerJson, scoreJson);
+            listener.Start();
+            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            PageUri = new Uri("http://127.0.0.1:" + port + "/playlist.json");
+            serverTask = ServeAsync();
+        }
+
+        internal Uri PageUri { get; }
+
+        /// <summary>HTTP到達待機中にも実serverの早期失敗・終端を観測し、通知だけの待機を残さないためのTaskです。</summary>
+        internal Task Completion => serverTask;
+
+        internal TaskCompletionSource<object?> DataRequestAccepted => responseStages[0].DataRequestAccepted;
+
+        internal void ReleaseResponse()
+        {
+            responseStages[0].ReleaseResponse();
+        }
+
+        internal ResponseStage EnqueueResponse(string headerJson, string scoreJson)
+        {
+            var response = new ResponseStage(headerJson, scoreJson);
+            lock (responseSync)
+            {
+                responseStages.Add(response);
+            }
+            return response;
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) != 0)
+            {
+                return;
+            }
+            ReleaseResponse();
+            lock (responseSync)
+            {
+                foreach (ResponseStage response in responseStages)
+                {
+                    response.ReleaseResponse();
+                }
+            }
+            lifetime.Cancel();
+            listener.Stop();
+            acceptedClient?.Dispose();
+            try
+            {
+                serverTask.Wait();
+            }
+            catch (AggregateException exception) when (exception.InnerExceptions.All(IsExpectedShutdownException))
+            {
+            }
+            finally
+            {
+                lifetime.Dispose();
+            }
+        }
+
+        private async Task ServeAsync()
+        {
+            try
+            {
+                while (!lifetime.IsCancellationRequested)
+                {
+                    using TcpClient client = await listener.AcceptTcpClientAsync(lifetime.Token).ConfigureAwait(false);
+                    acceptedClient = client;
+                    using NetworkStream stream = client.GetStream();
+                    string requestTarget = await ReadRequestTargetAsync(stream, lifetime.Token).ConfigureAwait(false);
+                    bool isDataRequest = requestTarget.EndsWith("/score.json", StringComparison.OrdinalIgnoreCase);
+                    ResponseStage response = GetResponseStage(isDataRequest);
+                    byte[] body = Encoding.UTF8.GetBytes(isDataRequest ? response.ScoreJson : response.HeaderJson);
+                    byte[] header = Encoding.ASCII.GetBytes(
+                        "HTTP/1.1 200 OK\r\n"
+                        + "Content-Type: application/json; charset=utf-8\r\n"
+                        + "Content-Length: " + body.Length + "\r\n"
+                        + "Connection: close\r\n\r\n");
+                    await stream.WriteAsync(header, lifetime.Token).ConfigureAwait(false);
+                    await stream.FlushAsync(lifetime.Token).ConfigureAwait(false);
+                    if (isDataRequest)
+                    {
+                        response.DataRequestAccepted.TrySetResult(null);
+                        await response.ResponseReleased.Task.WaitAsync(lifetime.Token).ConfigureAwait(false);
+                        await stream.WriteAsync(body, lifetime.Token).ConfigureAwait(false);
+                        await stream.FlushAsync(lifetime.Token).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await stream.WriteAsync(body, lifetime.Token).ConfigureAwait(false);
+                        await stream.FlushAsync(lifetime.Token).ConfigureAwait(false);
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
+            {
+            }
+            catch (ObjectDisposedException) when (lifetime.IsCancellationRequested)
+            {
+            }
+            catch (SocketException) when (lifetime.IsCancellationRequested)
+            {
+            }
+        }
+
+        private ResponseStage GetResponseStage(bool isDataRequest)
+        {
+            lock (responseSync)
+            {
+                currentResponseStage ??= nextResponseStageIndex < responseStages.Count
+                    ? responseStages[nextResponseStageIndex]
+                    : throw new InvalidOperationException("No playlist response stage was queued.");
+                ResponseStage response = currentResponseStage;
+                if (isDataRequest)
+                {
+                    currentResponseStage = null;
+                    nextResponseStageIndex++;
+                }
+                return response;
+            }
+        }
+
+        internal sealed class ResponseStage
+        {
+            internal ResponseStage(string headerJson, string scoreJson)
+            {
+                HeaderJson = headerJson ?? throw new ArgumentNullException(nameof(headerJson));
+                ScoreJson = scoreJson ?? throw new ArgumentNullException(nameof(scoreJson));
+            }
+
+            internal string HeaderJson { get; }
+
+            internal string ScoreJson { get; }
+
+            internal TaskCompletionSource<object?> DataRequestAccepted { get; } = NewCompletion();
+
+            internal TaskCompletionSource<object?> ResponseReleased { get; } = NewCompletion();
+
+            internal void ReleaseResponse()
+            {
+                ResponseReleased.TrySetResult(null);
+            }
+        }
+
+        private static async Task<string> ReadRequestTargetAsync(
+            NetworkStream stream,
+            CancellationToken cancellationToken)
+        {
+            byte[] buffer = new byte[4096];
+            int length = 0;
+            while (true)
+            {
+                int read = await stream.ReadAsync(
+                    buffer.AsMemory(length, buffer.Length - length),
+                    cancellationToken).ConfigureAwait(false);
+                if (read == 0)
+                {
+                    throw new EndOfStreamException("The playlist HTTP client closed before request headers completed.");
+                }
+                length += read;
+                int terminator = FindHeaderTerminator(buffer, length);
+                if (terminator < 0)
+                {
+                    if (length == buffer.Length)
+                    {
+                        throw new InvalidDataException("The playlist HTTP request headers exceeded the test limit.");
+                    }
+                    continue;
+                }
+                string requestLine = Encoding.ASCII.GetString(buffer, 0, terminator).Split(" ", StringSplitOptions.RemoveEmptyEntries)[1];
+                return requestLine;
+            }
+        }
+
+        private static int FindHeaderTerminator(byte[] buffer, int length)
+        {
+            for (int index = 3; index < length; index++)
+            {
+                if (buffer[index - 3] == '\r'
+                    && buffer[index - 2] == '\n'
+                    && buffer[index - 1] == '\r'
+                    && buffer[index] == '\n')
+                {
+                    return index - 3;
+                }
+            }
+            return -1;
+        }
+
+        private static bool IsExpectedShutdownException(Exception exception)
+        {
+            return exception is OperationCanceledException
+                or ObjectDisposedException
+                or SocketException;
+        }
+    }
+
+    private static void ReassertNonActivatingPosition(Window window)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        // source初期化のnative配置復元は表示scopeの準備後に動くため、Loaded後にも画面外位置を一回設定します。
+        // logical/physical pixelの差を含めて十分離し、実MainWindow経路でも前面操作を避けます。
+        window.Left = SystemParameters.VirtualScreenLeft
+            + (SystemParameters.VirtualScreenWidth * 4d)
+            + 4096d;
+        window.Top = SystemParameters.VirtualScreenTop
+            + (SystemParameters.VirtualScreenHeight * 4d)
+            + 4096d;
+    }
+
+    private static UiDialogCoordinator CreateActualRouteDialogService(
+        TestWindowPresentationScope windowTest,
+        ModalPreparationRecorder modalPreparation,
+        Func<bool>? closeNextMessage = null,
+        Func<Window, UiMessageRequest, ThemedMessageBoxResponse>? messagePresenter = null)
+    {
+        ArgumentNullException.ThrowIfNull(windowTest);
+        ArgumentNullException.ThrowIfNull(modalPreparation);
+        Func<Window, IDisposable> modalScope = dialogWindow =>
+            {
+                // 実coordinatorの所有解決後、ShowDialogの直前に共通scopeの非活性表示準備を接続します。
+                windowTest.PrepareForOwnedPresentation(dialogWindow);
+                modalPreparation.Record(dialogWindow);
+                RoutedEventHandler? closeOnLoaded = null;
+                DispatcherOperation? closeOperation = null;
+                if (closeNextMessage?.Invoke() == true)
+                {
+                    closeOnLoaded = (_, _) =>
+                    {
+                        dialogWindow.Loaded -= closeOnLoaded!;
+                        closeOperation = dialogWindow.Dispatcher.BeginInvoke(
+                            DispatcherPriority.Loaded,
+                            new Action(() =>
+                            {
+                                closeOperation = null;
+                                if (dialogWindow.IsVisible)
+                                {
+                                    dialogWindow.Close();
+                                }
+                            }));
+                    };
+                    dialogWindow.Loaded += closeOnLoaded!;
+                }
+
+                IDisposable activeModalScope = UiDialogOwnerResolver.PushActiveModal(dialogWindow);
+                return new CallbackDisposable(() =>
+                {
+                    if (closeOperation?.Status == DispatcherOperationStatus.Pending)
+                    {
+                        closeOperation.Abort();
+                    }
+                    if (closeOnLoaded != null)
+                    {
+                        dialogWindow.Loaded -= closeOnLoaded!;
+                    }
+                    activeModalScope.Dispose();
+                });
+            };
+        return messagePresenter == null
+            ? new UiDialogCoordinator(new UiDialogOwnerResolver(), modalScope)
+            : new UiDialogCoordinator(new UiDialogOwnerResolver(), modalScope, messagePresenter);
+    }
+
+    private static MainWindowForegroundTerminal CreateForegroundTerminal(
+        ICollection<string> operations,
+        Action? activationObserved = null)
+    {
+        ArgumentNullException.ThrowIfNull(operations);
+        return new MainWindowForegroundTerminal(
+            () => WindowState.Normal,
+            () => operations.Add("restore"),
+            () =>
+            {
+                activationObserved?.Invoke();
+                operations.Add("activate");
+                return true;
+            },
+            () =>
+            {
+                operations.Add("focus");
+                return true;
+            });
+    }
+
+    private ActualMainWindowFixture CreateActualMainWindowFixture(
+        TestWindowPresentationScope windowTest,
+        MainWindowForegroundTerminal? foregroundTerminal = null,
+        Func<bool>? closeNextMessage = null,
+        Func<CancellationToken, Task<WalkureScoreInput>>? recommendationScoreReader = null,
+        Func<Window, UiMessageRequest, ThemedMessageBoxResponse>? messagePresenter = null,
+        Action<Settings>? configureSettings = null,
+        Func<BeatorajaBmtOptionsSnapshot>? bmtOptionsProvider = null,
+        bool withScoreDatabase = false,
+        MainWindowPlaylistWorkspaceTerminals? playlistWorkspaceTerminals = null)
+    {
+        string root = Path.Combine(
+            CaseWorkspace.RootDirectory,
+            nameof(MainWindowPlaylistWorkspaceWpfTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        // 実起動の事前読取と固定factoryが同じ専用の単独動作DBを使う。
+        var applicationPath = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe"));
+        Directory.CreateDirectory(applicationPath.DataDirectoryPath);
+        string songDbPath = applicationPath.StandaloneSongDbPath;
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+                values.BMSRootPath = root;
+                values.StandaloneBmsRootPaths = root;
+                values.BMSInstallDir = root;
+                values.TableListURL = new Uri("http://127.0.0.1:1/table-list.json");
+                values.EnablePlaylistUrlCompletion = false;
+                values.ScanBmsFilesOnStartup = false;
+                values.SkipInitPlaylistLoad = true;
+                values.UseBeatorajaScoreDb = false;
+                values.EnableBeatorajaBmtOutput = false;
+                values.UseExternalPanelImage = false;
+                values.UsePlayeruBMplay = false;
+                values.UsePlayerLR2body = false;
+                values.UsePlayerBMIIDXView = false;
+                values.IsLR2BackupEnabled = false;
+                values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
+            });
+        configureSettings?.Invoke(settings);
+        var lifetime = new RecordingApplicationLifetime();
+        var modalPreparation = new ModalPreparationRecorder();
+        UiDialogCoordinator actualRouteDialogService = CreateActualRouteDialogService(
+            windowTest,
+            modalPreparation,
+            closeNextMessage, messagePresenter);
+        var composition = new ApplicationComposition(
+            settingsEditSession: new NoOpSettingsEditSession(settings),
+            uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+            applicationLifetime: lifetime,
+            runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+        StartupLibraryConstructionTestSupport.CreateSongDatabase(composition.DatabaseScope, songDbPath);
+        PlaylistPersistenceRepository.EnsureSchema(composition.DatabaseScope, songDbPath);
+        string? scoreDbPath = withScoreDatabase ? Path.Combine(applicationPath.DataDirectoryPath, "score.db") : null;
+        if (scoreDbPath != null)
+        {
+            using SQLiteConnectionEx scoreDb = composition.DatabaseScope.OpenProviderConnection(scoreDbPath);
+            scoreDb.CreateTable<LR2ScoreDB.player>();
+            scoreDb.CreateTable<LR2ScoreDB.score>();
+        }
+        Lr2ConfigOwner? lr2ConfigOwner = settings.OperationModeLR2DB ? composition.ResolveLr2Config(settings.LR2ConfigXmlPath) : null;
+        var library = new TestBmsLibrary(composition.DatabaseScope,
+            songDbPath,
+            getLR2Config: lr2ConfigOwner,
+            _lr2ScoreDB: scoreDbPath,
+            startupRequiredFileScanReason: null,
+            optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
+            operationAdmission: composition.OperationAdmission,
+            playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: settings);
+        var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath,
+            () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings),
+            getLr2Config: lr2ConfigOwner,
+            beatorajaBmtOptionsProvider: bmtOptionsProvider,
+            recommendationScoreReader: recommendationScoreReader, settings: settings);
+        var table = new BMSTable
+        {
+            playlist_id = 1,
+            bmt_sort = 1,
+            name = NativeModalFixturePlaylistName,
+            entry_type = LR2SongDBExtended.playlist.EntryUnitType.File,
+            is_bmt_output = false,
+            ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.None
+        };
+        playlist.BMSTables = new ObservableCollection<BMSTable> { table };
+        var viewModel = new MainWindowViewModel(
+            composition,
+            new FixedStartupLibraryFactory(library, playlist));
+        viewModel.StartupUpdateWorkflow.NotifyClosing();
+        viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
+        viewModel.PlaylistWorkspace.SetPlaylistSummaryMode(true);
+
+        var ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
+        MainWindow? window = null;
+        try
+        {
+            Task initialization = viewModel.ShellActivationWorkflow.ActivateRenderedShell(
+                () => { },
+                action => action(),
+                () => false);
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                initialization,
+                "MainWindowPlaylistWorkspaceWpfTests.main-window-initialization");
+            Assert.IsTrue(viewModel.IsInitializationCompleted);
+
+            window = ownership.CreateWindow(() => new MainWindow(
+                viewModel,
+                settingsWindowCreated: null,
+                libraryReloadMenuTerminal: null,
+                regularLibraryTreeTerminal: null,
+                maintenanceTreeTerminal: null,
+                installTreeTerminal: null,
+                zeroNoteRecheckTerminal: null,
+                columnResetTerminal: null,
+                folderAutoRenameTerminal: null,
+                duplicateMaintenanceTerminal: null,
+                maintenanceRescanTerminal: null,
+                packageCatalogTerminal: null,
+                pendingInstallEstimationTerminal: null,
+                pendingInstallationTerminal: null,
+                installedLocationRepairTerminal: null,
+                pendingBulkMaintenanceTerminal: null,
+                mainChartCellEditTerminal: null,
+                playlistWorkspaceDialogService: actualRouteDialogService,
+                mainWindowForegroundTerminal: foregroundTerminal,
+                playlistWorkspaceTerminals: playlistWorkspaceTerminals));
+            RoutedEventHandler ensureNonActivatingPosition = (_, _) =>
+                window.Dispatcher.BeginInvoke(
+                    DispatcherPriority.Render,
+                    new Action(() => ReassertNonActivatingPosition(window)));
+            window.Loaded += ensureNonActivatingPosition;
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(window);
+            }
+            finally
+            {
+                window.Loaded -= ensureNonActivatingPosition;
+            }
+            return new ActualMainWindowFixture(
+                root,
+                viewModel,
+                window!,
+                playlist,
+                library,
+                table,
+                lifetime,
+                modalPreparation,
+                ownership);
+        }
+        catch (Exception failure)
+        {
+            try { ownership.Dispose(); }
+            catch (Exception cleanupFailure) { failure.Data["MainWindowTestCleanupFailure"] = cleanupFailure.ToString(); }
+            try { if (Directory.Exists(root)) { Directory.Delete(root, recursive: true); } }
+            catch (Exception cleanupFailure) { failure.Data["MainWindowFixtureDirectoryCleanupFailure"] = cleanupFailure.ToString(); }
+            throw;
+        }
+    }
+
+    // ShowDialogはmanaged IsEnabledを変えずにowner HWNDを無効化するため、実native状態を観測します。
+    [DllImport("user32.dll", EntryPoint = "IsWindowEnabled")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsNativeWindowEnabled(IntPtr window);
+
+    private static ModalObservation<PlaylistImportDialog> OpenImportDialog(
+        ActualMainWindowFixture fixture, string operation,
+        Action<PlaylistImportDialog, ModalObservation<PlaylistImportDialog>> drive)
+    {
+        ModalObservation<PlaylistImportDialog> observation = OpenDialog(
+            fixture.Window,
+            (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary"),
+            CreatePlaylistSummaryRow(fixture.Table),
+            "Resources.Playlist_import_title", operation, drive,
+            () =>
+            {
+                var root = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                ContextMenu menu = root.ContextMenu;
+                Assert.IsNotNull(menu, "プレイリストルートにインポートメニューを接続します。");
+                Assert.AreSame(fixture.Window.FindResource("treeViewPlaylistRootContextMenu"), menu);
+                Assert.IsNull(fixture.Window.FindName("playlistImportButton"), "ツリー上部に独立ボタンを残しません。");
+                menu.PlacementTarget = root;
+                OpenContextMenu(menu);
+                MenuItem import = FindMenuItemByHeaderBindingPath(menu, "Resources.Playlist_import_title");
+                Assert.IsTrue(import.IsEnabled);
+                Assert.IsTrue(RaiseMenuClick(import).Handled);
+            });
+        Task cleanup = typeof(MainWindow).GetField("playlistImportDialogCleanupTask", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(fixture.Window) as Task
+            ?? throw new AssertFailedException("インポート画面の表示回収Taskがありません。");
+        TestUiDispatcherHost.AwaitPresentationOnDispatcher(cleanup, operation + ".modal-cleanup");
+        return observation;
+    }
+
+    private static ModalObservation<PlaylistPropertyDialog> OpenPropertyDialog(
+        MainWindow owner,
+        CustomTableView summary,
+        PlaylistSummaryRow row,
+        string operationName,
+        Action<PlaylistPropertyDialog, ModalObservation<PlaylistPropertyDialog>>? drive = null)
+    {
+        drive ??= (dialog, _) =>
+        {
+            RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyCancel"));
+        };
+        return OpenDialog(
+            owner,
+            summary,
+            row,
+            commandResourcePath: "Resources.Property",
+            operationName,
+            drive);
+    }
+
+    private static ModalObservation<PlaylistSummaryBulkEditDialog> OpenBulkDialog(
+        MainWindow owner,
+        CustomTableView summary,
+        PlaylistSummaryRow row,
+        string operationName,
+        Action<PlaylistSummaryBulkEditDialog, ModalObservation<PlaylistSummaryBulkEditDialog>>? drive = null)
+    {
+        drive ??= (dialog, observation) =>
+        {
+            var viewModel =
+                (PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel)dialog.DataContext;
+            viewModel.BmtOutputOption = viewModel.OnOption;
+            RaiseButtonClick(FindAutomationButton(dialog, "PlaylistSummaryApplyBmtOutput"));
+            dialog.WaitForApplyCompletionAsync().ContinueWith(
+                _ => observation.CallbackGate.Queue(
+                    DispatcherPriority.Loaded,
+                    () =>
+                    {
+                        observation.VisibleAfterApply = dialog.IsVisible;
+                        RaiseButtonClick(FindAutomationButton(dialog, "PlaylistSummaryClose"));
+                    }),
+                TaskScheduler.Default);
+        };
+        return OpenDialog(
+            owner,
+            summary,
+            row,
+            commandResourcePath: "Resources.Playlist_summary_bulk_edit",
+            operationName,
+            drive);
+    }
+
+    private static ModalObservation<TWindow> OpenDialog<TWindow>(
+        MainWindow owner,
+        CustomTableView summary,
+        PlaylistSummaryRow row,
+        string commandResourcePath,
+        string operationName,
+        Action<TWindow, ModalObservation<TWindow>> drive,
+        Action? invoke = null)
+        where TWindow : Window
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(commandResourcePath);
+        var opened = new TaskCompletionSource<ModalObservation<TWindow>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        ModalObservation<TWindow>? observation = null;
+        var callbackGate = new DispatcherCallbackGate(owner.Dispatcher);
+
+        void ObserveDialog()
+        {
+            if (!callbackGate.IsOpen)
+            {
+                return;
+            }
+            TWindow? dialog = Application.Current.Windows
+                .OfType<TWindow>()
+                .FirstOrDefault(candidate => candidate.IsVisible && candidate.IsLoaded
+                    && candidate.ActualWidth > 0 && candidate.ActualHeight > 0);
+            if (dialog == null)
+            {
+                callbackGate.Queue(
+                    DispatcherPriority.Loaded,
+                    ObserveDialog);
+                return;
+            }
+
+            observation = new ModalObservation<TWindow>(
+                dialog,
+                dialog.Owner,
+                IsNativeWindowEnabled(new WindowInteropHelper(owner).Handle),
+                dialog.DataContext,
+                callbackGate);
+            dialog.DataContextChanged += observation.HandleDataContextChanged;
+            try
+            {
+                drive(dialog, observation);
+                opened.TrySetResult(observation);
+            }
+            catch (Exception exception)
+            {
+                // callbackの失敗を待機Taskへ渡し、nested modalを実際に閉じる。
+                // Dispatcher例外の捕捉だけで、来ないopened通知を待ち続けない。
+                opened.TrySetException(exception);
+                try
+                {
+                    if (dialog is PlaylistPropertyDialog propertyDialog)
+                    {
+                        propertyDialog.CloseForOwnerShutdown();
+                    }
+                    else if (dialog is PlaylistSummaryBulkEditDialog bulkDialog)
+                    {
+                        bulkDialog.CloseForOwnerShutdown();
+                    }
+                    else { dialog.Close(); }
+                }
+                catch (Exception cleanupFailure)
+                {
+                    exception.Data["ModalCleanupFailure"] = cleanupFailure;
+                }
+            }
+        }
+
+        try
+        {
+            callbackGate.Queue(DispatcherPriority.Loaded, ObserveDialog);
+            if (invoke != null)
+            {
+                invoke();
+            }
+            else
+            {
+                var menu = (ContextMenu)owner.FindResource("playlistSummaryContextMenu");
+                menu.PlacementTarget = summary;
+                menu.Tag = new CustomTableContextMenuContext(row, 0);
+                MenuItem command = FindMenuItemByHeaderBindingPath(menu, commandResourcePath);
+                RaiseMenuClick(command);
+            }
+
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(opened.Task, operationName + ".opened");
+            observation = opened.Task.GetAwaiter().GetResult();
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                observation.DataContextDetached.Task,
+                operationName + ".cleanup");
+            observation.Window.DataContextChanged -= observation.HandleDataContextChanged;
+            return observation;
+        }
+        finally
+        {
+            callbackGate.Close();
+            if (observation != null)
+            {
+                observation.Window.DataContextChanged -= observation.HandleDataContextChanged;
+            }
+        }
+    }
+
+    private static Button FindAutomationButton(DependencyObject root, string automationId)
+    {
+        Button? button = FindDescendants<Button>(root)
+            .FirstOrDefault(candidate => string.Equals(
+                AutomationProperties.GetAutomationId(candidate),
+                automationId,
+                StringComparison.Ordinal));
+        return button
+            ?? throw new AssertFailedException($"Button '{automationId}' was not materialized.");
+    }
+
+    private static PropertyNavigationObservation ObservePropertyNavigation(
+        FrameworkElement navigation,
+        FrameworkElement contentHost)
+    {
+        AutomationPeer navigationPeer = UIElementAutomationPeer.CreatePeerForElement(navigation)
+            ?? throw new AssertFailedException("Playlist property navigation automation was not materialized.");
+        ISelectionProvider selectionProvider = navigationPeer.GetPattern(PatternInterface.Selection) as ISelectionProvider
+            ?? throw new AssertFailedException("Playlist property navigation does not expose Selection automation.");
+        Assert.IsFalse(selectionProvider.CanSelectMultiple);
+        AutomationPeer[] navigationItems = navigationPeer.GetChildren()?.ToArray()
+            ?? throw new AssertFailedException("Playlist property navigation items were not exposed to Automation.");
+        Assert.AreEqual(3, navigationItems.Length, "Playlist property navigation must expose three category peers.");
+        PropertyNavigationItem[] selectionItems = navigationItems
+            .Select(CreatePropertyNavigationItem)
+            .ToArray();
+        Assert.IsTrue(selectionItems.All(item => !string.IsNullOrWhiteSpace(item.Peer.GetName())));
+        Assert.AreEqual(1, selectionItems.Count(item => item.Provider.IsSelected));
+        Assert.AreEqual(1, selectionProvider.GetSelection().Length);
+
+        PropertyNavigationItem initiallySelectedItem = selectionItems.Single(item => item.Provider.IsSelected);
+        PropertyNavigationCategory initialCategory = IdentifyVisiblePropertyCategory(contentHost);
+
+        var itemsByCategory = new Dictionary<PropertyNavigationCategory, PropertyNavigationItem>();
+        Assert.IsTrue(
+            itemsByCategory.TryAdd(initialCategory, initiallySelectedItem),
+            "The initially selected property provider must map to one observable content role.");
+        foreach (PropertyNavigationItem item in selectionItems)
+        {
+            if (ReferenceEquals(item, initiallySelectedItem))
+            {
+                continue;
+            }
+
+            PropertyNavigationCategory category;
+            if (!item.Peer.IsEnabled())
+            {
+                AssertAuthorityDefinedCustomFolderAvailability(navigation, item.Peer);
+                PropertyNavigationItem selectedBeforeAttempt = selectionItems.Single(candidate => candidate.Provider.IsSelected);
+                bool rejected = false;
+                try
+                {
+                    item.Provider.Select();
+                }
+                catch (ElementNotEnabledException)
+                {
+                    rejected = true;
+                }
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(
+                    rejected || !item.Provider.IsSelected,
+                    "A disabled property navigation provider must reject Automation selection.");
+                Assert.IsTrue(
+                    selectedBeforeAttempt.Provider.IsSelected,
+                    "A rejected disabled property navigation selection must leave the current category selected.");
+                category = PropertyNavigationCategory.CustomFolder;
+            }
+            else
+            {
+                item.Provider.Select();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                category = IdentifyVisiblePropertyCategory(contentHost);
+            }
+
+            Assert.IsTrue(
+                itemsByCategory.TryAdd(category, item),
+                $"Multiple navigation items expose the {category} property content.");
+        }
+
+        Assert.AreEqual(3, itemsByCategory.Count, "Property navigation categories must map to unique observable content roles.");
+        initiallySelectedItem.Provider.Select();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
+        return new PropertyNavigationObservation(selectionProvider, itemsByCategory);
+    }
+
+    private static PropertyNavigationItem CreatePropertyNavigationItem(AutomationPeer peer)
+        => new(
+            peer,
+            peer.GetPattern(PatternInterface.SelectionItem) as ISelectionItemProvider
+                ?? throw new AssertFailedException("A property navigation item lacks SelectionItem automation."));
+
+    private static void AssertSelectedPropertyCategory(
+        PropertyNavigationObservation navigation,
+        PropertyNavigationCategory expectedCategory,
+        string? message = null)
+    {
+        string assertionMessage = message ?? $"Property navigation category {expectedCategory} must be selected.";
+        Assert.AreEqual(1, navigation.SelectionProvider.GetSelection().Length, assertionMessage);
+        Assert.AreEqual(1, navigation.ItemsByCategory.Values.Count(item => item.Provider.IsSelected), assertionMessage);
+        Assert.IsTrue(navigation.ItemsByCategory[expectedCategory].Provider.IsSelected, assertionMessage);
+    }
+
+    private static PropertyNavigationCategory IdentifyVisiblePropertyCategory(FrameworkElement contentHost)
+    {
+        var visibleCategories = new List<PropertyNavigationCategory>();
+        if (HasVisibleBinding(contentHost, nameof(PlaylistPropertyDialogViewModel.name)))
+        {
+            visibleCategories.Add(PropertyNavigationCategory.General);
+        }
+
+        if (HasVisibleBinding(contentHost, nameof(PlaylistPropertyDialogViewModel.folder_sort_key))
+            || HasVisibleBinding(contentHost, nameof(PlaylistPropertyDialogViewModel.folder_order)))
+        {
+            visibleCategories.Add(PropertyNavigationCategory.Folder);
+        }
+
+        if (HasVisibleBinding(contentHost, nameof(PlaylistPropertyDialogViewModel.output_dir)))
+        {
+            visibleCategories.Add(PropertyNavigationCategory.CustomFolder);
+        }
+
+        Assert.AreEqual(
+            1,
+            visibleCategories.Count,
+            "Exactly one authority-backed Property category content role must be visible.");
+        return visibleCategories[0];
+    }
+
+    private static bool HasVisibleBinding(DependencyObject root, string path)
+    {
+        return FindDescendants<FrameworkElement>(root)
+            .Any(element => element.IsVisible
+                && element.ActualWidth > 0d
+                && element.ActualHeight > 0d
+                && HasBindingPath(element, path));
+    }
+
+    private static bool HasBindingPath(FrameworkElement element, string path)
+    {
+        LocalValueEnumerator localValues = element.GetLocalValueEnumerator();
+        while (localValues.MoveNext())
+        {
+            if (localValues.Current.Value is BindingExpressionBase expression
+                && expression.ParentBindingBase is Binding binding
+                && string.Equals(binding.Path?.Path, path, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static void AssertAuthorityDefinedCustomFolderAvailability(
+        FrameworkElement navigation,
+        AutomationPeer expectedProvider)
+    {
+        FrameworkElement[] availabilityHosts = FindDescendants<FrameworkElement>(navigation)
+            .Where(element => HasBindingPath(
+                element,
+                nameof(PlaylistPropertyDialogViewModel.OperationModeLR2DB)))
+            .ToArray();
+        Assert.AreEqual(
+            1,
+            availabilityHosts.Length,
+            "The conditionally available property category must expose one authority-backed availability binding.");
+        Assert.IsFalse(
+            availabilityHosts[0].IsEnabled,
+            "The authority-backed custom-folder availability binding must be disabled for a rejected provider.");
+        AutomationPeer availabilityPeer = UIElementAutomationPeer.CreatePeerForElement(availabilityHosts[0])
+            ?? throw new AssertFailedException(
+                "The authority-backed custom-folder availability host must expose the disabled SelectionItem provider.");
+        Assert.AreEqual(
+            expectedProvider.GetAutomationControlType(),
+            availabilityPeer.GetAutomationControlType(),
+            "The disabled provider must retain the authority-backed custom-folder Automation role.");
+        Assert.AreEqual(
+            expectedProvider.GetBoundingRectangle(),
+            availabilityPeer.GetBoundingRectangle(),
+            "The disabled provider must be the authority-backed custom-folder navigation role.");
+    }
+
+    private enum PropertyNavigationCategory
+    {
+        General,
+        Folder,
+        CustomFolder,
+    }
+
+    private sealed record PropertyNavigationItem(
+        AutomationPeer Peer,
+        ISelectionItemProvider Provider);
+
+    private sealed record PropertyNavigationObservation(
+        ISelectionProvider SelectionProvider,
+        IReadOnlyDictionary<PropertyNavigationCategory, PropertyNavigationItem> ItemsByCategory);
+
+    private static MenuItem FindMenuItemByHeaderBindingPath(
+        ItemsControl root,
+        string expectedBindingPath)
+    {
+        MenuItem? command = root.Items
+            .OfType<MenuItem>()
+            .SingleOrDefault(item => BindingOperations.GetBindingBase(
+                    item,
+                    HeaderedItemsControl.HeaderProperty) is Binding binding
+                && string.Equals(
+                    binding.Path?.Path,
+                    expectedBindingPath,
+                    StringComparison.Ordinal));
+        return command
+            ?? throw new AssertFailedException(
+                $"Menu item with header binding '{expectedBindingPath}' was not materialized.");
+    }
+
+    private static IEnumerable<T> FindDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        if (root == null)
+        {
+            yield break;
+        }
+        var pending = new Stack<DependencyObject>();
+        var visited = new HashSet<DependencyObject>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            DependencyObject current = pending.Pop();
+            if (!visited.Add(current))
+            {
+                continue;
+            }
+            if (current is T typed)
+            {
+                yield return typed;
+            }
+            if (current is Visual || current is System.Windows.Media.Media3D.Visual3D)
+            {
+                for (int index = 0; index < VisualTreeHelper.GetChildrenCount(current); index++)
+                {
+                    pending.Push(VisualTreeHelper.GetChild(current, index));
+                }
+            }
+            foreach (object logicalChild in LogicalTreeHelper.GetChildren(current))
+            {
+                if (logicalChild is DependencyObject dependencyObject)
+                {
+                    pending.Push(dependencyObject);
+                }
+            }
+        }
+    }
+
+    private static void RaiseButtonClick(Button button)
+        => button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, button));
+
+    private static PlaylistSummaryRow CreatePlaylistSummaryRow(BMSTable table)
+    {
+        return new PlaylistSummaryRow
+        {
+            PlaylistId = table.playlist_id,
+            Name = table.name,
+            BmtSort = table.bmt_sort ?? int.MaxValue,
+            IsBmtOutput = table.is_bmt_output != false,
+            TableRef = table
+        };
+    }
+
+    private sealed class RecordingPlaylistWorkspaceDialogService : IUiDialogService
+    {
+        internal UiDialogResult ConfirmationResult { get; set; } =
+            UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel);
+
+        internal UiDialogResult MessageResult { get; set; } =
+            UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+
+        internal List<UiConfirmationRequest> ConfirmationRequests { get; } = [];
+
+        internal List<UiMessageRequest> MessageRequests { get; } = [];
+
+        /// <summary>通知内容と生産経路を、診断が必要なケースだけで捕捉します。</summary>
+        internal Action<UiMessageRequest>? MessageObserved { get; init; }
+
+        internal TaskCompletionSource<UiConfirmationRequest> ConfirmationShown { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal TaskCompletionSource<UiMessageRequest> MessageShown { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<UiDialogResult> ShowMessageAsync(
+            UiMessageRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            MessageRequests.Add(request);
+            MessageObserved?.Invoke(request);
+            MessageShown.TrySetResult(request);
+            return Task.FromResult(MessageResult);
+        }
+
+        public Task<UiDialogResult> ConfirmAsync(
+            UiConfirmationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            ConfirmationRequests.Add(request);
+            ConfirmationShown.TrySetResult(request);
+            return Task.FromResult(ConfirmationResult);
+        }
+
+        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
+            UiWindowDialogRequest<TWindow, TResult> request,
+            CancellationToken cancellationToken = default)
+            where TWindow : Window => throw new NotSupportedException();
+
+        public Task<UiFilePickerResult> PickFileAsync(
+            UiFilePickerRequest request,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<UiFolderPickerResult> PickFolderAsync(
+            UiFolderPickerRequest request,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<UiSaveFilePickerResult> PickSaveFileAsync(
+            UiSaveFilePickerRequest request,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<UiProgressResult> RunWithProgressAsync(
+            UiProgressRequest request,
+            Func<UiProgressContext, Task> operation,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class ModalObservation<TWindow>
+        where TWindow : Window
+    {
+        internal ModalObservation(
+            TWindow window,
+            Window owner,
+            bool ownerEnabled,
+            object dataContext,
+            DispatcherCallbackGate callbackGate)
+        {
+            Window = window;
+            Owner = owner;
+            OwnerEnabled = ownerEnabled;
+            DataContext = dataContext;
+            CallbackGate = callbackGate;
+        }
+
+        internal TWindow Window { get; }
+
+        internal Window Owner { get; }
+
+        internal bool OwnerEnabled { get; }
+
+        internal object DataContext { get; }
+
+        internal DispatcherCallbackGate CallbackGate { get; }
+
+        internal bool VisibleAfterApply { get; set; }
+
+        internal bool ApplyWasPending { get; set; }
+
+        internal bool OwnerCloseWasCanceled { get; set; }
+
+        internal bool ApplyCompletedAtTerminalRequest { get; set; }
+
+        internal int ShutdownCountBeforeApplyCompletion { get; set; }
+
+        internal int ShutdownCountBeforeLockRelease { get; set; }
+
+        internal int DataContextDetachCount { get; private set; }
+
+        internal TaskCompletionSource<object?> DataContextDetached { get; } = NewCompletion();
+
+        internal void HandleDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+        {
+            if (e.NewValue != null)
+            {
+                return;
+            }
+            DataContextDetachCount++;
+            DataContextDetached.TrySetResult(null);
+        }
+    }
+
+    /// <summary>モーダル観測が所有する未開始callbackを取消し、watchdogや終端回収後に観測待ちを再投入しません。</summary>
+    private sealed class DispatcherCallbackGate
+    {
+        private readonly Dispatcher dispatcher;
+        private readonly object sync = new();
+        private readonly HashSet<DispatcherOperation> pendingOperations = [];
+        private bool isOpen = true;
+
+        internal DispatcherCallbackGate(Dispatcher dispatcher)
+        {
+            this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
+        }
+
+        internal bool IsOpen
+        {
+            get
+            {
+                lock (sync)
+                {
+                    return isOpen;
+                }
+            }
+        }
+
+        internal void Queue(DispatcherPriority priority, Action callback)
+        {
+            ArgumentNullException.ThrowIfNull(callback);
+            DispatcherOperation? operation = null;
+            lock (sync)
+            {
+                if (!isOpen)
+                {
+                    return;
+                }
+
+                operation = dispatcher.BeginInvoke(
+                    priority,
+                    new Action(() => Execute(operation!, callback)));
+                pendingOperations.Add(operation!);
+            }
+        }
+
+        internal void Close()
+        {
+            DispatcherOperation[] operations;
+            lock (sync)
+            {
+                if (!isOpen)
+                {
+                    return;
+                }
+
+                isOpen = false;
+                operations = pendingOperations.ToArray();
+                pendingOperations.Clear();
+            }
+
+            foreach (DispatcherOperation operation in operations)
+            {
+                operation.Abort();
+            }
+        }
+
+        private void Execute(DispatcherOperation operation, Action callback)
+        {
+            lock (sync)
+            {
+                pendingOperations.Remove(operation);
+                if (!isOpen)
+                {
+                    return;
+                }
+            }
+
+            callback();
+        }
+    }
+
+    private sealed class ModalPreparationRecorder
+    {
+        private readonly List<Window> preparedWindows = [];
+
+        internal int Count => preparedWindows.Count;
+
+        internal void Record(Window window)
+        {
+            ArgumentNullException.ThrowIfNull(window);
+            preparedWindows.Add(window);
+        }
+
+        internal void AssertLatest(Window expectedWindow, int expectedCount)
+        {
+            ArgumentNullException.ThrowIfNull(expectedWindow);
+            Assert.AreEqual(expectedCount, Count);
+            Assert.AreSame(expectedWindow, preparedWindows[^1]);
+        }
+    }
+
+    private sealed class CallbackDisposable(Action dispose) : IDisposable
+    {
+        private Action? dispose = dispose ?? throw new ArgumentNullException(nameof(dispose));
+
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref dispose, null)?.Invoke();
+        }
+    }
+
+    private sealed class ActualMainWindowFixture
+    {
+        internal ActualMainWindowFixture(
+            string root,
+            MainWindowViewModel viewModel,
+            MainWindow window,
+            TestBmsPlaylist playlist,
+            TestBmsLibrary library,
+            BMSTable table,
+            RecordingApplicationLifetime lifetime,
+            ModalPreparationRecorder modalPreparation,
+            MainWindowTestLifetime ownership)
+        {
+            Root = root;
+            ViewModel = viewModel;
+            Window = window;
+            Playlist = playlist;
+            Library = library;
+            Table = table;
+            Lifetime = lifetime;
+            ModalPreparation = modalPreparation;
+            this.ownership = ownership;
+        }
+
+        internal string Root { get; }
+
+        internal MainWindowViewModel ViewModel { get; }
+
+        internal MainWindow Window { get; }
+
+        internal TestBmsPlaylist Playlist { get; }
+
+        internal TestBmsLibrary Library { get; }
+
+        internal BMSTable Table { get; }
+
+        internal RecordingApplicationLifetime Lifetime { get; }
+
+        internal ModalPreparationRecorder ModalPreparation { get; }
+
+        private readonly MainWindowTestLifetime ownership;
+
+        internal void Close()
+        {
+            try { ownership.Dispose(); }
+            finally { if (Directory.Exists(Root)) { Directory.Delete(Root, recursive: true); } }
+        }
+    }
+
+    private sealed class FixedStartupLibraryFactory : IStartupLibraryFactory
+    {
+        internal FixedStartupLibraryFactory(TestBmsLibrary library, TestBmsPlaylist playlist)
+        {
+            Library = library;
+            Playlist = playlist;
+        }
+
+        private TestBmsLibrary Library { get; }
+
+        private TestBmsPlaylist Playlist { get; }
+
+        public BMSLibrary CreateBmsLibrary(LibraryProfile libraryProfile) => Library;
+
+        public BMSPlaylist CreateBmsPlaylist(LibraryProfile libraryProfile, BMSLibrary library) => Playlist;
+    }
+
+    private sealed class RecordingApplicationLifetime : IApplicationLifetimePort
+    {
+        internal TaskCompletionSource<object?> ShutdownRequested { get; } = NewCompletion();
+
+        internal int RequestShutdownCount { get; private set; }
+
+        internal Action? RequestShutdownAction { get; set; }
+
+        public bool IsFirstStartup => false;
+
+        public void CompleteFirstStartup()
+        {
+        }
+
+        public void MarkCoordinatedShutdownStarted(string reason)
+        {
+        }
+
+        public void ExitForUnrestoredDestination(System.Exception failure)
+        => throw new System.InvalidOperationException("Unexpected unrestored destination exit.", failure);
+
+        /// <summary>テストが所有する一時入力は各fixtureで回収し、アプリ全体の回収を行いません。</summary>
+        public Task CompleteTemporaryDirectoriesAsync(Action<string, Exception> logWarning) => Task.CompletedTask;
+
+        public void RequestShutdown()
+        {
+            RequestShutdownCount++;
+            ShutdownRequested.TrySetResult(null);
+            RequestShutdownAction?.Invoke();
+        }
+
+        public Task RestartApplicationAsync() => Task.CompletedTask;
+    }
+
+    private static void MaterializeTreeItems(TreeViewItem root)
+    {
+        root.ApplyTemplate();
+        root.Measure(new Size(640d, 480d));
+        root.Arrange(new Rect(0d, 0d, 640d, 480d));
+        // 必要なbinding/renderを処理して実containerを確定する。全ApplicationIdleは
+        // MediaContextの入力待ちにも依存するため、表示内容の完了条件には使わない。
+        root.Dispatcher.Invoke(DispatcherPriority.Loaded, new Action(root.UpdateLayout));
+    }
+
+    private static void OpenContextMenu(ContextMenu menu)
+    {
+        menu.RaiseEvent(new RoutedEventArgs(ContextMenu.OpenedEvent, menu));
+        TestUiDispatcherHost.ProcessQueuedPresentation();
+    }
+
+    private static RoutedEventArgs RaiseMenuClick(MenuItem item)
+    {
+        var args = new RoutedEventArgs(MenuItem.ClickEvent, item);
+        item.RaiseEvent(args);
+        return args;
+    }
+
+    private static MenuItem FindMenuItem(ItemsControl root, string name)
+    {
+        MenuItem? result = FindMenuItemOrNull(root, name);
+        if (result != null)
+        {
+            return result;
+        }
+        throw new AssertFailedException($"Menu item '{name}' was not found.");
+    }
+
+    private static MenuItem? FindMenuItemOrNull(ItemsControl root, string name)
+    {
+        foreach (MenuItem item in root.Items.OfType<MenuItem>())
+        {
+            if (item.Name == name)
+            {
+                return item;
+            }
+            if (item.Items.Count > 0)
+            {
+                MenuItem? nested = FindMenuItemOrNull(item, name);
+                if (nested != null)
+                {
+                    return nested;
+                }
+            }
+        }
+        return null;
+    }
+
+}

@@ -15,6 +15,7 @@ using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
 using static BeMusicSeeker.TestSupport.Components.ChartInfoComponentTestSupport;
+using static BeMusicSeeker.TestSupport.Components.ChartInfoHydrationTestSupport;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>

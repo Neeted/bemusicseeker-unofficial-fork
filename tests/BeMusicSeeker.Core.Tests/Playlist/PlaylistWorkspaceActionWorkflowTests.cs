@@ -1,0 +1,3402 @@
+using System.Collections.Immutable;
+using System.Collections.ObjectModel;
+using System.Globalization;
+using System.Windows;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Properties;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Wpf;
+using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
+using Newtonsoft.Json.Linq;
+using static BeMusicSeeker.TestSupport.Components.PlaylistActionTestSupport;
+using static BeMusicSeeker.TestSupport.Components.PlaylistWorkspaceTestDataSupport;
+using static BeMusicSeeker.TestSupport.Components.SharedPlaylistWorkspaceFixture;
+using PlaylistWorkspaceViewModelTests = BeMusicSeeker.Tests.PlaylistWorkspaceExternalSourceTests;
+
+namespace BeMusicSeeker.Tests;
+
+
+/// <summary>workspaceから保存・削除・browser・lamp遷移・reload cleanupへの実要求と失敗経路を検証します。</summary>
+/// <remarks>SQLiteの確定とlockは実資源を使い、lampのVM受信だけ共有dispatcherでbuild終端を観測します。実画面のBinding・modal・resizeは上位WPFケースが分担します。</remarks>
+[TestClass]
+public sealed class PlaylistWorkspaceActionWorkflowTests
+{
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
+    /// <summary>実buildのraw公開が編集より先/後でも、公開時の正本属性でfilter加入し、別row採用・cache可否に依存せず現在結果を保ちます。後発buildを編集の終端条件へ足しません。</summary>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task SummaryCellEdit_ReplacedRowAndCurrentCacheReceiveSavedProperties(bool uncacheable, bool publishFirst)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        if (uncacheable)
+        {
+            var unloaded = new BMSTable { playlist_id = 9000, name = "Unloaded" };
+            unloaded.MarkEntriesNotLoaded();
+            fixture.Playlist.BMSTables.Add(unloaded);
+        }
+        var service = new PlaylistPropertySaveService(() => fixture.Playlist, () => fixture.Library, () => null!, () => new CustomFolderOutputSettingsSnapshot());
+        bool queueRaw = false, holdSave = false;
+        Action? rawAction = null;
+        var rawDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
+            playlistLibraryProvider: () => fixture.Library, propertySaveService: service,
+            presentationRefreshDeferredProvider: _ => true,
+            restoreUiApplyScheduler: async action =>
+            {
+                if (queueRaw) { rawAction = action; await rawDone.Task; return; }
+                if (holdSave && fixture.Table.name == "Saved swapped name")
+                { entered.TrySetResult(); await release.Task; }
+                action();
+            });
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+        workspace.RequestPlaylistSummaryMode(true);
+        workspace.RebuildPlaylistSummaryView(runAsync: false);
+        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        PlaylistSummaryRow editingRow = workspace.PlaylistSummaryView.Single(row => ReferenceEquals(row.TableRef, fixture.Table));
+        workspace.PlaylistSummaryKeywordFilter = "name:Saved";
+        queueRaw = true;
+        workspace.RebuildPlaylistSummaryView(runAsync: false);
+        queueRaw = false;
+        Assert.IsNotNull(rawAction);
+        Assert.IsFalse(workspace.IsPlaylistSummaryDataBuildIdle);
+        holdSave = true;
+        Task<PlaylistSummaryPropertyEditCompletion> edit = workspace.CompleteSummaryPropertyEditAsync(editingRow,
+            nameof(PlaylistSummaryRow.Name), "  Saved swapped name  ", true);
+        void PublishRaw()
+        {
+            Action publish = rawAction ?? throw new AssertFailedException("raw公開が予約されていません。");
+            rawAction = null;
+            try { publish(); rawDone.TrySetResult(); }
+            catch (Exception failure) { rawDone.TrySetException(failure); throw; }
+        }
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, edit, "summary-raw-publication");
+            if (publishFirst) { PublishRaw(); }
+            release.TrySetResult();
+            Assert.IsTrue((await edit).IsApplied);
+            Assert.AreEqual("Saved swapped name", workspace.PlaylistSummaryView.Single(row => ReferenceEquals(row.TableRef, fixture.Table)).Name);
+            Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+            if (!publishFirst)
+            {
+                Assert.IsFalse(workspace.IsPlaylistSummaryDataBuildIdle, "独立buildのUIを待たず編集が終端します。");
+                PublishRaw();
+            }
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            PlaylistSummaryRow current = workspace.PlaylistSummaryView.Single();
+            Assert.AreNotSame(editingRow, current);
+            Assert.AreEqual("Saved swapped name", current.Name);
+            Assert.AreEqual(fixture.Table.Output_dir, current.FolderName);
+            Assert.IsTrue(current.FolderNameUndefined);
+            List<PlaylistSummaryRow> cache = workspace.GetPlaylistSummaryRowsCacheSnapshot(out _, out _);
+            if (uncacheable) { Assert.IsNull(cache); }
+            else { Assert.AreEqual("Saved swapped name", cache.Single().Name); }
+        }
+        finally
+        {
+            holdSave = false; queueRaw = false; release.TrySetResult();
+            if (rawAction != null) { PublishRaw(); }
+            rawDone.TrySetResult();
+            await edit;
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        }
+    }
+
+    /// <summary>少数編集は全体再構築/整列を開始せず、別主キー同値時のName移動、派生値、filter離脱と件数を現在条件で更新します。無関係な16/128表で対象投影/filterと二分比較の仕事量を観測します。</summary>
+    [TestMethod]
+    [DataRow(16, nameof(PlaylistSummaryRow.TotalCharts))]
+    [DataRow(128, nameof(PlaylistSummaryRow.TotalCharts))]
+    [DataRow(16, nameof(PlaylistSummaryRow.Name))]
+    [DataRow(128, nameof(PlaylistSummaryRow.Name))]
+    [DataRow(16, nameof(PlaylistSummaryRow.LastUpdate))]
+    [DataRow(128, nameof(PlaylistSummaryRow.LastUpdate))]
+    public async Task SummaryCellEdit_LocallyMaintainsOrderFilterAndDerivedValues(int unrelated, string sortColumn)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        fixture.Table.name = "A";
+        foreach (int index in Enumerable.Range(0, unrelated))
+        {
+            fixture.Playlist.BMSTables.Add(new BMSTable { playlist_id = 8000 + index, name = $"B{index:D3}", last_update = new DateTime(2026, 2, 1), entries = fixture.Table.entries.Select(entry => new BMSTableEntry { md5 = entry.md5 }).ToList() });
+        }
+        fixture.Playlist.CommitBMSTableHeaderToDB(fixture.Table);
+        var logs = new List<string>();
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
+            playlistLibraryProvider: () => fixture.Library, propertySaveService: fixture.Service,
+            detailRetentionLog: logs.Add, presentationRefreshDeferredProvider: _ => true);
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+        workspace.RefreshPlaylistTreeTables(fixture.Playlist, fixture.Library);
+        workspace.RequestPlaylistSummaryMode(true);
+        workspace.RequestPlaylistSummarySort(sortColumn, sortColumn == nameof(PlaylistSummaryRow.TotalCharts)
+            ? System.ComponentModel.ListSortDirection.Descending : System.ComponentModel.ListSortDirection.Ascending);
+        workspace.DrainDeferredPlaylistSummaryRefresh(true, false);
+        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        PlaylistSummaryRow target = workspace.PlaylistSummaryView[0];
+        Assert.AreSame(fixture.Table, target.TableRef);
+        var selectionSource = (BeMusicSeeker.Views.ICustomTableSelectionIdentitySource)workspace.PlaylistSummaryView;
+        int selectionStarts = 0, selectionCompletions = 0, capturedPosition = -1, completedPosition = -1;
+        object? capturedId = null;
+        selectionSource.SelectionUpdateStarting += (_, _) =>
+        {
+            selectionStarts++;
+            capturedPosition = selectionSource.IndexOfSelectionIdentity(target.PlaylistId);
+            capturedId = selectionSource.GetSelectionIdentity(capturedPosition);
+        };
+        selectionSource.SelectionUpdateCompleted += (_, _) =>
+        {
+            selectionCompletions++;
+            completedPosition = selectionSource.IndexOfSelectionIdentity(capturedId);
+        };
+        logs.Clear();
+        int dataReservations = 0;
+        workspace.PlaylistPresentationRefreshRequested += (_, request) =>
+        { if (request.Kind == PlaylistPresentationRefreshKind.SummaryData) { dataReservations++; } };
+        long dataGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+        long presentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration;
+        long cacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
+        Assert.IsTrue((await workspace.CompleteSummaryPropertyEditAsync(target, nameof(PlaylistSummaryRow.Name), "  Z saved  ", true)).IsApplied);
+        Assert.AreSame(target, sortColumn == nameof(PlaylistSummaryRow.LastUpdate)
+            ? workspace.PlaylistSummaryView[0] : workspace.PlaylistSummaryView[^1]);
+        Assert.AreEqual(0, capturedPosition);
+        Assert.AreEqual(sortColumn == nameof(PlaylistSummaryRow.LastUpdate) ? 0 : unrelated, completedPosition);
+        Assert.AreEqual(1, selectionStarts); Assert.AreEqual(1, selectionCompletions);
+        Assert.AreEqual("Z saved", target.Name);
+        Assert.AreEqual(fixture.Table.Output_dir, target.FolderName);
+        Assert.IsTrue(target.FolderNameUndefined);
+        Assert.AreEqual(fixture.Table.last_update, target.LastUpdate);
+        Assert.IsTrue((await workspace.CompleteSummaryPropertyEditAsync(target, nameof(PlaylistSummaryRow.Symbol), "  S  ", true)).IsApplied);
+        Assert.AreEqual("S", target.Symbol);
+        Assert.IsTrue((await workspace.CompleteSummaryPropertyEditAsync(target, nameof(PlaylistSummaryRow.CompatPrefix), "  Q ", true)).IsApplied);
+        Assert.AreEqual("Q ", target.CompatPrefix);
+        Assert.AreEqual(3, selectionStarts); Assert.AreEqual(3, selectionCompletions);
+        await workspace.WaitForDetailBuildIdleAsync();
+        Assert.AreEqual(0, dataReservations, "実entry配送を購読しても全summary更新を予約しません。");
+        Assert.AreEqual(dataGeneration, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
+        Assert.AreEqual(presentationGeneration, workspace.CurrentPlaylistSummaryPresentationGeneration);
+        Assert.AreEqual(cacheGeneration, workspace.CurrentPlaylistSummaryRowsCacheGeneration);
+        Assert.IsFalse(workspace.HasDeferredPlaylistSummaryRefresh());
+        Assert.IsFalse(logs.Any(message => message.StartsWith("playlist_summary_build ", StringComparison.Ordinal) || message.StartsWith("playlist_summary_present ", StringComparison.Ordinal)));
+        string[] edits = logs.Where(message => message.StartsWith("playlist_summary_edit ", StringComparison.Ordinal)).ToArray();
+        Assert.AreEqual(3, edits.Length);
+        foreach (string message in edits)
+        {
+            Assert.IsTrue(message.Contains("projectedRows=1 filteredRows=1", StringComparison.Ordinal));
+            int comparisons = int.Parse(message.Split("comparisons=", StringSplitOptions.None)[1], CultureInfo.InvariantCulture);
+            Assert.IsTrue(comparisons <= 2 * (int)Math.Ceiling(Math.Log2(unrelated + 1)) + 2, message);
+        }
+        workspace.PlaylistSummaryKeywordFilter = "name:Z";
+        workspace.RefreshPlaylistSummaryPresentation();
+        Assert.AreEqual(1, workspace.PlaylistSummaryView.Count);
+        Assert.IsTrue((await workspace.CompleteSummaryPropertyEditAsync(target, nameof(PlaylistSummaryRow.Name), "Gone", true)).IsApplied);
+        Assert.AreEqual(0, workspace.PlaylistSummaryView.Count);
+        Assert.AreEqual(-1, completedPosition, "filterで消えた選択IDは旧添字へ読み替えません。");
+        Assert.AreEqual(selectionStarts, selectionCompletions);
+        Assert.AreEqual(string.Format(Resources.Playlist_summary_format, 0, 0), workspace.PlaylistSummaryText);
+    }
+
+    /// <summary>treeの実entry配送を保存scope後まで遅らせても、自分のprefix差分はsummary予約/世代/cacheを失効させません。独立sort/buildを保持し、一般folder変更と件数変更の必要更新は残します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SummaryPrefixCell_DelayedEntryDeliveryPreservesIndependentRequest(bool independentBuild)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        fixture.Table.name = "A";
+        fixture.Playlist.CommitBMSTableHeaderToDB(fixture.Table);
+        fixture.Playlist.BMSTables.Add(new BMSTable { playlist_id = 9000, name = "B", compat_prefix = "R", entries = [] });
+        bool holdEntry = false, holdFinal = false, queueIndependent = false;
+        Action? entryAction = null, independentAction = null;
+        var entryDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finalEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finalDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var independentDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task independentApply = Task.CompletedTask;
+        PlaylistWorkspaceViewModel? workspace = null;
+        Task Schedule(Action action)
+        {
+            if (queueIndependent) { independentAction = action; return independentApply = independentDone.Task; }
+            if (holdEntry && fixture.Table.compat_prefix == "Z")
+            { holdEntry = false; entryAction = action; return entryDone.Task; }
+            action();
+            if (holdFinal && workspace?.PlaylistSummaryView.Any(row => ReferenceEquals(row.TableRef, fixture.Table) && row.CompatPrefix == "Z") == true)
+            { holdFinal = false; finalEntered.TrySetResult(); return finalDone.Task; }
+            return Task.CompletedTask;
+        }
+        using PlaylistWorkspaceViewModel owned = workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
+            playlistLibraryProvider: () => fixture.Library, propertySaveService: fixture.Service,
+            presentationRefreshDeferredProvider: _ => true, restoreUiApplyScheduler: Schedule);
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+        workspace.RefreshPlaylistTreeTables(fixture.Playlist, fixture.Library);
+        workspace.RequestPlaylistSummaryMode(true);
+        workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.CompatPrefix), System.ComponentModel.ListSortDirection.Ascending);
+        workspace.DrainDeferredPlaylistSummaryRefresh(true, false);
+        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        PlaylistSummaryRow target = workspace.PlaylistSummaryView.Single(row => ReferenceEquals(row.TableRef, fixture.Table));
+        int dataReservations = 0;
+        workspace.PlaylistPresentationRefreshRequested += (_, request) =>
+        { if (request.Kind == PlaylistPresentationRefreshKind.SummaryData) { dataReservations++; } };
+        long dataGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+        long presentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration;
+        long cacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
+        holdEntry = holdFinal = true;
+        Task<PlaylistSummaryPropertyEditCompletion> edit = workspace.CompleteSummaryPropertyEditAsync(target, nameof(PlaylistSummaryRow.CompatPrefix), "Z", true);
+        void Publish(ref Action? pending, TaskCompletionSource done)
+        {
+            Action apply = pending ?? throw new AssertFailedException("実UI処理が予約されていません。");
+            pending = null;
+            try { apply(); done.TrySetResult(); }
+            catch (Exception failure) { done.TrySetException(failure); throw; }
+        }
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(finalEntered.Task, edit, "prefix-required-current-row");
+            Assert.IsNotNull(entryAction);
+            Assert.AreEqual(0, dataReservations);
+            Assert.AreEqual(dataGeneration, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
+            Assert.AreEqual(presentationGeneration, workspace.CurrentPlaylistSummaryPresentationGeneration);
+            Assert.AreEqual(cacheGeneration, workspace.CurrentPlaylistSummaryRowsCacheGeneration);
+            CollectionAssert.AreEqual(new[] { "B", "A" }, workspace.PlaylistSummaryView.Select(row => row.Name).ToArray());
+            queueIndependent = true;
+            if (independentBuild) { workspace.RequestPlaylistSummaryDataRefresh("independent_prefix_build", rebuildAsync: false); }
+            workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.Name), System.ComponentModel.ListSortDirection.Ascending);
+            workspace.DrainDeferredPlaylistSummaryRefresh(false, false);
+            queueIndependent = false;
+            Assert.IsNotNull(independentAction);
+            finalDone.TrySetResult();
+            Assert.IsTrue((await edit).IsApplied);
+            Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+            Assert.IsFalse(independentApply.IsCompleted);
+            Assert.IsFalse(workspace.WaitForDetailBuildIdleAsync().IsCompleted, "保存scope後も自分のentry配送は未終端です。");
+            dataGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+            presentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration;
+            cacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
+            Publish(ref entryAction, entryDone);
+            await workspace.WaitForDetailBuildIdleAsync();
+            Assert.AreEqual(independentBuild ? 1 : 0, dataReservations);
+            Assert.AreEqual(dataGeneration, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
+            Assert.AreEqual(presentationGeneration, workspace.CurrentPlaylistSummaryPresentationGeneration);
+            Assert.AreEqual(cacheGeneration, workspace.CurrentPlaylistSummaryRowsCacheGeneration);
+            Assert.IsFalse(workspace.HasDeferredPlaylistSummaryRefresh());
+            Publish(ref independentAction, independentDone);
+            await independentApply;
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            CollectionAssert.AreEqual(new[] { "A", "B" }, workspace.PlaylistSummaryView.Select(row => row.Name).ToArray());
+            Assert.AreEqual("Z", workspace.PlaylistSummaryView[0].CompatPrefix);
+            CollectionAssert.AreEqual(new[] { "Z1", "Z2", "ZX", "ZQ3" }, fixture.Table.entries.Select(entry => entry.folder).ToArray());
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly())
+            { CollectionAssert.AreEquivalent(new[] { "Z1", "Z2", "ZX", "ZQ3" }, db.Query<BMSTableEntry>("SELECT * FROM playlist_entry WHERE playlist_id=7492;").Select(entry => entry.folder).ToArray()); }
+            int beforeGeneral = dataReservations;
+            Assert.IsTrue(fixture.Playlist.RenameFolderBMSTable(fixture.Table, "Z1", "General"));
+            await workspace.WaitForDetailBuildIdleAsync();
+            Assert.IsTrue(dataReservations > beforeGeneral, "一般のfolder変更は必要summary更新を維持します。");
+            workspace.DrainDeferredPlaylistSummaryRefresh(false, false);
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            Assert.AreEqual(fixture.Table.last_update, workspace.PlaylistSummaryView.Single(row => ReferenceEquals(row.TableRef, fixture.Table)).LastUpdate);
+            beforeGeneral = dataReservations;
+            Assert.IsTrue(fixture.Playlist.RemoveEntriesBMSTable([fixture.Table.entries.First(entry => entry.folder == "General")], fixture.Table));
+            await workspace.WaitForDetailBuildIdleAsync();
+            Assert.IsTrue(dataReservations > beforeGeneral, "件数に依存する削除のsummary更新を省略しません。");
+            workspace.DrainDeferredPlaylistSummaryRefresh(false, false);
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            Assert.AreEqual(3, workspace.PlaylistSummaryView.Single(row => ReferenceEquals(row.TableRef, fixture.Table)).TotalCharts);
+        }
+        finally
+        {
+            holdEntry = holdFinal = queueIndependent = false;
+            finalDone.TrySetResult();
+            if (entryAction != null) { Publish(ref entryAction, entryDone); }
+            entryDone.TrySetResult();
+            if (independentAction != null) { Publish(ref independentAction, independentDone); }
+            independentDone.TrySetResult();
+            await edit;
+            await independentApply;
+            await workspace.WaitForDetailBuildIdleAsync();
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        }
+    }
+
+    /// <summary>summaryセル保存の準備中に詳細へ移動しても、同じ実購読がprefix差分を現在source/viewへ反映し、summary世代の失効を重ねません。</summary>
+    [TestMethod]
+    public async Task SummaryPrefixCell_DeliveryUpdatesDetailSelectedDuringSave()
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool hold = false;
+        var service = new PlaylistPropertySaveService(() => fixture.Playlist, () => fixture.Library, () => null!, () =>
+        {
+            if (hold) { entered.TrySetResult(); release.Wait(); }
+            return new CustomFolderOutputSettingsSnapshot();
+        });
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
+            playlistLibraryProvider: () => fixture.Library, propertySaveService: service, presentationRefreshDeferredProvider: _ => true);
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+        workspace.SetDetailDataSource(new PlaylistDetailDataSource(fixture.Library, fixture.Playlist, new MainChartRowProjectionOwner()));
+        workspace.RefreshPlaylistTreeTables(fixture.Playlist, fixture.Library);
+        workspace.RequestPlaylistSummaryMode(true);
+        workspace.DrainDeferredPlaylistSummaryRefresh(true, false);
+        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        PlaylistSummaryRow summary = workspace.PlaylistSummaryView.Single();
+        hold = true;
+        Task<PlaylistSummaryPropertyEditCompletion> edit = workspace.CompleteSummaryPropertyEditAsync(summary, nameof(PlaylistSummaryRow.CompatPrefix), "Z", true);
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, edit, "prefix-save-before-detail-selection");
+            workspace.RequestPlaylistSummaryMode(false);
+            workspace.RequestDetailSelection(fixture.Table);
+            workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+            workspace.InitializePlaylistDetailSort(new ChartListSortParameters { ColumnsName = nameof(PlaylistDetailRow.Folder), Direction = System.ComponentModel.ListSortDirection.Ascending });
+            workspace.IsPlaylistDetailViewActive = true;
+            await workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected, false, default);
+            PlaylistDetailSourceRow old = workspace.DetailViewState.Source.Rows.Single(row => row.Entry.title == "entry 0");
+            Assert.AreEqual("P1", old.Folder);
+            int applied = 0;
+            workspace.DetailWorkObserver = kind => { if (kind == "playlist_entry_commit_applied") { applied++; } };
+            long generation = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+            hold = false; release.Set();
+            Assert.IsTrue((await edit).IsApplied);
+            await workspace.WaitForDetailBuildIdleAsync();
+            Assert.AreEqual(generation, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
+            Assert.IsTrue(applied > 0, "正規entry配送を捨てず、現在の詳細へ局所適用します。");
+            Assert.AreEqual(fixture.Table.PlaylistEntriesRevision, workspace.DetailViewState.Source.LastBuiltPlaylistRevision);
+            Assert.AreEqual("P1", old.Folder);
+            Assert.AreEqual("Z1", workspace.DetailViewState.Source.Rows.Single(row => row.Entry.title == "entry 0").Folder);
+            CollectionAssert.AreEqual(new[] { "Z1", "Z2", "ZQ3", "ZX" }, workspace.DetailViewState.View.Rows.Cast<PlaylistDetailRow>().Select(row => row.Folder).ToArray());
+        }
+        finally
+        {
+            hold = false; release.Set();
+            await edit;
+            await workspace.WaitForDetailBuildIdleAsync();
+        }
+    }
+
+    /// <summary>保存準備中に変更されたfilterで旧属性が除外されても、保存後はraw対象だけを判定して現在viewへ加入し件数を直します。</summary>
+    [TestMethod]
+    public async Task SummaryCellEdit_JoinsCurrentFilterAfterSavePreparation()
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool hold = false;
+        var service = new PlaylistPropertySaveService(() => fixture.Playlist, () => fixture.Library, () => null!, () =>
+        {
+            if (hold) { entered.TrySetResult(); release.Wait(); }
+            return new CustomFolderOutputSettingsSnapshot();
+        });
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
+            playlistLibraryProvider: () => fixture.Library, propertySaveService: service, presentationRefreshDeferredProvider: _ => true);
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+        workspace.RequestPlaylistSummaryMode(true);
+        workspace.RebuildPlaylistSummaryView(runAsync: false);
+        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        PlaylistSummaryRow target = workspace.PlaylistSummaryView.Single();
+        hold = true;
+        Task<PlaylistSummaryPropertyEditCompletion> edit = workspace.CompleteSummaryPropertyEditAsync(target, nameof(PlaylistSummaryRow.Name), "Joined", true);
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, edit, "summary-save-preparation");
+            workspace.PlaylistSummaryKeywordFilter = "name:Joined";
+            workspace.RefreshPlaylistSummaryPresentation();
+            Assert.AreEqual(0, workspace.PlaylistSummaryView.Count);
+            hold = false; release.Set();
+            Assert.IsTrue((await edit).IsApplied);
+            Assert.AreSame(target, workspace.PlaylistSummaryView.Single());
+            Assert.AreEqual(string.Format(Resources.Playlist_summary_format, 4, 1), workspace.PlaylistSummaryText);
+        }
+        finally { hold = false; release.Set(); await edit; }
+    }
+
+    /// <summary>未採用のName降順要求を編集中の現在TotalCharts降順へ混ぜず、編集は要求のUIを待たず終端し、独立要求自身は最新名で採用されます。</summary>
+    [TestMethod]
+    public async Task SummaryCellEdit_PreservesIndependentSortAndCurrentConditions()
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        fixture.Table.name = "Zeta";
+        fixture.Table.entries = fixture.Table.entries.Take(2).ToList();
+        BMSTable[] peers = [new() { playlist_id = 1, name = "Beta", entries = [new() { md5 = "00000000000000000000000000000001" }, new() { md5 = "00000000000000000000000000000002" }, new() { md5 = "00000000000000000000000000000003" }] },
+            new() { playlist_id = 3, name = "Omega", entries = [new() { md5 = "00000000000000000000000000000001" }, new() { md5 = "00000000000000000000000000000002" }] }, new() { playlist_id = 4, name = "Alpha", entries = [new() { md5 = "00000000000000000000000000000001" }] }];
+        foreach (BMSTable peer in peers) { fixture.Playlist.BMSTables.Add(peer); }
+        fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+        bool holdEdit = false, holdSort = false;
+        Action? sortAction = null;
+        Task sortApply = Task.CompletedTask;
+        var sortDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var editEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var editRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
+            playlistLibraryProvider: () => fixture.Library, propertySaveService: fixture.Service, presentationRefreshDeferredProvider: _ => true,
+            restoreUiApplyScheduler: action =>
+            {
+                Task task = Apply(action);
+                if (holdSort) { sortApply = task; }
+                return task;
+            });
+        async Task Apply(Action action)
+        {
+            if (holdSort) { sortAction = action; await sortDone.Task; return; }
+            if (holdEdit && fixture.Table.name == "Aardvark") { editEntered.TrySetResult(); await editRelease.Task; }
+            action();
+        }
+        void PublishSort()
+        {
+            Action publish = sortAction ?? throw new AssertFailedException("独立sortが予約されていません。");
+            sortAction = null;
+            try { publish(); sortDone.TrySetResult(); }
+            catch (Exception failure) { sortDone.TrySetException(failure); throw; }
+        }
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+        workspace.RequestPlaylistSummaryMode(true);
+        workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.TotalCharts), System.ComponentModel.ListSortDirection.Descending);
+        workspace.RebuildPlaylistSummaryView(runAsync: false);
+        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        PlaylistSummaryRow target = workspace.PlaylistSummaryView.Single(row => ReferenceEquals(row.TableRef, fixture.Table));
+        holdEdit = true;
+        Task<PlaylistSummaryPropertyEditCompletion> edit = workspace.CompleteSummaryPropertyEditAsync(target, nameof(PlaylistSummaryRow.Name), "Aardvark", true);
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(editEntered.Task, edit, "summary-independent-sort");
+            holdSort = true;
+            workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.Name), System.ComponentModel.ListSortDirection.Descending);
+            workspace.DrainDeferredPlaylistSummaryRefresh(false, false);
+            holdSort = false;
+            Assert.IsNotNull(sortAction);
+            editRelease.TrySetResult();
+            Assert.IsTrue((await edit).IsApplied);
+            Assert.IsFalse(sortDone.Task.IsCompleted);
+            CollectionAssert.AreEqual(new[] { "Beta", "Aardvark", "Omega", "Alpha" }, workspace.PlaylistSummaryView.Select(row => row.Name).ToArray());
+            Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+            PublishSort();
+            await sortApply;
+            CollectionAssert.AreEqual(new[] { "Omega", "Beta", "Alpha", "Aardvark" }, workspace.PlaylistSummaryView.Select(row => row.Name).ToArray());
+        }
+        finally
+        {
+            holdEdit = holdSort = false; editRelease.TrySetResult();
+            if (sortAction != null) { PublishSort(); }
+            sortDone.TrySetResult();
+            await sortApply;
+            await edit;
+        }
+    }
+
+    /// <summary>summaryの正規化済み正本値を現在行へ局所通知し、必要表示の実終端までPを保ちます。出力・表示失敗でも保存値と次の明示受付を保持し、全summary再構築へ委ねません。</summary>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task SummaryCellEdit_WaitsForSavedValuePresentationAndPreservesFailure(bool outputFails, bool presentationFails)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(enableBmtOutput: outputFails, modelUiScheduler: new TestUiScheduler(() => null));
+        var service = new PlaylistPropertySaveService(() => fixture.Playlist, () => fixture.Library, () => null!, () => new CustomFolderOutputSettingsSnapshot());
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        PlaylistSummaryRow? row = null;
+        var diagnostics = new List<Exception>();
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
+        { MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+        bool gate = false;
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
+            playlistLibraryProvider: () => fixture.Library, propertySaveService: service, playlistWorkspaceDialogService: dialogs,
+            reloadFailureLog: (failure, _) => diagnostics.Add(failure), restoreUiApplyScheduler: async action =>
+            {
+                action();
+                if (!gate || row?.Name != "Saved name") { return; }
+                entered.TrySetResult(); await release.Task;
+                if (presentationFails) { throw new InvalidOperationException("required summary presentation failed"); }
+            });
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+        workspace.RequestPlaylistSummaryMode(true);
+        workspace.RebuildPlaylistSummaryView(runAsync: false);
+        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        row = workspace.PlaylistSummaryView.Single();
+        gate = true;
+        int rebuilds = 0, nameChanges = 0;
+        workspace.PlaylistPresentationRefreshRequested += (_, request) =>
+        { if (request.Kind == PlaylistPresentationRefreshKind.SummaryData) { rebuilds++; } };
+        row.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(PlaylistSummaryRow.Name)) { nameChanges++; } };
+        using FileStream? blocker = outputFails ? new FileStream(fixture.BmtManifestPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None) : null;
+        Task<PlaylistSummaryPropertyEditCompletion> edit = workspace.CompleteSummaryPropertyEditAsync(row, nameof(PlaylistSummaryRow.Name), "  Saved name  ", true);
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, edit, "summary-required-presentation");
+            Assert.IsFalse(edit.IsCompleted);
+            Assert.AreEqual("Saved name", fixture.Table.name);
+            Assert.AreEqual("Saved name", row.Name);
+            Assert.IsFalse(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable rejected)); rejected?.Dispose();
+        }
+        finally { gate = false; release.TrySetResult(); }
+        PlaylistSummaryPropertyEditCompletion result = await edit;
+        Assert.AreEqual(!outputFails && !presentationFails, result.IsApplied);
+        if (outputFails)
+        {
+            StringAssert.Contains(dialogs.LastMessageRequest.MessageBoxText, "playlist_property_save");
+            Assert.IsFalse(dialogs.LastMessageRequest.MessageBoxText.Contains("required summary presentation failed", StringComparison.Ordinal));
+        }
+        else if (presentationFails) { StringAssert.Contains(dialogs.LastMessageRequest.MessageBoxText, "required summary presentation failed"); }
+        Assert.AreEqual("Saved name", row.Name);
+        Assert.AreEqual(1, nameChanges);
+        Assert.AreEqual(0, rebuilds, "セル編集の必要表示は全summary構築を開始しません。");
+        using (LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly())
+        { Assert.AreEqual("Saved name", verify.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id=7492;")); }
+        Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable next)); next.Dispose();
+        if (outputFails && presentationFails)
+        { Assert.IsTrue(diagnostics.Any(failure => failure.Message == "required summary presentation failed")); }
+    }
+
+    /// <summary>小さい複数対象を一度捕捉してID解決・同参照検証し、対象数分の正本全走査を防ぎます。IDなしの現参照、選択重複と曖昧IDの全体拒否も同じ要求境界で確認します。</summary>
+    [TestMethod]
+    public async Task PlaylistBulkPreparationAndApply_CaptureCurrentCollectionOncePerRequest()
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        var second = new BMSTable { playlist_id = 7493, name = "Second", entries = [], is_bmt_output = true };
+        var withoutId = new BMSTable { name = "No ID", entries = [], is_bmt_output = true };
+        fixture.Table.is_bmt_output = true;
+        var currentTables = new PlaylistTableCaptureCollection { fixture.Table, second, withoutId };
+        fixture.Playlist.BMSTables = currentTables;
+        PlaylistSummaryRow[] rows = new[]
+        {
+            new PlaylistSummaryRow { TableRef = second },
+            new PlaylistSummaryRow { TableRef = new BMSTable { playlist_id = fixture.Table.playlist_id } },
+            new PlaylistSummaryRow { TableRef = fixture.Table },
+            new PlaylistSummaryRow { TableRef = withoutId }
+        };
+        currentTables.ResetCaptureCount();
+        PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel dialog = fixture.Workspace.OpenSummaryBulkEditDialog(rows)
+            ?? throw new AssertFailedException();
+        Assert.AreEqual(1, currentTables.CopyCount, "起動時の正本集合は要求全体で一度だけ捕捉します。");
+        Assert.IsTrue(currentTables.EnumerationCount <= 1, "既存の起動可否のロック確認以外に、対象ごとの正本再走査を増やしません。");
+        Assert.AreEqual(3, dialog.TargetCount);
+        currentTables.ResetCaptureCount();
+        dialog.BmtOutputOption = dialog.OnOption;
+        await dialog.ApplyBmtOutputAsync();
+        Assert.AreEqual(1, currentTables.CopyCount, "差分なしの反映も一度の正本捕捉で全参照を検証します。");
+        Assert.AreEqual(0, currentTables.EnumerationCount, "捕捉後は対象ごとに元の正本集合を走査しません。");
+        Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+
+        var duplicateId = new BMSTable { playlist_id = second.playlist_id, name = "Ambiguous", entries = [] };
+        currentTables.Add(duplicateId);
+        currentTables.ResetCaptureCount();
+        Assert.IsNull(fixture.Workspace.OpenSummaryBulkEditDialog(rows));
+        Assert.AreEqual(1, currentTables.CopyCount);
+        Assert.IsTrue(currentTables.EnumerationCount <= 1);
+        currentTables.Remove(duplicateId);
+        currentTables.Add(second);
+        Assert.IsNull(fixture.Workspace.OpenSummaryBulkEditDialog(rows), "同一参照の二重登録でもIDは曖昧です。");
+        Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+    }
+
+    // LINQの配列捕捉と列挙の双方を観測し、実時間や製品側のテスト専用observerを使いません。
+    private sealed class PlaylistTableCaptureCollection : ObservableCollection<BMSTable>, ICollection<BMSTable>, IEnumerable<BMSTable>
+    {
+        internal int CopyCount { get; private set; }
+        internal int EnumerationCount { get; private set; }
+        internal void ResetCaptureCount()
+        {
+            CopyCount = 0;
+            EnumerationCount = 0;
+        }
+        void ICollection<BMSTable>.CopyTo(BMSTable[] array, int arrayIndex)
+        {
+            CopyCount++;
+            CopyTo(array, arrayIndex);
+        }
+        IEnumerator<BMSTable> IEnumerable<BMSTable>.GetEnumerator()
+        {
+            EnumerationCount++;
+            return GetEnumerator();
+        }
+    }
+
+    /// <summary>他P中は三つの編集準備を副作用なしで拒否し、解放後は同じ明示要求を新しく準備します。画面寿命へPを持ち越さず、未登録draftの取消も正本を増やしません。</summary>
+    [TestMethod]
+    public async Task PlaylistEditPreparation_RejectsBusyWithoutSideEffectsAndReleasesBeforePublication()
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        int captures = 0;
+        var service = new PlaylistPropertySaveService(() => fixture.Playlist, () => fixture.Library,
+            () => throw new AssertFailedException("LR2設定は不要です。"), () =>
+            {
+                Interlocked.Increment(ref captures);
+                return new CustomFolderOutputSettingsSnapshot();
+            });
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _,
+            playlistStoreProvider: () => fixture.Playlist, propertySaveService: service);
+        var row = new PlaylistSummaryRow { TableRef = fixture.Table };
+        Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable lease));
+        using (lease)
+        {
+            Assert.IsNull(workspace.OpenSummaryBulkEditDialog([row]));
+            Assert.IsNull(await workspace.OpenPropertyDialogAsync(fixture.Table));
+            Assert.IsNull(await workspace.CreatePlaylistPropertyDialogAsync());
+            Assert.IsNull(workspace.ActivePropertyDialog);
+            Assert.IsNull(workspace.ActiveSummaryBulkEditDialog);
+            Assert.AreEqual(0, captures);
+            Assert.AreEqual(1, fixture.Playlist.BMSTables.Count);
+        }
+        Assert.IsNotNull(workspace.OpenSummaryBulkEditDialog([row]));
+        Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+        using PlaylistPropertyDialogViewModel existing = await workspace.OpenPropertyDialogAsync(fixture.Table)
+            ?? throw new AssertFailedException();
+        Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+        using PlaylistPropertyDialogViewModel created = await workspace.CreatePlaylistPropertyDialogAsync()
+            ?? throw new AssertFailedException();
+        Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+        Assert.AreEqual(2, captures);
+        Assert.AreEqual(1, fixture.Playlist.BMSTables.Count);
+        Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await created.ResetPropertiesAsync());
+        using LR2SongDBExtended db = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb);
+        Assert.AreEqual(1L, db.ExecuteScalar<long>("SELECT COUNT(*) FROM playlist"));
+    }
+
+    /// <summary>実外部再同期後の旧選択から現正本の初期値を取得し、実hydrationのLoading通知gate中はPを保持して別準備を拒否し、準備Task終端で解放します。</summary>
+    [TestMethod]
+    public async Task PlaylistPropertyPreparation_ResolvesCurrentAndHoldsAdmissionThroughHydration()
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        File.WriteAllText(fixture.HeaderPath, "{\"name\":\"Current name\",\"symbol\":\"NOW\",\"data_url\":\"data.json\"}");
+        PlaylistExternalSyncOwner.PlaylistReloadOperationResult reload = await fixture.Playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([fixture.Table]);
+        reload.ThrowIfFailed();
+        BMSTable current = fixture.Playlist.BMSTables.Single();
+        Assert.AreNotSame(fixture.Table, current);
+        // 再同期はローカル名称・symbolを維持します。新正本だけへ保存した値で旧選択との初期値の差を作ります。
+        current.name = "Current name";
+        current.symbol = "NOW";
+        fixture.Playlist.CommitBMSTableHeadersToDB([current]);
+        current.MarkEntriesNotLoaded();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        current.PropertyChanged += (_, change) =>
+        {
+            if (change.PropertyName == nameof(BMSTable.PlaylistEntriesLoadState)
+                && current.PlaylistEntriesLoadState == PlaylistEntriesLoadState.Loading)
+            {
+                entered.TrySetResult();
+                release.Wait();
+            }
+        };
+        Task<PlaylistPropertyDialogViewModel> opening = fixture.Workspace.OpenPropertyDialogAsync(fixture.Table);
+        PlaylistPropertyDialogViewModel? dialog = null;
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, opening, "property-prepare-hydration");
+            Assert.IsFalse(opening.IsCompleted);
+            Assert.IsFalse(fixture.Playlist.CanEnterPlaylistMutation);
+            Assert.IsNull(fixture.Workspace.OpenSummaryBulkEditDialog([new PlaylistSummaryRow { TableRef = current }]));
+            Assert.IsNull(await fixture.Workspace.CreatePlaylistPropertyDialogAsync());
+            release.Set();
+            dialog = await opening ?? throw new AssertFailedException();
+            Assert.AreEqual("Current name", dialog.name);
+            Assert.AreEqual("NOW", dialog.symbol);
+            Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+            Assert.IsTrue(current.ArePlaylistEntriesLoaded);
+        }
+        finally
+        {
+            release.Set();
+            dialog ??= await opening;
+            dialog?.Dispose();
+        }
+    }
+
+    /// <summary>準備例外と解決不能で短期Pを取り残さず、次の明示準備が成功します。一括選択は空・一部失効を全体拒否し、単一列挙の旧選択を現正本へ重複排除します。</summary>
+    [TestMethod]
+    public async Task PlaylistEditPreparation_FailureReleasesAdmissionAndBulkResolvesWholeSelectionOnce()
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        bool fail = true;
+        var service = new PlaylistPropertySaveService(() => fixture.Playlist, () => fixture.Library,
+            () => throw new AssertFailedException(), () => fail
+                ? throw new InvalidOperationException("preparation failed") : new CustomFolderOutputSettingsSnapshot());
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _,
+            playlistStoreProvider: () => fixture.Playlist, propertySaveService: service);
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => workspace.OpenPropertyDialogAsync(fixture.Table));
+        Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => workspace.CreatePlaylistPropertyDialogAsync());
+        Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+        Assert.ThrowsExactly<InvalidOperationException>(() => workspace.OpenSummaryBulkEditDialog(ThrowingRows()));
+        Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+        Assert.IsNull(workspace.OpenSummaryBulkEditDialog([]));
+        Assert.IsNull(await workspace.OpenPropertyDialogAsync(new BMSTable { playlist_id = 99999 }));
+        Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+        var old = new BMSTable { playlist_id = fixture.Table.playlist_id, name = "Old values", ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.UserFolder };
+        Assert.IsNull(workspace.OpenSummaryBulkEditDialog([new PlaylistSummaryRow { TableRef = old }, new PlaylistSummaryRow { TableRef = new BMSTable { playlist_id = 99999 } }]));
+        int enumerations = 0;
+        IEnumerable<PlaylistSummaryRow> Rows()
+        {
+            Assert.AreEqual(1, ++enumerations);
+            yield return new PlaylistSummaryRow { TableRef = old };
+            yield return new PlaylistSummaryRow { TableRef = fixture.Table };
+        }
+        PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel bulk = workspace.OpenSummaryBulkEditDialog(Rows()) ?? throw new AssertFailedException();
+        Assert.AreEqual(1, bulk.TargetCount);
+        Assert.AreEqual(fixture.Table.ignore_folder_output.HasFlag(LR2SongDBExtended.playlist.CustomFolderType.UserFolder) == false, bulk.OutputUserFolder);
+        Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+        fail = false;
+        using PlaylistPropertyDialogViewModel dialog = await workspace.OpenPropertyDialogAsync(old) ?? throw new AssertFailedException();
+        Assert.AreEqual(fixture.Table.name, dialog.name);
+
+        static IEnumerable<PlaylistSummaryRow> ThrowingRows()
+        {
+            yield return new PlaylistSummaryRow();
+            throw new InvalidOperationException("selection enumeration failed");
+        }
+    }
+
+    /// <summary>改名・別folderの更新・特殊子と内容あり/空folder削除を実保存し、選択requestと詳細hashを照合します。Bから前後空白Aへの改名はAを保持し、独立DB読取りと新storeの読込み後も全所属と各詳細表示を維持します。WPFの構造置換は実MainWindow代表へ分担します。</summary>
+    [TestMethod]
+    [DataRow("rename")]
+    [DataRow("other")]
+    [DataRow("special")]
+    [DataRow("remove")]
+    [DataRow("empty")]
+    [DataRow("whitespace")]
+    public async Task PlaylistFolderMutation_PreservesOrRemapsSelectionAndDetail(string operation)
+    {
+        using PlaylistWorkspaceTestPorts.OwnedPlaylistStore owned = PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore(databaseScope, modelUiScheduler: new TestUiScheduler(() => null));
+        var table = new BMSTable
+        {
+            playlist_id = 4202,
+            name = "Folders",
+            is_external_sync = false,
+            is_bmt_output = false,
+            entries = [new BMSTableEntry { md5 = new string('a', 32), title = "A", folder = "A" },
+                new BMSTableEntry { md5 = new string('b', 32), title = "B", folder = "B" },
+                new BMSTableEntry { md5 = BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER, title = "Empty folder", folder = "Empty" }]
+        };
+        owned.Store.BMSTables.Add(table);
+        owned.Store.CommitBMSTableWithEntriesToDB(table);
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
+        { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => owned.Store,
+            playlistWorkspaceDialogService: dialogs);
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+        workspace.RequestDetailSelection(table, operation == "special"
+            ? PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned)
+            : PlaylistFolderNode.CreateFolder(operation switch { "empty" => "Empty", "whitespace" => "B", _ => "A" }));
+        workspace.SetDetailDataSource(new PlaylistDetailDataSource(new TestBmsLibrary(owned.DatabaseScope, owned.SongDbPath, null, null, null, null, new TestUiScheduler(() => null)), owned.Store, new MainChartRowProjectionOwner()));
+        workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+        if (operation is "remove" or "empty")
+        {
+            await workspace.PlaylistRemovalWorkflow.RemoveFolderAsync(table, PlaylistFolderNode.CreateFolder(operation == "empty" ? "Empty" : "A"));
+        }
+        else
+        {
+            await workspace.RenameFolderAsync(table,
+                PlaylistFolderNode.CreateFolder(operation is "other" or "whitespace" ? "B" : "A"),
+                operation == "whitespace" ? " A " : "C");
+        }
+        PlaylistDetailSelection selection = workspace.CapturePlaylistDetailSelection();
+        Assert.AreSame(table, selection.Table);
+        Assert.AreEqual(operation == "empty" ? PlaylistDetailSelectionScope.OrdinaryRoot : PlaylistDetailSelectionScope.Folder, selection.Scope);
+        Assert.AreEqual(operation switch { "rename" => "C", "remove" => "", "other" => "A", "whitespace" => " A ", _ => null }, selection.FolderName);
+        Assert.AreEqual(operation == "special" ? PlaylistDetailFilter.PlaylistNotOwnedFilterSelected : PlaylistDetailFilter.PlaylistFilter, selection.Filter);
+        Task refreshing = workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected,
+            MainViewUpdateMode.PlaylistFilterSelected, false, default);
+        try { await refreshing; }
+        finally { await Task.WhenAll(refreshing, workspace.WaitForDetailBuildIdleAsync()); }
+        string[] expected = operation is "special" or "empty" ? [new string('a', 32), new string('b', 32)]
+            : [new string(operation == "whitespace" ? 'b' : 'a', 32)];
+        CollectionAssert.AreEquivalent(expected, workspace.DetailViewState.Source.Rows.Select(row => row.Entry.md5).ToArray());
+        if (operation == "whitespace")
+        {
+            (string, string, string)[] all = new[] { (new string('a', 32), "A", "A"), (new string('b', 32), "B", " A "),
+                (BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER, "Empty folder", "Empty") };
+            CollectionAssert.AreEquivalent(all, table.entries.Select(entry => (entry.md5, entry.title, entry.folder)).ToArray());
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(owned.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), owned.SongDbPath).OpenSongDbReadOnly())
+            {
+                CollectionAssert.AreEquivalent(all, db.Table<BMSTableEntry>().Where(entry => entry.playlist_id == table.playlist_id)
+                    .ToArray().Select(entry => (entry.md5, entry.title, entry.folder)).ToArray());
+            }
+            var freshStore = new TestBmsPlaylist(owned.DatabaseScope, owned.SongDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, uiScheduler: new TestUiScheduler(() => null));
+            freshStore.BMSTables = new ObservableCollection<BMSTable>(new PlaylistPersistenceRepository(owned.DatabaseScope, owned.SongDbPath).LoadPlaylistHeaders());
+            BMSTable freshTable = freshStore.BMSTables.Single(item => item.playlist_id == table.playlist_id);
+            Assert.AreNotSame(table, freshTable);
+            Assert.IsFalse(freshTable.ArePlaylistEntriesLoaded);
+            freshStore.EnsurePlaylistEntriesLoaded(freshTable, "folder_name_readback");
+            CollectionAssert.AreEquivalent(all, freshTable.entries.Select(entry => (entry.md5, entry.title, entry.folder)).ToArray());
+            using PlaylistWorkspaceViewModel freshWorkspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => freshStore);
+            freshWorkspace.SetDetailDataSource(new PlaylistDetailDataSource(new TestBmsLibrary(owned.DatabaseScope, owned.SongDbPath, null, null, null, null, new TestUiScheduler(() => null)), freshStore, new MainChartRowProjectionOwner()));
+            freshWorkspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+            foreach ((string folder, string hash, string title) in new[] { ("A", new string('a', 32), "A"), (" A ", new string('b', 32), "B"), ("A", new string('a', 32), "A") })
+            {
+                freshWorkspace.RequestDetailSelection(freshTable, PlaylistFolderNode.CreateFolder(folder));
+                Task freshRefresh = freshWorkspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
+                    MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected, false, default);
+                try { await freshRefresh; }
+                finally { await Task.WhenAll(freshRefresh, freshWorkspace.WaitForDetailBuildIdleAsync()); }
+                Assert.AreEqual(folder, freshWorkspace.CapturePlaylistDetailSelection().FolderName);
+                CollectionAssert.AreEqual(new[] { (hash, title, folder) }, freshWorkspace.DetailViewState.Source.Rows
+                    .Select(row => (row.Entry.md5, row.Entry.title, row.Entry.folder)).ToArray());
+                CollectionAssert.AreEqual(new[] { (hash, title, folder) }, freshWorkspace.DetailViewState.View.Rows.Cast<PlaylistDetailRow>()
+                    .Select(row => (row.Entry.md5, row.Title, row.Folder)).ToArray());
+            }
+        }
+    }
+
+    /// <summary>prefix確定後・旧対応通知前に同じキーを明示選択し、新Q1が旧Q1の対応先QQ1へ再変換されないことを、実保存と詳細hashで確認します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PlaylistPropertySave_NewExplicitSelectionDoesNotApplyOldPrefixMap(bool useLamp)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        fixture.Table.entries = fixture.Table.entries.Append(new BMSTableEntry
+        { md5 = new string('a', 32), folder = "Q1", title = "old Q1" }).ToList();
+        fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+        fixture.Workspace.RequestDetailSelection(fixture.Table, PlaylistFolderNode.CreateFolder("Q1"));
+        bool selected = false;
+        fixture.Table.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(BMSTable.FolderNodes) && !selected)
+            {
+                selected = true;
+                if (useLamp)
+                {
+                    Assert.IsTrue(fixture.Workspace.TryRequestPlaylistLampNavigation(PlaylistLampSegmentInvocationRequest.ForClear(
+                        fixture.Table.playlist_id.ToString(), "Q1", PlaylistLampClearCategory.NP)));
+                }
+                else
+                {
+                    IReadOnlyList<PlaylistFolderNode> nodes = fixture.Table.FolderNodes;
+                    fixture.Workspace.RequestDetailSelection(fixture.Table, nodes.Single(node => !node.IsSpecial && node.FolderName == "Q1"), nodes);
+                }
+            }
+        };
+        using PlaylistPropertyDialogViewModel dialog = await fixture.Workspace.OpenPropertyDialogAsync(fixture.Table)
+            ?? throw new AssertFailedException();
+        dialog.compat_prefix = "Q";
+        Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+        Assert.IsTrue(selected);
+        Assert.AreEqual("Q1", fixture.Workspace.CapturePlaylistDetailSelection().FolderName);
+        await fixture.Refresh();
+        CollectionAssert.AreEqual(new[] { 1.ToString("x32") }, fixture.Workspace.DetailViewState.Source.Rows.Select(row => row.Entry.md5).ToArray());
+    }
+
+    /// <summary>実property prefix保存を全体/選択folder詳細へ配送し、非表示入力・次sort/filter・memo編集の実終端を確認します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PlaylistPropertySave_PrefixReceiptUpdatesExistingDetailAndLaterRequests(bool selectedFolder)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        BMSTable table = fixture.Table;
+        if (selectedFolder) { fixture.Workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("P1")); }
+        else { fixture.Workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot("P1", ChartModeFilter.All)); }
+        await fixture.Refresh();
+        PlaylistDetailSourceRow old = fixture.Workspace.DetailViewState.Source.Rows.Single(row => row.Entry.title == "entry 0");
+        BMSTableEntry target = table.entries[0];
+        DateTime date = table.last_update;
+        Task selectionRefresh = Task.CompletedTask;
+        var published = new List<(string[] Nodes, string[] Saved)>();
+        table.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName != nameof(BMSTable.FolderNodes)) { return; }
+            using LR2SongDBExtended database = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
+            published.Add((table.FolderNodes.Where(node => !node.IsSpecial).Select(node => node.FolderName).ToArray(),
+                database.Query<BMSTableEntry>("SELECT * FROM playlist_entry WHERE playlist_id=7492 ORDER BY title;").Select(entry => entry.folder).ToArray()));
+        };
+        fixture.Workspace.PlaylistDetailReloadRefreshRequested += (_, _) => { selectionRefresh = fixture.Refresh(); };
+        using PlaylistPropertyDialogViewModel dialog = await fixture.Workspace.OpenPropertyDialogAsync(table)
+            ?? throw new AssertFailedException("Property dialog was not created.");
+        dialog.compat_prefix = "Q";
+        Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+        await selectionRefresh;
+        Assert.IsTrue(published.Count > 0, "確定構成の通知が操作終端までに届きます。");
+        foreach ((string[] Nodes, string[] Saved) value in published)
+        {
+            CollectionAssert.AreEqual(new[] { "QQ3", "QX", "Q2", "Q1" }, value.Nodes);
+            CollectionAssert.AreEqual(new[] { "Q1", "Q2", "QX", "QQ3" }, value.Saved);
+        }
+        Assert.AreEqual("P1", old.Folder, "旧捕捉値は書き換えません。");
+        Assert.AreSame(target, table.entries[0]); Assert.AreEqual(date, table.last_update);
+        Assert.AreEqual(selectedFolder ? "Q1" : null, fixture.Workspace.CapturePlaylistDetailSelection().FolderName);
+        Assert.AreEqual(table.PlaylistEntriesRevision, fixture.Workspace.DetailViewState.Source.LastBuiltPlaylistRevision);
+        string[] folders = [.. fixture.Workspace.DetailViewState.Source.Rows.Select(row => row.Folder).OrderBy(value => value, StringComparer.Ordinal)];
+        CollectionAssert.AreEqual(selectedFolder ? new[] { "Q1" } : new[] { "Q1", "Q2", "QQ3", "QX" }, folders);
+        if (!selectedFolder) { Assert.AreEqual(0, fixture.Workspace.DetailViewState.View.Rows.Count, "旧prefix検索から対象が外れます。"); }
+        fixture.Workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+        fixture.Workspace.RequestPlaylistDetailSort(nameof(PlaylistDetailRow.Folder), System.ComponentModel.ListSortDirection.Descending);
+        await fixture.Refresh();
+        Assert.AreEqual(selectedFolder ? 1 : 4, fixture.Workspace.DetailViewState.View.Rows.Count);
+        PlaylistDetailRow row = fixture.Workspace.DetailViewState.View.Rows.Cast<PlaylistDetailRow>().Single(value => ReferenceEquals(value.Entry, target));
+        var context = new MainChartListCellEditContext(row, nameof(PlaylistDetailRow.memo), ChartOperationSourceScope.PlaylistMissing, MainViewOperationSection.Playlist);
+        fixture.Workspace.BeginDetailEdit(context);
+        row.memo = "memo after prefix";
+        await fixture.Workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "memo after prefix", commit: true));
+        Assert.AreEqual("memo after prefix", target.memo);
+        Assert.AreEqual("Q1", row.Folder);
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
+        Assert.AreEqual("memo after prefix", db.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE playlist_id=7492 AND title='entry 0';"));
+    }
+
+    /// <summary>
+    /// 外部参照置換と接頭辞変更を実保存し、参照依存の通知時に既に新参照を採用し、選択・ツリー・実詳細行・DBがNEW 1へ揃うことを確認します。
+    /// 受信側単体の非現行参照拒否と、画面のBinding・所有者は既存詳細選択テストとWPF代表へ分担します。
+    /// </summary>
+    [TestMethod]
+    public async Task PlaylistPropertySave_ExternalReplacementRemapsSelectedFolderAndRefreshesDetail()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string directory = Path.Combine(migrationWorkspace.RootDirectory, nameof(PlaylistWorkspaceActionWorkflowTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        PlaylistWorkspaceViewModel? workspace = null;
+        PlaylistPropertyDialogViewModel? dialog = null;
+        try
+        {
+            string songPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songPath);
+            string header = Path.Combine(directory, "header.json"), data = Path.Combine(directory, "data.json");
+            File.WriteAllText(header, "{\"name\":\"Prefix replacement\",\"symbol\":\"P\",\"data_url\":\"data.json\"}");
+            File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"}]");
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => values.EnablePlaylistUrlCompletion = false);
+            var playlist = new TestBmsPlaylist(databaseScope, songPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot(), settings: settings, uiScheduler: new TestUiScheduler(() => null));
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(header));
+            table.playlist_id = 7481;
+            table.Page_url = new Uri(Path.Combine(directory, "previous-header.json"));
+            // 取得済みの所属も正規prefix候補で初期化し、entry値と索引を同時に揃えます。
+            table.ApplyEntryMutation(table.PrepareHeaderMutation(new PlaylistHeaderEdit
+            { Fields = PlaylistHeaderFields.CompatPrefix, CompatPrefix = "OLD " }));
+            Assert.IsTrue(table.EnableExternalSync());
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+            playlist.CommitBMSTableWithEntriesToDB(table);
+            File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Selected\",\"level\":\"1\"}]");
+            var library = new TestBmsLibrary(databaseScope, songPath, null, null, null, null, new TestUiScheduler(() => null), settings: settings);
+            var service = new PlaylistPropertySaveService(() => playlist, () => library, () => null!, () => new CustomFolderOutputSettingsSnapshot());
+            workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library, propertySaveService: service);
+
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+            workspace.PlaylistSyncProgressChanged += (_, _) => { };
+            workspace.PlaylistDetailReloadRefreshRequested += (_, _) => { };
+            workspace.RefreshPlaylistTreeTables(playlist, library);
+            workspace.SetDetailDataSource(new PlaylistDetailDataSource(library, playlist, new MainChartRowProjectionOwner()));
+            workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("OLD 1"));
+            PlaylistWorkspaceViewModel currentWorkspace = workspace;
+            int folderNotices = 0, entryNotices = 0;
+            service.PlaylistPropertyFolderSelectionRemapped += (_, request) =>
+            {
+                folderNotices++;
+                Assert.AreSame(request.Table, currentWorkspace.CapturePlaylistDetailSelection().Table,
+                    "フォルダ通知に先立ち新参照を採用します。");
+            };
+            service.PlaylistPropertyEntriesChanged += (_, request) =>
+            {
+                entryNotices++;
+                Assert.AreSame(request.Table, currentWorkspace.CapturePlaylistDetailSelection().Table,
+                    "項目通知に先立ち新参照を採用します。");
+            };
+
+            dialog = await workspace.OpenPropertyDialogAsync(table) ?? throw new AssertFailedException("Property dialog was not created.");
+            dialog.Page_url = new Uri(header);
+            dialog.compat_prefix = "NEW ";
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+            BMSTable confirmed = playlist.BMSTables.Single();
+            PlaylistDetailSelection selection = workspace.CapturePlaylistDetailSelection();
+            Assert.AreNotSame(table, confirmed);
+            Assert.AreSame(confirmed, selection.Table);
+            Assert.AreEqual("NEW 1", selection.FolderName);
+            Assert.AreEqual(1, folderNotices);
+            Assert.AreEqual(1, entryNotices);
+
+            Assert.IsTrue(confirmed.FolderNodes.Any(node => node.FolderName == "NEW 1"));
+            string stage = string.Empty;
+            PlaylistSourceBuildResult detail = workspace.BuildDetailSourceRows(selection.Table, selection.FolderName, CancellationToken.None, ref stage);
+            Assert.AreEqual("NEW 1", detail.SourceRows.Single().Folder);
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath).OpenSongDbReadOnly();
+            Assert.AreEqual("NEW 1", db.Table<LR2SongDBExtended.playlist_entry>().Single(entry => entry.playlist_id == table.playlist_id).folder);
+        }
+        finally
+        {
+            if (workspace != null)
+            {
+                await workspace.WaitForDetailBuildIdleAsync();
+                await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                await workspace.WaitForPlaylistReloadCleanupIdleAsync();
+            }
+            dialog?.Dispose();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>二表をsnapshotへ捕捉して順序と同じ表参照を保ち、別workerのwriter取得が完了して読取lockを残していないことを確認します。</summary>
+    [TestMethod]
+    public void PlaylistTreeSnapshot_ReleasesReaderLockAfterCapture()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+
+        string tempDirectory = Path.Combine(
+            migrationWorkspace.RootDirectory,
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            BMSTable first = new() { name = "first" };
+            BMSTable second = new() { name = "second" };
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, lr2PlaylistFolderSynchronization: new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath), uiScheduler: new TestUiScheduler(() => null))
+            {
+                BMSTables = new ObservableCollection<BMSTable>([first, second])
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist);
+            workspace.RefreshPlaylistTreeTables(playlist);
+
+            List<BMSTable> snapshot = workspace.CapturePlaylistTreeTablesSnapshot();
+
+            CollectionAssert.AreEqual(new[] { first, second }, snapshot);
+            Task<bool> writerProbe = Task.Run(() =>
+            {
+                playlist.AcquireWriterLockBMSTables();
+                try
+                {
+                    return true;
+                }
+                finally
+                {
+                    playlist.FreeWriterLockBMSTables();
+                }
+            });
+            bool writerCompleted = writerProbe.Wait(TimeSpan.FromSeconds(2));
+            try
+            {
+                Assert.IsTrue(writerCompleted);
+                Assert.IsTrue(writerProbe.GetAwaiter().GetResult());
+            }
+            finally
+            {
+                if (!writerCompleted)
+                {
+                    writerProbe.Wait();
+                }
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+
+
+    /// <summary>通常ローカルfolderだけ改名・削除を許可し、特殊folder・外部同期・未選択を拒否して禁止対象へ編集を露出する誤りを検出します。</summary>
+    [TestMethod]
+    public void PlaylistFolderContextMenuAvailability_PreservesEditabilityPolicy()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        BMSTable localTable = new();
+
+        PlaylistFolderContextMenuAvailability normal =
+            workspace.CapturePlaylistFolderContextMenuAvailability(
+                localTable,
+                PlaylistFolderNode.CreateFolder("Folder"));
+        Assert.IsTrue(normal.CanDelete);
+        Assert.IsTrue(normal.CanRename);
+
+        PlaylistFolderContextMenuAvailability special =
+            workspace.CapturePlaylistFolderContextMenuAvailability(
+                localTable,
+                PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned));
+        Assert.IsFalse(special.CanDelete);
+        Assert.IsFalse(special.CanRename);
+
+        PlaylistFolderContextMenuAvailability external =
+            workspace.CapturePlaylistFolderContextMenuAvailability(
+                new BMSTable { is_external_sync = true },
+                PlaylistFolderNode.CreateFolder("Folder"));
+        Assert.IsFalse(external.CanDelete);
+        Assert.IsFalse(external.CanRename);
+
+        PlaylistFolderContextMenuAvailability missing =
+            workspace.CapturePlaylistFolderContextMenuAvailability(localTable, null);
+        Assert.IsFalse(missing.CanDelete);
+        Assert.IsFalse(missing.CanRename);
+    }
+
+    /// <summary>store未接続、通常表、外部同期表の操作可否を評価し、属性画面の利用条件と同期中のfolder作成禁止を各操作へ配送します。</summary>
+    [TestMethod]
+    public void PlaylistTableContextMenuAvailability_PreservesAllActionPolicyFields()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        PlaylistWorkspaceViewModel unavailableWorkspace = CreateDetailWorkspace(out _);
+        PlaylistTableContextMenuAvailability unavailable =
+            unavailableWorkspace.CapturePlaylistTableContextMenuAvailability(
+                new BMSTable { Page_url = new Uri("https://example.test/table") });
+        Assert.IsFalse(unavailable.CanOpenProperty);
+
+        string tempDirectory = Path.Combine(
+            migrationWorkspace.RootDirectory,
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
+            {
+            }
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, lr2PlaylistFolderSynchronization: new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath), uiScheduler: new TestUiScheduler(() => null))
+            {
+                BMSTables = new ObservableCollection<BMSTable>()
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist);
+
+            BMSTable normalTable = new()
+            {
+                Page_url = new Uri("https://example.test/table")
+            };
+            PlaylistTableContextMenuAvailability normal =
+                workspace.CapturePlaylistTableContextMenuAvailability(normalTable);
+            Assert.IsTrue(normal.CanReload);
+            Assert.IsTrue(normal.CanOpenPage);
+            Assert.IsTrue(normal.CanCreateFolder);
+            Assert.IsTrue(normal.CanOverwriteLevel);
+            Assert.IsTrue(normal.CanRemoveTable);
+            Assert.IsTrue(normal.CanOpenProperty);
+
+            BMSTable externalTable = new()
+            {
+                Page_url = new Uri("https://example.test/external"),
+                is_external_sync = true
+            };
+            PlaylistTableContextMenuAvailability external =
+                workspace.CapturePlaylistTableContextMenuAvailability(externalTable);
+            Assert.IsTrue(external.CanReload);
+            Assert.IsTrue(external.CanOpenPage);
+            Assert.IsFalse(external.CanCreateFolder);
+            Assert.IsTrue(external.CanOverwriteLevel);
+            Assert.IsTrue(external.CanRemoveTable);
+            Assert.IsTrue(external.CanOpenProperty);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>page優先とheader fallbackの外部URIを解決し、内蔵recommended・estimation・未知の専用URIをbrowserへ渡さないことを確認します。</summary>
+    [TestMethod]
+    public void PlaylistTableExternalLinks_PreserveNormalHeaderAndSpecialRoutes()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+
+        BMSTable pageTable = new() { Page_url = new Uri("https://example.test/table") };
+        PlaylistTableContextMenuAvailability pageAvailability =
+            workspace.CapturePlaylistTableContextMenuAvailability(pageTable);
+        Assert.IsTrue(pageAvailability.CanReload);
+        Assert.IsTrue(pageAvailability.CanOpenPage);
+        Assert.IsTrue(workspace.TryResolvePlaylistTablePageUri(pageTable, out Uri pageUri));
+        Assert.AreEqual("https://example.test/table", pageUri.ToString());
+
+        BMSTable headerTable = new() { Header_url = new Uri("https://example.test/header.json") };
+        PlaylistTableContextMenuAvailability headerAvailability =
+            workspace.CapturePlaylistTableContextMenuAvailability(headerTable);
+        Assert.IsTrue(headerAvailability.CanReload);
+        Assert.IsTrue(headerAvailability.CanOpenPage);
+        Assert.IsTrue(workspace.TryResolvePlaylistTablePageUri(headerTable, out Uri headerUri));
+        Assert.AreEqual("https://example.test/header.json", headerUri.ToString());
+
+        BMSTable estimationTable = new() { Page_url = new Uri("bmseeker:table.estimation") };
+        Assert.IsFalse(workspace.CapturePlaylistTableContextMenuAvailability(estimationTable).CanOpenPage);
+        Assert.IsFalse(workspace.TryResolvePlaylistTablePageUri(estimationTable, out _));
+
+        BMSTable recommendedTable = new() { Page_url = new Uri("bmseeker:table.recommended") };
+        Assert.IsFalse(workspace.CapturePlaylistTableContextMenuAvailability(recommendedTable).CanOpenPage);
+        Assert.IsFalse(workspace.TryResolvePlaylistTablePageUri(recommendedTable, out _));
+
+        BMSTable unsupportedTable = new() { Page_url = new Uri("bmseeker:table.other") };
+        Assert.IsFalse(workspace.CapturePlaylistTableContextMenuAvailability(unsupportedTable).CanOpenPage);
+        Assert.IsFalse(workspace.TryResolvePlaylistTablePageUri(unsupportedTable, out _));
+    }
+
+    /// <summary>実libraryにLR2利用者IDがあっても内蔵recommendedを外部ページへ解決せず、利用者IDの存在で専用URIを誤許可する分岐を検出します。</summary>
+    [TestMethod]
+    public void PlaylistTableExternalLinks_DisableBuiltInPageEvenWhenPlayerIdIsConfigured()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string tempDirectory = Path.Combine(
+            migrationWorkspace.RootDirectory,
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
+            {
+            }
+            BMSLibrary library = CreateLibraryWithLr2Id(databaseScope, songDbPath, modelUiScheduler: new TestUiScheduler(() => null));
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistLibraryProvider: () => library);
+
+            BMSTable recommendedTable = new() { Page_url = new Uri("bmseeker:table.recommended") };
+            Assert.IsFalse(workspace.TryResolvePlaylistTablePageUri(recommendedTable, out _));
+
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>summaryと表の外部URIだけをbrowser境界へ渡し、summary側の起動失敗処理と表側の元例外伝達をそれぞれ確認します。</summary>
+    [TestMethod]
+    public async Task PlaylistExternalLinkActions_UseWorkspaceBrowserBoundaryAndPreserveFailureContracts()
+    {
+        var openedUris = new List<Uri>();
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            browserOpenSink: openedUris.Add);
+        Uri summaryUri = new("https://example.test/summary");
+        BMSTable table = new() { Page_url = new Uri("https://example.test/table") };
+
+        await workspace.OpenPlaylistSummaryUriAsync(summaryUri);
+        Assert.IsTrue(workspace.OpenPlaylistTablePage(table));
+        await workspace.OpenPlaylistSummaryUriAsync(new Uri("bmseeker:table.recommended"));
+        Assert.IsFalse(workspace.OpenPlaylistTablePage(new BMSTable { Page_url = new Uri("bmseeker:table.estimation?type=easy") }));
+
+        CollectionAssert.AreEqual(
+            new[] { summaryUri, table.Page_url },
+            openedUris);
+
+        PlaylistWorkspaceViewModel failingWorkspace = CreateDetailWorkspace(
+            out _,
+            browserOpenSink: _ => throw new InvalidOperationException("launch failed"));
+        await failingWorkspace.OpenPlaylistSummaryUriAsync(summaryUri);
+        Assert.ThrowsExactly<InvalidOperationException>(
+            () => failingWorkspace.OpenPlaylistTablePage(table));
+    }
+
+    /// <summary>同IDの古い表・summary参照を現表へ解決し、削除済IDやIDなしを名前・URIだけで現表へ誤接続しないことを確認します。</summary>
+    [TestMethod]
+    public void PlaylistWorkspaceResolvesCurrentTableIdentityOutsideTheView()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string tempDirectory = Path.Combine(
+            migrationWorkspace.RootDirectory,
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            BMSTable active = new()
+            {
+                playlist_id = 42,
+                name = "Current",
+                Page_url = new Uri("https://example.test/table")
+            };
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, lr2PlaylistFolderSynchronization: new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath), uiScheduler: new TestUiScheduler(() => null))
+            {
+                BMSTables = new ObservableCollection<BMSTable>([active])
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist);
+            BMSTable stale = new()
+            {
+                playlist_id = 42,
+                name = "Old",
+                Page_url = active.Page_url
+            };
+
+            Assert.AreSame(active, workspace.ResolveActivePlaylistTable(stale));
+            Assert.AreSame(
+                active,
+                workspace.ResolveActivePlaylistSummaryTable(new PlaylistSummaryRow
+                {
+                    TableRef = stale,
+                    Name = active.name
+                }));
+
+            BMSTable deletedPersistentTable = new()
+            {
+                playlist_id = 99,
+                name = active.name,
+                Page_url = active.Page_url
+            };
+            Assert.IsNull(workspace.ResolveActivePlaylistTable(deletedPersistentTable));
+
+            BMSTable transientTable = new()
+            {
+                name = active.name,
+                Page_url = active.Page_url
+            };
+            Assert.IsNull(workspace.ResolveActivePlaylistTable(transientTable));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>clear・rankの全カテゴリから検索aliasを生成し、MAXとPERFECT、ASSISTの別名、未プレイと未所持を含む独立入力の期待行へ絞り込みます。</summary>
+    [TestMethod]
+    public void PlaylistLampNavigation_UsesChartSearchAliasesForEveryClearAndRankCategory()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string tempDirectory = Path.Combine(
+            migrationWorkspace.RootDirectory,
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+
+            const int playlistId = 7405;
+            const string folderName = "Normal";
+            var entries = new List<BMSTableEntry>();
+            var sourceRows = new List<PlaylistDetailSourceRow>();
+            int fixtureIndex = 0;
+
+            PlaylistDetailSourceRow AddRow(
+                ClearType clear,
+                RankType rank,
+                string title)
+            {
+                fixtureIndex++;
+                var entry = new TestablePlaylistEntry(
+                    fixtureIndex.ToString("x32", CultureInfo.InvariantCulture),
+                    title)
+                {
+                    folder = folderName
+                };
+                entries.Add(entry);
+                PlaylistDetailSourceRow row = new(
+                    entry,
+                    resolvedChart: null,
+                    scoreSnapshot: CreateScore(entry.md5, clear, rank));
+                sourceRows.Add(row);
+                return row;
+            }
+
+            PlaylistDetailSourceRow max = AddRow(ClearType.MAX, RankType.MAX, "max");
+            PlaylistDetailSourceRow perfect = AddRow(ClearType.PA, RankType.AA, "perfect");
+            PlaylistDetailSourceRow fc = AddRow(ClearType.FC, RankType.A, "fc");
+            PlaylistDetailSourceRow exhard = AddRow(ClearType.EX_HARD, RankType.B, "exhard");
+            PlaylistDetailSourceRow hard = AddRow(ClearType.HARD, RankType.C, "hard");
+            PlaylistDetailSourceRow normal = AddRow(ClearType.CLEAR, RankType.D, "normal");
+            PlaylistDetailSourceRow easy = AddRow(ClearType.EASY, RankType.E, "easy");
+            PlaylistDetailSourceRow assist = AddRow(ClearType.INVALID, RankType.INVALID, "assist");
+            PlaylistDetailSourceRow lassist = AddRow(ClearType.L_ASSIST, RankType.INVALID, "lassist");
+            PlaylistDetailSourceRow failed = AddRow(ClearType.FAILED, RankType.F, "failed");
+            PlaylistDetailSourceRow noPlay = AddRow(ClearType.NO_PLAY, RankType.INVALID, "no-play");
+            PlaylistDetailSourceRow noSong = AddRow(ClearType.NO_SONG, RankType.INVALID, "no-song");
+            PlaylistDetailSourceRow rankAaa = AddRow(ClearType.HARD, RankType.AAA, "rank-aaa");
+            PlaylistDetailSourceRow rankMax = AddRow(ClearType.HARD, RankType.MAX, "rank-max");
+            PlaylistDetailSourceRow rankAa = AddRow(ClearType.HARD, RankType.AA, "rank-aa");
+            PlaylistDetailSourceRow rankA = AddRow(ClearType.HARD, RankType.A, "rank-a");
+            PlaylistDetailSourceRow rankB = AddRow(ClearType.HARD, RankType.B, "rank-b");
+            PlaylistDetailSourceRow rankC = AddRow(ClearType.HARD, RankType.C, "rank-c");
+            PlaylistDetailSourceRow rankD = AddRow(ClearType.HARD, RankType.D, "rank-d");
+            PlaylistDetailSourceRow rankE = AddRow(ClearType.HARD, RankType.E, "rank-e");
+            PlaylistDetailSourceRow rankF = AddRow(ClearType.HARD, RankType.F, "rank-f");
+            PlaylistDetailSourceRow playedAssistWithInvalidRank = AddRow(
+                ClearType.INVALID,
+                RankType.INVALID,
+                "played-assist-invalid-rank");
+
+            var table = new BMSTable
+            {
+                playlist_id = playlistId,
+                name = "Lamp category aliases",
+                entries = entries,
+                Folder_order = [folderName]
+            };
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, lr2PlaylistFolderSynchronization: new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath), uiScheduler: new TestUiScheduler(() => null))
+            {
+                BMSTables = new ObservableCollection<BMSTable>([table])
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist);
+            workspace.InitializePlaylistDetailFilter(
+                new ChartListFilterSnapshot("previous keyword", ChartModeFilter._7KEYS));
+            var publications = new List<PlaylistLampNavigationRequestedEventArgs>();
+            workspace.PlaylistLampNavigationRequested += (_, args) => publications.Add(args);
+
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampClearCategory.MAX),
+                publications, max);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampClearCategory.PERFECT),
+                publications, perfect);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampClearCategory.FC),
+                publications, fc);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampClearCategory.EXHARD),
+                publications, exhard);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampClearCategory.HARD),
+                publications, hard, rankAaa, rankMax, rankAa, rankA, rankB, rankC, rankD, rankE, rankF);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampClearCategory.NORMAL),
+                publications, normal);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampClearCategory.EASY),
+                publications, easy);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampClearCategory.ASSIST),
+                publications, assist, lassist, playedAssistWithInvalidRank);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampClearCategory.FAILED),
+                publications, failed);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampClearCategory.NP),
+                publications, noPlay, noSong);
+
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampRankCategory.AAA),
+                publications, max, rankAaa, rankMax);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampRankCategory.AA),
+                publications, perfect, rankAa);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampRankCategory.A),
+                publications, fc, rankA);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampRankCategory.B),
+                publications, exhard, rankB);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampRankCategory.C),
+                publications, hard, rankC);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampRankCategory.D),
+                publications, normal, rankD);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampRankCategory.E),
+                publications, easy, rankE);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampRankCategory.F),
+                publications, failed, assist, lassist, rankF, playedAssistWithInvalidRank);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampRankCategory.NP),
+                publications, noPlay, noSong);
+            Assert.AreEqual(19, publications.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>未所持でも存在するscore、NO_PLAY、NO_SONGを明示入力し、前のkeywordを置換してAAA・clear NP・rank NPごとの期待行を公開します。</summary>
+    [TestMethod]
+    public void PlaylistLampNavigation_ReplacesKeywordAndPublishesFinalRowsForUnownedScoreAndNoPlay()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string tempDirectory = Path.Combine(
+            migrationWorkspace.RootDirectory,
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+
+            const int playlistId = 7401;
+            const string folderName = "Normal";
+            var maxEntry = new TestablePlaylistEntry(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "unowned max")
+            {
+                folder = folderName
+            };
+            var noPlayEntry = new TestablePlaylistEntry(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "no play")
+            {
+                folder = folderName
+            };
+            var noSongEntry = new TestablePlaylistEntry(
+                "cccccccccccccccccccccccccccccccc",
+                "no song")
+            {
+                folder = folderName
+            };
+            var table = new BMSTable
+            {
+                playlist_id = playlistId,
+                name = "Lamp navigation",
+                entries = [maxEntry, noPlayEntry, noSongEntry],
+                Folder_order = [folderName]
+            };
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, lr2PlaylistFolderSynchronization: new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath), uiScheduler: new TestUiScheduler(() => null))
+            {
+                BMSTables = new ObservableCollection<BMSTable>([table])
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist);
+            workspace.InitializePlaylistDetailFilter(
+                new ChartListFilterSnapshot("previous keyword", ChartModeFilter._7KEYS));
+
+            BMSScore maxScore = CreateScore(maxEntry.md5, ClearType.CLEAR, RankType.MAX, rate: 100);
+            BMSScore noPlayScore = CreateScore(noPlayEntry.md5, ClearType.NO_PLAY, RankType.INVALID);
+            BMSScore noSongScore = CreateScore(noSongEntry.md5, ClearType.NO_SONG, RankType.INVALID);
+            PlaylistDetailSourceRow maxRow = new(maxEntry, resolvedChart: null, scoreSnapshot: maxScore);
+            PlaylistDetailSourceRow noPlayRow = new(noPlayEntry, resolvedChart: null, scoreSnapshot: noPlayScore);
+            PlaylistDetailSourceRow noSongRow = new(noSongEntry, resolvedChart: null, scoreSnapshot: noSongScore);
+            IReadOnlyList<PlaylistDetailSourceRow> sourceRows = [maxRow, noPlayRow, noSongRow];
+            var publications = new List<PlaylistLampNavigationRequestedEventArgs>();
+            workspace.PlaylistLampNavigationRequested += (_, args) => publications.Add(args);
+
+            AssertLampNavigationRows(
+                workspace,
+                table,
+                sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(),
+                    folderName,
+                    PlaylistLampRankCategory.AAA),
+                publications,
+                maxRow);
+            AssertLampNavigationRows(
+                workspace,
+                table,
+                sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(),
+                    folderName,
+                    PlaylistLampClearCategory.NP),
+                publications,
+                noPlayRow,
+                noSongRow);
+            AssertLampNavigationRows(
+                workspace,
+                table,
+                sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(),
+                    folderName,
+                    PlaylistLampRankCategory.NP),
+                publications,
+                noPlayRow,
+                noSongRow);
+            Assert.AreEqual(3, publications.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>空文字名の通常folderをlamp遷移先として受理し、全体scopeのnullと混同せず空folderに一致する行を公開します。</summary>
+    [TestMethod]
+    public void PlaylistLampNavigation_AcceptsEmptyNormalFolderAndPublishesFinalRows()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string tempDirectory = Path.Combine(
+            migrationWorkspace.RootDirectory,
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+
+            const int playlistId = 7402;
+            const string folderName = "";
+            var entry = new TestablePlaylistEntry(
+                "dddddddddddddddddddddddddddddddd",
+                "empty folder chart")
+            {
+                folder = folderName
+            };
+            var table = new BMSTable
+            {
+                playlist_id = playlistId,
+                name = "Empty folder navigation",
+                entries = [entry],
+                Folder_order = [folderName]
+            };
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, lr2PlaylistFolderSynchronization: new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath), uiScheduler: new TestUiScheduler(() => null))
+            {
+                BMSTables = new ObservableCollection<BMSTable>([table])
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist);
+            workspace.InitializePlaylistDetailFilter(
+                new ChartListFilterSnapshot("previous keyword", ChartModeFilter._7KEYS));
+
+            BMSScore noPlayScore = CreateScore(entry.md5, ClearType.NO_PLAY, RankType.INVALID);
+            PlaylistDetailSourceRow noPlayRow = new(entry, resolvedChart: null, scoreSnapshot: noPlayScore);
+            IReadOnlyList<PlaylistDetailSourceRow> sourceRows = [noPlayRow];
+            var publications = new List<PlaylistLampNavigationRequestedEventArgs>();
+            workspace.PlaylistLampNavigationRequested += (_, args) => publications.Add(args);
+
+            AssertLampNavigationRows(
+                workspace,
+                table,
+                sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(),
+                    folderName,
+                    PlaylistLampClearCategory.NP),
+                publications,
+                noPlayRow);
+            Assert.AreEqual(string.Empty, publications.Single().Selection.FolderName);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    private static void AssertLampNavigationRows(
+        PlaylistWorkspaceViewModel workspace,
+        BMSTable table,
+        IReadOnlyList<PlaylistDetailSourceRow> sourceRows,
+        PlaylistLampSegmentInvocationRequest request,
+        List<PlaylistLampNavigationRequestedEventArgs> publications,
+        params PlaylistDetailSourceRow[] expectedRows)
+    {
+        int publicationCountBefore = publications.Count;
+        Assert.IsTrue(workspace.TryRequestPlaylistLampNavigation(request));
+        Assert.AreEqual(publicationCountBefore + 1, publications.Count);
+        PlaylistLampNavigationRequestedEventArgs publication = publications[^1];
+        Assert.AreSame(table, publication.Selection.Table);
+        Assert.AreEqual(request.FolderName, publication.Selection.FolderName);
+        Assert.AreEqual(ChartModeFilter._7KEYS, publication.FilterSnapshot.ModeFilter);
+        Assert.AreNotEqual("previous keyword", publication.FilterSnapshot.KeywordFilter);
+
+        List<PlaylistDetailSourceRow> filteredRows = PlaylistDetailPresentationService.ApplySourceRows(
+            sourceRows,
+            publication.FilterSnapshot.KeywordFilter,
+            publication.FilterSnapshot.ModeFilter,
+            sortParameters: null,
+            out _,
+            out _,
+            out _,
+            out _,
+            out _,
+            out _);
+        CollectionAssert.AreEquivalent(expectedRows, filteredRows);
+    }
+
+    /// <summary>新規/既存・LR2/単独・手動外部同期表の空名を実sessionで拒否し、DB・正本・別項目・出力を保ちます。同sessionの既存VM経路で訂正後の通常名を保存します。</summary>
+    /// <remarks>LR2は明示出力名を与えて配置検査による偶然の拒否を避けます。BindingとOK接続は変更せず既存WPF系列へ分担します。</remarks>
+    [TestMethod]
+    [DataRow(false, false, false)]
+    [DataRow(false, true, false)]
+    [DataRow(true, false, false)]
+    [DataRow(true, true, false)]
+    [DataRow(false, false, true)]
+    [DataRow(false, true, true)]
+    [DataRow(true, false, true)]
+    [DataRow(true, true, true)]
+    public async Task PlaylistPropertySave_BlankNamesRejectWithoutMutationAndAllowCorrection(bool lr2, bool isNew, bool external)
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string directory = Path.Combine(migrationWorkspace.RootDirectory, nameof(PlaylistWorkspaceActionWorkflowTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        try
+        {
+            string path = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, path);
+            string normal = Path.Combine(directory, "normal"), bmt = Path.Combine(directory, "bmt");
+            var output = new CustomFolderOutputSettingsSnapshot
+            { OperationModeLR2DB = lr2, LR2RootPath = directory, LR2CustomFolderOutputBaseDir = normal, LR2CustomFolderOutputBaseDirRootType = Path.Combine(directory, "root") };
+            LR2Config config = TestLr2ConfigFactory.CreateLr2Config(directory, normal);
+            var owner = new Lr2ConfigOwner(config); owner.SetPlacement(output);
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => { values.OperationModeLR2DB = lr2; values.EnablePlaylistUrlCompletion = false; });
+            library = new TestBmsLibrary(databaseScope, path, owner, null, null, null, new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
+            playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), path, () => output, owner, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmt }, settings: settings, uiScheduler: new TestUiScheduler(() => null));
+            string header = Path.Combine(directory, "header.json"), data = Path.Combine(directory, "data.json");
+            const string corrected = "Saved table";
+            File.WriteAllText(header, "{\"name\":\"Saved table\",\"symbol\":\"S\",\"data_url\":\"data.json\"}");
+            File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Keep song\"}]");
+            var table = new BMSTable
+            {
+                playlist_id = isNew ? null : 7480,
+                name = "Original",
+                symbol = "Old",
+                Output_dir = "ExplicitOutput",
+                is_external_sync = external,
+                Header_url = new Uri(header),
+                Data_url = new Uri(data),
+                entries = [new BMSTableEntry { md5 = new string('a', 32), title = "Keep song", folder = string.Empty, memo = "Keep memo" }]
+            };
+            var sibling = new BMSTable { playlist_id = 7481, name = "Sibling", Output_dir = "Sibling", entries = [] };
+            playlist.BMSTables = new ObservableCollection<BMSTable>(isNew ? [sibling] : [table, sibling]);
+            foreach (BMSTable current in playlist.BMSTables) { playlist.CommitBMSTableWithEntriesToDB(current); }
+            var service = new PlaylistPropertySaveService(() => playlist, () => library, () => owner, () => output);
+            workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library, propertySaveService: service, dispatchPresentation: action => action());
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+            workspace.PlaylistSyncProgressChanged += (_, _) => { };
+            using PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table, isNew) ?? throw new AssertFailedException();
+            string[] filesBefore = Directory.GetFiles(directory, "*", SearchOption.AllDirectories).OrderBy(value => value).ToArray();
+            byte[] configBefore = File.ReadAllBytes(config.ConfigFilePath);
+            foreach (string? name in new string?[] { null, string.Empty, " ", "\t\r\n", "\u3000\u00a0" })
+            {
+                session.Values.Name = name;
+                session.Values.Symbol = "Must not save";
+                Assert.IsFalse(service.IsValid(session, session.Values), "空白名は明示出力名があっても無効です。");
+                Assert.IsNull((await service.TrySaveAsync(session, session.Values)).Commit);
+                Assert.AreEqual("Original", table.name); Assert.AreEqual("Old", table.symbol);
+                using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), path).OpenSongDbReadOnly();
+                Assert.AreEqual(isNew ? 1 : 2, verify.Table<BMSTable>().Count());
+                Assert.AreEqual("Sibling", verify.Table<BMSTable>().Single(row => row.playlist_id == sibling.playlist_id).name);
+                if (!isNew)
+                {
+                    BMSTable saved = verify.Table<BMSTable>().Single(row => row.playlist_id == table.playlist_id);
+                    Assert.AreEqual("Original", saved.name); Assert.AreEqual("Old", saved.symbol);
+                    Assert.AreEqual("Keep memo", verify.Table<BMSTableEntry>().Single().memo);
+                }
+                CollectionAssert.AreEqual(filesBefore, Directory.GetFiles(directory, "*", SearchOption.AllDirectories).OrderBy(value => value).ToArray());
+                CollectionAssert.AreEqual(configBefore, File.ReadAllBytes(config.ConfigFilePath));
+                Assert.IsFalse(Directory.Exists(normal)); Assert.IsFalse(Directory.Exists(bmt));
+            }
+            session.Values.Name = " " + corrected + " ";
+            Assert.IsTrue(service.IsValid(session, session.Values));
+            Assert.AreEqual(" " + corrected + " ", session.Values.Name, "追加した検査は生入力を正規化しません。");
+            using var dialog = new PlaylistPropertyDialogViewModel(service, session);
+            dialog.name = "\u3000";
+            Assert.IsFalse(dialog.CheckValidation());
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.ValidationFailed, await dialog.SaveAndApplyAsync());
+            dialog.name = " " + corrected + " ";
+            Assert.IsTrue(dialog.CheckValidation());
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+            BMSTable currentTable = playlist.BMSTables.Single(row => row.playlist_id != sibling.playlist_id);
+            Assert.AreEqual(corrected, currentTable.name, "既存VMの前後空白の取扱いを維持します。");
+            using LR2SongDBExtended read = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), path).OpenSongDbReadOnly();
+            Assert.AreEqual(2, read.Table<BMSTable>().Count());
+            Assert.AreEqual(corrected, read.Table<BMSTable>().Single(row => row.playlist_id == currentTable.playlist_id).name);
+            Assert.AreEqual("Sibling", read.Table<BMSTable>().Single(row => row.playlist_id == sibling.playlist_id).name);
+        }
+        finally
+        {
+            if (workspace != null)
+            {
+                workspace.CancelDetailBuilds();
+                await workspace.WaitForDetailBuildIdleAsync();
+                await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                await workspace.WaitForPlaylistReloadCleanupIdleAsync();
+                workspace.Dispose();
+            }
+            if (playlist != null) { await playlist.WaitForPlaylistMutationIdleAsync(); playlist.RequestShutdown("blank-name-test"); }
+            library?.RequestShutdown("blank-name-test");
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>同期OFFのnull解除・相対Header/Dataと、同期ONの必須URL・絶対base・bmseeker例外を実sessionで判定し、相対Pageの拒否とPageなし同期設定の保存を新DB接続で確認します。</summary>
+    /// <remarks>文字列からUriへの変換失敗とOKのBinding反映は実WPFケースへ分担し、到達根拠のない不正なtyped Uriは作りません。</remarks>
+    [TestMethod]
+    public async Task PlaylistPropertySave_UrlAcceptancePreservesClearRelativeSourcesAndSyncRequirements()
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        using (PlaylistPropertyEditSession session = await fixture.Service.CreateEditSessionAsync(fixture.Table)
+            ?? throw new AssertFailedException("URL条件の編集sessionを作成できません。"))
+        {
+            // OFFはURLの解除と片側だけの指定を許容し、Pageだけは絶対URIを要求する。
+            // ONはHeader/Dataと絶対baseを要求するが、既存のbmseeker例外を維持する。
+            foreach ((string condition, bool sync, string? page, string? header, string? data, bool accepted) in new[]
+            {
+                ("off-clear-all", false, (string?)null, (string?)null, (string?)null, true),
+                ("off-header-only", false, null, "header.json", null, true),
+                ("off-data-only", false, null, null, "data.json", true),
+                ("off-absolute-page-relative-sources", false, "https://example.test/table/", "header.json", "data.json", true),
+                ("off-relative-page", false, "table/", "header.json", "data.json", false),
+                ("on-page-base", true, "https://example.test/table/", "header.json", "data.json", true),
+                ("on-header-base-without-page", true, null, "https://example.test/header.json", "data.json", true),
+                ("on-missing-header", true, "https://example.test/table/", null, "data.json", false),
+                ("on-missing-data", true, "https://example.test/table/", "header.json", null, false),
+                ("on-missing-absolute-base", true, null, "header.json", "data.json", false),
+                ("on-bmseeker-exception", true, "bmseeker:playlist", null, null, true)
+            })
+            {
+                session.Values.IsExternalSync = sync;
+                session.Values.PageUrl = page == null ? null : new Uri(page, UriKind.RelativeOrAbsolute);
+                session.Values.HeaderUrl = header == null ? null : new Uri(header, UriKind.RelativeOrAbsolute);
+                session.Values.DataUrl = data == null ? null : new Uri(data, UriKind.RelativeOrAbsolute);
+                Assert.AreEqual(accepted, fixture.Service.IsValid(session, session.Values), condition);
+            }
+            session.Values.IsExternalSync = false;
+            session.Values.PageUrl = new Uri("table/", UriKind.Relative);
+            session.Values.HeaderUrl = new Uri("header.json", UriKind.Relative);
+            session.Values.DataUrl = new Uri("data.json", UriKind.Relative);
+            session.Values.Symbol = "Must not save";
+            Assert.IsNull((await fixture.Service.TrySaveAsync(session, session.Values)).Commit);
+            Assert.AreEqual("PF", fixture.Table.symbol);
+            using LR2SongDBExtended unchanged = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
+            BMSTable read = unchanged.Table<BMSTable>().Single(table => table.playlist_id == fixture.Table.playlist_id);
+            Assert.AreEqual("PF", read.symbol);
+            Assert.AreEqual(fixture.Table.Page_url, read.Page_url);
+            Assert.AreEqual(fixture.Table.Header_url, read.Header_url);
+            Assert.AreEqual(fixture.Table.Data_url, read.Data_url);
+        }
+
+        // 同期済みのURL設定を編集する通常経路。URL変更による外部再取得とは分けて保存契約を確認する。
+        fixture.Table.Page_url = null;
+        fixture.Table.Header_url = new Uri("https://example.test/header.json");
+        fixture.Table.Data_url = new Uri("data.json", UriKind.Relative);
+        fixture.Table.is_external_sync = true;
+        fixture.Playlist.CommitBMSTableHeaderToDB(fixture.Table);
+        using PlaylistPropertyEditSession validSession = await fixture.Service.CreateEditSessionAsync(fixture.Table)
+            ?? throw new AssertFailedException("Pageなし同期設定の編集sessionを作成できません。");
+        validSession.Values.Symbol = "Saved with header base";
+        PlaylistPropertySaveCommit commit = (await fixture.Service.TrySaveAsync(validSession, validSession.Values)).Commit
+            ?? throw new AssertFailedException("有効なPageなし同期設定が拒否されました。");
+        Assert.IsTrue(commit.RequestedValuesSaved);
+        Assert.IsNull(commit.Exception);
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
+        BMSTable saved = verify.Table<BMSTable>().Single(table => table.playlist_id == fixture.Table.playlist_id);
+        Assert.IsNull(saved.Page_url);
+        Assert.AreEqual(fixture.Table.Header_url, saved.Header_url);
+        Assert.AreEqual(new Uri("data.json", UriKind.Relative), saved.Data_url);
+        Assert.IsTrue(saved.is_external_sync);
+        Assert.AreEqual("Saved with header base", saved.symbol);
+    }
+
+    /// <summary>実効同期元の変更とOFF→ONだけが再取得を行い、Pageなし・解除・Header変更を同じ保存境界で扱います。不要取得は元本文を変えて項目と開始通知で検出します。</summary>
+    [TestMethod]
+    [DataRow("page-add", true)]
+    [DataRow("header-change", true)]
+    [DataRow("page-remove", true)]
+    [DataRow("page-change", true)]
+    [DataRow("enable", true)]
+    [DataRow("same", false)]
+    [DataRow("same-source-switch", false)]
+    [DataRow("header-shadowed", false)]
+    [DataRow("data-only", false)]
+    [DataRow("disable", false)]
+    [DataRow("off", false)]
+    public async Task PlaylistPropertySave_EffectiveSourceChangeReloadsOnlyWhenRequired(string condition, bool reload)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        string directory = Path.GetDirectoryName(fixture.HeaderPath) ?? throw new AssertFailedException();
+        Uri previous = new(fixture.HeaderPath);
+        Uri next = new(Path.Combine(directory, "next-header.json"));
+        File.WriteAllText(Path.Combine(directory, "data.json"), "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Old source loaded\",\"level\":\"1\"}]");
+        File.WriteAllText(next.LocalPath, "{\"name\":\"Next\",\"symbol\":\"N\",\"data_url\":\"next-data.json\"}");
+        File.WriteAllText(Path.Combine(directory, "next-data.json"), "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"New source loaded\",\"level\":\"1\"}]");
+        fixture.Table.Page_url = condition is "page-add" or "header-change" ? null : previous;
+        fixture.Table.Header_url = previous;
+        fixture.Table.is_external_sync = condition is not "enable" and not "off";
+        fixture.Playlist.CommitBMSTableHeaderToDB(fixture.Table);
+        using PlaylistPropertyEditSession session = await fixture.Service.CreateEditSessionAsync(fixture.Table) ?? throw new AssertFailedException();
+        PlaylistPropertyValues values = session.Values;
+        values.IsExternalSync = condition is not "disable" and not "off";
+        if (condition is "page-add" or "page-change" or "disable" or "off") { values.PageUrl = next; }
+        if (condition is "header-change" or "page-remove" or "same-source-switch") { values.PageUrl = null; }
+        if (condition is "header-change" or "page-remove" or "header-shadowed") { values.HeaderUrl = next; }
+        if (condition == "data-only") { values.DataUrl = new Uri(Path.Combine(directory, "next-data.json")); }
+        Uri expectedSource = values.PageUrl ?? values.HeaderUrl;
+        values.Symbol = "Saved";
+        int starts = 0;
+        fixture.Service.PlaylistPropertySyncStarted += (_, _) => starts++;
+        (PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError) result = await fixture.Service.TrySaveAsync(session, values);
+        PlaylistPropertySaveCommit commit = result.Commit ?? throw new AssertFailedException("有効な保存が拒否されました。");
+        Assert.IsNull(result.ValidationError);
+        Assert.IsNull(commit.Exception);
+        BMSTable current = fixture.Playlist.BMSTables.Single();
+        Assert.AreEqual(reload ? 1 : 0, starts);
+        Assert.AreEqual(expectedSource, current.Page_url ?? current.Header_url);
+        string expectedTitle = condition == "enable" ? "Old source loaded" : "New source loaded";
+        if (reload) { Assert.AreEqual(expectedTitle, current.entries.Single(entry => !entry.is_removed).title); }
+        else { CollectionAssert.AreEqual(new[] { "entry 0", "entry 1", "entry 2", "entry 3" }, current.entries.Select(entry => entry.title).ToArray()); }
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
+        BMSTable saved = db.Table<BMSTable>().Single();
+        Assert.AreEqual(expectedSource, saved.Page_url ?? saved.Header_url);
+        Assert.AreEqual(values.IsExternalSync, saved.is_external_sync);
+        if (reload) { Assert.AreEqual(expectedTitle, db.Table<LR2SongDBExtended.playlist_entry>().Single(entry => !entry.is_removed).title); }
+        else { Assert.AreEqual("Saved", saved.symbol); }
+    }
+
+    /// <summary>共通保存は新規と変更したrawだけを副作用前に拒否し、旧rawの無変更継承と明示既定名のNULL保存を維持します。</summary>
+    [TestMethod]
+    [DataRow("draft")]
+    [DataRow("changed")]
+    [DataRow("legacy")]
+    [DataRow("default")]
+    public async Task PlaylistPropertySave_OutputNameGuardsOnlyNewInput(string condition)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        fixture.Execute(@"UPDATE playlist SET output_dir = 'Legacy\Name';");
+        fixture.Table.output_dir = @"Legacy\Name";
+        BMSTable table = condition == "draft" ? new BMSTable { name = "Draft", output_dir = @"Legacy\Name" } : fixture.Table;
+        using PlaylistPropertyEditSession session = await fixture.Service.CreateEditSessionAsync(table, condition == "draft") ?? throw new AssertFailedException();
+        session.Values.Symbol = "Saved";
+        if (condition == "changed") { session.Values.OutputDirectory = "./Alpha"; }
+        if (condition == "default") { session.Values.OutputDirectory = table.name; }
+        (PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError) result = await fixture.Service.TrySaveAsync(session, session.Values);
+        bool rejected = condition is "draft" or "changed";
+        Assert.AreEqual(rejected, result.Commit == null);
+        Assert.AreEqual(rejected ? PlaylistPropertyValidationError.OutputDirectoryNameMustBeSingleName : null, result.ValidationError);
+        if (result.Commit is PlaylistPropertySaveCommit commit) { Assert.IsNull(commit.Exception); }
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
+        BMSTable saved = db.Table<BMSTable>().Single();
+        Assert.AreEqual(rejected ? "PF" : "Saved", saved.symbol);
+        Assert.AreEqual(condition == "default" ? null : @"Legacy\Name", db.ExecuteScalar<string>("SELECT output_dir FROM playlist;"));
+        Assert.AreEqual(condition == "default" ? table.name : "LegacyName", saved.Output_dir);
+    }
+
+    /// <summary>プロパティsetterはサニタイズ後の同値判定に先立ってlegacy再入力を拒否し、別列保存では既存rawを維持します。</summary>
+    [TestMethod]
+    public async Task PlaylistPropertySetter_RejectsRawReentryAndPreservesLegacyOnOtherEdits()
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        fixture.Execute(@"UPDATE playlist SET output_dir = 'Legacy\Name';");
+        fixture.Table.output_dir = @"Legacy\Name";
+        PlaylistPropertyValidationError? reported = null;
+        fixture.Workspace.PlaylistPropertyValidationError += (_, request) => reported = request.Error;
+        using PlaylistPropertyEditSession session = await fixture.Service.CreateEditSessionAsync(fixture.Table) ?? throw new AssertFailedException();
+        using var dialog = new PlaylistPropertyDialogViewModel(fixture.Service, session);
+        dialog.output_dir = @"Legacy\Name";
+        Assert.AreEqual(PlaylistPropertyValidationError.OutputDirectoryNameMustBeSingleName, reported);
+        Assert.AreEqual("LegacyName", dialog.output_dir);
+        dialog.symbol = "Other edit";
+        Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
+        Assert.AreEqual(@"Legacy\Name", db.ExecuteScalar<string>("SELECT output_dir FROM playlist;"));
+        Assert.AreEqual("Other edit", db.Table<BMSTable>().Single().symbol);
+    }
+
+    /// <summary>サマリーではlegacyの同文字列や正規化後同値のパス入力を先に拒否し、専用理由を通知して正本再表示を要求します。</summary>
+    [TestMethod]
+    [DataRow(@"Legacy\Name")]
+    [DataRow("./LegacyName")]
+    public async Task SummaryOutputName_RejectsRawBeforeEquivalentValueCheck(string input)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        fixture.Execute(@"UPDATE playlist SET output_dir = 'Legacy\Name';");
+        fixture.Table.output_dir = @"Legacy\Name";
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
+            playlistLibraryProvider: () => fixture.Library, propertySaveService: fixture.Service, playlistWorkspaceDialogService: dialogs);
+        PlaylistSummaryPropertyEditCompletion result = await workspace.CompleteSummaryPropertyEditAsync(
+            new PlaylistSummaryRow { TableRef = fixture.Table }, nameof(PlaylistSummaryRow.FolderName), input, true);
+        Assert.IsFalse(result.IsApplied);
+        Assert.IsTrue(result.RefreshRequired);
+        Assert.AreEqual(Resources.Error_OutputFolderNameMustBeSingleName, dialogs.LastMessageRequest.MessageBoxText);
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
+        Assert.AreEqual(@"Legacy\Name", db.ExecuteScalar<string>("SELECT output_dir FROM playlist;"));
+    }
+
+    /// <summary>実BMT保存失敗から得た未完了出力があっても、禁止rawを先に拒否し、継続可能な状態でDB・出力を動かしません。</summary>
+    [TestMethod]
+    public async Task PlaylistPropertySave_InvalidOutputNamePrecedesPendingOutputContinuation()
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(enableBmtOutput: true, modelUiScheduler: new TestUiScheduler(() => null));
+        using PlaylistPropertyEditSession session = await fixture.Service.CreateEditSessionAsync(fixture.Table) ?? throw new AssertFailedException();
+        session.Values.Symbol = "Saved";
+        using (var blocker = new FileStream(fixture.BmtManifestPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            (PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError) failed = await fixture.Service.TrySaveAsync(session, session.Values);
+            PlaylistPropertySaveCommit commit = failed.Commit ?? throw new AssertFailedException();
+            Assert.IsNotNull(commit.Exception);
+            session.Adopt(commit);
+        }
+        PlaylistPropertyPendingOutput pending = session.PendingOutput ?? throw new AssertFailedException("実失敗の未完了出力がありません。");
+        byte[] before = File.ReadAllBytes(fixture.BmtManifestPath);
+        PlaylistPropertyValues invalid = session.Values.Clone();
+        invalid.OutputDirectory = "../Rejected";
+        invalid.Symbol = "Must not save";
+        (PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError) rejected = await fixture.Service.TrySaveAsync(session, invalid);
+        Assert.IsNull(rejected.Commit);
+        Assert.AreEqual(PlaylistPropertyValidationError.OutputDirectoryNameMustBeSingleName, rejected.ValidationError);
+        Assert.AreSame(pending, session.PendingOutput);
+        Assert.IsTrue(pending.NeedsBmtExport);
+        CollectionAssert.AreEqual(before, File.ReadAllBytes(fixture.BmtManifestPath));
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly())
+        { Assert.AreEqual("Saved", db.Table<BMSTable>().Single().symbol); }
+        (PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError) completed = await fixture.Service.TrySaveAsync(session, session.Values);
+        Assert.IsNotNull(completed.Commit);
+        Assert.IsNull(completed.Commit.Exception);
+    }
+
+    /// <summary>実表writerをworkerで保有したまま保存を開始し、呼出しが未完了Taskを返してwriter解放後に完了することを確認します。</summary>
+    [TestMethod]
+    public async Task PlaylistPropertySave_WaitsOffUiThreadBehindAWriter()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string tempDirectory = Path.Combine(
+            migrationWorkspace.RootDirectory,
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            BMSTable table = new() { name = "Edit target" };
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath), new TestUiScheduler(() => null), settings: TestSettingsFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+            }));
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+            var service = new PlaylistPropertySaveService(
+                () => playlist,
+                () => null!,
+                () => null!,
+                () => new CustomFolderOutputSettingsSnapshot());
+            PlaylistPropertyEditSession session =
+                await service.CreateEditSessionAsync(table);
+            Assert.IsNotNull(session);
+            var writerAcquired = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            using var releaseWriter = new ManualResetEventSlim();
+            var writer = Task.Run(() =>
+            {
+                playlist.AcquireWriterLockBMSTables();
+                try
+                {
+                    writerAcquired.SetResult(true);
+                    releaseWriter.Wait();
+                }
+                finally
+                {
+                    playlist.FreeWriterLockBMSTables();
+                }
+            });
+            Task<(PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError)>? saveTask = null;
+            try
+            {
+                await TestUiDispatcherHost.AwaitNotificationAsync(writerAcquired.Task, writer, "playlist-property.writer");
+                Assert.IsTrue(playlist.IsWriteLockHeldAnyBMSTable);
+                saveTask = service.TrySaveAsync(session, session.Values);
+                Assert.IsFalse(saveTask.IsCompleted);
+                releaseWriter.Set();
+                Assert.IsNotNull((await saveTask).Commit);
+            }
+            finally
+            {
+                releaseWriter.Set();
+                try
+                {
+                    await writer;
+                    if (saveTask != null) { await saveTask; }
+                }
+                finally { session.Dispose(); }
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>他者属性更新、同ID正本置換、属性不変の本番項目追加を保存前に検出し、古い画面値で上書きしません。</summary>
+    [TestMethod]
+    // propertiesは属性競合、referenceは同ID参照置換、entriesは属性不変の行変更です。
+    [DataRow("properties")]
+    [DataRow("reference")]
+    [DataRow("entries")]
+    public async Task PlaylistPropertySave_RejectsAStaleDetachedSessionWithoutOverwritingConcurrentChanges(string change)
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string tempDirectory = Path.Combine(
+            migrationWorkspace.RootDirectory,
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            BMSTable table = new()
+            {
+                playlist_id = 7601,
+                name = "Initial name",
+                symbol = "OLD",
+                entries = [new BMSTableEntry { md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", folder = "A" }]
+            };
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath), new TestUiScheduler(() => null), settings: TestSettingsFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+            }));
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+            var service = new PlaylistPropertySaveService(
+                () => playlist,
+                () => null!,
+                () => null!,
+                () => new CustomFolderOutputSettingsSnapshot());
+            using PlaylistPropertyEditSession session =
+                await service.CreateEditSessionAsync(table)
+                ?? throw new AssertFailedException("Playlist edit session was not created.");
+            session.Values.Name = "Dialog edit";
+            if (change == "properties") { table.symbol = "CONCURRENT"; }
+            else if (change == "reference")
+            {
+                playlist.BMSTables[0] = new BMSTable { playlist_id = table.playlist_id, name = table.name, symbol = table.symbol, entries = table.entries };
+            }
+            else
+            {
+                using (table.ReaderWriterLock.GetWriterGuard())
+                {
+                    table.AddBMSTableEntriesToFolder([new BMSTableEntry { md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", title = "Added" }], "A");
+                }
+                Assert.AreEqual(session.OriginalValues.Name, table.name);
+                Assert.AreEqual(session.OriginalValues.Symbol, table.symbol);
+                Assert.AreNotEqual(session.OriginalValues.EntriesRevision, table.PlaylistEntriesRevision);
+            }
+
+            InvalidOperationException conflict = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+                async () => { await service.TrySaveAsync(session, session.Values); });
+
+            StringAssert.Contains(conflict.Message, "changed after editing began");
+            Assert.AreEqual("Initial name", table.name);
+            Assert.AreEqual(change == "properties" ? "CONCURRENT" : "OLD", table.symbol);
+            if (change == "entries") { Assert.AreEqual(2, table.entries.Count); }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>property保存をDB前の実拒否とDB後の通知故障で分け、前者は全旧状態、後者は同entry/header/版/詳細を確定値で保ちます。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PlaylistPropertySave_FailuresRespectDatabaseCommitBoundary(bool afterCommit)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        await fixture.Refresh();
+        BMSTable table = fixture.Table;
+        BMSTableEntry target = table.entries[0];
+        int version = table.PlaylistEntriesRevision;
+        DateTime date = table.last_update;
+        int nameNotices = 0;
+        table.PropertyChanged += (_, change) =>
+        {
+            if (change.PropertyName != "name") { return; }
+            nameNotices++;
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
+            Assert.AreEqual("Changed header", db.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id=7492;"));
+            Assert.AreEqual("Q1", db.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id=7492 AND title='entry 0';"));
+            if (afterCommit) { throw new InvalidOperationException("post-commit header notification failed"); }
+        };
+        if (!afterCommit)
+        { fixture.Execute("CREATE TRIGGER fail_property_header BEFORE INSERT ON playlist BEGIN SELECT RAISE(ABORT, 'property header DB failed'); END;"); }
+        using PlaylistPropertyEditSession session = await fixture.Service.CreateEditSessionAsync(table)
+            ?? throw new AssertFailedException("Property session was not created.");
+        session.Values.Name = "Changed header"; session.Values.Symbol = "NEW"; session.Values.CompatPrefix = "Q";
+        PlaylistPropertySaveCommit commit = (await fixture.Service.TrySaveAsync(session, session.Values)).Commit
+            ?? throw new AssertFailedException("Valid property save was not accepted.");
+        Assert.IsNotNull(commit.Exception);
+        Assert.AreEqual(afterCommit, commit.RequestedValuesSaved);
+        Assert.AreEqual(afterCommit ? 1 : 0, nameNotices);
+        Assert.AreEqual(afterCommit ? "Changed header" : "Prefix", table.name);
+        Assert.AreEqual(afterCommit ? "NEW" : "PF", table.symbol);
+        Assert.AreEqual(afterCommit ? "Q" : "P", table.compat_prefix);
+        Assert.AreEqual(afterCommit ? "Q1" : "P1", target.folder);
+        Assert.AreSame(target, table.entries[0]);
+        Assert.AreEqual(version + (afterCommit ? 1 : 0), table.PlaylistEntriesRevision);
+        Assert.AreEqual(date, table.last_update);
+        CollectionAssert.AreEqual(afterCommit ? new[] { "QQ3", "QX", "Q2", "Q1" } : new[] { "Q3", "X", "P2", "P1" }, table.Folder_order.ToArray());
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
+        Assert.AreEqual(afterCommit ? "Q" : "P", verify.ExecuteScalar<string>("SELECT compat_prefix FROM playlist WHERE playlist_id=7492;"));
+        Assert.AreEqual(afterCommit ? "Q1" : "P1", verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id=7492 AND title='entry 0';"));
+        if (afterCommit)
+        {
+            Assert.IsInstanceOfType<InvalidOperationException>(commit.Exception);
+            Assert.AreEqual("post-commit header notification failed", commit.Exception.Message);
+            Assert.AreEqual(table.PlaylistEntriesRevision, fixture.Workspace.DetailViewState.Source.LastBuiltPlaylistRevision);
+        }
+    }
+    /// <summary>prefix保存後の公開を失敗させても実DBと行名の確定を保持し、同値の次保存で二重prefixや公開再試行を起こさず、無効属性・通知不成立・取消も区別します。</summary>
+    [TestMethod]
+    public async Task CompleteSummaryPropertyEdit_FreshSameValueSaveDoesNotReplayPrefixFollowUp()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string tempDirectory = Path.Combine(
+            migrationWorkspace.RootDirectory,
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            BMSTableEntry entry = new TestablePlaylistEntry(
+                "abababababababababababababababab",
+                "Alpha")
+            {
+                playlist_id = 7301,
+                folder = "Alpha"
+            };
+            BMSTableEntry prefixedEntry = new TestablePlaylistEntry(
+                "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+                "Prefixed Alpha")
+            {
+                playlist_id = 7301,
+                folder = "★Alpha"
+            };
+            BMSTable table = new()
+            {
+                playlist_id = 7301,
+                name = "Inline prefix retry",
+                symbol = "IPR",
+                compat_prefix = string.Empty,
+                entries = [entry, prefixedEntry],
+                Folder_order = ["Alpha", "★Alpha"]
+            };
+            using (LR2SongDBExtended seed = databaseScope.OpenSongWrite(songDbPath))
+            {
+                seed.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                seed.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+                seed.InsertOrReplace(prefixedEntry, typeof(LR2SongDBExtended.playlist_entry));
+            }
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath), new TestUiScheduler(() => null), settings: TestSettingsFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+            }));
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null));
+            var service = new PlaylistPropertySaveService(
+                () => playlist,
+                () => library,
+                () => null!,
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
+            {
+                MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library,
+                propertySaveService: service,
+                playlistWorkspaceDialogService: dialogs);
+
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+            int prefixPresentationCount = 0;
+            service.PlaylistPropertyFolderSelectionRemapped += (_, _) =>
+            {
+                if (Interlocked.Increment(ref prefixPresentationCount) == 1)
+                {
+                    throw new InvalidOperationException("test inline prefix presentation failure");
+                }
+            };
+            PlaylistSummaryRow row = new() { TableRef = table };
+
+            PlaylistSummaryPropertyEditCompletion failedCompletion =
+                await workspace.CompleteSummaryPropertyEditAsync(
+                    row,
+                    nameof(PlaylistSummaryRow.CompatPrefix),
+                    "★",
+                    commit: true);
+
+            Assert.IsTrue(failedCompletion.RefreshRequired);
+            Assert.IsFalse(failedCompletion.IsApplied);
+            StringAssert.Contains(
+                dialogs.LastMessageRequest.MessageBoxText,
+                BeMusicSeeker.Properties.Resources.Msg_error_unexpected);
+            CollectionAssert.AreEqual(
+                new[] { "★Alpha", "★★Alpha" },
+                table.entries.Select(candidate => candidate.folder).ToArray());
+            Assert.IsTrue((await workspace.CompleteSummaryPropertyEditAsync(
+                row,
+                nameof(PlaylistSummaryRow.CompatPrefix),
+                "★",
+                commit: true)).IsApplied);
+            Assert.AreEqual(1, prefixPresentationCount);
+            CollectionAssert.AreEqual(
+                new[] { "★Alpha", "★★Alpha" },
+                table.entries.Select(candidate => candidate.folder).ToArray());
+            PlaylistSummaryPropertyEditCompletion invalidCompletion =
+                await workspace.CompleteSummaryPropertyEditAsync(
+                    row,
+                    "Unsupported",
+                    "value",
+                    commit: true);
+            Assert.IsTrue(invalidCompletion.RefreshRequired);
+            Assert.IsFalse(invalidCompletion.IsApplied);
+            Assert.AreEqual(
+                BeMusicSeeker.Properties.Resources.Msg_invalid_setting,
+                dialogs.LastMessageRequest.MessageBoxText);
+
+            dialogs.MessageResult = UiDialogResult.NotShown(UiDialogStatus.DispatcherUnavailable);
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+                workspace.CompleteSummaryPropertyEditAsync(
+                    row,
+                    "Unsupported",
+                    "value",
+                    commit: true));
+
+            dialogs.MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+            PlaylistSummaryPropertyEditCompletion noOpCompletion =
+                await workspace.CompleteSummaryPropertyEditAsync(
+                    row,
+                    nameof(PlaylistSummaryRow.Name),
+                    "ignored",
+                    commit: false);
+            Assert.IsFalse(noOpCompletion.IsApplied);
+            Assert.IsFalse(noOpCompletion.RefreshRequired);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
+            CollectionAssert.AreEqual(
+                new[] { "★Alpha", "★★Alpha" },
+                new[]
+                {
+                    verify.ExecuteScalar<string>(
+                        "SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ? AND is_removed = 0;",
+                        table.playlist_id,
+                        entry.md5),
+                    verify.ExecuteScalar<string>(
+                        "SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ? AND is_removed = 0;",
+                        table.playlist_id,
+                        prefixedEntry.md5)
+                });
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>未登録の空名draftから通常・追加・ROOTへ初回出力し、共通基点と兄弟表を保全します。実LR2出力/XML保存の故障後も同IDで未了段階を明示継続し、DBだけの成功や基点を旧先とする移行を検出します。</summary>
+    [TestMethod]
+    [DataRow("normal", "none")]
+    [DataRow("additional", "none")]
+    [DataRow("root", "none")]
+    [DataRow("normal", "output")]
+    [DataRow("root", "xml")]
+    [DataRow("normal", "content")]
+    public async Task CreatePlaylistPropertyDialog_FirstLr2OutputPreservesBasesAndResavesSameId(string destination, string failure)
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string directory = Path.Combine(migrationWorkspace.RootDirectory, nameof(PlaylistWorkspaceActionWorkflowTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        PlaylistPropertyDialogViewModel? dialog = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        FileStream? blocker = null;
+        try
+        {
+            string songPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songPath);
+            string normal = Path.Combine(directory, "normal"), additional = Path.Combine(directory, "additional"), root = Path.Combine(directory, "root");
+            var output = new CustomFolderOutputSettingsSnapshot
+            {
+                OperationModeLR2DB = true,
+                LR2RootPath = directory,
+                LR2CustomFolderOutputBaseDir = normal,
+                LR2CustomFolderOutputBaseDirRootType = root,
+                LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additional])
+            };
+            string targetBase = destination == "root" ? root : destination == "additional" ? additional : normal;
+            string target = Path.Combine(targetBase, "FirstOutput");
+            string targetFile = Path.Combine(target, "0000.lr2folder");
+            string bmt = Path.Combine(directory, "bmt");
+            LR2Config config = TestLr2ConfigFactory.CreateLr2Config(directory, normal, additional);
+            var owner = new Lr2ConfigOwner(config);
+            owner.SetPlacement(output);
+            byte[] oldXml = File.ReadAllBytes(config.ConfigFilePath);
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = true);
+            var library = new TestBmsLibrary(databaseScope, songPath, owner, null, null, null, new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
+            var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songPath, () => output, owner, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmt }, settings: settings, uiScheduler: new TestUiScheduler(() => null));
+            var sibling = new BMSTable { playlist_id = 7501, name = "Sibling", Output_dir = "Sibling", entries = [] };
+            playlist.BMSTables = new ObservableCollection<BMSTable>([sibling]);
+            playlist.CommitBMSTableWithEntriesToDB(sibling);
+            string[] sentinels = new[] { normal, additional, root }.SelectMany(basePath => new[]
+            {
+                Path.Combine(basePath, "base.lr2folder"), Path.Combine(basePath, "Sibling", "0000.lr2folder")
+            }).ToArray();
+            foreach (string path in sentinels)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path) ?? throw new AssertFailedException());
+                File.WriteAllText(path, "sentinel");
+            }
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songPath))
+            {
+                foreach (string path in sentinels) { db.Insert(new LR2SongDB.folder { path = path, title = "sentinel", type = 2 }); }
+            }
+            workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(playlist, library, () => output, () => owner);
+            dialog = await workspace.CreatePlaylistPropertyDialogAsync() ?? throw new AssertFailedException("Draft dialog was not created.");
+            Assert.AreEqual(1, playlist.BMSTables.Count, "画面準備でdraftを登録しません。");
+            dialog.name = "First output";
+            dialog.output_dir = "FirstOutput";
+            dialog.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder;
+            dialog.is_root_folder = destination == "root";
+            if (destination == "additional") { dialog.custom_folder_output_base_option = dialog.OutputBaseOptions.Single(option => option.BaseName == "additional"); }
+            if (failure == "content")
+            {
+                // 空表のBMT本体非生成規則は保ち、必要BMTは保存時に実項目を取得する新規表で確認します。
+                string header = Path.Combine(directory, "header.json");
+                File.WriteAllText(header, "{\"name\":\"First output\",\"symbol\":\"F\",\"data_url\":\"data.json\"}");
+                File.WriteAllText(Path.Combine(directory, "data.json"), "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"First song\",\"level\":\"1\"}]");
+                workspace.PlaylistPropertyExternalSyncConfirmationRequested += (_, request) => request.Confirmed = true;
+                dialog.Page_url = new Uri(header);
+                dialog.Header_url = new Uri(header);
+                dialog.Data_url = new Uri(Path.Combine(directory, "data.json"));
+                dialog.is_external_sync = true;
+                Assert.IsTrue(dialog.is_external_sync);
+            }
+            if (failure == "output")
+            {
+                Directory.CreateDirectory(target);
+                File.WriteAllText(targetFile, "blocked");
+                blocker = new FileStream(targetFile, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+            }
+            else if (failure == "xml") { blocker = new FileStream(config.ConfigFilePath, FileMode.Open, FileAccess.Read, FileShare.Read); }
+            int? registeredId = null;
+            if (failure is "output" or "xml")
+            {
+                await Assert.ThrowsExactlyAsync<IOException>(async () => await dialog.SaveAndApplyAsync());
+                BMSTable registered = playlist.BMSTables.Single(table => table.playlist_id != sibling.playlist_id);
+                registeredId = registered.playlist_id;
+                Assert.IsTrue(registeredId.HasValue);
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath).OpenSongDbReadOnly()) { Assert.AreEqual(2, db.Table<BMSTable>().Count()); }
+                if (failure == "xml")
+                {
+                    Assert.IsTrue(File.Exists(targetFile), "XML保存の前に実出力を終えます。");
+                    CollectionAssert.AreEqual(oldXml, File.ReadAllBytes(config.ConfigFilePath));
+                }
+                blocker?.Dispose(); blocker = null;
+            }
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+            BMSTable saved = playlist.BMSTables.Single(table => table.playlist_id != sibling.playlist_id);
+            Assert.IsTrue(saved.playlist_id.HasValue);
+            if (registeredId.HasValue) { Assert.AreEqual(registeredId, saved.playlist_id); }
+            Assert.AreEqual(2, playlist.BMSTables.Count);
+            Assert.IsTrue(File.Exists(targetFile));
+            string text = File.ReadAllText(targetFile, System.Text.Encoding.GetEncoding("shift_jis"));
+            StringAssert.Contains(text, "playlist_id = " + saved.playlist_id);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual(2, db.Table<BMSTable>().Count());
+                Assert.AreEqual(saved.playlist_id, db.Table<BMSTable>().Single(table => table.name == "First output").playlist_id);
+                Assert.IsTrue(db.Table<LR2SongDB.folder>().Any(row => row.command != null && row.command.Contains("playlist_id = " + saved.playlist_id, StringComparison.Ordinal)));
+                foreach (string path in sentinels) { Assert.AreEqual("sentinel", db.Table<LR2SongDB.folder>().Single(row => row.path == path).title); }
+            }
+            foreach (string path in sentinels) { Assert.AreEqual("sentinel", File.ReadAllText(path)); }
+            var reloaded = new LR2Config(config.ConfigFilePath);
+            Assert.AreEqual(destination == "root", reloaded.GetBMSSearchDirectoriesForChangeTracking().Any(path => string.Equals(path.TrimEnd(Path.DirectorySeparatorChar), target, StringComparison.OrdinalIgnoreCase)));
+            string[] bmtFiles = Directory.Exists(bmt) ? Directory.GetFiles(bmt, "*.bmt") : [];
+            Assert.AreEqual(failure == "content" ? 1 : 0, bmtFiles.Length);
+            if (failure == "content")
+            {
+                var manifest = JObject.Parse(File.ReadAllText(Path.Combine(bmt, BmtTableExportService.ManifestFileName)));
+                JToken ownership = manifest["playlists"]?[saved.playlist_id?.ToString(CultureInfo.InvariantCulture) ?? throw new AssertFailedException("Saved ID is missing.")]
+                    ?? throw new AssertFailedException("BMT ownership is missing.");
+                Assert.AreEqual(Path.GetFileName(bmtFiles.Single()), ownership.Value<string>("file"));
+                using FileStream input = File.OpenRead(bmtFiles.Single());
+                using var gzip = new System.IO.Compression.GZipStream(input, System.IO.Compression.CompressionMode.Decompress);
+                using var reader = new StreamReader(gzip, System.Text.Encoding.UTF8);
+                StringAssert.Contains(JObject.Parse(reader.ReadToEnd()).ToString(), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            }
+            Assert.AreSame(saved, workspace.PlaylistTreeTables.Single(table => table.playlist_id == saved.playlist_id));
+        }
+        finally
+        {
+            blocker?.Dispose();
+            if (dialog != null) { workspace?.ClosePropertyDialog(dialog); dialog.Dispose(); }
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>実draft作成入口から初回登録を確定し、実BMT失敗後の同じ画面の再保存でもIDと表・項目件数を増やしません。</summary>
+    [TestMethod]
+    public async Task CreatePlaylistPropertyDialog_OutputFailureResavesRegisteredDraftWithoutDuplicateId()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string directory = Path.Combine(migrationWorkspace.RootDirectory, nameof(PlaylistWorkspaceActionWorkflowTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        PlaylistPropertyDialogViewModel? dialog = null;
+        FileStream? blocker = null;
+        try
+        {
+            string songPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songPath);
+            string bmt = Path.Combine(directory, "bmt");
+            Directory.CreateDirectory(bmt);
+            string manifest = Path.Combine(bmt, BmtTableExportService.ManifestFileName);
+            File.WriteAllText(manifest, "{\"files\":[],\"playlists\":{}}");
+            blocker = new FileStream(manifest, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+            var playlist = new TestBmsPlaylist(databaseScope, songPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmt }, () => new CustomFolderOutputSettingsSnapshot(), PlaylistTestFixture.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songPath, CustomFolderOutputPhysicalSurface.Empty), uiScheduler: new TestUiScheduler(() => null));
+            var library = new TestBmsLibrary(databaseScope, songPath, null, null, null, null, new TestUiScheduler(() => null), settings: TestSettingsFactory.CreateIsolatedSettings());
+            PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(playlist, library);
+            dialog = await workspace.CreatePlaylistPropertyDialogAsync()
+                ?? throw new AssertFailedException("Draft dialog was not created.");
+            Assert.AreEqual(0, playlist.BMSTables.Count);
+            dialog.name = "Registered draft";
+            dialog.output_dir = "RegisteredDraft";
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songPath))
+            {
+                db.Execute("CREATE TRIGGER fail_draft_insert BEFORE INSERT ON playlist BEGIN SELECT RAISE(FAIL, 'forced draft save failure'); END;");
+            }
+            await Assert.ThrowsExactlyAsync<SQLite.SQLiteException>(async () => await dialog.SaveAndApplyAsync());
+            Assert.AreEqual(0, playlist.BMSTables.Count, "値適用だけで登録済みへ進めません。");
+            Assert.AreEqual("Registered draft", dialog.name, "DB未確定の失敗でも入力を保持します。");
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songPath))
+            {
+                Assert.AreEqual(0, db.Table<BMSTable>().Count());
+                db.Execute("DROP TRIGGER fail_draft_insert;");
+            }
+            await Assert.ThrowsExactlyAsync<PlaylistMutationPostCommitException>(async () => await dialog.SaveAndApplyAsync());
+            BMSTable registered = playlist.BMSTables.Single();
+            Assert.IsTrue(registered.playlist_id.HasValue);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual(1, db.Table<BMSTable>().Count());
+                Assert.AreEqual(0, db.Table<LR2SongDBExtended.playlist_entry>().Count());
+                Assert.AreEqual(registered.playlist_id, db.Table<BMSTable>().Single().playlist_id);
+            }
+            blocker.Dispose();
+            blocker = null;
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+            Assert.AreSame(registered, playlist.BMSTables.Single());
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath).OpenSongDbReadOnly();
+            Assert.AreEqual(1, verify.Table<BMSTable>().Count());
+            Assert.AreEqual(0, verify.Table<LR2SongDBExtended.playlist_entry>().Count());
+            Assert.AreEqual(registered.playlist_id, verify.Table<BMSTable>().Single().playlist_id);
+            Assert.IsTrue(File.Exists(manifest));
+        }
+        finally
+        {
+            blocker?.Dispose();
+            dialog?.Dispose();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>draft作成の設定捕捉を止め、同時作成を未開始として拒否し、先行作成とresetが実DB・正本集合へ未保存表を登録しないことを確認します。</summary>
+    [TestMethod]
+    public async Task CreatePlaylistPropertyDialog_RejectsConcurrentOpenWithoutCanonicalDraftRegistration()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string tempDirectory = Path.Combine(
+            migrationWorkspace.RootDirectory,
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        PlaylistPropertyDialogViewModel? dialog = null;
+        Task<PlaylistPropertyDialogViewModel>? firstOpen = null;
+        var firstSettingsCaptured = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseFirstCreation = new ManualResetEventSlim();
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            var visibleTables = new ObservableCollection<BMSTable>();
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath), new TestUiScheduler(() => null), settings: TestSettingsFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+            }));
+            playlist.BMSTables = visibleTables;
+            var service = new PlaylistPropertySaveService(
+                () => playlist,
+                () => null!,
+                () => null!,
+                () =>
+                {
+                    firstSettingsCaptured.TrySetResult();
+                    releaseFirstCreation.Wait();
+                    return new CustomFolderOutputSettingsSnapshot();
+                });
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                propertySaveService: service);
+            firstOpen = workspace.CreatePlaylistPropertyDialogAsync();
+            await TestUiDispatcherHost.AwaitNotificationAsync(firstSettingsCaptured.Task, firstOpen, "playlist-property.creation-settings");
+            Assert.IsFalse(playlist.CanEnterPlaylistMutation, "新規編集の準備await中もPを保持します。");
+            Assert.AreEqual(0, visibleTables.Count, "新規draftの準備は正本に登録しません。");
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
+            { Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(*) FROM playlist")); }
+            PlaylistPropertyDialogViewModel secondDialog =
+                await workspace.CreatePlaylistPropertyDialogAsync();
+            Assert.IsNull(secondDialog);
+            releaseFirstCreation.Set();
+            dialog = await firstOpen;
+
+            Assert.IsNotNull(dialog);
+            Assert.IsTrue(playlist.CanEnterPlaylistMutation, "準備Task終端でPを解放し、画面寿命へ持ち越しません。");
+            Assert.AreEqual(0, visibleTables.Count);
+            Assert.AreEqual(
+                PlaylistPropertyDialogOperationResult.Completed,
+                await dialog.ResetPropertiesAsync());
+            Assert.AreEqual(0, visibleTables.Count);
+        }
+        finally
+        {
+            releaseFirstCreation.Set();
+            if (firstOpen != null) { dialog ??= await firstOpen; }
+            dialog?.Dispose();
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+
+    /// <summary>BMSとBMSONの実所属行を登録し、導入パッケージの参照表示を同じ登録済み索引から解決します。</summary>
+    [TestMethod]
+    public void InstalledPackageReferenceLookup_ResolvesBmsAndBmsonFromRegisteredTable()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string tempDirectory = Path.Combine(
+            migrationWorkspace.RootDirectory,
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, lr2PlaylistFolderSynchronization: new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath), uiScheduler: new TestUiScheduler(() => null))
+            {
+                BMSTables = new ObservableCollection<BMSTable>()
+            };
+            BMSLibrary library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null));
+            const string bmsMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            const string bmsonSha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            ChartFile bmsFile = ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(CreateSongTableRow(bmsMd5, @"C:\Installed\bms-chart.bms")));
+            ChartFile bmsonIdentity = ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(CreateSongTableRow(null, @"C:\Installed\bmson-chart.bmson")));
+            BMSTable table = new() { name = "Installed references", symbol = "P" };
+            var bmsTableEntry = new BMSTableEntry(bmsFile);
+            var bmsonTableEntry = new BMSTableEntry(bmsonIdentity);
+            bmsonTableEntry.MarkAsBmsonPlaylistIdentity(bmsonSha256);
+            table.entries = [bmsTableEntry, bmsonTableEntry];
+            playlist.BMSTables.Add(table);
+
+            ChartFile bmsonSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
+            {
+                Path = @"C:\Installed\bmson-chart.bmson",
+                Sha256 = bmsonSha256,
+                RawTitle = "Bmson chart",
+                RawArtist = "Artist"
+            };
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                    bmsFile,
+                    @"C:\Installed",
+                    "Bms chart",
+                    "Artist"),
+                PackageChartEntry.FromChart((bmsonSong)));
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library);
+            workspace.RefreshPlaylistTreeTables(playlist);
+            library.SynchronizeReferenceBMSTables([table]);
+
+
+
+            Assert.AreEqual("P", library.GetPlaylistReferenceDisplay(package.ChartEntries[0].Chart).Symbols);
+            Assert.AreEqual("Installed references", library.GetPlaylistReferenceDisplay(package.ChartEntries[0].Chart).Names);
+            Assert.AreEqual("P", library.GetPlaylistReferenceDisplay(package.ChartEntries[1].Chart).Symbols);
+            Assert.AreEqual("Installed references", library.GetPlaylistReferenceDisplay(package.ChartEntries[1].Chart).Names);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+
+
+    /// <summary>重複した表の同期オン要求で破壊的変更の確認を行い、取消なら同期状態を変えないことを確認します。</summary>
+    [TestMethod]
+    public async Task PlaylistWorkspaceSummaryCellActionRequiresExternalSyncConfirmation()
+    {
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
+        };
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
+        var table = new BMSTable { is_external_sync = false };
+
+        await workspace.ApplyPlaylistSummaryCellActionAsync(
+            [
+                new PlaylistSummaryRow { TableRef = table },
+                new PlaylistSummaryRow { TableRef = table }
+            ],
+            "IsExternalSync",
+            value: true);
+
+        Assert.IsNotNull(dialogs.LastConfirmationRequest);
+        Assert.AreEqual(
+            BeMusicSeeker.Properties.Resources.Confirm_EnablePlaylistSyncModeLoseLocalChanges,
+            dialogs.LastConfirmationRequest.MessageBoxText);
+        Assert.IsFalse(table.is_external_sync);
+    }
+
+    /// <summary>現正本の外部同期オンを解除し、確認の承諾後だけ正本と実DBの同期状態を変更します。</summary>
+    [TestMethod]
+    public async Task PlaylistWorkspaceSummaryCellActionAcceptsDisableConfirmationAndMutatesTable()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string databasePath = Path.Combine(
+            migrationWorkspace.RootDirectory,
+            "BeMusicSeekerTests",
+            Guid.NewGuid().ToString("N"),
+            "song.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+        File.WriteAllBytes(databasePath, []);
+        try
+        {
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, databasePath);
+            var playlist = new TestBmsPlaylist(databaseScope, databasePath, lr2PlaylistFolderSynchronization: new TestLr2PlaylistFolderSynchronizationPort(databaseScope, databasePath), uiScheduler: new TestUiScheduler(() => null), settings: TestSettingsFactory.CreateIsolatedSettings(values =>
+                {
+                    values.OperationModeLR2DB = false;
+                    values.EnableBeatorajaBmtOutput = false;
+                }))
+            {
+                BMSTables = new ObservableCollection<BMSTable>()
+            };
+            var table = new BMSTable
+            {
+                playlist_id = 8124,
+                name = "Summary table",
+                Output_dir = "Summary table",
+                is_external_sync = true,
+                Folder_order = []
+            };
+            playlist.BMSTables.Add(table);
+            playlist.CommitBMSTableHeadersToDB([table]);
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                playlistWorkspaceDialogService: dialogs);
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+
+            await workspace.ApplyPlaylistSummaryCellActionAsync(
+                [new PlaylistSummaryRow { TableRef = table }],
+                "IsExternalSync",
+                value: false);
+
+            Assert.IsNotNull(dialogs.LastConfirmationRequest);
+            Assert.AreEqual(
+                BeMusicSeeker.Properties.Resources.Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied,
+                dialogs.LastConfirmationRequest.MessageBoxText);
+            Assert.IsFalse(table.is_external_sync);
+            using LR2SongDBExtended verify = databaseScope.OpenSongWrite(databasePath);
+            Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT is_external_sync FROM playlist WHERE playlist_id = ?", table.playlist_id));
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
+        }
+    }
+
+    /// <summary>同期オンの確認を表示できない場合、明示失敗を返して表を変更せず、確認不成立を承諾へ置換しないことを確認します。</summary>
+    [TestMethod]
+    public async Task PlaylistWorkspaceSummaryCellActionPropagatesDialogFailureWithoutMutation()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
+        {
+            ConfirmationResult = UiDialogResult.NotShown(UiDialogStatus.DispatcherUnavailable)
+        };
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            playlistStoreProvider: () => new TestBmsPlaylist(databaseScope, Path.Combine(migrationWorkspace.RootDirectory, Guid.NewGuid().ToString("N")), lr2PlaylistFolderSynchronization: new TestLr2PlaylistFolderSynchronizationPort(databaseScope, Path.Combine(migrationWorkspace.RootDirectory, Guid.NewGuid().ToString("N"))), uiScheduler: new TestUiScheduler(() => null)),
+            playlistWorkspaceDialogService: dialogs);
+        var table = new BMSTable { is_external_sync = false };
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => workspace.ApplyPlaylistSummaryCellActionAsync(
+                [new PlaylistSummaryRow { TableRef = table }],
+                "IsExternalSync",
+                value: true));
+
+        Assert.IsNotNull(dialogs.LastConfirmationRequest);
+        Assert.IsFalse(table.is_external_sync);
+    }
+
+    /// <summary>重複summary行の削除で表削除の確認を要求し、空選択は削除対象なしとして扱うことを確認します。</summary>
+    [TestMethod]
+    public async Task PlaylistWorkspaceSummaryRemovalRequiresConfirmation()
+    {
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
+        var table = new BMSTable();
+
+        await workspace.PlaylistRemovalWorkflow.RemoveSummaryRowsAsync(
+            [
+                new PlaylistSummaryRow { TableRef = table },
+                new PlaylistSummaryRow { TableRef = table }
+            ]);
+
+        Assert.IsNotNull(dialogs.LastConfirmationRequest);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Msg_remove_playlist, dialogs.LastConfirmationRequest.MessageBoxText);
+        await workspace.PlaylistRemovalWorkflow.RemoveSummaryRowsAsync(Array.Empty<PlaylistSummaryRow>());
+    }
+
+    /// <summary>通常folderの削除確認を要求し、特殊folderと外部同期表では前の確認要求を置換せず新たな削除確認を開始しません。</summary>
+    [TestMethod]
+    public async Task PlaylistWorkspaceFolderRemovalRequiresConfirmationAndRejectsInvalidTargets()
+    {
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
+        var table = new BMSTable();
+        await workspace.PlaylistRemovalWorkflow.RemoveFolderAsync(table, PlaylistFolderNode.CreateFolder("Folder"));
+        Assert.IsNotNull(dialogs.LastConfirmationRequest);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Msg_remove_folder, dialogs.LastConfirmationRequest.MessageBoxText);
+
+        UiConfirmationRequest confirmationRequest = dialogs.LastConfirmationRequest;
+        await workspace.PlaylistRemovalWorkflow.RemoveFolderAsync(
+            table,
+            PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned));
+        Assert.AreSame(confirmationRequest, dialogs.LastConfirmationRequest);
+
+        table.is_external_sync = true;
+        await workspace.PlaylistRemovalWorkflow.RemoveFolderAsync(table, PlaylistFolderNode.CreateFolder("Folder"));
+        Assert.AreSame(confirmationRequest, dialogs.LastConfirmationRequest);
+    }
+
+    /// <summary>確認待ち中に外部同期へ切り替わったfolder削除を承諾後に拒否し、開始時の可否だけで禁止対象を変更する誤りを検出します。</summary>
+    [TestMethod]
+    public async Task PlaylistRemovalWorkflowRejectsExternalSyncRaceAfterConfirmation()
+    {
+        var table = new BMSTable();
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
+            ConfirmationFactory = _ =>
+            {
+                table.is_external_sync = true;
+                return UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+            }
+        };
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            playlistWorkspaceDialogService: dialogs);
+        var rejectedKinds = new List<PlaylistWorkspaceMutationKind>();
+        workspace.MutationRejected += (_, request) => rejectedKinds.Add(request.Kind);
+
+        await workspace.PlaylistRemovalWorkflow.RemoveFolderAsync(
+            table,
+            PlaylistFolderNode.CreateFolder("Folder"));
+
+        CollectionAssert.AreEqual(
+            new[] { PlaylistWorkspaceMutationKind.RemoveFolder },
+            rejectedKinds);
+    }
+
+    /// <summary>未選択・確認取消では選択を変更せず、承諾時に選択と実DBの表削除を確定して削除workflowの配送を確認します。</summary>
+    [TestMethod]
+    public async Task PlaylistWorkspaceTableRemovalConfirmationIsOwnedByWorkflowOwner()
+    {
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
+        using PlaylistWorkspaceTestPorts.OwnedPlaylistStore owned = PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore(databaseScope, modelUiScheduler: new TestUiScheduler(() => null));
+        var table = new BMSTable { name = "Confirmed removal", playlist_id = 4201 };
+        owned.Store.BMSTables.Add(table);
+        owned.Store.CommitBMSTableHeaderToDB(table);
+        var library = new TestBmsLibrary(owned.DatabaseScope, owned.SongDbPath, null, null, null, null, new TestUiScheduler(() => null));
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _, playlistStoreProvider: () => owned.Store,
+            playlistWorkspaceDialogService: dialogs, playlistLibraryProvider: () => library);
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+
+        bool selectionApplied = false;
+        await workspace.PlaylistRemovalWorkflow.RemoveTreeTableAsync(null, () => selectionApplied = true);
+        Assert.IsFalse(selectionApplied);
+        await workspace.PlaylistRemovalWorkflow.RemoveTreeTableAsync(table, () => selectionApplied = true);
+        Assert.IsFalse(selectionApplied);
+        Assert.IsNotNull(dialogs.LastConfirmationRequest);
+
+        dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+        await workspace.PlaylistRemovalWorkflow.RemoveTreeTableAsync(table, () => selectionApplied = true);
+        Assert.IsTrue(selectionApplied);
+        Assert.AreEqual(0, owned.Store.BMSTables.Count);
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(owned.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), owned.SongDbPath).OpenSongDbReadOnly();
+        Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(*) FROM playlist"));
+    }
+
+    /// <summary>内蔵recommendedのlevel上書きを警告で拒否し、通常表は確認承諾後だけlibraryへ進んで欠落による元失敗を返します。</summary>
+    [TestMethod]
+    public async Task PlaylistTableLevelOverwriteWorkflowOwnsRecommendationAndConfirmation()
+    {
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
+        int libraryProviderCalls = 0;
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            playlistLibraryProvider: () =>
+            {
+                libraryProviderCalls++;
+                return null!;
+            },
+            playlistWorkspaceDialogService: dialogs);
+        var recommendedTable = new BMSTable { Page_url = new Uri("bmseeker:table.recommended") };
+        var normalTable = new BMSTable { Page_url = new Uri("https://example.test/table") };
+
+        await workspace.PlaylistTableLevelOverwriteWorkflow.OverwriteAsync(null);
+        await workspace.PlaylistTableLevelOverwriteWorkflow.OverwriteAsync(recommendedTable);
+        Assert.IsNotNull(dialogs.LastMessageRequest);
+        Assert.AreEqual(
+            BeMusicSeeker.Properties.Resources.Msg_override_level_error_recommended,
+            dialogs.LastMessageRequest.MessageBoxText);
+        Assert.IsNull(dialogs.LastConfirmationRequest);
+        Assert.AreEqual(0, libraryProviderCalls);
+
+        await workspace.PlaylistTableLevelOverwriteWorkflow.OverwriteAsync(normalTable);
+        Assert.IsNotNull(dialogs.LastConfirmationRequest);
+        Assert.AreEqual(
+            BeMusicSeeker.Properties.Resources.Msg_override_level_warning,
+            dialogs.LastConfirmationRequest.MessageBoxText);
+        Assert.AreEqual(0, libraryProviderCalls);
+
+        dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+            workspace.PlaylistTableLevelOverwriteWorkflow.OverwriteAsync(normalTable));
+        Assert.AreEqual(1, libraryProviderCalls);
+    }
+
+    /// <summary>列設定初期化の取消では同じ設定と無通知を保ち、承諾後だけ設定を置換して一回通知することを確認します。</summary>
+    [TestMethod]
+    public async Task PlaylistWorkspaceSummaryColumnResetRequiresConfirmation()
+    {
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            playlistWorkspaceDialogService: dialogs);
+        PlaylistSummaryColumnSettings originalSettings = workspace.PlaylistSummaryColumnsSettings;
+        int notificationCount = 0;
+        workspace.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings))
+            {
+                notificationCount++;
+            }
+        };
+
+        await workspace.ResetPlaylistSummaryColumnsToDefaultAsync();
+        Assert.IsNotNull(dialogs.LastConfirmationRequest);
+        Assert.AreEqual(
+            BeMusicSeeker.Properties.Resources.Msg_init_column_settings,
+            dialogs.LastConfirmationRequest.MessageBoxText);
+        Assert.AreEqual(MessageBoxButton.OKCancel, dialogs.LastConfirmationRequest.Button);
+        Assert.AreEqual(MessageBoxResult.Cancel, dialogs.LastConfirmationRequest.DefaultResult);
+        Assert.AreSame(originalSettings, workspace.PlaylistSummaryColumnsSettings);
+        Assert.AreEqual(0, notificationCount);
+
+        dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+        await workspace.ResetPlaylistSummaryColumnsToDefaultAsync();
+        Assert.AreNotSame(originalSettings, workspace.PlaylistSummaryColumnsSettings);
+        Assert.AreEqual(1, notificationCount);
+    }
+
+    /// <summary>列設定の初期化確認を表示できない場合、明示失敗と元の設定を維持して未承諾の初期化を防ぎます。</summary>
+    [TestMethod]
+    public async Task PlaylistWorkspaceSummaryColumnResetPropagatesDialogFailure()
+    {
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
+        {
+            ConfirmationResult = UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable)
+        };
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            playlistWorkspaceDialogService: dialogs);
+        PlaylistSummaryColumnSettings originalSettings = workspace.PlaylistSummaryColumnsSettings;
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => workspace.ResetPlaylistSummaryColumnsToDefaultAsync());
+
+        Assert.AreSame(originalSettings, workspace.PlaylistSummaryColumnsSettings);
+    }
+
+    /// <summary>三つのrecommended政策URIを実score入力から登録し、利用者IDと確認を必要とせず各URIの異なる表を一度ずつ生成することを確認します。</summary>
+    [TestMethod]
+    public async Task PlaylistWorkspaceRecommendedImportAcceptsThreePoliciesWithoutConfirmationOrPlayerId()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string directory = Path.Combine(migrationWorkspace.RootDirectory, nameof(PlaylistWorkspaceActionWorkflowTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
+        Task<ExternalPlaylistImportQueueSummary>? completion = null;
+        try
+        {
+            string databasePath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, databasePath);
+            library = new TestBmsLibrary(databaseScope, databasePath, null, null, null, null, new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot());
+            playlist = new TestBmsPlaylist(databaseScope, databasePath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot(), recommendationScoreReader: _ => Task.FromResult(RecommendedImportScores()), uiScheduler: new TestUiScheduler(() => null));
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
+                playlistWorkspaceDialogService: dialogs, playlistLibraryProvider: () => library);
+            var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
+            workspace.ExternalPlaylistImportQueueSummaryReady += (_, request) => summaryReady.TrySetResult(request.Summary);
+            completion = summaryReady.Task;
+            playlist.StartupReadiness.BeginPlaylistInitialization("test");
+            playlist.StartupReadiness.MarkRequiredPlaylistReady();
+            PlaylistImportStartResult submission = workspace.TryStartPlaylistImport(
+            [
+                new Uri("bmseeker:table.recommended"),
+                new Uri("bmseeker:table.recommended?base=failed"),
+                new Uri("bmseeker:table.recommended?failed=noplay")
+            ]);
+            Assert.AreEqual(PlaylistImportStartStatus.Started, submission.Status);
+            Assert.AreEqual(3, submission.StartedCount);
+
+            Assert.IsNull(dialogs.LastConfirmationRequest);
+            Assert.IsNull(dialogs.LastMessageRequest);
+            playlist.StartupReadiness.MarkRequiredPlaylistReady();
+            ExternalPlaylistImportQueueSummary summary = await completion;
+            Assert.AreEqual(3, summary.ImportedCount);
+            Assert.AreEqual(0, summary.FailedCount);
+            Assert.AreEqual(3, playlist.BMSTables.Select(table => table.name).Distinct().Count());
+            CollectionAssert.AreEquivalent(new[] { "bmseeker:table.recommended", "bmseeker:table.recommended?base=failed", "bmseeker:table.recommended?failed=noplay" },
+                playlist.BMSTables.Select(table => table.Page_url.AbsoluteUri).ToArray());
+        }
+        finally
+        {
+            playlist?.StartupReadiness.MarkRequiredPlaylistReady();
+            if (playlist != null) { await playlist.WaitForPlaylistMutationIdleAsync(); }
+
+            playlist?.RequestShutdown("test_cleanup");
+            library?.RequestShutdown("test_cleanup");
+            Directory.Delete(directory, true);
+        }
+    }
+
+    /// <summary>ready前の内蔵importを未開始として拒否してscore読取も表登録も行わず、ready後の次明示要求だけを一回登録します。</summary>
+    [TestMethod]
+    public async Task PlaylistWorkspaceRecommendedImportRejectsBeforeReadinessAndAcceptsNextExplicitRequest()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string directory = Path.Combine(migrationWorkspace.RootDirectory, nameof(PlaylistWorkspaceActionWorkflowTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
+        Task<ExternalPlaylistImportQueueSummary>? completion = null;
+        try
+        {
+            string databasePath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, databasePath);
+            library = new TestBmsLibrary(databaseScope, databasePath, null, null, null, null, new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot());
+            int reads = 0;
+            playlist = new TestBmsPlaylist(databaseScope, databasePath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot(), recommendationScoreReader: _ => { reads++; return Task.FromResult(RecommendedImportScores()); }, uiScheduler: new TestUiScheduler(() => null));
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
+                playlistWorkspaceDialogService: dialogs, playlistLibraryProvider: () => library);
+            workspace.RefreshPlaylistTreeTables(playlist);
+            var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
+            workspace.ExternalPlaylistImportQueueSummaryReady += (_, request) => summaryReady.TrySetResult(request.Summary);
+            completion = summaryReady.Task;
+            playlist.StartupReadiness.BeginPlaylistInitialization("test");
+            Assert.AreEqual(PlaylistImportStartStatus.NotReady,
+                workspace.TryStartPlaylistImport([new Uri("bmseeker:table.recommended")]).Status);
+            Assert.IsNull(dialogs.LastConfirmationRequest);
+            Assert.AreEqual(0, reads);
+            Assert.AreEqual(0, playlist.BMSTables.Count);
+            Assert.IsFalse(completion.IsCompleted);
+            playlist.StartupReadiness.MarkRequiredPlaylistReady();
+            Assert.AreEqual(PlaylistImportStartStatus.Started,
+                workspace.TryStartPlaylistImport([new Uri("bmseeker:table.recommended")]).Status);
+            ExternalPlaylistImportQueueSummary summary = await completion;
+            Assert.AreEqual(1, summary.ImportedCount);
+            Assert.AreEqual(0, summary.FailedCount);
+            Assert.AreEqual(1, reads);
+            Assert.AreEqual(1, playlist.BMSTables.Count);
+        }
+        finally
+        {
+            playlist?.StartupReadiness.MarkRequiredPlaylistReady();
+            if (playlist != null) { await playlist.WaitForPlaylistMutationIdleAsync(); }
+
+            playlist?.RequestShutdown("test_cleanup");
+            library?.RequestShutdown("test_cleanup");
+            Directory.Delete(directory, true);
+        }
+    }
+
+    private static WalkureScoreInput RecommendedImportScores()
+    {
+        var input = (JObject)JArray.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestData", "Walkure", "math-cases.json")))
+            .Single(row => row.Value<string>("name") == "mixed");
+        return new WalkureScoreInput(ScoreTableLoadStatus.Loaded,
+            ((JArray)(input["observations"] ?? throw new FormatException())).ToImmutableDictionary(
+                row => row.Value<string>("md5") ?? throw new FormatException(),
+                row => Enum.Parse<WalkureLamp>(row.Value<string>("clearLamp") ?? throw new FormatException(), true), StringComparer.OrdinalIgnoreCase));
+    }
+
+    /// <summary>ダミーを除くworkspace捕捉後にモデル行を削除しても、捕捉集合の順序と同じ行参照を保持します。</summary>
+    [TestMethod]
+    public void PlaylistWorkspaceEntrySnapshotPreservesReferencesAfterTableMutation()
+    {
+        Assert.ThrowsExactly<ArgumentNullException>(
+            () => PlaylistWorkspaceViewModel.SnapshotPlaylistEntriesExceptDummy(null));
+
+        var entry = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "entry");
+        var dummy = new TestablePlaylistEntry("00000000000000000000000000000000", "dummy");
+        var table = new BMSTable { entries = [entry, dummy] };
+
+        IReadOnlyList<BMSTableEntry> snapshot = PlaylistWorkspaceViewModel.SnapshotPlaylistEntriesExceptDummy(table);
+        table.RemoveBMSTableEntries(table.entries.ToArray());
+
+        CollectionAssert.AreEqual(new[] { entry }, snapshot.ToArray());
+    }
+
+
+
+    /// <summary>単表再読込では全体cleanupを予約せずidleを保ち、その理由を診断へ渡すことを確認します。</summary>
+    [TestMethod]
+    public void PlaylistReloadCleanupSkipsSingleReloadInsideWorkspace()
+    {
+        var log = new List<string>();
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            reloadCleanupLog: log.Add);
+
+        Assert.IsFalse(workspace.QueuePlaylistReloadCleanup(isFullReload: false, tableCount: 1));
+        Assert.IsTrue(workspace.IsPlaylistReloadCleanupIdle);
+        StringAssert.Contains(log[0], "reason=not_full_reload");
+    }
+
+    /// <summary>先行cleanupのdispatcher待機中に二つの全再読込を予約し、先行と最新だけを処理して中間予約を実行せずidleまで待つことを確認します。</summary>
+    [TestMethod]
+    public async Task PlaylistReloadCleanupProcessesLatestPendingFullReload()
+    {
+        var log = new List<string>();
+        var dispatcherEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dispatcherRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int garbageCollectionCount = 0;
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            reloadCleanupDispatcherIdleWaiter: async () =>
+            {
+                dispatcherEntered.TrySetResult(true);
+                await dispatcherRelease.Task.ConfigureAwait(false);
+            },
+            reloadCleanupGarbageCollector: () => Interlocked.Increment(ref garbageCollectionCount),
+            reloadCleanupLog: log.Add);
+
+        Assert.IsTrue(workspace.QueuePlaylistReloadCleanup(isFullReload: true, tableCount: 1));
+        Task cleanupIdle = workspace.WaitForPlaylistReloadCleanupIdleAsync();
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(dispatcherEntered.Task, cleanupIdle, "playlist.cleanup-dispatcher");
+            Assert.IsTrue(workspace.QueuePlaylistReloadCleanup(isFullReload: true, tableCount: 2));
+            Assert.IsTrue(workspace.QueuePlaylistReloadCleanup(isFullReload: true, tableCount: 3));
+            Assert.IsFalse(cleanupIdle.IsCompleted);
+            dispatcherRelease.TrySetResult(true);
+
+            await cleanupIdle.ConfigureAwait(false);
+
+            Assert.IsTrue(workspace.IsPlaylistReloadCleanupIdle);
+            Assert.AreEqual(2, garbageCollectionCount);
+            Assert.IsTrue(log.Exists(message => message.Contains("completed cleanupId=") && message.Contains("tableCount=1")));
+            Assert.IsTrue(log.Exists(message => message.Contains("completed cleanupId=") && message.Contains("tableCount=3")));
+            Assert.IsFalse(log.Exists(message => message.Contains("completed cleanupId=") && message.Contains("tableCount=2")));
+        }
+        finally
+        {
+            dispatcherRelease.TrySetResult(true);
+            await cleanupIdle.ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>tree展開状態を明示変更し、同値代入では通知せず展開・折畳みごとに一回通知して表示への変更配送を確認します。</summary>
+    [TestMethod]
+    public void PlaylistTreeExpansionState_IsOwnedByWorkspaceAndRaisesOnlyOnChange()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        List<string> propertyNames = [];
+        workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName!);
+
+        workspace.IsPlaylistTreeExpanded = false;
+        propertyNames.Clear();
+        workspace.IsPlaylistTreeExpanded = false;
+        Assert.AreEqual(0, propertyNames.Count);
+
+        workspace.IsPlaylistTreeExpanded = true;
+        workspace.IsPlaylistTreeExpanded = false;
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                nameof(PlaylistWorkspaceViewModel.IsPlaylistTreeExpanded),
+                nameof(PlaylistWorkspaceViewModel.IsPlaylistTreeExpanded)
+            },
+            propertyNames);
+        Assert.IsFalse(workspace.IsPlaylistTreeExpanded);
+    }
+
+    /// <summary>未接続では変更を禁止するlock状態を返し、実store接続後は表集合・個別表writerと更新中状態に追従して誤受付を防ぎます。</summary>
+    [TestMethod]
+    public void PlaylistLockState_IsOwnedByWorkspaceAndPreservesPreInitializationFallbacks()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        PlaylistWorkspaceViewModel uninitializedWorkspace = CreateDetailWorkspace(out _);
+
+        Assert.IsTrue(uninitializedWorkspace.IsWriteLockHeldBMSTables);
+        Assert.IsTrue(uninitializedWorkspace.IsWriteLockHeldBMSTablesInitializeMin);
+        Assert.IsTrue(uninitializedWorkspace.IsWriteLockHeldAnyBMSTable);
+        Assert.IsFalse(uninitializedWorkspace.IsPlaylistUpdating);
+
+        string databasePath = Path.Combine(
+            migrationWorkspace.RootDirectory,
+            "BeMusicSeekerTests",
+            Guid.NewGuid().ToString("N"),
+            "song.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+        File.WriteAllBytes(databasePath, []);
+        try
+        {
+            var playlist = new TestBmsPlaylist(databaseScope, databasePath, lr2PlaylistFolderSynchronization: new TestLr2PlaylistFolderSynchronizationPort(databaseScope, databasePath), uiScheduler: new TestUiScheduler(() => null))
+            {
+                BMSTables = new ObservableCollection<BMSTable>()
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist);
+
+            Assert.AreEqual(playlist.IsWriteLockHeldBMSTables, workspace.IsWriteLockHeldBMSTables);
+            Assert.AreEqual(playlist.IsWriteLockHeldBMSTablesInitializeMin, workspace.IsWriteLockHeldBMSTablesInitializeMin);
+            Assert.AreEqual(playlist.IsWriteLockHeldAnyBMSTable, workspace.IsWriteLockHeldAnyBMSTable);
+            Assert.AreEqual(playlist.IsPlaylistUpdating, workspace.IsPlaylistUpdating);
+
+            playlist.AcquireWriterLockBMSTables();
+            try
+            {
+                Assert.IsTrue(workspace.IsWriteLockHeldBMSTables);
+            }
+            finally
+            {
+                playlist.FreeWriterLockBMSTables();
+            }
+
+            var table = new BMSTable();
+            playlist.BMSTables.Add(table);
+            using (table.ReaderWriterLock.GetWriterGuard())
+            {
+                Assert.IsTrue(workspace.IsWriteLockHeldAnyBMSTable);
+            }
+
+            playlist.IsPlaylistUpdating = true;
+            Assert.IsTrue(workspace.IsPlaylistUpdating);
+            playlist.IsPlaylistUpdating = false;
+            Assert.IsFalse(workspace.IsPlaylistUpdating);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
+        }
+    }
+
+}

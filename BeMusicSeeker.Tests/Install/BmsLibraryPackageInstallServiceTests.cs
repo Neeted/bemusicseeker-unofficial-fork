@@ -19,6 +19,7 @@ using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualBasic.FileIO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.TestSupport.Components.InstallServiceComponentTestSupport;
+using static BeMusicSeeker.TestSupport.Components.PackageInstallFailureTestSupport;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
@@ -9478,54 +9479,6 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null!)
         {
         }
-    }
-
-    /// <summary>実削除を保ち、指定した一つのパスだけ削除失敗を注入する。</summary>
-    internal sealed class FailingDestinationDeleteFileMutationService(string failurePath) : IFileMutationService
-    {
-        private readonly RealFileMutationService inner = new();
-
-        public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
-            => inner.EnsureDirectory(directoryPath, options);
-
-        public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
-            => inner.MoveFile(sourcePath, destinationPath, overwrite, options);
-
-        public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
-            => inner.MoveDirectory(sourcePath, destinationPath, overwrite, options);
-
-        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
-            => inner.CopyFile(sourcePath, destinationPath, overwrite, options);
-
-        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
-            => inner.CopyDirectory(sourcePath, destinationPath, overwrite, options);
-
-        public void DeleteFileDirect(string filePath, FileMutationOptions options = null!)
-        {
-            if (string.Equals(filePath, failurePath, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new IOException("injected-destination-delete-failure");
-            }
-            inner.DeleteFileDirect(filePath, options);
-        }
-
-        public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
-            => inner.DeleteFileShell(filePath, uiOption, recycleOption, options);
-
-        public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions options = null!)
-        {
-            if (string.Equals(directoryPath, failurePath, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new IOException("injected-destination-delete-failure");
-            }
-            inner.DeleteDirectoryDirect(directoryPath, recursive, options);
-        }
-
-        public void DeleteDirectoryShell(string directoryPath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
-            => inner.DeleteDirectoryShell(directoryPath, uiOption, recycleOption, options);
-
-        public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null!)
-            => inner.SetTimestamps(path, isDirectory, creationTime, lastWriteTime, options);
     }
 
 }

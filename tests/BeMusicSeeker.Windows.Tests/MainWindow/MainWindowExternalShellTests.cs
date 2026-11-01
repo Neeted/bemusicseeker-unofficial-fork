@@ -1,0 +1,250 @@
+using System.IO;
+using System.Runtime.ExceptionServices;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Threading;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Wpf;
+using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views;
+
+namespace BeMusicSeeker.Tests;
+
+
+[TestClass]
+// MainWindowTestLifetimeが共有Application.Resourcesのvmを所有し、終了待機中も復元まで保持します。
+[DoNotParallelize]
+public sealed class MainWindowExternalShellTests
+{
+    /// <summary>実MainWindowのフォルダメニューから存在するディレクトリだけを構成済みExplorer入口へ一回渡すことを確認し、欠損対象の実行やファイル選択経路への誤配送を検出します。</summary>
+    /// <remarks>操作判断は下位の管理主体、ここではcompiledメニューイベントと構成済み入口の接続を実WPFで確認します。</remarks>
+    [TestMethod]
+    public void LibraryFolderContextMenu_UsesComposedExternalShellGatewayOnlyForExistingDirectory()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        ExceptionDispatchInfo? bodyFailure = null;
+        Exception? cleanupFailure = null;
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            string root = Path.Combine(
+                migrationWorkspace.RootDirectory,
+                nameof(MainWindowExternalShellTests),
+                Guid.NewGuid().ToString("N"));
+            string directoryPath = Path.Combine(root, "existing");
+            string missingDirectoryPath = Path.Combine(root, "missing");
+            Directory.CreateDirectory(directoryPath);
+            var gateway = new RecordingExternalShellGateway();
+            MainWindow? window = null;
+            MainWindowTestLifetime? ownership = null;
+            MainWindowViewModel? viewModel = null;
+            var lifetime = new MainWindowPresentationTestHarness.PresentationApplicationLifetime();
+            try
+            {
+                var composition = new ApplicationComposition(
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
+                    uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                    applicationLifetime: lifetime,
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    settingsEditSession: new NoOpSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings()),
+                    externalShellGateway: gateway);
+                viewModel = composition.CreateMainWindowViewModel();
+                ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
+                window = ownership.CreateWindow(() => new MainWindow(viewModel));
+
+                var contextMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
+                MenuItem openExplorer = contextMenu.Items
+                    .OfType<MenuItem>()
+                    .Single(item => Equals(item.Header, Resources.Open_folder_explorer));
+
+                contextMenu.PlacementTarget = new TreeViewItem { Header = missingDirectoryPath };
+                openExplorer.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, openExplorer));
+
+                Assert.AreEqual(0, gateway.OpenedDirectoryPaths.Count);
+                Assert.AreEqual(0, gateway.SelectedFilePaths.Count);
+
+                contextMenu.PlacementTarget = new TreeViewItem { Header = directoryPath };
+                openExplorer.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, openExplorer));
+
+                CollectionAssert.AreEqual(new[] { directoryPath }, gateway.OpenedDirectoryPaths);
+                Assert.AreEqual(0, gateway.SelectedFilePaths.Count);
+            }
+            catch (Exception exception)
+            {
+                bodyFailure = ExceptionDispatchInfo.Capture(exception);
+            }
+            finally
+            {
+                if (ownership != null)
+                {
+                    try
+                    {
+                        ownership?.Dispose();
+                    }
+                    catch (Exception exception)
+                    {
+                        cleanupFailure ??= exception;
+                    }
+                }
+                try
+                {
+                    if (Directory.Exists(root))
+                    {
+                        Directory.Delete(root, recursive: true);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                }
+            }
+
+            if (bodyFailure != null)
+            {
+                if (cleanupFailure != null)
+                {
+                    bodyFailure.SourceException.Data["MainWindowTestCleanupFailure"] = cleanupFailure.ToString();
+                }
+                bodyFailure.Throw();
+            }
+            if (cleanupFailure != null)
+            {
+                ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+            }
+        });
+    }
+
+    /// <summary>変更受付中は実メニューの展開と名前修正のクリックを処理済みにして開始せず、終了で操作中表示を戻すことを確認し、画面入口が共有受付を迂回する誤りを検出します。</summary>
+    /// <remarks>操作判断は下位の管理主体、ここではcompiledメニューイベントと構成済み入口の接続を実WPFで確認します。</remarks>
+    [TestMethod]
+    public void ChartPackageMutationActivity_BlocksContextMenuOpenAndMutationCommands()
+    {
+        ExceptionDispatchInfo? bodyFailure = null;
+        Exception? cleanupFailure = null;
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            MainWindow? window = null;
+            MainWindowTestLifetime? ownership = null;
+            MainWindowViewModel? viewModel = null;
+            var lifetime = new MainWindowPresentationTestHarness.PresentationApplicationLifetime();
+            try
+            {
+                var composition = new ApplicationComposition(
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
+                    uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                    applicationLifetime: lifetime,
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    settingsEditSession: new NoOpSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings()),
+                    externalShellGateway: new RecordingExternalShellGateway());
+                viewModel = composition.CreateMainWindowViewModel();
+                ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
+                window = ownership.CreateWindow(() => new MainWindow(viewModel));
+                var operationNotifications = new List<string>();
+                viewModel.PropertyChanged += (_, args) =>
+                {
+                    if (args.PropertyName == nameof(MainWindowViewModel.IsLibraryOperationInProgress))
+                    {
+                        operationNotifications.Add(args.PropertyName!);
+                    }
+                };
+
+                Assert.IsFalse(viewModel.IsLibraryOperationInProgress);
+                Assert.IsTrue(viewModel.FolderAutoRenameWorkflow.IsIdle);
+                using (viewModel.ChartMutationActivity.Enter())
+                {
+                    Assert.IsTrue(viewModel.ChartMutationActivity.IsActive);
+                    Assert.IsTrue(viewModel.IsLibraryOperationInProgress);
+                    Assert.AreEqual(1, operationNotifications.Count);
+
+                    var tableContextMenu = (ContextMenu)window.FindResource("tableContextMenu");
+                    MenuItem autoRenameMenuItem = tableContextMenu.Items
+                        .OfType<MenuItem>()
+                        .Single(item => item.Name == "tableContextMenuItemAutoRenameFolder");
+
+                    var openedArgs = new RoutedEventArgs(ContextMenu.OpenedEvent, tableContextMenu);
+                    tableContextMenu.RaiseEvent(openedArgs);
+                    Assert.IsTrue(openedArgs.Handled);
+
+                    var clickArgs = new RoutedEventArgs(MenuItem.ClickEvent, autoRenameMenuItem);
+                    autoRenameMenuItem.RaiseEvent(clickArgs);
+                    Assert.IsTrue(clickArgs.Handled);
+                    Assert.IsTrue(viewModel.FolderAutoRenameWorkflow.IsIdle);
+                    Assert.IsFalse(viewModel.FolderAutoRenameWorkflow.IsActive);
+                }
+
+                Assert.IsFalse(viewModel.ChartMutationActivity.IsActive);
+                Assert.IsFalse(viewModel.IsLibraryOperationInProgress);
+                Assert.AreEqual(2, operationNotifications.Count);
+            }
+            catch (Exception exception)
+            {
+                bodyFailure = ExceptionDispatchInfo.Capture(exception);
+            }
+            finally
+            {
+                if (ownership != null)
+                {
+                    try
+                    {
+                        ownership?.Dispose();
+                    }
+                    catch (Exception exception)
+                    {
+                        cleanupFailure ??= exception;
+                    }
+                }
+            }
+
+            if (bodyFailure != null)
+            {
+                if (cleanupFailure != null)
+                {
+                    bodyFailure.SourceException.Data["MainWindowTestCleanupFailure"] = cleanupFailure.ToString();
+                }
+                bodyFailure.Throw();
+            }
+            if (cleanupFailure != null)
+            {
+                ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+            }
+        });
+    }
+
+    private sealed class RecordingExternalShellGateway : IExternalShellGateway
+    {
+        internal List<string> OpenedDirectoryPaths { get; } = [];
+
+        internal List<string> SelectedFilePaths { get; } = [];
+
+        public void Open(ExternalShellRequest request)
+        {
+        }
+
+        public ExplorerOpenResult OpenFileAndSelect(string filePath)
+        {
+            SelectedFilePaths.Add(filePath);
+            return new();
+        }
+
+        public ExplorerOpenResult OpenDirectory(string directoryPath)
+        {
+            OpenedDirectoryPaths.Add(directoryPath);
+            return new ExplorerOpenResult
+            {
+                Kind = ExplorerOpenResultKind.OpenedDirectory,
+                RequestedPath = directoryPath,
+                OpenedPath = directoryPath
+            };
+        }
+
+        public bool TryOpenDirectoryWithExplorerProcess(string directoryPath, out string failureReason)
+        {
+            failureReason = string.Empty;
+            return true;
+        }
+    }
+
+}

@@ -40,4 +40,8 @@
     <RemoveDir Directories="$(_ProcessFixtureDestination)" />
     <Copy SourceFiles="@(_ProcessFixtureFiles)" DestinationFiles="@(_ProcessFixtureFiles->'$(_ProcessFixtureDestination)/%(RecursiveDir)%(Filename)%(Extension)')" />
   </Target>
+  <ItemGroup>
+    <!-- 計算・表示の両moduleが同じ独立固定入力を出力から読みます。 -->
+    <Content Include="../../BeMusicSeeker.Tests/TestData/Walkure/*.json" Link="TestData/Walkure/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

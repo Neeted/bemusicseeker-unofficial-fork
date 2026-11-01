@@ -16,110 +16,12 @@ using static BeMusicSeeker.TestSupport.Components.ChartInfoComponentTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
+
 /// <summary>実compositionの終了準備が、同じDB所有者の接続寿命と累積close失敗だけを参照することを検査します。</summary>
 [TestClass]
 [DoNotParallelize]
 public sealed class ShellShutdownDatabaseScopeTests
 {
-    /// <summary>同processの別compositionが実readonly接続を保持していても、接続のないappのCloseは完了します。</summary>
-    [TestMethod]
-    public async Task WindowClose_LeavesAnotherApplicationsReadOnlyConnectionOpen()
-    {
-        string root = CreateTemporaryDirectory();
-        MainWindowViewModel first = MainWindowViewModelTestFactory.Create();
-        MainWindowViewModel second = MainWindowViewModelTestFactory.Create();
-        ApplicationDatabaseScope firstScope = MainWindowViewModelTestFactory.GetComposition(first).DatabaseScope;
-        ApplicationDatabaseScope secondScope = MainWindowViewModelTestFactory.GetComposition(second).DatabaseScope;
-        try
-        {
-            string path = Path.Combine(root, "other.db");
-            using (secondScope.OpenProviderConnection(path)) { }
-            using SQLiteConnectionEx read = secondScope.OpenReadOnly(path);
-            Assert.AreEqual(1, secondScope.ActiveConnectionCount);
-            Assert.AreEqual(0, firstScope.ActiveConnectionCount);
-
-            ShellShutdownWorkflowCompletionReceipt receipt = await ShellShutdownWorkflowOwnerTests.CreateDirectOwner(first).RequestWindowCloseAsync();
-
-            Assert.IsTrue(receipt.PreparationSucceeded);
-            Assert.AreEqual(1, secondScope.ActiveConnectionCount);
-            Assert.AreEqual(1, read.ExecuteScalar<int>("SELECT 1;"));
-        }
-        finally
-        {
-            first.SettingDialog.Dispose();
-            second.SettingDialog.Dispose();
-            Directory.Delete(root, true);
-        }
-    }
-
-    /// <summary>同compositionの実readonly接続を保持する間はCloseを完了せず、実Disposeで最後の接続が閉じた後だけ完了します。</summary>
-    /// <remarks>一般readonly factoryを通し、終了側のsqliteConnections待機開始をClose完了と競合して観測します。song書込みgateだけのdrainではschema/外部player読取りの寿命を回収できないことを検出します。</remarks>
-    [TestMethod]
-    public async Task WindowClose_WaitsUntilItsReadOnlyConnectionIsDisposed()
-    {
-        string root = CreateTemporaryDirectory();
-        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
-        ApplicationDatabaseScope scope = MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope;
-        var connectionWaitEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        Task<ShellShutdownWorkflowCompletionReceipt>? close = null;
-        BeMusicSeeker.Models.LR2.SQLiteConnectionEx? read = null;
-        try
-        {
-            string path = Path.Combine(root, "owned.db");
-            using (scope.OpenProviderConnection(path)) { }
-            read = scope.OpenReadOnly(path);
-            Task idle = scope.WaitForConnectionsIdleAsync();
-            close = ShellShutdownWorkflowOwnerTests.CreateDirectOwner(viewModel, logShutdown: message =>
-            {
-                if (message == "wait_start target=sqliteConnections") { connectionWaitEntered.TrySetResult(); }
-            }).RequestWindowCloseAsync();
-            await TestUiDispatcherHost.AwaitNotificationAsync(connectionWaitEntered.Task, close, "owned-readonly-shutdown-wait");
-
-            Assert.AreEqual(1, scope.ActiveConnectionCount);
-            Assert.IsFalse(idle.IsCompleted);
-            Assert.IsFalse(close.IsCompleted);
-            read.Dispose();
-            read = null;
-            await idle;
-            ShellShutdownWorkflowCompletionReceipt receipt = await close;
-            Assert.AreEqual(0, scope.ActiveConnectionCount);
-            Assert.IsTrue(receipt.PreparationSucceeded);
-        }
-        finally
-        {
-            read?.Dispose();
-            try { if (close != null) { await close; } }
-            finally { viewModel.SettingDialog.Dispose(); Directory.Delete(root, true); }
-        }
-    }
-
-    /// <summary>過去のclose失敗はactiveが0でも更新用準備を失敗Taskにし、通常Closeのreceiptも準備成功へ読み替えません。</summary>
-    /// <remarks>leaseのclose境界で故障させます。更新起動のAbort・Failed・失敗通知・終了はStartupUpdateWorkflowOwnerTestsの準備失敗ケースが分担します。</remarks>
-    [TestMethod]
-    public async Task CloseFailure_RemainsFailureForUpdatePreparationAndWindowCloseAfterIdle()
-    {
-        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
-        ApplicationDatabaseScope scope = MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope;
-        try
-        {
-            var failure = new IOException("owned close failed");
-            ApplicationDatabaseScope.ConnectionLease lease = scope.AcquireConnectionLease();
-            Assert.AreSame(failure, Assert.ThrowsExactly<IOException>(() => lease.Close(() => throw failure)));
-            Assert.AreEqual(0, scope.ActiveConnectionCount);
-            Assert.AreEqual(1, scope.SqliteCloseFailureCount);
-            Assert.IsTrue(scope.WaitForConnectionsIdleAsync().IsCompleted);
-            ShellShutdownWorkflowOwner owner = ShellShutdownWorkflowOwnerTests.CreateDirectOwner(viewModel);
-
-            IOException preparationFailure = await Assert.ThrowsExactlyAsync<IOException>(() => owner.PrepareForStartupUpdateAsync("update"));
-            Assert.AreEqual(BeMusicSeeker.Properties.Resources.DatabaseConnectionCloseFailed, preparationFailure.Message);
-            Assert.IsTrue(owner.ConsumeUpdatePreparationFailure());
-            ShellShutdownWorkflowCompletionReceipt receipt = await owner.RequestWindowCloseAsync();
-            Assert.IsFalse(receipt.PreparationSucceeded);
-            Assert.IsInstanceOfType<IOException>(receipt.Exception);
-            Assert.AreEqual(1, scope.SqliteCloseFailureCount);
-        }
-        finally { viewModel.SettingDialog.Dispose(); }
-    }
 
     /// <summary>実metadataのATTACH中と接続解放後のarchive前を別々に保持し、Closeが接続と受理済みimporter Taskの両終端を待つことを確認します。</summary>
     /// <remarks>gateway初期化と既存診断でimporterの入場を観測し、接続解放後は終了側のstartupBackgroundTasks待機開始をClose完了と競合して観測します。実startupの入力隔離はStartupMetadata_ConsumesOnlyProfileBundleAndPreservesBaseAndAssetsが分担します。</remarks>
@@ -132,7 +34,7 @@ public sealed class ShellShutdownDatabaseScopeTests
         ApplicationDatabaseScope scope = MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope;
         StartupBackgroundTaskSchedulerOwner scheduler = GetStartupScheduler(viewModel);
         var schedulerWaitEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        ShellShutdownWorkflowOwner owner = ShellShutdownWorkflowOwnerTests.CreateDirectOwner(viewModel, logShutdown: message =>
+        ShellShutdownWorkflowOwner owner = ShellShutdownTestSupport.CreateDirectOwner(viewModel, logShutdown: message =>
         {
             if (message == "wait_start target=startupBackgroundTasks") { schedulerWaitEntered.TrySetResult(); }
         });
@@ -256,7 +158,7 @@ public sealed class ShellShutdownDatabaseScopeTests
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
         ApplicationDatabaseScope scope = composition.DatabaseScope;
-        ShellShutdownWorkflowOwner owner = ShellShutdownWorkflowOwnerTests.CreateDirectOwner(viewModel);
+        ShellShutdownWorkflowOwner owner = ShellShutdownTestSupport.CreateDirectOwner(viewModel);
         Task<ShellShutdownWorkflowCompletionReceipt>? close = null;
         try
         {
@@ -337,4 +239,5 @@ public sealed class ShellShutdownDatabaseScopeTests
     /// <summary>このcaseだけが所有するDB入力を、既存profileと分けた一時ディレクトリへ配置します。</summary>
     private static string CreateTemporaryDirectory()
         => Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "ShellDatabaseScope-" + Guid.NewGuid().ToString("N"))).FullName;
+
 }

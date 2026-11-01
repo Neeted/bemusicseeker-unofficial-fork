@@ -56,7 +56,7 @@
 
 ## 終了取消テストの予定外通知の調査
 
-[`PlaylistRootReload_UsesOneTypedTerminalAndHandlesBeforeAsyncCompletion`](../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) の `shutdown-cancellation` で、終了に伴う取消の通知0件という期待に対して1件を観測した。通知の本文・生産元が分からず、原因と本番影響は未特定である。対象単体・同クラス群と診断追加後の通常検証では再現していない。URLセル編集代表とは別のテストプロセスで実行されるため、その共有Application・Dispatcher・Taskから直接混入する経路はない。
+[`PlaylistRootReload_UsesOneTypedTerminalAndHandlesBeforeAsyncCompletion`](../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) の `shutdown-cancellation` で、終了に伴う取消の通知0件という期待に対して1件を観測した。通知の本文・生産元が分からず、原因と本番影響は未特定である。対象単体・同クラス群と診断追加後の通常検証では再現していない。URLセル編集代表とは別のテストプロセスで実行されるため、その共有Application・Dispatcher・Taskから直接混入する経路はない。
 
 再現時には同ケースの通知本文・見出し・生産stack・発生段階・shutdown/CloseCompletion診断を使い、取消通知と別の終了通知を区別して生産経路を特定する。期待値、終了取消の無通知契約、受付・終了処理を根拠なく変えない。これは再現条件を調べる項目であり、解決済みとは扱わない。
 

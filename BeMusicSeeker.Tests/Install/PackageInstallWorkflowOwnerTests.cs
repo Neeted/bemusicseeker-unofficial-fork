@@ -2827,23 +2827,3 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         }
     }
 }
-
-internal sealed class DelegatePackageInstallMutationPort : IPackageInstallMutationPort
-{
-    private readonly Func<BMSLibrary, IEnumerable<string>, CancellationToken, IPackageInstallProgressWriter, PackageInstallCommandResult> install;
-
-    internal DelegatePackageInstallMutationPort(
-        Func<BMSLibrary, IEnumerable<string>, CancellationToken, IPackageInstallProgressWriter, PackageInstallCommandResult> install)
-    {
-        this.install = install ?? throw new ArgumentNullException(nameof(install));
-    }
-
-    public Task<PackageInstallCommandResult> InstallWithProgressAsync(
-        BMSLibrary library,
-        IEnumerable<string> installPaths,
-        CancellationToken token,
-        IPackageInstallProgressWriter progressWriter, IReadOnlySet<string>? fullySelectedDirectories = null)
-    {
-        return Task.FromResult(install(library, installPaths, token, progressWriter));
-    }
-}
