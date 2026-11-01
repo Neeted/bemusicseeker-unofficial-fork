@@ -357,3 +357,19 @@ internal static class AudioDeviceTestResultFactory
             nativeErrorCode);
     }
 }
+
+/// <summary>テストが指定した音声runtimeの結果または故障を、実音声ownerへ返します。</summary>
+internal sealed class DelegateAudioDeviceTestRuntime : IAudioDeviceTestRuntime
+{
+    private readonly Func<AudioDeviceTestRequest, AudioDeviceTestResult> run;
+
+    /// <summary>このcaseが定める要求処理を捕捉します。</summary>
+    internal DelegateAudioDeviceTestRuntime(Func<AudioDeviceTestRequest, AudioDeviceTestResult> run)
+    {
+        this.run = run;
+    }
+
+    /// <summary>実音声ownerの要求を変換せず、指定した処理へ渡します。</summary>
+    public AudioDeviceTestResult Run(AudioDeviceTestRequest request)
+        => run(request);
+}

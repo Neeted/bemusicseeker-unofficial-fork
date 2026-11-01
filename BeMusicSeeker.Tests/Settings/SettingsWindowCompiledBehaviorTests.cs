@@ -537,7 +537,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
             owner.SettingDialog.Dispose();
             var persistedRequests = new CountingSettingsProvider(settings.Properties[nameof(Settings.Encoder)].Provider);
             foreach (System.Configuration.SettingsProperty property in settings.Properties) { property.Provider = persistedRequests; }
-            var dialogs = new SettingsDialogBehaviorTests.RecordingDialogService
+            var dialogs = new SettingsDialogHarness.RecordingDialogService
             {
                 MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
@@ -551,7 +551,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create(),
                 externalShellGateway: ExternalShellGatewayPolicy.Current,
                 applicationPathSnapshot: ApplicationPathPolicy.Current,
-                audioDeviceCatalog: new SettingsDialogBehaviorTests.WaveOnlyAudioDeviceCatalog(),
+                audioDeviceCatalog: new SettingsDialogHarness.WaveOnlyAudioDeviceCatalog(),
                 audioSettingsGateway: gateway);
             SettingsWindow? window = null;
             try
