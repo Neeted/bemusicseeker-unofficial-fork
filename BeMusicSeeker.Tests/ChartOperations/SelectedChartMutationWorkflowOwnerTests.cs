@@ -1485,6 +1485,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     }
 
     /// <summary>実storeと実DBを通し、最初の確認前の固定対象が削除・通常拡張子変更へ届くことを確認します。</summary>
+    /// <remarks>確認通知と操作が共に完了している場合も実通知への到達を受理し、待機競合の勝者を処理順の証拠にしません。</remarks>
     [TestMethod]
     // 0: 初期hashと現hashが違う削除、2: 確認取消、3: 現path変更後の拡張子修正。
     [DataRow(0)]
@@ -1556,9 +1557,8 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 if (scenario < 3)
                 {
                     operation = owner.DeleteAsync(new SelectedChartDeleteRequest([target], target, MainViewOperationSection.Library));
-                    Task arrived = await Task.WhenAny(reached.Task, operation);
-                    Assert.AreSame(reached.Task, arrived, "確認到達前にTaskが終端しました。");
-                    await reached.Task;
+                    await TestUiDispatcherHost.AwaitNotificationAsync(
+                        reached.Task, operation, "prepared-selected-delete-confirmation");
                     Assert.IsTrue(gate.IsActive);
                     Assert.IsFalse(gate.TryEnter(out IDisposable competingLease));
                     competingLease?.Dispose();
@@ -1567,9 +1567,8 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 else
                 {
                     operation = owner.RenameInvalidExtensionsAsync(new SelectedInvalidExtensionRenameRequest([target], false));
-                    Task arrived = await Task.WhenAny(reached.Task, operation);
-                    Assert.AreSame(reached.Task, arrived, "確認到達前にTaskが終端しました。");
-                    await reached.Task;
+                    await TestUiDispatcherHost.AwaitNotificationAsync(
+                        reached.Task, operation, "prepared-selected-rename-confirmation");
                 }
                 SelectedChartMutationResult result = await operation;
                 Assert.IsFalse(gate.IsActive);
