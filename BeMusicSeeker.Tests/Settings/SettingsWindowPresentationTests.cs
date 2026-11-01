@@ -2436,7 +2436,8 @@ public sealed class SettingsWindowPresentationTests
             var testReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var workflow = new AudioDeviceTestWorkflowOwner(
                 new NoOpAudioDeviceTestPlaybackPort(),
-                runtime);
+                runtime,
+                requestAdmission: new TestAudioDeviceTestRequestAdmission());
             workflow.OperationReleased += () => testReleased.TrySetResult();
             var dialog = new SettingsDialogViewModel(composition.DatabaseScope,
                 viewModel,
@@ -5353,7 +5354,8 @@ public sealed class SettingsWindowPresentationTests
                 request.DeviceIdentity,
                 request.DeviceName,
                 AudioDeviceCapabilityStatus.Available,
-                [SampleRate.SAMPLE_RATE_44100Hz])));
+                [SampleRate.SAMPLE_RATE_44100Hz])),
+                requestAdmission: new TestAudioDeviceTestRequestAdmission());
         var dialog = new SettingsDialogViewModel(composition.DatabaseScope,
             owner,
             owner.PlaylistWorkspace,

@@ -76,7 +76,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                     new NoOpAudioDeviceTestPlaybackPort(), new SuccessfulAudioDeviceTestRuntime(),
                     new DelegateAudioDeviceCapabilityRuntime(request => new AudioDeviceCapabilityResult(
                         request.Backend, request.DeviceIdentity, request.DeviceName,
-                        AudioDeviceCapabilityStatus.Unsupported, []))),
+                        AudioDeviceCapabilityStatus.Unsupported, [])),
+                        requestAdmission: new TestAudioDeviceTestRequestAdmission()),
                 externalShellGateway: ExternalShellGatewayPolicy.Current,
                 applicationPathSnapshot: ApplicationPathPolicy.Current,
                 audioDeviceCatalog: new TestAudioDeviceCatalog(),
@@ -648,7 +649,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
             var workflow = new AudioDeviceTestWorkflowOwner(
                 new NoOpAudioDeviceTestPlaybackPort(),
                 new SuccessfulAudioDeviceTestRuntime(),
-                capabilityRuntime);
+                capabilityRuntime,
+                requestAdmission: new TestAudioDeviceTestRequestAdmission());
             var audioSettingsGateway = new TestAudioSettingsGateway
             {
                 OutputSelection = new AudioOutputSelection(AudioDriver.WasapiExclusive, null, null)
@@ -765,7 +767,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
             var workflow = new AudioDeviceTestWorkflowOwner(
                 new NoOpAudioDeviceTestPlaybackPort(),
                 new SuccessfulAudioDeviceTestRuntime(),
-                capabilityRuntime);
+                capabilityRuntime,
+                requestAdmission: new TestAudioDeviceTestRequestAdmission());
             var dialog = new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
                 owner,
                 owner.PlaylistWorkspace,

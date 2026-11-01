@@ -117,7 +117,8 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 executablePath,
                 new Lr2ConfigOwner(new LR2Config(configPath)),
                 new SettingsPlayerSettingsGateway(() => testSettings),
-                gateway);
+                gateway,
+                waitPolicy: CreateWaitPolicy());
             ((IExternalWindowPlayer)player).AttachWindowHost(new Win32ExternalPlayerWindowHost(IntPtr.Zero));
 
             Assert.ThrowsExactly<TimeoutException>(() => player.PlayStart(chartPath, (EventHandler)null!));
@@ -142,7 +143,8 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             var player = new BMIIDXView2015(
                 executablePath,
                 new SettingsPlayerSettingsGateway(() => testSettings),
-                gateway);
+                gateway,
+                waitPolicy: CreateWaitPolicy());
             ((IExternalWindowPlayer)player).AttachWindowHost(new Win32ExternalPlayerWindowHost(IntPtr.Zero));
 
             Assert.ThrowsExactly<InvalidOperationException>(() => player.PlayStart(chartPath, (EventHandler)null!));
@@ -169,7 +171,8 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             var player = new BMIIDXView2015(
                 executablePath,
                 new SettingsPlayerSettingsGateway(() => testSettings),
-                gateway);
+                gateway,
+                waitPolicy: CreateWaitPolicy());
             ((IExternalWindowPlayer)player).AttachWindowHost(new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99))));
             object? observedSender = null;
             EventArgs? observedArgs = null;
@@ -196,8 +199,8 @@ public sealed partial class ExternalPlayerProcessGatewayTests
     [TestMethod]
     public void ExternalPlayerWaitPolicyFailsInsteadOfWaitingIndefinitely()
     {
-        var policy = new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(25));
-        var stopwatch = Stopwatch.StartNew();
+        var clock = new ManualExternalPlayerTime();
+        var policy = new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(25), clock, clock.Wait);
 
         TimeoutException exception = Assert.ThrowsExactly<TimeoutException>(
             () => policy.WaitUntil(
@@ -207,9 +210,64 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 timeoutMessage: "bounded wait expired",
                 pollMilliseconds: 1));
 
-        stopwatch.Stop();
         Assert.AreEqual("bounded wait expired", exception.Message);
-        Assert.IsTrue(stopwatch.Elapsed < TimeSpan.FromSeconds(2));
+        Assert.AreEqual(TimeSpan.FromMilliseconds(25), clock.Elapsed);
+    }
+
+    /// <summary>終了待機は期限の半分で一回だけkillを試し、実終了だけを成功にして未終了・kill例外では期限の失敗を返します。</summary>
+    [TestMethod]
+    [DataRow(true, false)] // killで終了を確認できる。
+    [DataRow(false, false)] // kill後も終了しない。
+    [DataRow(false, true)] // kill自体が失敗する。
+    public void ExternalPlayerExitWaitForcesOnceAtHalfDeadline(bool exitsOnKill, bool killThrows)
+    {
+        var clock = new ManualExternalPlayerTime();
+        var policy = new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(100), clock, clock.Wait);
+        bool exited = false;
+        int kills = 0;
+        TimeSpan? killedAt = null;
+        void WaitForExit() => policy.WaitForProcessExit(
+            () => exited,
+            () =>
+            {
+                kills++;
+                killedAt = clock.Elapsed;
+                if (killThrows) { throw new InvalidOperationException("kill failed"); }
+                exited = exitsOnKill;
+            },
+            "exit wait expired");
+
+        if (exitsOnKill) { WaitForExit(); }
+        else
+        {
+            TimeoutException failure = Assert.ThrowsExactly<TimeoutException>(WaitForExit);
+            Assert.AreEqual("exit wait expired", failure.Message);
+        }
+
+        Assert.AreEqual(1, kills);
+        Assert.AreEqual(TimeSpan.FromMilliseconds(50), killedAt);
+        Assert.AreEqual(TimeSpan.FromMilliseconds(exitsOnKill ? 50 : 100), clock.Elapsed);
+        Assert.AreEqual(exitsOnKill, exited);
+    }
+
+    /// <summary>待機途中の中止を次の試行より前に返し、中止を成功や期限超過へ置換しません。</summary>
+    [TestMethod]
+    public void ExternalPlayerWaitReturnsAbortWithoutAnotherAttempt()
+    {
+        var clock = new ManualExternalPlayerTime();
+        var policy = new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(100), clock, clock.Wait);
+        int attempts = 0;
+
+        bool completed = policy.WaitUntil(
+            () => false,
+            () => attempts == 1,
+            () => attempts++,
+            "wait expired",
+            pollMilliseconds: 10);
+
+        Assert.IsFalse(completed);
+        Assert.AreEqual(1, attempts);
+        Assert.AreEqual(TimeSpan.FromMilliseconds(10), clock.Elapsed);
     }
 
     /// <summary>BMIIDXのwindow準備が期限超過したら起動processへ閉鎖とkillを一回行い、所有processを生存させません。</summary>
@@ -224,7 +282,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 executablePath,
                 new SettingsPlayerSettingsGateway(() => testSettings),
                 gateway,
-                new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+                CreateWaitPolicy(TimeSpan.FromMilliseconds(40)));
             ((IExternalWindowPlayer)player).AttachWindowHost(
                 new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99))));
 
@@ -254,7 +312,8 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             var player = new BMIIDXView2015(
                 executablePath,
                 new SettingsPlayerSettingsGateway(() => testSettings),
-                gateway);
+                gateway,
+                waitPolicy: CreateWaitPolicy());
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
 
             player.PlayStart(chartPath, (Action<object, EventArgs>)null!);
@@ -282,7 +341,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 executablePath,
                 new SettingsPlayerSettingsGateway(() => testSettings),
                 gateway,
-                new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+                CreateWaitPolicy(TimeSpan.FromMilliseconds(40)));
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
             player.PlayStart(chartPath, (Action<object, EventArgs>)null!);
             gateway.Session.KillException = new InvalidOperationException("kill rejected");
@@ -323,7 +382,8 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 executablePath,
                 new Lr2ConfigOwner(new LR2Config(configPath)),
                 settingsGateway,
-                gateway);
+                gateway,
+                waitPolicy: CreateWaitPolicy());
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
 
             player.PlayStart(chartPath, (EventHandler)null!);
@@ -374,7 +434,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 new Lr2ConfigOwner(new LR2Config(configPath)),
                 new RecordingPlayerSettingsGateway(),
                 gateway,
-                new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(100)));
+                CreateWaitPolicy(TimeSpan.FromMilliseconds(100)));
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
 
             Assert.ThrowsExactly<InvalidOperationException>(
@@ -421,7 +481,8 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 executablePath,
                 playerConfig,
                 new RecordingPlayerSettingsGateway(),
-                gateway);
+                gateway,
+                waitPolicy: CreateWaitPolicy());
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
 
             player.PlayStart(chartPath, (EventHandler)null!);
@@ -476,7 +537,8 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 executablePath,
                 playerConfig,
                 new RecordingPlayerSettingsGateway(),
-                gateway);
+                gateway,
+                waitPolicy: CreateWaitPolicy());
             ((IExternalWindowPlayer)player).AttachWindowHost(
                 new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99))));
 
@@ -516,7 +578,8 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 executablePath,
                 playerConfig,
                 new RecordingPlayerSettingsGateway(),
-                gateway);
+                gateway,
+                waitPolicy: CreateWaitPolicy());
             ((IExternalWindowPlayer)player).AttachWindowHost(
                 new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99))));
 
@@ -559,7 +622,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 new Lr2ConfigOwner(new LR2Config(configPath)),
                 new RecordingPlayerSettingsGateway(),
                 gateway,
-                new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(80)));
+                CreateWaitPolicy(TimeSpan.FromMilliseconds(80)));
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
 
             InvalidOperationException failure = Assert.ThrowsExactly<InvalidOperationException>(
@@ -607,7 +670,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 new Lr2ConfigOwner(new LR2Config(configPath)),
                 new RecordingPlayerSettingsGateway(),
                 gateway,
-                new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+                CreateWaitPolicy(TimeSpan.FromMilliseconds(40)));
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
 
             player.PlayStart(chartPath, (EventHandler)null!);
@@ -649,7 +712,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 new Lr2ConfigOwner(new LR2Config(configPath)),
                 new RecordingPlayerSettingsGateway(),
                 gateway,
-                new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(80)));
+                CreateWaitPolicy(TimeSpan.FromMilliseconds(80)));
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
 
             try
@@ -704,7 +767,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                     new Lr2ConfigOwner(new LR2Config(configPath)),
                     new RecordingPlayerSettingsGateway(),
                     gateway,
-                    new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(80)));
+                    CreateWaitPolicy(TimeSpan.FromMilliseconds(80)));
                 ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
 
                 InvalidOperationException failure = Assert.ThrowsExactly<InvalidOperationException>(
@@ -778,8 +841,8 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 WindowTitle = chart
             };
             IBMSPlayer player = ubmplay
-                ? new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)))
-                : new BMIIDXView2015(executable, new RecordingPlayerSettingsGateway(), gateway, new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+                ? new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, CreateWaitPolicy(TimeSpan.FromMilliseconds(40)))
+                : new BMIIDXView2015(executable, new RecordingPlayerSettingsGateway(), gateway, CreateWaitPolicy(TimeSpan.FromMilliseconds(40)));
             ((IExternalWindowPlayer)player).AttachWindowHost(host);
             try
             {
@@ -822,8 +885,8 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 WindowTitle = chart
             };
             IBMSPlayer player = ubmplay
-                ? new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)))
-                : new BMIIDXView2015(executable, new RecordingPlayerSettingsGateway(), gateway, new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+                ? new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, CreateWaitPolicy(TimeSpan.FromMilliseconds(40)))
+                : new BMIIDXView2015(executable, new RecordingPlayerSettingsGateway(), gateway, CreateWaitPolicy(TimeSpan.FromMilliseconds(40)));
             ((IExternalWindowPlayer)player).AttachWindowHost(host);
             try
             {
@@ -855,7 +918,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 WindowClassName = "ThunderRT6FormDC",
                 WindowTitle = chart
             };
-            var player = new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+            var player = new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, CreateWaitPolicy(TimeSpan.FromMilliseconds(40)));
             ((IExternalWindowPlayer)player).AttachWindowHost(host);
             int notified = 0;
             EventArgs? exit = null;
@@ -912,7 +975,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 WindowClassName = "ThunderRT6FormDC",
                 WindowTitle = chart
             };
-            var player = new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+            var player = new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, CreateWaitPolicy(TimeSpan.FromMilliseconds(40)));
             ((IExternalWindowPlayer)player).AttachWindowHost(host);
             int oldNotifications = 0;
             int newNotifications = 0;
@@ -967,7 +1030,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 WindowTitle = chart
             };
             failedNewMain.BeforeStart = () => host.WindowTitle = "different chart";
-            var player = new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+            var player = new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, CreateWaitPolicy(TimeSpan.FromMilliseconds(40)));
             ((IExternalWindowPlayer)player).AttachWindowHost(host);
             using var consumerReady = new ManualResetEventSlim();
             using var runConsumer = new ManualResetEventSlim();
@@ -1095,7 +1158,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 WindowClassName = "ThunderRT6FormDC",
                 WindowTitle = chart
             };
-            var player = new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+            var player = new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, CreateWaitPolicy(TimeSpan.FromMilliseconds(40)));
             ((IExternalWindowPlayer)player).AttachWindowHost(host);
             var notifications = new List<int>();
             try
@@ -1138,7 +1201,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 WindowClassName = "ThunderRT6FormDC",
                 WindowTitle = chart
             };
-            var player = new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+            var player = new uBMplay(executable, new RecordingPlayerSettingsGateway(), gateway, CreateWaitPolicy(TimeSpan.FromMilliseconds(40)));
             ((IExternalWindowPlayer)player).AttachWindowHost(host);
             int old = 0;
             int current = 0;
@@ -1178,7 +1241,8 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             var player = new uBMplay(
                 executablePath,
                 new SettingsPlayerSettingsGateway(() => testSettings),
-                gateway);
+                gateway,
+                waitPolicy: CreateWaitPolicy());
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
 
             player.PlayStart(chartPath, (Action<object, EventArgs>)null!);
@@ -1193,9 +1257,12 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             Assert.AreEqual("-SP \"" + chartPath + "\"", gateway.LaunchRequest.Arguments);
             Assert.AreEqual(ProcessWindowStyle.Normal, gateway.LaunchRequest.WindowStyle);
             CollectionAssert.Contains(windowHost.Operations, "AttachUbmplayWindow");
-            Assert.AreEqual(6, windowHost.Operations.Count(operation => operation == "SendKey"));
-            CollectionAssert.Contains(windowHost.KeyEvents, "11:False:True");
-            CollectionAssert.Contains(windowHost.KeyEvents, "80:True:True");
+            CollectionAssert.AreEqual(new[]
+            {
+                "11:False:True", "11:False:False",
+                "11:False:True", "11:False:False",
+                "80:True:True", "80:True:False"
+            }, windowHost.KeyEvents);
 
             windowHost.LegacyWindowEmbedding = true;
             gateway.ExistingProcesses = new[] { gateway.Session };
@@ -1239,7 +1306,8 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             var player = new uBMplay(
                 executablePath,
                 new SettingsPlayerSettingsGateway(() => testSettings),
-                gateway);
+                gateway,
+                waitPolicy: CreateWaitPolicy());
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
 
             player.PlayStart(chartPath, (Action<object, EventArgs>)null!);
@@ -1293,7 +1361,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 executablePath,
                 new SettingsPlayerSettingsGateway(() => testSettings),
                 gateway,
-                new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+                CreateWaitPolicy(TimeSpan.FromMilliseconds(40)));
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
             int exits = 0;
             player.PlayStart(chartPath, (_, _) => exits++);
@@ -1344,7 +1412,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 executablePath,
                 new SettingsPlayerSettingsGateway(() => testSettings),
                 gateway,
-                new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
+                CreateWaitPolicy(TimeSpan.FromMilliseconds(40)));
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
             player.PlayStart(chartPath, (Action<object, EventArgs>)null!);
 
@@ -1399,7 +1467,8 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             var player = new uBMplay(
                 executablePath,
                 new SettingsPlayerSettingsGateway(() => testSettings),
-                gateway);
+                gateway,
+                waitPolicy: CreateWaitPolicy());
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
 
             player.PlayStart(chartPath, (Action<object, EventArgs>)null!);
@@ -1444,6 +1513,25 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 Directory.Delete(root, recursive: true);
             }
         }
+    }
+
+    /// <summary>fake processの状態は各ケースが明示し、待機だけでprocessを終了させず期限を進めます。</summary>
+    private static ExternalPlayerWaitPolicy CreateWaitPolicy(TimeSpan? timeout = null)
+    {
+        var clock = new ManualExternalPlayerTime();
+        return new ExternalPlayerWaitPolicy(timeout ?? TimeSpan.FromSeconds(10), clock, clock.Wait);
+    }
+
+    /// <summary>一つのpolicy専用の単調時計です。同期waitが要求した時間だけ進みます。</summary>
+    private sealed class ManualExternalPlayerTime : TimeProvider
+    {
+        internal TimeSpan Elapsed { get; private set; }
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override long GetTimestamp() => Elapsed.Ticks;
+
+        internal void Wait(TimeSpan interval) => Elapsed += interval > TimeSpan.Zero ? interval : TimeSpan.FromMilliseconds(1);
     }
 
     internal sealed class RecordingPlayerSettingsGateway : IPlayerSettingsGateway

@@ -168,7 +168,8 @@ public sealed class BassWasapiNegotiationTests
         owner = new AudioDeviceTestWorkflowOwner(
             new NoOpAudioDeviceTestPlaybackPort(),
             new UnusedAudioDeviceTestRuntime(),
-            new WasapiCapabilityRuntimeForTest(native));
+            new WasapiCapabilityRuntimeForTest(native),
+            requestAdmission: new TestAudioDeviceTestRequestAdmission());
         int releaseNotifications = 0;
         owner.OperationReleased += () => releaseNotifications++;
 

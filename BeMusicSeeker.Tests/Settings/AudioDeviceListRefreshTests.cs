@@ -261,7 +261,8 @@ public sealed class AudioDeviceListRefreshTests
         var workflow = new AudioDeviceTestWorkflowOwner(new NoOpAudioDeviceTestPlaybackPort(),
             new SuccessfulAudioDeviceTestRuntime(), capability ?? new DelegateAudioDeviceCapabilityRuntime(request =>
                 new AudioDeviceCapabilityResult(request.Backend, request.DeviceIdentity, request.DeviceName,
-                    AudioDeviceCapabilityStatus.Unsupported, [])));
+                    AudioDeviceCapabilityStatus.Unsupported, [])),
+                    requestAdmission: new TestAudioDeviceTestRequestAdmission());
         return new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope, owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace,
             owner.PlayHistory, owner.LibraryFolderTree, new TestSettingsDialogPlayerFactoryPort(),
             new TestSettingsDialogPlaybackRuntimePort(), owner.Lr2SongDbSyncWorkflow,

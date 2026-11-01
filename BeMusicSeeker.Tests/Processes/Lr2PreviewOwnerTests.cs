@@ -32,7 +32,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 Assert.AreEqual("800", ReadLr2Value(XDocument.Load(path), "system", "windowsize_x"));
                 Assert.AreEqual(640, owner.Capture().WindowSizeX);
             };
-            var player = new LR2body(executable, owner, new RecordingPlayerSettingsGateway(), gateway);
+            var player = new LR2body(executable, owner, new RecordingPlayerSettingsGateway(), gateway, waitPolicy: CreateWaitPolicy());
             ((IExternalWindowPlayer)player).AttachWindowHost(new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99))));
             try
             {
@@ -65,7 +65,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             var gateway = new RecordingExternalPlayerProcessGateway();
             gateway.Session.KeepRunning = true;
             gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
-            var player = new LR2body(executable, owner, new RecordingPlayerSettingsGateway(), gateway);
+            var player = new LR2body(executable, owner, new RecordingPlayerSettingsGateway(), gateway, waitPolicy: CreateWaitPolicy());
             ((IExternalWindowPlayer)player).AttachWindowHost(new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99))));
             try
             {
@@ -98,7 +98,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             var gateway = new RecordingExternalPlayerProcessGateway();
             gateway.Session.KeepRunning = true;
             gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
-            var player = new LR2body(executable, owner, new RecordingPlayerSettingsGateway(), gateway);
+            var player = new LR2body(executable, owner, new RecordingPlayerSettingsGateway(), gateway, waitPolicy: CreateWaitPolicy());
             ((IExternalWindowPlayer)player).AttachWindowHost(new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99))));
             try
             {

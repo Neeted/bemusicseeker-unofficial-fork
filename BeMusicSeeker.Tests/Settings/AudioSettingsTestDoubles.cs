@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -122,7 +123,48 @@ internal static class AudioDeviceTestWorkflowTestFactory
     {
         return new AudioDeviceTestWorkflowOwner(
             new NoOpAudioDeviceTestPlaybackPort(),
-            new SuccessfulAudioDeviceTestRuntime());
+            new SuccessfulAudioDeviceTestRuntime(),
+            requestAdmission: new TestAudioDeviceTestRequestAdmission());
+    }
+}
+
+/// <summary>条件検証ごとの専有gateを使い、共有BASS状態やnative解放診断を参照しない受付です。</summary>
+internal sealed class TestAudioDeviceTestRequestAdmission : IAudioDeviceTestRequestAdmission
+{
+    private readonly BassAudioOperationGate gate = new(initiallyOpen: true);
+
+    internal bool RejectRequests { get; set; }
+
+    internal AudioInitializationException? CleanupFailure { get; set; }
+
+    internal int ActiveLeaseCount { get; private set; }
+
+    /// <inheritdoc />
+    public bool TryEnter(AudioDeviceTestRequest request, [NotNullWhen(true)] out IDisposable? lease,
+        out AudioInitializationException? cleanupFailure)
+    {
+        cleanupFailure = CleanupFailure;
+        if (RejectRequests || cleanupFailure != null || !gate.TryEnterRequest(out IDisposable admitted))
+        {
+            lease = null;
+            return false;
+        }
+        ActiveLeaseCount++;
+        lease = new TestLease(this, admitted);
+        return true;
+    }
+
+    private sealed class TestLease(TestAudioDeviceTestRequestAdmission owner, IDisposable admitted) : IDisposable
+    {
+        private IDisposable? lease = admitted;
+
+        public void Dispose()
+        {
+            IDisposable? accepted = Interlocked.Exchange(ref lease, null);
+            if (accepted == null) { return; }
+            accepted.Dispose();
+            owner.ActiveLeaseCount--;
+        }
     }
 }
 

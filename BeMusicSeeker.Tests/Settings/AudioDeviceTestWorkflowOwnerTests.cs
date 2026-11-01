@@ -14,7 +14,7 @@ using Ribbit.Media.Audio;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>音声テストの受付・解放と、再生進捗から成功／失敗を決める処理を検証します。</summary>
-/// <remarks>受付ケースは共有 BassAudioRuntime の排他が必要です。進捗判断は仮想時計と player 境界で独立して観測し、native 機器取得は下位 runtime テストへ分担します。</remarks>
+/// <remarks>通常の受付は専有gate、進捗判断は仮想時計とplayer境界で観測します。共有BASSとの接続はProcessAudioRequestBusyケースへ、native機器取得は下位runtimeテストへ分担します。</remarks>
 [TestClass]
 public sealed class AudioDeviceTestWorkflowOwnerTests
 {
@@ -49,7 +49,6 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
 
     /// <summary>実行中照会へ取消を届け、Task 終端後の解放通知と次照会の受付を確認して、取消だけで受付を占有し続ける誤りを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public async Task CapabilityQuery_CancellationReachesRuntimeAndReleasesAdmission()
     {
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -68,7 +67,8 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
                 }
                 return new AudioDeviceCapabilityResult(request.Backend, request.DeviceIdentity,
                     request.DeviceName, AudioDeviceCapabilityStatus.Available);
-            }));
+            }),
+            requestAdmission: new TestAudioDeviceTestRequestAdmission());
         owner.OperationReleased += () => released++;
         Task<AudioDeviceCapabilityResult> first = owner.TryQueryCapabilitiesAsync(CreateCapabilityRequest());
         try
@@ -138,6 +138,42 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.AreEqual(1, runtime.CallCount);
     }
 
+    /// <summary>Busy拒否は結果なし、解放待ち拒否は同じ原因を主失敗として返し、どちらも停止・runtimeを呼びません。</summary>
+    [TestMethod]
+    [DataRow(false)] // 他要求の受付中。
+    [DataRow(true)] // 先行するnative cleanupが未完了。
+    public async Task TryRunAsync_AdmissionRejectionPreservesCauseWithoutStartingWork(bool cleanupPending)
+    {
+        AudioInitializationException? cause = cleanupPending ? new AudioInitializationException("native cleanup pending") : null;
+        var admission = new TestAudioDeviceTestRequestAdmission
+        {
+            RejectRequests = true,
+            CleanupFailure = cause
+        };
+        int stops = 0;
+        int released = 0;
+        var runtime = new RecordingAudioDeviceTestRuntime(() => CreateResult());
+        using var owner = new AudioDeviceTestWorkflowOwner(
+            new DelegateAudioDeviceTestPlaybackPort(() => stops++), runtime, requestAdmission: admission);
+        owner.OperationReleased += () => released++;
+
+        AudioDeviceTestResult? result = await owner.TryRunAsync(CreateRequest());
+
+        if (cleanupPending)
+        {
+            Assert.IsNotNull(result);
+            Assert.AreSame(cause, result.PrimaryFailure);
+            Assert.IsFalse(result.Succeeded);
+        }
+        else { Assert.IsNull(result); }
+        Assert.AreEqual(0, stops);
+        Assert.AreEqual(0, runtime.CallCount);
+        Assert.AreEqual(0, admission.ActiveLeaseCount);
+        Assert.AreEqual(0, released);
+        Assert.IsFalse(owner.IsRunning);
+        Assert.IsFalse(owner.IsTestRunning);
+    }
+
     /// <summary>player 解放が失敗しても成功した進捗や先行する再生失敗を置き換えず、解放例外を別に保持して一度だけ解放を試すことを確認します。</summary>
     [TestMethod]
     public void StreamObserver_CleanupFailurePreservesEarlierFailureAndProgress()
@@ -162,26 +198,37 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.AreEqual(1, failed.DisposedPlayerCount);
     }
 
-    /// <summary>runtime を gate で保持して停止→テストの順序と重複拒否を観測し、元 Task 完了後だけ次の明示要求を受けることを確認します。</summary>
+    /// <summary>停止からruntime終端まで受付leaseを保持して重複を拒否し、解放後の通知と同じownerでの再受付を確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public async Task TryRunAsync_StopsPlaybackBeforeRuntimeAndRejectsDuplicate()
     {
         var events = new List<string>();
+        var admission = new TestAudioDeviceTestRequestAdmission();
+        int released = 0;
         var runtimeStarted = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseRuntime = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var runtime = new RecordingAudioDeviceTestRuntime(() =>
         {
+            Assert.AreEqual(1, admission.ActiveLeaseCount);
             events.Add("runtime");
             runtimeStarted.TrySetResult();
             releaseRuntime.Task.GetAwaiter().GetResult();
             return CreateResult();
         });
         using var owner = new AudioDeviceTestWorkflowOwner(
-            new DelegateAudioDeviceTestPlaybackPort(() => events.Add("stop")),
-            runtime);
+            new DelegateAudioDeviceTestPlaybackPort(() =>
+            {
+                Assert.AreEqual(1, admission.ActiveLeaseCount);
+                events.Add("stop");
+            }),
+            runtime, requestAdmission: admission);
+        owner.OperationReleased += () =>
+        {
+            Assert.AreEqual(0, admission.ActiveLeaseCount);
+            released++;
+        };
         AudioDeviceTestRequest request = CreateRequest();
 
         Task<AudioDeviceTestResult> firstTask = owner.TryRunAsync(request);
@@ -190,6 +237,8 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         {
             await TestUiDispatcherHost.AwaitNotificationAsync(runtimeStarted.Task, firstTask, "audio-device.runtime-start");
             Assert.IsTrue(owner.IsRunning);
+            Assert.AreEqual(1, admission.ActiveLeaseCount);
+            Assert.AreEqual(0, released);
             Assert.IsNull(await owner.TryRunAsync(request));
 
             releaseRuntime.TrySetResult();
@@ -203,6 +252,8 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
             Assert.IsFalse(owner.IsRunning);
             CollectionAssert.AreEqual(new[] { "stop", "runtime", "stop", "runtime" }, events);
             Assert.AreEqual(2, runtime.CallCount);
+            Assert.AreEqual(2, released);
+            Assert.AreEqual(0, admission.ActiveLeaseCount);
         }
         finally
         {
@@ -213,7 +264,6 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
 
     /// <summary>共有 WASAPI の成功と初期化失敗で有効要求を AUTO／自動 buffer として報告し、利用者の保存要求を変更しないことを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public async Task TryRunAsync_ResultKeepsSavedValuesButReportsEffectiveSharedRequest()
     {
         var request = new AudioDeviceTestRequest(
@@ -229,7 +279,8 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
             playerMixerThreadCount: 3);
         using var owner = new AudioDeviceTestWorkflowOwner(
             new DelegateAudioDeviceTestPlaybackPort(() => { }),
-            new RecordingAudioDeviceTestRuntime(() => AudioDeviceTestResultFactory.CreateSuccessful(request)));
+            new RecordingAudioDeviceTestRuntime(() => AudioDeviceTestResultFactory.CreateSuccessful(request)),
+            requestAdmission: new TestAudioDeviceTestRequestAdmission());
 
         AudioDeviceTestResult success = await owner.TryRunAsync(request);
         var failed = new AudioDeviceTestResult(
@@ -261,7 +312,6 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
 
     /// <summary>runtime の例外を失敗結果へ保持し、Task 終端で受付を解放して同じ owner の次要求を成功させることを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public async Task TryRunAsync_RuntimeFailureReleasesBusyState()
     {
         int attempts = 0;
@@ -274,7 +324,8 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
                     throw new InvalidOperationException("audio test failed");
                 }
                 return AudioDeviceTestResultFactory.CreateSuccessful(request);
-            }));
+            }),
+            requestAdmission: new TestAudioDeviceTestRequestAdmission());
 
         AudioDeviceTestResult result = await owner.TryRunAsync(CreateRequest());
         Assert.IsNotNull(result);
@@ -292,7 +343,6 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
 
     /// <summary>自然終了しない player の観測 timeout 後に player と受付を一度解放し、同じ owner の再テストを妨げないことを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public async Task TryRunAsync_ObservationTimeoutReleasesPlayerAndAllowsSameOwnerRetry()
     {
         int attempts = 0;
@@ -325,7 +375,8 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         });
         using var owner = new AudioDeviceTestWorkflowOwner(
             new DelegateAudioDeviceTestPlaybackPort(() => { }),
-            runtime);
+            runtime,
+            requestAdmission: new TestAudioDeviceTestRequestAdmission());
         int releaseNotifications = 0;
         owner.OperationReleased += () => releaseNotifications++;
 
@@ -346,7 +397,6 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
 
     /// <summary>照会を gate で保持した間は照会とテストの重複を拒否し、通常再生を停止せず照会結果と受付を返すことを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public async Task CapabilityQuery_SharesAcceptanceWithoutStoppingPlayback()
     {
         var queryStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -368,7 +418,8 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         using var owner = new AudioDeviceTestWorkflowOwner(
             new DelegateAudioDeviceTestPlaybackPort(() => stopCount++),
             new RecordingAudioDeviceTestRuntime(() => CreateResult()),
-            capabilityRuntime);
+            capabilityRuntime,
+            requestAdmission: new TestAudioDeviceTestRequestAdmission());
         AudioDeviceCapabilityRequest request = CreateCapabilityRequest();
 
         Task<AudioDeviceCapabilityResult> queryTask = owner.TryQueryCapabilitiesAsync(request);
@@ -395,7 +446,6 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
 
     /// <summary>同じ owner で照会とテストを交互に繰り返し、照会では停止せず各テストで停止することを確認して受付の再使用漏れを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public async Task CapabilityQueryAndDeviceTestCanRepeatThroughOneWorkflowOwner()
     {
         int queryCount = 0;
@@ -417,7 +467,8 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
                     request.DeviceName,
                     AudioDeviceCapabilityStatus.Available,
                     [SampleRate.SAMPLE_RATE_48000Hz]);
-            }));
+            }),
+            requestAdmission: new TestAudioDeviceTestRequestAdmission());
 
         for (int repetition = 0; repetition < 2; repetition++)
         {

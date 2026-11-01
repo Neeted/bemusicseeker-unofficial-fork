@@ -4,7 +4,6 @@ using System.ComponentModel;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
 using Ribbit.Logging;
@@ -272,7 +271,7 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
                 BMIIDXView2015HandleShowing = process.MainWindowHandle;
                 startupEstablished = true;
                 RequireWindowHost().AttachBmiIdxWindow(BMIIDXView2015HandleShowing);
-                Thread.Sleep(100);
+                waitPolicy.Wait(100);
                 RequireWindowHost().NotifyBmiIdxPlaybackStarted(BMIIDXView2015HandleShowing);
                 RestoreForegroundWindow(foregroundWindow);
                 NLogWrapper.DebuggerLogger?.Trace("7 " + foregroundWindow + " " + RequireWindowHost().GetForegroundWindow());
@@ -389,7 +388,7 @@ public class BMIIDXView2015 : ObservableObject, IBMSPlayer, IExternalWindowPlaye
             FocusWindow(BMIIDXView2015HandleShowing, string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerFocusTimeoutFormat, "BMIIDXView2015"));
             RequireWindowHost().SendKey((short)code, KeyEventFlags[code], keyDown: true);
             NLogWrapper.DebuggerLogger?.Trace("pushed");
-            Thread.Sleep(40);
+            waitPolicy.Wait(40);
             RequireWindowHost().SendKey((short)code, KeyEventFlags[code], keyDown: false);
             FocusWindow(foregroundWindow, string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerForegroundRestoreAfterOperationTimeoutFormat, "BMIIDXView2015"));
         }

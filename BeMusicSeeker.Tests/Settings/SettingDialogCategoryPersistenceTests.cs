@@ -359,7 +359,8 @@ public sealed partial class SettingDialogEditCompletionTests
                 {
                     Interlocked.Increment(ref queryCount);
                     return new AudioDeviceCapabilityResult(request.Backend, request.DeviceIdentity, request.DeviceName, AudioDeviceCapabilityStatus.Unsupported, []);
-                }));
+                }),
+                requestAdmission: new TestAudioDeviceTestRequestAdmission());
             ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(owner);
             using var dialog = new SettingsDialogViewModel(composition.DatabaseScope, owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace, owner.PlayHistory, owner.LibraryFolderTree,
                 composition, owner.PlaybackPanel, owner.Lr2SongDbSyncWorkflow, new SettingsEditSession(values), new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(composition.DatabaseScope)), reportApplyFailure: failures.Add,

@@ -6,7 +6,6 @@ using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
 using Ribbit.Logging;
@@ -981,7 +980,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                 for (int i = 0; i < 5; i++)
                 {
                     RequireWindowHost().SetForegroundWindow(uBMplayHandleShowing);
-                    Thread.Sleep(50);
+                    waitPolicy.Wait(50);
                 }
                 RequireWindowHost().SendKey((short)code, KeyEventFlags[code], keyDown: true);
                 NLogWrapper.DebuggerLogger?.Trace("pushed");
@@ -999,14 +998,14 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             }
             code = nowPressed;
             nowPressed = KeyCode.NONE;
-            Thread.Sleep(50);
+            waitPolicy.Wait(50);
             RequireWindowHost().SendKey((short)code, KeyEventFlags[code], keyDown: false);
             if (!CurrentFocusForKeyEvent.IsEmpty)
             {
                 for (int i = 0; i < 5; i++)
                 {
                     RequireWindowHost().SetForegroundWindow(CurrentFocusForKeyEvent);
-                    Thread.Sleep(50);
+                    waitPolicy.Wait(50);
                 }
                 CurrentFocusForKeyEvent = default;
             }

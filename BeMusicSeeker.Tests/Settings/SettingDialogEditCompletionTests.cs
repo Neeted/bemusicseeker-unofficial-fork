@@ -932,7 +932,8 @@ public sealed partial class SettingDialogEditCompletionTests
                             actualDeviceName: "Changed name",
                             latency: 21,
                             streamProgressSucceeded: false);
-                }));
+                }),
+                requestAdmission: new TestAudioDeviceTestRequestAdmission());
             using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
@@ -1002,7 +1003,8 @@ public sealed partial class SettingDialogEditCompletionTests
                         endpointContainerBits: 24,
                         endpointEffectiveBits: 24,
                         latency: 16.5,
-                        fallbackReason: fallbackReason)));
+                        fallbackReason: fallbackReason)),
+                        requestAdmission: new TestAudioDeviceTestRequestAdmission());
             using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
@@ -1088,7 +1090,8 @@ public sealed partial class SettingDialogEditCompletionTests
             workflow = new AudioDeviceTestWorkflowOwner(
                 new TestAudioDeviceTestPlaybackPort(),
                 new DelegateAudioDeviceTestRuntime(_ => throw new InvalidOperationException("test runtime unused")),
-                capabilityRuntime);
+                capabilityRuntime,
+                requestAdmission: new TestAudioDeviceTestRequestAdmission());
             workflow.OperationReleased += observeReleased;
             dialog = CreateAudioDeviceTestDialog(
                 viewModel,
@@ -1234,7 +1237,8 @@ public sealed partial class SettingDialogEditCompletionTests
             workflow = new AudioDeviceTestWorkflowOwner(
                 new TestAudioDeviceTestPlaybackPort(),
                 new DelegateAudioDeviceTestRuntime(_ => throw new InvalidOperationException("test runtime unused")),
-                capabilityRuntime);
+                capabilityRuntime,
+                requestAdmission: new TestAudioDeviceTestRequestAdmission());
             workflow.OperationReleased += observeReleased;
             dialog = CreateAudioDeviceTestDialog(
                 viewModel,
@@ -1314,7 +1318,8 @@ public sealed partial class SettingDialogEditCompletionTests
                         actualRate: SampleRate.SAMPLE_RATE_48000Hz,
                         engineFormat: SampleFormat.SAMPLE_FLOAT_32BIT,
                         endpointFormat: SampleFormat.SAMPLE_FLOAT_32BIT,
-                        latency: 17)));
+                        latency: 17)),
+                        requestAdmission: new TestAudioDeviceTestRequestAdmission());
             using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
@@ -1364,7 +1369,8 @@ public sealed partial class SettingDialogEditCompletionTests
                     new BassAudioPlayer.DeviceDescriptor("Attempted device B", "attempted-device-b"),
                     "BASSWASAPI",
                     Errors.Device,
-                    "WASAPI initialization failed")));
+                    "WASAPI initialization failed")),
+                    requestAdmission: new TestAudioDeviceTestRequestAdmission());
             using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
@@ -1437,7 +1443,8 @@ public sealed partial class SettingDialogEditCompletionTests
                         failureReason: "Initialization failed before cleanup.",
                         failureKind: AudioDeviceTestFailureKind.Unexpected,
                         primaryFailure: primaryFailure,
-                        cleanupFailure: cleanupFailure)));
+                        cleanupFailure: cleanupFailure)),
+                        requestAdmission: new TestAudioDeviceTestRequestAdmission());
             using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
@@ -1554,7 +1561,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 },
                 ReleaseSession,
                 operationGate);
-            var workflow = new AudioDeviceTestWorkflowOwner(new TestAudioDeviceTestPlaybackPort(), runtime);
+            var workflow = new AudioDeviceTestWorkflowOwner(new TestAudioDeviceTestPlaybackPort(), runtime, requestAdmission: new TestAudioDeviceTestRequestAdmission());
             using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
@@ -1618,7 +1625,8 @@ public sealed partial class SettingDialogEditCompletionTests
                         failureKind: AudioDeviceTestFailureKind.PlaybackStartFailed,
                         playbackStage: BassAudioPlaybackStage.MixerAttach,
                         nativeErrorSource: "BASS_Mixer_StreamAddChannel",
-                        nativeErrorCode: Errors.Handle)));
+                        nativeErrorCode: Errors.Handle)),
+                        requestAdmission: new TestAudioDeviceTestRequestAdmission());
             using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
@@ -1670,7 +1678,8 @@ public sealed partial class SettingDialogEditCompletionTests
                         failureKind: AudioDeviceTestFailureKind.PlayerCreationFailed,
                         playbackStage: BassAudioPlaybackStage.SourceCreate,
                         nativeErrorSource: "BASS_StreamCreateFile",
-                        nativeErrorCode: Errors.FileOpen)));
+                        nativeErrorCode: Errors.FileOpen)),
+                        requestAdmission: new TestAudioDeviceTestRequestAdmission());
             using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
@@ -1714,7 +1723,8 @@ public sealed partial class SettingDialogEditCompletionTests
             var dialogs = new RecordingRootDialogService();
             var workflow = new AudioDeviceTestWorkflowOwner(
                 new TestAudioDeviceTestPlaybackPort(),
-                new DelegateAudioDeviceTestRuntime(_ => throw new InvalidOperationException("unexpected test failure")));
+                new DelegateAudioDeviceTestRuntime(_ => throw new InvalidOperationException("unexpected test failure")),
+                requestAdmission: new TestAudioDeviceTestRequestAdmission());
             using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
