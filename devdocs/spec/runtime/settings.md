@@ -380,6 +380,8 @@ BMSディレクトリの追加・削除・複数選択・D&Dは設定画面内�
 | 終了操作の案内統合・候補保持・受理済みTask回収 | `SettingsWindow`、既存復元・撤去・Shell終了担当 | `BackupPage_RestoreRefusalOrRequiredFailureNeverRequestsExit`の取消・受付拒否・必須失敗での非終了、既存復元成功/撤去のShell終端、`SettingDialogOperationShutdownTests`の手動同期先行閉鎖と直接joinを維持する。score失敗後の復元確認・通常再表示・次のcompiled入力は `SettingsWindowPresentationTests.ScoreProcessingFailure_AllowsNextSelectionAndRestoreAfterReopen` が確認する。BMT失敗後の復元確認は `SettingsWindowPresentationTests.BmtProcessingFailure_AllowsExplicitCurrentUpdateAndRestoreAfterReopen`、LR2再起動の許可と確認中の競合拒否は `SettingsDialogBehaviorTests.EnvironmentRestart_AllowsPreviousBeatorajaFailureAndRejectsConcurrentSettings` が確認する。 |
 | 履歴プリセット改名の選択追従と画面別の言語購読 | `SettingsDialogViewModel`、`ISettingsDialogPlayHistoryPort`、履歴・通常一覧主体 | 実providerのrecord保存は `SettingsDialogBehaviorTests.PlayHistoryPreset_ConfirmedNameKeepsSavedRecordAcrossEditsAndRemoval`、両履歴モードの希望識別は `PlayHistoryReadModelTests.WorkflowOwner_ConfirmedPresetRenameKeepsLogicalSelection`、採用済み集計・通常件数・解除は履歴仕様の対応表へ分担する。 |
 
+実Appの節確定・取消と次回起動は `ApplicationScenarioDialogs.SettingsHistory`、既存Settings owner に接続します。`SettingsScenarioTests.StandaloneRoots_SectionCommitAndImmediateSettingPersistAcrossNewProcess` はBMS候補採用・取消、実差分終端、即時font保存、Closeによる別候補取消、raw設定・DB・表示と別processでの復元を確認する。`Lr2OutputAndDetails_CommitReachesSingleOwnedSuccessor` は通常出力の取消・確定・実folder同期と、LR2詳細候補の取消・実確認後の製品再起動を確認する。
+
 ## 関連資料
 
 [設定の永続化](settings-persistence.md)、[起動と再読込み](startup.md)、[音声](audio.md)、[画面テスト](../development/testing.md)を参照します。

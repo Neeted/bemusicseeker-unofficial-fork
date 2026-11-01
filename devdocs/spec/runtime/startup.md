@@ -394,6 +394,8 @@ TableStateはcontext・source型・世代・件数・RealizedRowCountだけを�
 
 プレイリスト・設定の保存接続は `tests/BeMusicSeeker.Scenarios.Tests/Playlist/PlaylistDailyScenarioTests.cs` が専有profileの実Appで確認します。外部同期ONのMEMO、ローカル表の登録・編集・JSON、設定の即時保存と候補取消をraw SQLite・JSON・新provider・表示から照合し、通常Closeと所有process全終端の後、一回の別processで保存identityと値を再確認します。入力・テーマ・同期ONのContentRendered起動全体はDesktopの代表、権限と失敗の条件表は既存機能テストへ分担します。
 
+設定変更による製品再起動と所有は `ApplicationScenarioDriver`、通常の環境確定・Shell終了 に接続します。`SettingsScenarioTests.Lr2OutputAndDetails_CommitReachesSingleOwnedSuccessor` は旧root退出0とcontrol EOFを中間として、同じJobに所属する一回の後継の実初期化・保存値・catalog・表示を確認し、後継Close後に元ownerの全子孫・両出力を回収する。`ApplicationScenarioDriverTests.RestartHelloRejectsLiveProcessOutsideOwnedJob` は別Jobの正常形式helloを拒否し、そのprocessの寿命を侵害しないことを確認する。
+
 ## 関連資料
 
 [進捗](progress.md)、[設定](settings.md)、[終了](shutdown.md)、[LR2同期](../integration/lr2-song-db.md)、[IRと順位](../integration/lr2-ranking.md)、[バックアップ](../integration/lr2-backup.md)、[プレイリストの保存と出力](../playlist/storage-and-export.md)を参照します。

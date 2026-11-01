@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
@@ -12,16 +13,21 @@ namespace BeMusicSeeker.TestSupport.Scenarios;
 internal sealed class ApplicationScenarioDriver : IAsyncDisposable
 {
     private readonly NamedPipeServerStream pipe;
-    private readonly StreamReader reader;
-    private readonly StreamWriter writer;
+    private StreamReader reader;
+    private StreamWriter writer;
     private readonly OwnedProcess process;
     private readonly string diagnosticsDirectory;
     private readonly CancellationTokenSource stopping = new();
     private readonly SemaphoreSlim writeGate = new(1, 1);
     private readonly ConcurrentDictionary<long, TaskCompletionSource<ScenarioMessage>> requests = new();
-    private readonly TaskCompletionSource<ScenarioConnected> connected = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private readonly TaskCompletionSource<ScenarioInitializationResult> startup = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private readonly Task reading;
+    private TaskCompletionSource<ScenarioConnected> connected = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private TaskCompletionSource<ScenarioInitializationResult> startup = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private Task reading;
+    private Process? successor;
+    private Task<int> peerExit;
+    private bool restartExpected;
+    private bool rebound;
+    private DateTime? successorStartTime;
     private long nextRequestId;
     private bool closeRequested;
     private Exception? readFailure;
@@ -34,6 +40,7 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
     {
         this.pipe = pipe;
         this.process = process;
+        peerExit = process.RootExit;
         this.diagnosticsDirectory = diagnosticsDirectory;
         reader = new StreamReader(pipe, new UTF8Encoding(false), false, 4096, leaveOpen: true);
         writer = new StreamWriter(pipe, new UTF8Encoding(false), 4096, leaveOpen: true) { AutoFlush = true };
@@ -41,7 +48,10 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
     }
 
     /// <summary>保持している実processの識別子です。</summary>
-    internal int ProcessId => process.ProcessId;
+    internal int ProcessId => successor?.Id ?? process.ProcessId;
+
+    /// <summary>後継helloで保持した実handleの開始時刻です。wireの申告値は使いません。</summary>
+    internal DateTime? SuccessorStartTime => successorStartTime;
 
     /// <summary>readyと独立した実process退出です。未知の切断を正常終了へ読み替えません。</summary>
     internal Task<int> RootExit => process.RootExit;
@@ -192,12 +202,104 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
     internal Task<ScenarioPlaylistCompleted> EditSettingsAsync(double fontSize, string candidatePath, ProcessDeadline deadline)
         => RequestAsync<ScenarioPlaylistCompleted>(id => new ScenarioSettingsEditCommand(id, fontSize, candidatePath), deadline);
 
+    /// <summary>履歴の既存実Taskと採用後の表示・実ランプ結果を取得します。</summary>
+    internal Task<ScenarioHistoryCompleted> HistoryAsync(ScenarioHistoryAction action, ProcessDeadline deadline, string text = "", int tableId = 0)
+        => RequestAsync<ScenarioHistoryCompleted>(id => new ScenarioHistoryCommand(id, action, text, tableId), deadline);
+
+    /// <summary>実設定画面の節操作Taskと、候補・公開・fresh providerの別々の値を返します。</summary>
+    internal Task<ScenarioSettingsSectionCompleted> SettingsSectionAsync(ScenarioSettingsSectionAction action, string path,
+        string configPath, ProcessDeadline deadline)
+        => RequestAsync<ScenarioSettingsSectionCompleted>(id => new ScenarioSettingsSectionCommand(id, action, path, configPath), deadline);
+
+    /// <summary>環境確認の実到達後、ACK送信完了から回答を解放し、同一Jobの後継へ一回だけ接続します。</summary>
+    internal async Task<ScenarioSettingsSectionCompleted> RestartEnvironmentAsync(string songDb, string configPath, ProcessDeadline deadline)
+    {
+        lock (exitExpectationGate)
+        {
+            if (restartExpected || rebound || naturalExitExpected || closeRequested || readerTerminated || readFailure is not null || unansweredRequestFailure is not null || peerExit.IsCompleted)
+            { throw new InvalidOperationException("再起動の期待を登録できません。"); }
+            restartExpected = true;
+        }
+        Task<ScenarioSettingsSectionCompleted> operation = SettingsSectionAsync(ScenarioSettingsSectionAction.DetailsRestart, songDb, configPath, deadline);
+        try
+        {
+            Task<ScenarioRecoveryAcknowledged> confirmation = RequestAsync<ScenarioRecoveryAcknowledged>(id => new ScenarioEnvironmentConfirmationCommand(id), deadline);
+            if (await Task.WhenAny(confirmation, operation).ConfigureAwait(false) == operation)
+            {
+                await operation.ConfigureAwait(false);
+                throw new InvalidOperationException("環境操作が再起動確認に到達せず終端しました。");
+            }
+            await confirmation.ConfigureAwait(false);
+            await RequestAsync<ScenarioRecoveryAcknowledged>(id => new ScenarioEnvironmentAnswerCommand(id), deadline).ConfigureAwait(false);
+            ScenarioSettingsSectionCompleted result = await operation.ConfigureAwait(false);
+            await RebindAfterRestartAsync(deadline).ConfigureAwait(false);
+            return result;
+        }
+        catch
+        {
+            // 相関要求の実故障は保持し、終端しているTaskの例外だけ回収します。未終端業務を成功補完しません。
+            if (operation.IsFaulted) { _ = operation.Exception; }
+            throw;
+        }
+    }
+
+    private async Task RebindAfterRestartAsync(ProcessDeadline deadline)
+    {
+        if (await process.WaitForRootExitAsync(deadline).ConfigureAwait(false) != 0)
+        { throw new InvalidOperationException("再起動元の終了コードが0ではありません。"); }
+        await reading.WaitAsync(deadline.Remaining).ConfigureAwait(false);
+        if (readFailure is not null || unansweredRequestFailure is not null)
+        { throw new IOException("再起動元の制御通信が失敗しました。", readFailure ?? unansweredRequestFailure); }
+        reader.Dispose();
+        writer.Dispose();
+        pipe.Disconnect();
+        using var cancellation = new CancellationTokenSource(deadline.Remaining);
+        await pipe.WaitForConnectionAsync(cancellation.Token).ConfigureAwait(false);
+        reader = new StreamReader(pipe, new UTF8Encoding(false), false, 4096, leaveOpen: true);
+        writer = new StreamWriter(pipe, new UTF8Encoding(false), 4096, leaveOpen: true) { AutoFlush = true };
+        // hello受信までは初代exitを監視しません。保持handleを採用してから通常要求の退出監視へ戻します。
+        string line = await reader.ReadLineAsync(cancellation.Token).ConfigureAwait(false) ?? throw new EndOfStreamException("後継helloがありません。");
+        ScenarioConnected hello = JsonSerializer.Deserialize<ScenarioMessage>(line) as ScenarioConnected
+            ?? throw new InvalidDataException("後継の先頭応答がhelloではありません。");
+        AdoptSuccessor(hello);
+        connected = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        connected.SetResult(hello);
+        startup = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (exitExpectationGate) { restartExpected = false; readerTerminated = false; }
+        reading = ReadAsync();
+    }
+
+    private void AdoptSuccessor(ScenarioConnected hello)
+    {
+        if (rebound) { throw new InvalidOperationException("後継の再束縛は一回だけです。"); }
+        var candidate = Process.GetProcessById(hello.ProcessId);
+        try
+        {
+            _ = candidate.Handle;
+            DateTime started = candidate.StartTime;
+            if (candidate.HasExited || hello.ProcessId == process.ProcessId || !process.ContainsProcess(candidate))
+            { throw new InvalidDataException("後継helloのprocessは所有Jobの生存する後継ではありません。"); }
+            successor = candidate;
+            successorStartTime = started;
+            rebound = true;
+            peerExit = ObservePeerExitAsync(candidate);
+        }
+        catch { candidate.Dispose(); throw; }
+    }
+
+    private static async Task<int> ObservePeerExitAsync(Process peer)
+    {
+        await peer.WaitForExitAsync().ConfigureAwait(false);
+        return peer.ExitCode;
+    }
+
     /// <summary>実Window.Closeを要求し、root・両出力pipe・全所有子孫の正常退出まで待ちます。</summary>
     internal async Task CloseAsync(ProcessDeadline deadline)
     {
         await RequestCloseAsync(deadline).ConfigureAwait(false);
+        int peerCode = await peerExit.WaitAsync(deadline.Remaining).ConfigureAwait(false);
         ProcessCompletion completion = await process.WaitForExitAsync(deadline).ConfigureAwait(false);
-        if (completion.ExitCode != 0)
+        if (peerCode != 0 || completion.ExitCode != 0)
         { throw new InvalidOperationException($"製品の終了コード: {completion.ExitCode}\n{completion.StandardError}"); }
     }
 
@@ -206,7 +308,7 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
     {
         lock (exitExpectationGate)
         {
-            if (naturalExitExpected || closeRequested || readerTerminated || readFailure is not null || unansweredRequestFailure is not null || process.RootExit.IsCompleted)
+            if (naturalExitExpected || restartExpected || closeRequested || readerTerminated || readFailure is not null || unansweredRequestFailure is not null || process.RootExit.IsCompleted)
             { throw new InvalidOperationException("自然終了の期待を登録できません。"); }
             naturalExitExpected = true;
         }
@@ -286,11 +388,20 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
     private async Task<T> AwaitOrExitAsync<T>(Task<T> completion, ProcessDeadline deadline)
     {
         // readerの終端と要求登録が前後しても、切断後の要求を期限まで放置しません。
-        await Task.WhenAny(completion, process.RootExit, reading).WaitAsync(deadline.Remaining).ConfigureAwait(false);
+        await Task.WhenAny(completion, peerExit, reading).WaitAsync(deadline.Remaining).ConfigureAwait(false);
         if (completion.IsCompleted) { return await completion.ConfigureAwait(false); }
-        if (process.RootExit.IsCompleted)
+        if (peerExit.IsCompleted)
         {
-            int code = await process.WaitForRootExitAsync(deadline).ConfigureAwait(false);
+            int code = await peerExit.ConfigureAwait(false);
+            if (code == 0 && restartExpected && !rebound)
+            {
+                // 再起動元のOS退出は、送信済み応答のreader消費より先に届き得ます。
+                // 旧readerの実終端と元の応答を同一期限で待ち、未応答や通信故障を成功に補いません。
+                await reading.WaitAsync(deadline.Remaining).ConfigureAwait(false);
+                if (readFailure is not null || unansweredRequestFailure is not null)
+                { throw new IOException("再起動元の制御通信が失敗しました。", readFailure ?? unansweredRequestFailure); }
+                return await completion.WaitAsync(deadline.Remaining).ConfigureAwait(false);
+            }
             throw new InvalidOperationException($"要求の結果より先に製品が終了しました: {code}");
         }
         await reading.ConfigureAwait(false);
@@ -325,9 +436,9 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
             }
             lock (exitExpectationGate)
             {
-                if (!closeRequested && !naturalExitExpected) { failure = new EndOfStreamException("製品の制御pipeが要求外に切断されました。"); }
+                if (!closeRequested && !naturalExitExpected && !restartExpected) { failure = new EndOfStreamException("製品の制御pipeが要求外に切断されました。"); }
                 // 応答後の呼出元による辞書回収はreaderと並行するため、実応答Taskの状態で区別します。
-                if (naturalExitExpected && requests.Values.Any(request => !request.Task.IsCompleted)) { failure = new EndOfStreamException("未応答の要求を残して製品が終了しました。"); }
+                if ((naturalExitExpected || restartExpected) && requests.Values.Any(request => !request.Task.IsCompleted)) { failure = new EndOfStreamException("未応答の要求を残して製品が終了しました。"); }
                 readerTerminated = true;
                 readFailure = failure;
             }
@@ -387,6 +498,7 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
                 finally
                 {
                     pipe.Dispose();
+                    successor?.Dispose();
                     writeGate.Dispose();
                     stopping.Dispose();
                     await process.DisposeAsync().ConfigureAwait(false);

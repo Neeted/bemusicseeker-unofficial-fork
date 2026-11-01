@@ -41,6 +41,21 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
 
     internal event EventHandler<PlayHistoryViewRequestActivatedEventArgs> PeriodRequestActivated;
 
+    /// <summary>期間・検索の既存表示Taskと不変要求を読取り専用で通知します。購読者の例外は業務処理へ戻しません。</summary>
+    internal event Action<long, long, Task> ViewRefreshStarted;
+
+    /// <summary>既に開始した実Taskを一回通知し、新しい表示処理や再実行を開始しません。</summary>
+    internal void NotifyViewRefreshStarted(PlayHistoryViewRequest request, Task operation)
+    {
+        Action<long, long, Task> observers = ViewRefreshStarted;
+        if (observers == null) { return; }
+        foreach (Action<long, long, Task> observer in observers.GetInvocationList())
+        {
+            try { observer(request.RequestId, request.KeywordFilterRevision, operation); }
+            catch (Exception failure) { Task.FromException(failure).ObserveFault("playHistoryRefreshObserver"); }
+        }
+    }
+
     internal void ConfigureViewRefreshScheduler(
         Func<bool> isShutdownRequested,
         Action<PlayHistoryViewRequest> refresh)
@@ -119,6 +134,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             throw;
         }
         refreshTask.ObserveFault(operationName);
+        NotifyViewRefreshStarted(request, refreshTask);
     }
 
     private void EnsureViewRefreshSchedulerConfigured()

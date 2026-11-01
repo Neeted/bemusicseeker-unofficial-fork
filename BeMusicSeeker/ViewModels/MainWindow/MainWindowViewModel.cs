@@ -2727,8 +2727,9 @@ public partial class MainWindowViewModel : ViewModel,
             appliedNavigation = navigation;
         }
 
-        Task.Run(() => RefreshChartRowsViewCaptured(MainViewUpdateMode.PlayHistorySelected, request, navigation: navigation))
-            .ObserveFault("playHistoryPeriodSelect");
+        var refresh = Task.Run(() => RefreshChartRowsViewCaptured(MainViewUpdateMode.PlayHistorySelected, request, navigation: navigation));
+        refresh.ObserveFault("playHistoryPeriodSelect");
+        PlayHistory.NotifyViewRefreshStarted(request, refresh);
     }
 
     private void RegularChartListOwnerSortRefreshRequested(object sender, RegularChartSortRefreshRequestedEventArgs request)

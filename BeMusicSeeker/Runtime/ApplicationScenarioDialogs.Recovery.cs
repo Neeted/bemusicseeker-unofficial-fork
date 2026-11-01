@@ -51,6 +51,19 @@ internal sealed partial class ApplicationScenarioDialogs
 
     private Task<UiDialogResult> ConfirmRecoveryAsync(UiConfirmationRequest request, CancellationToken cancellation)
     {
+        if (activeSection?.Command.Action == ScenarioSettingsSectionAction.DetailsRestart
+            && environmentConfirmation is { } environment
+            && request.MessageBoxText == Resources.Confirm_RestartForOperationModeChange)
+        {
+            environment.Reached.TrySetResult();
+            return environment.Answer.Task;
+        }
+        if (activeSection?.Command.Action == ScenarioSettingsSectionAction.OutputCommit
+            && request.MessageBoxText.StartsWith(Resources.Confirm_CustomFolderOutputChangesFormat.Split('{')[0], StringComparison.Ordinal))
+        { return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)); }
+        if (activeSection?.Command.Action == ScenarioSettingsSectionAction.InstallHistorySchema
+            && request.MessageBoxText.StartsWith(Resources.Msg_confirm_lr2_play_history_schema_install_or_repair, StringComparison.Ordinal))
+        { return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)); }
         if (removeTable && request.MessageBoxText == Resources.Msg_remove_playlist)
         { removeTable = false; return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)); }
         if (activeSql is { Restore: true, ConfirmationConsumed: false } sql
@@ -67,6 +80,9 @@ internal sealed partial class ApplicationScenarioDialogs
 
     private Task<UiDialogResult> ShowRecoveryMessageAsync(UiMessageRequest request, CancellationToken cancellation)
     {
+        if (activeSection?.Command.Action == ScenarioSettingsSectionAction.InstallHistorySchema
+            && request.MessageBoxText == Resources.Msg_success_lr2_play_history_schema_install_or_repair)
+        { return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)); }
         if (activeSql is { Restore: true, PathConsumed: true, RestoreSuccessConsumed: false } restored
             && request.MessageBoxText == Resources.Msg_success_playlist_restore && request.Caption == Resources.Success)
         { restored.RestoreSuccessConsumed = true; return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)); }

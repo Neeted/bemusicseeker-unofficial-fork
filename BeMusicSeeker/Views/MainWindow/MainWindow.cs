@@ -233,6 +233,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <summary>Gets the owner-scoped manager for modeless playlist lamp viewers.</summary>
     internal PlaylistLampViewerWindowManager PlaylistLampViewerWindows => playlistLampViewerWindowManager;
 
+    /// <summary>明示シナリオで実UIと同じ重複一覧navigationの終端を観測するため、既存Taskとその採用結果をそのまま返します。</summary>
+    internal Task<bool> NavigateScenarioDuplicatesAsync()
+        => maintenanceTreeTerminal.NavigateAsync(MainViewUpdateMode.DuplicateFilterSelected);
+
+
     /// <summary>このメイン画面から開く独立プロパティ窓と実読取りの所有者です。</summary>
     internal ChartPropertiesWindowManager ChartPropertiesWindows => chartPropertiesWindowManager;
 

@@ -56,7 +56,7 @@ internal sealed partial class ApplicationScenarioDialogs : IUiDialogService
             return new(UiDialogStatus.Accepted, (TResult)(object)paths, true);
         }
         object? input = (typeof(TWindow) == typeof(PlaylistPropertyDialog) && pending is PropertyInput)
-            || (typeof(TWindow) == typeof(SettingsWindow) && pending is SettingsInput or SqlInput) ? pending : null;
+            || (typeof(TWindow) == typeof(SettingsWindow) && pending is SettingsInput or SqlInput or SectionInput) ? pending : null;
         if (input is null) { return await inner.ShowWindowAsync(request, cancellationToken); }
         pending = null;
         Exception? inputFailure = null;
@@ -79,9 +79,9 @@ internal sealed partial class ApplicationScenarioDialogs : IUiDialogService
                 }
             }
         }, request.CreateResult, request.Owner), cancellationToken);
-        // SQLの実handlerはmodalを閉じた後にもUI継続を持ちます。同期のShowSettingsWindowへ先に帰還し、
-        // 同じhandlerの終端・入力消費・元例外はExecuteAsyncが保持するSqlInput.Completionだけで回収します。
-        if (input is SqlInput) { return result; }
+        // SQL・設定節の実Taskはmodal閉鎖後にも継続を持ちます。同期のShowSettingsWindowへ先に帰還し、
+        // 同じ入力Taskの終端・元例外はExecuteAsyncが保持するCompletionで回収します。
+        if (input is SqlInput or SectionInput) { return result; }
         // modal帰還後の呼出元は同期境界なので、入力の実終端回収だけをUIへ再配送しません。
         await inputTask.ConfigureAwait(false);
         if (inputFailure is not null) { throw new InvalidOperationException("The declared dialog input failed.", inputFailure); }
@@ -98,6 +98,8 @@ internal sealed partial class ApplicationScenarioDialogs : IUiDialogService
 
     private async Task ApplyInputAsync(Window window, object input)
     {
+        if (window is SettingsWindow sectionWindow && input is SectionInput section)
+        { await ApplySectionAsync(sectionWindow, section); return; }
         if (window is SettingsWindow sqlWindow && input is SqlInput sql)
         {
             try

@@ -78,6 +78,8 @@ beatorajaの判定数・プレイ数・演奏時間は選択期間全体の実�
 
 `score.db.player` だけが読めない場合は、この3実績を利用不可にし、正常に読めた更新履歴と更新数の表示は維持します。履歴全体の読取り失敗へ広げず、履歴行数から実績を作りません。期間実績も同じ取得時点のキャッシュを使い、期間変更だけでは再照会しません。次の許可されたスコア再取得では、実績も同じ取得操作で更新します。
 
+未解決の `Unknown` 行は表示件数に残しますが、更新数・演奏時間・判定数の行別集計対象には含めません。LR2では確定済みのUnknown行も確定件数には含め、集計適格件数とは区別します。beatorajaの期間全体のplayer実績は、この行別の適格条件とは別に扱います。
+
 ### 検索と整列
 
 取得と表示用変換、表示対象の適用後に `GridKeywordSearchContext.PlayHistory` の検索を行い、最後に整列します。検索・整列・表示対象だけの変更は同じ期間の読込み・変換結果を使います。通常譜面一覧とは整列状態を共有せず、既定は時刻降順、同時刻は履歴ID降順です。履歴列が持つ `SortMemberPath` だけを受け付けます。
@@ -168,6 +170,10 @@ DB読取り、LR2スキーマ検査、期間実績の取得で例外を結果へ
 | 履歴中だけキー数UIを隠す | MainWindowのキー数ボタン・メニューBinding | `MainWindowPlayHistoryWpfTests.PlayHistoryDisplayTargetDropdown_BindsToPlayHistoryViewState` が履歴への遷移と通常復帰、保存条件の不変を確認する。 |
 | DATE表示と正規表現の秒・互換候補 | 共通DATE表示、履歴のdate検索候補 | `GridKeywordSearchQueryTests.MatchesPlayHistoryRow_DateRegexIncludesDisplayedTimestamp` がLR2/beatorajaの実DATE GetText、秒・否定・旧日付候補を確認する。 |
 | 単曲の取得条件、元DBの保持と5001件以上の表示・検索 | 両reader、`PlayHistoryReadCache`、`PlayHistoryWorkflowOwner` | `HistoryReader_SingleChartsAndPeriodIndexPreserveSourceRows` は実SQLiteの長さ・mode・未所持条件、元行保持と日索引を、`BuildReadView_AllRowsBeyondFiveThousandRemainSearchable` は両取得元の許可取得から全件表示と最古hash検索までを確認する。 |
+
+実Appの `PlayHistoryScenarioTests.ExternalHistory_RealSchemaSettingsAndPresentationPreserveSourceIdentity` は、専有プロファイルの実設定画面からLR2履歴スキーマを導入し、既存scoreから履歴が遡及生成されないことをraw SQLiteで確認します。外部ゲーム相当のscore/player更新から製品triggerが生成する履歴を通常成績再取得・実期間選択・陽性キーワード検索へ接続し、事前宣言したhash・回数差・成績・集計をrawと採用後の行へ別々に照合します。生成IDと実時刻だけを観測し、時刻は外部書込みの前後で区切ります。
+
+同ケースは設定節の実確定でbeatorajaの選択playerへ切り替え、固定日の開始・終了境界、mode 0のSHA-256更新記録、未所持identityと未知のplayer実績を確認します。通常一覧・重複一覧の非空path集合と実ランプWindowの採用結果、LR2への設定復帰、通常Close後の全所有プロセス終端までを接続します。内部の旧callback競合とreaderの全入力条件は既存Componentの保証に残します。期間・検索の観測は既存要求識別とその表示Taskの読取り専用通知を使い、処理の追加・再実行・成功結果の補完を行いません。
 
 ## 関連資料
 
