@@ -1,14 +1,9 @@
-using System;
 using System.Buffers.Binary;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
+using BeMusicSeeker.TestSupport.Files;
 using ManagedBass;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
 
@@ -220,7 +215,8 @@ public sealed class AudioSourceLoaderTests
     [TestMethod]
     public void AudioInputFile_ReportsReadFailureAtInspectStageAndChecksNativeLengthWithoutAllocation()
     {
-        string missing = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".wav");
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string missing = Path.Combine(workspace.RootDirectory, Guid.NewGuid().ToString("N") + ".wav");
 
         AudioSourceLoadException failure = Assert.ThrowsExactly<AudioSourceLoadException>(
             () => AudioSourceLoader.Load(missing));
@@ -243,7 +239,8 @@ public sealed class AudioSourceLoaderTests
     [TestMethod]
     public void AudioInputFile_RejectsOversizedOggBeforeNativeAllocationAfterSplitSignatureRead()
     {
-        string path = Path.Combine(Path.GetTempPath(), "oversized.ogg");
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string path = Path.Combine(workspace.RootDirectory, "oversized.ogg");
         long length = (long)Array.MaxLength + 1;
         var stream = new LengthReportingSignatureStream(length, "OggS"u8.ToArray(), maxReadSize: 2);
         int openCount = 0;
@@ -279,7 +276,8 @@ public sealed class AudioSourceLoaderTests
     [TestMethod]
     public void AudioInputFile_DoesNotApplyOggInputLimitToWaveSignature()
     {
-        string path = Path.Combine(Path.GetTempPath(), "oversized.wav");
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string path = Path.Combine(workspace.RootDirectory, "oversized.wav");
         long length = (long)Array.MaxLength + 1;
         var stream = new LengthReportingSignatureStream(length, "RIFF"u8.ToArray(), maxReadSize: 2);
         var allocationPrevented = new InvalidOperationException("The test prevents a large native allocation.");
@@ -675,19 +673,22 @@ public sealed class AudioSourceLoaderTests
 
     private sealed class TemporaryWave : IDisposable
     {
+        private readonly TestWorkspace workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         internal TemporaryWave(byte[] bytes, string extension = ".wav")
         {
             Path = System.IO.Path.Combine(
-                System.IO.Path.GetTempPath(),
+                workspace.RootDirectory,
                 "BeMusicSeeker-" + Guid.NewGuid().ToString("N") + extension);
-            File.WriteAllBytes(Path, bytes);
+            try { File.WriteAllBytes(Path, bytes); }
+            catch { workspace.Dispose(); throw; }
         }
 
         internal string Path { get; }
 
         public void Dispose()
         {
-            File.Delete(Path);
+            try { File.Delete(Path); }
+            finally { workspace.Dispose(); }
         }
     }
 

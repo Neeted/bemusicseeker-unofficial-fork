@@ -1,16 +1,12 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Runtime.InteropServices;
-using System.Threading;
-using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using ManagedBass;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
+using static BeMusicSeeker.TestSupport.Components.CallbackPcmFixture;
 
 namespace BeMusicSeeker.Tests;
 
@@ -862,25 +858,6 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(0, session.MaximumCallbackFrames);
     }
 
-    internal sealed class CallbackPcmNative : IAudioPcmNative
-    {
-        internal int LastHandle { get; private set; }
-        internal bool Fail { get; set; }
-        public Errors LastError => Fail ? Errors.Handle : Errors.OK;
-        public int ChannelGetData(int channel, float[] buffer, int lengthBytes)
-        {
-            LastHandle = channel;
-            if (Fail)
-            {
-                return -1;
-            }
-            // 一回に一frameだけ返し、callbackが短いreadを継続することも確認します。
-            buffer[0] = 1.25f;
-            buffer[1] = -1.25f;
-            return 8;
-        }
-    }
-
     /// <summary>ASIO tempo交換は旧解放前に新callbackを公開し、解放失敗では旧callbackとhandleへ戻す。</summary>
     [TestMethod]
     public void AsioTempoReplacement_PublishesBeforeReleaseAndRestoresOnFailure()
@@ -1588,7 +1565,9 @@ public sealed class BassAudioSessionTests
     [TestMethod]
     public void PlayerStreamCleanup_RetainsNativeAudioInputUntilReleaseIsConfirmed()
     {
-        string path = Path.GetTempFileName();
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string path = workspace.GetPath("input.tmp");
+        using (File.Create(path)) { }
         AudioInputFile? input = null;
         try
         {

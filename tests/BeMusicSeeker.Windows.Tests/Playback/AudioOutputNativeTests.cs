@@ -1,10 +1,9 @@
-using System;
 using System.Buffers.Binary;
 using System.IO;
 using System.Runtime.ExceptionServices;
-using BeMusicSeeker.Tests.Helpers;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
 using ManagedBass.Enc;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
 
@@ -239,15 +238,13 @@ public sealed class AudioOutputNativeTests
 
     private sealed class TemporaryDirectory : IDisposable
     {
-        private readonly string path = Path.Combine(
-            Path.GetTempPath(),
-            "BeMusicSeeker.AudioOutputNative." + Guid.NewGuid().ToString("N"));
+        private readonly TestWorkspace workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        private string path => workspace.RootDirectory;
 
-        internal TemporaryDirectory() => Directory.CreateDirectory(path);
 
         internal string File(string name) => Path.Combine(path, name);
 
-        public void Dispose() => Directory.Delete(path, recursive: true);
+        public void Dispose() => workspace.Dispose();
     }
 
     private sealed class NativeWriterSession : IDisposable

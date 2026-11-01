@@ -1,8 +1,6 @@
-using System;
-using System.IO;
-using System.Linq;
 using System.Text;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
 using Ribbit.BMS;
 using Ribbit.Media.Audio;
 
@@ -18,7 +16,7 @@ public sealed class BmsAudioFrameScheduleTests
     [TestMethod]
     public void BmsonContinuationRunsKeepIndependentChannelsAtCollidingOutputFrames()
     {
-        PlaybackChart chart = BmsonPlaybackParserTests.Parse("{\"info\":{\"init_bpm\":16000},\"sound_channels\":[{\"name\":\"same.wav\",\"notes\":[{\"y\":0},{\"y\":1,\"c\":true},{\"y\":3,\"c\":true}]},{\"name\":\"same.wav\",\"notes\":[{\"y\":1}]}]}");
+        PlaybackChart chart = BmsonPlaybackFixture.Parse("{\"info\":{\"init_bpm\":16000},\"sound_channels\":[{\"name\":\"same.wav\",\"notes\":[{\"y\":0},{\"y\":1,\"c\":true},{\"y\":3,\"c\":true}]},{\"name\":\"same.wav\",\"notes\":[{\"y\":1}]}]}");
         var resource = new BmsAudioResource("same.wav", new DecodedAudio(32000, AudioChannelLayout.CreateBassOutput(1), new float[10]), 1);
         var schedule = BmsAudioFrameSchedule.Create(chart, 32000, new[] { resource, resource });
         CollectionAssert.AreEqual(new long[] { 0, 0, 1 }, chart.AudioEvents.Where(item => item.ResourceIndex == 0)
@@ -38,7 +36,7 @@ public sealed class BmsAudioFrameScheduleTests
     [DataRow(48000, 44100, 99L, 92L, 92L)]
     public void BmsonContinuationRunResolvesPhysicalEofWithoutExtendingAtLaterLogicalNotes(int sourceRate, int outputRate, long sourceStart, long start, long end)
     {
-        PlaybackChart chart = BmsonPlaybackParserTests.Parse("{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"notes\":[{\"y\":0},{\"y\":1,\"c\":true},{\"y\":2,\"c\":true}]}]}");
+        PlaybackChart chart = BmsonPlaybackFixture.Parse("{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"notes\":[{\"y\":0},{\"y\":1,\"c\":true},{\"y\":2,\"c\":true}]}]}");
         var resource = new BmsAudioResource("test.wav", new DecodedAudio(sourceRate, AudioChannelLayout.CreateBassOutput(1), new float[checked((int)sourceStart + 1)]), 1);
         var schedule = BmsAudioFrameSchedule.Create(chart, outputRate, new[] { resource });
         Assert.AreEqual(3, chart.AudioEvents.Count);
@@ -162,14 +160,12 @@ public sealed class BmsAudioFrameScheduleTests
 
     private sealed class TemporaryDirectory : IDisposable
     {
-        private readonly string path = Path.Combine(
-            Path.GetTempPath(),
-            "BeMusicSeeker.BmsAudioFrameSchedule." + Guid.NewGuid().ToString("N"));
+        private readonly TestWorkspace workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        private string path => workspace.RootDirectory;
 
-        internal TemporaryDirectory() => Directory.CreateDirectory(path);
 
         internal string File(string name) => Path.Combine(path, name);
 
-        public void Dispose() => Directory.Delete(path, recursive: true);
+        public void Dispose() => workspace.Dispose();
     }
 }

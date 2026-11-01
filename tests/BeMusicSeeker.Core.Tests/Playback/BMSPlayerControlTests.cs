@@ -1,12 +1,7 @@
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
 using Ribbit.BMS;
 using Ribbit.Media;
 
@@ -25,7 +20,7 @@ public sealed class BMSPlayerControlTests
     [DataRow("later-channel-earlier-head", new long[] { 4800000, 9600000, 12000000, 14400000, 14400000, 14400000 })]
     public void BmsonPlayableConflictsPreserveRegistrationOrderForProgressAndBackwardSeek(string scenario, long[] expectedTicks)
     {
-        PlaybackChart chart = BmsonPlaybackParserTests.Parse(BmsonPlaybackParserTests.ConflictingPlayableInput(scenario));
+        PlaybackChart chart = BmsonPlaybackFixture.Parse(BmsonPlaybackFixture.ConflictingPlayableInput(scenario));
         using var player = new PlaybackProbe(chart);
         player.LoadResources(); // probeの表示長だけを設定し、音声資源とnative出力は使いません。
         Assert.AreEqual(expectedTicks.Length, player.Chart.TotalNoteCount);
@@ -50,7 +45,7 @@ public sealed class BMSPlayerControlTests
     public async Task BmsonInitialLinesDoNotAdvanceMeasureButQuantizedPositiveLinesDo(int initialLines, bool quantizedToZero)
     {
         string lines = "[" + string.Concat(Enumerable.Repeat("{\"y\":0},", initialLines)) + "{\"y\":240},{\"y\":480}]";
-        PlaybackChart chart = BmsonPlaybackParserTests.Parse("{\"info\":{\"init_bpm\":" + (quantizedToZero ? "1e1000" : "120")
+        PlaybackChart chart = BmsonPlaybackFixture.Parse("{\"info\":{\"init_bpm\":" + (quantizedToZero ? "1e1000" : "120")
             + "},\"lines\":" + lines + ",\"sound_channels\":[]}");
         Assert.AreEqual(2, chart.LastMeasure);
         using var player = new PlaybackProbe(chart, initialClockTime: TimeSpan.Zero);
@@ -146,7 +141,7 @@ public sealed class BMSPlayerControlTests
     [TestMethod]
     public async Task BmsonDisplayCountsLogicalPositionsAndNaturalCompletionWaitsForCleanup()
     {
-        PlaybackChart chart = BmsonPlaybackParserTests.Parse("{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":0,\"l\":240},{\"x\":2,\"y\":120}]}],\"bpm_events\":[{\"y\":240,\"bpm\":60}],\"stop_events\":[{\"y\":240,\"duration\":240}]}");
+        PlaybackChart chart = BmsonPlaybackFixture.Parse("{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":0,\"l\":240},{\"x\":2,\"y\":120}]}],\"bpm_events\":[{\"y\":240,\"bpm\":60}],\"stop_events\":[{\"y\":240,\"duration\":240}]}");
         using var cleanupGate = new ManualResetEventSlim(initialState: false);
         using var player = new PlaybackProbe(chart, playbackDuration: chart.Duration, initialClockTime: chart.Duration,
             cleanupGate: cleanupGate);
@@ -458,17 +453,12 @@ public sealed class BMSPlayerControlTests
 
     private sealed class TemporaryDirectory : IDisposable
     {
-        private readonly string path = Path.Combine(
-            Path.GetTempPath(),
-            "BeMusicSeeker.BMSPlayerControl." + Guid.NewGuid().ToString("N"));
+        private readonly TestWorkspace workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        private string path => workspace.RootDirectory;
 
-        internal TemporaryDirectory()
-        {
-            Directory.CreateDirectory(path);
-        }
 
         internal string File(string name) => Path.Combine(path, name);
 
-        public void Dispose() => Directory.Delete(path, recursive: true);
+        public void Dispose() => workspace.Dispose();
     }
 }

@@ -1,21 +1,17 @@
-using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using System.Reflection.PortableExecutable;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
 using ManagedBass;
 using ManagedBass.Enc;
 using ManagedBass.Mix;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NLog;
 using NLog.Config;
 using NLog.Targets;
@@ -244,7 +240,8 @@ public sealed class BassNativeRuntimeTests
     [TestMethod]
     public void BassAudioRuntime_RepeatedInitializeCoexistsWithHeldCallbackAndIndependentPcmPull()
     {
-        string wavePath = CreateNativeSmokeWaveFile();
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string wavePath = CreateNativeSmokeWaveFile(workspace);
         using var releaseCallback = new ManualResetEventSlim();
         var callbackEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Task? heldCallback = null;
@@ -594,74 +591,81 @@ public sealed class BassNativeRuntimeTests
     [TestMethod]
     public void AudioWriterStartsAndStopsWavRecordingWithoutPhysicalDevice()
     {
-        string directoryPath = Path.Combine(
-            Path.GetTempPath(),
-            "BeMusicSeekerWriterNativeContracts",
-            Guid.NewGuid().ToString("N"));
-        string outputWithoutExtension = Path.Combine(directoryPath, "recording");
-        string lameWithoutExtension = Path.Combine(directoryPath, "lame");
-        string neroWithoutExtension = Path.Combine(directoryPath, "nero");
-        string opusWithoutExtension = Path.Combine(directoryPath, "opus");
-        string flacWithoutExtension = Path.Combine(directoryPath, "flac");
-        string oggWithoutExtension = Path.Combine(directoryPath, "ogg");
-        string previousEncoderDirectory = BassAudioWriter.EncoderDirectory;
-        SampleRate previousFrequency = BassAudioPlayer.Frequency;
-        SampleFormat previousFormat = BassAudioPlayer.Format;
-        BassAudioSession? ownedSession = null;
-        FieldInfo? encoderField = null;
-        ExceptionDispatchInfo? failure = null;
-        void CaptureCleanup(Action cleanup)
+        var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        bool workspaceCleanupAttempted = false;
+        void CleanupWorkspace()
         {
-            try
-            {
-                cleanup();
-            }
-            catch (Exception exception)
-            {
-                failure ??= ExceptionDispatchInfo.Capture(exception);
-            }
+            if (workspaceCleanupAttempted) { return; }
+            workspaceCleanupAttempted = true;
+            workspace.Dispose();
         }
-
-        AudioEncoderSession GetCurrentEncoder()
-        {
-            Assert.IsNotNull(encoderField);
-            var currentEncoder = encoderField!.GetValue(null) as AudioEncoderSession;
-            Assert.IsNotNull(currentEncoder);
-            return currentEncoder;
-        }
-
-        void AssertCreatedEncoder(string expectedOutputFile)
-        {
-            AudioEncoderSession currentEncoder = GetCurrentEncoder();
-            Assert.AreEqual(expectedOutputFile, currentEncoder.OutputFile);
-            Assert.AreEqual(0, currentEncoder.EncoderHandle);
-            Assert.AreEqual(AudioEncoderSessionState.Created, currentEncoder.State);
-        }
-
         try
         {
-            Directory.CreateDirectory(directoryPath);
-            encoderField = typeof(BassAudioWriter).GetField(
-                "encoder",
-                BindingFlags.NonPublic | BindingFlags.Static);
-            Assert.IsNotNull(encoderField);
-
-            foreach (EncoderType encoderType in new[]
+            string directoryPath = workspace.RootDirectory;
+            string outputWithoutExtension = Path.Combine(directoryPath, "recording");
+            string lameWithoutExtension = Path.Combine(directoryPath, "lame");
+            string neroWithoutExtension = Path.Combine(directoryPath, "nero");
+            string opusWithoutExtension = Path.Combine(directoryPath, "opus");
+            string flacWithoutExtension = Path.Combine(directoryPath, "flac");
+            string oggWithoutExtension = Path.Combine(directoryPath, "ogg");
+            string previousEncoderDirectory = BassAudioWriter.EncoderDirectory;
+            SampleRate previousFrequency = BassAudioPlayer.Frequency;
+            SampleFormat previousFormat = BassAudioPlayer.Format;
+            BassAudioSession? ownedSession = null;
+            FieldInfo? encoderField = null;
+            ExceptionDispatchInfo? failure = null;
+            void CaptureCleanup(Action cleanup)
             {
+                try
+                {
+                    cleanup();
+                }
+                catch (Exception exception)
+                {
+                    failure ??= ExceptionDispatchInfo.Capture(exception);
+                }
+            }
+
+            AudioEncoderSession GetCurrentEncoder()
+            {
+                Assert.IsNotNull(encoderField);
+                var currentEncoder = encoderField!.GetValue(null) as AudioEncoderSession;
+                Assert.IsNotNull(currentEncoder);
+                return currentEncoder;
+            }
+
+            void AssertCreatedEncoder(string expectedOutputFile)
+            {
+                AudioEncoderSession currentEncoder = GetCurrentEncoder();
+                Assert.AreEqual(expectedOutputFile, currentEncoder.OutputFile);
+                Assert.AreEqual(0, currentEncoder.EncoderHandle);
+                Assert.AreEqual(AudioEncoderSessionState.Created, currentEncoder.State);
+            }
+
+            try
+            {
+                Directory.CreateDirectory(directoryPath);
+                encoderField = typeof(BassAudioWriter).GetField(
+                    "encoder",
+                    BindingFlags.NonPublic | BindingFlags.Static);
+                Assert.IsNotNull(encoderField);
+
+                foreach (EncoderType encoderType in new[]
+                {
                 EncoderType.MP3_LAME,
                 EncoderType.AAC_NERO,
                 EncoderType.OPUS,
                 EncoderType.FLAC,
                 EncoderType.OGG_VORBIS
             })
-            {
-                File.WriteAllText(
-                    Path.Combine(directoryPath, encoderType.GetEncoderFileName()),
-                    string.Empty);
-            }
+                {
+                    File.WriteAllText(
+                        Path.Combine(directoryPath, encoderType.GetEncoderFileName()),
+                        string.Empty);
+                }
 
-            foreach (string outputFile in new[]
-            {
+                foreach (string outputFile in new[]
+                {
                 lameWithoutExtension + ".mp3",
                 neroWithoutExtension + ".m4a",
                 opusWithoutExtension + ".opus",
@@ -669,149 +673,154 @@ public sealed class BassNativeRuntimeTests
                 oggWithoutExtension + ".ogg",
                 outputWithoutExtension + ".wav"
             })
-            {
-                File.WriteAllText(outputFile, string.Empty);
-            }
-
-            BassAudioWriter.EncoderDirectory = directoryPath;
-            BassAudioPlayer.Frequency = SampleRate.SAMPLE_RATE_48000Hz;
-            BassAudioPlayer.Format = SampleFormat.SAMPLE_INT_16BIT;
-            BassAudioRuntime.Initialize();
-            BassAudioWriter.InitializeOwnedSession(out ownedSession);
-
-            ChannelInfo sourceInfo = Bass.ChannelGetInfo(ownedSession.MixerHandle);
-            Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, BassAudioPlayer.Format);
-            Assert.AreEqual(48000, sourceInfo.Frequency);
-            Assert.AreEqual(2, sourceInfo.Channels);
-            Assert.IsTrue(sourceInfo.Flags.HasFlag(BassFlags.Float));
-            Assert.AreEqual(SampleRate.SAMPLE_RATE_48000Hz, ownedSession.NegotiationResult.ActualRate);
-            Assert.AreEqual(2, ownedSession.NegotiationResult.ActualChannels);
-            Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, ownedSession.NegotiationResult.EngineFormat);
-            Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, ownedSession.NegotiationResult.EndpointFormat);
-
-            string lameOutputFile = lameWithoutExtension + " (2).mp3";
-            BassAudioWriter.CreateEncoderLAME(lameWithoutExtension, quality: 0.6f);
-            AssertCreatedEncoder(lameOutputFile);
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, lameOutputFile);
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, " -s 48 ");
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--bitwidth 32");
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, " -V 4 ");
-            Assert.AreEqual(
-                EncodeFlags.Unicode | EncodeFlags.NoHeader | EncodeFlags.ConvertFloatTo32Bit | EncodeFlags.Dither,
-                BassAudioWriter.EncoderFlags);
-
-            string neroOutputFile = neroWithoutExtension + " (2).m4a";
-            BassAudioWriter.CreateEncoderNeroAAC(neroWithoutExtension, quality: 0.6f);
-            AssertCreatedEncoder(neroOutputFile);
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, neroOutputFile);
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, " -q 0.6 ");
-            Assert.AreEqual(EncodeFlags.Unicode, BassAudioWriter.EncoderFlags);
-
-            string opusOutputFile = opusWithoutExtension + " (2).opus";
-            BassAudioWriter.CreateEncoderOPUS(opusWithoutExtension, quality: 0.6f);
-            AssertCreatedEncoder(opusOutputFile);
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, opusOutputFile);
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--ignorelength");
-            Assert.IsFalse(BassAudioWriter.EncoderCommandLine.Contains("--raw", StringComparison.Ordinal));
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--bitrate 156 ");
-            Assert.AreEqual(
-                EncodeFlags.Unicode,
-                BassAudioWriter.EncoderFlags);
-
-            string flacOutputFile = flacWithoutExtension + " (2).flac";
-            BassAudioWriter.CreateEncoderFLAC(flacWithoutExtension, quality: 0.6f);
-            AssertCreatedEncoder(flacOutputFile);
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, flacOutputFile);
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--sample-rate=48000");
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--channels=2");
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--bps=24");
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--replay-gain -6 ");
-            Assert.AreEqual(
-                EncodeFlags.Unicode | EncodeFlags.NoHeader | EncodeFlags.ConvertFloatTo24Bit,
-                BassAudioWriter.EncoderFlags);
-
-            string oggOutputFile = oggWithoutExtension + " (2).ogg";
-            BassAudioWriter.CreateEncoderOGG(oggWithoutExtension, quality: 0.6f);
-            AssertCreatedEncoder(oggOutputFile);
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, oggOutputFile);
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "-F 3");
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "-C 2");
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "-R 48000");
-            StringAssert.Contains(BassAudioWriter.EncoderCommandLine, " -q 6.0 ");
-            Assert.IsFalse(BassAudioWriter.EncoderCommandLine.Contains(" -B ", StringComparison.Ordinal));
-            Assert.AreEqual(EncodeFlags.Unicode | EncodeFlags.NoHeader, BassAudioWriter.EncoderFlags);
-
-            string outputPath = outputWithoutExtension + " (2).wav";
-            BassAudioWriter.CreateEncoderWAV(outputWithoutExtension);
-            AssertCreatedEncoder(outputPath);
-            Assert.AreEqual(outputPath, BassAudioWriter.EncoderCommandLine);
-            Assert.AreEqual(
-                EncodeFlags.PCM | EncodeFlags.ConvertFloatTo16BitInt | EncodeFlags.Dither,
-                BassAudioWriter.EncoderFlags);
-
-            BassAudioWriter.StartRecording();
-            Assert.AreEqual(PlayState.Playing, BassAudioWriter.RecordState);
-            AudioPcmRenderer renderer = BassAudioWriter.CreatePcmRenderer();
-            float[] pcm = new float[renderer.SampleRate / 20 * renderer.ChannelCount];
-            renderer.ReadFramesExactly(pcm, 0, renderer.SampleRate / 20);
-            BassAudioWriter.WritePcm(pcm);
-
-            BassAudioWriter.StopRecording();
-            Assert.AreEqual(PlayState.Stopped, BassAudioWriter.RecordState);
-
-            Assert.IsTrue(File.Exists(outputPath));
-            Assert.IsTrue(new FileInfo(outputPath).Length >= 44);
-        }
-        catch (Exception exception)
-        {
-            failure = ExceptionDispatchInfo.Capture(exception);
-        }
-        finally
-        {
-            bool encoderReleased = false;
-            CaptureCleanup(() =>
-            {
-                encoderReleased = BassAudioWriter.TryReleaseEncoder();
-                if (!encoderReleased)
                 {
-                    throw new InvalidOperationException("The writer encoder owner did not release.");
+                    File.WriteAllText(outputFile, string.Empty);
                 }
-            });
 
-            bool sessionReleased = ownedSession == null;
-            if (encoderReleased)
+                BassAudioWriter.EncoderDirectory = directoryPath;
+                BassAudioPlayer.Frequency = SampleRate.SAMPLE_RATE_48000Hz;
+                BassAudioPlayer.Format = SampleFormat.SAMPLE_INT_16BIT;
+                BassAudioRuntime.Initialize();
+                BassAudioWriter.InitializeOwnedSession(out ownedSession);
+
+                ChannelInfo sourceInfo = Bass.ChannelGetInfo(ownedSession.MixerHandle);
+                Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, BassAudioPlayer.Format);
+                Assert.AreEqual(48000, sourceInfo.Frequency);
+                Assert.AreEqual(2, sourceInfo.Channels);
+                Assert.IsTrue(sourceInfo.Flags.HasFlag(BassFlags.Float));
+                Assert.AreEqual(SampleRate.SAMPLE_RATE_48000Hz, ownedSession.NegotiationResult.ActualRate);
+                Assert.AreEqual(2, ownedSession.NegotiationResult.ActualChannels);
+                Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, ownedSession.NegotiationResult.EngineFormat);
+                Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, ownedSession.NegotiationResult.EndpointFormat);
+
+                string lameOutputFile = lameWithoutExtension + " (2).mp3";
+                BassAudioWriter.CreateEncoderLAME(lameWithoutExtension, quality: 0.6f);
+                AssertCreatedEncoder(lameOutputFile);
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, lameOutputFile);
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, " -s 48 ");
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--bitwidth 32");
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, " -V 4 ");
+                Assert.AreEqual(
+                    EncodeFlags.Unicode | EncodeFlags.NoHeader | EncodeFlags.ConvertFloatTo32Bit | EncodeFlags.Dither,
+                    BassAudioWriter.EncoderFlags);
+
+                string neroOutputFile = neroWithoutExtension + " (2).m4a";
+                BassAudioWriter.CreateEncoderNeroAAC(neroWithoutExtension, quality: 0.6f);
+                AssertCreatedEncoder(neroOutputFile);
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, neroOutputFile);
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, " -q 0.6 ");
+                Assert.AreEqual(EncodeFlags.Unicode, BassAudioWriter.EncoderFlags);
+
+                string opusOutputFile = opusWithoutExtension + " (2).opus";
+                BassAudioWriter.CreateEncoderOPUS(opusWithoutExtension, quality: 0.6f);
+                AssertCreatedEncoder(opusOutputFile);
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, opusOutputFile);
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--ignorelength");
+                Assert.IsFalse(BassAudioWriter.EncoderCommandLine.Contains("--raw", StringComparison.Ordinal));
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--bitrate 156 ");
+                Assert.AreEqual(
+                    EncodeFlags.Unicode,
+                    BassAudioWriter.EncoderFlags);
+
+                string flacOutputFile = flacWithoutExtension + " (2).flac";
+                BassAudioWriter.CreateEncoderFLAC(flacWithoutExtension, quality: 0.6f);
+                AssertCreatedEncoder(flacOutputFile);
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, flacOutputFile);
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--sample-rate=48000");
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--channels=2");
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--bps=24");
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--replay-gain -6 ");
+                Assert.AreEqual(
+                    EncodeFlags.Unicode | EncodeFlags.NoHeader | EncodeFlags.ConvertFloatTo24Bit,
+                    BassAudioWriter.EncoderFlags);
+
+                string oggOutputFile = oggWithoutExtension + " (2).ogg";
+                BassAudioWriter.CreateEncoderOGG(oggWithoutExtension, quality: 0.6f);
+                AssertCreatedEncoder(oggOutputFile);
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, oggOutputFile);
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "-F 3");
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "-C 2");
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "-R 48000");
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, " -q 6.0 ");
+                Assert.IsFalse(BassAudioWriter.EncoderCommandLine.Contains(" -B ", StringComparison.Ordinal));
+                Assert.AreEqual(EncodeFlags.Unicode | EncodeFlags.NoHeader, BassAudioWriter.EncoderFlags);
+
+                string outputPath = outputWithoutExtension + " (2).wav";
+                BassAudioWriter.CreateEncoderWAV(outputWithoutExtension);
+                AssertCreatedEncoder(outputPath);
+                Assert.AreEqual(outputPath, BassAudioWriter.EncoderCommandLine);
+                Assert.AreEqual(
+                    EncodeFlags.PCM | EncodeFlags.ConvertFloatTo16BitInt | EncodeFlags.Dither,
+                    BassAudioWriter.EncoderFlags);
+
+                BassAudioWriter.StartRecording();
+                Assert.AreEqual(PlayState.Playing, BassAudioWriter.RecordState);
+                AudioPcmRenderer renderer = BassAudioWriter.CreatePcmRenderer();
+                float[] pcm = new float[renderer.SampleRate / 20 * renderer.ChannelCount];
+                renderer.ReadFramesExactly(pcm, 0, renderer.SampleRate / 20);
+                BassAudioWriter.WritePcm(pcm);
+
+                BassAudioWriter.StopRecording();
+                Assert.AreEqual(PlayState.Stopped, BassAudioWriter.RecordState);
+
+                Assert.IsTrue(File.Exists(outputPath));
+                Assert.IsTrue(new FileInfo(outputPath).Length >= 44);
+            }
+            catch (Exception exception)
             {
+                failure = ExceptionDispatchInfo.Capture(exception);
+            }
+            finally
+            {
+                bool encoderReleased = false;
                 CaptureCleanup(() =>
                 {
-                    sessionReleased = BassAudioPlayer.Free(ownedSession);
-                    if (!sessionReleased)
+                    encoderReleased = BassAudioWriter.TryReleaseEncoder();
+                    if (!encoderReleased)
                     {
-                        throw new InvalidOperationException("The writer audio session did not release.");
+                        throw new InvalidOperationException("The writer encoder owner did not release.");
+                    }
+                });
+
+                bool sessionReleased = ownedSession == null;
+                if (encoderReleased)
+                {
+                    CaptureCleanup(() =>
+                    {
+                        sessionReleased = BassAudioPlayer.Free(ownedSession);
+                        if (!sessionReleased)
+                        {
+                            throw new InvalidOperationException("The writer audio session did not release.");
+                        }
+                    });
+                }
+
+                if (encoderReleased && sessionReleased)
+                {
+                    CaptureCleanup(BassAudioRuntime.Shutdown);
+                }
+
+                CaptureCleanup(() =>
+                {
+                    BassAudioWriter.EncoderDirectory = previousEncoderDirectory;
+                    BassAudioPlayer.Frequency = previousFrequency;
+                    BassAudioPlayer.Format = previousFormat;
+                });
+                CaptureCleanup(() =>
+                {
+                    if (Directory.Exists(directoryPath))
+                    {
+                        CleanupWorkspace();
                     }
                 });
             }
 
-            if (encoderReleased && sessionReleased)
-            {
-                CaptureCleanup(BassAudioRuntime.Shutdown);
-            }
-
-            CaptureCleanup(() =>
-            {
-                BassAudioWriter.EncoderDirectory = previousEncoderDirectory;
-                BassAudioPlayer.Frequency = previousFrequency;
-                BassAudioPlayer.Format = previousFormat;
-            });
-            CaptureCleanup(() =>
-            {
-                if (Directory.Exists(directoryPath))
-                {
-                    Directory.Delete(directoryPath, recursive: true);
-                }
-            });
+            failure?.Throw();
         }
-
-        failure?.Throw();
+        finally
+        {
+            CleanupWorkspace();
+        }
     }
 
     /// <summary>runtime shutdown要求はnative非活性化前に新root受付を閉じ、受理済み操作の終端までgenerationを保つ。</summary>
@@ -914,7 +923,8 @@ public sealed class BassNativeRuntimeTests
     [TestMethod]
     public void NativeRuntime_NoSoundDecodeMixerPullProducesNonZeroPcm()
     {
-        string wavePath = CreateNativeSmokeWaveFile();
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string wavePath = CreateNativeSmokeWaveFile(workspace);
         int sourceHandle = 0;
         int mixerHandle = 0;
         BassMixerSourceController? sourceController = null;
@@ -1117,7 +1127,7 @@ public sealed class BassNativeRuntimeTests
         }
     }
 
-    private static string CreateNativeSmokeWaveFile()
+    private static string CreateNativeSmokeWaveFile(TestWorkspace workspace)
     {
         const int sampleRate = 44100;
         const int channelCount = 1;
@@ -1149,7 +1159,7 @@ public sealed class BassNativeRuntimeTests
         }
 
         string path = Path.Combine(
-            Path.GetTempPath(),
+            workspace.RootDirectory,
             "BeMusicSeeker.BassNativeSmoke." + Guid.NewGuid().ToString("N") + ".wav");
         File.WriteAllBytes(path, wave);
         return path;
@@ -1160,7 +1170,8 @@ public sealed class BassNativeRuntimeTests
     [TestMethod]
     public void BassAudioPlayer_MemoryWavPlayPullsNonZeroPcmThroughOwningMixer()
     {
-        string wavePath = CreateNativeSmokeWaveFile();
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string wavePath = CreateNativeSmokeWaveFile(workspace);
         try
         {
             AssertBassAudioPlayerPlayProducesNonZeroPcm(wavePath);
@@ -1176,7 +1187,8 @@ public sealed class BassNativeRuntimeTests
     [TestMethod]
     public void BassNullDeviceInitializesMixerThreadsAndAppliesCapturedSourceQuality()
     {
-        string wavePath = CreateNativeSmokeWaveFile();
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string wavePath = CreateNativeSmokeWaveFile(workspace);
         Settings playbackSettings = TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.PlayerResamplingQuality = 2;
@@ -1228,7 +1240,8 @@ public sealed class BassNativeRuntimeTests
     [TestMethod]
     public void BassAudioPlayer_MemoryFileProceduresSurviveForcedFullGc()
     {
-        string wavePath = CreateNativeSmokeWaveFile();
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string wavePath = CreateNativeSmokeWaveFile(workspace);
         BassAudioSession? session = null;
         BassAudioPlayer? player = null;
         int initialVoices = BassAudioPlayer.CurrentVoices;
@@ -1309,7 +1322,8 @@ public sealed class BassNativeRuntimeTests
     [TestMethod]
     public void BassAudioPlayer_VerifiedMembershipRaceCountsVoiceAndLifecycleIsIdempotent()
     {
-        string wavePath = CreateNativeSmokeWaveFile();
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string wavePath = CreateNativeSmokeWaveFile(workspace);
         BassAudioSession? session = null;
         BassAudioPlayer? player = null;
         int initialVoices = BassAudioPlayer.CurrentVoices;
@@ -1365,7 +1379,8 @@ public sealed class BassNativeRuntimeTests
     [TestMethod]
     public void BassAudioPlayer_NaturalEndCanBeReenteredWithoutStaleCleanup()
     {
-        string wavePath = CreateNativeSmokeWaveFile();
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string wavePath = CreateNativeSmokeWaveFile(workspace);
         BassAudioSession? session = null;
         BassAudioPlayer? player = null;
         int initialVoices = BassAudioPlayer.CurrentVoices;
@@ -1910,5 +1925,4 @@ public sealed class BassNativeRuntimeTests
             }
         }
     }
-
 }

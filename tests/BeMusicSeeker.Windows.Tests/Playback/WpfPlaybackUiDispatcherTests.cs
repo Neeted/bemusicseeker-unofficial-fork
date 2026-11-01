@@ -1,10 +1,7 @@
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.Views;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 

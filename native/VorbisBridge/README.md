@@ -12,4 +12,4 @@ Get-FileHash native/VorbisBridge/build/Release/bms_vorbis.dll -Algorithm SHA256
 
 生成DLLを`vendor/native/x64/bms_vorbis.dll`へコピーするときは、[依存仕様](../../devdocs/spec/runtime/audio-dependencies.md)と実DLL検査のhash・版・ABIを同じ変更で更新します。PEのタイムスタンプ等が変わる再ビルドに対してバイト一致を自動保証するものではありません。
 
-`tools/vorbis_reference.cpp`はbridgeを呼ばず直接`ov_read_float`で参照float PCMを生成します。生成方法と入力・出力・依存・コンパイラー・採用DLLの実測値は[参照manifest](../../BeMusicSeeker.Tests/TestData/audio/vorbis-reference-manifest.json)を参照します。C#ラッパーの検証と復号アルゴリズムの独立証明は区別します。
+`tools/vorbis_reference.cpp`はbridgeを呼ばず直接`ov_read_float`で参照float PCMを生成します。生成方法と入力・出力・依存・コンパイラー・採用DLLの実測値は[参照manifest](../../tests/BeMusicSeeker.Windows.Tests/TestData/audio/vorbis-reference-manifest.json)を参照します。C#ラッパーの検証と復号アルゴリズムの独立証明は区別します。

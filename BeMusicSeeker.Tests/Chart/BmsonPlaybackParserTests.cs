@@ -8,6 +8,7 @@ using NLog.Config;
 using NLog.Targets;
 using Ribbit.BMS;
 using Ribbit.Logging;
+using static BeMusicSeeker.TestSupport.Components.BmsonPlaybackFixture;
 
 namespace BeMusicSeeker.Tests;
 
@@ -251,32 +252,6 @@ public sealed class BmsonPlaybackParserTests
         + "{\"name\":\"short.wav\",\"notes\":[{\"x\":2,\"y\":120}]}],"
         + "\"key_channels\":[{\"notes\":[{\"y\":480}]}],\"mine_channels\":[{\"notes\":[{\"y\":480}]}],\"scroll_events\":[{\"y\":0,\"rate\":2}]}";
 
-    /// <summary>登録順・LN終端の包含を区別する独立入力です。125 BPM/240 resolutionで1pulseは0.002秒です。</summary>
-    internal static string ConflictingPlayableInput(string scenario)
-    {
-        string Channel(string notes) => "{\"name\":\"a.wav\",\"notes\":[" + notes + "]}";
-        const string normal = "{\"x\":1,\"y\":240}";
-        const string shortLn = "{\"x\":1,\"y\":240,\"l\":240}";
-        const string longLn = "{\"x\":1,\"y\":240,\"l\":480}";
-        string channels = scenario switch
-        {
-            "normal-ln" => Channel(normal) + "," + Channel(shortLn),
-            "ln-normal" => Channel(shortLn) + "," + Channel(normal),
-            "short-long" => Channel(shortLn) + "," + Channel(longLn),
-            "long-short" => Channel(longLn) + "," + Channel(shortLn),
-            "stable-channel-order" => Channel("{\"x\":1,\"y\":720},{\"x\":1,\"y\":240,\"l\":480},"
-                + "{\"x\":2,\"y\":240,\"l\":240},{\"x\":2,\"y\":240,\"l\":480},"
-                + "{\"x\":3,\"y\":240,\"l\":480},{\"x\":3,\"y\":240,\"l\":240}")
-                + "," + Channel("{\"x\":1,\"y\":480},{\"x\":1,\"y\":600,\"l\":480},"
-                + "{\"x\":1,\"y\":720,\"l\":240},{\"x\":1,\"y\":721},{\"x\":4,\"y\":480}"),
-            "later-channel-earlier-head" => Channel("{\"x\":1,\"y\":480},{\"x\":2,\"y\":600,\"l\":120},{\"x\":3,\"y\":720}")
-                + "," + Channel("{\"x\":1,\"y\":240,\"l\":480},{\"x\":2,\"y\":240,\"l\":480},"
-                + "{\"x\":3,\"y\":240,\"l\":480},{\"x\":4,\"y\":240,\"l\":480}"),
-            _ => throw new ArgumentOutOfRangeException(nameof(scenario))
-        };
-        return "{\"info\":{\"init_bpm\":125,\"resolution\":240},\"lines\":[],\"sound_channels\":[" + channels + "]}";
-    }
-
     /// <summary>
     /// 競合ノートの正常解析だけが除外数付き警告を一回出し、正常な層や解析失敗で誤通知・重複通知する誤りを検出する。
     /// </summary>
@@ -430,15 +405,6 @@ public sealed class BmsonPlaybackParserTests
             Assert.IsInstanceOfType<InvalidDataException>(failure.InnerException);
         }
         Assert.AreEqual(120d, Parse(Chart("120", "[]", ",\"bpm_events\":[{\"y\":0,\"bpm\":" + Token("0e4096") + "}]")).Bpm.ToDouble());
-    }
-
-    internal static PlaybackChart Parse(string json)
-    {
-        string directory = Path.Combine(Path.GetTempPath(), "BmsonPlaybackParserTests-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        string path = Path.Combine(directory, "test.bmson");
-        try { File.WriteAllText(path, json); return PlaybackChart.Load(path); }
-        finally { Directory.Delete(directory, recursive: true); }
     }
 
     private static BigInteger RoundEven(BigInteger numerator, BigInteger denominator)

@@ -6,6 +6,9 @@
     <EnableMicrosoftTestingExtensionsHangDump>true</EnableMicrosoftTestingExtensionsHangDump>
   </PropertyGroup>
   <ItemGroup>
+    <None Update="TestData/audio/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <ProjectReference Include="../BeMusicSeeker.TestSupport/BeMusicSeeker.TestSupport.csproj" />
     <ProjectReference Include="../../BeMusicSeeker/BeMusicSeeker.csproj" />
   </ItemGroup>

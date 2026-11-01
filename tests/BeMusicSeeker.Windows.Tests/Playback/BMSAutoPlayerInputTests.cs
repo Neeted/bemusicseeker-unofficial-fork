@@ -1,14 +1,11 @@
-using System;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Windows.Threading;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Wpf;
 using NLog;
 using NLog.Config;
 using NLog.Targets;
@@ -628,7 +625,7 @@ public sealed class BMSAutoPlayerInputTests
     public void LoadResources_LoadsUsedZeroFrameWaveWithoutOmissions()
     {
         using var directory = new TemporaryDirectory();
-        using var wave = AudioMixerSignalTests.TemporaryFloatWave.Create(
+        using var wave = AudioMixerSignalFixture.TemporaryFloatWave.Create(
             48000,
             0,
             _ => 0f);
@@ -674,7 +671,7 @@ public sealed class BMSAutoPlayerInputTests
                 + "#00111:0203\n");
 
             float[] firstSamples = [0.25f, -0.5f, 0.75f, -0.125f];
-            using (var wave = AudioMixerSignalTests.TemporaryFloatWave.Create(
+            using (var wave = AudioMixerSignalFixture.TemporaryFloatWave.Create(
                 48000,
                 4,
                 frame => firstSamples[checked((int)frame)]))
@@ -689,7 +686,7 @@ public sealed class BMSAutoPlayerInputTests
             firstPlayer = null;
 
             float[] nextSamples = [-0.75f, 0.125f, -0.25f, 0.5f];
-            using (var wave = AudioMixerSignalTests.TemporaryFloatWave.Create(
+            using (var wave = AudioMixerSignalFixture.TemporaryFloatWave.Create(
                 48000,
                 4,
                 frame => nextSamples[checked((int)frame)]))
@@ -1000,20 +997,15 @@ public sealed class BMSAutoPlayerInputTests
 
     private sealed class TemporaryDirectory : IDisposable
     {
-        private readonly string path = Path.Combine(
-            Path.GetTempPath(),
-            "BeMusicSeeker-" + Guid.NewGuid().ToString("N"));
+        private readonly TestWorkspace workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        private string path => workspace.RootDirectory;
 
-        internal TemporaryDirectory()
-        {
-            Directory.CreateDirectory(path);
-        }
 
         internal string File(string name) => Path.Combine(path, name);
 
         public void Dispose()
         {
-            Directory.Delete(path, recursive: true);
+            workspace.Dispose();
         }
     }
 }

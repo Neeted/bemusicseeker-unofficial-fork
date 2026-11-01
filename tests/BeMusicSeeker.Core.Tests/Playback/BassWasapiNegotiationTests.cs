@@ -1,13 +1,8 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.ViewModels;
 using ManagedBass;
 using ManagedBass.Wasapi;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
 
@@ -1294,6 +1289,4 @@ public sealed class BassWasapiNegotiationTests
         WasapiInitFlags Flags,
         float BufferSeconds,
         float PeriodSeconds);
-
-
 }

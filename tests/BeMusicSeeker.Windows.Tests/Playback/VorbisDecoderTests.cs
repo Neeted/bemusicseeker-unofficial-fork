@@ -1,9 +1,6 @@
-using System;
 using System.Buffers.Binary;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using BeMusicSeeker.TestSupport.Files;
 using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;
@@ -62,9 +59,10 @@ public sealed class VorbisDecoderTests
     [TestMethod]
     public void DecodeOgg_ConcatenatesAValidSameFormatChain()
     {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         byte[] input = File.ReadAllBytes(GetAudioPath("nvorbis-1test.ogg"));
         byte[] reference = File.ReadAllBytes(GetAudioPath("nvorbis-1test-reference.f32"));
-        string chainedPath = WriteTemporaryOgg(CreateChain(input, input));
+        string chainedPath = WriteTemporaryOgg(workspace, CreateChain(input, input));
         try
         {
             DecodedAudio actual = VorbisDecoder.Decode(chainedPath);
@@ -89,9 +87,10 @@ public sealed class VorbisDecoderTests
     [TestMethod]
     public void DecodeOgg_RejectsAChainedFormatChange()
     {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         byte[] mono = File.ReadAllBytes(GetAudioPath("nvorbis-1test.ogg"));
         byte[] stereo = File.ReadAllBytes(GetAudioPath("nvorbis-3test.ogg"));
-        string chainedPath = WriteTemporaryOgg(CreateChain(mono, stereo));
+        string chainedPath = WriteTemporaryOgg(workspace, CreateChain(mono, stereo));
         try
         {
             AudioSourceLoadException failure = Assert.ThrowsExactly<AudioSourceLoadException>(
@@ -130,9 +129,9 @@ public sealed class VorbisDecoderTests
     private static string GetAudioPath(string fileName)
         => Path.Combine(AppContext.BaseDirectory, "TestData", "audio", fileName);
 
-    private static string WriteTemporaryOgg(byte[] bytes)
+    private static string WriteTemporaryOgg(TestWorkspace workspace, byte[] bytes)
     {
-        string path = Path.Combine(Path.GetTempPath(), "BeMusicSeeker-" + Guid.NewGuid().ToString("N") + ".ogg");
+        string path = Path.Combine(workspace.RootDirectory, "BeMusicSeeker-" + Guid.NewGuid().ToString("N") + ".ogg");
         File.WriteAllBytes(path, bytes);
         return path;
     }

@@ -1,9 +1,6 @@
-using System;
-using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
 using BeMusicSeeker.Models;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Wpf;
 using Ribbit.BMS;
 using Ribbit.Media.Audio;
 
@@ -198,9 +195,9 @@ public sealed class NextSongPreloadOwnerTests
 
     private sealed class ChartFixture : IDisposable
     {
-        private readonly string directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bms-preload-" + Guid.NewGuid().ToString("N"));
+        private readonly TestWorkspace workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        private string directory => workspace.RootDirectory;
 
-        internal ChartFixture() => Directory.CreateDirectory(directory);
 
         internal NextSongPreloadInput Input(string name)
         {
@@ -209,6 +206,6 @@ public sealed class NextSongPreloadOwnerTests
             return NextSongPreloadInput.Capture(path);
         }
 
-        public void Dispose() => Directory.Delete(directory, recursive: true);
+        public void Dispose() => workspace.Dispose();
     }
 }

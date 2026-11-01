@@ -1,12 +1,10 @@
-using System;
 using System.Buffers.Binary;
 using System.IO;
-using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Text;
-using BeMusicSeeker.Tests.Helpers;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
 using ManagedBass.Enc;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.BMS;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
@@ -95,7 +93,7 @@ public sealed class BMSAutoPlayWriterTests
         {
             string json = prefix + "[{\"y\":0,\"c\":" + (firstContinues ? "true" : "false")
                 + "},{\"y\":1,\"c\":true},{\"y\":2,\"c\":true}]}]}";
-            PlaybackChart logical = BmsonPlaybackParserTests.Parse(json);
+            PlaybackChart logical = BmsonPlaybackFixture.Parse(json);
             Assert.AreEqual(3, logical.AudioEvents.Count);
             AudioTestWaveFile withContinuations = WriteBmsonOutput(directory, "continuations-" + firstContinues, json);
             AssertSamePcm(baseline, withContinuations);
@@ -131,7 +129,7 @@ public sealed class BMSAutoPlayWriterTests
         using var directory = new TemporaryDirectory();
         float[] samples = new float[48000 * 2];
         Array.Fill(samples, 0.125f);
-        File.WriteAllBytes(directory.File("audio.wav"), BmsRealtimeAudioSchedulerTests.BuildFloatWave(48000, samples));
+        File.WriteAllBytes(directory.File("audio.wav"), ScheduledAudioFixture.BuildFloatWave(48000, samples));
         const string prefix = "{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"name\":\"audio.wav\",\"notes\":";
         AudioTestWaveFile restarted = WriteBmsonOutput(directory, "restarted", prefix
             + "[{\"y\":0},{\"y\":60,\"c\":true},{\"y\":120},{\"y\":180,\"c\":true}]}]}");
@@ -327,7 +325,7 @@ public sealed class BMSAutoPlayWriterTests
     {
         using var directory = new TemporaryDirectory();
         File.WriteAllBytes(directory.File("audio.wav"), BuildFloatWave(48000, 480, _ => 0.125f));
-        using var zero = AudioMixerSignalTests.TemporaryFloatWave.Create(48000, 0, _ => 0f);
+        using var zero = AudioMixerSignalFixture.TemporaryFloatWave.Create(48000, 0, _ => 0f);
         File.Copy(zero.Path, directory.File("zero.wav"));
         const string first = "{\"name\":\"audio.wav\",\"notes\":[{\"y\":0,\"x\":1}]}";
         bool onlyEmpty = laterKind.EndsWith("-only", StringComparison.Ordinal);
@@ -969,18 +967,13 @@ public sealed class BMSAutoPlayWriterTests
 
     private sealed class TemporaryDirectory : IDisposable
     {
-        private readonly string path = Path.Combine(
-            Path.GetTempPath(),
-            "BeMusicSeeker.BMSAudioWriter." + Guid.NewGuid().ToString("N"));
+        private readonly TestWorkspace workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        private string path => workspace.RootDirectory;
 
-        internal TemporaryDirectory()
-        {
-            Directory.CreateDirectory(path);
-        }
 
         internal string File(string name) => Path.Combine(path, name);
 
-        public void Dispose() => Directory.Delete(path, recursive: true);
+        public void Dispose() => workspace.Dispose();
     }
 
     private static void CaptureCleanup(ref ExceptionDispatchInfo? primaryFailure, Action cleanup)

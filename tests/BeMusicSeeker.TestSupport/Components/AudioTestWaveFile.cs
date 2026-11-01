@@ -1,9 +1,7 @@
-using System;
 using System.Buffers.Binary;
-using System.IO;
 using System.Text;
 
-namespace BeMusicSeeker.Tests.Helpers;
+namespace BeMusicSeeker.TestSupport.Components;
 
 /// <summary>testが実際のencoder outputから読むPCM WAV chunk情報です。</summary>
 internal sealed record AudioTestWaveFile(

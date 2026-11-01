@@ -41,19 +41,19 @@ public sealed class AudioMixerPerformanceTests
 
         foreach (PerformanceWorkload workload in workloads)
         {
-            var waves = new List<AudioMixerSignalTests.TemporaryFloatWave>(workload.SourceCount);
+            var waves = new List<AudioMixerSignalFixture.TemporaryFloatWave>(workload.SourceCount);
             try
             {
                 for (int sourceIndex = 0; sourceIndex < workload.SourceCount; sourceIndex++)
                 {
                     float value = 0.0625f + (sourceIndex % 4) * 0.0078125f;
-                    waves.Add(AudioMixerSignalTests.TemporaryFloatWave.Create(
+                    waves.Add(AudioMixerSignalFixture.TemporaryFloatWave.Create(
                         48000,
                         workload.FramesPerSource,
                         _ => value));
                 }
 
-                using var graph = AudioMixerSignalTests.NativeAudioGraph.Start(48000);
+                using var graph = AudioMixerSignalFixture.NativeAudioGraph.Start(48000);
                 float actualNativeMixerThreads = ReadNativeMixerThreadCount(graph);
                 Assert.AreEqual(1f, actualNativeMixerThreads);
                 GC.Collect();
@@ -61,7 +61,7 @@ public sealed class AudioMixerPerformanceTests
                 GC.Collect();
                 long allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
                 var stopwatch = Stopwatch.StartNew();
-                foreach (AudioMixerSignalTests.TemporaryFloatWave wave in waves)
+                foreach (AudioMixerSignalFixture.TemporaryFloatWave wave in waves)
                 {
                     graph.CreatePlayer(wave.Path).Play();
                 }
@@ -75,7 +75,7 @@ public sealed class AudioMixerPerformanceTests
             }
             finally
             {
-                foreach (AudioMixerSignalTests.TemporaryFloatWave wave in waves)
+                foreach (AudioMixerSignalFixture.TemporaryFloatWave wave in waves)
                 {
                     wave.Dispose();
                 }
@@ -103,7 +103,7 @@ public sealed class AudioMixerPerformanceTests
         const string buildConfiguration = "Release";
 #endif
         long renderedFramesPerRepetition = checked((long)outputRate * sourceDurationSeconds);
-        var waves = new List<AudioMixerSignalTests.TemporaryFloatWave>(sourcesPerRate * 2);
+        var waves = new List<AudioMixerSignalFixture.TemporaryFloatWave>(sourcesPerRate * 2);
         double[] loadMilliseconds = new double[repetitions];
         double[] playMilliseconds = new double[repetitions];
         double[] renderMilliseconds = new double[repetitions];
@@ -119,7 +119,7 @@ public sealed class AudioMixerPerformanceTests
                 int toneIndex = sourceIndex % sourcesPerRate;
                 int frequency = 440 + (toneIndex % 12) * 110;
                 long sourceFrames = checked((long)sourceRate * sourceDurationSeconds);
-                waves.Add(AudioMixerSignalTests.TemporaryFloatWave.Create(
+                waves.Add(AudioMixerSignalFixture.TemporaryFloatWave.Create(
                     sourceRate,
                     sourceFrames,
                     frame => (float)(0.125d * Math.Sin(2d * Math.PI * frequency * frame / sourceRate))));
@@ -130,7 +130,7 @@ public sealed class AudioMixerPerformanceTests
 
             for (int repetition = 0; repetition < repetitions; repetition++)
             {
-                using var graph = AudioMixerSignalTests.NativeAudioGraph.Start(outputRate);
+                using var graph = AudioMixerSignalFixture.NativeAudioGraph.Start(outputRate);
                 Assert.AreEqual(sampleRateConversionQuality, graph.SampleRateConversionQuality);
                 float actualNativeMixerThreads = ReadNativeMixerThreadCount(graph);
                 Assert.AreEqual(1f, actualNativeMixerThreads);
@@ -149,7 +149,7 @@ public sealed class AudioMixerPerformanceTests
                 long allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
                 var totalStopwatch = Stopwatch.StartNew();
                 var phaseStopwatch = Stopwatch.StartNew();
-                foreach (AudioMixerSignalTests.TemporaryFloatWave wave in waves)
+                foreach (AudioMixerSignalFixture.TemporaryFloatWave wave in waves)
                 {
                     players.Add(graph.CreatePlayer(wave.Path));
                 }
@@ -183,7 +183,7 @@ public sealed class AudioMixerPerformanceTests
         }
         finally
         {
-            foreach (AudioMixerSignalTests.TemporaryFloatWave wave in waves)
+            foreach (AudioMixerSignalFixture.TemporaryFloatWave wave in waves)
             {
                 wave.Dispose();
             }
@@ -227,10 +227,10 @@ public sealed class AudioMixerPerformanceTests
 
             originalMixer = ownedSession.MixerHandle;
             using var directory = new TemporaryDirectory();
-            using var shortWave = AudioMixerSignalTests.TemporaryFloatWave.Create(48000, 240, _ => 0.0625f);
-            using var longWave = AudioMixerSignalTests.TemporaryFloatWave.Create(44100, 44100L * 2, _ => 0.03125f);
-            using var mediumWave = AudioMixerSignalTests.TemporaryFloatWave.Create(48000, 4800, _ => 0.125f);
-            using var retriggerWave = AudioMixerSignalTests.TemporaryFloatWave.Create(48000, 48000, _ => 0.015625f);
+            using var shortWave = AudioMixerSignalFixture.TemporaryFloatWave.Create(48000, 240, _ => 0.0625f);
+            using var longWave = AudioMixerSignalFixture.TemporaryFloatWave.Create(44100, 44100L * 2, _ => 0.03125f);
+            using var mediumWave = AudioMixerSignalFixture.TemporaryFloatWave.Create(48000, 4800, _ => 0.125f);
+            using var retriggerWave = AudioMixerSignalFixture.TemporaryFloatWave.Create(48000, 48000, _ => 0.015625f);
             File.Copy(shortWave.Path, directory.File("short.wav"));
             File.Copy(longWave.Path, directory.File("long.wav"));
             File.Copy(mediumWave.Path, directory.File("medium.wav"));
@@ -564,7 +564,7 @@ public sealed class AudioMixerPerformanceTests
 
         foreach ((int sourceRate, int outputRate) in ratePairs)
         {
-            using var graph = AudioMixerSignalTests.NativeAudioGraph.Start(outputRate, quality);
+            using var graph = AudioMixerSignalFixture.NativeAudioGraph.Start(outputRate, quality);
             Assert.AreEqual(quality, graph.SampleRateConversionQuality);
             float actualNativeMixerThreads = ReadNativeMixerThreadCount(graph);
             Assert.AreEqual(1f, actualNativeMixerThreads);
@@ -582,7 +582,7 @@ public sealed class AudioMixerPerformanceTests
             }
         }
 
-        using (var graph = AudioMixerSignalTests.NativeAudioGraph.Start(48000, quality))
+        using (var graph = AudioMixerSignalFixture.NativeAudioGraph.Start(48000, quality))
         {
             Assert.AreEqual(quality, graph.SampleRateConversionQuality);
             float actualNativeMixerThreads = ReadNativeMixerThreadCount(graph);
@@ -611,7 +611,7 @@ public sealed class AudioMixerPerformanceTests
     }
 
     private void RecordDefaultSrcFrequencyResponse(
-        AudioMixerSignalTests.NativeAudioGraph graph,
+        AudioMixerSignalFixture.NativeAudioGraph graph,
         int sourceRate,
         int outputRate,
         int inputFrequency,
@@ -623,7 +623,7 @@ public sealed class AudioMixerPerformanceTests
         int requestedOutputFrames = CeilingOutputFrames(sourceRate, outputRate, sourceFrames);
         int measuredStartFrame = outputRate / 4;
         int measuredFrameCount = outputRate / 2;
-        using var wave = AudioMixerSignalTests.TemporaryFloatWave.Create(
+        using var wave = AudioMixerSignalFixture.TemporaryFloatWave.Create(
             sourceRate,
             sourceFrames,
             frame => (float)(inputAmplitude * Math.Sin(2d * Math.PI * inputFrequency * frame / sourceRate)));
@@ -639,7 +639,7 @@ public sealed class AudioMixerPerformanceTests
                 Assert.IsTrue(float.IsFinite(sample), "SRC output PCM must be finite.");
             }
 
-            (double sineAmplitude, double cosineAmplitude) = AudioMixerSignalTests.MeasureProjectedComponents(
+            (double sineAmplitude, double cosineAmplitude) = AudioMixerSignalFixture.MeasureProjectedComponents(
                 pcm,
                 outputRate,
                 observedFrequency,
@@ -669,7 +669,7 @@ public sealed class AudioMixerPerformanceTests
             + (scaledFrames % sourceRate == 0 ? 0 : 1)));
     }
 
-    private static float ReadNativeMixerThreadCount(AudioMixerSignalTests.NativeAudioGraph graph)
+    private static float ReadNativeMixerThreadCount(AudioMixerSignalFixture.NativeAudioGraph graph)
     {
         if (!Bass.ChannelGetAttribute(
                 graph.Renderer.Channel,
