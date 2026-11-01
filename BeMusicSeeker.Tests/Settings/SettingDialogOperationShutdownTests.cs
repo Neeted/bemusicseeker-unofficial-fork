@@ -18,9 +18,16 @@ using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media.Audio;
 
+using static BeMusicSeeker.Tests.SettingsRootTestFixture;
+using static BeMusicSeeker.Tests.SettingsWindowTestFixture;
+
 namespace BeMusicSeeker.Tests;
 
-public sealed partial class SettingDialogEditCompletionTests
+/// <summary>受理済み設定操作と所有画面・アプリ終了の終端を検証します。</summary>
+/// <remarks>共有 culture・theme・Bass 受付と composition 購読を使うため非並列にします。</remarks>
+[TestClass]
+[DoNotParallelize]
+public sealed class SettingDialogOperationShutdownTests
 {
     /// <summary>実ownerは設定担当から準備中・必須UI待ち・局所BMT待ちのTaskを直接取得し、実終端前に保存・runtime終了へ進みません。</summary>
     /// <remarks>実MainWindow・モーダル・compiled開始/BMTボタンとCloseを使用します。BMT物理媒体の整合は局所BMT系列が分担し、ここは実P内のport終端を保持します。</remarks>

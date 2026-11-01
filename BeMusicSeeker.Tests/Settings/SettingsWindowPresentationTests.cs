@@ -4466,7 +4466,7 @@ public sealed class SettingsWindowPresentationTests
                 value.UsePlayeruBMplay = false; value.UsePlayerLR2body = false; value.UsePlayerBMIIDXView = false;
                 value.IsLR2BackupEnabled = false;
             });
-            var scanner = new SettingDialogEditCompletionTests.SettingsChartFileScanner(CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(), []));
+            var scanner = new SettingsChartFileScanner(CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(), []));
             var composition = new ApplicationComposition(settingsEditSession: new DangerSettingsEditSession(values, events),
                 reportSettingsApplyFailure: failures.Add, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
                 applicationLifetime: lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),

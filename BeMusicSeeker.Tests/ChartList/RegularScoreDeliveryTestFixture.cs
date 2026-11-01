@@ -27,13 +27,17 @@ internal sealed class RegularScoreDeliveryTestFixture : IDisposable
         string[] hashes = Enumerable.Range(0, count).Select(i => (i + 1).ToString("x32")).ToArray();
         using (LR2ScoreDBExtended db = databaseScope.OpenScoreWrite(scorePath))
         {
-            db.CreateTable<LR2ScoreDB.player>();
-            db.CreateTable<LR2ScoreDB.score>();
-            db.Insert(new LR2ScoreDB.player { id = "score-delivery", irid = 123 });
-            for (int i = 0; i < count; i++)
+            // schemaとseedだけをまとめ、実score読込み・setter・通知はcommit後の本番入口へ通します。
+            db.RunInTransaction(() =>
             {
-                db.Insert(new LR2ScoreDB.score { hash = hashes[i], great = i switch { 0 => 10, 1 => 30, 2 => 20, _ => 0 } });
-            }
+                db.CreateTable<LR2ScoreDB.player>();
+                db.CreateTable<LR2ScoreDB.score>();
+                db.Insert(new LR2ScoreDB.player { id = "score-delivery", irid = 123 });
+                for (int i = 0; i < count; i++)
+                {
+                    db.Insert(new LR2ScoreDB.score { hash = hashes[i], great = i switch { 0 => 10, 1 => 30, 2 => 20, _ => 0 } });
+                }
+            });
         }
         var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2RootPath = root };
         Library = new TestBmsLibrary(databaseScope, songPath, null, scorePath, null, () => options, TestBmsFactory.MissingEverythingBridge);

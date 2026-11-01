@@ -12,10 +12,19 @@ using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
+using static BeMusicSeeker.Tests.SettingsRootTestFixture;
+
 namespace BeMusicSeeker.Tests;
 
-public sealed partial class SettingDialogEditCompletionTests
+/// <summary>出力設定の保存・生成と失敗後の再操作を検証します。</summary>
+/// <remarks>共有 culture・theme・Bass 受付と composition 購読を使うため非並列にします。</remarks>
+[TestClass]
+[DoNotParallelize]
+public sealed class SettingDialogOutputConfirmationTests
 {
+    /// <summary>このクラスの準備とモデルで共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>有効な導入先の出力採用と確認中のP先着を実保存・XML・DB・配置変更前に拒否し、P解放だけでは再実行しません。別の確定ルートを導入先にした後の次の明示操作で実出力を完了し、初期化検査にも通ります。</summary>
     [TestMethod]
     public void OutputConfirmation_ProtectsInstallDirectoryUntilAnotherConfirmedRootIsSelected()
@@ -632,5 +641,37 @@ public sealed partial class SettingDialogEditCompletionTests
             ExternalSyncCount++;
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class ActiveSettingsDialogStatePort : ISettingsDialogStatePort
+    {
+        public bool HasActiveLibraryProfile => true;
+
+        public bool IsLibraryOperationInProgress => false;
+
+
+        public Task<StartupInitializationResult> CompleteRequiredInitializationAfterAdmissionAsync(StartupInitializationResult result)
+            => Task.FromResult(result with { CompletionPublished = result.Outcome == StartupInitializationOutcome.Succeeded });
+
+        public Task<LeapYearFolderRepairApproval?> PrepareLibraryInitializationAsync() => Task.FromResult<LeapYearFolderRepairApproval?>(null);
+
+        public Task PresentLeapYearFolderRepairAsync(LeapYearFolderRepairNotification? notification) => Task.CompletedTask;
+
+        public Task<StartupInitializationResult> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null,
+            LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null, bool forceBeatorajaBmtProjection = false) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
+
+        public Task<StartupInitializationResult> ReloadScoresOnlyAsync(LibraryFileMutationCapability capability) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
+
+        public Task PresentLibraryDirectoryWarningAsync(BeMusicSeeker.Models.BmsLibraryInternal.LibraryDirectoryPreflightException failure) => Task.CompletedTask;
+
+        public void ReevaluatePendingPackagesForSearchRoots(LibraryFileMutationCapability capability, out Action publication) { publication = () => { }; }
+
+        public Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
+
+#pragma warning disable CS0067 // インターフェイスのイベント面を満たすが、このテストダブルでは発火させない。
+        public event EventHandler? LibraryOperationAvailabilityChanged;
+
+        public event Action<Lr2PlayHistorySchemaStatusSnapshot>? Lr2PlayHistorySchemaStatusChanged;
+#pragma warning restore CS0067
     }
 }

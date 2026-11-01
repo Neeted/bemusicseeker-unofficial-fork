@@ -642,16 +642,9 @@ public sealed class PlaylistEntryCommitTests
     private static CandidateLookupWork MeasureCandidateLookup(int background, string hashKind)
     {
         using var observation = new SqliteStatementObservation();
-        using var fixture = new Fixture(background, observation.Attach);
-        fixture.Execute("DELETE FROM playlist_entry WHERE playlist_id = 9201;");
-        for (int index = 0; index < background; index++)
-        {
-            string? md5 = hashKind == "sha256" || (hashKind == "none" && index == 0)
-                ? null : index == 0 ? LowerMd5 : index.ToString("x32");
-            string? sha256 = hashKind == "sha256" ? index == 0 ? LowerSha256 : index.ToString("x64") : null;
-            fixture.InsertRawEntry(md5, sha256);
-        }
-        fixture.Execute("UPDATE playlist_entry SET is_removed = NULL WHERE playlist_id = 9201;");
+        bool observeCommit = false;
+        using var fixture = new Fixture(background, db => { if (observeCommit) { observation.Attach(db); } });
+        fixture.SeedCandidateLookupEntries(background, hashKind);
         BMSTable table = fixture.Tables[0];
         table.entries = fixture.Repository.LoadPersistedPlaylistEntries(table.playlist_id, activeOnly: true);
         BMSTableEntry target = table.entries.Single(entry => hashKind switch
@@ -661,6 +654,7 @@ public sealed class PlaylistEntryCommitTests
             _ => entry.md5 == null && entry.sha256 == null
         });
         BMSTableEntry retained = table.entries.First(entry => !ReferenceEquals(entry, target));
+        observeCommit = true;
         fixture.Commit(target, "memo", "after");
         SqliteStatementObservation.SqliteObservedStatement[] statements = [.. observation.Statements.Where(statement =>
             statement.Sql.StartsWith("SELECT rowid AS RowId FROM playlist_entry WHERE ", StringComparison.Ordinal))];
@@ -849,6 +843,24 @@ public sealed class PlaylistEntryCommitTests
             using LR2SongDBExtended db = OpenRead();
             return [.. db.Query<QueryPlanRow>("EXPLAIN QUERY PLAN " + sql).Select(row => row.detail)];
         }
+        /// <summary>対象を含む指定行数をraw値のまま一接続・一transactionで準備し、本番保存前に閉じます。</summary>
+        internal void SeedCandidateLookupEntries(int count, string hashKind)
+        {
+            using LR2SongDBExtended db = databaseScope.OpenSongWrite(dbPath);
+            db.RunInTransaction(() =>
+            {
+                db.Execute("DELETE FROM playlist_entry WHERE playlist_id = 9201;");
+                for (int index = 0; index < count; index++)
+                {
+                    string? md5 = hashKind == "sha256" || (hashKind == "none" && index == 0)
+                        ? null : index == 0 ? LowerMd5 : index.ToString("x32");
+                    string? sha256 = hashKind == "sha256" ? index == 0 ? LowerSha256 : index.ToString("x64") : null;
+                    db.Execute("INSERT INTO playlist_entry (playlist_id, md5, sha256, folder, title, lr2_bmsid, is_removed, memo) VALUES (9201, ?, ?, 'folder', NULL, NULL, NULL, 'before');",
+                        md5, sha256);
+                }
+            });
+        }
+
         internal void InsertRawEntry(string? md5, string? sha256, bool removed = false, string memo = "before", string? title = null)
         {
             using LR2SongDBExtended db = databaseScope.OpenSongWrite(dbPath);

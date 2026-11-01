@@ -13,10 +13,19 @@ using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
+using static BeMusicSeeker.Tests.SettingsRootTestFixture;
+
 namespace BeMusicSeeker.Tests;
 
-public sealed partial class SettingDialogEditCompletionTests
+/// <summary>LR2設定と実ライブラリ・出力ownerの接続を検証します。</summary>
+/// <remarks>共有 culture・theme・Bass 受付と composition 購読を使うため非並列にします。</remarks>
+[TestClass]
+[DoNotParallelize]
+public sealed class SettingDialogLr2OwnerTests
 {
+    /// <summary>このクラスの準備とモデルで共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>無変更の二周期・Greekのlive表記訂正・ASCIIの次回起動での初検出を分担し、管理表/CLEAR FOLDERの全親とCRCを同じ操作で確定します。fresh起動は全体同期や任意修復による救済と区別します。</summary>
     [TestMethod]
     [DataRow("NormalOutput", "NormalOutput", false)]

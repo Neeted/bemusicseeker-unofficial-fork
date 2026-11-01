@@ -17,10 +17,20 @@ using BeMusicSeeker.Views.Dialogs;
 using BeMusicSeeker.Views.Settings;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
+using static BeMusicSeeker.Tests.SettingsRootTestFixture;
+using static BeMusicSeeker.Tests.SettingsWindowTestFixture;
+
 namespace BeMusicSeeker.Tests;
 
-public sealed partial class SettingDialogEditCompletionTests
+/// <summary>環境候補の確認・保存と初期化への接続を検証します。</summary>
+/// <remarks>共有 culture・theme・Bass 受付と composition 購読を使うため非並列にします。</remarks>
+[TestClass]
+[DoNotParallelize]
+public sealed class SettingDialogEnvironmentConfirmationTests
 {
+    /// <summary>このクラスの準備とモデルで共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>初回・非初回修復中の未設定モード保存は再起動せず、実明示開始と保存物の次回通常起動は必須不足へ終端します。モデル工場・LR2 DB・出力へ進まないことをWindowなしで確認します。</summary>
     [TestMethod]
     [DataRow(true)]
@@ -1010,20 +1020,4 @@ public sealed partial class SettingDialogEditCompletionTests
             foreach (T nested in FindLogicalDescendants<T>(element)) { yield return nested; }
         }
     }
-
-    /// <summary>機器を必要としない実beatoraja構成とplayer/score媒体を、ケース固有rootに作ります。</summary>
-    private static void WriteBeatorajaRoot(string root, string configuredPlayer, IReadOnlyList<string> players, bool createScoreFiles)
-    {
-        Directory.CreateDirectory(root);
-        File.WriteAllText(Path.Combine(root, "beatoraja.jar"), string.Empty);
-        File.WriteAllText(Path.Combine(root, BeatorajaConfigService.ConfigFileName), System.Text.Json.JsonSerializer.Serialize(
-            new { playerpath = "profiles", playername = configuredPlayer, tablepath = "tables", tableURL = Array.Empty<string>() }));
-        foreach (string player in players)
-        {
-            string directory = Path.Combine(root, "profiles", player);
-            Directory.CreateDirectory(directory);
-            if (createScoreFiles) { File.WriteAllText(Path.Combine(directory, "score.db"), string.Empty); }
-        }
-    }
-
 }

@@ -16,9 +16,16 @@ using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
+using static BeMusicSeeker.Tests.SettingsRootTestFixture;
+using static BeMusicSeeker.Tests.SettingsWindowTestFixture;
+
 namespace BeMusicSeeker.Tests;
 
-public sealed partial class SettingDialogEditCompletionTests
+/// <summary>設定候補の切替・破棄と導入先確定の接続を検証します。</summary>
+/// <remarks>共有 culture・theme・Bass 受付と composition 購読を使うため非並列にします。</remarks>
+[TestClass]
+[DoNotParallelize]
+public sealed class SettingDialogCandidateSwitchTests
 {
     /// <summary>BMS候補から競合操作へ切り替える通常入口で、取消・承認・実確定のP先着・候補編集のL/P非要求を分け、対象範囲名・候補保持と保存副作用を確認します。無関係なBMT候補は全経路で保持します。</summary>
     /// <remarks>条件網羅はWindowを使わず実専用providerと既存受付で行い、pickerとBindingはcompiled系列へ分担します。</remarks>
@@ -211,7 +218,7 @@ public sealed partial class SettingDialogEditCompletionTests
         TestUiDispatcherHost.Invoke(() =>
         {
             string root = CreateTemporaryRoot();
-            MainWindowViewModel? owner = null;
+            SettingsDialogHarness? harness = null;
             Exception? primaryFailure = null;
             try
             {
@@ -219,8 +226,8 @@ public sealed partial class SettingDialogEditCompletionTests
                 Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(settingsPath));
                 values.Save();
                 var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
-                owner = CreateViewModel(new SettingsEditSession(values), firstStartup: false, dialogs: dialogs);
-                SettingsDialogViewModel dialog = owner.SettingDialog;
+                harness = SettingsDialogHarness.Create(values, settingsEditSession: new SettingsEditSession(values), dialogs: dialogs);
+                SettingsDialogViewModel dialog = harness.Dialog;
                 string staged = Directory.CreateDirectory(Path.Combine(root, "Staged")).FullName;
                 dialog.AddBmsSearchRootPathsAsync([staged]).GetAwaiter().GetResult();
                 byte[] before = File.ReadAllBytes(settingsPath);
@@ -237,7 +244,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 CollectionAssert.AreEqual(before, File.ReadAllBytes(settingsPath));
             }
             catch (Exception failure) { primaryFailure = failure; throw; }
-            finally { CompleteCandidateFixture(owner, root, null, null, primaryFailure); }
+            finally { CompleteCandidateFixture(null, root, null, null, primaryFailure, harness); }
         });
     }
     /// <summary>事前生成した導入設定ページで、ルート確定の非先頭代替B、局所取消、公開前の実保存失敗、追加だけの非先頭A維持を、確定候補・fresh reader・実選択の一致で確認します。</summary>
@@ -701,36 +708,13 @@ public sealed partial class SettingDialogEditCompletionTests
         });
     }
 
-    /// <summary>保存要求を実providerへ一回委譲し、元例外と保存結果をそのまま返す局所観測です。</summary>
-    private sealed class InstallAdmissionObservingSettingsProvider : System.Configuration.SettingsProvider
-    {
-        private readonly System.Configuration.SettingsProvider inner;
-        private readonly Action observe;
-        internal InstallAdmissionObservingSettingsProvider(System.Configuration.SettingsProvider inner, Action observe)
-        {
-            this.inner = inner; this.observe = observe;
-            Initialize(nameof(InstallAdmissionObservingSettingsProvider), new System.Collections.Specialized.NameValueCollection());
-        }
-        public override string ApplicationName { get => inner.ApplicationName; set => inner.ApplicationName = value; }
-        /// <summary>同期保存の要求回数です。初期表示や再表示からの追加保存を検出します。</summary>
-        internal int SaveCount { get; private set; }
-        public override System.Configuration.SettingsPropertyValueCollection GetPropertyValues(System.Configuration.SettingsContext context, System.Configuration.SettingsPropertyCollection properties)
-            => inner.GetPropertyValues(context, properties);
-        public override void SetPropertyValues(System.Configuration.SettingsContext context, System.Configuration.SettingsPropertyValueCollection values)
-        {
-            SaveCount++;
-            observe();
-            try { inner.SetPropertyValues(context, values); }
-            finally { observe(); }
-        }
-    }
-
     /// <summary>候補切替の専用媒体・Window・ownerを回収し、本体の失敗を後片付けの失敗で上書きしません。</summary>
-    private static void CompleteCandidateFixture(MainWindowViewModel? owner, string root, IDisposable? held, SettingsWindow? window, Exception? primaryFailure)
+    private static void CompleteCandidateFixture(MainWindowViewModel? owner, string root, IDisposable? held, SettingsWindow? window, Exception? primaryFailure, SettingsDialogHarness? harness = null)
     {
         var failures = new List<Exception>();
         void Cleanup(Action action) { try { action(); } catch (Exception failure) { failures.Add(failure); } }
         if (held != null) { Cleanup(held.Dispose); }
+        if (harness != null) { Cleanup(harness.Dispose); }
         if (window != null)
         {
             Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(owner?.SettingDialog.SettingsOperationCompletionTask ?? Task.CompletedTask, "candidate-window-cleanup"));

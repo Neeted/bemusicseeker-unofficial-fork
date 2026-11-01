@@ -22,9 +22,16 @@ using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media.Audio;
 
+using static BeMusicSeeker.Tests.SettingsRootTestFixture;
+using static BeMusicSeeker.Tests.SettingsWindowTestFixture;
+
 namespace BeMusicSeeker.Tests;
 
-public sealed partial class SettingDialogEditCompletionTests
+/// <summary>設定各項目の実Binding・保存と再表示を検証します。</summary>
+/// <remarks>共有 culture・theme・Bass 受付と composition 購読を使うため非並列にします。</remarks>
+[TestClass]
+[DoNotParallelize]
+public sealed class SettingDialogCategoryPersistenceTests
 {
     /// <summary>実改名Bindingは途中の空白を保ち、同値の明示改名でも保存せず前後空白を除去します。別ページの通常保存は候補を保ち、通常Closeだけが未確定名を最新公開名へ戻し、同VM再表示後の明示改名にも混入させません。</summary>
     /// <remarks>実表・生成先はOutputConfirmation_HeaderFailureUsesPublishedNamesOrFreshSavedDefinitions、受理済みTaskのClose時の継続はRunViewOperation_NormalCloseAndEscapePreserveTaskAcrossReopenへ分担し、このWindowは生入力と確定・破棄の接続を確認します。</remarks>
