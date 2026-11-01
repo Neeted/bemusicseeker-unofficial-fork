@@ -1,10 +1,6 @@
-using System;
-using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using BeMusicSeeker.TestSupport.Files;
 using SQLite;
 
 namespace BeMusicSeeker.Tests;
@@ -215,12 +211,12 @@ public sealed class ApplicationDatabaseScopeTests
 
     private sealed class DatabaseFiles : IDisposable
     {
-        internal string Root { get; } = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_DatabaseScope_" + Guid.NewGuid().ToString("N"));
+        private readonly TestWorkspace workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+
+        internal string Root => workspace.RootDirectory;
         internal string Song => Path.Combine(Root, "song.db");
         internal string Score => Path.Combine(Root, "score.db");
 
-        internal DatabaseFiles() { Directory.CreateDirectory(Root); }
-
-        public void Dispose() { Directory.Delete(Root, recursive: true); }
+        public void Dispose() { workspace.Dispose(); }
     }
 }

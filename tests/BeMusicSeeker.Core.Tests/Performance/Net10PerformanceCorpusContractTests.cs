@@ -1,17 +1,10 @@
-using System;
 using System.Collections.Concurrent;
-using System.IO;
-using System.Linq;
 using System.Runtime.ExceptionServices;
-using System.Threading;
-using System.Threading.Tasks;
 using BeMusicSeeker.Diagnostics;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests.Performance;
 
 [TestClass]
-[TestCategory("Net10Performance")]
 [TestCategory("contract")]
 public sealed class Net10PerformanceCorpusContractTests
 {

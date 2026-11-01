@@ -336,6 +336,8 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Tes
 
 性能検査の入口は `benchmark-net10-performance.ps1 -Corpus all -Configuration Release -Scale small,medium,large` です。`contract` は診断出力、`estimation` は候補リソースの評価、`parser` は同位置だけのノートの全位置で次音なしを確認する機能検査で、走査回数・所要時間は測定しません。規模に対応する入力数は各ケースに置き、800万の逆引きキーや実DB・20 ZIPの導入全体の代わりとは扱いません。条件、完了範囲、反復値、結果同等性は[性能仕様](../core/performance-and-scale.md)に従います。
 
+`contract` はCoreの `TestCategory=contract` を実行し、診断出力の5ケースはCoreの日常検証でも実行します。`estimation` / `parser` は旧 `BeMusicSeeker.Tests` の従来カテゴリを実行します。`all` はCoreのcontract、旧プロジェクトの `TestCategory=Net10Performance` の順に各一回実行し、各実行の失敗で停止します。TRXはプロジェクト別の名前へ分離し、`command.json` に各project・filter・TRX名を入力の記録として残します。
+
 外部エンコーダーは `ExternalAudioEncoderSmokeTests` で明示実行します。`EnvironmentIntegration` として専用環境で実行し、`BMS_TEST_AUDIO_ENCODERS=1` を必須とします。指定がなければ失敗です。`BMS_TEST_AUDIO_ENCODER_DIR`、アプリ基準、`libs\x64`、`x64` の順に検索します。`BMS_TEST_AUDIO_ENCODER_TYPES` は `MP3_LAME,AAC_NERO,OPUS,FLAC,OGG_VORBIS` の部分集合です。指定した実行ファイルがない場合、または指定なしで一つも見つからない場合は失敗です。
 
 生成した短いステレオPCM/WAVを本番の `BassAudioWriter` とエンコード・停止・後片付けへ通し、ファイルの形式識別と採番を確認します。実行ファイル、ライセンス、生成音声をリポジトリの固定入力へ追加しません。

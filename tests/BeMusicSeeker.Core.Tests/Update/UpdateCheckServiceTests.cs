@@ -1,7 +1,5 @@
-using System;
 using System.Globalization;
 using BeMusicSeeker.Models.Update;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
 
 namespace BeMusicSeeker.Tests;

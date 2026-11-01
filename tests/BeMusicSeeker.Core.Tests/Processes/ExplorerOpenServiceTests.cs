@@ -1,8 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
 using BeMusicSeeker.Models.Utils;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using BeMusicSeeker.TestSupport.Files;
 
 namespace BeMusicSeeker.Tests;
 
@@ -261,18 +258,15 @@ public sealed class ExplorerOpenServiceTests
 
     private static void WithTemporaryDirectory(Action<string> action)
     {
-        string directory = Path.Combine(Path.GetTempPath(), "BeMusicSeeker.Tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
+        var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string directory = workspace.RootDirectory;
         try
         {
             action(directory);
         }
         finally
         {
-            if (Directory.Exists(directory))
-            {
-                LongPathFileSystem.DeleteDirectory(directory, recursive: true);
-            }
+            workspace.Dispose();
         }
     }
 

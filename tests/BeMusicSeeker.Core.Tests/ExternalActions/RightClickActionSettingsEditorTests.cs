@@ -1,11 +1,7 @@
-using System;
 using System.Globalization;
-using System.IO;
-using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 

@@ -1,7 +1,5 @@
-using System.Collections.Generic;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 

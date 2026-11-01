@@ -1,10 +1,7 @@
-using System;
-using System.IO;
-using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Text;
 using BeMusicSeeker.Models.Update;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using BeMusicSeeker.TestSupport.Files;
 
 namespace BeMusicSeeker.Tests;
 
@@ -109,8 +106,8 @@ public sealed class UpdateMarkerPublisherTests
 
     private static void WithTemporaryDirectory(Action<string> action)
     {
-        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdateMarkerPublisherTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
+        var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = workspace.RootDirectory;
         Exception? primaryFailure = null;
         try
         {
@@ -129,7 +126,7 @@ public sealed class UpdateMarkerPublisherTests
                 {
                     File.SetAttributes(path, FileAttributes.Normal);
                 }
-                Directory.Delete(root, recursive: true);
+                workspace.Dispose();
             }
             catch (Exception cleanupFailure)
             {
