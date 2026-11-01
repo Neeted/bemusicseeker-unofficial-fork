@@ -1,5 +1,3 @@
-using System;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;

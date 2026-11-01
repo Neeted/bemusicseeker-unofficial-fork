@@ -1,8 +1,5 @@
-using System;
-using System.Collections.Generic;
 using ManagedBass;
 using ManagedBass.Enc;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;

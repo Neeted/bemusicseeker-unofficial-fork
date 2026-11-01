@@ -1,12 +1,7 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using ManagedBass;
 using ManagedBass.Asio;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
 
