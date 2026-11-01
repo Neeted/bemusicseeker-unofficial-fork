@@ -19,6 +19,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed partial class BmsPlaylistExternalLoadTests
 {
+    // MSTestが各ケースの実行前に必ず注入します。
+    public TestContext TestContext { get; set; } = null!;
+
     private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
 
     /// <summary>新規表作成へ利用者指定の出力除外maskを渡し、既定maskへ戻る設定接続の漏れを検出します。</summary>
@@ -162,61 +165,87 @@ public sealed partial class BmsPlaylistExternalLoadTests
     [TestCategory("Playlist")]
     public async Task LoadExternalTableAsync_UsesFetchedHtmlWithoutParserNetworkRequests()
     {
-        string parserFallbackHtml =
-            "<html><head><meta name=\"bmstable\" content=\"../headers/alternate.json\"></head>"
-            + "<body>table B</body></html>";
-        await using var parserNetworkServer = new SingleRequestHttpServer(Encoding.UTF8.GetBytes(parserFallbackHtml));
+        var httpServers = new List<SingleRequestHttpServer>();
+        var httpRequests = new List<Task>();
+        SingleRequestHttpServer OwnHttpServer(SingleRequestHttpServer ownedServer) { httpServers.Add(ownedServer); return ownedServer; }
 
-        Uri pageUri = new(parserNetworkServer.Address, "pages/start.html");
-        Uri headerUri = new(parserNetworkServer.Address, "headers/main.json");
-        Uri dataUri = new(parserNetworkServer.Address, "data/rows.json");
-        Uri alternateHeaderUri = new(parserNetworkServer.Address, "headers/alternate.json");
-        Uri alternateDataUri = new(parserNetworkServer.Address, "data/alternate.json");
-        Uri externalDtdUri = new(parserNetworkServer.Address, "doctype/table.dtd");
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+        SingleRequestHttpServer? parserNetworkServer = null;
 
-        string pageHtml = "<!DOCTYPE html SYSTEM \"" + externalDtdUri.AbsoluteUri + "\">"
-            + "<html><head><meta content=\"../headers/main.json\" name=\"bmstable\"></head>"
-            + "<body>table A</body></html>";
-        var responses = new Dictionary<Uri, string>
+        Exception? httpFailure = null;
+        RecordedExternalTableHttpMessageHandler? handler = null;
+        HttpClient? transport = null;
+        try
         {
-            [pageUri] = pageHtml,
-            [headerUri] = "{\"name\":\"Table A\",\"symbol\":\"A\",\"data_url\":\"../data/rows.json\"}",
-            [dataUri] = "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song A\",\"artist\":\"Artist A\",\"level\":\"1\"}]",
-            [alternateHeaderUri] = "{\"name\":\"Table B\",\"symbol\":\"B\",\"data_url\":\"../data/alternate.json\"}",
-            [alternateDataUri] = "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Song B\",\"artist\":\"Artist B\",\"level\":\"2\"}]"
-        };
-        using var handler = new RecordedExternalTableHttpMessageHandler(responses);
-        using var transport = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
-        var appHttpClient = new AppHttpClient(transport, TimeProvider.System);
-        var recommendedTableOwner = new PlaylistRecommendedTableOwner(
-            static _ => Task.FromException<WalkureScoreInput>(new InvalidOperationException("内蔵推薦はこのケースの対象外です。")),
-            new PlaylistOperationNotificationOwner(),
-            static () => new CustomFolderOutputSettingsSnapshot());
-        var externalOwner = new PlaylistExternalSyncOwner(
-            appHttpClient,
-            recommendedTableOwner,
-            (_, _) => { },
-            static () => false,
-            static _ => { },
-            customFolderOutputSettingsProvider: static () => new CustomFolderOutputSettingsSnapshot());
+            string parserFallbackHtml =
+                "<html><head><meta name=\"bmstable\" content=\"../headers/alternate.json\"></head>"
+                + "<body>table B</body></html>";
+            parserNetworkServer = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, Encoding.UTF8.GetBytes(parserFallbackHtml)));
 
-        BMSTable table = await externalOwner.LoadExternalTableAsync(pageUri);
+            Uri pageUri = new(parserNetworkServer.Address, "pages/start.html");
+            Uri headerUri = new(parserNetworkServer.Address, "headers/main.json");
+            Uri dataUri = new(parserNetworkServer.Address, "data/rows.json");
+            Uri alternateHeaderUri = new(parserNetworkServer.Address, "headers/alternate.json");
+            Uri alternateDataUri = new(parserNetworkServer.Address, "data/alternate.json");
+            Uri externalDtdUri = new(parserNetworkServer.Address, "doctype/table.dtd");
 
-        Assert.AreEqual("Table A", table.name);
-        Assert.AreEqual("A", table.symbol);
-        Assert.AreEqual(1, table.entries.Count);
-        Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", table.entries.Single().md5);
-        Assert.AreEqual("Song A", table.entries.Single().title);
-        Assert.AreEqual(pageUri, table.Page_url);
-        Assert.AreEqual("../headers/main.json", table.Header_url.OriginalString);
-        Assert.AreEqual("../data/rows.json", table.Data_url.OriginalString);
-        Assert.AreEqual(headerUri, table.GetAbsoluteHeaderUrl());
-        Assert.AreEqual(dataUri, table.GetAbsoluteDataUrl());
-        Assert.AreEqual(1, handler.GetRequestCount(pageUri));
-        Assert.AreEqual(1, handler.GetRequestCount(headerUri));
-        Assert.AreEqual(1, handler.GetRequestCount(dataUri));
-        Assert.AreEqual(3, handler.RequestUris.Count);
-        Assert.AreEqual(string.Empty, parserNetworkServer.RequestMethod, parserNetworkServer.Diagnostics);
+            string pageHtml = "<!DOCTYPE html SYSTEM \"" + externalDtdUri.AbsoluteUri + "\">"
+                + "<html><head><meta content=\"../headers/main.json\" name=\"bmstable\"></head>"
+                + "<body>table A</body></html>";
+            var responses = new Dictionary<Uri, string>
+            {
+                [pageUri] = pageHtml,
+                [headerUri] = "{\"name\":\"Table A\",\"symbol\":\"A\",\"data_url\":\"../data/rows.json\"}",
+                [dataUri] = "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song A\",\"artist\":\"Artist A\",\"level\":\"1\"}]",
+                [alternateHeaderUri] = "{\"name\":\"Table B\",\"symbol\":\"B\",\"data_url\":\"../data/alternate.json\"}",
+                [alternateDataUri] = "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Song B\",\"artist\":\"Artist B\",\"level\":\"2\"}]"
+            };
+            handler = new RecordedExternalTableHttpMessageHandler(responses);
+            transport = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+            var appHttpClient = new AppHttpClient(transport, TimeProvider.System);
+            var recommendedTableOwner = new PlaylistRecommendedTableOwner(
+                static _ => Task.FromException<WalkureScoreInput>(new InvalidOperationException("内蔵推薦はこのケースの対象外です。")),
+                new PlaylistOperationNotificationOwner(),
+                static () => new CustomFolderOutputSettingsSnapshot());
+            var externalOwner = new PlaylistExternalSyncOwner(
+                appHttpClient,
+                recommendedTableOwner,
+                (_, _) => { },
+                static () => false,
+                static _ => { },
+                customFolderOutputSettingsProvider: static () => new CustomFolderOutputSettingsSnapshot());
+
+            BMSTable table = await SingleRequestHttpServer.AwaitOperationAsync(externalOwner.LoadExternalTableAsync(pageUri, cancellationToken: httpOperation.Token), httpRequests, httpOperation.Token);
+
+            Assert.AreEqual("Table A", table.name);
+            Assert.AreEqual("A", table.symbol);
+            Assert.AreEqual(1, table.entries.Count);
+            Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", table.entries.Single().md5);
+            Assert.AreEqual("Song A", table.entries.Single().title);
+            Assert.AreEqual(pageUri, table.Page_url);
+            Assert.AreEqual("../headers/main.json", table.Header_url.OriginalString);
+            Assert.AreEqual("../data/rows.json", table.Data_url.OriginalString);
+            Assert.AreEqual(headerUri, table.GetAbsoluteHeaderUrl());
+            Assert.AreEqual(dataUri, table.GetAbsoluteDataUrl());
+            Assert.AreEqual(1, handler.GetRequestCount(pageUri));
+            Assert.AreEqual(1, handler.GetRequestCount(headerUri));
+            Assert.AreEqual(1, handler.GetRequestCount(dataUri));
+            Assert.AreEqual(3, handler.RequestUris.Count);
+            Assert.AreEqual(string.Empty, parserNetworkServer.RequestMethod, parserNetworkServer.Diagnostics);
+        }
+        catch (Exception failure) { httpFailure = failure; throw; }
+        finally
+        {
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            httpOperation.Cancel();
+            transport?.CancelPendingRequests();
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, httpFailure, httpRequests, httpServers.ToArray()); }
+            finally
+            {
+                if (httpRequests.All(task => task.IsCompleted)) { transport?.Dispose(); handler?.Dispose(); }
+            }
+        }
     }
 
     /// <summary>slash付きページへの実転送後に相対header/dataを各一回だけ辿り、元pageとentry本体・差分の意味を保持します。</summary>
@@ -224,21 +253,29 @@ public sealed partial class BmsPlaylistExternalLoadTests
     [TestCategory("Playlist")]
     public async Task LoadExternalTableAsync_RedirectedPageResolvesRelativeHeaderAndData()
     {
-        var final = SingleRequestHttpServer.StartFiniteResponses([
-            new("/tables/", Encoding.UTF8.GetBytes("<html><head><meta name=\"bmstable\" content=\"meta/header.json\"></head></html>")),
-            new("/tables/meta/header.json", Encoding.UTF8.GetBytes("{\"name\":\"Page redirect\",\"symbol\":\"P\",\"data_url\":\"../data/rows.json\"}")),
-            new("/tables/data/rows.json", Encoding.UTF8.GetBytes(RedirectedRelativeEntries))]);
-        var source = new SingleRequestHttpServer([], responseStatusCode: HttpStatusCode.Redirect,
-            additionalResponseHeaders: "Location: " + new Uri(final.Address, "tables/").AbsoluteUri + "\r\n");
-        using var cancellation = new CancellationTokenSource();
-        using var transport = new HttpClient();
+        var httpServers = new List<SingleRequestHttpServer>();
+        var httpRequests = new List<Task>();
+        SingleRequestHttpServer OwnHttpServer(SingleRequestHttpServer ownedServer) { httpServers.Add(ownedServer); return ownedServer; }
+
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(httpOperation.Token);
+        HttpClient? transport = null;
         Task<BMSTable>? loading = null;
         Exception? failure = null;
         try
         {
+            transport = new HttpClient();
+            SingleRequestHttpServer final = OwnHttpServer(SingleRequestHttpServer.StartFiniteResponses(httpOperation.Token, [
+                new("/tables/", Encoding.UTF8.GetBytes("<html><head><meta name=\"bmstable\" content=\"meta/header.json\"></head></html>")),
+                new("/tables/meta/header.json", Encoding.UTF8.GetBytes("{\"name\":\"Page redirect\",\"symbol\":\"P\",\"data_url\":\"../data/rows.json\"}")),
+                new("/tables/data/rows.json", Encoding.UTF8.GetBytes(RedirectedRelativeEntries))]));
+            SingleRequestHttpServer source = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, [], responseStatusCode: HttpStatusCode.Redirect,
+                additionalResponseHeaders: "Location: " + new Uri(final.Address, "tables/").AbsoluteUri + "\r\n"));
             Uri originalPage = new(source.Address, "tables");
             loading = CreateRedirectExternalOwner(transport).LoadExternalTableAsync(originalPage, cancellationToken: cancellation.Token);
-            BMSTable table = await loading;
+            BMSTable table = await SingleRequestHttpServer.AwaitOperationAsync(loading, httpRequests, httpOperation.Token);
             Assert.AreEqual("Page redirect", table.name);
             Assert.AreEqual(originalPage, table.Page_url);
             Assert.AreEqual(new Uri(final.Address, "tables/meta/header.json"), table.GetAbsoluteHeaderUrl());
@@ -246,10 +283,19 @@ public sealed partial class BmsPlaylistExternalLoadTests
                 new Uri(final.Address, "tables/packages/song.zip?Token=A"), new Uri(final.Address, "tables/data/patches/fix.zip?Key=B"));
             CollectionAssert.AreEqual(new[] { "/tables" }, source.RequestTargets);
             CollectionAssert.AreEqual(new[] { "/tables/", "/tables/meta/header.json", "/tables/data/rows.json" }, final.RequestTargets);
-            await Task.WhenAll(source.Completion, final.Completion);
+            await (Task.WhenAll(source.Completion, final.Completion)).WaitAsync(httpOperation.Token);
         }
         catch (Exception ex) { failure = ex; throw; }
-        finally { await CompleteRedirectLoadTestAsync(failure, cancellation, loading, source, final); }
+        finally
+        {
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            cancellation.Cancel();
+            httpOperation.Cancel();
+            transport?.CancelPendingRequests();
+            Task[] owned = httpRequests.Concat(new Task?[] { loading }.OfType<Task>()).ToArray();
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, failure, owned, httpServers.ToArray()); }
+            finally { if (owned.All(task => task.IsCompleted)) { transport?.Dispose(); } }
+        }
     }
 
     /// <summary>直接headerの実転送後のdirectoryから相対dataを取得し、次回同期用の元headerを転送先へ置換しないことを確認します。</summary>
@@ -257,20 +303,28 @@ public sealed partial class BmsPlaylistExternalLoadTests
     [TestCategory("Playlist")]
     public async Task LoadExternalTableAsync_RedirectedDirectHeaderPreservesSourceAndResolvesData()
     {
-        var final = SingleRequestHttpServer.StartFiniteResponses([
-            new("/definitions/header.json", Encoding.UTF8.GetBytes("{\"name\":\"Header redirect\",\"symbol\":\"H\",\"data_url\":\"../rows/data.json\"}")),
-            new("/rows/data.json", Encoding.UTF8.GetBytes(RedirectedRelativeEntries))]);
-        var source = new SingleRequestHttpServer([], responseStatusCode: HttpStatusCode.Redirect,
-            additionalResponseHeaders: "Location: " + new Uri(final.Address, "definitions/header.json").AbsoluteUri + "\r\n");
-        using var cancellation = new CancellationTokenSource();
-        using var transport = new HttpClient();
+        var httpServers = new List<SingleRequestHttpServer>();
+        var httpRequests = new List<Task>();
+        SingleRequestHttpServer OwnHttpServer(SingleRequestHttpServer ownedServer) { httpServers.Add(ownedServer); return ownedServer; }
+
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(httpOperation.Token);
+        HttpClient? transport = null;
         Task<BMSTable>? loading = null;
         Exception? failure = null;
         try
         {
+            transport = new HttpClient();
+            SingleRequestHttpServer final = OwnHttpServer(SingleRequestHttpServer.StartFiniteResponses(httpOperation.Token, [
+                new("/definitions/header.json", Encoding.UTF8.GetBytes("{\"name\":\"Header redirect\",\"symbol\":\"H\",\"data_url\":\"../rows/data.json\"}")),
+                new("/rows/data.json", Encoding.UTF8.GetBytes(RedirectedRelativeEntries))]));
+            SingleRequestHttpServer source = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, [], responseStatusCode: HttpStatusCode.Redirect,
+                additionalResponseHeaders: "Location: " + new Uri(final.Address, "definitions/header.json").AbsoluteUri + "\r\n"));
             Uri originalHeader = new(source.Address, "old/header.json");
             loading = CreateRedirectExternalOwner(transport).LoadExternalTableAsync(originalHeader, cancellationToken: cancellation.Token);
-            BMSTable table = await loading;
+            BMSTable table = await SingleRequestHttpServer.AwaitOperationAsync(loading, httpRequests, httpOperation.Token);
             Assert.AreEqual("Header redirect", table.name);
             Assert.IsNull(table.Page_url);
             Assert.AreEqual(originalHeader, table.Header_url);
@@ -278,10 +332,19 @@ public sealed partial class BmsPlaylistExternalLoadTests
                 new Uri(final.Address, "packages/song.zip?Token=A"), new Uri(final.Address, "rows/patches/fix.zip?Key=B"));
             CollectionAssert.AreEqual(new[] { "/old/header.json" }, source.RequestTargets);
             CollectionAssert.AreEqual(new[] { "/definitions/header.json", "/rows/data.json" }, final.RequestTargets);
-            await Task.WhenAll(source.Completion, final.Completion);
+            await (Task.WhenAll(source.Completion, final.Completion)).WaitAsync(httpOperation.Token);
         }
         catch (Exception ex) { failure = ex; throw; }
-        finally { await CompleteRedirectLoadTestAsync(failure, cancellation, loading, source, final); }
+        finally
+        {
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            cancellation.Cancel();
+            httpOperation.Cancel();
+            transport?.CancelPendingRequests();
+            Task[] owned = httpRequests.Concat(new Task?[] { loading }.OfType<Task>()).ToArray();
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, failure, owned, httpServers.ToArray()); }
+            finally { if (owned.All(task => task.IsCompleted)) { transport?.Dispose(); } }
+        }
     }
 
     /// <summary>dataの実転送先を公開基準にして相対entryを読み、取得済み表の実登録・別readonly DB・新readerでも同じ参照と元同期元を保ちます。</summary>
@@ -289,15 +352,16 @@ public sealed partial class BmsPlaylistExternalLoadTests
     [TestCategory("Playlist")]
     public async Task RegistrateExternalTableAsync_RedirectedDataPreservesReferencesAfterDatabaseReload()
     {
-        var final = new SingleRequestHttpServer(Encoding.UTF8.GetBytes(RedirectedRelativeEntries));
-        Uri finalData = new(final.Address, "published/current/rows.json");
-        var redirect = new SingleRequestHttpServer([], responseStatusCode: HttpStatusCode.Redirect,
-            additionalResponseHeaders: "Location: " + finalData.AbsoluteUri + "\r\n");
-        var header = new SingleRequestHttpServer(Encoding.UTF8.GetBytes(
-            "{\"name\":\"Data redirect\",\"symbol\":\"D\",\"data_url\":\"" + new Uri(redirect.Address, "old/rows.json").AbsoluteUri + "\"}"));
+        var httpServers = new List<SingleRequestHttpServer>();
+        var httpRequests = new List<Task>();
+        SingleRequestHttpServer OwnHttpServer(SingleRequestHttpServer ownedServer) { httpServers.Add(ownedServer); return ownedServer; }
+
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+
         string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistExternalLoadTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
-        using var cancellation = new CancellationTokenSource();
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(httpOperation.Token);
         TestBmsPlaylist? playlist = null, reader = null;
         Task? operation = null;
         Exception? failure = null;
@@ -321,23 +385,28 @@ public sealed partial class BmsPlaylistExternalLoadTests
 
         try
         {
-            testSettings.EnablePlaylistUrlCompletion = false;
+            SingleRequestHttpServer final = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, Encoding.UTF8.GetBytes(RedirectedRelativeEntries)));
+            Uri finalData = new(final.Address, "published/current/rows.json");
+            SingleRequestHttpServer redirect = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, [], responseStatusCode: HttpStatusCode.Redirect,
+                additionalResponseHeaders: "Location: " + finalData.AbsoluteUri + "\r\n"));
+            SingleRequestHttpServer header = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, Encoding.UTF8.GetBytes(
+                "{\"name\":\"Data redirect\",\"symbol\":\"D\",\"data_url\":\"" + new Uri(redirect.Address, "old/rows.json").AbsoluteUri + "\"}")));
             string songPath = CreateTempSongDbPath(databaseScope, directory);
             playlist = new TestBmsPlaylist(databaseScope, songPath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
-                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, settings: testSettings)
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
             { BMSTables = new ObservableCollection<BMSTable>() };
             OwnStartupWork(playlist, nameof(playlist));
             Uri originalHeader = new(header.Address, "definitions/header.json");
             Task<BMSTable> loading = playlist.ExternalSyncOwner.LoadExternalTableAsync(originalHeader, cancellationToken: cancellation.Token);
             operation = loading;
-            BMSTable loaded = await loading;
+            BMSTable loaded = await SingleRequestHttpServer.AwaitOperationAsync(loading, httpRequests, httpOperation.Token);
             Uri expectedUrl = new(final.Address, "published/packages/song.zip?Token=A");
             Uri expectedDiff = new(final.Address, "published/current/patches/fix.zip?Key=B");
             AssertRedirectedEntries(loaded, finalData, expectedUrl, expectedDiff);
             Task<BMSTable> registration = playlist.ExternalSyncOwner.RegistrateExternalTableAsync(loaded, false, "redirect-data-test", cancellation.Token);
             operation = registration;
-            BMSTable registered = await registration;
+            BMSTable registered = await SingleRequestHttpServer.AwaitOperationAsync(registration, httpRequests, httpOperation.Token);
             Assert.AreSame(registered, playlist.BMSTables.Single());
             Assert.IsNull(registered.Page_url);
             Assert.AreEqual(originalHeader, registered.Header_url);
@@ -353,10 +422,10 @@ public sealed partial class BmsPlaylistExternalLoadTests
             }
             reader = new TestBmsPlaylist(databaseScope, songPath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
-                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, settings: testSettings);
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
             OwnStartupWork(reader, nameof(reader));
             operation = reader.ReloadTablesAsync(exportBeatorajaBmt: false);
-            await operation;
+            await SingleRequestHttpServer.AwaitOperationAsync(operation, httpRequests, httpOperation.Token);
             BMSTable hydrated = reader.BMSTables.Single();
             reader.EnsurePlaylistEntriesLoaded(hydrated, "redirect-data-test");
             Assert.IsNull(hydrated.Page_url);
@@ -365,45 +434,61 @@ public sealed partial class BmsPlaylistExternalLoadTests
             CollectionAssert.AreEqual(new[] { "/definitions/header.json" }, header.RequestTargets);
             CollectionAssert.AreEqual(new[] { "/old/rows.json" }, redirect.RequestTargets);
             CollectionAssert.AreEqual(new[] { "/published/current/rows.json" }, final.RequestTargets);
-            await Task.WhenAll(header.Completion, redirect.Completion, final.Completion);
+            await (Task.WhenAll(header.Completion, redirect.Completion, final.Completion)).WaitAsync(httpOperation.Token);
         }
         catch (Exception ex) { failure = ex; throw; }
         finally
         {
-            var cleanupFailures = new List<Exception>();
-            try { await CompleteRedirectLoadTestAsync(failure, cancellation, operation, header, redirect, final); }
-            catch (Exception ex) { cleanupFailures.Add(ex); }
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            cancellation.Cancel();
+            httpOperation.Cancel();
+            Exception? httpJoinFailure = null;
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, failure, httpRequests.Concat(new Task?[] { operation }.OfType<Task>().Where(task => !task.IsCompleted)), httpServers.ToArray()); }
+            catch (Exception httpJoinError) { httpJoinFailure = httpJoinError; }
             finally { releaseWork.TrySetResult(); }
-            // 主operationとHTTPのproducer終端後に固定し、store別の実work異常も主失敗と区別する。
-            foreach (IGrouping<string, (string Store, Task Work)> storeWork in acceptedWork.ToArray().GroupBy(item => item.Store))
+            try
             {
-                var workCompletion = Task.WhenAll(storeWork.Select(item => item.Work));
-                try { await workCompletion; }
-                catch (Exception ex)
+                var cleanupFailures = new List<Exception>();
+
+                // 主operationとHTTPのproducer終端後に固定し、store別の実work異常も主失敗と区別する。
+                foreach (IGrouping<string, (string Store, Task Work)> storeWork in acceptedWork.ToArray().GroupBy(item => item.Store))
                 {
-                    cleanupFailures.Add(new InvalidOperationException(
-                        "転送テストの任意startup work終了失敗: " + storeWork.Key, workCompletion.Exception ?? ex));
+                    var workCompletion = Task.WhenAll(storeWork.Select(item => item.Work));
+                    try { await (workCompletion).WaitAsync(httpCleanup.Token); }
+                    catch (Exception ex)
+                    {
+                        cleanupFailures.Add(new InvalidOperationException(
+                            "転送テストの任意startup work終了失敗: " + storeWork.Key, workCompletion.Exception ?? ex));
+                    }
                 }
-            }
-            foreach (TestBmsPlaylist? store in new[] { reader, playlist })
-            {
-                if (store == null) { continue; }
-                try
+                foreach (TestBmsPlaylist? store in new[] { reader, playlist })
                 {
-                    store.RequestShutdown("redirect-data-test-complete");
-                    await store.WaitForPlaylistMutationIdleAsync();
-                    Assert.IsFalse(store.HasShutdownBlockingWork);
+                    if (store == null) { continue; }
+                    try
+                    {
+                        store.RequestShutdown("redirect-data-test-complete");
+                        await (store.WaitForPlaylistMutationIdleAsync()).WaitAsync(httpCleanup.Token);
+                        Assert.IsFalse(store.HasShutdownBlockingWork);
+                    }
+                    catch (Exception ex) { cleanupFailures.Add(ex); }
                 }
+                try { httpCleanup.Token.ThrowIfCancellationRequested(); Directory.Delete(directory, recursive: true); }
                 catch (Exception ex) { cleanupFailures.Add(ex); }
+                if (cleanupFailures.Count > 0)
+                {
+                    var cleanupFailure = new AggregateException(cleanupFailures);
+                    if (failure == null) { throw cleanupFailure; }
+                    System.Diagnostics.Trace.WriteLine("転送登録のcleanup二次失敗: " + cleanupFailure);
+                }
+
             }
-            try { Directory.Delete(directory, recursive: true); }
-            catch (Exception ex) { cleanupFailures.Add(ex); }
-            if (cleanupFailures.Count > 0)
+            catch (Exception httpSecondaryError)
             {
-                var cleanupFailure = new AggregateException(cleanupFailures);
-                if (failure == null) { throw cleanupFailure; }
-                System.Diagnostics.Trace.WriteLine("転送登録のcleanup二次失敗: " + cleanupFailure);
+                if (httpJoinFailure != null) { throw new AggregateException(httpJoinFailure, httpSecondaryError); }
+                if (failure != null) { throw new AggregateException(failure, httpSecondaryError); }
+                throw;
             }
+            if (httpJoinFailure != null) { throw httpJoinFailure; }
         }
     }
 
@@ -412,31 +497,45 @@ public sealed partial class BmsPlaylistExternalLoadTests
     [TestCategory("Playlist")]
     public async Task LoadExternalTableAsync_RedirectedBodyCancellationDisposesResponse()
     {
-        var final = new SingleRequestHttpServer(Encoding.UTF8.GetBytes("{\"name\":\"Incomplete\",\"data_url\":\"never.json\"}"), holdBody: true);
-        var source = new SingleRequestHttpServer([], responseStatusCode: HttpStatusCode.Redirect,
-            additionalResponseHeaders: "Location: " + new Uri(final.Address, "header.json").AbsoluteUri + "\r\n");
-        using var cancellation = new CancellationTokenSource();
-        using var transport = new HttpClient();
+        var httpServers = new List<SingleRequestHttpServer>();
+        var httpRequests = new List<Task>();
+        SingleRequestHttpServer OwnHttpServer(SingleRequestHttpServer ownedServer) { httpServers.Add(ownedServer); return ownedServer; }
+
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(httpOperation.Token);
+        HttpClient? transport = null;
         Task<BMSTable>? loading = null;
         Exception? failure = null;
         try
         {
+            transport = new HttpClient();
+            SingleRequestHttpServer final = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, Encoding.UTF8.GetBytes("{\"name\":\"Incomplete\",\"data_url\":\"never.json\"}"), holdBody: true));
+            SingleRequestHttpServer source = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, [], responseStatusCode: HttpStatusCode.Redirect,
+                additionalResponseHeaders: "Location: " + new Uri(final.Address, "header.json").AbsoluteUri + "\r\n"));
             loading = CreateRedirectExternalOwner(transport).LoadExternalTableAsync(new Uri(source.Address, "source.json"), cancellationToken: cancellation.Token);
-            Task reached = await Task.WhenAny(final.BodyPrefixSent.Task, loading, final.Completion);
-            if (reached != final.BodyPrefixSent.Task) { await reached; Assert.Fail("本文到達前に取得またはserverが終端しました。"); }
-            await final.BodyPrefixSent.Task;
+            await final.WaitForPhaseAsync(final.BodyPrefixSent.Task, "redirected body prefix", loading, source.Completion);
             cancellation.Cancel();
-            try { await loading; Assert.Fail("部分本文を成功として返しました。"); }
-            catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
-            Assert.IsTrue(loading.IsCanceled);
-            await final.WaitForPhaseAsync(final.ClientDisconnected.Task, "peer disconnected before fixture release");
+            Task cancelled = SingleRequestHttpServer.AssertClientCancelledAsync(loading);
+            await SingleRequestHttpServer.AwaitOperationAsync(cancelled, httpRequests, httpOperation.Token);
+            await final.WaitForPhaseAsync(final.ClientDisconnected.Task, "peer disconnected before fixture release", cancelled, source.Completion);
             Assert.IsFalse(final.ReleaseBody.Task.IsCompleted);
             CollectionAssert.AreEqual(new[] { "/source.json" }, source.RequestTargets);
             CollectionAssert.AreEqual(new[] { "/header.json" }, final.RequestTargets);
-            await Task.WhenAll(source.Completion, final.Completion);
+            await (Task.WhenAll(source.Completion, final.Completion)).WaitAsync(httpOperation.Token);
         }
         catch (Exception ex) { failure = ex; throw; }
-        finally { await CompleteRedirectLoadTestAsync(failure, cancellation, loading, source, final); }
+        finally
+        {
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            cancellation.Cancel();
+            httpOperation.Cancel();
+            transport?.CancelPendingRequests();
+            Task[] owned = httpRequests.Concat(new Task?[] { loading }.OfType<Task>()).ToArray();
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, failure, owned, httpServers.ToArray()); }
+            finally { if (owned.All(task => task.IsCompleted)) { transport?.Dispose(); } }
+        }
     }
 
     private const string RedirectedRelativeEntries = "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Redirected song\",\"level\":\"1\",\"url\":\"../packages/song.zip?Token=A\",\"url_diff\":\"patches/fix.zip?Key=B\"}]";
@@ -461,35 +560,6 @@ public sealed partial class BmsPlaylistExternalLoadTests
         Assert.AreEqual("Redirected song", entry.title);
         Assert.AreEqual(url, entry.Url);
         Assert.AreEqual(diff, entry.Url_diff);
-    }
-
-    /// <summary>失敗時もgate・取消・開始済み取得と全serverの実終端を回収し、cleanupの二次失敗で元原因を隠しません。</summary>
-    private static async Task CompleteRedirectLoadTestAsync(Exception? failure, CancellationTokenSource cancellation, Task? operation, params SingleRequestHttpServer[] servers)
-    {
-        cancellation.Cancel();
-        foreach (SingleRequestHttpServer server in servers)
-        {
-            server.ReleaseBodyPrefix.TrySetResult();
-            server.ReleaseBody.TrySetResult();
-        }
-        var cleanupFailures = new List<Exception>();
-        if (operation != null)
-        {
-            try { await operation; }
-            catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
-            catch (Exception ex) { cleanupFailures.Add(ex); }
-        }
-        foreach (SingleRequestHttpServer server in servers)
-        {
-            try { await server.DisposeAsync(); }
-            catch (Exception ex) { cleanupFailures.Add(ex); }
-        }
-        if (cleanupFailures.Count > 0)
-        {
-            var cleanupFailure = new AggregateException(cleanupFailures);
-            if (failure == null) { throw cleanupFailure; }
-            System.Diagnostics.Trace.WriteLine("転送テストのcleanup二次失敗: " + cleanupFailure);
-        }
     }
 
     /// <summary>相対data_urlをドライブとUNCのfileヘッダー基準で解決し、上位ディレクトリとUNCホストを失う互換性退行を検出します。</summary>

@@ -205,9 +205,21 @@ DBの準備・観測は検証対象の処理と分けます。入力作成だけ
 
 成功通知の到達待ちは、`TestUiDispatcherHost.AwaitNotificationAsync` で通知を生成する実Taskの失敗・取消にも接続します。通知なしで実処理が終わった場合は、その場で未到達として失敗します。生成元が失敗を結果通知へ変換する所有者では、その所有者の実終端を使います。別に予約されたUI受信は生成workerの完了で代用せず、受信処理自身を所有します。MainWindowの寿命は `CloseCompletion` で終了要求からDispatcherと終端処理まで待ち、通知前の失敗もClosed・共有Resourceの回収と併せて観測します。
 
-単なる到達・完了確認には局所期限を追加せず、停止は検証全体の期限で検出します。局所的な制限時間は、外部プロセス、画面表示、解放、ロックが成立しないこと、時間超過契約の失敗検出に限定します。固定の `Thread.Sleep` や余裕時間としての `Task.Delay` から成功を推測しません。短い否定観測は、通常完了を待つ方法や時間保証の証明とは区別します。
+単なる到達・完了確認には局所期限を追加せず、停止は検証全体の期限で検出します。局所的な制限時間は、外部プロセス、loopback HTTP fixture、画面表示、解放、ロックが成立しないこと、時間超過契約の失敗検出に限定します。固定の `Thread.Sleep` や余裕時間としての `Task.Delay` から成功を推測しません。短い否定観測は、通常完了を待つ方法や時間保証の証明とは区別します。
 
 不安定なテストは共有状態、順序依存、待機、資源競合を調べます。期限延長、再試行増加、実行担当数や分割数の削減だけで失敗を隠しません。同一版の再実行は[実行期限と失敗分類](#実行期限と失敗分類)に従います。
+
+### HTTP fixtureの待機と回収
+
+loopback HTTP fixtureを所有するケースは、開始時に `TestContext.CancellationToken` とlinkedした操作CTSを一つ作り、操作全体のwatchdogを一度だけ設定します。現在の通常上限は30秒で、製品のHTTP期限を仮想時刻で検査する値とは区別します。accept・要求読取り・応答書込み・gate・各phaseとclient完了の待機は同じ操作tokenを共有し、段階ごとに期限を延長しません。phase通知だけを待たず、client outcomeとserverの実終端も監視して先行故障と通知なしの終端を失敗にします。実producerの終端を観測した後にも通知を再確認して同時終端した通知を失わず、正常終了済みの補助producerは待機集合から除きます。元Taskを公開しない所有者では、対象固有の既存終了通知を使い、別workを保持した全体終端だけでHTTPの先行終了を隠しません。
+
+HTTPのfinally開始時には、操作CTSから独立したcleanup CTSを一つ作ります。現在の通常上限は10秒で、client・全server・切断監視と関連資源の回収が同じcleanup tokenを共有します。client取消、fixture停止通知、listener停止・gate解放・accepted clientのローカルclose、実Taskのjoinの順に回収し、操作取消を理由にcleanupを省略しません。複数serverは一方の失敗でも残りの停止とjoinを試行します。待機wrapperの取消を製品取消とせず、元client Taskの実終端と元Taskのawaitから得た取消例外を検証します。同期APIを専用threadで起動したTaskの `Faulted(OperationCanceledException)` も、元結果の取消として扱います。保留responseのpeer EOF/resetは、ローカルcloseや本文gate解放より前に実観測します。一次失敗とcleanup失敗を別に保持し、二次診断または集約例外へ残します。未回収とcleanup期限超過は非成功とし、実所有処理の終端を確認する前にDB・ディレクトリを解放しません。
+
+HTTPの準備を非同期に開始する場合は、開始前からcallerが元の型付き準備Taskと返却資源のdirectoryを所有します。操作待機だけが取り消された後の遅い成功結果・元故障も、同じfinallyとcleanup期限で観測・回収します。methodから `TestCleanup` やusingの解放へ移っても所有を切らず、元HTTP処理・server・関連workerの同じ実終端条件を使います。外側でcleanup期限を更新して待ち直さず、未終端なら依存DB・設定を保持して明示的に非成功とします。未回収資源を別caseへ引き継ぎません。HTTP transportの取消・停止と、処理終端後の通常Disposeも区別します。
+
+HTTPで使う設定はcaseが所有するdirectoryの `TestSettingsFactory.OpenSettings` へ接続し、元Task未終端時にAssemblyCleanupが設定を削除するglobal登録を避けます。既存fixtureの別設定間の値差と非HTTPの既定経路は維持します。AssemblyCleanupを、実処理未終端時に依存資源を破棄してよい例外にはしません。
+
+HTTPを使うMainWindowのfixtureは、HTTPの元Task・全serverの実Completion・内部の受理済みTask・実shutdownを同じcleanup tokenでjoinします。この一つの実終端確認をWindowの通常閉鎖・設定VM・一時DBの通常解放に共用し、callerとfixtureで別の終端基準を使いません。終端未確認なら資源を保持し、元失敗と回収失敗を残してテストを非成功とします。その後の既存 `RunWindowTest` の表示scopeは、失敗時の最終回収としてWindow・HWNDを強制回収します。この最終回収を、実処理の正常終端や通常shutdown成功の証明には使いません。
 
 ### プロセスの待機と失敗
 
@@ -370,6 +382,7 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Tes
 | 画面の準備、表示、破棄 | [`TestWindowPresentationScope`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestWindowPresentationScope.cs) | [`SettingsControlPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs)、[`WindowPresentationScopeTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/WindowPresentationScopeTests.cs)。一般idleと別に実描画・配置・Win32結果、入れ子の所有資源、失敗優先順位を確認する。 |
 | 共有hostのテーマ・意味別リソース | [`TestUiDispatcherHost`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestUiDispatcherHost.cs) | [`WpfThemeResourceTests`](../../../tests/BeMusicSeeker.Windows.Tests/Themes/WpfThemeResourceTests.cs)。Lightと実コンストラクターの意味別ブラシへの到達を確認する。 |
 | UI moduleの配置と終了所有 | [`UiModuleLifetime`](../../../tests/ModuleInitialization/UiModuleLifetime.cs)、[`TempDirectoryPublisher`](../../../BeMusicSeeker/TempDirectoryPublisher.cs) | 初期化・例外時を含む回収順序とlease解放は静的確認。[`WpfHostLifecycleTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/WpfHostLifecycleTests.cs) と共通probeの [`WpfHostLifecycleProbe`](../../../tests/Fixtures/WindowsProcessProbe/WpfHostLifecycleProbe.cs) は同じSupport hostを使い、子の生存中にHWND・実thread・temp sessionの消失を確認し、release後に全childと両pipeを回収する。 |
+| loopback HTTPの共有操作期限・独立cleanup、通知前のclient/server終端、実取消とpeer切断 | [`SingleRequestHttpServer`](../../../BeMusicSeeker.Tests/Helpers/SingleRequestHttpServer.cs)、HTTPを使う各機能fixture | [`AppHttpClientTests`](../../../BeMusicSeeker.Tests/Runtime/AppHttpClientTests.cs) は有限二応答の未要求accept回収、取消済みcleanup tokenで未終端clientを成功扱いしないこと、補助producer正常終了後のclient先行故障、通知有無と同時終端・元故障、準備待機取消後の遅い結果・故障、GET/formの元要求取消とlocal解放前の実peer切断を確認する。PlaylistのURL acquisition/completionは、未終端処理の依存DB・設定をTestCleanupでも保持して非成功にすることをgateで確認する。Playlist/MainWindowは同じ期限・回収入口で既存の取得・保存・表示保証を保持する。 |
 | 公開旧版のファイル適用、現行版の更新 | C#の旧更新受入、[現行更新の受入](../../../scripts/accept-net10-update.ps1) | [`LegacyUpdaterDistributionMigrationTests`](../../../BeMusicSeeker.Tests/Update/LegacyUpdaterDistributionMigrationTests.cs) は固定旧updaterによる実配布ZIPの適用・旧ファイル除去・利用者ファイル保持、[`UpdaterPackageSyncTests`](../../../BeMusicSeeker.Tests/Update/UpdaterPackageSyncTests.cs) は現行updaterのプロトコル・失敗・復元を確認する。 |
 | 利用済み設定の生成と非初回判定 | [受入設定の生成](../../../scripts/acceptance-settings-fixture.ps1)、[既存データ起動](../../../scripts/accept-net10-existing-data.ps1) | [`ApplicationSettingsLifecycleTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationSettingsLifecycleTests.cs) の `LegacySettingsFixtureGeneratorPreservesTypedVersionAndScalarValues` は生成した設定を実設定ストアで読み、版・設定値・非初回判定を確認する。現行配布物での既存設定の読取りはFullの既存データ起動で確認する。 |
 | 予期しない所有モーダルの拒否 | [共通の画面観測](../../../scripts/verification-ui-automation.ps1) | [`ExistingDataAcceptanceDialogContractTests`](../../../BeMusicSeeker.Tests/Verification/ExistingDataAcceptanceDialogContractTests.cs) はPID・所有先・可視・有効・モーダル条件とプロセス結果ゲートを確認する。自動応答は行わない。 |

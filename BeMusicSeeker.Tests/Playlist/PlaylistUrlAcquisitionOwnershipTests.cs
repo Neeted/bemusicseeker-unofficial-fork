@@ -26,17 +26,70 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed partial class PlaylistUrlAcquisitionOwnershipTests
 {
-    private readonly List<PlaylistWorkspaceTestPorts.OwnedPlaylistStore> ownedPlaylistStores = [];
+    // MSTestが各ケースの実行前に必ず注入します。
+    public TestContext TestContext { get; set; } = null!;
 
-    /// <summary>要求の終端後に、各ケースが所有した実store領域を逆順で回収します。</summary>
+    private readonly List<PlaylistWorkspaceTestPorts.OwnedPlaylistStore> ownedPlaylistStores = [];
+    // インスタンスはcaseごとに分かれ、未回収TaskとDBを次caseの所有へ移しません。
+    private readonly List<Task> ownedHttpTasks = [];
+
+    /// <summary>methodのcleanupで残った元HTTP処理がすべて終端した場合だけDBを回収します。外側で期限を更新して待ち直しません。</summary>
     [TestCleanup]
     public void CleanupOwnedPlaylistStores()
     {
+        Assert.IsFalse(ownedHttpTasks.Any(task => !task.IsCompleted),
+            "HTTP所有処理が未回収のため、依存するplaylist DBを保持します。");
+        var failures = new List<Exception>();
         for (int index = ownedPlaylistStores.Count - 1; index >= 0; index--)
         {
-            ownedPlaylistStores[index].Dispose();
+            try { ownedPlaylistStores[index].Dispose(); }
+            catch (Exception failure) { failures.Add(failure); }
         }
+        if (failures.Count > 0) { throw new AggregateException(failures); }
         ownedPlaylistStores.Clear();
+        ownedHttpTasks.Clear();
+    }
+
+    /// <summary>method cleanupが元Taskを回収できない場合、TestCleanupも非成功で実DBを保持し、gate解放後の処理が同じDBを使用できます。</summary>
+    [TestMethod]
+    public async Task HttpCleanup_UnfinishedProducerRetainsOwnedStoreThroughTestCleanup()
+    {
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        operation.CancelAfter(TimeSpan.FromSeconds(30));
+        using var expiredCleanup = new CancellationTokenSource();
+        expiredCleanup.Cancel();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? producer = null;
+        Exception? primaryFailure = null;
+        try
+        {
+            PlaylistWorkspaceTestPorts.OwnedPlaylistStore store = PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore(databaseScope);
+            ownedPlaylistStores.Add(store);
+            producer = UseStoreAfterReleaseAsync(store.SongDbPath);
+            ownedHttpTasks.Add(producer);
+            await Assert.ThrowsExactlyAsync<AggregateException>(
+                () => SingleRequestHttpServer.CompleteCleanupAsync(expiredCleanup.Token, null, ownedHttpTasks)).WaitAsync(operation.Token);
+            Assert.ThrowsExactly<AssertFailedException>(CleanupOwnedPlaylistStores);
+            Assert.IsFalse(producer.IsCompleted);
+            Assert.IsTrue(File.Exists(store.SongDbPath), "外側cleanupも未終端producerのDBを削除しません。");
+        }
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
+        {
+            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            release.TrySetResult();
+            operation.Cancel();
+            await SingleRequestHttpServer.CompleteCleanupAsync(cleanup.Token, primaryFailure, ownedHttpTasks);
+            CleanupOwnedPlaylistStores();
+        }
+
+        async Task UseStoreAfterReleaseAsync(string songDbPath)
+        {
+            await release.Task;
+            Assert.IsTrue(File.Exists(songDbPath));
+            using LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath);
+            Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT 1"));
+        }
     }
 
     /// <summary>対応する各譜面・archive名の応答を実stagingへ保存し、元basename・拡張子・bytesを保持します。取得物を別形式や別名へ変えて導入先へ渡す誤りを検出します。</summary>
@@ -1409,6 +1462,13 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     [DataRow(true)]
     public async Task SingleRedirectedPackage_UsesFinalNameAndInstallSinkBeforeTreeExpansionPresentation(bool failNotifications)
     {
+        var httpServers = new List<SingleRequestHttpServer>();
+        List<Task> httpRequests = ownedHttpTasks;
+        SingleRequestHttpServer OwnHttpServer(SingleRequestHttpServer ownedServer) { httpServers.Add(ownedServer); ownedHttpTasks.Add(ownedServer.Completion); return ownedServer; }
+
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+
         string temporaryDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
         byte[] expectedBytes = [1, 2, 3];
@@ -1418,11 +1478,11 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         Exception? operationFailure = null;
         try
         {
-            finalServer = new SingleRequestHttpServer(expectedBytes);
-            redirectServer = new SingleRequestHttpServer(
+            finalServer = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, expectedBytes));
+            redirectServer = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token,
                 [],
                 responseStatusCode: System.Net.HttpStatusCode.Found,
-                additionalResponseHeaders: "Location: " + new Uri(finalServer.Address, "song.zip").AbsoluteUri + "\r\n");
+                additionalResponseHeaders: "Location: " + new Uri(finalServer.Address, "song.zip").AbsoluteUri + "\r\n"));
             var gateway = new BodyGateway(temporaryDirectory, Stream.Null) { RealHttp = true };
             var acquisitionWorkflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ =>
             {
@@ -1455,7 +1515,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             };
             workspace.PlaylistUrlDownloadStatusChanged += (_, status) => statuses.Add(status);
 
-            await workspace.RunSinglePlaylistUrlAsync(new Uri(redirectServer.Address, "download/123"));
+            await SingleRequestHttpServer.AwaitOperationAsync(workspace.RunSinglePlaylistUrlAsync(new Uri(redirectServer.Address, "download/123")), httpRequests, httpOperation.Token);
 
             CollectionAssert.AreEqual(new[] { "sink", "expanded" }, events);
             Assert.IsFalse(workspace.IsPlaylistUrlDownloadRunning);
@@ -1469,8 +1529,8 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             CollectionAssert.AreEqual(expectedBytes, capturedBytes);
             CollectionAssert.AreEqual(new[] { "/download/123" }, redirectServer.RequestTargets);
             CollectionAssert.AreEqual(new[] { "/song.zip" }, finalServer.RequestTargets);
-            await redirectServer.Completion;
-            await finalServer.Completion;
+            await (redirectServer.Completion).WaitAsync(httpOperation.Token);
+            await (finalServer.Completion).WaitAsync(httpOperation.Token);
             Assert.AreEqual(0, browserCount);
             Assert.IsTrue(((IList<string>)capturedPaths).IsReadOnly);
             Assert.IsTrue(File.Exists(capturedPaths[0]), "受理後の入力は導入側の寿命へ移します。");
@@ -1479,20 +1539,33 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         catch (Exception failure) { operationFailure = failure; throw; }
         finally
         {
-            var cleanupFailures = new List<Exception>();
-            try { workspace?.RequestPlaylistUrlShutdown(); if (workspace != null) { await workspace.WaitForPlaylistUrlIdleAsync(); } }
-            catch (Exception failure) { cleanupFailures.Add(failure); }
-            try { if (redirectServer != null) { await redirectServer.DisposeAsync(); } }
-            catch (Exception failure) { cleanupFailures.Add(failure); }
-            try { if (finalServer != null) { await finalServer.DisposeAsync(); } }
-            catch (Exception failure) { cleanupFailures.Add(failure); }
-            try { Directory.Delete(temporaryDirectory, recursive: true); }
-            catch (Exception failure) { cleanupFailures.Add(failure); }
-            if (cleanupFailures.Count > 0)
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            workspace?.RequestPlaylistUrlShutdown();
+            if (workspace != null) { httpRequests.Add(workspace.WaitForPlaylistUrlIdleAsync()); }
+            httpOperation.Cancel();
+            Exception? httpJoinFailure = null;
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, operationFailure, httpRequests, httpServers.ToArray()); }
+            catch (Exception httpJoinError) { httpJoinFailure = httpJoinError; }
+            if (httpJoinFailure != null && httpCleanup.IsCancellationRequested) { throw httpJoinFailure; }
+            try
             {
-                if (operationFailure != null) { cleanupFailures.Insert(0, operationFailure); }
-                throw new AggregateException(cleanupFailures);
+                var cleanupFailures = new List<Exception>();
+                try { httpCleanup.Token.ThrowIfCancellationRequested(); Directory.Delete(temporaryDirectory, recursive: true); }
+                catch (Exception failure) { cleanupFailures.Add(failure); }
+                if (cleanupFailures.Count > 0)
+                {
+                    if (operationFailure != null) { cleanupFailures.Insert(0, operationFailure); }
+                    throw new AggregateException(cleanupFailures);
+                }
+
             }
+            catch (Exception httpSecondaryError)
+            {
+                if (httpJoinFailure != null) { throw new AggregateException(httpJoinFailure, httpSecondaryError); }
+                if (operationFailure != null) { throw new AggregateException(operationFailure, httpSecondaryError); }
+                throw;
+            }
+            if (httpJoinFailure != null) { throw httpJoinFailure; }
         }
     }
 
@@ -1502,17 +1575,25 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     [DataRow(true)]
     public async Task BulkDownloadedPackages_UsesCopiedInstallSnapshotBeforeTreeExpansionAndSummary(bool failNotifications)
     {
+        var httpServers = new List<SingleRequestHttpServer>();
+        List<Task> httpRequests = ownedHttpTasks;
+        SingleRequestHttpServer OwnHttpServer(SingleRequestHttpServer ownedServer) { httpServers.Add(ownedServer); ownedHttpTasks.Add(ownedServer.Completion); return ownedServer; }
+
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+
         string temporaryDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
-        var server = SingleRequestHttpServer.StartFiniteResponses(new SingleRequestHttpServer.Response[]
-        {
-            new("/Song.zip", [1, 2, 3], "Content-Disposition: attachment; filename=first.zip\r\n"),
-            new("/song.zip", [4, 5, 6], "Content-Disposition: attachment; filename=second.zip\r\n")
-        });
+
         PlaylistWorkspaceViewModel? workspace = null;
         Exception? operationFailure = null;
         try
         {
+            SingleRequestHttpServer server = OwnHttpServer(SingleRequestHttpServer.StartFiniteResponses(httpOperation.Token, new SingleRequestHttpServer.Response[]
+            {
+                new("/Song.zip", [1, 2, 3], "Content-Disposition: attachment; filename=first.zip\r\n"),
+                new("/song.zip", [4, 5, 6], "Content-Disposition: attachment; filename=second.zip\r\n")
+            }));
             var gateway = new BodyGateway(temporaryDirectory, Stream.Null) { RealHttp = true };
             var acquisitionWorkflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ =>
             {
@@ -1552,12 +1633,12 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             };
             workspace.PlaylistUrlDownloadStatusChanged += (_, status) => statuses.Add(status);
 
-            await workspace.RunPlaylistUrlBatchAsync(
+            await SingleRequestHttpServer.AwaitOperationAsync(workspace.RunPlaylistUrlBatchAsync(
                 [
                     new Uri(server.Address, "Song.zip"),
                     new Uri(server.Address, "song.zip")
                 ],
-                isDiffUrl: false);
+                isDiffUrl: false), httpRequests, httpOperation.Token);
 
             CollectionAssert.AreEqual(new[] { "sink", "expanded", "summary" }, events);
             Assert.AreEqual(1, dialogs.Confirmations.Count);
@@ -1573,7 +1654,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, capturedBytes[0]);
             CollectionAssert.AreEqual(new byte[] { 4, 5, 6 }, capturedBytes[1]);
             CollectionAssert.AreEqual(new[] { "/Song.zip", "/song.zip" }, server.RequestTargets);
-            await server.Completion;
+            await (server.Completion).WaitAsync(httpOperation.Token);
             Assert.IsTrue(((IList<string>)capturedPaths).IsReadOnly);
             for (int index = 0; index < capturedPaths.Count; index++)
             {
@@ -1585,18 +1666,33 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         catch (Exception failure) { operationFailure = failure; throw; }
         finally
         {
-            var cleanupFailures = new List<Exception>();
-            try { workspace?.RequestPlaylistUrlShutdown(); if (workspace != null) { await workspace.WaitForPlaylistUrlIdleAsync(); } }
-            catch (Exception failure) { cleanupFailures.Add(failure); }
-            try { await server.DisposeAsync(); }
-            catch (Exception failure) { cleanupFailures.Add(failure); }
-            try { Directory.Delete(temporaryDirectory, recursive: true); }
-            catch (Exception failure) { cleanupFailures.Add(failure); }
-            if (cleanupFailures.Count > 0)
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            workspace?.RequestPlaylistUrlShutdown();
+            if (workspace != null) { httpRequests.Add(workspace.WaitForPlaylistUrlIdleAsync()); }
+            httpOperation.Cancel();
+            Exception? httpJoinFailure = null;
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, operationFailure, httpRequests, httpServers.ToArray()); }
+            catch (Exception httpJoinError) { httpJoinFailure = httpJoinError; }
+            if (httpJoinFailure != null && httpCleanup.IsCancellationRequested) { throw httpJoinFailure; }
+            try
             {
-                if (operationFailure != null) { cleanupFailures.Insert(0, operationFailure); }
-                throw new AggregateException(cleanupFailures);
+                var cleanupFailures = new List<Exception>();
+                try { httpCleanup.Token.ThrowIfCancellationRequested(); Directory.Delete(temporaryDirectory, recursive: true); }
+                catch (Exception failure) { cleanupFailures.Add(failure); }
+                if (cleanupFailures.Count > 0)
+                {
+                    if (operationFailure != null) { cleanupFailures.Insert(0, operationFailure); }
+                    throw new AggregateException(cleanupFailures);
+                }
+
             }
+            catch (Exception httpSecondaryError)
+            {
+                if (httpJoinFailure != null) { throw new AggregateException(httpJoinFailure, httpSecondaryError); }
+                if (operationFailure != null) { throw new AggregateException(operationFailure, httpSecondaryError); }
+                throw;
+            }
+            if (httpJoinFailure != null) { throw httpJoinFailure; }
         }
     }
 

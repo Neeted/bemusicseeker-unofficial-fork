@@ -124,29 +124,61 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     [TestMethod]
     public async Task SingleBodyCancellation_DisconnectsRealPeerBeforeFixtureDisposal()
     {
+        var httpServers = new List<SingleRequestHttpServer>();
+        List<Task> httpRequests = ownedHttpTasks;
+        SingleRequestHttpServer OwnHttpServer(SingleRequestHttpServer ownedServer) { httpServers.Add(ownedServer); ownedHttpTasks.Add(ownedServer.Completion); return ownedServer; }
+
+        Exception? httpPrimaryFailure = null;
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+        SingleRequestHttpServer? server = null;
+
         string root = Path.Combine(Path.GetTempPath(), "PlaylistRealCancel-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        await using var server = new SingleRequestHttpServer([1, 2, 3, 4], holdBody: true);
-        var gateway = new BodyGateway(root, Stream.Null) { RealHttp = true };
-        int browsers = 0;
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope, action => action(),
-            () => new PlaylistUrlAcquisitionOptionsSnapshot { AutoInstall = true, ScanBmsFilesOnStartup = true },
-            new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }), browserSink: _ => browsers++);
-        Task request = workspace.RunSinglePlaylistUrlAsync(new Uri(server.Address, "file.zip"));
+        PlaylistWorkspaceViewModel? workspace = null;
+        Task? request = null;
         try
         {
-            await server.WaitForPhaseAsync(server.BodyPrefixSent.Task, "URL body prefix");
+            server = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, [1, 2, 3, 4], holdBody: true));
+            var gateway = new BodyGateway(root, Stream.Null) { RealHttp = true };
+            int browsers = 0;
+            workspace = CreateWorkspace(databaseScope, action => action(),
+                () => new PlaylistUrlAcquisitionOptionsSnapshot { AutoInstall = true, ScanBmsFilesOnStartup = true },
+                new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }), browserSink: _ => browsers++);
+            request = workspace.RunSinglePlaylistUrlAsync(new Uri(server.Address, "file.zip"));
+            httpRequests.Add(request);
+            await server.WaitForPhaseAsync(server.BodyPrefixSent.Task, "URL body prefix", request);
             workspace.CancelPlaylistUrlDownload();
-            try { await request; Assert.Fail("取消しを成功へ変換しません。"); } catch (OperationCanceledException) { }
-            await server.WaitForPhaseAsync(server.ClientDisconnected.Task, "URL peer disconnect before disposal");
+            Task cancelled = SingleRequestHttpServer.AssertClientCancelledAsync(request);
+            await SingleRequestHttpServer.AwaitOperationAsync(cancelled, httpRequests, httpOperation.Token);
+            await server.WaitForPhaseAsync(server.ClientDisconnected.Task, "URL peer disconnect before disposal", cancelled);
             Assert.AreEqual(0, browsers);
             Assert.AreEqual(0, Directory.GetFiles(root).Length);
         }
+        catch (Exception httpPrimary) { httpPrimaryFailure = httpPrimary; throw; }
         finally
         {
-            workspace.RequestPlaylistUrlShutdown(); server.ReleaseBody.TrySetResult();
-            try { await request; } catch (OperationCanceledException) { }
-            Directory.Delete(root, true);
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            workspace?.RequestPlaylistUrlShutdown();
+            if (workspace != null) { httpRequests.Add(workspace.WaitForPlaylistUrlIdleAsync()); }
+            httpOperation.Cancel();
+            Exception? httpJoinFailure = null;
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, httpPrimaryFailure, httpRequests.Concat(new Task?[] { request }.OfType<Task>().Where(task => !task.IsCompleted)), httpServers.ToArray()); }
+            catch (Exception httpJoinError) { httpJoinFailure = httpJoinError; }
+            if (httpJoinFailure != null && httpCleanup.IsCancellationRequested) { throw httpJoinFailure; }
+            try
+            {
+
+                httpCleanup.Token.ThrowIfCancellationRequested(); Directory.Delete(root, true);
+
+            }
+            catch (Exception httpSecondaryError)
+            {
+                if (httpJoinFailure != null) { throw new AggregateException(httpJoinFailure, httpSecondaryError); }
+                if (httpPrimaryFailure != null) { throw new AggregateException(httpPrimaryFailure, httpSecondaryError); }
+                throw;
+            }
+            if (httpJoinFailure != null) { throw httpJoinFailure; }
         }
     }
 

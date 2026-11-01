@@ -192,7 +192,7 @@ internal static class PlaylistWorkspaceTestPorts
     internal static Func<BMSPlaylist> PlaylistStoreProvider => () => null!;
 
     /// <summary>
-    /// 呼出し側のDB所有者を共有し、一つのテストケースがschemaを所有するプレイリストを作ります。
+    /// 呼出し側のDB所有者を共有し、一つのテストケースがschemaを所有するプレイリストを作ります。返却前の生成失敗は、その場で作成directoryを回収します。
     /// </summary>
     /// <param name="databaseScope">同じappの接続とモデルが共有するDB所有者。</param>
     internal static OwnedPlaylistStore CreateOwnedPlaylistStore(ApplicationDatabaseScope databaseScope)
@@ -201,20 +201,29 @@ internal static class PlaylistWorkspaceTestPorts
             System.IO.Path.GetTempPath(),
             nameof(PlaylistWorkspaceTestPorts),
             "PlaylistStore-" + Guid.NewGuid().ToString("N"));
-        System.IO.Directory.CreateDirectory(directory);
-        string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
-        BeMusicSeeker.Models.BmsLibraryInternal.PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
-        BMSPlaylist playlist = new TestBmsPlaylist(
-            databaseScope,
-            songDbPath,
-            null,
-            null,
-            null,
-            () => new PlaylistUrlCompletionOptionsSnapshot(),
-            () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = false },
-            () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },
-            new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath));
-        return new OwnedPlaylistStore(databaseScope, playlist, songDbPath, directory);
+        try
+        {
+            System.IO.Directory.CreateDirectory(directory);
+            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            BeMusicSeeker.Models.BmsLibraryInternal.PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            BMSPlaylist playlist = new TestBmsPlaylist(
+                databaseScope,
+                songDbPath,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = false },
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },
+                new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath));
+            return new OwnedPlaylistStore(databaseScope, playlist, songDbPath, directory);
+        }
+        catch (Exception primaryFailure)
+        {
+            try { if (System.IO.Directory.Exists(directory)) { System.IO.Directory.Delete(directory, recursive: true); } }
+            catch (Exception cleanupFailure) { throw new AggregateException(primaryFailure, cleanupFailure); }
+            throw;
+        }
     }
 
     internal sealed class OwnedPlaylistStore : IDisposable

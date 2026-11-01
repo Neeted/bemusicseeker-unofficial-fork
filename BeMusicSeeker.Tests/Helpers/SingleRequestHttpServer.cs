@@ -17,10 +17,11 @@ namespace BeMusicSeeker.Tests;
 /// テストが所有する loopback 接続を既定で一度、または指定された有限回だけ受け付ける HTTP サーバーです。
 /// 応答、要求受信、本文送信、peer 切断、cleanup の状態を観測できます。
 /// </summary>
-internal sealed class SingleRequestHttpServer : IAsyncDisposable
+internal sealed class SingleRequestHttpServer
 {
     private readonly TcpListener listener;
-    private readonly CancellationTokenSource stopping = new();
+    private readonly CancellationTokenSource stopping;
+    private readonly CancellationToken operationToken;
     private readonly Task serverTask;
     private readonly byte[] responseBody;
     private readonly IReadOnlyList<Response>? responses;
@@ -33,6 +34,8 @@ internal sealed class SingleRequestHttpServer : IAsyncDisposable
     private readonly Stopwatch elapsed = Stopwatch.StartNew();
     private readonly ConcurrentQueue<string> events = new();
     private TcpClient? acceptedClient;
+    private int cleanupStarted;
+    private int stoppingDisposed;
 
     /// <summary>HTTP 応答ヘッダーを送信したことを通知します。</summary>
     public TaskCompletionSource HeadersSent { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -76,28 +79,33 @@ internal sealed class SingleRequestHttpServer : IAsyncDisposable
     /// <summary>
     /// 指定した本文を返す単一要求サーバーを開始します。
     /// </summary>
+    /// <param name="operationToken">呼出し側が全操作段階で共有する有限期限とテスト取消のtoken。</param>
     /// <param name="responseBody">返却する本文。</param>
     /// <param name="holdBody">本文送信前に解放 signal を待つ場合は <see langword="true"/>。</param>
     /// <param name="holdBodyPrefix">本文先頭の送信前に解放 signal を待つ場合は <see langword="true"/>。</param>
     /// <param name="responseStatusCode">同じHTTP読取り経路で検証する応答コード。</param>
     /// <param name="additionalResponseHeaders">圧縮応答等の代表検証で返す追加ヘッダー。各行はCRLFで終えます。</param>
-    public SingleRequestHttpServer(byte[] responseBody, bool holdBody = false, bool holdBodyPrefix = false,
+    public SingleRequestHttpServer(CancellationToken operationToken, byte[] responseBody, bool holdBody = false, bool holdBodyPrefix = false,
         HttpStatusCode responseStatusCode = HttpStatusCode.OK, string additionalResponseHeaders = "")
-        : this(responseBody, holdBody, holdBodyPrefix, responseStatusCode, additionalResponseHeaders, null)
+        : this(operationToken, responseBody, holdBody, holdBodyPrefix, responseStatusCode, additionalResponseHeaders, null)
     {
     }
 
     /// <summary>同じoriginで指定targetへ一回ずつ応答し、不一致・重複要求を失敗として記録します。</summary>
-    internal static SingleRequestHttpServer StartFiniteResponses(IReadOnlyList<Response> responses)
+    /// <param name="operationToken">全要求のaccept/read/writeで共有する操作期限とテスト取消。</param>
+    /// <param name="responses">同一originで一度ずつ返す有限の応答。</param>
+    internal static SingleRequestHttpServer StartFiniteResponses(CancellationToken operationToken, IReadOnlyList<Response> responses)
     {
         ArgumentNullException.ThrowIfNull(responses);
-        return new SingleRequestHttpServer([], false, false, HttpStatusCode.OK, "", responses);
+        return new SingleRequestHttpServer(operationToken, [], false, false, HttpStatusCode.OK, "", responses);
     }
 
-    private SingleRequestHttpServer(byte[] responseBody, bool holdBody, bool holdBodyPrefix,
+    private SingleRequestHttpServer(CancellationToken operationToken, byte[] responseBody, bool holdBody, bool holdBodyPrefix,
         HttpStatusCode responseStatusCode, string additionalResponseHeaders, IReadOnlyList<Response>? responses)
     {
         if (responses is { Count: 0 }) { throw new ArgumentException("At least one response is required.", nameof(responses)); }
+        this.operationToken = operationToken;
+        stopping = CancellationTokenSource.CreateLinkedTokenSource(operationToken);
         this.responses = responses?.ToArray();
         this.responseBody = responseBody ?? [];
         this.responseStatusCode = responseStatusCode;
@@ -113,44 +121,161 @@ internal sealed class SingleRequestHttpServer : IAsyncDisposable
     }
 
     /// <summary>
-    /// 指定 phase またはサーバー完了を待ちます。
+    /// phaseと実producer終端を同時に監視し、先行故障・通知なしの終端を操作期限内に伝えます。
+    /// 正常終了した補助producerは待機集合から除き、phaseと同時に終端した通知も保持します。
     /// </summary>
-    /// <param name="phase">確認する phase signal。</param>
-    /// <param name="name">失敗時に表示する phase 名。</param>
-    public async Task WaitForPhaseAsync(Task phase, string name)
+    /// <param name="phase">到達を検証する通知。</param>
+    /// <param name="name">診断用の段階名。</param>
+    /// <param name="clientOutcome">元のclient処理、または期待した取消を検証する処理の実終端。</param>
+    /// <param name="otherProducers">同じ通知に関わる他のserver等の実終端。</param>
+    public async Task WaitForPhaseAsync(Task phase, string name, Task clientOutcome, params Task[] otherProducers)
     {
+        var pending = new List<Task>(otherProducers) { serverTask, clientOutcome };
         try
         {
-            Task completed = await Task.WhenAny(phase, serverTask).ConfigureAwait(false);
-            await completed.ConfigureAwait(false);
-            Assert.IsTrue(phase.IsCompletedSuccessfully, "HTTP server ended before " + name + ".");
+            while (true)
+            {
+                // WhenAnyの勝者だけで判定せず、同時終端したproducerの故障も観測します。
+                foreach (Task producer in pending.Where(task => task.IsCompleted).ToArray())
+                {
+                    await producer.ConfigureAwait(false);
+                    // peerのEOF/resetは要求取消の確認後にも到達し得るため、serverの実観測を続けます。
+                    if (producer == clientOutcome && phase != ClientDisconnected.Task)
+                    {
+                        Assert.IsTrue(phase.IsCompleted, "HTTP client ended before " + name + ".");
+                    }
+                    pending.Remove(producer);
+                }
+                if (phase.IsCompleted)
+                {
+                    await phase.ConfigureAwait(false);
+                    return;
+                }
+                if (serverTask.IsCompleted)
+                {
+                    // 終端の観測前後で通知され得るため、実producerを観測してから通知を読み直します。
+                    await serverTask.ConfigureAwait(false);
+                    Assert.IsTrue(phase.IsCompleted, "HTTP server ended before " + name + ".");
+                    await phase.ConfigureAwait(false);
+                    return;
+                }
+                Assert.IsFalse(pending.Count == 0, "HTTP producers ended before " + name + ".");
+                await Task.WhenAny(pending.Append(phase)).WaitAsync(operationToken).ConfigureAwait(false);
+            }
         }
         catch (Exception failure)
         {
-            // phase 未通知をただの timeout にせず、server の元例外と到達点を TRX へ残す。
             throw new AssertFailedException("HTTP phase: " + name + Environment.NewLine + Diagnostics, failure);
         }
     }
 
     /// <summary>
-    /// listener と server task を停止し、cleanup 完了を待ちます。
+    /// fixtureの取消を先に通知し、listener・gate・接続を解放してから実serverと切断監視を回収します。
+    /// 操作の取消とは独立した、呼出し側がcleanup全体で共有する有限tokenが必要です。
     /// </summary>
-    public async ValueTask DisposeAsync()
+    /// <param name="cleanupToken">呼出し側のfinally開始時に一度設定した独立の有限cleanup token。</param>
+    public async ValueTask DisposeAsync(CancellationToken cleanupToken)
     {
-        Record("fixture cleanup");
-        stopping.Cancel();
-        listener.Stop();
-        ReleaseBodyPrefix.TrySetResult();
-        ReleaseBody.TrySetResult();
-        acceptedClient?.Dispose();
+        if (Interlocked.Exchange(ref cleanupStarted, 1) == 0)
+        {
+            Record("fixture cleanup");
+            stopping.Cancel();
+            listener.Stop();
+            ReleaseBodyPrefix.TrySetResult();
+            ReleaseBody.TrySetResult();
+            acceptedClient?.Dispose();
+        }
         try
         {
-            // serverTaskのfinallyが切断監視も回収するため、その終結まで所有する。
-            await serverTask.ConfigureAwait(false);
+            await serverTask.WaitAsync(cleanupToken).ConfigureAwait(false);
         }
         finally
         {
-            stopping.Dispose();
+            // 未回収時には実処理が引き続きtokenを使うため、先にCTSを破棄しません。
+            if (serverTask.IsCompleted && Interlocked.Exchange(ref stoppingDisposed, 1) == 0) { stopping.Dispose(); }
+        }
+    }
+
+    /// <summary>watchdogの待機取消と区別して、元のclient Taskの実終端と元結果の取消例外を検証します。</summary>
+    internal static async Task AssertClientCancelledAsync(Task request)
+    {
+        // 同期APIを専用threadで起動したTaskはFaulted(OCE)にもなるため、状態ではなく元Taskを直接awaitします。
+        try { await request.ConfigureAwait(false); }
+        catch (OperationCanceledException) { return; }
+        Assert.Fail("未受信本文を成功として返さず、元の要求を取消終端させます。");
+    }
+
+    /// <summary>元Taskを呼出し側へ記録して操作tokenで待ち、実終端を観測したTaskだけを外します。期限で離れた実処理はcleanupへ残します。</summary>
+    internal static async Task AwaitOperationAsync(Task operation, ICollection<Task> ownedOperations, CancellationToken operationToken)
+    {
+        ownedOperations.Add(operation);
+        bool observed = false;
+        try { await operation.WaitAsync(operationToken).ConfigureAwait(false); observed = true; }
+        catch
+        {
+            if (operation.IsCompleted) { observed = true; await operation.ConfigureAwait(false); }
+            throw;
+        }
+        finally { if (observed) { ownedOperations.Remove(operation); } }
+    }
+
+    /// <summary>結果付きの元の処理Taskを記録し、待機取消後もcleanupで実処理を回収できるようにします。</summary>
+    internal static async Task<T> AwaitOperationAsync<T>(Task<T> operation, ICollection<Task> ownedOperations, CancellationToken operationToken)
+    {
+        ownedOperations.Add(operation);
+        bool observed = false;
+        try
+        {
+            T result = await operation.WaitAsync(operationToken).ConfigureAwait(false);
+            observed = true;
+            return result;
+        }
+        catch
+        {
+            if (operation.IsCompleted) { observed = true; await operation.ConfigureAwait(false); }
+            throw;
+        }
+        finally { if (observed) { ownedOperations.Remove(operation); } }
+    }
+
+    /// <summary>
+    /// 全serverの停止を先に開始し、呼出し側が所有するclientと実serverを同じcleanup期限で回収します。
+    /// clientの実取消終端だけを許容し、期限による待機の取消やcleanup失敗は一次失敗とともに返します。
+    /// </summary>
+    /// <param name="cleanupToken">操作取消から独立し、cleanup開始時に一度設定した有限token。</param>
+    /// <param name="primaryFailure">保持する操作の一次失敗。成功時はnull。</param>
+    /// <param name="clientTasks">開始した元のclient処理。待ち手だけのTaskへ置き換えません。</param>
+    /// <param name="servers">停止して実終端を回収する全server。</param>
+    internal static async Task CompleteCleanupAsync(CancellationToken cleanupToken, Exception? primaryFailure,
+        IEnumerable<Task> clientTasks, params SingleRequestHttpServer[] servers)
+    {
+        // fixture停止によるclient終端より先に回収対象を固定し、停止直後の故障も見逃しません。
+        Task[] clients = clientTasks.Distinct().ToArray();
+        Task[] cleanup = servers.Select(server => server.DisposeAsync(cleanupToken).AsTask())
+            .Concat(clients.Select(JoinClientAsync)).ToArray();
+        var joined = Task.WhenAll(cleanup);
+        try { await joined.ConfigureAwait(false); }
+        catch (Exception failure)
+        {
+            var failures = new List<Exception>();
+            if (primaryFailure != null) { failures.Add(primaryFailure); }
+            if (joined.Exception != null) { failures.AddRange(joined.Exception.InnerExceptions); }
+            else { failures.Add(failure); }
+            throw new AggregateException(failures);
+        }
+
+        async Task JoinClientAsync(Task task)
+        {
+            try { await task.WaitAsync(cleanupToken).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (task.IsCompleted)
+            {
+                // WaitAsync側のwatchdog取消を許容せず、実終端した元Taskの結果を直接確認します。
+                // asyncのCanceledと同期adapterのFaulted(OCE)だけを許容し、別の故障はそのまま伝えます。
+                try { await task.ConfigureAwait(false); }
+                catch (OperationCanceledException) { return; }
+                // 元結果が成功なら、先行した待機のwatchdog取消をcleanup失敗として保持します。
+                throw;
+            }
         }
     }
 
@@ -196,7 +321,7 @@ internal sealed class SingleRequestHttpServer : IAsyncDisposable
                     HeadersSent.TrySetResult();
                     if (holdBodyPrefix)
                     {
-                        await Task.WhenAny(ReleaseBodyPrefix.Task, disconnectTask).ConfigureAwait(false);
+                        await Task.WhenAny(ReleaseBodyPrefix.Task, disconnectTask).WaitAsync(stopping.Token).ConfigureAwait(false);
                         if (disconnectTask.IsCompleted)
                         {
                             await disconnectTask.ConfigureAwait(false);
@@ -213,7 +338,7 @@ internal sealed class SingleRequestHttpServer : IAsyncDisposable
                     BodyPrefixSent.TrySetResult();
                     if (holdBody)
                     {
-                        await Task.WhenAny(ReleaseBody.Task, disconnectTask).ConfigureAwait(false);
+                        await Task.WhenAny(ReleaseBody.Task, disconnectTask).WaitAsync(stopping.Token).ConfigureAwait(false);
                         if (disconnectTask.IsCompleted)
                         {
                             await disconnectTask.ConfigureAwait(false);

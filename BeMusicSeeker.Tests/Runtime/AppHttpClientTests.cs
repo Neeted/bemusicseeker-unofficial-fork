@@ -18,36 +18,282 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class AppHttpClientTests
 {
+    // MSTestが各ケースの実行前に必ず注入します。
     public TestContext TestContext { get; set; } = null!;
 
-    /// <summary>有限二応答の一件だけを取得してもDisposeが次acceptを取消し、実serverTaskを回収します。要求不足を完了通知待ちで停止させる誤りを検出します。</summary>
+    /// <summary>有限二応答の一件だけを取得して操作取消済みでも、独立cleanupが次acceptと実serverTaskを回収します。要求不足や取消tokenの流用で回収を省く誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Http")]
     public async Task FiniteServer_DisposeReclaimsUnrequestedResponse()
     {
-        var server = SingleRequestHttpServer.StartFiniteResponses(new SingleRequestHttpServer.Response[]
-        {
-            new("/first", Encoding.UTF8.GetBytes("first")),
-            new("/second", Encoding.UTF8.GetBytes("second"))
-        });
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+        Task<string>? request = null;
+
+        SingleRequestHttpServer? server = null;
         Exception? operationFailure = null;
         try
         {
-            string response = await AppHttpClient.Shared.GetStringAsync(new Uri(server.Address, "first"), Encoding.UTF8);
+            server = SingleRequestHttpServer.StartFiniteResponses(httpOperation.Token, new SingleRequestHttpServer.Response[]
+            {
+                new("/first", Encoding.UTF8.GetBytes("first")),
+                new("/second", Encoding.UTF8.GetBytes("second"))
+            });
+
+            request = AppHttpClient.Shared.GetStringAsync(new Uri(server.Address, "first"), Encoding.UTF8, cancellationToken: httpOperation.Token);
+            string response = await request.WaitAsync(httpOperation.Token);
             Assert.AreEqual("first", response);
             CollectionAssert.AreEqual(new[] { "/first" }, server.RequestTargets);
             Assert.IsFalse(server.Completion.IsCompleted, "二件目のacceptをfixtureが所有しています。");
+            httpOperation.Cancel();
         }
         catch (Exception failure) { operationFailure = failure; throw; }
         finally
         {
-            try { await server.DisposeAsync(); }
-            catch (Exception cleanupFailure) when (operationFailure != null)
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            httpOperation.Cancel();
+            await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, operationFailure,
+                request == null ? [] : [request], server == null ? [] : [server]);
+        }
+        Assert.IsNotNull(server);
+        Assert.IsTrue(server.Completion.IsCompletedSuccessfully, server.Diagnostics);
+    }
+
+    /// <summary>cleanupのwatchdog取消を未終端clientの取消成功と扱わず、元Taskを変更せず失敗させます。最後に入力を解放して実Taskも回収します。</summary>
+    [TestMethod]
+    [TestCategory("Http")]
+    public async Task Cleanup_CancelledWatchdogRejectsUnfinishedClient()
+    {
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        operation.CancelAfter(TimeSpan.FromSeconds(30));
+        using var expiredCleanup = new CancellationTokenSource();
+        expiredCleanup.Cancel();
+        var client = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? cleanupAttempt = null;
+        Task<AggregateException>? assertion = null;
+        Exception? primaryFailure = null;
+        try
+        {
+            cleanupAttempt = SingleRequestHttpServer.CompleteCleanupAsync(expiredCleanup.Token, null, [client.Task]);
+            assertion = Assert.ThrowsExactlyAsync<AggregateException>(() => cleanupAttempt);
+            AggregateException failure = await assertion.WaitAsync(operation.Token);
+            Assert.IsTrue(failure.Flatten().InnerExceptions.Any(error => error is OperationCanceledException));
+            Assert.IsFalse(client.Task.IsCompleted, "待機だけの取消で、元clientを取消済み・回収済みと扱いません。");
+        }
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
+        {
+            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            client.TrySetResult();
+            operation.Cancel();
+            IEnumerable<Task> pendingObservers = new Task?[] { cleanupAttempt, assertion }.OfType<Task>()
+                .Where(task => !task.IsCompleted);
+            await SingleRequestHttpServer.CompleteCleanupAsync(cleanup.Token, primaryFailure, pendingObservers.Prepend(client.Task));
+        }
+    }
+
+    /// <summary>正常終了済みの補助producerを待機集合から除き、通知前に失敗したclientの元原因を即座に返します。</summary>
+    [TestMethod]
+    [TestCategory("Http")]
+    public async Task PhaseWait_CompletedAuxiliaryProducersDoNotHideClientFailure()
+    {
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        operation.CancelAfter(TimeSpan.FromSeconds(30));
+        SingleRequestHttpServer? server = null;
+        var phase = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var client = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var expected = new IOException("HTTP client failure before notification");
+        Exception? primaryFailure = null;
+        Task? waiting = null;
+        try
+        {
+            server = new SingleRequestHttpServer(operation.Token, []);
+            waiting = server.WaitForPhaseAsync(phase.Task, "unreached phase", client.Task, Task.CompletedTask, Task.CompletedTask);
+            client.TrySetException(expected);
+            AssertFailedException failure = await Assert.ThrowsExactlyAsync<AssertFailedException>(() => waiting);
+            Assert.AreSame(expected, failure.InnerException);
+            Assert.IsFalse(phase.Task.IsCompleted);
+        }
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
+        {
+            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            client.TrySetException(expected);
+            operation.Cancel();
+            // 期待したhelper失敗は上で観測済み。未終端なら実待機を回収してからfixtureを離れます。
+            await SingleRequestHttpServer.CompleteCleanupAsync(cleanup.Token, primaryFailure,
+                waiting is { IsCompleted: false } ? [waiting] : [], server == null ? [] : [server]);
+        }
+    }
+
+    /// <summary>client/serverの正常終端と通知が同時に見えても到達済み通知を保持し、通知なしの正常終了は成功にしません。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    [TestCategory("Http")]
+    public async Task PhaseWait_NormalCompletionRequiresItsNotification(bool notificationReached)
+    {
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        operation.CancelAfter(TimeSpan.FromSeconds(30));
+        SingleRequestHttpServer? server = null;
+        Task<string>? request = null;
+        Exception? primaryFailure = null;
+        try
+        {
+            server = new SingleRequestHttpServer(operation.Token, Encoding.UTF8.GetBytes("complete"));
+            request = AppHttpClient.Shared.GetStringAsync(server.Address, cancellationToken: operation.Token);
+            Assert.AreEqual("complete", await request.WaitAsync(operation.Token));
+            await server.Completion.WaitAsync(operation.Token);
+            Task phase = notificationReached ? server.HeadersSent.Task : new TaskCompletionSource().Task;
+            if (notificationReached)
             {
-                throw new AggregateException(operationFailure, cleanupFailure);
+                await server.WaitForPhaseAsync(phase, "completed response headers", request);
+            }
+            else
+            {
+                await Assert.ThrowsExactlyAsync<AssertFailedException>(
+                    () => server.WaitForPhaseAsync(phase, "missing response phase", request));
             }
         }
-        Assert.IsTrue(server.Completion.IsCompletedSuccessfully, server.Diagnostics);
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
+        {
+            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            operation.Cancel();
+            await SingleRequestHttpServer.CompleteCleanupAsync(cleanup.Token, primaryFailure, request == null ? [] : [request], server == null ? [] : [server]);
+        }
+    }
+
+    /// <summary>gateで通知とproducer終端を進め、到達済み通知と同時の正常終端を保持し、元故障・真の通知欠落は成功にしません。</summary>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    [TestCategory("Http")]
+    public async Task PhaseWait_ReleasedProducerPreservesNotificationAndFailure(bool notify, bool failProducer)
+    {
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        operation.CancelAfter(TimeSpan.FromSeconds(30));
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var phase = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var expected = new IOException("producer failed at notification boundary");
+        SingleRequestHttpServer? server = null;
+        Task? producer = null;
+        Exception? primaryFailure = null;
+        try
+        {
+            server = new SingleRequestHttpServer(operation.Token, []);
+            producer = PublishAsync();
+            gate.TrySetResult();
+            try { await producer.WaitAsync(operation.Token); }
+            catch (IOException failure) when (ReferenceEquals(failure, expected)) { }
+            if (notify && !failProducer)
+            {
+                await server.WaitForPhaseAsync(phase.Task, "released notification", producer);
+            }
+            else
+            {
+                AssertFailedException failure = await Assert.ThrowsExactlyAsync<AssertFailedException>(
+                    () => server.WaitForPhaseAsync(phase.Task, "released notification", producer));
+                if (failProducer) { Assert.AreSame(expected, failure.InnerException); }
+            }
+            Assert.AreEqual(notify, phase.Task.IsCompletedSuccessfully);
+        }
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
+        {
+            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            gate.TrySetResult();
+            operation.Cancel();
+            await SingleRequestHttpServer.CompleteCleanupAsync(cleanup.Token, primaryFailure,
+                producer is { IsCompleted: false } ? [producer] : [], server == null ? [] : [server]);
+        }
+
+        async Task PublishAsync()
+        {
+            await gate.Task;
+            if (notify) { phase.TrySetResult(); }
+            if (failProducer) { throw expected; }
+        }
+    }
+
+    /// <summary>準備の待機wrapperだけを取消した後も元Taskと遅い返却資源をcallerが所有し、実終端の成功結果または元故障をcleanupで回収します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    [TestCategory("Http")]
+    public async Task Preparation_CancelledWaitRetainsLateResultAndFailure(bool failPreparation)
+    {
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        operation.CancelAfter(TimeSpan.FromSeconds(30));
+        using var cancelledWait = CancellationTokenSource.CreateLinkedTokenSource(operation.Token);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var owned = new List<Task>();
+        string directory = Path.Combine(Path.GetTempPath(), nameof(AppHttpClientTests), Guid.NewGuid().ToString("N"));
+        var expected = new IOException("late preparation failure");
+        Task<string>? preparation = null;
+        Exception? primaryFailure = null;
+        try
+        {
+            Directory.CreateDirectory(directory);
+            preparation = PrepareAsync();
+            Task<string> waiting = SingleRequestHttpServer.AwaitOperationAsync(preparation, owned, cancelledWait.Token);
+            owned.Add(waiting);
+            cancelledWait.Cancel();
+            Task cancellationCheck = Assert.ThrowsAsync<OperationCanceledException>(() => waiting);
+            owned.Add(cancellationCheck);
+            await cancellationCheck.WaitAsync(operation.Token);
+            Assert.IsFalse(preparation.IsCompleted);
+            CollectionAssert.Contains(owned, preparation);
+            Assert.IsTrue(Directory.Exists(directory));
+        }
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
+        {
+            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            release.TrySetResult();
+            operation.Cancel();
+            var failures = new List<Exception>();
+            try
+            {
+                if (failPreparation && primaryFailure == null)
+                {
+                    AggregateException failure = await Assert.ThrowsExactlyAsync<AggregateException>(
+                        () => SingleRequestHttpServer.CompleteCleanupAsync(cleanup.Token, null, owned));
+                    Assert.IsTrue(failure.Flatten().InnerExceptions.Any(error => ReferenceEquals(error, expected)), failure.ToString());
+                }
+                else
+                {
+                    await SingleRequestHttpServer.CompleteCleanupAsync(cleanup.Token, primaryFailure, owned);
+                    if (preparation != null)
+                    {
+                        Assert.AreEqual(directory, await preparation);
+                        Assert.IsTrue(File.Exists(Path.Combine(directory, "prepared.txt")));
+                    }
+                }
+            }
+            catch (Exception failure) { failures.Add(failure); }
+            try
+            {
+                Assert.IsTrue(preparation == null || preparation.IsCompleted, "準備Task未回収では返却資源を解放しません。");
+                if (Directory.Exists(directory)) { Directory.Delete(directory, true); }
+            }
+            catch (Exception failure) { failures.Add(failure); }
+            if (failures.Count > 0)
+            {
+                if (primaryFailure != null) { failures.Insert(0, primaryFailure); }
+                throw new AggregateException(failures);
+            }
+        }
+
+        async Task<string> PrepareAsync()
+        {
+            await release.Task;
+            File.WriteAllText(Path.Combine(directory, "prepared.txt"), "prepared");
+            if (failPreparation) { throw expected; }
+            return directory;
+        }
     }
 
     /// <summary>BOM付きファイルを同期取得して本文だけを返し、BOMが解析入力へ混入する誤りを検出します。</summary>
@@ -109,13 +355,31 @@ public sealed class AppHttpClientTests
     [TestCategory("Http")]
     public async Task PostString_StripsUtf8BomFromResponse()
     {
-        await using var server = new SingleRequestHttpServer(CreateUtf8BomBytes("{\"ok\":true}"));
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+        Task<string>? request = null;
+        SingleRequestHttpServer? server = null;
 
-        string response = await StartSynchronousRequest(() =>
-            AppHttpClient.Shared.PostString(server.Address, "body", "application/json;charset=UTF-8", Encoding.UTF8));
+        Exception? httpFailure = null;
+        try
+        {
+            server = new SingleRequestHttpServer(httpOperation.Token, CreateUtf8BomBytes("{\"ok\":true}"));
 
-        Assert.AreEqual("{\"ok\":true}", response);
-        Assert.AreEqual("POST", server.RequestMethod);
+            request = StartSynchronousRequest(() =>
+                AppHttpClient.Shared.PostString(server.Address, "body", "application/json;charset=UTF-8", Encoding.UTF8));
+            string response = await request.WaitAsync(httpOperation.Token);
+
+            Assert.AreEqual("{\"ok\":true}", response);
+            Assert.AreEqual("POST", server.RequestMethod);
+        }
+        catch (Exception failure) { httpFailure = failure; throw; }
+        finally
+        {
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            httpOperation.Cancel();
+            await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, httpFailure,
+                request == null ? [] : [request], server == null ? [] : [server]);
+        }
     }
 
     /// <summary>
@@ -128,17 +392,24 @@ public sealed class AppHttpClientTests
     [TestCategory("Http")]
     public async Task PostFile_PreservesUtf8FileNameAndBytesAndStripsResponseBom(string fileName)
     {
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+        Task<string>? request = null;
+        SingleRequestHttpServer? server = null;
+
         string uploadDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(uploadDirectory);
+        Exception? httpFailure = null;
         try
         {
             byte[] uploadBytes = [0x00, 0xFF, 0x81, 0x40, 0x0D, 0x0A, 0xFE, 0x41];
             string uploadFilePath = Path.Combine(uploadDirectory, fileName);
             File.WriteAllBytes(uploadFilePath, uploadBytes);
-            await using var server = new SingleRequestHttpServer(CreateUtf8BomBytes("{\"uploaded\":true}"));
+            server = new SingleRequestHttpServer(httpOperation.Token, CreateUtf8BomBytes("{\"uploaded\":true}"));
 
-            string response = await StartSynchronousRequest(() =>
+            request = StartSynchronousRequest(() =>
                 AppHttpClient.Shared.PostFile(server.Address, uploadFilePath, responseEncoding: Encoding.UTF8));
+            string response = await request.WaitAsync(httpOperation.Token);
 
             Assert.AreEqual("{\"uploaded\":true}", response);
             Assert.AreEqual("POST", server.RequestMethod);
@@ -171,9 +442,19 @@ public sealed class AppHttpClientTests
             CollectionAssert.AreEqual(uploadBytes, requestBody[bodyStart..^closingBoundary.Length],
                 "ファイル本体は文字コード変換せず送信する必要があります。");
         }
+        catch (Exception failure) { httpFailure = failure; throw; }
         finally
         {
-            Directory.Delete(uploadDirectory, recursive: true);
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            httpOperation.Cancel();
+            await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, httpFailure,
+                request == null ? [] : [request], server == null ? [] : [server]);
+            try
+            {
+                httpCleanup.Token.ThrowIfCancellationRequested();
+                Directory.Delete(uploadDirectory, recursive: true);
+            }
+            catch (Exception cleanupFailure) when (httpFailure != null) { throw new AggregateException(httpFailure, cleanupFailure); }
         }
     }
 
@@ -187,27 +468,34 @@ public sealed class AppHttpClientTests
     [TestCategory("Http")]
     public async Task BufferedRequest_HeadersAndBodyShareOneDeadline(string operation)
     {
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+        var httpObservers = new List<Task>();
         var clock = new ManualRequestTimeProvider();
-        using var handler = new StagedResponseHandler();
-        using var transport = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
-        var client = new AppHttpClient(transport, clock);
-        Task<string> request = StartBufferedRequest(client, new Uri("https://example.invalid/deadline"), operation);
+        StagedResponseHandler? handler = null;
+        HttpClient? transport = null;
+        Task<string>? request = null;
         Exception? primaryFailure = null;
         try
         {
+            handler = new StagedResponseHandler();
+            transport = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+            var client = new AppHttpClient(transport, clock);
+            request = StartBufferedRequest(client, new Uri("https://example.invalid/deadline"), operation, httpOperation.Token);
             // 要求側の失敗を phase 待ちに隠さず、各段階の通知を直接観測する。
-            await AwaitPhaseOrRequestAsync(handler.RequestStarted.Task, request, "request started");
+            await AwaitPhaseOrRequestAsync(handler.RequestStarted.Task, request, "request started", httpOperation.Token);
             clock.Advance(TimeSpan.FromSeconds(20));
             Assert.IsFalse(handler.RequestCancellation.IsCancellationRequested);
             handler.ReleaseHeaders.TrySetResult();
-            await AwaitPhaseOrRequestAsync(handler.Body.ReadStarted.Task, request, "body read started");
+            await AwaitPhaseOrRequestAsync(handler.Body.ReadStarted.Task, request, "body read started", httpOperation.Token);
             Assert.IsFalse(handler.Body.ReadCancellation.IsCancellationRequested);
 
             clock.Advance(TimeSpan.FromSeconds(10));
 
             Assert.IsTrue(handler.Body.ReadCancellation.IsCancellationRequested,
                 "The original request deadline must cancel the actual pending body read.");
-            await AssertRequestCancelledAsync(request);
+            await SingleRequestHttpServer.AwaitOperationAsync(
+                SingleRequestHttpServer.AssertClientCancelledAsync(request), httpObservers, httpOperation.Token);
             Assert.IsTrue(handler.Body.IsDisposed, "Request completion must release the response stream.");
         }
         catch (Exception failure)
@@ -217,18 +505,16 @@ public sealed class AppHttpClientTests
         }
         finally
         {
-            handler.ReleaseHeaders.TrySetResult();
-            handler.Body.Release.TrySetResult(0);
-            try
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            httpOperation.Cancel();
+            handler?.ReleaseHeaders.TrySetResult();
+            handler?.Body.Release.TrySetResult(0);
+            transport?.CancelPendingRequests();
+            Task[] owned = httpObservers.Concat(new Task?[] { request }.OfType<Task>()).ToArray();
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, primaryFailure, owned); }
+            finally
             {
-                await request.ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (Exception cleanupFailure) when (primaryFailure != null)
-            {
-                TestContext.WriteLine("HTTP request cleanup: " + cleanupFailure);
+                if (owned.All(task => task.IsCompleted)) { transport?.Dispose(); handler?.Dispose(); }
             }
         }
     }
@@ -242,22 +528,30 @@ public sealed class AppHttpClientTests
     [TestCategory("Http")]
     public async Task BufferedRequests_ExternalCancellationTerminatesPendingResponse(string operation, bool cancelBeforeBodyPrefix)
     {
-        using var cancellation = new CancellationTokenSource();
-        var server = new SingleRequestHttpServer([65, 66], holdBody: true, holdBodyPrefix: cancelBeforeBodyPrefix);
-        using var transport = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        var client = new AppHttpClient(transport, TimeProvider.System);
-        Task<string> request = StartBufferedRequest(client, server.Address, operation, cancellation.Token);
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+        var httpObservers = new List<Task>();
+
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(httpOperation.Token);
+        SingleRequestHttpServer? server = null;
+        HttpClient? transport = null;
+        Task<string>? request = null;
         Exception? primaryFailure = null;
         try
         {
+            server = new SingleRequestHttpServer(httpOperation.Token, [65, 66], holdBody: true, holdBodyPrefix: cancelBeforeBodyPrefix);
+            transport = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            var client = new AppHttpClient(transport, TimeProvider.System);
+            request = StartBufferedRequest(client, server.Address, operation, cancellation.Token);
             // ヘッダー直後と本文途中を signal で分ける。短い delay で race を推定しない。
             Task responsePhase = cancelBeforeBodyPrefix ? server.HeadersSent.Task : server.BodyPrefixSent.Task;
-            await server.WaitForPhaseAsync(responsePhase, cancelBeforeBodyPrefix ? "headers sent" : "body prefix sent");
+            await server.WaitForPhaseAsync(responsePhase, cancelBeforeBodyPrefix ? "headers sent" : "body prefix sent", request);
             cancellation.Cancel();
-            await AssertRequestCancelledAsync(request);
+            Task cancelled = SingleRequestHttpServer.AssertClientCancelledAsync(request);
+            await SingleRequestHttpServer.AwaitOperationAsync(cancelled, httpObservers, httpOperation.Token);
             // 待ち手の Task だけを切り離す実装や、prefix 書込み後に監視を始める fixture は通さない。
             // ReleaseBodyPrefix / ReleaseBody / DisposeAsync より前に、実際の peer 切断を観測する。
-            await server.WaitForPhaseAsync(server.ClientDisconnected.Task, "peer disconnected");
+            await server.WaitForPhaseAsync(server.ClientDisconnected.Task, "peer disconnected", cancelled);
         }
         catch (Exception failure)
         {
@@ -266,23 +560,16 @@ public sealed class AppHttpClientTests
         }
         finally
         {
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             cancellation.Cancel();
-            server.ReleaseBodyPrefix.TrySetResult();
-            server.ReleaseBody.TrySetResult();
-            try { await request.ConfigureAwait(false); }
-            catch (OperationCanceledException) { }
-            catch (Exception cleanupFailure) when (primaryFailure != null)
-            {
-                TestContext.WriteLine("HTTP request cleanup: " + cleanupFailure);
-            }
+            httpOperation.Cancel();
+            transport?.CancelPendingRequests();
+            Task[] owned = httpObservers.Concat(new Task?[] { request }.OfType<Task>()).ToArray();
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, primaryFailure, owned, server == null ? [] : [server]); }
             finally
             {
-                try { await server.DisposeAsync(); }
-                catch (Exception cleanupFailure) when (primaryFailure != null)
-                {
-                    TestContext.WriteLine("HTTP server cleanup: " + cleanupFailure);
-                }
-                TestContext.WriteLine(operation + " beforePrefix=" + cancelBeforeBodyPrefix + Environment.NewLine + server.Diagnostics);
+                if (owned.All(task => task.IsCompleted)) { transport?.Dispose(); }
+                TestContext.WriteLine(operation + " beforePrefix=" + cancelBeforeBodyPrefix + Environment.NewLine + server?.Diagnostics);
             }
         }
     }
@@ -294,12 +581,30 @@ public sealed class AppHttpClientTests
     [TestCategory("Http")]
     public async Task GetString_HttpResponsePreservesTextAndStripsBom(string operation)
     {
-        await using var server = new SingleRequestHttpServer(CreateUtf8BomBytes("本文 & +"));
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+        Task<string>? request = null;
+        SingleRequestHttpServer? server = null;
 
-        string response = await StartBufferedRequest(AppHttpClient.Shared, server.Address, operation);
+        Exception? httpFailure = null;
+        try
+        {
+            server = new SingleRequestHttpServer(httpOperation.Token, CreateUtf8BomBytes("本文 & +"));
 
-        Assert.AreEqual("本文 & +", response);
-        Assert.AreEqual("GET", server.RequestMethod);
+            request = StartBufferedRequest(AppHttpClient.Shared, server.Address, operation, httpOperation.Token);
+            string response = await request.WaitAsync(httpOperation.Token);
+
+            Assert.AreEqual("本文 & +", response);
+            Assert.AreEqual("GET", server.RequestMethod);
+        }
+        catch (Exception failure) { httpFailure = failure; throw; }
+        finally
+        {
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            httpOperation.Cancel();
+            await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, httpFailure,
+                request == null ? [] : [request], server == null ? [] : [server]);
+        }
     }
 
     /// <summary>同期・非同期form POSTで日本語・空値・同名複数値を実peerへ保持して渡し、応答BOMを除去します。</summary>
@@ -309,26 +614,44 @@ public sealed class AppHttpClientTests
     [TestCategory("Http")]
     public async Task PostForm_PreservesFormValuesAndStripsResponseBom(bool asynchronous)
     {
-        await using var server = new SingleRequestHttpServer(CreateUtf8BomBytes("accepted"));
-        var form = new NameValueCollection
-        {
-            { "name", "日本語 & +" },
-            { "tag", "x y" },
-            { "tag", "x+y" },
-            { "empty", string.Empty }
-        };
-        string response = asynchronous
-            ? await AppHttpClient.Shared.PostFormAsync(server.Address, form)
-            : await StartSynchronousRequest(() => AppHttpClient.Shared.PostForm(server.Address, form));
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+        Task<string>? request = null;
+        SingleRequestHttpServer? server = null;
 
-        Assert.AreEqual("accepted", response);
-        Assert.AreEqual("POST", server.RequestMethod);
-        StringAssert.StartsWith(server.RequestContentType, "application/x-www-form-urlencoded");
-        NameValueCollection received = HttpUtility.ParseQueryString(Encoding.UTF8.GetString(server.RequestBody));
-        Assert.AreEqual(3, received.Count);
-        Assert.AreEqual("日本語 & +", received["name"]);
-        CollectionAssert.AreEqual(new[] { "x y", "x+y" }, received.GetValues("tag"));
-        Assert.AreEqual(string.Empty, received["empty"]);
+        Exception? httpFailure = null;
+        try
+        {
+            server = new SingleRequestHttpServer(httpOperation.Token, CreateUtf8BomBytes("accepted"));
+            var form = new NameValueCollection
+            {
+                { "name", "日本語 & +" },
+                { "tag", "x y" },
+                { "tag", "x+y" },
+                { "empty", string.Empty }
+            };
+            request = asynchronous
+                ? AppHttpClient.Shared.PostFormAsync(server.Address, form, cancellationToken: httpOperation.Token)
+                : StartSynchronousRequest(() => AppHttpClient.Shared.PostForm(server.Address, form));
+            string response = await request.WaitAsync(httpOperation.Token);
+
+            Assert.AreEqual("accepted", response);
+            Assert.AreEqual("POST", server.RequestMethod);
+            StringAssert.StartsWith(server.RequestContentType, "application/x-www-form-urlencoded");
+            NameValueCollection received = HttpUtility.ParseQueryString(Encoding.UTF8.GetString(server.RequestBody));
+            Assert.AreEqual(3, received.Count);
+            Assert.AreEqual("日本語 & +", received["name"]);
+            CollectionAssert.AreEqual(new[] { "x y", "x+y" }, received.GetValues("tag"));
+            Assert.AreEqual(string.Empty, received["empty"]);
+        }
+        catch (Exception failure) { httpFailure = failure; throw; }
+        finally
+        {
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            httpOperation.Cancel();
+            await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, httpFailure,
+                request == null ? [] : [request], server == null ? [] : [server]);
+        }
     }
 
     private static Task<string> StartBufferedRequest(AppHttpClient client, Uri address, string operation, CancellationToken cancellationToken = default)
@@ -353,23 +676,11 @@ public sealed class AppHttpClientTests
         return Task.Factory.StartNew(request, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
     }
 
-    private static async Task AssertRequestCancelledAsync(Task request)
+    private static async Task AwaitPhaseOrRequestAsync(Task phase, Task request, string phaseName, CancellationToken operationToken)
     {
-        try { await request; }
-        catch (OperationCanceledException) { return; }
-        Assert.Fail("未受信本文を成功として返さず、期限またはキャンセルで中止する。");
-    }
-
-    private static async Task AwaitPhaseOrRequestAsync(Task phase, Task request, string phaseName)
-    {
-        // phase だけを待つと、要求の先行失敗が全体の監視期限まで隠れる。
-        Task completed = await Task.WhenAny(phase, request).ConfigureAwait(false);
-        if (completed == request)
-        {
-            await request.ConfigureAwait(false);
-            Assert.Fail("HTTP request completed before " + phaseName + ".");
-        }
-
+        await Task.WhenAny(phase, request).WaitAsync(operationToken).ConfigureAwait(false);
+        if (request.IsCompleted) { await request.ConfigureAwait(false); }
+        Assert.IsTrue(phase.IsCompleted, "HTTP request completed before " + phaseName + ".");
         await phase.ConfigureAwait(false);
     }
 

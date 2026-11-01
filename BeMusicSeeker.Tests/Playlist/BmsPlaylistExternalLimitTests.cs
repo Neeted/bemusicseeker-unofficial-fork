@@ -1,9 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Properties;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -45,6 +48,15 @@ public sealed partial class BmsPlaylistExternalLoadTests
     [TestMethod]
     public async Task ExternalHtml_GzipIsLimitedAfterDecompression()
     {
+        var httpServers = new List<SingleRequestHttpServer>();
+        var httpRequests = new List<Task>();
+        SingleRequestHttpServer OwnHttpServer(SingleRequestHttpServer ownedServer) { httpServers.Add(ownedServer); return ownedServer; }
+
+        Exception? httpPrimaryFailure = null;
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+        SingleRequestHttpServer? server = null;
+
         byte[] compressed;
         using (var output = new MemoryStream())
         {
@@ -60,10 +72,31 @@ public sealed partial class BmsPlaylistExternalLoadTests
         Directory.CreateDirectory(root);
         try
         {
-            await using var server = new SingleRequestHttpServer(compressed, additionalResponseHeaders: "Content-Encoding: gzip\r\n");
-            var playlist = new TestBmsPlaylist(databaseScope, CreateTempSongDbPath(databaseScope, root), settings: testSettings);
-            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => playlist.ExternalSyncOwner.LoadExternalTableAsync(server.Address));
+            Settings httpSettings = TestSettingsFactory.OpenSettings(Path.Combine(root, "user.config"));
+            server = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, compressed, additionalResponseHeaders: "Content-Encoding: gzip\r\n"));
+            var playlist = new TestBmsPlaylist(databaseScope, CreateTempSongDbPath(databaseScope, root), settings: httpSettings);
+            await SingleRequestHttpServer.AwaitOperationAsync(Assert.ThrowsExactlyAsync<InvalidDataException>(() => playlist.ExternalSyncOwner.LoadExternalTableAsync(server.Address, cancellationToken: httpOperation.Token)), httpRequests, httpOperation.Token);
         }
-        finally { Directory.Delete(root, true); }
+        catch (Exception httpPrimary) { httpPrimaryFailure = httpPrimary; throw; }
+        finally
+        {
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            httpOperation.Cancel();
+            Exception? httpJoinFailure = null;
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, httpPrimaryFailure, httpRequests, httpServers.ToArray()); }
+            catch (Exception httpJoinError) { httpJoinFailure = httpJoinError; }
+            if (httpJoinFailure != null && httpCleanup.IsCancellationRequested) { throw httpJoinFailure; }
+            try
+            {
+                httpCleanup.Token.ThrowIfCancellationRequested(); Directory.Delete(root, true);
+            }
+            catch (Exception httpSecondaryError)
+            {
+                if (httpJoinFailure != null) { throw new AggregateException(httpJoinFailure, httpSecondaryError); }
+                if (httpPrimaryFailure != null) { throw new AggregateException(httpPrimaryFailure, httpSecondaryError); }
+                throw;
+            }
+            if (httpJoinFailure != null) { throw httpJoinFailure; }
+        }
     }
 }

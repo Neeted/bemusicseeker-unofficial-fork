@@ -14,6 +14,7 @@ using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
@@ -28,6 +29,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistWorkspaceExternalSourceTests
 {
+    // MSTestが各ケースの実行前に必ず注入します。
+    public TestContext TestContext { get; set; } = null!;
+
     private readonly ApplicationDatabaseScope databaseScope = new();
 
     /// <summary>404からUnicode実名の実BMTを復元し、同hashの非数値二所属・数値一所属とnullable levelを通常登録・DB読戻し・再出力まで保持します。同URLの再取込みは取得不能でも既存一致として同一IDと保存内容を保ちます。</summary>
@@ -35,6 +39,13 @@ public sealed class PlaylistWorkspaceExternalSourceTests
     [TestMethod]
     public async Task StartBeatorajaTableUrlImport_CachedNonnumericMembershipsSurvivePersistenceAndReexport()
     {
+        var httpServers = new List<SingleRequestHttpServer>();
+        var httpRequests = new List<Task>();
+        SingleRequestHttpServer OwnHttpServer(SingleRequestHttpServer ownedServer) { httpServers.Add(ownedServer); return ownedServer; }
+
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+
         string root = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceExternalSourceTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         SingleRequestHttpServer? server = null;
@@ -47,9 +58,11 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         Exception? primaryFailure = null;
         try
         {
+            Settings httpSettings = TestSettingsFactory.OpenSettings(Path.Combine(root, "library.config"));
+            httpSettings.OperationModeLR2DB = false;
             string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, root);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
-            server = new SingleRequestHttpServer([], responseStatusCode: HttpStatusCode.NotFound);
+            server = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, [], responseStatusCode: HttpStatusCode.NotFound));
             string inputUrl = server.Address.AbsoluteUri;
             string beatorajaRoot = Path.Combine(root, "beatoraja");
             string output = Path.Combine(beatorajaRoot, "table");
@@ -90,7 +103,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 auxiliaryWork.Enqueue(Task.Run(work));
                 return true;
             };
-            library = new TestBmsLibrary(databaseScope, songDbPath);
+            library = new TestBmsLibrary(databaseScope, songDbPath, settings: httpSettings);
             workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library,
                 playlistSummaryBmtSort: new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables));
             workspace.RefreshPlaylistTreeTables(playlist, library);
@@ -102,11 +115,11 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
 
             importCompletion = workspace.StartBeatorajaTableUrlImport(beatorajaRoot);
-            await TestUiDispatcherHost.AwaitNotificationAsync(summaryReady.Task, importCompletion, "cached table import summary");
-            BeatorajaTableUrlImportSummary summary = await summaryReady.Task;
-            await importCompletion;
-            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
-            while (auxiliaryWork.TryDequeue(out Task? work)) { await work; }
+            await SingleRequestHttpServer.AwaitOperationAsync(TestUiDispatcherHost.AwaitNotificationAsync(summaryReady.Task, importCompletion, "cached table import summary"), httpRequests, httpOperation.Token);
+            BeatorajaTableUrlImportSummary summary = await (summaryReady.Task).WaitAsync(httpOperation.Token);
+            await SingleRequestHttpServer.AwaitOperationAsync(importCompletion, httpRequests, httpOperation.Token);
+            await SingleRequestHttpServer.AwaitOperationAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), httpRequests, httpOperation.Token);
+            while (auxiliaryWork.TryDequeue(out Task? work)) { await SingleRequestHttpServer.AwaitOperationAsync(work, httpRequests, httpOperation.Token); }
             Assert.IsTrue(server.HeadersSent.Task.IsCompletedSuccessfully, server.Diagnostics);
             string diagnostics = string.Join(Environment.NewLine, summary.Outcomes.Select(outcome => $"{outcome.Kind}: {outcome.Exception}"));
             Assert.AreEqual(1, summary.RestoredFromBmtCount, diagnostics);
@@ -135,26 +148,27 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             }
             AssertExportedMemberships();
 
-            await playlist.ReloadTablesAsync(exportBeatorajaBmt: false);
+            await SingleRequestHttpServer.AwaitOperationAsync(playlist.ReloadTablesAsync(exportBeatorajaBmt: false), httpRequests, httpOperation.Token);
             BMSTable reloaded = playlist.BMSTables.Single();
             Assert.AreEqual(restored.playlist_id, reloaded.playlist_id);
             AssertTableHeader(reloaded);
             CollectionAssert.AreEquivalent(expected, reloaded.entries.Select(entry => (entry.md5, entry.folder, entry.level)).ToArray());
             // 既存ファイルの読取りだけでは成功しないよう、DB読戻し後に実ファイルを再生成する。
             File.Delete(bmtPath);
-            await playlist.BmtOutput.ExportAllAsync("cached-memberships-reexport", forceProjection: true);
+            await SingleRequestHttpServer.AwaitOperationAsync(playlist.BmtOutput.ExportAllAsync("cached-memberships-reexport", forceProjection: true), httpRequests, httpOperation.Token);
             AssertExportedMemberships();
 
             // 取得元を閉じた後も、専用入口は再取得・cache復元ではなく既存一致として扱う。
-            await server.DisposeAsync();
+            // 取得元の停止自体が検査の操作なので、最終cleanupとは別に操作tokenで実終端を待ちます。
+            await SingleRequestHttpServer.AwaitOperationAsync(server.DisposeAsync(httpOperation.Token).AsTask(), httpRequests, httpOperation.Token);
             server = null;
             summaryReady = new TaskCompletionSource<BeatorajaTableUrlImportSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
             importCompletion = workspace.StartBeatorajaTableUrlImport(beatorajaRoot);
-            await TestUiDispatcherHost.AwaitNotificationAsync(summaryReady.Task, importCompletion, "cached table repeated import summary");
-            BeatorajaTableUrlImportSummary repeated = await summaryReady.Task;
-            await importCompletion;
-            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
-            while (auxiliaryWork.TryDequeue(out Task? work)) { await work; }
+            await SingleRequestHttpServer.AwaitOperationAsync(TestUiDispatcherHost.AwaitNotificationAsync(summaryReady.Task, importCompletion, "cached table repeated import summary"), httpRequests, httpOperation.Token);
+            BeatorajaTableUrlImportSummary repeated = await (summaryReady.Task).WaitAsync(httpOperation.Token);
+            await SingleRequestHttpServer.AwaitOperationAsync(importCompletion, httpRequests, httpOperation.Token);
+            await SingleRequestHttpServer.AwaitOperationAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), httpRequests, httpOperation.Token);
+            while (auxiliaryWork.TryDequeue(out Task? work)) { await SingleRequestHttpServer.AwaitOperationAsync(work, httpRequests, httpOperation.Token); }
             Assert.AreEqual(1, repeated.ExistingCount);
             Assert.AreEqual(BeatorajaTableUrlImportOutcomeKind.Existing, repeated.Outcomes.Single().Kind);
             Assert.AreEqual(inputUrl, repeated.Outcomes.Single().Uri.AbsoluteUri);
@@ -205,27 +219,45 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         }
         finally
         {
-            var cleanupFailures = new List<Exception>();
-            async Task CleanupAsync(Func<Task> action)
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            playlist?.RequestShutdown("http-fixture-cleanup");
+            httpOperation.Cancel();
+            Exception? httpJoinFailure = null;
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, primaryFailure, httpRequests.Concat(new Task?[] { importCompletion }.OfType<Task>().Where(task => !task.IsCompleted)), httpServers.ToArray()); }
+            catch (Exception httpJoinError) { httpJoinFailure = httpJoinError; }
+            if (httpJoinFailure != null && httpCleanup.IsCancellationRequested) { throw httpJoinFailure; }
+            try
             {
-                try { await action(); }
-                catch (Exception failure) { cleanupFailures.Add(failure); }
+                var cleanupFailures = new List<Exception>();
+                async Task CleanupAsync(Func<Task> action)
+                {
+                    try { await (action()).WaitAsync(httpCleanup.Token); }
+                    catch (Exception failure) { cleanupFailures.Add(failure); }
+                }
+                await CleanupAsync(() => importCompletion);
+                if (workspace != null) { await CleanupAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync); }
+                while (auxiliaryWork.TryDequeue(out Task? work)) { await CleanupAsync(() => work); }
+                await CleanupAsync(() => { httpCleanup.Token.ThrowIfCancellationRequested(); workspace?.RefreshPlaylistTreeTables(null); workspace?.Dispose(); return Task.CompletedTask; });
+                while (auxiliaryWork.TryDequeue(out Task? work)) { await CleanupAsync(() => work); }
+                await CleanupAsync(() => { playlist?.RequestShutdown("cached-memberships-fixture"); return Task.CompletedTask; });
+                await CleanupAsync(() => { library?.RequestShutdown("cached-memberships-fixture"); return Task.CompletedTask; });
+
+                await CleanupAsync(() => { httpCleanup.Token.ThrowIfCancellationRequested(); Directory.Delete(root, recursive: true); return Task.CompletedTask; });
+                if (cleanupFailures.Count > 0)
+                {
+                    var cleanupFailure = new AggregateException("cached table import cleanup", cleanupFailures);
+                    if (primaryFailure == null) { throw cleanupFailure; }
+                    Console.WriteLine(cleanupFailure);
+                }
+
             }
-            await CleanupAsync(() => importCompletion);
-            if (workspace != null) { await CleanupAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync); }
-            while (auxiliaryWork.TryDequeue(out Task? work)) { await CleanupAsync(() => work); }
-            await CleanupAsync(() => { workspace?.RefreshPlaylistTreeTables(null); workspace?.Dispose(); return Task.CompletedTask; });
-            while (auxiliaryWork.TryDequeue(out Task? work)) { await CleanupAsync(() => work); }
-            await CleanupAsync(() => { playlist?.RequestShutdown("cached-memberships-fixture"); return Task.CompletedTask; });
-            await CleanupAsync(() => { library?.RequestShutdown("cached-memberships-fixture"); return Task.CompletedTask; });
-            if (server != null) { await CleanupAsync(async () => await server.DisposeAsync()); }
-            await CleanupAsync(() => { Directory.Delete(root, recursive: true); return Task.CompletedTask; });
-            if (cleanupFailures.Count > 0)
+            catch (Exception httpSecondaryError)
             {
-                var cleanupFailure = new AggregateException("cached table import cleanup", cleanupFailures);
-                if (primaryFailure == null) { throw cleanupFailure; }
-                Console.WriteLine(cleanupFailure);
+                if (httpJoinFailure != null) { throw new AggregateException(httpJoinFailure, httpSecondaryError); }
+                if (primaryFailure != null) { throw new AggregateException(primaryFailure, httpSecondaryError); }
+                throw;
             }
+            if (httpJoinFailure != null) { throw httpJoinFailure; }
         }
     }
 
@@ -351,6 +383,13 @@ public sealed class PlaylistWorkspaceExternalSourceTests
     [TestMethod]
     public async Task TryStartPlaylistImport_HoldsAdmissionThroughCommunicationAndRequiredOutput()
     {
+        var httpServers = new List<SingleRequestHttpServer>();
+        var httpRequests = new List<Task>();
+        SingleRequestHttpServer OwnHttpServer(SingleRequestHttpServer ownedServer) { httpServers.Add(ownedServer); return ownedServer; }
+
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+
         string tempDirectory = Path.Combine(
             Path.GetTempPath(),
             nameof(PlaylistWorkspaceViewModelTests),
@@ -371,6 +410,8 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         Exception? primaryFailure = null;
         try
         {
+            Settings httpSettings = TestSettingsFactory.OpenSettings(Path.Combine(tempDirectory, "library.config"));
+            httpSettings.OperationModeLR2DB = false;
             string songDbPath = Path.Combine(tempDirectory, "song.db");
             using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
             {
@@ -407,7 +448,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 BMSTables = new ObservableCollection<BMSTable>()
             };
             acceptedPlaylist = playlist;
-            var library = new TestBmsLibrary(databaseScope, songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, settings: httpSettings);
             acceptedLibrary = library;
             workspace = CreateDetailWorkspace(
                 out _,
@@ -416,8 +457,8 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             workspace.PlaylistSyncProgressChanged += OnProgress;
             workspace.ExternalPlaylistImportQueueSummaryReady += OnSummary;
 
-            server = new SingleRequestHttpServer(BmsPlaylistTestSupport.CreateUtf8BomBytes(
-                "{\"name\":\"한글\",\"symbol\":\"F\",\"tag\":\"FIRST\",\"data_url\":\"" + new Uri(firstDataPath).AbsoluteUri + "\"}"), holdBody: true);
+            server = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, BmsPlaylistTestSupport.CreateUtf8BomBytes(
+                "{\"name\":\"한글\",\"symbol\":\"F\",\"tag\":\"FIRST\",\"data_url\":\"" + new Uri(firstDataPath).AbsoluteUri + "\"}"), holdBody: true));
             string firstUri = server.Address.AbsoluteUri;
             string secondUri = new Uri(secondHeaderPath).AbsoluteUri;
             holdOutput = true;
@@ -425,29 +466,28 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             Assert.AreEqual(PlaylistImportStartStatus.Started, submission.Status);
             Assert.AreEqual(2, submission.StartedCount);
             importCompletion = playlist.WaitForPlaylistMutationIdleAsync();
-            await Task.WhenAny(server.HeadersSent.Task, importCompletion);
-            Assert.IsTrue(server.HeadersSent.Task.IsCompleted, "URI取込みの実通信へ到達しませんでした。");
+            await server.WaitForPhaseAsync(server.HeadersSent.Task, "URI import HTTP headers", importCompletion);
             Assert.ThrowsExactly<InvalidOperationException>(() => playlist.AcquirePlaylistMutationLease("uri-import-communication-busy"));
             Assert.AreEqual(PlaylistImportStartStatus.Busy,
                 workspace.TryStartPlaylistImport([new Uri(secondUri)]).Status, "通信中の追加要求を予約しません。");
-            await Task.Run(() =>
+            await SingleRequestHttpServer.AwaitOperationAsync(Task.Run(() =>
             {
                 playlist.AcquireWriterLockBMSTables();
                 playlist.FreeWriterLockBMSTables();
-            });
+            }), httpRequests, httpOperation.Token);
             server.ReleaseBody.TrySetResult();
-            await Task.WhenAny(outputEntered.Task, importCompletion);
+            await (Task.WhenAny(outputEntered.Task, importCompletion)).WaitAsync(httpOperation.Token);
             string outputDiagnostics = summaryReady.Task.IsCompletedSuccessfully
-                ? string.Join(Environment.NewLine, (await summaryReady.Task).FailedOutcomes.Select(outcome => outcome.Exception))
+                ? string.Join(Environment.NewLine, (await (summaryReady.Task).WaitAsync(httpOperation.Token)).FailedOutcomes.Select(outcome => outcome.Exception))
                 : string.Empty;
             Assert.IsTrue(outputEntered.Task.IsCompleted, "登録後の必要出力まで到達します。" + outputDiagnostics);
             Assert.IsFalse(importCompletion.IsCompleted);
             Assert.AreEqual(PlaylistImportStartStatus.Busy,
                 workspace.TryStartPlaylistImport([new Uri(secondUri)]).Status, "必要出力中も同じ受付を保持します。");
             outputRelease.TrySetResult();
-            await importCompletion;
+            await SingleRequestHttpServer.AwaitOperationAsync(importCompletion, httpRequests, httpOperation.Token);
             Assert.IsTrue(summaryReady.Task.IsCompleted, "実処理の終端までに結果を通知します。");
-            ExternalPlaylistImportQueueSummary summary = await summaryReady.Task.ConfigureAwait(false);
+            ExternalPlaylistImportQueueSummary summary = await (summaryReady.Task).WaitAsync(httpOperation.Token).ConfigureAwait(false);
 
             PlaylistSyncProgressSnapshot[] notifications = progress.ToArray();
             Assert.IsTrue(notifications.Length > 0);
@@ -476,35 +516,53 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         }
         finally
         {
-            server?.ReleaseBody.TrySetResult();
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             outputRelease.TrySetResult();
-            var cleanupFailures = new List<Exception>();
-            async Task CleanupAsync(Func<Task> action)
+            acceptedPlaylist?.RequestShutdown("http-fixture-cleanup");
+            httpOperation.Cancel();
+            Exception? httpJoinFailure = null;
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, primaryFailure, httpRequests.Concat(new Task?[] { importCompletion }.OfType<Task>().Where(task => !task.IsCompleted)), httpServers.ToArray()); }
+            catch (Exception httpJoinError) { httpJoinFailure = httpJoinError; }
+            if (httpJoinFailure != null && httpCleanup.IsCancellationRequested) { throw httpJoinFailure; }
+            try
             {
-                try { await action(); }
-                catch (Exception failure) { cleanupFailures.Add(failure); }
+
+                var cleanupFailures = new List<Exception>();
+                async Task CleanupAsync(Func<Task> action)
+                {
+                    try { await (action()).WaitAsync(httpCleanup.Token); }
+                    catch (Exception failure) { cleanupFailures.Add(failure); }
+                }
+                if (importCompletion != null) { await CleanupAsync(() => importCompletion); }
+                if (acceptedPlaylist != null) { await CleanupAsync(acceptedPlaylist.WaitForPlaylistMutationIdleAsync); }
+                if (workspace != null)
+                {
+                    workspace.PlaylistSyncProgressChanged -= OnProgress;
+                    workspace.ExternalPlaylistImportQueueSummaryReady -= OnSummary;
+                    await CleanupAsync(workspace.WaitForDetailBuildIdleAsync);
+                    await CleanupAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync);
+                    await CleanupAsync(workspace.WaitForPlaylistReloadCleanupIdleAsync);
+                    await CleanupAsync(() => { httpCleanup.Token.ThrowIfCancellationRequested(); workspace.RefreshPlaylistTreeTables(null); workspace.Dispose(); return Task.CompletedTask; });
+                }
+                await CleanupAsync(() => { acceptedPlaylist?.RequestShutdown("unicode-mixed-import-test"); return Task.CompletedTask; });
+                await CleanupAsync(() => { acceptedLibrary?.RequestShutdown("unicode-mixed-import-test"); return Task.CompletedTask; });
+
+                await CleanupAsync(() => { httpCleanup.Token.ThrowIfCancellationRequested(); Directory.Delete(tempDirectory, recursive: true); return Task.CompletedTask; });
+                if (cleanupFailures.Count > 0)
+                {
+                    var cleanupFailure = new AggregateException("Unicode混合取込みテストの後片付け", cleanupFailures);
+                    if (primaryFailure == null) { throw cleanupFailure; }
+                    Console.WriteLine(cleanupFailure);
+                }
+
             }
-            if (importCompletion != null) { await CleanupAsync(() => importCompletion); }
-            if (acceptedPlaylist != null) { await CleanupAsync(acceptedPlaylist.WaitForPlaylistMutationIdleAsync); }
-            if (workspace != null)
+            catch (Exception httpSecondaryError)
             {
-                workspace.PlaylistSyncProgressChanged -= OnProgress;
-                workspace.ExternalPlaylistImportQueueSummaryReady -= OnSummary;
-                await CleanupAsync(workspace.WaitForDetailBuildIdleAsync);
-                await CleanupAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync);
-                await CleanupAsync(workspace.WaitForPlaylistReloadCleanupIdleAsync);
-                await CleanupAsync(() => { workspace.RefreshPlaylistTreeTables(null); workspace.Dispose(); return Task.CompletedTask; });
+                if (httpJoinFailure != null) { throw new AggregateException(httpJoinFailure, httpSecondaryError); }
+                if (primaryFailure != null) { throw new AggregateException(primaryFailure, httpSecondaryError); }
+                throw;
             }
-            await CleanupAsync(() => { acceptedPlaylist?.RequestShutdown("unicode-mixed-import-test"); return Task.CompletedTask; });
-            await CleanupAsync(() => { acceptedLibrary?.RequestShutdown("unicode-mixed-import-test"); return Task.CompletedTask; });
-            if (server != null) { await CleanupAsync(async () => await server.DisposeAsync()); }
-            await CleanupAsync(() => { Directory.Delete(tempDirectory, recursive: true); return Task.CompletedTask; });
-            if (cleanupFailures.Count > 0)
-            {
-                var cleanupFailure = new AggregateException("Unicode混合取込みテストの後片付け", cleanupFailures);
-                if (primaryFailure == null) { throw cleanupFailure; }
-                Console.WriteLine(cleanupFailure);
-            }
+            if (httpJoinFailure != null) { throw httpJoinFailure; }
         }
     }
 
@@ -517,6 +575,13 @@ public sealed class PlaylistWorkspaceExternalSourceTests
     [TestMethod]
     public async Task StartBeatorajaTableUrlImport_NewTablePublishesOwnedProgressAndSuccessfulSummary()
     {
+        var httpServers = new List<SingleRequestHttpServer>();
+        var httpRequests = new List<Task>();
+        SingleRequestHttpServer OwnHttpServer(SingleRequestHttpServer ownedServer) { httpServers.Add(ownedServer); return ownedServer; }
+
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+
         string root = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceExternalSourceTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         var auxiliaryWork = new ConcurrentQueue<Task>();
@@ -533,18 +598,20 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         Exception? primaryFailure = null;
         try
         {
+            Settings httpSettings = TestSettingsFactory.OpenSettings(Path.Combine(root, "library.config"));
+            httpSettings.OperationModeLR2DB = false;
             string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, root);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             File.WriteAllBytes(Path.Combine(root, "data.json"), BmsPlaylistTestSupport.CreateUtf8BomBytes(
                 "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song B\",\"artist\":\"Artist B\",\"level\":\"2\"}]"));
             File.WriteAllBytes(Path.Combine(root, "second-data.json"), BmsPlaylistTestSupport.CreateUtf8BomBytes(
                 "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Song A\",\"artist\":\"Artist A\",\"level\":\"10\"}]"));
-            server = new SingleRequestHttpServer(BmsPlaylistTestSupport.CreateUtf8BomBytes(
-                "{\"name\":\"한글\",\"symbol\":\"st\",\"tag\":\"st\",\"compat_prefix\":\"\",\"data_url\":\"" + new Uri(Path.Combine(root, "data.json")).AbsoluteUri + "\"}"), holdBody: true);
-            secondServer = new SingleRequestHttpServer(BmsPlaylistTestSupport.CreateUtf8BomBytes(
-                "{\"name\":\"New A\",\"symbol\":\"A\",\"compat_prefix\":\"\",\"output_dir\":\"NewA\",\"data_url\":\"" + new Uri(Path.Combine(root, "second-data.json")).AbsoluteUri + "\"}"));
-            unmanagedServer = new SingleRequestHttpServer(BmsPlaylistTestSupport.CreateUtf8BomBytes("not a difficulty table"));
-            existingServer = new SingleRequestHttpServer(BmsPlaylistTestSupport.CreateUtf8BomBytes("existing table must not be fetched"));
+            server = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, BmsPlaylistTestSupport.CreateUtf8BomBytes(
+                "{\"name\":\"한글\",\"symbol\":\"st\",\"tag\":\"st\",\"compat_prefix\":\"\",\"data_url\":\"" + new Uri(Path.Combine(root, "data.json")).AbsoluteUri + "\"}"), holdBody: true));
+            secondServer = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, BmsPlaylistTestSupport.CreateUtf8BomBytes(
+                "{\"name\":\"New A\",\"symbol\":\"A\",\"compat_prefix\":\"\",\"output_dir\":\"NewA\",\"data_url\":\"" + new Uri(Path.Combine(root, "second-data.json")).AbsoluteUri + "\"}")));
+            unmanagedServer = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, BmsPlaylistTestSupport.CreateUtf8BomBytes("not a difficulty table")));
+            existingServer = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, BmsPlaylistTestSupport.CreateUtf8BomBytes("existing table must not be fetched")));
             string inputUri = server.Address.AbsoluteUri;
             string secondUri = secondServer.Address.AbsoluteUri;
             string unmanagedUri = unmanagedServer.Address.AbsoluteUri;
@@ -591,11 +658,11 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 return true;
             };
             playlist.CommitBMSTablesWithEntriesToDB(existing);
-            await playlist.BmtOutput.ExportAllAsync("new-table-import-fixture");
+            await SingleRequestHttpServer.AwaitOperationAsync(playlist.BmtOutput.ExportAllAsync("new-table-import-fixture"), httpRequests, httpOperation.Token);
             var configDocument = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(config));
             configDocument["tableURL"] = new Newtonsoft.Json.Linq.JArray(inputUri, existingUri, unmanagedUri, secondUri);
             File.WriteAllText(config, configDocument.ToString());
-            var library = new TestBmsLibrary(databaseScope, songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, settings: httpSettings);
             acceptedLibrary = library;
             workspace = CreateDetailWorkspace(out _,
                 playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library,
@@ -612,19 +679,18 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             workspace.BeatorajaTableUrlImportSummaryReady += (_, request) => summaryReady.TrySetResult(request.Summary);
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
 
-
             started = true;
             importCompletion = workspace.StartBeatorajaTableUrlImport(beatorajaRoot);
             // 実Startが返す取込みTaskで、通信から出力・通知・受付解放までを回収します。
-            await TestUiDispatcherHost.AwaitNotificationAsync(server.HeadersSent.Task, importCompletion, "new table import HTTP headers");
+            await server.WaitForPhaseAsync(server.HeadersSent.Task, "new table import HTTP headers", importCompletion);
             Assert.ThrowsExactly<InvalidOperationException>(() => playlist.AcquirePlaylistMutationLease("beatoraja-import-communication-busy"));
             Assert.IsFalse(importCompletion.IsCompleted);
             server.ReleaseBody.TrySetResult();
-            await TestUiDispatcherHost.AwaitNotificationAsync(summaryReady.Task, importCompletion, "new table import summary");
-            BeatorajaTableUrlImportSummary summary = await summaryReady.Task;
-            await importCompletion;
-            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
-            while (auxiliaryWork.TryDequeue(out Task? work)) { await work; }
+            await SingleRequestHttpServer.AwaitOperationAsync(TestUiDispatcherHost.AwaitNotificationAsync(summaryReady.Task, importCompletion, "new table import summary"), httpRequests, httpOperation.Token);
+            BeatorajaTableUrlImportSummary summary = await (summaryReady.Task).WaitAsync(httpOperation.Token);
+            await SingleRequestHttpServer.AwaitOperationAsync(importCompletion, httpRequests, httpOperation.Token);
+            await SingleRequestHttpServer.AwaitOperationAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), httpRequests, httpOperation.Token);
+            while (auxiliaryWork.TryDequeue(out Task? work)) { await SingleRequestHttpServer.AwaitOperationAsync(work, httpRequests, httpOperation.Token); }
             string diagnostics = string.Join(Environment.NewLine, summary.Outcomes.Select(outcome =>
                 $"取込み結果: {outcome.Kind}, URI={outcome.Uri}, 表名={outcome.TableName}, 例外={outcome.Exception}"));
             Assert.AreEqual(2, summary.ImportedCount, diagnostics);
@@ -716,48 +782,60 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         }
         finally
         {
-            server?.ReleaseBody.TrySetResult();
-            secondServer?.ReleaseBody.TrySetResult();
-            unmanagedServer?.ReleaseBody.TrySetResult();
-            existingServer?.ReleaseBody.TrySetResult();
-            var cleanupFailures = new List<Exception>();
-            async Task CleanupAsync(Func<Task> action)
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            acceptedPlaylist?.RequestShutdown("http-fixture-cleanup");
+            httpOperation.Cancel();
+            Exception? httpJoinFailure = null;
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, primaryFailure, httpRequests.Concat(new Task?[] { importCompletion }.OfType<Task>().Where(task => !task.IsCompleted)), httpServers.ToArray()); }
+            catch (Exception httpJoinError) { httpJoinFailure = httpJoinError; }
+            if (httpJoinFailure != null && httpCleanup.IsCancellationRequested) { throw httpJoinFailure; }
+            try
             {
-                try { await action(); }
-                catch (Exception failure) { cleanupFailures.Add(failure); }
-            }
-            if (importCompletion != null) { await CleanupAsync(() => importCompletion); }
-            if (started && acceptedPlaylist != null)
-            {
-                await CleanupAsync(acceptedPlaylist.WaitForPlaylistMutationIdleAsync);
-                if (!summaryReady.Task.IsCompleted)
+
+                var cleanupFailures = new List<Exception>();
+                async Task CleanupAsync(Func<Task> action)
                 {
-                    await CleanupAsync(() => TestUiDispatcherHost.AwaitNotificationAsync(summaryReady.Task,
-                        acceptedPlaylist.WaitForPlaylistMutationIdleAsync(), "new table import cleanup summary"));
+                    try { await (action()).WaitAsync(httpCleanup.Token); }
+                    catch (Exception failure) { cleanupFailures.Add(failure); }
                 }
+                if (importCompletion != null) { await CleanupAsync(() => importCompletion); }
+                if (started && acceptedPlaylist != null)
+                {
+                    await CleanupAsync(acceptedPlaylist.WaitForPlaylistMutationIdleAsync);
+                    if (!summaryReady.Task.IsCompleted)
+                    {
+                        await CleanupAsync(() => TestUiDispatcherHost.AwaitNotificationAsync(summaryReady.Task,
+                            acceptedPlaylist.WaitForPlaylistMutationIdleAsync(), "new table import cleanup summary"));
+                    }
+                }
+                if (workspace != null)
+                {
+                    await CleanupAsync(workspace.WaitForDetailBuildIdleAsync);
+                    await CleanupAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync);
+                    await CleanupAsync(workspace.WaitForPlaylistReloadCleanupIdleAsync);
+                }
+                while (auxiliaryWork.TryDequeue(out Task? work)) { await CleanupAsync(() => work); }
+                await CleanupAsync(() => { httpCleanup.Token.ThrowIfCancellationRequested(); workspace?.RefreshPlaylistTreeTables(null); workspace?.Dispose(); return Task.CompletedTask; });
+                while (auxiliaryWork.TryDequeue(out Task? work)) { await CleanupAsync(() => work); }
+                await CleanupAsync(() => { acceptedPlaylist?.RequestShutdown("normal-beatoraja-import-fixture"); return Task.CompletedTask; });
+                await CleanupAsync(() => { acceptedLibrary?.RequestShutdown("normal-beatoraja-import-fixture"); return Task.CompletedTask; });
+
+                await CleanupAsync(() => { httpCleanup.Token.ThrowIfCancellationRequested(); Directory.Delete(root, recursive: true); return Task.CompletedTask; });
+                if (cleanupFailures.Count > 0)
+                {
+                    var cleanupFailure = new AggregateException("beatoraja import cleanup", cleanupFailures);
+                    if (primaryFailure == null) { throw cleanupFailure; }
+                    Console.WriteLine(cleanupFailure);
+                }
+
             }
-            if (workspace != null)
+            catch (Exception httpSecondaryError)
             {
-                await CleanupAsync(workspace.WaitForDetailBuildIdleAsync);
-                await CleanupAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync);
-                await CleanupAsync(workspace.WaitForPlaylistReloadCleanupIdleAsync);
+                if (httpJoinFailure != null) { throw new AggregateException(httpJoinFailure, httpSecondaryError); }
+                if (primaryFailure != null) { throw new AggregateException(primaryFailure, httpSecondaryError); }
+                throw;
             }
-            while (auxiliaryWork.TryDequeue(out Task? work)) { await CleanupAsync(() => work); }
-            await CleanupAsync(() => { workspace?.RefreshPlaylistTreeTables(null); workspace?.Dispose(); return Task.CompletedTask; });
-            while (auxiliaryWork.TryDequeue(out Task? work)) { await CleanupAsync(() => work); }
-            await CleanupAsync(() => { acceptedPlaylist?.RequestShutdown("normal-beatoraja-import-fixture"); return Task.CompletedTask; });
-            await CleanupAsync(() => { acceptedLibrary?.RequestShutdown("normal-beatoraja-import-fixture"); return Task.CompletedTask; });
-            if (server != null) { await CleanupAsync(async () => await server.DisposeAsync()); }
-            if (secondServer != null) { await CleanupAsync(async () => await secondServer.DisposeAsync()); }
-            if (unmanagedServer != null) { await CleanupAsync(async () => await unmanagedServer.DisposeAsync()); }
-            if (existingServer != null) { await CleanupAsync(async () => await existingServer.DisposeAsync()); }
-            await CleanupAsync(() => { Directory.Delete(root, recursive: true); return Task.CompletedTask; });
-            if (cleanupFailures.Count > 0)
-            {
-                var cleanupFailure = new AggregateException("beatoraja import cleanup", cleanupFailures);
-                if (primaryFailure == null) { throw cleanupFailure; }
-                Console.WriteLine(cleanupFailure);
-            }
+            if (httpJoinFailure != null) { throw httpJoinFailure; }
         }
     }
 
@@ -1759,6 +1837,14 @@ public sealed class PlaylistWorkspaceExternalSourceTests
     [TestMethod]
     public async Task TryStartPlaylistImport_RechecksCurrentUrlsAndReportsMixedOutcomes()
     {
+        var httpServers = new List<SingleRequestHttpServer>();
+        var httpRequests = new List<Task>();
+        SingleRequestHttpServer OwnHttpServer(SingleRequestHttpServer ownedServer) { httpServers.Add(ownedServer); return ownedServer; }
+
+        Exception? httpPrimaryFailure = null;
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+
         string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceExternalSourceTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         TestBmsPlaylist? playlist = null;
@@ -1766,6 +1852,8 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         SingleRequestHttpServer? existingServer = null;
         try
         {
+            Settings httpSettings = TestSettingsFactory.OpenSettings(Path.Combine(directory, "library.config"));
+            httpSettings.OperationModeLR2DB = false;
             string databasePath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, databasePath);
             string successPath = Path.Combine(directory, "success.json");
@@ -1775,7 +1863,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             File.WriteAllText(successPath, "{\"name\":\"New table\",\"symbol\":\"N\",\"data_url\":\"./data.json\"}");
             File.WriteAllText(duplicateNamePath, "{\"name\":\"Existing table\",\"symbol\":\"E\",\"data_url\":\"./data.json\"}");
             File.WriteAllText(failurePath, "{malformed JSON");
-            existingServer = new SingleRequestHttpServer(BmsPlaylistTestSupport.CreateUtf8BomBytes("{}"));
+            existingServer = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, BmsPlaylistTestSupport.CreateUtf8BomBytes("{}")));
             Uri pageUri = existingServer.Address;
             Uri headerUri = new(pageUri, "header.json");
             Uri successUri = new(successPath);
@@ -1787,7 +1875,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 () => new BeatorajaBmtOptionsSnapshot(),
                 () => new CustomFolderOutputSettingsSnapshot())
             { BMSTables = [] };
-            library = new TestBmsLibrary(databaseScope, databasePath);
+            library = new TestBmsLibrary(databaseScope, databasePath, settings: httpSettings);
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _,
                 playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
             var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1828,9 +1916,9 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             Assert.AreEqual(PlaylistImportStartStatus.Started, started.Status);
             Assert.AreEqual(3, started.StartedCount);
             Assert.AreEqual(2, started.SkippedDuplicateUrlCount);
-            await playlist.WaitForPlaylistMutationIdleAsync();
+            await SingleRequestHttpServer.AwaitOperationAsync(playlist.WaitForPlaylistMutationIdleAsync(), httpRequests, httpOperation.Token);
             Assert.IsTrue(summaryReady.Task.IsCompleted);
-            ExternalPlaylistImportQueueSummary summary = await summaryReady.Task;
+            ExternalPlaylistImportQueueSummary summary = await (summaryReady.Task).WaitAsync(httpOperation.Token);
             Assert.AreEqual(1, notificationCount);
             Assert.AreEqual(1, summary.ImportedCount,
                 string.Join(Environment.NewLine, summary.FailedOutcomes.Select(outcome => outcome.Uri + ": " + outcome.Exception)));
@@ -1847,13 +1935,32 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), databasePath).OpenSongDbReadOnly();
             CollectionAssert.AreEquivalent(new[] { "Existing table", "New table" }, verify.Table<BMSTable>().Select(table => table.name).ToArray());
         }
+        catch (Exception httpPrimary) { httpPrimaryFailure = httpPrimary; throw; }
         finally
         {
-            playlist?.RequestShutdown("mixed-import-test");
-            if (existingServer != null) { await existingServer.DisposeAsync(); }
-            if (playlist != null) { await playlist.WaitForPlaylistMutationIdleAsync(); }
-            library?.RequestShutdown("mixed-import-test");
-            Directory.Delete(directory, recursive: true);
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            playlist?.RequestShutdown("http-fixture-cleanup");
+            httpOperation.Cancel();
+            Exception? httpJoinFailure = null;
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, httpPrimaryFailure, httpRequests, httpServers.ToArray()); }
+            catch (Exception httpJoinError) { httpJoinFailure = httpJoinError; }
+            if (httpJoinFailure != null && httpCleanup.IsCancellationRequested) { throw httpJoinFailure; }
+            try
+            {
+                playlist?.RequestShutdown("mixed-import-test");
+
+                if (playlist != null) { await (playlist.WaitForPlaylistMutationIdleAsync()).WaitAsync(httpCleanup.Token); }
+                library?.RequestShutdown("mixed-import-test");
+                httpCleanup.Token.ThrowIfCancellationRequested(); Directory.Delete(directory, recursive: true);
+
+            }
+            catch (Exception httpSecondaryError)
+            {
+                if (httpJoinFailure != null) { throw new AggregateException(httpJoinFailure, httpSecondaryError); }
+                if (httpPrimaryFailure != null) { throw new AggregateException(httpPrimaryFailure, httpSecondaryError); }
+                throw;
+            }
+            if (httpJoinFailure != null) { throw httpJoinFailure; }
         }
     }
 
@@ -2125,6 +2232,13 @@ public sealed class PlaylistWorkspaceExternalSourceTests
     [DataRow("local-html")]
     public async Task TryStartPlaylistImport_DatePolicyFollowsOriginalSourceAndBodyKind(string sourceKind)
     {
+        var httpServers = new List<SingleRequestHttpServer>();
+        var httpRequests = new List<Task>();
+        SingleRequestHttpServer OwnHttpServer(SingleRequestHttpServer ownedServer) { httpServers.Add(ownedServer); return ownedServer; }
+
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+
         string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceExternalSourceTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         var tasks = new ConcurrentQueue<Task>();
@@ -2136,18 +2250,20 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         CultureInfo previousCulture = CultureInfo.CurrentCulture;
         try
         {
+            Settings httpSettings = TestSettingsFactory.OpenSettings(Path.Combine(directory, "library.config"));
+            httpSettings.OperationModeLR2DB = false;
             CultureInfo.CurrentCulture = new CultureInfo("en-US", useUserOverride: false);
             string path = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, path);
             const string rows = "[{\"title\":\"Keep first\",\"adddate\":\"2026-10-19T03:04:05.0000001\"},{\"title\":\"Keep invalid\",\"artist\":\"Other\",\"adddate\":\"12/11/2025\"}]";
-            var data = new SingleRequestHttpServer(Encoding.UTF8.GetBytes(rows)); servers.Add(data);
+            SingleRequestHttpServer data = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, Encoding.UTF8.GetBytes(rows))); servers.Add(data);
             string headerText = new JObject { ["name"] = "Date policy", ["symbol"] = "D", ["last_update"] = sourceKind == "local-data" ? "2026-10-19" : "2026.10.19", ["data_url"] = data.Address.AbsoluteUri }.ToString();
             Uri source;
             if (sourceKind == "url")
             {
-                var header = new SingleRequestHttpServer(Encoding.UTF8.GetBytes(headerText)); servers.Add(header);
-                var redirect = new SingleRequestHttpServer([], responseStatusCode: HttpStatusCode.Redirect,
-                    additionalResponseHeaders: "Location: " + header.Address.AbsoluteUri + "\r\n"); servers.Add(redirect);
+                SingleRequestHttpServer header = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, Encoding.UTF8.GetBytes(headerText))); servers.Add(header);
+                SingleRequestHttpServer redirect = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, [], responseStatusCode: HttpStatusCode.Redirect,
+                    additionalResponseHeaders: "Location: " + header.Address.AbsoluteUri + "\r\n")); servers.Add(redirect);
                 source = redirect.Address;
             }
             else
@@ -2165,14 +2281,14 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot())
             { BMSTables = [] };
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { tasks.Enqueue(Task.Run(work)); return true; };
-            library = new TestBmsLibrary(databaseScope, path);
+            library = new TestBmsLibrary(databaseScope, path, settings: httpSettings);
             workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
             ExternalPlaylistImportQueueSummary? summary = null;
             workspace.ExternalPlaylistImportQueueSummaryReady += (_, args) => summary = args.Summary;
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             DateTime before = DateTime.Now;
             Assert.AreEqual(PlaylistImportStartStatus.Started, workspace.TryStartPlaylistImport([source]).Status);
-            await playlist.WaitForPlaylistMutationIdleAsync();
+            await SingleRequestHttpServer.AwaitOperationAsync(playlist.WaitForPlaylistMutationIdleAsync(), httpRequests, httpOperation.Token);
             Assert.IsNotNull(summary);
             bool strict = sourceKind is "local-header" or "local-data";
             Assert.AreEqual(strict ? 0 : 1, summary.ImportedCount);
@@ -2206,22 +2322,46 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         catch (Exception error) { primary = error; throw; }
         finally
         {
-            var failures = new List<Exception>();
-            async Task Clean(Func<Task> work) { try { await work(); } catch (Exception error) { failures.Add(error); } }
-            foreach (SingleRequestHttpServer server in servers) { server.ReleaseBody.TrySetResult(); server.ReleaseBodyPrefix.TrySetResult(); }
-            if (playlist != null) { await Clean(playlist.WaitForPlaylistMutationIdleAsync); }
-            if (workspace != null)
+            try
             {
-                await Clean(workspace.WaitForDetailBuildIdleAsync); await Clean(workspace.WaitForPlaylistSummaryDataBuildIdleAsync);
-                await Clean(workspace.WaitForPlaylistReloadCleanupIdleAsync);
-                await Clean(() => { workspace.RefreshPlaylistTreeTables(null); workspace.Dispose(); return Task.CompletedTask; });
+                using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                playlist?.RequestShutdown("http-fixture-cleanup");
+                httpOperation.Cancel();
+                Exception? httpJoinFailure = null;
+                try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, primary, httpRequests, httpServers.ToArray()); }
+                catch (Exception httpJoinError) { httpJoinFailure = httpJoinError; }
+                if (httpJoinFailure != null && httpCleanup.IsCancellationRequested) { throw httpJoinFailure; }
+                try
+                {
+                    var failures = new List<Exception>();
+                    async Task Clean(Func<Task> work) { try { await (work()).WaitAsync(httpCleanup.Token); } catch (Exception error) { failures.Add(error); } }
+
+                    if (playlist != null) { await Clean(playlist.WaitForPlaylistMutationIdleAsync); }
+                    if (workspace != null)
+                    {
+                        await Clean(workspace.WaitForDetailBuildIdleAsync); await Clean(workspace.WaitForPlaylistSummaryDataBuildIdleAsync);
+                        await Clean(workspace.WaitForPlaylistReloadCleanupIdleAsync);
+                        await Clean(() => { httpCleanup.Token.ThrowIfCancellationRequested(); workspace.RefreshPlaylistTreeTables(null); workspace.Dispose(); return Task.CompletedTask; });
+                    }
+                    while (tasks.TryDequeue(out Task? task)) { await Clean(() => task); }
+                    playlist?.RequestShutdown("date-policy-import"); library?.RequestShutdown("date-policy-import");
+
+                    await Clean(() => { httpCleanup.Token.ThrowIfCancellationRequested(); Directory.Delete(directory, recursive: true); return Task.CompletedTask; });
+                    if (failures.Count > 0) { if (primary == null) { throw new AggregateException(failures); } Console.WriteLine(new AggregateException(failures)); }
+
+                }
+                catch (Exception httpSecondaryError)
+                {
+                    if (httpJoinFailure != null) { throw new AggregateException(httpJoinFailure, httpSecondaryError); }
+                    if (primary != null) { throw new AggregateException(primary, httpSecondaryError); }
+                    throw;
+                }
+                if (httpJoinFailure != null) { throw httpJoinFailure; }
             }
-            while (tasks.TryDequeue(out Task? task)) { await Clean(() => task); }
-            playlist?.RequestShutdown("date-policy-import"); library?.RequestShutdown("date-policy-import");
-            foreach (SingleRequestHttpServer server in servers) { await Clean(async () => await server.DisposeAsync()); }
-            await Clean(() => { Directory.Delete(directory, recursive: true); return Task.CompletedTask; });
-            CultureInfo.CurrentCulture = previousCulture;
-            if (failures.Count > 0) { if (primary == null) { throw new AggregateException(failures); } Console.WriteLine(new AggregateException(failures)); }
+            finally
+            {
+                CultureInfo.CurrentCulture = previousCulture;
+            }
         }
     }
 
@@ -2229,6 +2369,13 @@ public sealed class PlaylistWorkspaceExternalSourceTests
     [TestMethod]
     public async Task StartBeatorajaTableUrlImport_InvalidOptionalDatesKeepExternalRowsAndStrictLocalCacheBoundary()
     {
+        var httpServers = new List<SingleRequestHttpServer>();
+        var httpRequests = new List<Task>();
+        SingleRequestHttpServer OwnHttpServer(SingleRequestHttpServer ownedServer) { httpServers.Add(ownedServer); return ownedServer; }
+
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+
         string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceExternalSourceTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         TestBmsPlaylist? playlist = null; TestBmsLibrary? library = null; PlaylistWorkspaceViewModel? workspace = null;
@@ -2238,11 +2385,13 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         Exception? primary = null;
         try
         {
+            Settings httpSettings = TestSettingsFactory.OpenSettings(Path.Combine(directory, "library.config"));
+            httpSettings.OperationModeLR2DB = false;
             string path = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, path);
             string data = Path.Combine(directory, "data.json");
             File.WriteAllText(data, "[{\"title\":\"Keep valid\",\"adddate\":\"2026-10-19\"},{\"title\":\"Keep invalid\",\"adddate\":1700000000}]");
-            var header = new SingleRequestHttpServer(Encoding.UTF8.GetBytes(new JObject { ["name"] = "External dates", ["last_update"] = "not a date", ["data_url"] = new Uri(data).AbsoluteUri }.ToString()));
+            SingleRequestHttpServer header = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, Encoding.UTF8.GetBytes(new JObject { ["name"] = "External dates", ["last_update"] = "not a date", ["data_url"] = new Uri(data).AbsoluteUri }.ToString())));
             servers.Add(header);
             string local = Path.Combine(directory, "local.json");
             File.WriteAllText(local, new JObject { ["name"] = "Strict local", ["last_update"] = "not a date", ["data_url"] = new Uri(data).AbsoluteUri }.ToString());
@@ -2260,7 +2409,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 () => new CustomFolderOutputSettingsSnapshot(), BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, path, CustomFolderOutputPhysicalSurface.Empty))
             { BMSTables = [] };
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { tasks.Enqueue(Task.Run(work)); return true; };
-            library = new TestBmsLibrary(databaseScope, path);
+            library = new TestBmsLibrary(databaseScope, path, settings: httpSettings);
             workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library,
                 playlistSummaryBmtSort: new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables));
             workspace.RefreshPlaylistTreeTables(playlist, library);
@@ -2268,7 +2417,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             BeatorajaTableUrlImportSummary? summary = null;
             workspace.BeatorajaTableUrlImportSummaryReady += (_, args) => summary = args.Summary;
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
-            operation = workspace.StartBeatorajaTableUrlImport(beatoraja); await operation;
+            operation = workspace.StartBeatorajaTableUrlImport(beatoraja); await SingleRequestHttpServer.AwaitOperationAsync(operation, httpRequests, httpOperation.Token);
             Assert.IsNotNull(summary);
             Assert.AreEqual(1, summary.ImportedCount); Assert.AreEqual(1, summary.FailedCount);
             Assert.AreEqual(0, summary.RestoredFromBmtCount); Assert.AreEqual(0, summary.WarningCount);
@@ -2283,21 +2432,39 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         catch (Exception error) { primary = error; throw; }
         finally
         {
-            var failures = new List<Exception>();
-            async Task Clean(Func<Task> work) { try { await work(); } catch (Exception error) { failures.Add(error); } }
-            foreach (SingleRequestHttpServer server in servers) { server.ReleaseBody.TrySetResult(); server.ReleaseBodyPrefix.TrySetResult(); }
-            await Clean(() => operation);
-            if (playlist != null) { await Clean(playlist.WaitForPlaylistMutationIdleAsync); }
-            if (workspace != null)
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            playlist?.RequestShutdown("http-fixture-cleanup");
+            httpOperation.Cancel();
+            Exception? httpJoinFailure = null;
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, primary, httpRequests.Concat(new Task?[] { operation }.OfType<Task>().Where(task => !task.IsCompleted)), httpServers.ToArray()); }
+            catch (Exception httpJoinError) { httpJoinFailure = httpJoinError; }
+            if (httpJoinFailure != null && httpCleanup.IsCancellationRequested) { throw httpJoinFailure; }
+            try
             {
-                await Clean(workspace.WaitForDetailBuildIdleAsync); await Clean(workspace.WaitForPlaylistSummaryDataBuildIdleAsync); await Clean(workspace.WaitForPlaylistReloadCleanupIdleAsync);
-                await Clean(() => { workspace.RefreshPlaylistTreeTables(null); workspace.Dispose(); return Task.CompletedTask; });
+                var failures = new List<Exception>();
+                async Task Clean(Func<Task> work) { try { await (work()).WaitAsync(httpCleanup.Token); } catch (Exception error) { failures.Add(error); } }
+
+                await Clean(() => operation);
+                if (playlist != null) { await Clean(playlist.WaitForPlaylistMutationIdleAsync); }
+                if (workspace != null)
+                {
+                    await Clean(workspace.WaitForDetailBuildIdleAsync); await Clean(workspace.WaitForPlaylistSummaryDataBuildIdleAsync); await Clean(workspace.WaitForPlaylistReloadCleanupIdleAsync);
+                    await Clean(() => { httpCleanup.Token.ThrowIfCancellationRequested(); workspace.RefreshPlaylistTreeTables(null); workspace.Dispose(); return Task.CompletedTask; });
+                }
+                while (tasks.TryDequeue(out Task? task)) { await Clean(() => task); }
+                playlist?.RequestShutdown("date-table-url"); library?.RequestShutdown("date-table-url");
+
+                await Clean(() => { httpCleanup.Token.ThrowIfCancellationRequested(); Directory.Delete(directory, recursive: true); return Task.CompletedTask; });
+                if (failures.Count > 0) { if (primary == null) { throw new AggregateException(failures); } Console.WriteLine(new AggregateException(failures)); }
+
             }
-            while (tasks.TryDequeue(out Task? task)) { await Clean(() => task); }
-            playlist?.RequestShutdown("date-table-url"); library?.RequestShutdown("date-table-url");
-            foreach (SingleRequestHttpServer server in servers) { await Clean(async () => await server.DisposeAsync()); }
-            await Clean(() => { Directory.Delete(directory, recursive: true); return Task.CompletedTask; });
-            if (failures.Count > 0) { if (primary == null) { throw new AggregateException(failures); } Console.WriteLine(new AggregateException(failures)); }
+            catch (Exception httpSecondaryError)
+            {
+                if (httpJoinFailure != null) { throw new AggregateException(httpJoinFailure, httpSecondaryError); }
+                if (primary != null) { throw new AggregateException(primary, httpSecondaryError); }
+                throw;
+            }
+            if (httpJoinFailure != null) { throw httpJoinFailure; }
         }
     }
 

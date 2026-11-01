@@ -7,6 +7,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -24,6 +25,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistExternalFailureBoundaryTests
 {
+    // MSTestが各ケースの実行前に必ず注入します。
+    public TestContext TestContext { get; set; } = null!;
+
     private readonly ApplicationDatabaseScope databaseScope = new();
 
     /// <summary>
@@ -58,6 +62,13 @@ public sealed class PlaylistExternalFailureBoundaryTests
     public async Task ExternalSync_SourceFailurePreservesStatusAndCommittedTables(
         int statusCode, string malformedPart, bool includeSuccessfulTarget, int expectedKind, bool failProgress)
     {
+        var httpServers = new List<SingleRequestHttpServer>();
+        var httpRequests = new List<Task>();
+        SingleRequestHttpServer OwnHttpServer(SingleRequestHttpServer ownedServer) { httpServers.Add(ownedServer); return ownedServer; }
+
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+
         string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistExternalFailureBoundaryTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         SingleRequestHttpServer? server = null;
@@ -70,7 +81,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
         Exception? primary = null;
         try
         {
-            Settings settings = TestSettingsFactory.CreateIsolatedSettings();
+            Settings settings = TestSettingsFactory.OpenSettings(Path.Combine(directory, "user.config"));
             string songPath = CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songPath);
             string header = Path.Combine(directory, "good-header.json");
@@ -92,8 +103,8 @@ public sealed class PlaylistExternalFailureBoundaryTests
                 settings: settings);
             acceptedPlaylist = playlist;
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { auxiliaryTasks.Enqueue(Task.Run(work)); return true; };
-            BMSTable good = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(header));
-            BMSTable bad = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(badHeader));
+            BMSTable good = await SingleRequestHttpServer.AwaitOperationAsync(playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(header), cancellationToken: httpOperation.Token), httpRequests, httpOperation.Token);
+            BMSTable bad = await SingleRequestHttpServer.AwaitOperationAsync(playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(badHeader), cancellationToken: httpOperation.Token), httpRequests, httpOperation.Token);
             good.playlist_id = 7901;
             bad.playlist_id = 7902;
             good.is_bmt_output = false;
@@ -101,7 +112,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
             bad.entries[0].memo = "keep-local-memo";
             if (malformedPart == "http")
             {
-                server = new SingleRequestHttpServer([], responseStatusCode: (HttpStatusCode)statusCode);
+                server = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, [], responseStatusCode: (HttpStatusCode)statusCode));
                 bad.Page_url = server.Address;
                 bad.Header_url = server.Address;
             }
@@ -180,10 +191,10 @@ public sealed class PlaylistExternalFailureBoundaryTests
                 workspace.QueueExternalPlaylistSync("Initialize", false, true, 1);
                 Assert.IsNotNull(scheduledWork);
                 startupTask = Task.Run(scheduledWork);
-                await startupTask;
+                await SingleRequestHttpServer.AwaitOperationAsync(startupTask, httpRequests, httpOperation.Token);
                 Assert.IsTrue(startupTask.IsCompletedSuccessfully);
             }
-            else { await workspace.RunExternalPlaylistSyncAsync("source-failure", true, true, 1); }
+            else { await SingleRequestHttpServer.AwaitOperationAsync(workspace.RunExternalPlaylistSyncAsync("source-failure", true, true, 1), httpRequests, httpOperation.Token); }
             Assert.AreEqual(1, completedCount);
             Assert.IsFalse(reportedSuccess);
             Assert.IsFalse(reportedSkipped);
@@ -226,7 +237,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
             {
                 // 原因一覧外の実読取り失敗は対象に残り、一般操作のException/ThrowIfFailedへ戻らない。
                 PlaylistExternalSyncOwner.PlaylistReloadOperationResult result =
-                    await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([bad]);
+                    await SingleRequestHttpServer.AwaitOperationAsync(playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([bad], cancellationToken: httpOperation.Token), httpRequests, httpOperation.Token);
                 Assert.IsInstanceOfType<ArgumentException>(result.Single().Exception);
                 Assert.IsTrue(result.Single().IsHandledExternalLoadFailure);
                 Assert.IsFalse(result.Single().Succeeded);
@@ -240,11 +251,11 @@ public sealed class PlaylistExternalFailureBoundaryTests
             File.WriteAllText(badHeader, "{\"name\":\"Bad\",\"symbol\":\"B\",\"data_url\":\"bad-data.json\"}");
             File.WriteAllText(badData, oldData);
             playlist.CommitBMSTableHeaderToDB(bad);
-            await workspace.ResyncPlaylistsAsync([bad]);
+            await SingleRequestHttpServer.AwaitOperationAsync(workspace.ResyncPlaylistsAsync([bad]), httpRequests, httpOperation.Token);
             Assert.IsFalse(workspace.CapturePlaylistSyncStatusSnapshot()["id:7902"].HasFailureStatus);
 
             // 同じ表示障害を残した全件成功の同期でも、実結果・終端・次の受付を保持します。
-            await workspace.RunExternalPlaylistSyncAsync("source-recovered", true, true, 2);
+            await SingleRequestHttpServer.AwaitOperationAsync(workspace.RunExternalPlaylistSyncAsync("source-recovered", true, true, 2), httpRequests, httpOperation.Token);
             Assert.AreEqual(2, completedCount);
             Assert.IsTrue(reportedSuccess);
             Assert.IsFalse(reportedSkipped);
@@ -259,21 +270,39 @@ public sealed class PlaylistExternalFailureBoundaryTests
         catch (Exception error) { primary = error; throw; }
         finally
         {
-            var failures = new List<Exception>();
-            async Task Clean(Func<Task> work) { try { await work(); } catch (Exception error) { failures.Add(error); } }
-            server?.ReleaseBody.TrySetResult(); server?.ReleaseBodyPrefix.TrySetResult();
-            if (startupTask != null) { await Clean(() => startupTask); }
-            if (acceptedPlaylist != null) { await Clean(acceptedPlaylist.WaitForPlaylistMutationIdleAsync); }
-            if (workspace != null)
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            acceptedPlaylist?.RequestShutdown("http-fixture-cleanup");
+            httpOperation.Cancel();
+            Exception? httpJoinFailure = null;
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, primary, httpRequests.Concat(new Task?[] { startupTask }.OfType<Task>().Where(task => !task.IsCompleted)), httpServers.ToArray()); }
+            catch (Exception httpJoinError) { httpJoinFailure = httpJoinError; }
+            if (httpJoinFailure != null && httpCleanup.IsCancellationRequested) { throw httpJoinFailure; }
+            try
             {
-                await Clean(workspace.WaitForDetailBuildIdleAsync); await Clean(workspace.WaitForPlaylistSummaryDataBuildIdleAsync); await Clean(workspace.WaitForPlaylistReloadCleanupIdleAsync);
-                await Clean(() => { workspace.RefreshPlaylistTreeTables(null); workspace.Dispose(); return Task.CompletedTask; });
+                var failures = new List<Exception>();
+                async Task Clean(Func<Task> work) { try { await (work()).WaitAsync(httpCleanup.Token); } catch (Exception error) { failures.Add(error); } }
+
+                if (startupTask != null) { await Clean(() => startupTask); }
+                if (acceptedPlaylist != null) { await Clean(acceptedPlaylist.WaitForPlaylistMutationIdleAsync); }
+                if (workspace != null)
+                {
+                    await Clean(workspace.WaitForDetailBuildIdleAsync); await Clean(workspace.WaitForPlaylistSummaryDataBuildIdleAsync); await Clean(workspace.WaitForPlaylistReloadCleanupIdleAsync);
+                    await Clean(() => { httpCleanup.Token.ThrowIfCancellationRequested(); workspace.RefreshPlaylistTreeTables(null); workspace.Dispose(); return Task.CompletedTask; });
+                }
+                while (auxiliaryTasks.TryDequeue(out Task? task)) { await Clean(() => task); }
+                acceptedPlaylist?.RequestShutdown("source-failure-test"); acceptedLibrary?.RequestShutdown("source-failure-test");
+
+                await Clean(() => { httpCleanup.Token.ThrowIfCancellationRequested(); Directory.Delete(directory, recursive: true); return Task.CompletedTask; });
+                if (failures.Count > 0) { if (primary == null) { throw new AggregateException(failures); } Console.WriteLine(new AggregateException(failures)); }
+
             }
-            while (auxiliaryTasks.TryDequeue(out Task? task)) { await Clean(() => task); }
-            acceptedPlaylist?.RequestShutdown("source-failure-test"); acceptedLibrary?.RequestShutdown("source-failure-test");
-            if (server != null) { await Clean(async () => await server.DisposeAsync()); }
-            await Clean(() => { Directory.Delete(directory, recursive: true); return Task.CompletedTask; });
-            if (failures.Count > 0) { if (primary == null) { throw new AggregateException(failures); } Console.WriteLine(new AggregateException(failures)); }
+            catch (Exception httpSecondaryError)
+            {
+                if (httpJoinFailure != null) { throw new AggregateException(httpJoinFailure, httpSecondaryError); }
+                if (primary != null) { throw new AggregateException(primary, httpSecondaryError); }
+                throw;
+            }
+            if (httpJoinFailure != null) { throw httpJoinFailure; }
         }
     }
     /// <summary>
@@ -289,47 +318,66 @@ public sealed class PlaylistExternalFailureBoundaryTests
     public async Task ExternalLoad_ReportsOriginalFailureWithoutRetainingItInStatus(
         int statusCode, string responseBody, bool failLogging, int expectedKind)
     {
-        await using var server = new SingleRequestHttpServer(
-            Encoding.UTF8.GetBytes(responseBody), responseStatusCode: (HttpStatusCode)statusCode);
-        var recommended = new PlaylistRecommendedTableOwner(
-            static _ => Task.FromException<WalkureScoreInput>(new InvalidOperationException("内蔵推薦は対象外です。")),
-            new PlaylistOperationNotificationOwner(),
-            static () => new CustomFolderOutputSettingsSnapshot());
-        var diagnostics = new ConcurrentQueue<(Exception Exception, string Message)>();
-        var owner = new PlaylistExternalSyncOwner(AppHttpClient.Shared, recommended,
-            (exception, message) =>
+        var httpServers = new List<SingleRequestHttpServer>();
+        var httpRequests = new List<Task>();
+        SingleRequestHttpServer OwnHttpServer(SingleRequestHttpServer ownedServer) { httpServers.Add(ownedServer); return ownedServer; }
+
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+        SingleRequestHttpServer? server = null;
+
+        Exception? httpFailure = null;
+        try
+        {
+            server = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token,
+                Encoding.UTF8.GetBytes(responseBody), responseStatusCode: (HttpStatusCode)statusCode));
+            var recommended = new PlaylistRecommendedTableOwner(
+                static _ => Task.FromException<WalkureScoreInput>(new InvalidOperationException("内蔵推薦は対象外です。")),
+                new PlaylistOperationNotificationOwner(),
+                static () => new CustomFolderOutputSettingsSnapshot());
+            var diagnostics = new ConcurrentQueue<(Exception Exception, string Message)>();
+            var owner = new PlaylistExternalSyncOwner(AppHttpClient.Shared, recommended,
+                (exception, message) =>
+                {
+                    diagnostics.Enqueue((exception, message));
+                    if (failLogging) { throw new IOException("診断先への書込みに失敗しました。"); }
+                },
+                static () => false, static _ => { });
+
+            Exception failure;
+            if (statusCode == (int)HttpStatusCode.OK)
             {
-                diagnostics.Enqueue((exception, message));
-                if (failLogging) { throw new IOException("診断先への書込みに失敗しました。"); }
-            },
-            static () => false, static _ => { });
+                failure = await SingleRequestHttpServer.AwaitOperationAsync(Assert.ThrowsExactlyAsync<PlaylistHeaderParseException>(
+                    () => owner.LoadExternalTableAsync(server.Address, cancellationToken: httpOperation.Token)), httpRequests, httpOperation.Token);
+                Assert.IsInstanceOfType(failure.InnerException, typeof(JsonReaderException));
+            }
+            else
+            {
+                failure = await SingleRequestHttpServer.AwaitOperationAsync(Assert.ThrowsExactlyAsync<HttpRequestException>(
+                    () => owner.LoadExternalTableAsync(server.Address, cancellationToken: httpOperation.Token)), httpRequests, httpOperation.Token);
+            }
 
-        Exception failure;
-        if (statusCode == (int)HttpStatusCode.OK)
-        {
-            failure = await Assert.ThrowsExactlyAsync<PlaylistHeaderParseException>(
-                () => owner.LoadExternalTableAsync(server.Address));
-            Assert.IsInstanceOfType(failure.InnerException, typeof(JsonReaderException));
+            Assert.AreEqual(1, diagnostics.Count);
+            (Exception loggedException, string loggedMessage) = diagnostics.Single();
+            Assert.AreSame(failure, loggedException, "元原因を含む例外を診断先へ渡します。");
+            StringAssert.Contains(loggedMessage, "playlist_external_load_failed");
+            StringAssert.Contains(loggedMessage, "pageUri=" + server.Address);
+
+            var status = PlaylistSyncAttemptResult.CreateReportedExternalFailure(
+                null, server.Address, failure);
+            Assert.AreEqual((PlaylistSyncStatusKind)expectedKind, status.FailureKind);
+            Assert.AreEqual(server.Address, status.PageUri);
+            Assert.IsFalse(status.Succeeded);
+            Assert.IsNull(status.Exception);
+            Assert.AreEqual(string.Empty, status.Detail);
         }
-        else
+        catch (Exception failure) { httpFailure = failure; throw; }
+        finally
         {
-            failure = await Assert.ThrowsExactlyAsync<HttpRequestException>(
-                () => owner.LoadExternalTableAsync(server.Address));
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            httpOperation.Cancel();
+            await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, httpFailure, httpRequests, httpServers.ToArray());
         }
-
-        Assert.AreEqual(1, diagnostics.Count);
-        (Exception loggedException, string loggedMessage) = diagnostics.Single();
-        Assert.AreSame(failure, loggedException, "元原因を含む例外を診断先へ渡します。");
-        StringAssert.Contains(loggedMessage, "playlist_external_load_failed");
-        StringAssert.Contains(loggedMessage, "pageUri=" + server.Address);
-
-        var status = PlaylistSyncAttemptResult.CreateReportedExternalFailure(
-            null, server.Address, failure);
-        Assert.AreEqual((PlaylistSyncStatusKind)expectedKind, status.FailureKind);
-        Assert.AreEqual(server.Address, status.PageUri);
-        Assert.IsFalse(status.Succeeded);
-        Assert.IsNull(status.Exception);
-        Assert.AreEqual(string.Empty, status.Detail);
     }
 
     /// <summary>
@@ -423,6 +471,13 @@ public sealed class PlaylistExternalFailureBoundaryTests
     [TestCategory("Playlist")]
     public async Task ExternalSync_CompatibleDatesPreserveAdoptedRowsAndLocalState(bool useHttp, bool manual)
     {
+        var httpServers = new List<SingleRequestHttpServer>();
+        var httpRequests = new List<Task>();
+        SingleRequestHttpServer OwnHttpServer(SingleRequestHttpServer ownedServer) { httpServers.Add(ownedServer); return ownedServer; }
+
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+
         string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistExternalFailureBoundaryTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         var tasks = new ConcurrentQueue<Task>();
@@ -431,7 +486,9 @@ public sealed class PlaylistExternalFailureBoundaryTests
         Exception? primary = null;
         try
         {
-            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => { values.EnablePlaylistUrlCompletion = false; values.OperationModeLR2DB = false; });
+            Settings settings = TestSettingsFactory.OpenSettings(Path.Combine(directory, "user.config"));
+            settings.EnablePlaylistUrlCompletion = false;
+            settings.OperationModeLR2DB = false;
             string path = CreateTempSongDbPath(databaseScope, directory); PlaylistPersistenceRepository.EnsureSchema(databaseScope, path);
             string headerPath = Path.Combine(directory, "header.json"), dataPath = Path.Combine(directory, "data.json");
             const string validHeader = "{\"name\":\"Date external\",\"data_url\":\"data.json\"}";
@@ -452,7 +509,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
             File.WriteAllText(headerPath, invalidHeader);
             if (useHttp)
             {
-                server = new SingleRequestHttpServer(Encoding.UTF8.GetBytes(invalidHeader));
+                server = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, Encoding.UTF8.GetBytes(invalidHeader)));
                 old.Page_url = server.Address; old.Header_url = server.Address;
                 playlist.CommitBMSTableHeaderToDB(old);
             }
@@ -463,9 +520,9 @@ public sealed class PlaylistExternalFailureBoundaryTests
             workspace.PlaylistSyncProgressChanged += (_, args) => progress.Add(args.Snapshot);
             bool? succeeded = null;
             workspace.PlaylistExternalSyncCompleted += (_, args) => succeeded = args.Succeeded;
-            if (manual) { await workspace.ResyncPlaylistsAsync([old]); }
-            else { await workspace.RunExternalPlaylistSyncAsync("compatible-dates", true, true, 1); Assert.AreEqual(true, succeeded); }
-            await workspace.WaitForDetailBuildIdleAsync(); await workspace.WaitForPlaylistSummaryDataBuildIdleAsync(); await workspace.WaitForPlaylistReloadCleanupIdleAsync();
+            if (manual) { await SingleRequestHttpServer.AwaitOperationAsync(workspace.ResyncPlaylistsAsync([old]), httpRequests, httpOperation.Token); }
+            else { await SingleRequestHttpServer.AwaitOperationAsync(workspace.RunExternalPlaylistSyncAsync("compatible-dates", true, true, 1), httpRequests, httpOperation.Token); Assert.AreEqual(true, succeeded); }
+            await SingleRequestHttpServer.AwaitOperationAsync(workspace.WaitForDetailBuildIdleAsync(), httpRequests, httpOperation.Token); await SingleRequestHttpServer.AwaitOperationAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), httpRequests, httpOperation.Token); await SingleRequestHttpServer.AwaitOperationAsync(workspace.WaitForPlaylistReloadCleanupIdleAsync(), httpRequests, httpOperation.Token);
             BMSTable current = playlist.BMSTables.Single();
             CollectionAssert.AreEquivalent(new[] { "Updated", "Keep valid", "Keep invalid" }, current.entries.Select(entry => entry.title).ToArray());
             Assert.AreEqual("local memo", current.entries.Single(entry => entry.title == "Updated").memo);
@@ -483,26 +540,44 @@ public sealed class PlaylistExternalFailureBoundaryTests
             // 別の明示要求を再取得でき、先行日時の不適合を失敗として持ち越しません。
             current.Page_url = new Uri(headerPath); current.Header_url = new Uri(headerPath); playlist.CommitBMSTableHeaderToDB(current);
             File.WriteAllText(headerPath, validHeader); File.WriteAllText(dataPath, originalRows);
-            await workspace.ResyncPlaylistsAsync([current]);
+            await SingleRequestHttpServer.AwaitOperationAsync(workspace.ResyncPlaylistsAsync([current]), httpRequests, httpOperation.Token);
             Assert.IsFalse(workspace.CapturePlaylistSyncStatusSnapshot()["id:7910"].HasFailureStatus);
         }
         catch (Exception error) { primary = error; throw; }
         finally
         {
-            var failures = new List<Exception>();
-            async Task Clean(Func<Task> work) { try { await work(); } catch (Exception error) { failures.Add(error); } }
-            server?.ReleaseBody.TrySetResult(); server?.ReleaseBodyPrefix.TrySetResult();
-            if (playlist != null) { await Clean(playlist.WaitForPlaylistMutationIdleAsync); }
-            if (workspace != null)
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            playlist?.RequestShutdown("http-fixture-cleanup");
+            httpOperation.Cancel();
+            Exception? httpJoinFailure = null;
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, primary, httpRequests, httpServers.ToArray()); }
+            catch (Exception httpJoinError) { httpJoinFailure = httpJoinError; }
+            if (httpJoinFailure != null && httpCleanup.IsCancellationRequested) { throw httpJoinFailure; }
+            try
             {
-                await Clean(workspace.WaitForDetailBuildIdleAsync); await Clean(workspace.WaitForPlaylistSummaryDataBuildIdleAsync); await Clean(workspace.WaitForPlaylistReloadCleanupIdleAsync);
-                await Clean(() => { workspace.RefreshPlaylistTreeTables(null); workspace.Dispose(); return Task.CompletedTask; });
+                var failures = new List<Exception>();
+                async Task Clean(Func<Task> work) { try { await (work()).WaitAsync(httpCleanup.Token); } catch (Exception error) { failures.Add(error); } }
+
+                if (playlist != null) { await Clean(playlist.WaitForPlaylistMutationIdleAsync); }
+                if (workspace != null)
+                {
+                    await Clean(workspace.WaitForDetailBuildIdleAsync); await Clean(workspace.WaitForPlaylistSummaryDataBuildIdleAsync); await Clean(workspace.WaitForPlaylistReloadCleanupIdleAsync);
+                    await Clean(() => { httpCleanup.Token.ThrowIfCancellationRequested(); workspace.RefreshPlaylistTreeTables(null); workspace.Dispose(); return Task.CompletedTask; });
+                }
+                while (tasks.TryDequeue(out Task? task)) { await Clean(() => task); }
+                playlist?.RequestShutdown("compatible-date-sync"); library?.RequestShutdown("compatible-date-sync");
+
+                await Clean(() => { httpCleanup.Token.ThrowIfCancellationRequested(); Directory.Delete(directory, recursive: true); return Task.CompletedTask; });
+                if (failures.Count > 0) { if (primary == null) { throw new AggregateException(failures); } Console.WriteLine(new AggregateException(failures)); }
+
             }
-            while (tasks.TryDequeue(out Task? task)) { await Clean(() => task); }
-            playlist?.RequestShutdown("compatible-date-sync"); library?.RequestShutdown("compatible-date-sync");
-            if (server != null) { await Clean(async () => await server.DisposeAsync()); }
-            await Clean(() => { Directory.Delete(directory, recursive: true); return Task.CompletedTask; });
-            if (failures.Count > 0) { if (primary == null) { throw new AggregateException(failures); } Console.WriteLine(new AggregateException(failures)); }
+            catch (Exception httpSecondaryError)
+            {
+                if (httpJoinFailure != null) { throw new AggregateException(httpJoinFailure, httpSecondaryError); }
+                if (primary != null) { throw new AggregateException(primary, httpSecondaryError); }
+                throw;
+            }
+            if (httpJoinFailure != null) { throw httpJoinFailure; }
         }
     }
 

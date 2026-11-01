@@ -22,7 +22,12 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistUrlCompletionTests
 {
+    // MSTestが各ケースの実行前に必ず注入します。
+    public TestContext TestContext { get; set; } = null!;
+
     private readonly ApplicationDatabaseScope databaseScope = new();
+
+    private readonly List<Task> ownedHttpTasks = [];
 
     private string isolatedSettingsDirectory = string.Empty;
     private BeMusicSeeker.Properties.Settings testSettings = null!;
@@ -39,12 +44,65 @@ public sealed class PlaylistUrlCompletionTests
             Path.Combine(isolatedSettingsDirectory, "user.config"));
     }
 
+    /// <summary>元HTTP処理の実終端後だけ設定directoryを削除し、methodのcleanup期限を外側で更新しません。</summary>
     [TestCleanup]
     public void CleanupIsolatedSettings()
     {
+        Assert.IsFalse(ownedHttpTasks.Any(task => !task.IsCompleted),
+            "HTTP所有処理が未回収のため、依存する設定・DBを保持します。");
         if (Directory.Exists(isolatedSettingsDirectory))
         {
             Directory.Delete(isolatedSettingsDirectory, recursive: true);
+        }
+    }
+
+    /// <summary>cleanup待機だけの取消では、TestCleanupも依存DB・設定を削除せず非成功にし、元Taskはgate解放後に同じ保存値を読み取れます。</summary>
+    [TestMethod]
+    public async Task HttpCleanup_UnfinishedProducerRetainsSettingsAndDatabaseThroughTestCleanup()
+    {
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        operation.CancelAfter(TimeSpan.FromSeconds(30));
+        using var expiredCleanup = new CancellationTokenSource();
+        expiredCleanup.Cancel();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Exception? primaryFailure = null;
+        string databasePath = Path.Combine(isolatedSettingsDirectory, "song.db");
+        string settingsPath = Path.Combine(isolatedSettingsDirectory, "user.config");
+        bool persistedCompletion = !testSettings.EnablePlaylistUrlCompletion;
+        try
+        {
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(databasePath)) { }
+            // 既定値との差分がある実Commitで、保持対象の設定ファイルを準備します。
+            testSettings.Commit((nameof(testSettings.EnablePlaylistUrlCompletion), persistedCompletion));
+            Assert.IsTrue(File.Exists(settingsPath), "保持を検証する前に、実providerで設定を永続化します。");
+            Assert.AreEqual(persistedCompletion, TestSettingsFactory.OpenSettings(settingsPath).EnablePlaylistUrlCompletion);
+            Task producer = UseSettingsAfterReleaseAsync();
+            ownedHttpTasks.Add(producer);
+            await Assert.ThrowsExactlyAsync<AggregateException>(
+                () => SingleRequestHttpServer.CompleteCleanupAsync(expiredCleanup.Token, null, ownedHttpTasks)).WaitAsync(operation.Token);
+            Assert.ThrowsExactly<AssertFailedException>(CleanupIsolatedSettings);
+            Assert.IsFalse(producer.IsCompleted);
+            Assert.IsTrue(File.Exists(settingsPath));
+            Assert.IsTrue(File.Exists(databasePath));
+        }
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
+        {
+            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            release.TrySetResult();
+            operation.Cancel();
+            await SingleRequestHttpServer.CompleteCleanupAsync(cleanup.Token, primaryFailure, ownedHttpTasks);
+            CleanupIsolatedSettings();
+        }
+
+        async Task UseSettingsAfterReleaseAsync()
+        {
+            await release.Task;
+            Assert.IsTrue(File.Exists(settingsPath));
+            Assert.AreEqual(persistedCompletion, TestSettingsFactory.OpenSettings(settingsPath).EnablePlaylistUrlCompletion);
+            Assert.IsTrue(File.Exists(databasePath));
+            using LR2SongDBExtended db = databaseScope.OpenSongWrite(databasePath);
+            Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT 1"));
         }
     }
 
@@ -318,15 +376,25 @@ public sealed class PlaylistUrlCompletionTests
     [TestCategory("Playlist")]
     public async Task BMSPlaylist_UrlCompletionFetchesSourcesOnceAndRefetchesTsvWhenUriChanges()
     {
-        string tempDbPath = CreateEmptySongDbPath(databaseScope);
+        var httpServers = new List<SingleRequestHttpServer>();
+        List<Task> httpRequests = ownedHttpTasks;
+        SingleRequestHttpServer OwnHttpServer(SingleRequestHttpServer ownedServer) { httpServers.Add(ownedServer); ownedHttpTasks.Add(ownedServer.Completion); return ownedServer; }
+
+        Exception? httpPrimaryFailure = null;
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+        SingleRequestHttpServer? server = null;
+
+        string tempDbPath = Path.Combine(isolatedSettingsDirectory, "song.db");
         TestBmsPlaylist? playlist = null;
         try
         {
-            await using var server = SingleRequestHttpServer.StartFiniteResponses(
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(tempDbPath)) { }
+            server = OwnHttpServer(SingleRequestHttpServer.StartFiniteResponses(httpOperation.Token,
             [
                 new("/Map.tsv", Encoding.UTF8.GetBytes("md5\turl_diff\turl\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\thttps://example.com/diff-first\thttps://example.com/main-first")),
                 new("/map.tsv", Encoding.UTF8.GetBytes("md5\turl_diff\turl\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\thttps://example.com/diff-second\thttps://example.com/main-second"))
-            ]);
+            ]));
             int stellaFetchCount = 0;
             string firstSource = new Uri(server.Address, "Map.tsv").AbsoluteUri;
             string secondSource = new Uri(server.Address, "map.tsv").AbsoluteUri;
@@ -364,8 +432,8 @@ public sealed class PlaylistUrlCompletionTests
             table.entries = [tsvEntry, stellaEntry];
             playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { table });
 
-            await ScheduleUrlCompletionRefreshAsync(playlist, "first");
-            await ScheduleUrlCompletionRefreshAsync(playlist, "reload");
+            await SingleRequestHttpServer.AwaitOperationAsync(ScheduleUrlCompletionRefreshAsync(playlist, "first"), httpRequests, httpOperation.Token);
+            await SingleRequestHttpServer.AwaitOperationAsync(ScheduleUrlCompletionRefreshAsync(playlist, "reload"), httpRequests, httpOperation.Token);
 
             CollectionAssert.AreEqual(new[] { "/Map.tsv" }, server.RequestTargets);
             Assert.AreEqual(1, stellaFetchCount);
@@ -377,7 +445,7 @@ public sealed class PlaylistUrlCompletionTests
             testSettings.Commit((nameof(testSettings.PlaylistMd5UrlMappingTsvUri), secondSource));
             testSettings = TestSettingsFactory.OpenSettings(settingsPath);
             Assert.AreEqual(secondSource, testSettings.PlaylistMd5UrlMappingTsvUri);
-            await ScheduleUrlCompletionRefreshAsync(playlist, "settings_changed");
+            await SingleRequestHttpServer.AwaitOperationAsync(ScheduleUrlCompletionRefreshAsync(playlist, "settings_changed"), httpRequests, httpOperation.Token);
 
             CollectionAssert.AreEqual(new[] { "/Map.tsv", "/map.tsv" }, server.RequestTargets);
             Assert.AreEqual(1, stellaFetchCount);
@@ -385,12 +453,32 @@ public sealed class PlaylistUrlCompletionTests
             Assert.AreEqual("https://example.com/diff-second", tsvEntry.RuntimeUrlDiffCompletion.AbsoluteUri);
             Assert.AreEqual("https://example.com/main-second", tsvEntry.EffectiveUrl.AbsoluteUri);
             Assert.AreEqual("https://example.com/diff-second", tsvEntry.EffectiveUrlDiff.AbsoluteUri);
-            await server.Completion;
+            await (server.Completion).WaitAsync(httpOperation.Token);
         }
+        catch (Exception httpPrimary) { httpPrimaryFailure = httpPrimary; throw; }
         finally
         {
-            playlist?.RequestShutdown("source-case-fixture");
-            DeleteTempSongDbDirectory(tempDbPath);
+            using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            playlist?.RequestShutdown("http-fixture-cleanup");
+            httpOperation.Cancel();
+            Exception? httpJoinFailure = null;
+            try { await SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token, httpPrimaryFailure, httpRequests, httpServers.ToArray()); }
+            catch (Exception httpJoinError) { httpJoinFailure = httpJoinError; }
+            if (httpJoinFailure != null && httpCleanup.IsCancellationRequested) { throw httpJoinFailure; }
+            try
+            {
+
+                playlist?.RequestShutdown("source-case-fixture");
+                httpCleanup.Token.ThrowIfCancellationRequested(); DeleteTempSongDbDirectory(tempDbPath);
+
+            }
+            catch (Exception httpSecondaryError)
+            {
+                if (httpJoinFailure != null) { throw new AggregateException(httpJoinFailure, httpSecondaryError); }
+                if (httpPrimaryFailure != null) { throw new AggregateException(httpPrimaryFailure, httpSecondaryError); }
+                throw;
+            }
+            if (httpJoinFailure != null) { throw httpJoinFailure; }
         }
     }
 

@@ -27,6 +27,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class MainWindowViewModelStartupProgressTests
 {
+    // MSTestが各ケースの実行前に必ず注入します。
+    public TestContext TestContext { get; set; } = null!;
+
 
     /// <summary>Reload前3/後0の起動を実warmupまで通し、保存3の後も同ownerの全再初期化は0、新compositionは3を使うことを確認します。</summary>
     /// <remarks>実scheduler・起動接続の診断と実cache生成を観測します。設定捕捉から実MainWindow・descriptor・warmupへの接続を保証し、保守との本番順序は対象外です。既存受付portで保守要求を登録前に保持し、warmup観測後・失敗時finallyに一度だけ元schedulerへ渡して実workも回収します。保存拒否・永続化互換は設定系列へ分担します。</remarks>
@@ -192,20 +195,32 @@ public sealed class MainWindowViewModelStartupProgressTests
     [DoNotParallelize]
     public void StartupRequiredUi_ActualTaskOwnsCompletionBeforeOptionalWorkStarts()
     {
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+        var httpTasks = new List<Task>();
+        void AwaitHttpTask(Task task, string name)
+        {
+            httpTasks.Add(task);
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(task.WaitAsync(httpOperation.Token), name);
+        }
+        void AwaitHttpArrival(Task phase, Task operation, string name)
+            => AwaitHttpTask(TestUiDispatcherHost.AwaitNotificationAsync(phase, operation, name), name);
+
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
-            using var fixture = new CompletionFixture();
+            var fixture = new CompletionFixture(ownHttpSettings: true);
             SettingsWindow? settingsWindow = null;
-            var server = new SingleRequestHttpServer(System.Text.Encoding.UTF8.GetBytes("[]"), holdBody: true);
-            fixture.Settings.TableListURL = server.Address;
+            SingleRequestHttpServer? server = null;
             var noticeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var noticeRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var playlistIndexEntered = new TaskCompletionSource<StartupBackgroundTaskProgressSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
             var chartIndexEntered = new TaskCompletionSource<StartupBackgroundTaskProgressSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
             var requests = new ConcurrentQueue<StartupBackgroundTaskProgressSnapshot>();
+            var catalogTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             void ObserveRequest(StartupBackgroundTaskProgressSnapshot status)
             {
                 requests.Enqueue(status);
+                if (status.Name == "external_table_catalog" && !status.IsRunning) { catalogTerminal.TrySetResult(); }
                 if (!status.IsRunning) { return; }
                 if (status.Name == "playlist_library_index_prewarm") { playlistIndexEntered.TrySetResult(status); }
                 if (status.Name == "playlist_virtual_order_prewarm") { chartIndexEntered.TrySetResult(status); }
@@ -213,10 +228,13 @@ public sealed class MainWindowViewModelStartupProgressTests
             fixture.Scheduler.ProgressChanged += ObserveRequest;
             fixture.Dialogs.MessageObservedAsync = _ => { noticeEntered.TrySetResult(); return noticeRelease.Task; };
             fixture.Ui.Arm();
-            Task<bool> initialization = fixture.Start();
+            Exception? httpPrimaryFailure = null;
             try
             {
-                AwaitArrival(fixture.Ui.Entered.Task, initialization, "startup-required-ui");
+                server = new SingleRequestHttpServer(httpOperation.Token, System.Text.Encoding.UTF8.GetBytes("[]"), holdBody: true);
+                fixture.Settings.TableListURL = server.Address;
+                Task<bool> initialization = fixture.Start();
+                AwaitHttpArrival(fixture.Ui.Entered.Task, initialization, "startup-required-ui");
                 fixture.AssertBeforeUiCompletion();
                 SettingsDialogViewModel settings = fixture.Owner.SettingDialog;
                 settingsWindow = new SettingsWindow(fixture.Dialogs) { DataContext = settings, PlaybackPanel = fixture.Owner.PlaybackPanel };
@@ -227,11 +245,11 @@ public sealed class MainWindowViewModelStartupProgressTests
                 Assert.IsFalse(start.IsEnabled);
                 var captured = EnvironmentSettingsChange.Capture(fixture.Settings);
                 string confirmedBeatoraja = fixture.Settings.BeatorajaRootPath;
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(settings.StartConfirmedEnvironmentAsync(), "startup-ui-reject-duplicate-start");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(settings.SelectOperationModeAsync(!captured.OperationModeLR2DB), "startup-ui-reject-mode");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(settings.SelectLr2RootAsync(fixture.Settings.LR2RootPath), "startup-ui-reject-root");
+                AwaitHttpTask(settings.StartConfirmedEnvironmentAsync(), "startup-ui-reject-duplicate-start");
+                AwaitHttpTask(settings.SelectOperationModeAsync(!captured.OperationModeLR2DB), "startup-ui-reject-mode");
+                AwaitHttpTask(settings.SelectLr2RootAsync(fixture.Settings.LR2RootPath), "startup-ui-reject-root");
                 settings.BeatorajaRootPath = Path.Combine(fixture.Settings.BMSRootPath, "other-beatoraja");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(settings.CommitScoreSettingsAsync(), "startup-ui-reject-beatoraja");
+                AwaitHttpTask(settings.CommitScoreSettingsAsync(), "startup-ui-reject-beatoraja");
                 Assert.AreEqual(captured, EnvironmentSettingsChange.Capture(fixture.Settings));
                 Assert.AreEqual(confirmedBeatoraja, fixture.Settings.BeatorajaRootPath);
                 Assert.IsFalse(settings.CanStartEnvironment);
@@ -240,8 +258,8 @@ public sealed class MainWindowViewModelStartupProgressTests
                 Assert.IsFalse(initialization.IsCompleted);
                 Assert.AreEqual(string.Empty, server.RequestMethod);
                 fixture.Ui.Release.TrySetResult();
-                AwaitArrival(noticeEntered.Task, initialization, "startup-notice-held");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(server.WaitForPhaseAsync(server.HeadersSent.Task, "catalog HTTP before notice completion"), "catalog-http-arrival");
+                AwaitHttpArrival(noticeEntered.Task, initialization, "startup-notice-held");
+                AwaitHttpTask(server.WaitForPhaseAsync(server.HeadersSent.Task, "catalog HTTP before notice completion", catalogTerminal.Task, initialization), "catalog-http-arrival");
                 Assert.IsFalse(initialization.IsCompleted, "InitializeAsyncは実通知Taskを引き続き待ちます。");
                 Assert.IsTrue(fixture.Owner.IsInitializationCompleted);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -258,7 +276,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 OperationProgressRow child = fixture.Owner.ProgressHub.Rows.Single(row => row.Key.StartsWith("background:external_table_catalog"));
                 Assert.AreEqual("startup_background", child.ParentKey);
                 Task backgroundTerminal = fixture.WaitForBackgroundTerminalAsync();
-                AwaitArrival(Task.WhenAll(playlistIndexEntered.Task, chartIndexEntered.Task), backgroundTerminal, "startup-indexes-before-http-release");
+                AwaitHttpArrival(Task.WhenAll(playlistIndexEntered.Task, chartIndexEntered.Task), backgroundTerminal, "startup-indexes-before-http-release");
                 Assert.IsFalse(server.ReleaseBody.Task.IsCompleted);
                 Assert.IsFalse(requests.Any(status => status.Name == "external_table_catalog" && !status.IsRunning), "両索引はHTTP実終端を待たずに開始します。");
                 foreach (StartupBackgroundTaskProgressSnapshot index in new[] { playlistIndexEntered.Task.GetAwaiter().GetResult(), chartIndexEntered.Task.GetAwaiter().GetResult() })
@@ -267,32 +285,50 @@ public sealed class MainWindowViewModelStartupProgressTests
                     Assert.AreEqual(additional.Generation, index.Request.Generation);
                 }
                 noticeRelease.TrySetResult();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "startup-required-ui-terminal");
+                AwaitHttpTask(initialization, "startup-required-ui-terminal");
                 Assert.IsTrue(initialization.GetAwaiter().GetResult());
                 Assert.IsTrue(fixture.Owner.IsInitializationCompleted);
                 Assert.IsTrue(fixture.Owner.HasActiveLibraryProfile);
                 Assert.IsFalse(fixture.Lifetime.IsFirstStartup);
                 Assert.IsFalse(fixture.Owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
                 Assert.IsFalse(fixture.Owner.IsLibraryOperationInProgress, "実成功公開後の通知・任意work・完了余韻でBusyを延ばしません。");
-                AwaitArrival(fixture.OptionalEntered.Task, fixture.OptionalWork, "startup-optional-arrival");
+                AwaitHttpArrival(fixture.OptionalEntered.Task, fixture.OptionalWork, "startup-optional-arrival");
                 Assert.IsTrue(fixture.OptionalStartedAfterCompletion);
                 Assert.IsFalse(fixture.OptionalWork.IsCompleted, "任意workを保持したまま必須起動が終端します。");
                 Assert.AreEqual(1, fixture.CompletionNotifications);
                 server.ReleaseBody.TrySetResult();
                 fixture.OptionalRelease.TrySetResult();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(backgroundTerminal, "startup-own-parent-terminal");
+                AwaitHttpTask(backgroundTerminal, "startup-own-parent-terminal");
                 Assert.IsFalse(fixture.Owner.ProgressHub.IsStartupBackgroundInitializationActive);
             }
+            catch (Exception httpPrimary) { httpPrimaryFailure = httpPrimary; throw; }
             finally
             {
+                using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                var httpCleanupFailures = new List<Exception>();
                 fixture.Scheduler.ProgressChanged -= ObserveRequest;
                 noticeRelease.TrySetResult();
                 fixture.Ui.Release.TrySetResult();
                 fixture.OptionalRelease.TrySetResult();
-                server.ReleaseBody.TrySetResult();
-                settingsWindow?.CloseForOwnerShutdown();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "catalog-startup-cleanup");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(server.DisposeAsync().AsTask(), "catalog-http-cleanup");
+                fixture.Owner.PlaylistWorkspace.CancelExternalTableCollectionLoadForShutdown();
+                Task? shutdown = null;
+                try { shutdown = fixture.Owner.ShellShutdownWorkflow.RequestWindowCloseAsync(); }
+                catch (Exception failure) { httpCleanupFailures.Add(failure); }
+                httpOperation.Cancel();
+                Task[] ownedHttpTasks = httpTasks.Concat(new Task?[] { shutdown, server?.Completion }.OfType<Task>()).ToArray();
+                try
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token,
+                        httpPrimaryFailure, httpTasks.Concat(new Task?[] { shutdown }.OfType<Task>()), server == null ? [] : [server]), "startup-http-cleanup");
+                }
+                catch (Exception failure) { httpCleanupFailures.Add(failure); }
+                try { fixture.Dispose(httpCleanup.Token, ownedHttpTasks, settingsWindow); }
+                catch (Exception failure) { httpCleanupFailures.Add(failure); }
+                if (httpCleanupFailures.Count > 0)
+                {
+                    if (httpPrimaryFailure != null) { httpCleanupFailures.Insert(0, httpPrimaryFailure); }
+                    throw new AggregateException(httpCleanupFailures);
+                }
             }
         });
     }
@@ -817,30 +853,44 @@ public sealed class MainWindowViewModelStartupProgressTests
     [DoNotParallelize]
     public void StartupExternalSync_DedicatedProgressKeepsStartupOriginWithBusinessTokenZero()
     {
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+        var httpTasks = new List<Task>();
+        void AwaitHttpTask(Task task, string name)
+        {
+            httpTasks.Add(task);
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(task.WaitAsync(httpOperation.Token), name);
+        }
+
         TestUiDispatcherHost.Invoke(() =>
         {
-            using var fixture = new CompletionFixture();
-            var server = new SingleRequestHttpServer(System.Text.Encoding.UTF8.GetBytes("{}"), holdBody: true);
+            var fixture = new CompletionFixture(ownHttpSettings: true);
+            SingleRequestHttpServer? server = null;
             fixture.Settings.SkipInitPlaylistLoad = false;
             var queued = new TaskCompletionSource<PlaylistExternalSyncRequestEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
             fixture.Owner.PlaylistWorkspace.PlaylistExternalSyncQueued += (_, args) => queued.TrySetResult(args);
-            using (LR2SongDBExtended db = fixture.Composition.DatabaseScope.OpenSongWrite(fixture.Library.InitializationSongDbPath))
-            {
-                db.Insert(new LR2SongDBExtended.playlist
-                {
-                    name = "startup sync origin",
-                    header_url = server.Address.AbsoluteUri,
-                    is_external_sync = true,
-                    ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders,
-                    output_dir = "Network"
-                });
-            }
-            Task<bool> startup = fixture.Start();
+            var syncTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            fixture.Owner.PlaylistWorkspace.PlaylistExternalSyncCompleted += (_, _) => syncTerminal.TrySetResult();
+            Exception? httpPrimaryFailure = null;
             try
             {
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(startup, "external-sync-origin-startup");
+                server = new SingleRequestHttpServer(httpOperation.Token, System.Text.Encoding.UTF8.GetBytes("{}"), holdBody: true);
+                using (LR2SongDBExtended db = fixture.Composition.DatabaseScope.OpenSongWrite(fixture.Library.InitializationSongDbPath))
+                {
+                    db.Insert(new LR2SongDBExtended.playlist
+                    {
+                        name = "startup sync origin",
+                        header_url = server.Address.AbsoluteUri,
+                        is_external_sync = true,
+                        ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders,
+                        output_dir = "Network"
+                    });
+                }
+                Task<bool> startup = fixture.Start();
+
+                AwaitHttpTask(startup, "external-sync-origin-startup");
                 Assert.IsTrue(startup.GetAwaiter().GetResult());
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(server.WaitForPhaseAsync(server.HeadersSent.Task, "external sync HTTP"), "external-sync-http");
+                AwaitHttpTask(server.WaitForPhaseAsync(server.HeadersSent.Task, "external sync HTTP", syncTerminal.Task, startup), "external-sync-http");
                 Assert.IsTrue(queued.Task.IsCompletedSuccessfully);
                 PlaylistExternalSyncRequestEventArgs accepted = queued.Task.GetAwaiter().GetResult();
                 StartupAdditionalProgressSnapshot additional = fixture.Scheduler.CaptureAdditionalProgressSnapshot();
@@ -857,13 +907,30 @@ public sealed class MainWindowViewModelStartupProgressTests
                 Assert.AreEqual("startup_background", rows[0].ParentKey);
                 Assert.AreEqual(1d, rows[0].Maximum);
             }
+            catch (Exception httpPrimary) { httpPrimaryFailure = httpPrimary; throw; }
             finally
             {
-                server.ReleaseBody.TrySetResult();
+                using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                var httpCleanupFailures = new List<Exception>();
                 fixture.OptionalRelease.TrySetResult();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(startup, "external-sync-origin-cleanup");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "external-sync-origin-terminal");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(server.DisposeAsync().AsTask(), "external-sync-origin-server-cleanup");
+                Task? shutdown = null;
+                try { shutdown = fixture.Owner.ShellShutdownWorkflow.RequestWindowCloseAsync(); }
+                catch (Exception failure) { httpCleanupFailures.Add(failure); }
+                httpOperation.Cancel();
+                Task[] ownedHttpTasks = httpTasks.Concat(new Task?[] { shutdown, server?.Completion }.OfType<Task>()).ToArray();
+                try
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token,
+                        httpPrimaryFailure, httpTasks.Concat(new Task?[] { shutdown }.OfType<Task>()), server == null ? [] : [server]), "startup-http-cleanup");
+                }
+                catch (Exception failure) { httpCleanupFailures.Add(failure); }
+                try { fixture.Dispose(httpCleanup.Token, ownedHttpTasks); }
+                catch (Exception failure) { httpCleanupFailures.Add(failure); }
+                if (httpCleanupFailures.Count > 0)
+                {
+                    if (httpPrimaryFailure != null) { httpCleanupFailures.Insert(0, httpPrimaryFailure); }
+                    throw new AggregateException(httpCleanupFailures);
+                }
             }
         });
     }
@@ -873,13 +940,26 @@ public sealed class MainWindowViewModelStartupProgressTests
     [DoNotParallelize]
     public void StartupExternalSync_AdmissionAfterUnlockIsSkippedWithoutNetworkOrAutomaticRetry()
     {
+        using var httpOperation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.CancellationToken);
+        httpOperation.CancelAfter(TimeSpan.FromSeconds(30));
+        var httpTasks = new List<Task>();
+        void AwaitHttpTask(Task task, string name)
+        {
+            httpTasks.Add(task);
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(task.WaitAsync(httpOperation.Token), name);
+        }
+        void AwaitHttpArrival(Task phase, Task operation, string name)
+            => AwaitHttpTask(TestUiDispatcherHost.AwaitNotificationAsync(phase, operation, name), name);
+
         TestUiDispatcherHost.Invoke(() =>
         {
-            using var fixture = new CompletionFixture();
-            var server = new SingleRequestHttpServer([]);
+            var fixture = new CompletionFixture(ownHttpSettings: true);
+            SingleRequestHttpServer? server = null;
             IDisposable? competing = null;
+            Exception? httpPrimaryFailure = null;
             try
             {
+                server = new SingleRequestHttpServer(httpOperation.Token, []);
                 fixture.Settings.SkipInitPlaylistLoad = false;
                 using (LR2SongDBExtended db = fixture.Composition.DatabaseScope.OpenSongWrite(fixture.Library.InitializationSongDbPath))
                 {
@@ -915,30 +995,50 @@ public sealed class MainWindowViewModelStartupProgressTests
                     }
                 };
                 Task<bool> startup = fixture.Start();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(startup, "startup-external-busy-required");
+                AwaitHttpTask(startup, "startup-external-busy-required");
                 Assert.IsTrue(startup.GetAwaiter().GetResult());
                 // 実schedulerが呼んだ同期Taskと通知を対にし、終端したのに通知がない場合も即時に失敗させる。
-                AwaitArrival(skipped.Task, syncWork.Task.Unwrap(), "startup-external-busy-skipped");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(syncWork.Task.Unwrap(), "startup-external-busy-work-terminal");
+                AwaitHttpArrival(skipped.Task, syncWork.Task.Unwrap(), "startup-external-busy-skipped");
+                AwaitHttpTask(syncWork.Task.Unwrap(), "startup-external-busy-work-terminal");
                 Assert.IsTrue(skipped.Task.GetAwaiter().GetResult().WasSkipped);
                 Assert.AreEqual(0, queued);
                 Assert.AreEqual(string.Empty, server.RequestMethod);
                 fixture.OptionalRelease.TrySetResult();
-                AwaitArrival(fixture.OptionalEntered.Task, fixture.OptionalWork, "startup-external-optional-arrival");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.OptionalWork, "startup-external-optional-terminal");
+                AwaitHttpArrival(fixture.OptionalEntered.Task, fixture.OptionalWork, "startup-external-optional-arrival");
+                AwaitHttpTask(fixture.OptionalWork, "startup-external-optional-terminal");
                 Assert.IsNotNull(competing);
                 competing.Dispose();
                 competing = null;
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "startup-external-all-accepted-terminal");
+                AwaitHttpTask(fixture.Owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "startup-external-all-accepted-terminal");
                 Assert.AreEqual(1, completed);
                 Assert.AreEqual(0, queued);
                 Assert.AreEqual(string.Empty, server.RequestMethod);
             }
+            catch (Exception httpPrimary) { httpPrimaryFailure = httpPrimary; throw; }
             finally
             {
+                using var httpCleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                var httpCleanupFailures = new List<Exception>();
                 competing?.Dispose();
                 fixture.OptionalRelease.TrySetResult();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(server.DisposeAsync().AsTask(), "startup-external-server-cleanup");
+                Task? shutdown = null;
+                try { shutdown = fixture.Owner.ShellShutdownWorkflow.RequestWindowCloseAsync(); }
+                catch (Exception failure) { httpCleanupFailures.Add(failure); }
+                httpOperation.Cancel();
+                Task[] ownedHttpTasks = httpTasks.Concat(new Task?[] { shutdown, server?.Completion }.OfType<Task>()).ToArray();
+                try
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(SingleRequestHttpServer.CompleteCleanupAsync(httpCleanup.Token,
+                        httpPrimaryFailure, httpTasks.Concat(new Task?[] { shutdown }.OfType<Task>()), server == null ? [] : [server]), "startup-http-cleanup");
+                }
+                catch (Exception failure) { httpCleanupFailures.Add(failure); }
+                try { fixture.Dispose(httpCleanup.Token, ownedHttpTasks); }
+                catch (Exception failure) { httpCleanupFailures.Add(failure); }
+                if (httpCleanupFailures.Count > 0)
+                {
+                    if (httpPrimaryFailure != null) { httpCleanupFailures.Insert(0, httpPrimaryFailure); }
+                    throw new AggregateException(httpCleanupFailures);
+                }
             }
         });
     }
@@ -1954,10 +2054,11 @@ public sealed class MainWindowViewModelStartupProgressTests
         internal bool OptionalStartedAfterCompletion { get; private set; }
         internal int CompletionNotifications { get; private set; }
         /// <summary>専用設定・DB・既存構成で起動と処理終端を準備します。</summary>
+        /// <param name="ownHttpSettings">HTTP利用時は設定もfixtureのdirectoryで所有し、未終端時にAssemblyCleanupで削除されないようにします。</param>
         /// <param name="rootFileEnumerator">実LR2同期にも使う列挙境界。省略時は既存ケースの未接続Everything入力を維持します。</param>
         internal CompletionFixture(IStartupLibraryInitializationFailurePresenter? failurePresenter = null,
             Func<IBMSPlayer>? defaultPlayer = null, bool lr2Mode = false, IApplicationLifetimePort? lifetime = null,
-            Action<Exception>? settingsFailureReporter = null, Func<Settings, ISettingsEditSession>? settingsSessionFactory = null, bool isolateSortWarmup = false, IRootFileEnumerator? rootFileEnumerator = null)
+            Action<Exception>? settingsFailureReporter = null, Func<Settings, ISettingsEditSession>? settingsSessionFactory = null, bool isolateSortWarmup = false, IRootFileEnumerator? rootFileEnumerator = null, bool ownHttpSettings = false)
         {
             this.isolateSortWarmup = isolateSortWarmup;
             Lifetime = lifetime ?? new TestApplicationLifetime(firstStartup: true);
@@ -1980,7 +2081,11 @@ public sealed class MainWindowViewModelStartupProgressTests
                 Directory.CreateDirectory(Path.Combine(directory, "NormalOutput"));
                 Directory.CreateDirectory(Path.Combine(directory, "RootOutput"));
             }
-            Settings = TestSettingsFactory.CreateIsolatedSettings(values =>
+            Settings = ownHttpSettings
+                ? TestSettingsFactory.OpenSettings(Path.Combine(directory, "owner.config"))
+                : TestSettingsFactory.CreateIsolatedSettings();
+            ConfigureSettings(Settings);
+            void ConfigureSettings(Settings values)
             {
                 values.OperationModeLR2DB = lr2Mode;
                 if (lr2Mode)
@@ -2005,7 +2110,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 values.UsePlayerBMIIDXView = false;
                 values.IsLR2BackupEnabled = false;
                 values.TableListURL = new Uri("http://127.0.0.1:1/table-list.json");
-            });
+            }
             var path = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory, "BeMusicSeeker.exe"));
             Directory.CreateDirectory(path.DataDirectoryPath);
             string songDb = lr2Mode ? lr2SongDb : path.StandaloneSongDbPath;
@@ -2016,11 +2121,14 @@ public sealed class MainWindowViewModelStartupProgressTests
             StartupLibraryConstructionTestSupport.CreateSongDatabase(Composition.DatabaseScope, songDb);
             new BmsLibraryDbGateway(Composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).EnsureAppOwnedSchema();
             PlaylistPersistenceRepository.EnsureSchema(Composition.DatabaseScope, songDb);
+            // Libraryの既定値はOwnerと異なるため、別設定のまま同じdirectoryへ所有を移します。
+            Settings? librarySettings = ownHttpSettings ? TestSettingsFactory.OpenSettings(Path.Combine(directory, "library.config")) : null;
+            if (librarySettings != null) { librarySettings.OperationModeLR2DB = lr2Mode; }
             Library = new TestBmsLibrary(Composition.DatabaseScope, songDb, lr2Mode ? Composition.ResolveLr2Config(lr2Config) : null, null, null, null,
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), CaptureOptions,
                 chartFileScanner: CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(), []),
                 rootFileEnumerator: rootFileEnumerator,
-                operationAdmission: Composition.OperationAdmission, playlistOperationAdmission: Composition.PlaylistOperationAdmission);
+                operationAdmission: Composition.OperationAdmission, playlistOperationAdmission: Composition.PlaylistOperationAdmission, settings: librarySettings);
             Playlist = MainWindowViewModelTestFactory.CreatePlaylist(Composition.DatabaseScope, songDb, Settings,
                 getLr2Config: lr2Mode ? Composition.ResolveLr2Config(lr2Config) : null, library: Library);
             Owner = new MainWindowViewModel(Composition, new CompletionLibraryFactory(Library, Playlist),
@@ -2109,6 +2217,49 @@ public sealed class MainWindowViewModelStartupProgressTests
             Assert.IsFalse(Scheduler.IsPostInitializationSchedulingComplete);
             Assert.AreEqual(0, CompletionNotifications);
         }
+        /// <summary>
+        /// HTTP・受理済み処理・実shutdownの元Taskを同じcleanup期限で回収し、
+        /// 一つの実終端確認でWindow・設定VM・一時DBを通常解放します。
+        /// 未終端では資源を保持して失敗し、Windowの失敗時最終回収は表示scopeに委ねます。
+        /// </summary>
+        /// <param name="cleanupToken">呼出し側のfinallyで一度設定した共有cleanup期限。</param>
+        /// <param name="ownedHttpTasks">HTTPの元Task・終端通知の監視Taskと全serverの実Completion。</param>
+        /// <param name="settingsWindow">同じ実終端確認後に通常閉鎖する設定Window。未作成の場合はnull。</param>
+        internal void Dispose(CancellationToken cleanupToken, IEnumerable<Task> ownedHttpTasks, SettingsWindow? settingsWindow = null)
+        {
+            var failures = new List<Exception>();
+            OptionsFailure = null;
+            Ui.Release.TrySetResult();
+            OptionalRelease.TrySetResult();
+            try { ReleaseDeferredMaintenance(); }
+            catch (Exception failure) { failures.Add(failure); }
+            Task? shutdown = null;
+            try { shutdown = Owner.ShellShutdownWorkflow.RequestWindowCloseAsync(); }
+            catch (Exception failure) { failures.Add(failure); }
+            var owned = Task.WhenAll(tasks.Concat(ownedHttpTasks).Concat(new Task?[] { shutdown }.OfType<Task>()).Distinct());
+            try { TestUiDispatcherHost.AwaitTaskOnDispatcher(owned.WaitAsync(cleanupToken), "http-fixture-all-owned-terminal"); }
+            catch (Exception failure)
+            {
+                if (owned.Exception != null) { failures.AddRange(owned.Exception.InnerExceptions); }
+                else { failures.Add(failure); }
+            }
+            // 待機wrapperの完了ではなく、HTTPも含む全元Taskの実終端を共通の解放条件にします。
+            if (shutdown != null && owned.IsCompleted)
+            {
+                try { settingsWindow?.CloseForOwnerShutdown(); }
+                catch (Exception failure) { failures.Add(failure); }
+                try { Owner.SettingDialog.Dispose(); }
+                catch (Exception failure) { failures.Add(failure); }
+                try { Directory.Delete(directory, recursive: true); }
+                catch (Exception failure) { failures.Add(failure); }
+            }
+            else
+            {
+                failures.Add(new InvalidOperationException("HTTPを含むfixtureの所有処理が未回収のため、Windowの通常閉鎖と設定VM・一時DBの解放を行いません。"));
+            }
+            if (failures.Count > 0) { throw new AggregateException(failures); }
+        }
+
         public void Dispose()
         {
             OptionsFailure = null;
