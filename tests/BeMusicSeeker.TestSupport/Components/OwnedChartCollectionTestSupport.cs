@@ -193,8 +193,9 @@ internal static class OwnedChartCollectionTestSupport
     /// <summary>非同期の確認接続試験にも、同じ独立した最小DBと後片付けを提供します。</summary>
     internal static async Task WithTemporarySongDbAsync(Func<string, Task> testAction)
     {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         var databaseScope = new ApplicationDatabaseScope();
-        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_OwnedChartCollection_" + Guid.NewGuid().ToString("N"));
+        string tempRootPath = Path.Combine(workspace.RootDirectory, "BeMusicSeeker_OwnedChartCollection_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         try

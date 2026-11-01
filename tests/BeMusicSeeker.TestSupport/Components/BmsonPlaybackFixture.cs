@@ -41,4 +41,15 @@ internal static class BmsonPlaybackFixture
         File.WriteAllText(path, json);
         return PlaybackChart.Load(path);
     }
+
+    /// <summary>各実行区分が同じ準備と観測を使うための共通補助です。</summary>
+    internal static string LayeredPlayableInput() =>
+        "{\"version\":\"1.0.0\",\"info\":{\"init_bpm\":120,\"mode_hint\":\"custom-mode\"},\"sound_channels\":["
+        + "{\"name\":\"same.wav\",\"notes\":[{\"x\":1,\"y\":0,\"l\":240}]},"
+        + "{\"name\":\"same.wav\",\"notes\":[{\"x\":1,\"y\":0,\"l\":240}]},"
+        + "{\"name\":\"release.wav\",\"notes\":[{\"x\":1,\"y\":240,\"up\":true}]},"
+        + "{\"name\":\"short.wav\",\"notes\":[{\"x\":2,\"y\":120}]},"
+        + "{\"name\":\"short.wav\",\"notes\":[{\"x\":2,\"y\":120}]}],"
+        + "\"key_channels\":[{\"notes\":[{\"y\":480}]}],\"mine_channels\":[{\"notes\":[{\"y\":480}]}],\"scroll_events\":[{\"y\":0,\"rate\":2}]}";
+
 }

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Reflection;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -196,6 +197,96 @@ internal static class InstallServiceComponentTestSupport
                     File.SetLastWriteTime(path, lastWriteTime.Value);
                 }
             }
+        }
+    }
+
+
+    /// <summary>指定された識別・配置・資源条件から、各ケースが観測する譜面値を作ります。</summary>
+    internal static ChartFile CreateFile(string hash, string path)
+    {
+        ChartFile file = ChartTestValues.Empty() with
+        {
+            Path = path
+        };
+        file = file with { Md5 = hash };
+        return file;
+    }
+
+    /// <summary>各実行区分が同じ準備と観測を使うための共通補助です。</summary>
+    internal static string CreateBmsonJsonWithSounds(params string[] soundNames)
+    {
+        string channels = string.Join(
+            ",",
+            (soundNames ?? [])
+                .Select(soundName => "{\"name\":\"" + soundName + "\",\"notes\":[{\"x\":1,\"y\":0,\"l\":0}]}")
+                .ToArray());
+        return "{"
+            + "\"version\":\"1.0.0\","
+            + "\"info\":{\"title\":\"Bmson\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\"},"
+            + "\"sound_channels\":[" + channels + "]"
+            + "}";
+    }
+
+    /// <summary>各実行区分が同じ準備と観測を使うための共通補助です。</summary>
+    internal static void AssertLibraryGateIsNotHeldByCurrentThread(
+        BMSLibrary library,
+        string fieldName)
+    {
+        FieldInfo? field = typeof(BMSLibrary).GetField(
+            fieldName,
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        PropertyInfo? property = typeof(BMSLibrary).GetProperty(
+            fieldName,
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        object? gateValue = field != null
+            ? field.GetValue(library)
+            : property?.GetValue(library);
+        Assert.IsNotNull(gateValue, fieldName + " was not found.");
+        var gate = gateValue as ReaderWriterLockSlimWrapper;
+        Assert.IsNotNull(gate, fieldName + " was not a reader/writer gate.");
+        // 再帰writerの再取得では解放を証明できないため、通知thread自身の三種類の所有を直接確認します。
+        Assert.IsFalse(gate.IsReadLockHeld, fieldName + " reader was held by the subscriber thread.");
+        Assert.IsFalse(gate.IsWriteLockHeld, fieldName + " writer was held by the subscriber thread.");
+        Assert.IsFalse(gate.IsUpgradeableReadLockHeld, fieldName + " upgradeable reader was held by the subscriber thread.");
+    }
+
+    /// <summary>専用DBを準備し、callbackの実Task終端とDB接続の解放後にケース領域を回収します。</summary>
+    internal static async Task WithTemporarySongDbAsync(Func<string, string, Task> action)
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+        using var caseWorkspace1 = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = Path.Combine(caseWorkspace1.RootDirectory, "BeMusicSeeker_PendingRemoval_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string songDbPath = Path.Combine(root, "song.db");
+        try
+        {
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+            });
+            await action(songDbPath, root);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    /// <summary>各実行区分が同じ準備と観測を使うための共通補助です。</summary>
+    internal sealed class RecordingPackageInstallProgressWriter : IPackageInstallProgressWriter
+    {
+        public List<PackageInstallProgressUpdate> Updates { get; } = [];
+
+        public int SourceProcessedCount => Updates.Count(update =>
+            update.Kind == PackageInstallProgressKind.SourceProcessed);
+
+        public IEnumerable<string> ArchiveStarts => Updates
+            .Where(update => update.Kind == PackageInstallProgressKind.ArchiveExtractStarted)
+            .Select(update => update.Index + "/" + update.Total + ":" + Path.GetFileName(update.Path));
+
+        public void TryWrite(PackageInstallProgressUpdate update)
+        {
+            Updates.Add(update);
         }
     }
 

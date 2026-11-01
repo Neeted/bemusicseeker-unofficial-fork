@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -14,7 +13,6 @@ using BeMusicSeeker.Models.LR2;
 using ChartInfoExportTool;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.TestSupport.Components.ChartInfoComponentTestSupport;
-using static BeMusicSeeker.TestSupport.Components.ChartInfoHydrationTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
@@ -210,32 +208,6 @@ internal static class ChartInfoMetadataTestSupport
         return bundlePath;
     }
 
-    internal static void InvokeInstallChartPackages(BMSLibrary library, IEnumerable<ChartPackage> packages, string installDirectory)
-    {
-        List<ChartPackage> packageList = [.. (packages ?? [])];
-        foreach (PackageChartEntry entry in packageList
-            .SelectMany(package => package?.ChartEntries ?? [])
-            .Where(entry => entry?.Chart != null))
-        {
-            entry.SetInstallDestinationPathOnly(installDirectory);
-        }
-
-        library.ChartPackagesPending = new ObservableCollection<ChartPackage>(packageList);
-        library.InstallPendingPackagesToEstimatedDestinations(packageList);
-    }
-
-    internal static Task AwaitChartInfoBackfillAsync(BMSLibrary library)
-    {
-        return AwaitChartInfoStateAsync(
-            library,
-            current => current.ChartInfoBackfillRequestedVersion > 0
-                && current.ChartInfoBackfillCompletedVersion == current.ChartInfoBackfillRequestedVersion
-                && !current.ChartInfoBackfillRunning,
-            nameof(BMSLibrary.ChartInfoBackfillRequestedVersion),
-            nameof(BMSLibrary.ChartInfoBackfillCompletedVersion),
-            nameof(BMSLibrary.ChartInfoBackfillRunning));
-    }
-
     internal static int ReadPositiveIntEnvironmentVariable(string name, int defaultValue)
     {
         string? value = Environment.GetEnvironmentVariable(name);
@@ -244,20 +216,6 @@ internal static class ChartInfoMetadataTestSupport
             return parsed;
         }
         return defaultValue;
-    }
-
-    internal static string FindRepoRoot()
-    {
-        var directory = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
-        while (directory != null)
-        {
-            if (File.Exists(Path.Combine(directory.FullName, "BeMusicSeeker.sln")))
-            {
-                return directory.FullName;
-            }
-            directory = directory.Parent;
-        }
-        throw new DirectoryNotFoundException("Could not find repository root.");
     }
 
     internal sealed class ColumnNameRow

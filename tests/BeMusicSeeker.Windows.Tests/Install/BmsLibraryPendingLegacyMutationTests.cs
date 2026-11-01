@@ -1,0 +1,426 @@
+using System.IO;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.TestSupport.Components;
+using Microsoft.VisualBasic.FileIO;
+using static BeMusicSeeker.TestSupport.Components.BmsLibraryPendingLegacyMutationTestSupport;
+
+namespace BeMusicSeeker.Tests;
+
+[TestClass]
+public sealed class BmsLibraryPendingLegacyMutationTests
+{
+    /// <summary>存在しない選択譜面を失敗として集計し、ファイルや親ディレクトリの削除へ進まず元パスと失敗型を返す。</summary>
+    /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
+    [TestMethod]
+    public void DeletePendingCharts_MissingSourceIsFailureWithoutFileMutation()
+    {
+        WithTemporaryDirectory(tempDirectoryPath =>
+        {
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "target");
+            Directory.CreateDirectory(packageDirectoryPath);
+            ChartFile chartFile = ChartTestValues.Empty() with
+            {
+                Path = Path.Combine(packageDirectoryPath, "missing.bms")
+            };
+            chartFile = chartFile with { Md5 = new string('a', 32) };
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([chartFile]);
+            package.path = chartFile.Path;
+            var fileMutationService = new RecordingDeleteFileMutationService();
+            var service = new BmsLibraryPackageInstallService();
+
+            PendingFileDeletionResult result = service.DeletePendingCharts(
+                [(chartFile)],
+                [package],
+                sendToRecycleBin: false,
+                deleteContainingPackageFoldersWhenNoBms: true,
+                fileMutationService,
+                null,
+                null);
+
+            Assert.AreEqual(1, result.Requested);
+            Assert.AreEqual(1, result.Processed);
+            Assert.AreEqual(0, result.Removed);
+            Assert.AreEqual(1, result.Failed);
+            Assert.AreEqual(0, fileMutationService.DeleteFileShellPaths.Count);
+            Assert.AreEqual(0, fileMutationService.DeleteDirectoryDirectPaths.Count);
+            Assert.AreEqual(0, fileMutationService.DeleteDirectoryShellPaths.Count);
+            Assert.AreEqual(chartFile.Path, result.Failures[0].Path);
+            Assert.IsInstanceOfType(result.Failures[0].Exception, typeof(FileNotFoundException));
+        });
+    }
+
+    /// <summary>譜面パスがディレクトリになっている入力を失敗にし、削除portを呼ばず元ディレクトリを残す。</summary>
+    /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
+    [TestMethod]
+    public void DeletePendingCharts_WrongKindSourceIsFailureWithoutMutation()
+    {
+        WithTemporaryDirectory(tempDirectoryPath =>
+        {
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "target");
+            Directory.CreateDirectory(packageDirectoryPath);
+            ChartFile chartFile = ChartTestValues.Empty() with
+            {
+                Path = packageDirectoryPath
+            };
+            chartFile = chartFile with { Md5 = new string('a', 32) };
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([chartFile]);
+            package.path = chartFile.Path;
+            var fileMutationService = new RecordingDeleteFileMutationService();
+            var service = new BmsLibraryPackageInstallService();
+
+            PendingFileDeletionResult result = service.DeletePendingCharts(
+                [(chartFile)],
+                [package],
+                sendToRecycleBin: false,
+                deleteContainingPackageFoldersWhenNoBms: true,
+                fileMutationService,
+                null,
+                null);
+
+            Assert.AreEqual(1, result.Requested);
+            Assert.AreEqual(1, result.Processed);
+            Assert.AreEqual(0, result.Removed);
+            Assert.AreEqual(1, result.Failed);
+            Assert.IsInstanceOfType(result.Failures[0].Exception, typeof(IOException));
+            Assert.AreEqual(0, fileMutationService.DeleteFileShellPaths.Count);
+            Assert.AreEqual(0, fileMutationService.DeleteDirectoryDirectPaths.Count);
+            Assert.IsTrue(Directory.Exists(packageDirectoryPath));
+        });
+    }
+
+    /// <summary>譜面単位の削除が一件失敗しても成功した兄弟だけを除き、失敗譜面・パッケージ・保存行を残して親の削除へ昇格しない。</summary>
+    /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
+    [TestMethod]
+    public void DeletePendingCharts_ChartOnlyChildFailureKeepsFailedRowAndPackage()
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+        WithTemporaryDirectory(tempDirectoryPath =>
+        {
+            string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
+            File.WriteAllBytes(songDbPath, []);
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "target");
+            Directory.CreateDirectory(packageDirectoryPath);
+            ChartFile failedFile = CreateChart(packageDirectoryPath, "failed.bms", "a");
+            ChartFile successfulFile = CreateChart(packageDirectoryPath, "successful.bms", "b");
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([failedFile, successfulFile]);
+            package.path = packageDirectoryPath;
+            foreach (PackageChartEntry entry in package.ChartEntries)
+            {
+                BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry);
+                entry.SetInstallDestinationPathOnly(Path.Combine(tempDirectoryPath, "destination"));
+            }
+            var fileMutationService = new RecordingDeleteFileMutationService(failedFile.Path);
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
+            {
+                songDb.CreateTable<LR2SongDBExtended.install>();
+                songDb.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
+            });
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                fileMutationService,
+                new BmsLibraryInitializationTestSupport.RecordingDialogService())
+            {
+                ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([package])
+            };
+
+            library.RemovePendingCharts(
+                [(failedFile), (successfulFile)],
+                sendToRecycleBin: false,
+                deleteContainingPackageFoldersWhenNoBms: false);
+
+            Assert.AreEqual(1, fileMutationService.DeleteFileDirectPaths.Count);
+            CollectionAssert.AreEqual(new[] { successfulFile.Path }, fileMutationService.DeleteFileDirectPaths);
+            Assert.IsTrue(File.Exists(failedFile.Path));
+            Assert.IsFalse(File.Exists(successfulFile.Path));
+            Assert.AreEqual(0, fileMutationService.DeleteDirectoryShellPaths.Count);
+            Assert.AreEqual(0, fileMutationService.DeleteDirectoryDirectPaths.Count);
+            Assert.IsTrue(Directory.Exists(packageDirectoryPath));
+            Assert.AreSame(package, library.ChartPackagesPending.Single());
+            Assert.AreEqual(1, package.ChartEntries.Count);
+            Assert.AreEqual(failedFile.Path, package.ChartEntries.Single().Chart.Path);
+            BmsLibraryPackageInstallService.ClearPendingInstallDestination(package.ChartEntries.Single());
+            Assert.AreEqual(0, package.ChartEntries.Single().Chart.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
+            Assert.AreEqual(string.Empty, package.ChartEntries.Single().Chart.InstallDestination);
+            using LR2SongDBExtended verifySongDb = databaseScope.OpenSongReadOnly(songDbPath);
+            Assert.AreEqual(1, verifySongDb.Table<LR2SongDBExtended.install>().Count());
+            Assert.AreEqual(package.path, verifySongDb.Table<LR2SongDBExtended.install>().Single().path);
+        });
+    }
+
+    /// <summary>パッケージ全体の削除は指定されたごみ箱方針と再帰正規化で行い、失敗したパッケージの譜面・リソース・保存行を保持する。</summary>
+    /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
+    // falseは完全削除、trueはごみ箱指定。どちらも失敗したパッケージの部分削除を禁止する。
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void RemovePendingCharts_WholePackagesHonorRecyclePolicyAndKeepFailedPackage(bool sendToRecycleBin)
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+
+        WithTemporaryDirectory(tempDirectoryPath =>
+        {
+            string failedDirectoryPath = Path.Combine(tempDirectoryPath, "FailedPackage");
+            string successfulDirectoryPath = Path.Combine(tempDirectoryPath, "SuccessfulPackage");
+            string failedNestedDirectoryPath = Path.Combine(failedDirectoryPath, "sub");
+            string successfulNestedDirectoryPath = Path.Combine(successfulDirectoryPath, "sub");
+            Directory.CreateDirectory(failedNestedDirectoryPath);
+            Directory.CreateDirectory(successfulNestedDirectoryPath);
+            ChartFile failedA = CreateChart(failedDirectoryPath, "a.bms", "a");
+            ChartFile failedB = CreateChart(failedNestedDirectoryPath, "b.bms", "b");
+            CreateChart(successfulDirectoryPath, "a.bms", "c");
+            CreateChart(successfulNestedDirectoryPath, "b.bms", "d");
+            string failedResourcePath = Path.Combine(failedDirectoryPath, "sound.wav");
+            File.WriteAllText(failedResourcePath, "keep resource");
+            string nestedResourceDirectoryPath = Path.Combine(successfulDirectoryPath, "resources");
+            Directory.CreateDirectory(nestedResourceDirectoryPath);
+            File.WriteAllText(Path.Combine(nestedResourceDirectoryPath, "sound.wav"), "remove resource");
+            // 親一式の削除保証を、親の実在根拠を持つ通常検出から準備します。
+            File.WriteAllBytes(Path.Combine(failedDirectoryPath, "preview.ogg"), [1]);
+            File.WriteAllBytes(Path.Combine(successfulDirectoryPath, "preview.ogg"), [2]);
+            string unrelatedPath = Path.Combine(tempDirectoryPath, "unrelated.txt");
+            File.WriteAllText(unrelatedPath, "keep parent content");
+            var service = new BmsLibraryPackageInstallService();
+            List<ChartPackage> packages = service.SearchChartPackagesRecursivelyWithMetadata(tempDirectoryPath).Packages;
+            ChartPackage failedPackage = packages.Single(package => package.path == failedDirectoryPath);
+            ChartPackage successfulPackage = packages.Single(package => package.path == successfulDirectoryPath);
+            Assert.AreEqual(2, failedPackage.ChartEntries.Count);
+            Assert.AreEqual(2, successfulPackage.ChartEntries.Count);
+            var fileMutationService = new RecordingDeleteFileMutationService(directoryFailurePath: failedDirectoryPath);
+            var dialogService = new BmsLibraryInitializationTestSupport.RecordingDialogService();
+            string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
+            {
+                songDb.CreateTable<LR2SongDBExtended.install>();
+                songDb.InsertOrReplace(failedPackage, typeof(LR2SongDBExtended.install));
+                songDb.InsertOrReplace(successfulPackage, typeof(LR2SongDBExtended.install));
+            });
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, fileMutationService, dialogService)
+            {
+                ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([failedPackage, successfulPackage])
+            };
+
+            library.RemovePendingCharts(
+                packages.SelectMany(package => package.ChartEntries).Select(entry => entry.Chart),
+                sendToRecycleBin,
+                deleteContainingPackageFoldersWhenNoBms: true);
+
+            CollectionAssert.AreEquivalent(
+                new[] { failedDirectoryPath, successfulDirectoryPath },
+                fileMutationService.DeleteDirectoryShellPaths);
+            RecycleOption expectedPolicy = sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently;
+            CollectionAssert.AreEqual(new[] { expectedPolicy, expectedPolicy }, fileMutationService.DeleteDirectoryRecycleOptions);
+            CollectionAssert.AreEqual(
+                new[] { ReadOnlyNormalizationScope.RecursiveDirectoryTree, ReadOnlyNormalizationScope.RecursiveDirectoryTree },
+                fileMutationService.DeleteDirectoryNormalizationScopes);
+            Assert.AreEqual(0, fileMutationService.DeleteFileShellPaths.Count);
+            Assert.AreEqual(0, fileMutationService.DeleteFileDirectPaths.Count);
+            Assert.IsTrue(File.Exists(failedA.Path));
+            Assert.IsTrue(File.Exists(failedB.Path));
+            Assert.AreEqual("keep resource", File.ReadAllText(failedResourcePath));
+            Assert.IsFalse(Directory.Exists(successfulDirectoryPath));
+            Assert.AreEqual("keep parent content", File.ReadAllText(unrelatedPath));
+            Assert.AreSame(failedPackage, library.ChartPackagesPending.Single());
+            CollectionAssert.AreEquivalent(
+                new[] { failedA.Path, failedB.Path },
+                failedPackage.ChartEntries.Select(entry => entry.Chart.Path).ToArray());
+            Assert.AreEqual(1, dialogService.Calls.Count);
+            using LR2SongDBExtended verifySongDb = databaseScope.OpenSongReadOnly(songDbPath);
+            Assert.AreEqual(failedDirectoryPath, verifySongDb.Table<LR2SongDBExtended.install>().Single().path);
+        });
+    }
+
+    /// <summary>一部の譜面削除ではパッケージとリソースを残し、最後の譜面ではフォルダ全体削除の指定に応じてリソースの保持を分ける。</summary>
+    /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
+    // falseは最後の譜面も単体削除、trueは最後の選択時だけパッケージ全体を削除する。
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void RemovePendingCharts_PartialThenLastSelectionHonorsWholePackageOption(bool deleteWholePackage)
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+
+        WithTemporaryDirectory(tempDirectoryPath =>
+        {
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "Package");
+            string nestedDirectoryPath = Path.Combine(packageDirectoryPath, "sub");
+            Directory.CreateDirectory(nestedDirectoryPath);
+            string rootChartPath = CreateChart(packageDirectoryPath, "root.bms", "a").Path;
+            string nestedChartPath = CreateChart(nestedDirectoryPath, "nested.bms", "b").Path;
+            string resourcePath = Path.Combine(nestedDirectoryPath, "sound.wav");
+            File.WriteAllText(resourcePath, "keep until package deletion");
+            File.WriteAllBytes(Path.Combine(packageDirectoryPath, "preview.ogg"), [3]);
+            var service = new BmsLibraryPackageInstallService();
+            ChartPackage package = service.SearchChartPackagesRecursivelyWithMetadata(packageDirectoryPath).Packages.Single();
+            Assert.AreEqual(packageDirectoryPath, package.path);
+            Assert.AreEqual(2, package.ChartEntries.Count);
+            ChartFile rootChart = package.ChartEntries.Single(entry => entry.Chart.Path == rootChartPath).Chart;
+            ChartFile nestedChart = package.ChartEntries.Single(entry => entry.Chart.Path == nestedChartPath).Chart;
+            var fileMutationService = new RecordingDeleteFileMutationService();
+            var dialogService = new BmsLibraryInitializationTestSupport.RecordingDialogService();
+            string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
+            {
+                songDb.CreateTable<LR2SongDBExtended.install>();
+                songDb.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
+            });
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, fileMutationService, dialogService)
+            {
+                ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([package])
+            };
+
+            library.RemovePendingCharts([rootChart], sendToRecycleBin: true, deleteContainingPackageFoldersWhenNoBms: deleteWholePackage);
+
+            Assert.IsFalse(File.Exists(rootChartPath));
+            Assert.IsTrue(File.Exists(nestedChartPath));
+            Assert.IsTrue(File.Exists(resourcePath));
+            Assert.AreEqual(0, fileMutationService.DeleteDirectoryShellPaths.Count);
+            Assert.AreSame(package, library.ChartPackagesPending.Single());
+            Assert.AreEqual(nestedChartPath, package.ChartEntries.Single().Chart.Path);
+            using (LR2SongDBExtended verifyPartialDb = databaseScope.OpenSongReadOnly(songDbPath))
+            {
+                Assert.AreEqual(packageDirectoryPath, verifyPartialDb.Table<LR2SongDBExtended.install>().Single().path);
+            }
+
+            library.RemovePendingCharts([nestedChart], sendToRecycleBin: true, deleteContainingPackageFoldersWhenNoBms: deleteWholePackage);
+
+            Assert.IsFalse(File.Exists(nestedChartPath));
+            Assert.AreEqual(!deleteWholePackage, Directory.Exists(packageDirectoryPath));
+            Assert.AreEqual(!deleteWholePackage, File.Exists(resourcePath));
+            if (deleteWholePackage)
+            {
+                CollectionAssert.AreEqual(new[] { packageDirectoryPath }, fileMutationService.DeleteDirectoryShellPaths);
+                CollectionAssert.AreEqual(new[] { rootChartPath }, fileMutationService.DeleteFileShellPaths);
+            }
+            else
+            {
+                Assert.AreEqual(0, fileMutationService.DeleteDirectoryShellPaths.Count);
+                CollectionAssert.AreEqual(new[] { rootChartPath, nestedChartPath }, fileMutationService.DeleteFileShellPaths);
+            }
+            Assert.AreEqual(0, library.ChartPackagesPending.Count);
+            Assert.AreEqual(0, dialogService.Calls.Count);
+            using LR2SongDBExtended verifySongDb = databaseScope.OpenSongReadOnly(songDbPath);
+            Assert.AreEqual(0, verifySongDb.Table<LR2SongDBExtended.install>().Count());
+        });
+    }
+
+    /// <summary>再帰探索の有無にかかわらず独立した単一譜面パッケージをすべて選択しても、親フォルダや未選択の説明ファイルを削除しない。</summary>
+    /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
+    // falseは直下探索、trueは再帰探索。探索方法によって親を削除する権限を広げない。
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void RemovePendingCharts_SingleFilePackagesKeepParentEvenWhenAllSelected(bool recursiveDiscovery)
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+
+        WithTemporaryDirectory(tempDirectoryPath =>
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "IndependentCharts");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            string firstPath = Path.Combine(sourceDirectoryPath, "a.bms");
+            string secondPath = Path.Combine(sourceDirectoryPath, "b.bms");
+            File.WriteAllText(firstPath, "#PLAYER 1\r\n#TITLE A\r\n#WAVAA absent_a.wav\r\n#00111:AA\r\n");
+            File.WriteAllText(secondPath, "#PLAYER 1\r\n#TITLE B\r\n#WAVAA absent_b.wav\r\n#00111:AA\r\n");
+            string readmePath = Path.Combine(sourceDirectoryPath, "readme.txt");
+            File.WriteAllText(readmePath, "keep independent files' parent");
+            string child = Path.Combine(sourceDirectoryPath, "Child");
+            Directory.CreateDirectory(child);
+            string childChart = Path.Combine(child, "child.bms");
+            File.WriteAllText(childChart, "#TITLE Separate child");
+            var service = new BmsLibraryPackageInstallService();
+            var packages = service.SearchChartPackagesRecursivelyWithMetadata(
+                sourceDirectoryPath, recursive: recursiveDiscovery).Packages.Where(package => package.path == firstPath || package.path == secondPath).ToList();
+            CollectionAssert.AreEquivalent(new[] { firstPath, secondPath }, packages.Select(package => package.path).ToArray());
+            Assert.IsTrue(packages.All(package => package.delete_parent == recursiveDiscovery));
+            List<ChartFile> charts = [.. packages.SelectMany(package => package.ChartEntries).Select(entry => entry.Chart)];
+            var fileMutationService = new RecordingDeleteFileMutationService();
+            var dialogService = new BmsLibraryInitializationTestSupport.RecordingDialogService();
+            string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
+            {
+                songDb.CreateTable<LR2SongDBExtended.install>();
+                foreach (ChartPackage package in packages)
+                {
+                    songDb.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
+                }
+            });
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, fileMutationService, dialogService)
+            {
+                ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>(packages)
+            };
+
+            library.RemovePendingCharts(charts, sendToRecycleBin: true, deleteContainingPackageFoldersWhenNoBms: true);
+
+            Assert.IsFalse(File.Exists(firstPath));
+            Assert.IsFalse(File.Exists(secondPath));
+            Assert.IsTrue(Directory.Exists(sourceDirectoryPath));
+            Assert.IsTrue(File.Exists(childChart));
+            Assert.AreEqual("keep independent files' parent", File.ReadAllText(readmePath));
+            CollectionAssert.AreEquivalent(new[] { firstPath, secondPath }, fileMutationService.DeleteFileShellPaths);
+            Assert.AreEqual(0, fileMutationService.DeleteDirectoryShellPaths.Count);
+            Assert.AreEqual(0, fileMutationService.DeleteDirectoryDirectPaths.Count);
+            Assert.AreEqual(0, library.ChartPackagesPending.Count);
+            Assert.AreEqual(0, dialogService.Calls.Count);
+            using LR2SongDBExtended verifySongDb = databaseScope.OpenSongReadOnly(songDbPath);
+            Assert.AreEqual(0, verifySongDb.Table<LR2SongDBExtended.install>().Count());
+        });
+    }
+
+    /// <summary>拡張子変更の準備後に入力が消えた場合、失敗として集計して移動・重複削除へ進まず元のファイル不在を伝える。</summary>
+    /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
+    [TestMethod]
+    public void InvalidExtensionPlan_LateMissingSourceIsFailureWithoutMutation()
+    {
+        WithTemporaryDirectory(tempDirectoryPath =>
+        {
+            string sourcePath = Path.Combine(tempDirectoryPath, "chart.bms");
+            File.WriteAllText(sourcePath, "#PLAYER 1\r\n");
+            ChartFile sourceFile = ChartTestValues.Empty() with
+            {
+                Path = sourcePath
+            };
+            sourceFile = sourceFile with { Md5 = new string('a', 32) };
+            var service = new BmsLibraryLibraryFileOperationsService();
+            var snapshot = LibraryFileOperationTargetSnapshot.FromChart(
+                (sourceFile),
+                captureSourceFileExistence: true);
+            LegacyInvalidExtensionRenamePlan plan = service.BuildInvalidExtensionRenamePlan(
+                [snapshot],
+                ".bmx",
+                rejectUnsafeSource: true);
+            var fileMutationService = new RecordingDeleteFileMutationService();
+            File.Delete(sourcePath);
+
+            LegacyInvalidExtensionRenameExecutionResult result = service.ExecuteInvalidExtensionRenamePlan(
+                plan,
+                fileMutationService,
+                null);
+
+            Assert.AreEqual(1, result.SkippedCount);
+            Assert.AreEqual(1, result.FailedCount);
+            Assert.AreEqual(0, result.RenamedCount);
+            Assert.AreEqual(0, result.DuplicateDeletedCount);
+            Assert.AreEqual(0, fileMutationService.DeleteFileDirectPaths.Count);
+            Assert.AreEqual(0, fileMutationService.MoveFilePaths.Count);
+            Assert.IsInstanceOfType(result.Items[0].Outcome.FailureException, typeof(FileNotFoundException));
+        });
+    }
+
+    private static ChartFile CreateChart(string directoryPath, string fileName, string hashSeed)
+    {
+        string filePath = Path.Combine(directoryPath, fileName);
+        File.WriteAllText(filePath, "#PLAYER 1\r\n#TITLE " + fileName + "\r\n");
+        ChartFile file = ChartTestValues.Empty() with
+        {
+            Path = filePath
+        };
+        file = file with { Md5 = hashSeed.PadRight(32, hashSeed[0]) };
+        return file;
+    }
+
+}

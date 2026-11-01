@@ -262,4 +262,19 @@ internal static class ChartInfoComponentTestSupport
         return charts;
     }
 
+
+    /// <summary>固定譜面を読むため、実行場所からsolutionを含むリポジトリルートを取得します。</summary>
+    internal static string FindRepoRoot()
+    {
+        var directory = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+        while (directory != null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "BeMusicSeeker.sln")))
+            {
+                return directory.FullName;
+            }
+            directory = directory.Parent;
+        }
+        throw new DirectoryNotFoundException("Could not find repository root.");
+    }
 }

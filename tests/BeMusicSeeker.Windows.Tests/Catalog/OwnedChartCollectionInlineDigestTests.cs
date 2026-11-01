@@ -1,0 +1,461 @@
+using System.IO;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.TestSupport.Components;
+using static BeMusicSeeker.TestSupport.Components.OwnedChartCollectionTestSupport;
+
+namespace BeMusicSeeker.Tests;
+
+[TestClass]
+public sealed class OwnedChartCollectionInlineDigestTests
+{
+    /// <summary>
+    /// 実譜面を解析・保存した後、MD5・SHA-256変更を所持集合と導入済み索引へ通知前に公開し、以前の捕捉値を変更しない。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・索引・通知を接続し、局所のdigest差分だけでは分からない公開順と失敗時の非公開を確認する。</remarks>
+    [TestMethod]
+    public void BuildInlineChartInfo_DispatchesDigestMutationToOwnedAdjacentIndexes()
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).EnsureChartInfoSchema();
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "InlineDigest");
+            Directory.CreateDirectory(chartDirectory);
+            string chartPath = Path.Combine(chartDirectory, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE hash update\r\n#BPM 120\r\n#00111:01\r\n", System.Text.Encoding.ASCII);
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, null);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
+            SetLibraryFilesWithoutNotification(library, [bmsFile]);
+            SetLibraryBmsonSongsWithoutNotification(library, []);
+            SetDuplicateChartGroupsWithoutNotification(library, []);
+            bmsFile = library.BmsCharts.Single();
+            var installedEntry = PackageChartEntry.FromChart(bmsFile);
+            ChartFile capturedInstalled = installedEntry.Chart;
+            library.ChartPackagesInstalled = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>(
+                [ChartPackage.FromChartEntries([installedEntry])]);
+            InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
+            OwnedChartHashIndexVersionedSnapshot initialSummary = library.GetOwnedChartHashIndexSnapshot();
+            EnsureCurrentResourceHealthIndex(library);
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            int bmsFilesChanged = 0;
+            int catalogRevisionChanged = 0;
+            bool digestVisibleAtOwnedCollectionNotification = false;
+            library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == "BmsCharts")
+                {
+                    bmsFilesChanged++;
+                }
+                if (args.PropertyName == "CatalogRevision")
+                {
+                    catalogRevisionChanged++;
+                    digestVisibleAtOwnedCollectionNotification = library
+                        .GetOwnedChartHashIndexSnapshot()
+                        .ContainsMd5(snapshot.Md5);
+                }
+            };
+
+            ChartInfoInlineBuildResult result = InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
+                library,
+                "test_inline_digest",
+                [(bmsFile)]);
+
+            InstalledChartLookupIndexSnapshot updatedLookup = InvokeCreateInstalledChartLookupSnapshot(library);
+            OwnedChartHashIndexVersionedSnapshot updatedSummary = library.GetOwnedChartHashIndexSnapshot();
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+            Assert.AreEqual(1, result.DigestChanges.Count);
+            Assert.AreEqual(snapshot.Md5, library.BmsCharts.Single(file => file.Path == bmsFile.Path).Md5);
+            Assert.AreEqual(snapshot.Sha256, library.BmsCharts.Single(file => file.Path == bmsFile.Path).Sha256);
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+            Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
+            Assert.IsTrue(initialLookup.ContainsPrimaryHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            Assert.IsFalse(updatedLookup.ContainsPrimaryHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            Assert.IsTrue(updatedLookup.ContainsPrimaryHash(snapshot.Md5));
+            CollectionAssert.AreEqual(
+                new[] { chartDirectory },
+                initialLookup.Md5Directories["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"].ToArray());
+            CollectionAssert.AreEqual(
+                new[] { chartDirectory },
+                updatedLookup.Md5Directories[snapshot.Md5].ToArray());
+            Assert.AreEqual(1, initialLookup.GetPrimaryHashCount("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            Assert.AreEqual(1, updatedLookup.GetPrimaryHashCount(snapshot.Md5));
+            Assert.AreEqual(1, initialLookup.DirectoryReferenceCount);
+            Assert.AreEqual(2, updatedLookup.DirectoryReferenceCount);
+            Assert.IsTrue(initialSummary.Md5Hashes.Contains("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            Assert.IsFalse(updatedSummary.Md5Hashes.Contains("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            Assert.IsTrue(updatedSummary.Md5Hashes.Contains(snapshot.Md5));
+            Assert.AreEqual(1, initialSummary.GetMd5OwnerCount("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            Assert.AreEqual(0, updatedSummary.GetMd5OwnerCount("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            Assert.AreEqual(1, updatedSummary.GetMd5OwnerCount(snapshot.Md5));
+            Assert.AreNotEqual(initialSummary.Version, updatedSummary.Version);
+            Assert.AreEqual(0, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
+            Assert.IsNull(library.DuplicateChartGroups);
+            Assert.IsTrue((batch.ChangedCharts.Count > 0 || batch.DeletedTokens.Count > 0 || batch.HasEffect(LibraryChartRefreshEffects.SourceChanged)));
+            Assert.IsTrue(batch.ChangedCharts.Any(chart => chart.Kind == ChartFileKind.Bms));
+            Assert.IsFalse(batch.ChangedCharts.Any(chart => chart.Kind == ChartFileKind.Bmson));
+            Assert.AreEqual(0, bmsFilesChanged);
+            Assert.AreEqual(1, catalogRevisionChanged);
+            Assert.IsTrue(digestVisibleAtOwnedCollectionNotification);
+            Assert.AreEqual(snapshot.Md5, installedEntry.Chart.Md5);
+            Assert.AreEqual(snapshot.Sha256, installedEntry.Chart.Sha256);
+            Assert.AreSame(capturedInstalled.Token, installedEntry.Chart.Token);
+            Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", capturedInstalled.Md5);
+            library.ChartPackagesInstalled.Clear();
+        });
+    }
+
+    /// <summary>
+    /// 背景16譜面の中で二件を順に実補完したとき、hash・導入済み・playlist索引を局所更新し、通知時に新hashを解決できる。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・索引・通知を接続し、局所のdigest差分だけでは分からない公開順と失敗時の非公開を確認する。</remarks>
+    [TestMethod]
+    [DataRow(16)]
+    public void BuildInlineChartInfo_WarmDigestDeltaStaysLocalAcrossTwoOperations(int backgroundCount)
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).EnsureChartInfoSchema();
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "InlineLocalWork");
+            Directory.CreateDirectory(chartDirectory);
+            string firstPath = Path.Combine(chartDirectory, "first.bms");
+            string secondPath = Path.Combine(chartDirectory, "second.bms");
+            File.WriteAllText(
+                firstPath,
+                "#PLAYER 1\r\n#TITLE first before\r\n#BPM 120\r\n#00111:01\r\n",
+                System.Text.Encoding.ASCII);
+            File.WriteAllText(
+                secondPath,
+                "#PLAYER 1\r\n#TITLE second before\r\n#BPM 120\r\n#00111:01\r\n",
+                System.Text.Encoding.ASCII);
+            ChartFile first = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(firstPath));
+            ChartFile second = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(secondPath));
+            List<ChartFile> files = [first, second];
+            for (int index = 0; index < backgroundCount; index++)
+            {
+                string backgroundPath = Path.Combine(chartDirectory, "background-" + index + ".bms");
+                File.WriteAllText(
+                    backgroundPath,
+                    "#PLAYER 1\r\n#TITLE background " + index + "\r\n#BPM 120\r\n#00111:01\r\n",
+                    System.Text.Encoding.ASCII);
+                files.Add(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(backgroundPath)));
+            }
+
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
+            SetLibraryFilesWithoutNotification(library, files);
+            SetLibraryBmsonSongsWithoutNotification(library, []);
+            SetDuplicateChartGroupsWithoutNotification(library, []);
+            first = library.BmsCharts.Single(chart => chart.Path == firstPath);
+            second = library.BmsCharts.Single(chart => chart.Path == secondPath);
+            InstalledChartLookupIndexSnapshot initialInstalled = InvokeCreateInstalledChartLookupSnapshot(library);
+            OwnedChartHashIndexVersionedSnapshot initialHash = library.GetOwnedChartHashIndexSnapshot();
+            PlaylistLibraryResolveIndexSnapshot initialPlaylist = library.GetPlaylistLibraryResolveIndexSnapshot(
+                CancellationToken.None,
+                out _,
+                out _);
+            EnsureCurrentResourceHealthIndex(library);
+
+            List<string> hashWork = [];
+            List<string> installedWork = [];
+            List<string> playlistWork = [];
+            library.OwnedChartHashIndexStoreWorkObserver = hashWork.Add;
+            library.InstalledChartLookupStoreWorkObserver = installedWork.Add;
+            library.PlaylistLibraryResolveIndexStoreWorkObserver = playlistWork.Add;
+            string expectedNotificationMd5 = string.Empty;
+            string expectedNotificationSha256 = string.Empty;
+            int notificationPhase = 0;
+            bool firstDigestVisibleAtNotification = false;
+            bool secondDigestVisibleAtNotification = false;
+            library.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName != nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion)
+                    || string.IsNullOrWhiteSpace(expectedNotificationMd5))
+                {
+                    return;
+                }
+
+                PlaylistLibraryResolveIndexSnapshot notifiedPlaylist = library.GetPlaylistLibraryResolveIndexSnapshot(
+                    CancellationToken.None,
+                    out bool notifiedCacheHit,
+                    out int notifiedStaleRetries);
+                LibraryChartRef? notifiedByMd5 = notifiedPlaylist.ResolveChartForPlaylistHash(expectedNotificationMd5, null);
+                LibraryChartRef? notifiedBySha256 = notifiedPlaylist.ResolveChartForPlaylistHash(null, expectedNotificationSha256);
+                bool visible = string.Equals(notifiedByMd5?.Path, notificationPhase == 1 ? firstPath : secondPath, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(notifiedBySha256?.Path, notificationPhase == 1 ? firstPath : secondPath, StringComparison.OrdinalIgnoreCase);
+                if (notificationPhase == 1)
+                {
+                    firstDigestVisibleAtNotification |= visible;
+                }
+                else if (notificationPhase == 2)
+                {
+                    secondDigestVisibleAtNotification |= visible;
+                }
+            };
+
+            string firstOldMd5 = first.Md5;
+            string firstOldSha256 = first.Sha256;
+            int firstNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            File.WriteAllText(
+                firstPath,
+                "#PLAYER 1\r\n#TITLE first after\r\n#BPM 120\r\n#00111:01\r\n",
+                System.Text.Encoding.ASCII);
+            ChartFileSnapshot firstAfterSnapshot = ChartFileContentReader.ReadSnapshot(firstPath);
+            expectedNotificationMd5 = firstAfterSnapshot.Md5;
+            expectedNotificationSha256 = firstAfterSnapshot.Sha256;
+            notificationPhase = 1;
+            ChartInfoInlineBuildResult firstResult = InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
+                library,
+                "test_inline_local_first",
+                [(first)]);
+            OwnedChartHashIndexVersionedSnapshot firstHash = library.GetOwnedChartHashIndexSnapshot();
+            OwnedChartHashIndexVersionedSnapshot firstHashReadback = library.GetOwnedChartHashIndexSnapshot();
+            InstalledChartLookupIndexSnapshot firstInstalled = InvokeCreateInstalledChartLookupSnapshot(library);
+            InstalledChartLookupIndexSnapshot firstInstalledReadback = InvokeCreateInstalledChartLookupSnapshot(library);
+            PlaylistLibraryResolveIndexSnapshot firstPlaylist = library.GetPlaylistLibraryResolveIndexSnapshot(
+                CancellationToken.None,
+                out bool firstCacheHit,
+                out int firstStaleRetries);
+            PlaylistLibraryResolveIndexSnapshot firstPlaylistReadback = library.GetPlaylistLibraryResolveIndexSnapshot(
+                CancellationToken.None,
+                out bool firstReadbackCacheHit,
+                out int firstReadbackStaleRetries);
+            NormalLibraryRefreshNotificationBatch firstBatch = library.GetNormalLibraryRefreshNotificationsAfter(firstNotificationVersion);
+            ChartFile firstCurrent = library.BmsCharts.Single(value => value.Token == first.Token);
+            string firstNewMd5 = firstCurrent.Md5;
+            string firstNewSha256 = firstCurrent.Sha256;
+
+            Assert.AreEqual(1, firstResult.DigestChanges.Count);
+            Assert.AreEqual(firstOldMd5, firstResult.DigestChanges.Single().OldMd5);
+            Assert.AreEqual(firstOldSha256, firstResult.DigestChanges.Single().OldSha256);
+            Assert.AreEqual(firstNewMd5, firstResult.DigestChanges.Single().NewMd5);
+            Assert.AreNotEqual(firstOldMd5, firstNewMd5);
+            Assert.AreNotEqual(firstOldSha256, firstNewSha256);
+            Assert.IsFalse(firstHash.ContainsMd5(firstOldMd5));
+            Assert.IsTrue(firstHash.ContainsMd5(firstNewMd5));
+            Assert.AreEqual(firstHash.Version, firstHashReadback.Version);
+            Assert.IsFalse(firstInstalled.ContainsPrimaryHash(firstOldMd5));
+            Assert.IsTrue(firstInstalled.ContainsPrimaryHash(firstNewMd5));
+            Assert.AreEqual(firstInstalled.HashCount, firstInstalledReadback.HashCount);
+            Assert.IsTrue(firstCacheHit);
+            Assert.IsTrue(firstReadbackCacheHit);
+            Assert.AreEqual(0, firstStaleRetries);
+            Assert.AreEqual(0, firstReadbackStaleRetries);
+            Assert.IsNull(firstPlaylist.ResolveChartForPlaylistHash(firstOldMd5, null));
+            Assert.AreEqual(firstPath, firstPlaylist.ResolveChartForPlaylistHash(firstNewMd5, null).Path);
+            Assert.AreEqual(firstPlaylist.Version, firstPlaylistReadback.Version);
+            Assert.IsTrue(firstBatch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+            Assert.IsTrue(firstDigestVisibleAtNotification, "通知時点でMD5とSHA-256の両方から新しい譜面へ解決できること。");
+
+            string secondOldMd5 = second.Md5;
+            string secondOldSha256 = second.Sha256;
+            int secondNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            File.WriteAllText(
+                secondPath,
+                "#PLAYER 1\r\n#TITLE second after\r\n#BPM 120\r\n#00111:01\r\n",
+                System.Text.Encoding.ASCII);
+            ChartFileSnapshot secondAfterSnapshot = ChartFileContentReader.ReadSnapshot(secondPath);
+            expectedNotificationMd5 = secondAfterSnapshot.Md5;
+            expectedNotificationSha256 = secondAfterSnapshot.Sha256;
+            notificationPhase = 2;
+            ChartInfoInlineBuildResult secondResult = InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
+                library,
+                "test_inline_local_second",
+                [(second)]);
+            OwnedChartHashIndexVersionedSnapshot secondHash = library.GetOwnedChartHashIndexSnapshot();
+            OwnedChartHashIndexVersionedSnapshot secondHashReadback = library.GetOwnedChartHashIndexSnapshot();
+            InstalledChartLookupIndexSnapshot secondInstalled = InvokeCreateInstalledChartLookupSnapshot(library);
+            InstalledChartLookupIndexSnapshot secondInstalledReadback = InvokeCreateInstalledChartLookupSnapshot(library);
+            PlaylistLibraryResolveIndexSnapshot secondPlaylist = library.GetPlaylistLibraryResolveIndexSnapshot(
+                CancellationToken.None,
+                out bool secondCacheHit,
+                out int secondStaleRetries);
+            PlaylistLibraryResolveIndexSnapshot secondPlaylistReadback = library.GetPlaylistLibraryResolveIndexSnapshot(
+                CancellationToken.None,
+                out bool secondReadbackCacheHit,
+                out int secondReadbackStaleRetries);
+            NormalLibraryRefreshNotificationBatch secondBatch = library.GetNormalLibraryRefreshNotificationsAfter(secondNotificationVersion);
+            ChartFile secondCurrent = library.BmsCharts.Single(value => value.Token == second.Token);
+            string secondNewMd5 = secondCurrent.Md5;
+            string secondNewSha256 = secondCurrent.Sha256;
+
+            Assert.AreEqual(1, secondResult.DigestChanges.Count);
+            Assert.AreEqual(secondOldMd5, secondResult.DigestChanges.Single().OldMd5);
+            Assert.AreEqual(secondOldSha256, secondResult.DigestChanges.Single().OldSha256);
+            Assert.AreEqual(secondNewMd5, secondResult.DigestChanges.Single().NewMd5);
+            Assert.AreNotEqual(secondOldMd5, secondNewMd5);
+            Assert.AreNotEqual(secondOldSha256, secondNewSha256);
+            Assert.IsTrue(secondHash.ContainsMd5(firstNewMd5));
+            Assert.IsTrue(secondHash.ContainsMd5(secondNewMd5));
+            Assert.IsFalse(secondHash.ContainsMd5(secondOldMd5));
+            Assert.AreEqual(secondHash.Version, secondHashReadback.Version);
+            Assert.IsTrue(secondInstalled.ContainsPrimaryHash(firstNewMd5));
+            Assert.IsTrue(secondInstalled.ContainsPrimaryHash(secondNewMd5));
+            Assert.IsFalse(secondInstalled.ContainsPrimaryHash(secondOldMd5));
+            Assert.AreEqual(secondInstalled.HashCount, secondInstalledReadback.HashCount);
+            Assert.IsTrue(secondCacheHit);
+            Assert.IsTrue(secondReadbackCacheHit);
+            Assert.AreEqual(0, secondStaleRetries);
+            Assert.AreEqual(0, secondReadbackStaleRetries);
+            Assert.AreEqual(firstPath, secondPlaylist.ResolveChartForPlaylistHash(firstNewMd5, null).Path);
+            Assert.AreEqual(secondPath, secondPlaylist.ResolveChartForPlaylistHash(secondNewMd5, null).Path);
+            Assert.IsNull(secondPlaylist.ResolveChartForPlaylistHash(secondOldMd5, null));
+            Assert.AreEqual(secondPlaylist.Version, secondPlaylistReadback.Version);
+            Assert.IsTrue(secondBatch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+            Assert.IsTrue(secondDigestVisibleAtNotification, "通知時点でMD5とSHA-256の両方から新しい譜面へ解決できること。");
+
+            Assert.IsTrue(initialHash.ContainsMd5(firstOldMd5));
+            Assert.IsTrue(initialHash.ContainsMd5(secondOldMd5));
+            Assert.IsTrue(initialInstalled.ContainsPrimaryHash(firstOldMd5));
+            Assert.IsTrue(initialInstalled.ContainsPrimaryHash(secondOldMd5));
+            Assert.AreEqual(firstPath, initialPlaylist.ResolveChartForPlaylistHash(firstOldMd5, null).Path);
+            Assert.AreEqual(secondPath, initialPlaylist.ResolveChartForPlaylistHash(secondOldMd5, null).Path);
+            Assert.IsTrue(firstHash.ContainsMd5(secondOldMd5));
+            Assert.IsTrue(firstInstalled.ContainsPrimaryHash(secondOldMd5));
+            Assert.AreEqual(secondPath, firstPlaylist.ResolveChartForPlaylistHash(secondOldMd5, null).Path);
+
+            Assert.AreEqual(2, hashWork.Count(operation => operation == "owned_hash_delta_apply"));
+            Assert.AreEqual(0, hashWork.Count(operation => operation == "owned_hash_full_invalidate"));
+            Assert.AreEqual(0, installedWork.Count(operation => operation == "installed_root_map_enumeration"));
+            Assert.AreEqual(0, installedWork.Count(operation => operation == "installed_root_map_key_visited"));
+            Assert.IsTrue(installedWork.Contains("installed_directory_bucket_update"));
+            Assert.AreEqual(2, playlistWork.Count(operation => operation == "playlist_resolve_delta_apply"));
+            Assert.AreEqual(0, playlistWork.Count(operation => operation == "playlist_resolve_source_enumeration"));
+            Assert.AreEqual(0, playlistWork.Count(operation => operation == "playlist_resolve_full_root_enumeration"));
+            Assert.AreEqual(0, playlistWork.Count(operation => operation == "playlist_resolve_full_root_key_visited"));
+            Assert.AreEqual(0, playlistWork.Count(operation => operation == "playlist_resolve_source_entry_visited"));
+        });
+    }
+
+    /// <summary>
+    /// MD5が同じでSHA-256だけが更新される補完では、MD5所有数を保ってSHA参照と健全性の対象を更新する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・索引・通知を接続し、局所のdigest差分だけでは分からない公開順と失敗時の非公開を確認する。</remarks>
+    [TestMethod]
+    public void BuildInlineChartInfo_ShaOnlyChangeUpdatesShaLookupAndResourceHealthWithoutPrimaryLookupRebuild()
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).EnsureChartInfoSchema();
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "InlineShaOnly");
+            Directory.CreateDirectory(chartDirectory);
+            string chartPath = Path.Combine(chartDirectory, "chart.bms");
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n#TITLE sha-only update\r\n#BPM 120\r\n#00111:01\r\n",
+                System.Text.Encoding.ASCII);
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            string staleSha256 = new string('b', 64);
+            ChartFile bmsFile = CreateFile(snapshot.Md5, chartPath, staleSha256);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
+            SetLibraryFilesWithoutNotification(library, [bmsFile]);
+            SetLibraryBmsonSongsWithoutNotification(library, []);
+            InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
+            OwnedChartHashIndexVersionedSnapshot initialSummary = library.GetOwnedChartHashIndexSnapshot();
+            EnsureCurrentResourceHealthIndex(library);
+
+            ChartInfoInlineBuildResult result = InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
+                library,
+                "test_inline_sha_only",
+                [(bmsFile)]);
+
+            InstalledChartLookupIndexSnapshot updatedLookup = InvokeCreateInstalledChartLookupSnapshot(library);
+            OwnedChartHashIndexVersionedSnapshot updatedSummary = library.GetOwnedChartHashIndexSnapshot();
+            LibraryChartDigestChange digestChange = result.DigestChanges.Single();
+            Assert.IsFalse(digestChange.PrimaryHashChanged);
+            Assert.IsFalse(digestChange.Md5Changed);
+            Assert.IsTrue(digestChange.Sha256Changed);
+            Assert.AreEqual(snapshot.Md5, digestChange.OldMd5);
+            Assert.AreEqual(snapshot.Md5, digestChange.NewMd5);
+            Assert.AreEqual(staleSha256, digestChange.OldSha256);
+            Assert.AreEqual(snapshot.Sha256, digestChange.NewSha256);
+            Assert.IsTrue(initialLookup.ContainsPrimaryHash(snapshot.Md5));
+            Assert.IsTrue(updatedLookup.ContainsPrimaryHash(snapshot.Md5));
+            Assert.IsFalse(updatedLookup.Sha256Directories.ContainsKey(staleSha256));
+            Assert.IsTrue(updatedLookup.Sha256Directories.ContainsKey(snapshot.Sha256));
+            CollectionAssert.AreEqual(new[] { chartDirectory }, initialLookup.Sha256Directories[staleSha256].ToArray());
+            CollectionAssert.AreEqual(new[] { chartDirectory }, updatedLookup.Sha256Directories[snapshot.Sha256].ToArray());
+            Assert.AreEqual(1, initialLookup.GetPrimaryHashCount(snapshot.Md5));
+            Assert.AreEqual(1, updatedLookup.GetPrimaryHashCount(snapshot.Md5));
+            Assert.AreEqual(2, initialLookup.DirectoryReferenceCount);
+            Assert.AreEqual(2, updatedLookup.DirectoryReferenceCount);
+            Assert.IsTrue(initialLookup.Sha256Directories.ContainsKey(staleSha256));
+            Assert.IsTrue(initialSummary.Md5Hashes.Contains(snapshot.Md5));
+            Assert.IsTrue(updatedSummary.Md5Hashes.Contains(snapshot.Md5));
+            Assert.IsFalse(updatedSummary.Sha256Hashes.Contains(staleSha256));
+            Assert.IsTrue(updatedSummary.Sha256Hashes.Contains(snapshot.Sha256));
+            Assert.AreEqual(1, initialSummary.GetMd5OwnerCount(snapshot.Md5));
+            Assert.AreEqual(1, updatedSummary.GetMd5OwnerCount(snapshot.Md5));
+            Assert.AreEqual(1, initialSummary.GetSha256OwnerCount(staleSha256));
+            Assert.AreEqual(0, updatedSummary.GetSha256OwnerCount(staleSha256));
+            Assert.AreEqual(1, updatedSummary.GetSha256OwnerCount(snapshot.Sha256));
+            Assert.AreNotEqual(initialSummary.Version, updatedSummary.Version);
+            Assert.AreEqual(1, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
+        });
+    }
+
+    /// <summary>
+    /// 実DBの譜面情報保存が失敗したとき、DB行・digest差分・索引・譜面情報・通知を一つも公開しない。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・索引・通知を接続し、局所のdigest差分だけでは分からない公開順と失敗時の非公開を確認する。</remarks>
+    [TestMethod]
+    public void BuildInlineChartInfo_StorageFailureDoesNotPublishDigestIndexSessionIndexOrWarning()
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).EnsureChartInfoSchema();
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "InlineFailure");
+            Directory.CreateDirectory(chartDirectory);
+            string chartPath = Path.Combine(chartDirectory, "chart.bms");
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n#TITLE rollback\r\n#BPM 120\r\n#00111:01\r\n",
+                System.Text.Encoding.ASCII);
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, null);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
+            SetLibraryFilesWithoutNotification(library, [bmsFile]);
+            SetLibraryBmsonSongsWithoutNotification(library, []);
+            InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
+            OwnedChartHashIndexVersionedSnapshot initialSummary = library.GetOwnedChartHashIndexSnapshot();
+            int initialNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            int initialCollectionVersion = library.CatalogRevision;
+            int initialChartInfoIndexVersion = library.ChartInfoIndexVersion;
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
+            {
+                setup.Execute("CREATE TRIGGER fail_inline_chart_info BEFORE INSERT ON chart_info BEGIN SELECT RAISE(ABORT, 'forced inline chart-info failure'); END;");
+            }
+
+            Assert.ThrowsExactly<SQLite.SQLiteException>(() =>
+                InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
+                    library,
+                    "test_inline_storage_failure",
+                    [(bmsFile)]));
+
+            Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", bmsFile.Md5);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(bmsFile.Sha256));
+            Assert.AreEqual(initialNotificationVersion, library.NormalLibraryRefreshNotificationVersion);
+            Assert.AreEqual(initialCollectionVersion, library.CatalogRevision);
+            Assert.AreEqual(initialChartInfoIndexVersion, library.ChartInfoIndexVersion);
+            Assert.IsNull(library.ResolveChartInfo(snapshot.Sha256, snapshot.Md5));
+            CollectionAssert.AreEquivalent(
+                initialSummary.Md5Hashes.ToArray(),
+                library.GetOwnedChartHashIndexSnapshot().Md5Hashes.ToArray());
+            Assert.IsTrue(initialLookup.ContainsPrimaryHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            Assert.IsTrue(InvokeCreateInstalledChartLookupSnapshot(library)
+                .ContainsPrimaryHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
+            Assert.AreEqual(0, verify.Table<LR2SongDB.song>().Count(row => row.path == chartPath));
+            Assert.AreEqual(0, verify.Table<LR2SongDBExtended.chart_info>().Count());
+        });
+    }
+
+}

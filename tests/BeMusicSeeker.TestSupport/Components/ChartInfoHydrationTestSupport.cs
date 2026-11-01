@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Reflection;
 using BeMusicSeeker.Models;
@@ -82,4 +83,30 @@ internal static class ChartInfoHydrationTestSupport
         }
     }
 
+
+    internal static void InvokeInstallChartPackages(BMSLibrary library, IEnumerable<ChartPackage> packages, string installDirectory)
+    {
+        List<ChartPackage> packageList = [.. (packages ?? [])];
+        foreach (PackageChartEntry entry in packageList
+            .SelectMany(package => package?.ChartEntries ?? [])
+            .Where(entry => entry?.Chart != null))
+        {
+            entry.SetInstallDestinationPathOnly(installDirectory);
+        }
+
+        library.ChartPackagesPending = new ObservableCollection<ChartPackage>(packageList);
+        library.InstallPendingPackagesToEstimatedDestinations(packageList);
+    }
+
+    internal static Task AwaitChartInfoBackfillAsync(BMSLibrary library)
+    {
+        return AwaitChartInfoStateAsync(
+            library,
+            current => current.ChartInfoBackfillRequestedVersion > 0
+                && current.ChartInfoBackfillCompletedVersion == current.ChartInfoBackfillRequestedVersion
+                && !current.ChartInfoBackfillRunning,
+            nameof(BMSLibrary.ChartInfoBackfillRequestedVersion),
+            nameof(BMSLibrary.ChartInfoBackfillCompletedVersion),
+            nameof(BMSLibrary.ChartInfoBackfillRunning));
+    }
 }

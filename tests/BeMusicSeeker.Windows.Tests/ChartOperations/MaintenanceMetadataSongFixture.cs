@@ -1,0 +1,194 @@
+using System.IO;
+using System.Text;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Wpf;
+using static BeMusicSeeker.TestSupport.Components.OwnedChartCollectionTestSupport;
+
+namespace BeMusicSeeker.Tests;
+
+/// <summary>DB起動後の保守操作で、対象外のsong全列と背景行を観測する共有fixtureです。</summary>
+internal sealed class MaintenanceMetadataSongFixture : IDisposable
+{
+    internal const string Title = "日本語 title";
+    internal const string Subtitle = "[副題]";
+    internal const string Artist = "作曲者 artist";
+    internal const string Subartist = "編曲者 subartist";
+    internal const string Genre = "ジャンル genre";
+    private readonly ApplicationDatabaseScope databaseScope;
+    private readonly BmsLibraryDbGateway gateway;
+    private readonly string songDbPath;
+    private readonly Dictionary<string, string> before;
+    private readonly Dictionary<string, string> backgroundBefore;
+    private readonly string backgroundPath;
+    private readonly string title;
+    private readonly string subtitle;
+    private readonly string artist;
+    private readonly string subartist;
+    private readonly string genre;
+    private readonly string sha256;
+
+    /// <summary>実ファイルの識別・固定mtimeと、全保存列の非既定値、UTF-8の確定状態を準備し、本番読込み・詳細hydrateを通します。ASCIIでもUTF-8保存値を使います。</summary>
+    /// <param name="databaseScope">対象ライブラリと共有する接続所有者。</param>
+    /// <param name="songDbPath">専用入力を保存するsong.db。</param>
+    /// <param name="matchingMetadata">現在値と保存値の生メタデータを揃えるか。</param>
+    /// <param name="fixedEncoding">保存済み文字コードを確定済みにするか。</param>
+    /// <param name="asciiMetadata">生メタデータをASCIIだけで構成するか。</param>
+    internal MaintenanceMetadataSongFixture(ApplicationDatabaseScope databaseScope, string songDbPath, bool matchingMetadata = false, bool fixedEncoding = false, bool asciiMetadata = false)
+    {
+        this.databaseScope = databaseScope;
+        this.songDbPath = songDbPath;
+        title = asciiMetadata ? "ASCII title" : Title;
+        subtitle = asciiMetadata ? "[subtitle]" : Subtitle;
+        artist = asciiMetadata ? "ASCII artist" : Artist;
+        subartist = asciiMetadata ? "ASCII subartist" : Subartist;
+        genre = asciiMetadata ? "ASCII genre" : Genre;
+        string root = System.IO.Path.GetDirectoryName(songDbPath) ?? throw new ArgumentException("親ディレクトリを持つDBパスが必要です。", nameof(songDbPath));
+        Path = System.IO.Path.Combine(root, "metadata.bms");
+        backgroundPath = System.IO.Path.Combine(root, "background.bms");
+        File.WriteAllText(Path, $"#PLAYER 1\n#TITLE {title}\n#SUBTITLE {subtitle}\n#ARTIST {artist}\n#SUBARTIST {subartist}\n#GENRE {genre}\n#BPM 120\n#WAV01 missing.wav\n#00111:01\n", new UTF8Encoding(false));
+        File.SetLastWriteTimeUtc(Path, new DateTime(2024, 2, 3, 4, 5, 6, DateTimeKind.Utc));
+        File.WriteAllText(backgroundPath, "#TITLE background\n");
+        ChartFile parsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(Path));
+        gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+        gateway.EnsureChartInfoBackfillSchema();
+        gateway.UpsertChartInfos([ChartInfoComponentTestSupport.CreateChartInfoRow(parsed.Sha256, parsed.Md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
+        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, db =>
+        {
+            LR2SongDB.song row = CreateRow(Path, parsed.Md5);
+            if (matchingMetadata)
+            {
+                row.title = title; row.subtitle = subtitle; row.artist = artist; row.subartist = subartist; row.genre = genre;
+            }
+            db.InsertOrReplace(row);
+            db.InsertOrReplace(CreateRow(backgroundPath, new string('d', 32)));
+            db.InsertOrReplace(ChartInfoComponentTestSupport.CreateChartDigestRow(parsed.Md5, parsed.Sha256));
+            db.InsertOrReplace(new LR2SongDBExtended.maintenance { path = Path, hash = parsed.Md5, encoding = "utf-8", is_encoding_fixed = fixedEncoding });
+        });
+        SongTableLoadResult loaded = new BmsLibraryInitializationService().LoadSongTable(gateway,
+            new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false }, null, new TestFileMutationService(), null, exception => exception.Message);
+        MaintenanceTableHydrationResult maintenance = new BmsLibraryInitializationService().LoadMaintenanceTable(gateway,
+            new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false });
+        Library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(),
+            new FileDbReportRecordingDialogs(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+            () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
+        {
+            BmsCharts = loaded.LoadedFiles.Select(chart => maintenance.MaintenanceMap.TryGetValue(chart.Path, out ResourceHealthMaintenanceSnapshot? saved)
+                ? ChartFileProjection.WithMaintenance(chart, saved) : chart).ToArray(),
+            BmsonCharts = []
+        };
+        using (LibraryFileMutationLease lease = Library.TryBeginLibraryFileMutation("metadata-fixture-hydration"))
+        {
+            Assert.IsNotNull(lease);
+            RequiredChartInfoHydrationResult hydrated = Library.EnsureRequiredStartupData(lease.CreateMutationCapability());
+            Assert.IsTrue(hydrated.Succeeded);
+            Assert.AreEqual(1, hydrated.CandidateOwnerCount, "背景一行だけが詳細未保存です。");
+        }
+        Assert.IsNull(Chart.ChartInfo, "DBから読んだ所持現在値へ詳細を付け直さない起動状態を使います。");
+        Assert.AreEqual("utf-8", Chart.EncodingName, "明示再指定と同じ文字コードを保存済みの現在値を使います。");
+        using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
+        before = ReadRow(read, Path);
+        backgroundBefore = ReadRow(read, backgroundPath);
+        sha256 = Chart.Sha256;
+    }
+
+    internal TestBmsLibrary Library { get; }
+    internal string Path { get; }
+    internal ChartFile Chart => Library.BmsCharts.Single(chart => chart.Path == Path);
+
+    /// <summary>生メタデータ5列とmtimeだけの更新、その他全列・背景行・行数・保守確定を読取り専用SELECTで確認します。</summary>
+    internal void AssertSaved()
+    {
+        using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
+        Dictionary<string, string> actual = ReadRow(read, Path);
+        var expected = new Dictionary<string, string>(before)
+        {
+            ["title"] = Quote(title),
+            ["subtitle"] = Quote(subtitle),
+            ["artist"] = Quote(artist),
+            ["subartist"] = Quote(subartist),
+            ["genre"] = Quote(genre),
+            ["date"] = new DateTimeOffset(File.GetLastWriteTimeUtc(Path)).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture)
+        };
+        foreach ((string column, string value) in expected) { Assert.AreEqual(value, actual[column], "song." + column); }
+        Dictionary<string, string> background = ReadRow(read, backgroundPath);
+        foreach ((string column, string value) in backgroundBefore) { Assert.AreEqual(value, background[column], "background song." + column); }
+        Assert.AreEqual(2, read.ExecuteScalar<int>("SELECT COUNT(*) FROM song;"));
+        Assert.AreEqual("utf-8", read.ExecuteScalar<string>("SELECT encoding FROM maintenance WHERE path = ?;", Path));
+        Assert.AreEqual(1, read.ExecuteScalar<int>("SELECT is_encoding_fixed FROM maintenance WHERE path = ?;", Path));
+        Assert.IsFalse(Library.OperationAdmission.IsActive);
+    }
+
+    /// <summary>保存後の生5項目・合成表示・確定文字コードと、資源件数の現在値・DB読戻しを照合します。</summary>
+    internal void AssertCurrentAndResourceHealth(int existing)
+    {
+        AssertSaved();
+        ChartFile chart = Chart;
+        Assert.AreEqual(before["hash"], Quote(chart.Md5));
+        Assert.AreEqual(sha256, chart.Sha256);
+        Assert.AreEqual(title, chart.RawTitle);
+        Assert.AreEqual(subtitle, chart.RawSubtitle);
+        Assert.AreEqual(artist, chart.RawArtist);
+        Assert.AreEqual(subartist, chart.Subartist);
+        Assert.AreEqual(genre, chart.Genre);
+        Assert.AreEqual(title + " " + subtitle, chart.Title);
+        Assert.AreEqual(artist + " " + subartist, chart.Artist);
+        Assert.AreEqual("utf-8", chart.EncodingName);
+        Assert.IsTrue(chart.ResourceHealthMaintenanceSnapshot.EncodingFixed);
+        Assert.AreEqual(1, chart.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
+        Assert.AreEqual(existing, chart.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
+        Assert.IsNull(chart.Resources);
+        using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
+        LR2SongDBExtended.maintenance saved = read.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == Path);
+        Assert.AreEqual(1, saved.wav_files_defined);
+        Assert.AreEqual(existing, saved.wav_files_existing);
+    }
+
+    /// <summary>後続の資源だけの変更でsongを再保存すると、同値UPDATEでも実DBが失敗するようにします。</summary>
+    internal void RejectSongUpdates()
+        => BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, db =>
+            db.Execute("CREATE TRIGGER reject_metadata_song_update BEFORE UPDATE ON song BEGIN SELECT RAISE(ABORT, 'unexpected song update'); END;"));
+
+    private static string Quote(string value) => "'" + value.Replace("'", "''") + "'";
+
+    private static Dictionary<string, string> ReadRow(LR2SongDBExtended db, string path)
+        => db.GetTableInfo("song").ToDictionary(column => column.Name,
+            column => db.ExecuteScalar<string>("SELECT quote(\"" + column.Name + "\") FROM song WHERE path = ?;", path));
+
+    private static LR2SongDB.song CreateRow(string path, string hash) => new()
+    {
+        path = path,
+        hash = hash,
+        title = "old title",
+        subtitle = "old subtitle",
+        artist = "old artist",
+        subartist = "old subartist",
+        genre = "old genre",
+        tag = "retained tag",
+        favorite = 7,
+        adddate = 1234567,
+        date = 7654321,
+        type = 2,
+        folder = "12345678",
+        parent = "87654321",
+        stagefile = "kept-stage.png",
+        banner = "kept-banner.png",
+        backbmp = "kept-back.png",
+        level = 18,
+        difficulty = 4,
+        maxbpm = 345,
+        minbpm = 67,
+        mode = 14,
+        judge = 3,
+        longnote = 2,
+        bga = 1,
+        random = 1,
+        txt = 1,
+        karinotes = 2345,
+        exlevel = 23
+    };
+
+    public void Dispose() => Library.RequestShutdown("metadata-song-test");
+}

@@ -62,4 +62,8 @@
     <!-- 計算・表示の両moduleが同じ独立固定入力を出力から読みます。 -->
     <Content Include="../../BeMusicSeeker.Tests/TestData/Walkure/*.json" Link="TestData/Walkure/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- 移管した書庫検証も、旧テストと同じ固定入力の正本を配布します。 -->
+    <Content Include="../../BeMusicSeeker.Tests/TestData/archives/*" Link="TestData/archives/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
