@@ -245,7 +245,9 @@ public sealed class RuntimeIsolationProcessTests
             await Task.WhenAny(process.Completion, Task.Delay(remaining < TimeSpan.FromMilliseconds(20) ? remaining : TimeSpan.FromMilliseconds(20)));
         }
         if (deadline.Remaining == TimeSpan.Zero) { throw new TimeoutException("プローブのready観測が期限を超えました: " + path); }
-        return JsonDocument.Parse(File.ReadAllText(path));
+        // 完成JSONのrename公開直後はDELETE handleが残り得るため、読取りをrenameと共有します。
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        return JsonDocument.Parse(stream);
     }
 
     private static void AssertSuccess(ProcessCompletion result)
