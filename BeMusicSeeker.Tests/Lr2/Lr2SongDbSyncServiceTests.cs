@@ -160,13 +160,34 @@ public sealed class Lr2SongDbSyncServiceTests
     }
 
     /// <summary>
-    /// チャンク境界の1001件と順序枠上限を超える10001件を実更新し、順序回収・末尾・保存位置と利用者設定を保持する。
+    /// 小型の複数chunkを実更新し、順序回収・末尾・保存位置と利用者設定を保持する。
     /// </summary>
     /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
-    [DataRow(1001)]
-    [DataRow(10001)]
+    [DataRow(5)]
+    [DataRow(7)]
     public void SyncService_RealSongUpdatesKeepFiniteRoleAcrossChunkCommits(int targetCount)
+        => AssertSongChunkCommits(targetCount, 2, new Lr2SongSyncExecutionOptions(2, 2, 2, 2, 4));
+
+    /// <summary>本番既定の1,000行chunkを跨ぐ10,001行を実更新し、11commit・末尾・利用者列と順序回収を保ちます。</summary>
+    [TestMethod, TestCategory("Performance")]
+    public void ProductionDefaults_1000RowChunksPersist10001Rows()
+        => AssertSongChunkCommits(10_001, 1000, null);
+
+    /// <summary>容量ゼロ・負値で有限pipelineが停止する指定を、各実行幅の受付で拒否します。</summary>
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(-1)]
+    public void SyncExecutionOptions_RejectNonPositivePipelineWidths(int invalid)
+    {
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => new Lr2SongSyncExecutionOptions(invalid, 1, 1, 1, 1));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => new Lr2SongSyncExecutionOptions(1, invalid, 1, 1, 1));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => new Lr2SongSyncExecutionOptions(1, 1, invalid, 1, 1));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => new Lr2SongSyncExecutionOptions(1, 1, 1, invalid, 1));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => new Lr2SongSyncExecutionOptions(1, 1, 1, 1, invalid));
+    }
+
+    private void AssertSongChunkCommits(int targetCount, int chunkSize, Lr2SongSyncExecutionOptions? options)
     {
         using var scope = TestDatabaseScope.Create();
         string directory = Path.Combine(scope.DirectoryPath, "ChunkProgress");
@@ -201,6 +222,7 @@ public sealed class Lr2SongDbSyncServiceTests
         {
             LogInstallPerformance = logs.Enqueue,
             RunId = "real-chunk-progress",
+            ExecutionOptions = options,
             SongRows = songs,
             ChartFileBufferReader = path => new ChartFileReadBuffer(path,
                 Encoding.ASCII.GetBytes("#PLAYER 1\r\n#TITLE Current " + Path.GetFileNameWithoutExtension(path)
@@ -221,12 +243,12 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(targetCount, result.SongRowProcessedCount);
-        Assert.AreEqual((targetCount + 999) / 1000, beforeCommit.Count);
+        Assert.AreEqual((targetCount + chunkSize - 1) / chunkSize, beforeCommit.Count);
         string[] chunkStarts = [.. logs.Where(line => line.Contains(" chunk_start "))];
         Assert.AreEqual(beforeCommit.Count, chunkStarts.Length);
         for (int chunk = 0; chunk < chunkStarts.Length; chunk++)
         {
-            StringAssert.Contains(chunkStarts[chunk], " offset=" + (chunk * 1000) + " count=" + Math.Min(1000, targetCount - chunk * 1000));
+            StringAssert.Contains(chunkStarts[chunk], " offset=" + (chunk * chunkSize) + " count=" + Math.Min(chunkSize, targetCount - chunk * chunkSize));
         }
         Assert.AreEqual(beforeCommit.Count, afterCommit.Count);
         foreach (Lr2SongDbSyncProgress? progress in beforeCommit.Concat(afterCommit))
@@ -240,7 +262,7 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.IsTrue(songEvents.All(progress => progress.StageTotalCount == targetCount
             && progress.StageProcessedCount >= 0 && progress.StageProcessedCount <= targetCount));
         Assert.IsTrue(songEvents.Any(progress => progress.StageProcessedCount == targetCount));
-        int[] expectedCursors = [.. Enumerable.Range(0, beforeCommit.Count + 1).Select(chunk => Math.Min(chunk * 1000, targetCount))];
+        int[] expectedCursors = [.. Enumerable.Range(0, beforeCommit.Count + 1).Select(chunk => Math.Min(chunk * chunkSize, targetCount))];
         CollectionAssert.AreEqual(expectedCursors, songEvents.Select(progress => progress.ProcessedCursor).Distinct().ToArray());
         Assert.AreEqual(targetCount, result.TotalCount);
         Assert.AreEqual(targetCount, result.ProcessedCount);
@@ -1893,19 +1915,21 @@ public sealed class Lr2SongDbSyncServiceTests
     }
 
     /// <summary>要求取消を伝播し、全callback終端後も確定済みチャンク・利用者列・処理位置を保持する。</summary>
-    /// <remarks>1001行で既定チャンクを確定後、末尾の実詳細解析を待たせて取り消す。CPU数によらず実行し、通常Taskを回収してから接続を生成threadで解放する。未知の基本入力は少数の対象スキップケースが分担する。</remarks>
+    /// <remarks>7行・chunk2でprefix確定後、次chunkの二つの実詳細解析を待たせて取り消す。CPU数によらず実行し、通常Taskを回収してから接続を生成threadで解放する。未知の基本入力は少数の対象スキップケースが分担する。</remarks>
     [TestMethod]
     public void SyncService_RequestCancellationPreservesCommittedPrefixAndJoinsWorkers()
     {
-        const int targetCount = 1001;
+        const int targetCount = 7;
         using var scope = TestDatabaseScope.Create();
         using var cleanupCancellation = new CancellationTokenSource();
         using var prefixCommitted = new ManualResetEventSlim();
         using var releasePrimary = new ManualResetEventSlim();
         var primaryEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int enteredParsers = 0;
+        int tailReads = 0;
         string logicalDirectory = Path.Combine(scope.DirectoryPath, "LogicalCharts");
         Directory.CreateDirectory(logicalDirectory);
-        var templates = new ChartFileReadBuffer[2];
+        var templates = new ChartFileReadBuffer[3];
         for (int index = 0; index < templates.Length; index++)
         {
             string path = Path.Combine(scope.DirectoryPath, "template" + index + ".bms");
@@ -1934,6 +1958,8 @@ public sealed class Lr2SongDbSyncServiceTests
                     songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song));
                 }
                 songDb.Execute("UPDATE song SET favorite = 3, tag = 'keep', adddate = 123;");
+                // resolverが既存として返す詳細を同じfixture DBへ準備し、未確定の新規詳細と区別します。
+                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(currentInfo), typeof(LR2SongDBExtended.chart_info));
             });
             int? observedPrefixCursor = null;
             int activeCallbacks = 0;
@@ -1945,9 +1971,9 @@ public sealed class Lr2SongDbSyncServiceTests
                 try
                 {
                     int index = indices[path];
-                    if (index == 1000)
+                    if (index is 2 or 3)
                     {
-                        primaryEntered.TrySetResult(true);
+                        if (Interlocked.Increment(ref enteredParsers) == 2) { primaryEntered.TrySetResult(true); }
                         releasePrimary.Wait();
                     }
                     return ChartInfoParser.ParseBytesDetailed(bytes, path, md5, sha256,
@@ -1961,12 +1987,13 @@ public sealed class Lr2SongDbSyncServiceTests
             var request = new Lr2SongDbSyncRequest
             {
                 RunId = "pipeline-run",
+                ExecutionOptions = new Lr2SongSyncExecutionOptions(2, 2, 2, 2, 4),
                 SongCurrentFactsCommitted = facts => currentFacts.AddRange(facts),
                 SongRows = charts,
                 ChartInfoBuildService = parser,
                 ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
                 ChartInfoResolverIsThreadSafe = true,
-                ChartInfoResolver = chart => indices[chart.Path] == 1000 ? null : currentInfo,
+                ChartInfoResolver = chart => indices[chart.Path] is 2 or 3 ? null : currentInfo,
                 CancellationToken = cleanupCancellation.Token,
                 IsShutdownRequested = () => false,
                 ChartFileBufferReader = path =>
@@ -1975,11 +2002,12 @@ public sealed class Lr2SongDbSyncServiceTests
                     try
                     {
                         int index = indices[path];
-                        if (index >= 1000)
+                        if (index == targetCount - 1) { Interlocked.Increment(ref tailReads); }
+                        if (index >= 2)
                         {
                             prefixCommitted.Wait(cleanupCancellation.Token);
                         }
-                        ChartFileReadBuffer template = templates[index == 1000 ? 1 : 0];
+                        ChartFileReadBuffer template = templates[index is 2 or 3 ? index - 1 : 0];
                         return new ChartFileReadBuffer(path, template.Bytes, template.LastWriteTimeUtc);
                     }
                     finally
@@ -1990,7 +2018,7 @@ public sealed class Lr2SongDbSyncServiceTests
                 ChartInfoParseFailuresCommitted = (persisted, _, _) => Interlocked.Add(ref publishedFailures, persisted),
                 LogInstallPerformance = message =>
                 {
-                    if (message.StartsWith("lr2_song_db_sync chunk_done stage=song_rows offset=0 count=1000", StringComparison.Ordinal))
+                    if (message.StartsWith("lr2_song_db_sync chunk_done stage=song_rows offset=0 count=2", StringComparison.Ordinal))
                     {
                         observedPrefixCursor = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName).processed_cursor;
                         prefixCommitted.Set();
@@ -2001,8 +2029,11 @@ public sealed class Lr2SongDbSyncServiceTests
             try
             {
                 WaitForLr2FaultStage(primaryEntered.Task, operation);
-                Assert.AreEqual<int?>(1000, observedPrefixCursor);
+                Assert.AreEqual<int?>(2, observedPrefixCursor);
                 cleanupCancellation.Cancel();
+                Assert.IsFalse(operation.IsCompleted, "開始済み二つの詳細解析の終端を待ちます。");
+                Assert.AreEqual(2, enteredParsers);
+                Assert.AreEqual(0, tailReads, "順序枠の外の末尾は未開始です。");
                 releasePrimary.Set();
                 Exception? failure = null;
                 try
@@ -2016,21 +2047,23 @@ public sealed class Lr2SongDbSyncServiceTests
                 Assert.IsNotNull(failure);
                 Assert.IsInstanceOfType<OperationCanceledException>(failure);
                 Assert.AreEqual(cleanupCancellation.Token, ((OperationCanceledException)failure).CancellationToken);
-                Assert.AreEqual(1000, currentFacts.Count);
+                Assert.AreEqual(2, currentFacts.Count);
                 Assert.IsTrue(currentFacts.All(fact => fact.HasLevel && fact.Chart.Level == 9 && fact.Chart.LevelText == "9"));
-                CollectionAssert.AreEquivalent(charts.Take(1000).Select(chart => chart.Path).ToArray(), currentFacts.Select(fact => fact.Chart.Path).ToArray());
+                CollectionAssert.AreEquivalent(charts.Take(2).Select(chart => chart.Path).ToArray(), currentFacts.Select(fact => fact.Chart.Path).ToArray());
                 Assert.AreEqual(0, activeCallbacks);
                 Assert.AreEqual(0, publishedFailures);
                 LR2SongDBExtended.lr2_song_db_sync_status status = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
                 Assert.AreEqual("Failed", status.status);
                 Assert.AreEqual("song_rows", status.stage);
-                Assert.AreEqual(1000, status.processed_cursor);
+                Assert.AreEqual(2, status.processed_cursor);
                 StringAssert.Contains(status.last_error, "Unexpected operation cancellation.");
                 Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
+                Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_info;"));
+                Assert.AreEqual(2, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance;"));
                 Assert.AreEqual(targetCount, songDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE favorite = 3 AND tag = 'keep' AND adddate = 123;"));
                 for (int index = 0; index < charts.Count; index++)
                 {
-                    Assert.AreEqual(index < 1000 ? 9 : 2,
+                    Assert.AreEqual(index < 2 ? 9 : 2,
                         songDb.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", charts[index].Path));
                 }
             }
@@ -2155,7 +2188,7 @@ public sealed class Lr2SongDbSyncServiceTests
     }
 
     /// <summary>先着した所有取消は必須callback実故障を隠さず、先着した非所有取消は後発shutdownやcallback故障で置換せず、実確定prefixと利用者列を保持する。</summary>
-    /// <remarks>実1001行・二つの正常譜面入力と別reader/callback gateを使い、prefixの実詳細解析・確定を通す。詳細／互換性の2条件はCPU1でも所有取消の先着とreader joinを観測し、第3条件はowner未取消時のreader OCE分類を終端まで保持する。非UIの同期fixtureでdefault接続の生成・解放threadとprocess lock所有を維持し、全Task回収とauthorizer解除後に同threadで接続を解放する。</remarks>
+    /// <remarks>実7行・chunk2・二つの正常譜面入力と別reader/callback gateを使い、prefixの実詳細解析・確定を通す。詳細／互換性の2条件はCPU1でも所有取消の先着とreader joinを観測し、第3条件はowner未取消時のreader OCE分類を終端まで保持する。非UIの同期fixtureで所有接続の生成・解放threadとDB gate所有を維持し、全Task回収とauthorizer解除後に同threadで接続を解放する。</remarks>
     [TestMethod]
     [DataRow("chart_info", false)]
     [DataRow("compatibility", false)]
@@ -2186,7 +2219,7 @@ public sealed class Lr2SongDbSyncServiceTests
         File.AppendAllText(tailPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n");
         ChartFileReadBuffer tail = ChartFileContentReader.ReadBuffer(tailPath);
         string tailSha256 = ChartFileContentReader.ReadSnapshot(tailPath).Sha256;
-        List<ChartFile> files = [.. Enumerable.Range(0, 1001).Select(index => ChartTestValues.Empty() with
+        List<ChartFile> files = [.. Enumerable.Range(0, 7).Select(index => ChartTestValues.Empty() with
         {
             Path = Path.Combine(scope.DirectoryPath, index.ToString("D4") + ".bms"),
             Title = "old",
@@ -2210,6 +2243,7 @@ public sealed class Lr2SongDbSyncServiceTests
             });
             int shutdownRequested = 0;
             int activeReaders = 0;
+            int unstartedTailReads = 0;
             int activeCallbacks = 0;
             int tailReaderEntries = 0;
             int tailReaderExits = 0;
@@ -2255,17 +2289,18 @@ public sealed class Lr2SongDbSyncServiceTests
                 LR2SongDBExtended.lr2_song_db_sync_status status = readback.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
                 Assert.AreEqual(expectedStatus, status.status);
                 Assert.AreEqual("song_rows", status.stage);
-                Assert.AreEqual(1000, status.processed_cursor);
-                Assert.AreEqual(1001, status.total_count);
+                Assert.AreEqual(2, status.processed_cursor);
+                Assert.AreEqual(7, status.total_count);
                 Assert.IsNull(status.completed_at);
-                Assert.AreEqual(1000, readback.ExecuteScalar<int>(
+                Assert.AreEqual(2, readback.ExecuteScalar<int>(
                     "SELECT COUNT(*) FROM song WHERE title = ? AND hash = ?;", "prefix committed", prefixSnapshot.Md5));
-                Assert.AreEqual(1001, readback.ExecuteScalar<int>(
+                Assert.AreEqual(7, readback.ExecuteScalar<int>(
                     "SELECT COUNT(*) FROM song WHERE favorite = 7 AND tag = 'keep' AND adddate = 321;"));
                 Assert.AreEqual(1, readback.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_info WHERE sha256 = ?;", prefixSnapshot.Sha256));
-                Assert.AreEqual(1000, readback.ExecuteScalar<int>(
+                Assert.AreEqual(2, readback.ExecuteScalar<int>(
                     "SELECT COUNT(*) FROM maintenance WHERE hash = ? AND lr2_warning_flags > 0;", prefixSnapshot.Md5));
                 Assert.AreEqual("old", readback.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", files[^1].Path));
+                Assert.AreEqual(5, readback.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE title = 'old';"));
                 Assert.AreEqual(0, readback.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_info WHERE sha256 = ?;", tailSha256));
                 Assert.AreEqual(0, readback.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", files[^1].Path));
                 Assert.AreEqual(0, readback.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_info_parse_failure;"));
@@ -2277,6 +2312,7 @@ public sealed class Lr2SongDbSyncServiceTests
             var request = new Lr2SongDbSyncRequest
             {
                 RunId = "committed-fault-after-cancel",
+                ExecutionOptions = new Lr2SongSyncExecutionOptions(2, 2, 2, 2, 4),
                 SongRows = files,
                 CancellationToken = cancellation.Token,
                 IsShutdownRequested = () => Volatile.Read(ref shutdownRequested) != 0,
@@ -2284,7 +2320,8 @@ public sealed class Lr2SongDbSyncServiceTests
                 ChartFileBufferReader = path =>
                 {
                     Interlocked.Increment(ref activeReaders);
-                    bool isTail = path == files[^1].Path;
+                    if (path == files[^1].Path) { Interlocked.Increment(ref unstartedTailReads); }
+                    bool isTail = path == files[2].Path;
                     try
                     {
                         if (isTail)
@@ -2410,6 +2447,7 @@ public sealed class Lr2SongDbSyncServiceTests
                 Assert.AreEqual(0, Volatile.Read(ref activeReaders));
                 Assert.AreEqual(0, Volatile.Read(ref activeCallbacks));
                 Assert.AreEqual(1, Volatile.Read(ref tailReaderExits));
+                Assert.AreEqual(0, Volatile.Read(ref unstartedTailReads));
             }
             finally
             {
@@ -2442,7 +2480,7 @@ public sealed class Lr2SongDbSyncServiceTests
     }
 
     /// <summary>終了取消後のmanaged rollback故障は直接SQLの成功なら通常取消を保ち、両故障なら未解決transactionを実失敗として返して確定prefix/cursorを保持する。</summary>
-    /// <remarks>authorizerでROLLBACKコンパイルだけ一回／二回拒否する。安全rollbackの即時token取消／flagのみでは全worker join後の末尾writerから終端進捗を観測し、flagのみの通知故障でも元OCEと確定prefixを保持する。</remarks>
+    /// <remarks>authorizerでROLLBACKコンパイルだけ一回／二回拒否する。安全rollbackの即時token取消／flagのみでは全worker join後のwriterから終端進捗を観測し、flagのみの通知故障でも元OCEと確定prefixを保持する。</remarks>
     [TestMethod]
     [DataRow(1, true)]
     [DataRow(2, true)]
@@ -2458,7 +2496,7 @@ public sealed class Lr2SongDbSyncServiceTests
         WriteBasicBms(tailPath, "tail must rollback");
         ChartFileReadBuffer tail = ChartFileContentReader.ReadBuffer(tailPath);
         string tailSha256 = ChartFileContentReader.ReadSnapshot(tailPath).Sha256;
-        List<ChartFile> files = [.. Enumerable.Range(0, 1001).Select(index => ChartTestValues.Empty() with
+        List<ChartFile> files = [.. Enumerable.Range(0, 7).Select(index => ChartTestValues.Empty() with
         {
             Path = Path.Combine(scope.DirectoryPath, index.ToString("D4") + ".bms"),
             Title = "old", RawTitle = "old", Favorite = 7, Tag = "keep", AddDate = 321
@@ -2493,12 +2531,13 @@ public sealed class Lr2SongDbSyncServiceTests
                 Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
                 {
                     RunId = "rollback-authorizer",
+                    ExecutionOptions = new Lr2SongSyncExecutionOptions(2, 2, 2, 2, 4),
                     SongRows = files,
                     CancellationToken = cancellation.Token,
                     IsShutdownRequested = () => shutdown,
                     ChartFileBufferReader = path =>
                     {
-                        ChartFileReadBuffer template = path == files[^1].Path ? tail : prefix;
+                        ChartFileReadBuffer template = path == files[2].Path ? tail : prefix;
                         return new ChartFileReadBuffer(path, template.Bytes, template.LastWriteTimeUtc);
                     },
                     ChartInfoChunkWriter = request =>
@@ -2520,7 +2559,7 @@ public sealed class Lr2SongDbSyncServiceTests
                         {
                             return;
                         }
-                        // flagを立てる末尾Flushは全worker join後なので、所有接続の安全な終端を同時に観測できます。
+                        // 終了処理の最終進捗は全worker joinとrollback後なので、所有接続の安全な終端を同時に観測できます。
                         shutdownProgress.Enqueue((value, raw.sqlite3_get_autocommit(songDb.Handle)));
                         if (!cancelTokenImmediately)
                         {
@@ -2542,8 +2581,8 @@ public sealed class Lr2SongDbSyncServiceTests
                 Assert.AreEqual(cancellation.Token, ((OperationCanceledException)failure).CancellationToken);
                 Assert.IsFalse(shutdownProgress.IsEmpty);
                 (Lr2SongDbSyncProgress Progress, int Autocommit) finalProgress = shutdownProgress.ToArray()[^1];
-                Assert.AreEqual(1000, finalProgress.Progress.ProcessedCursor);
-                Assert.AreEqual(1001, finalProgress.Progress.TotalCount);
+                Assert.AreEqual(2, finalProgress.Progress.ProcessedCursor);
+                Assert.AreEqual(7, finalProgress.Progress.TotalCount);
                 Assert.AreEqual("song_rows", finalProgress.Progress.Stage);
                 Assert.AreEqual(0, finalProgress.Progress.StageProcessedCount);
                 Assert.AreEqual(0, finalProgress.Progress.StageTotalCount);
@@ -2573,14 +2612,17 @@ public sealed class Lr2SongDbSyncServiceTests
         }
         using LR2SongDBExtended readback = new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
         Assert.AreEqual("prefix committed", readback.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", files[0].Path));
-        Assert.AreEqual("old", readback.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", files[^1].Path));
+        Assert.AreEqual("old", readback.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", files[2].Path));
+        Assert.AreEqual(2, readback.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE title = 'prefix committed';"));
+        Assert.AreEqual(5, readback.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE title = 'old';"));
+        Assert.AreEqual(2, readback.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance;"));
         Assert.AreEqual(7, readback.ExecuteScalar<int>("SELECT favorite FROM song WHERE path = ?;", files[0].Path));
         Assert.AreEqual("keep", readback.ExecuteScalar<string>("SELECT tag FROM song WHERE path = ?;", files[0].Path));
         Assert.AreEqual(321, readback.ExecuteScalar<int>("SELECT adddate FROM song WHERE path = ?;", files[0].Path));
         Assert.AreEqual(0, readback.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_info WHERE sha256 = ?;", tailSha256));
-        Assert.AreEqual(0, readback.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", files[^1].Path));
+        Assert.AreEqual(0, readback.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", files[2].Path));
         LR2SongDBExtended.lr2_song_db_sync_status durable = readback.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual(1000, durable.processed_cursor);
+        Assert.AreEqual(2, durable.processed_cursor);
         Assert.IsNull(durable.completed_at);
         Assert.AreNotEqual("Completed", durable.status);
     }

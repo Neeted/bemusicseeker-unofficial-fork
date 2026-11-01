@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -588,15 +589,16 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         field.SetValue(package, surface);
     }
 
-    /// <summary>実索引・保留DBの20パッケージで保持方針を末端まで渡し、次の通常操作では方針を残しません。BMS/BMSON混在と外側バッチの適用を確認し、先頭反映で設定97から100へ変更しても全兄弟に捕捉済み97を適用します。</summary>
+    /// <summary>実索引・保留DBの3パッケージで保持方針を末端まで渡し、次の通常操作では方針を残しません。BMS/BMSON混在と外側バッチの適用を確認し、入力捕捉後のgateで設定97から100へ変更しても全兄弟に捕捉済み97を適用します。</summary>
     [TestMethod]
-    public void SearchEstimatedInstallationDirectory_TwentyPackagesKeepPolicyIsOperationLocal()
+    public void SearchEstimatedInstallationDirectory_ThreePackagesKeepPolicyIsOperationLocal()
     {
         bool normalPhase = false;
-        int changed = 0;
-        using var observer = new RecordingInstallEstimationExecutionObserver(attemptObserver: _ =>
+        using var release = new ManualResetEventSlim();
+        var captured = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var observer = new RecordingInstallEstimationExecutionObserver(workItemObserver: _ =>
         {
-            if (normalPhase && Interlocked.CompareExchange(ref changed, 1, 0) == 0) { testSettings.InstallDestinationAutoApplyMinAudioHealth = 100; }
+            if (normalPhase) { captured.TrySetResult(); release.Wait(); }
         });
         testSettings.InstallDestinationAutoApplyMinAudioHealth = 97;
         WithTemporaryLibrary((root, db, library) =>
@@ -610,7 +612,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             foreach (string name in names.Take(97)) { File.WriteAllText(Path.Combine(strong, name), "audio"); }
             File.WriteAllText(Path.Combine(strong, "extra.wav"), "audio");
             SetLibraryResourceIndex(library, BuildDirectoryLookupCache(strong, unrelated));
-            ChartPackage[] packages = Enumerable.Range(0, 20).Select(index =>
+            ChartPackage[] packages = Enumerable.Range(0, 3).Select(index =>
             {
                 string source = Path.Combine(root, "Pending", index.ToString());
                 string bmsBody = "#TITLE Song\n#ARTIST Artist\n" + string.Concat(names.Select((name, soundIndex) =>
@@ -637,7 +639,21 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 Assert.IsFalse(chart.Status.HasFlag(ChartFileStatus.SEARCHING));
             }
             normalPhase = true;
-            library.SearchEstimatedInstallationDirectory(packages);
+            var operation = Task.Run(() => library.SearchEstimatedInstallationDirectory(packages));
+            try
+            {
+                Task first = Task.WhenAny(captured.Task, operation).GetAwaiter().GetResult();
+                if (first == operation) { operation.GetAwaiter().GetResult(); Assert.Fail("設定捕捉後のgateへ到達しませんでした。"); }
+                captured.Task.GetAwaiter().GetResult();
+                testSettings.InstallDestinationAutoApplyMinAudioHealth = 100;
+                release.Set();
+                operation.GetAwaiter().GetResult();
+            }
+            finally
+            {
+                release.Set();
+                try { operation.GetAwaiter().GetResult(); } catch { /* 元原因を維持して全評価の終端後にfixtureを解放します。 */ }
+            }
             foreach (ChartPackage package in packages)
             {
                 ChartFile chart = package.ChartEntries.Single().Chart;
@@ -646,8 +662,20 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 Assert.AreEqual(0, chart.InstallDestinationSuggestions.Count);
                 Assert.IsFalse(chart.Status.HasFlag(ChartFileStatus.SEARCHING));
             }
-            Assert.AreEqual(1, changed);
             Assert.AreEqual(100, testSettings.InstallDestinationAutoApplyMinAudioHealth);
+            normalPhase = false;
+            foreach (ChartPackage package in packages)
+            {
+                Assert.IsTrue(library.SetPendingInstallDestination(package.ChartEntries.Single(), string.Empty, false));
+            }
+            library.SearchEstimatedInstallationDirectory(packages);
+            foreach (ChartPackage package in packages)
+            {
+                ChartFile chart = package.ChartEntries.Single().Chart;
+                Assert.IsTrue(string.IsNullOrWhiteSpace(chart.InstallDestination), "次の要求は変更済み100の閾値を使います。");
+                CollectionAssert.AreEqual(new[] { strong }, chart.InstallDestinationSuggestions.ToArray());
+                Assert.IsFalse(chart.Status.HasFlag(ChartFileStatus.SEARCHING));
+            }
         }, observer);
     }
 
@@ -2791,14 +2819,17 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         private readonly object gate = new();
         private readonly Barrier? workItemBarrier;
         private readonly Action<InstallEstimationAppliedObservation>? attemptObserver;
+        private readonly Action<InstallEstimationWorkItemObservation>? workItemObserver;
         private int activeWorkItems;
         private int maxActive;
 
         internal RecordingInstallEstimationExecutionObserver(
             int expectedMaxActive = 0,
-            Action<InstallEstimationAppliedObservation>? attemptObserver = null)
+            Action<InstallEstimationAppliedObservation>? attemptObserver = null,
+            Action<InstallEstimationWorkItemObservation>? workItemObserver = null)
         {
             this.attemptObserver = attemptObserver;
+            this.workItemObserver = workItemObserver;
             if (expectedMaxActive > 1)
             {
                 workItemBarrier = new Barrier(expectedMaxActive);
@@ -2822,6 +2853,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             int currentActive = Interlocked.Increment(ref activeWorkItems);
             UpdateMaxActive(currentActive);
             workItemBarrier?.SignalAndWait();
+            workItemObserver?.Invoke(observation);
             return new WorkItemScope(this);
         }
 

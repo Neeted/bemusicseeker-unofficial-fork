@@ -73,8 +73,9 @@ internal sealed class temporarilyCopyFiles : IDisposable
     /// <param name="srcFiles">パッケージ内の対応譜面・音源・画像のファイル。</param>
     /// <param name="sourceRoot">相対配置の基準となるパッケージルート。</param>
     /// <param name="dstDir">既存の試聴先ディレクトリ。</param>
+    /// <param name="parallelDegree">このコピーだけの並列度。省略時は既存のPLINQ既定を使い、所有者に設定を残しません。</param>
     /// <exception cref="ObjectDisposedException">既に回収を終えた場合。</exception>
-    internal void CopyFiles(IEnumerable<string> srcFiles, string sourceRoot, string dstDir)
+    internal void CopyFiles(IEnumerable<string> srcFiles, string sourceRoot, string dstDir, int? parallelDegree = null)
     {
         if (Volatile.Read(ref disposed) != 0) { throw new ObjectDisposedException(nameof(temporarilyCopyFiles)); }
         ArgumentNullException.ThrowIfNull(srcFiles);
@@ -97,7 +98,9 @@ internal sealed class temporarilyCopyFiles : IDisposable
             EnsureDestinationDirectory(Path.GetDirectoryName(destination));
             copies.Add((source, destination));
         }
-        copies.AsParallel().ForAll(copy =>
+        ParallelQuery<(string Source, string Destination)> query = copies.AsParallel();
+        if (parallelDegree.HasValue) { query = query.WithDegreeOfParallelism(parallelDegree.Value); }
+        query.ForAll(copy =>
         {
             string staging = Path.Combine(Path.GetDirectoryName(copy.Destination), ".preview-" + Guid.NewGuid().ToString("N") + ".tmp");
             using (FileStream output = LongPathFileSystem.Open(staging, FileMode.CreateNew, FileAccess.Write, FileShare.None))

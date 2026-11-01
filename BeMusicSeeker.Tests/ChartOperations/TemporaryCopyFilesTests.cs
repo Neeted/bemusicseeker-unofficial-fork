@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -127,42 +129,78 @@ public sealed class TemporaryCopyFilesTests
         finally { if (Directory.Exists(root)) { Directory.Delete(root, recursive: true); } }
     }
 
-    /// <summary>実FSへの256件の並列コピーが全件追跡され、回収後も入力元を保持することを確認します。</summary>
-    /// <remarks>実FSのコピー・file lock・借用先の残存を観測し、素材の所有権に応じた回収を確認します。</remarks>
+    /// <summary>8件の実コピーで二つの転送が同時に入場しても全件追跡され、回収後も入力bytesを保持します。</summary>
     [TestMethod]
-    public void Dispose_RemovesEveryFileTrackedDuringParallelCopy()
+    public Task Dispose_RemovesEveryFileTrackedDuringParallelCopy()
+        => AssertParallelCopyOwnership(8, observeWorkers: true);
+
+    /// <summary>既定並列度で256件を転送し、量を増やしても所有fileの追跡と回収、入力保全を維持します。</summary>
+    [TestMethod, TestCategory("Performance")]
+    public Task CopyTracking_RepeatedParallelOwnership()
+        => AssertParallelCopyOwnership(256, observeWorkers: false);
+
+    private static async Task AssertParallelCopyOwnership(int count, bool observeWorkers)
     {
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_TemporaryCopy_" + Guid.NewGuid().ToString("N"));
         string sourceDirectory = Path.Combine(root, "Source");
         string destinationDirectory = Path.Combine(root, "Destination");
         Directory.CreateDirectory(sourceDirectory);
         Directory.CreateDirectory(destinationDirectory);
-        string[] sourceFiles = Enumerable.Range(0, 256)
-            .Select(index => Path.Combine(sourceDirectory, index.ToString("D4") + ".dat"))
-            .ToArray();
+        string[] sourceFiles = Enumerable.Range(0, count)
+            .Select(index => Path.Combine(sourceDirectory, index.ToString("D4") + ".dat")).ToArray();
+        using var release = new ManualResetEventSlim();
+        var bothEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int entered = 0;
+        int active = 0;
+        Task? operation = null;
+        var copies = new temporarilyCopyFiles(transfer: (source, output) =>
+        {
+            Interlocked.Increment(ref active);
+            try
+            {
+                if (observeWorkers && Interlocked.Increment(ref entered) <= 2)
+                {
+                    if (Volatile.Read(ref entered) == 2) { bothEntered.TrySetResult(); }
+                    release.Wait();
+                }
+                using FileStream input = File.OpenRead(source);
+                input.CopyTo(output);
+            }
+            finally { Interlocked.Decrement(ref active); }
+        });
         try
         {
-            foreach (string sourceFile in sourceFiles)
+            foreach (string source in sourceFiles) { File.WriteAllText(source, Path.GetFileName(source)); }
+            operation = Task.Run(() => copies.CopyFiles(sourceFiles, sourceDirectory, destinationDirectory,
+                parallelDegree: observeWorkers ? 2 : null));
+            if (observeWorkers)
             {
-                File.WriteAllText(sourceFile, "test");
+                Task first = await Task.WhenAny(bothEntered.Task, operation);
+                if (first == operation) { await operation; Assert.Fail("二つの転送入場前にコピーが終端しました。"); }
+                await bothEntered.Task;
+                Assert.AreEqual(2, Volatile.Read(ref active));
+                Assert.IsFalse(operation.IsCompleted);
+                release.Set();
             }
-
-            var copies = new temporarilyCopyFiles();
-            using (copies)
+            await operation;
+            Assert.AreEqual(0, Volatile.Read(ref active));
+            foreach (string source in sourceFiles)
             {
-                copies.CopyFiles(sourceFiles, sourceDirectory, destinationDirectory);
-                Assert.IsTrue(sourceFiles.All(source => File.Exists(Path.Combine(destinationDirectory, Path.GetFileName(source)))));
+                Assert.AreEqual(Path.GetFileName(source), File.ReadAllText(Path.Combine(destinationDirectory, Path.GetFileName(source))));
             }
-
+            copies.Dispose();
             Assert.IsFalse(copies.HasCleanupFailure);
-            Assert.IsTrue(sourceFiles.All(source => !File.Exists(Path.Combine(destinationDirectory, Path.GetFileName(source)))));
-            Assert.IsTrue(sourceFiles.All(File.Exists));
+            Assert.AreEqual(0, Directory.GetFiles(destinationDirectory, "*", SearchOption.AllDirectories).Length);
+            foreach (string source in sourceFiles) { Assert.AreEqual(Path.GetFileName(source), File.ReadAllText(source)); }
         }
         finally
         {
-            if (Directory.Exists(root))
+            release.Set();
+            try { if (operation != null) { try { await operation; } catch { /* 本体の元原因を維持して全転送の終端を回収します。 */ } } }
+            finally
             {
-                Directory.Delete(root, recursive: true);
+                copies.Dispose();
+                if (Directory.Exists(root)) { Directory.Delete(root, recursive: true); }
             }
         }
     }

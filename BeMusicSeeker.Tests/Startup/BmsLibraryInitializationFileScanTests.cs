@@ -1413,6 +1413,15 @@ public sealed class BmsLibraryInitializationFileScanTests
     /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_CommitsChunksThroughPostParseWriter()
+        => AssertFileScanChunkCommits(5, 2, new BmsLibraryInitializationService(
+            fileDiffParserDegreeOverride: 1, inlineChartInfoBatchSizeOverride: 2, fileDiffCommitChunkSizeOverride: 2));
+
+    /// <summary>本番既定の10,000行commitと2,048行inline幅で10,001実譜面を保存し、末尾を欠かさず全行を確定します。</summary>
+    [TestMethod, TestCategory("Performance")]
+    public void FileScan_ProductionDefaultsPersistGeneratedLibrary()
+        => AssertFileScanChunkCommits(10_001, 10_000, new BmsLibraryInitializationService());
+
+    private void AssertFileScanChunkCommits(int count, int chunkSize, BmsLibraryInitializationService service)
     {
 
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
@@ -1420,7 +1429,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             string chartDirectoryPath = Path.Combine(lr2RootPath, "ManyAdded");
             Directory.CreateDirectory(chartDirectoryPath);
             List<string> paths = [];
-            for (int i = 0; i < 120; i++)
+            for (int i = 0; i < count; i++)
             {
                 string path = Path.Combine(chartDirectoryPath, "added-" + i.ToString("D4") + ".bms");
                 File.WriteAllText(path, CreateValidBmsText("Added " + i.ToString("D4")), Encoding.ASCII);
@@ -1434,7 +1443,6 @@ public sealed class BmsLibraryInitializationFileScanTests
 
             List<string> events = [];
             object eventLock = new();
-            var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1, inlineChartInfoBatchSizeOverride: 32, fileDiffCommitChunkSizeOverride: 50);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new EverythingNative(ApplicationPathPolicy.Current),
@@ -1471,27 +1479,33 @@ public sealed class BmsLibraryInitializationFileScanTests
                     }
                 });
 
-            Assert.AreEqual(120, result.AddedFiles.Count);
-            Assert.AreEqual(120, result.DbCommitBmsChangedCount);
-            Assert.AreEqual((int)Math.Ceiling(paths.Count / 50.0), result.DbCommitChunks);
-            Assert.AreEqual(120, result.PostParseWorkItemCount);
+            Assert.AreEqual(count, result.AddedFiles.Count);
+            Assert.AreEqual(count, result.DbCommitBmsChangedCount);
+            Assert.AreEqual((int)Math.Ceiling(paths.Count / (double)chunkSize), result.DbCommitChunks);
+            Assert.AreEqual(count, result.PostParseWorkItemCount);
             Assert.IsTrue(result.PostParseWallMs >= 0);
             Assert.IsTrue(result.CommitQueueWaitMs >= 0);
             int firstCommitIndex = events.FindIndex(item => item.Contains("db_commit_chunk_done chunk=1"));
-            int finalProgressIndex = events.FindIndex(item => item == "progress 120/120");
-            int firstCommitChunkProgressIndex = events.FindIndex(item => item == "progress 50/120");
+            int finalProgressIndex = events.FindIndex(item => item == "progress " + count + "/" + count);
+            int firstCommitChunkProgressIndex = events.FindIndex(item => item == "progress " + chunkSize + "/" + count);
             List<string> progressEvents = [.. events.Where(item => item.StartsWith("progress ", StringComparison.Ordinal))];
             Assert.IsTrue(firstCommitIndex >= 0, "first commit chunk log was not recorded.");
-            Assert.AreEqual(121, progressEvents.Count, "file diff progress should be reported for the initial state and each prepared chart.");
-            Assert.IsTrue(progressEvents.Contains("progress 1/120"), "first prepared chart progress was not recorded.");
-            Assert.IsTrue(progressEvents.Contains("progress 119/120"), "near-final per-chart progress was not recorded.");
+            Assert.AreEqual(count + 1, progressEvents.Count, "file diff progress should be reported for the initial state and each prepared chart.");
+            Assert.IsTrue(progressEvents.Contains("progress 1/" + count), "first prepared chart progress was not recorded.");
+            Assert.IsTrue(progressEvents.Contains("progress " + (count - 1) + "/" + count), "near-final per-chart progress was not recorded.");
             Assert.IsTrue(finalProgressIndex >= 0, "final parse progress was not recorded.");
             Assert.IsTrue(firstCommitChunkProgressIndex >= 0, "first commit chunk prepared progress was not recorded.");
             Assert.IsTrue(firstCommitChunkProgressIndex < firstCommitIndex, "file diff progress should report DB-ready rows before their commit completion.");
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
-            Assert.AreEqual(120L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song;"));
-            Assert.AreEqual(120L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
-            Assert.AreEqual(120L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance;"));
+            Assert.AreEqual((long)count, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song;"));
+            Assert.AreEqual((long)count, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
+            Assert.AreEqual((long)count, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance;"));
+            LR2SongDB.song[] rows = [.. verify.Query<LR2SongDB.song>("SELECT * FROM song;")];
+            CollectionAssert.AreEquivalent(paths.ToArray(), rows.Select(row => row.path).ToArray());
+            foreach (LR2SongDB.song row in rows)
+            {
+                Assert.AreEqual("Added " + Path.GetFileNameWithoutExtension(row.path).Substring("added-".Length), row.title);
+            }
         });
     }
 
@@ -1506,7 +1520,7 @@ public sealed class BmsLibraryInitializationFileScanTests
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "ParallelPostParse");
             Directory.CreateDirectory(chartDirectoryPath);
-            const int count = 300;
+            const int count = 7;
             List<string> paths = [];
             for (int i = 0; i < count; i++)
             {
@@ -1523,9 +1537,29 @@ public sealed class BmsLibraryInitializationFileScanTests
             ChartFileSnapshot firstSnapshot = ChartFileContentReader.ReadSnapshot(paths[0]);
             var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.UpsertChartInfos([CreateMinimalChartInfoRow(firstSnapshot.Sha256, firstSnapshot.Md5)]);
-            List<string> logs = [];
-            var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 2, inlineChartInfoBatchSizeOverride: 512, fileDiffCommitChunkSizeOverride: 50);
-            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+            var logs = new ConcurrentQueue<string>();
+            using var release = new ManualResetEventSlim();
+            var bothEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            int calls = 0;
+            int active = 0;
+            var parser = new ChartInfoBuildService(null, parseBytes: (bytes, path, md5, sha256, timeout) =>
+            {
+                Interlocked.Increment(ref active);
+                try
+                {
+                    int call = Interlocked.Increment(ref calls);
+                    if (call <= 2)
+                    {
+                        if (call == 2) { bothEntered.TrySetResult(); }
+                        release.Wait();
+                    }
+                    return ChartInfoParser.ParseBytesDetailed(bytes, path, md5, sha256, timeout: timeout, retainChartString: false);
+                }
+                finally { Interlocked.Decrement(ref active); }
+            });
+            var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 2,
+                chartInfoBuildService: parser, inlineChartInfoBatchSizeOverride: 2, fileDiffCommitChunkSizeOverride: 2);
+            Task<SongTableFileCheckResult> operation = Task.Run(() => service.ApplyFileScanDiff(
                 gateway,
                 new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot(),
@@ -1543,11 +1577,27 @@ public sealed class BmsLibraryInitializationFileScanTests
                 0L,
                 () => null,
                 null,
-                logInstallPerformance: logs.Add);
+                logInstallPerformance: logs.Enqueue));
+            SongTableFileCheckResult result;
+            try
+            {
+                AwaitFileScanFaultStage(bothEntered.Task, operation).GetAwaiter().GetResult();
+                Assert.AreEqual(2, Volatile.Read(ref active));
+                Assert.IsFalse(operation.IsCompleted);
+                release.Set();
+                result = operation.GetAwaiter().GetResult();
+            }
+            finally
+            {
+                release.Set();
+                try { operation.GetAwaiter().GetResult(); } catch { /* 本体の原因を維持して開始済み解析を回収します。 */ }
+            }
+            Assert.AreEqual(6, calls);
+            Assert.AreEqual(0, active);
 
             Assert.AreEqual(count, result.AddedFiles.Count);
             Assert.AreEqual(count, result.PostParseWorkItemCount);
-            Assert.AreEqual((int)Math.Ceiling(count / 50.0), result.DbCommitChunks, "unexpected DB commit chunk count: " + result.DbCommitChunks);
+            Assert.AreEqual((int)Math.Ceiling(count / 2.0), result.DbCommitChunks, "unexpected DB commit chunk count: " + result.DbCommitChunks);
             Assert.AreEqual(count, result.InlineChartInfoTargetCount);
             Assert.AreEqual(1, result.InlineChartInfoCurrentSkippedCount);
             Assert.AreEqual(count, result.InlineMaintenanceSuccessCount);
@@ -1560,70 +1610,138 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(count, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM song;"));
             Assert.AreEqual(count, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
             Assert.AreEqual(count, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM maintenance;"));
+            Assert.AreEqual(7, verify.ExecuteScalar<int>("SELECT level FROM chart_info WHERE sha256 = ?;", firstSnapshot.Sha256), "取得済み詳細は再解析で置き換えません。");
+            foreach (LR2SongDB.song row in verify.Query<LR2SongDB.song>("SELECT * FROM song;"))
+            {
+                Assert.AreEqual("Parallel PostParse " + Path.GetFileNameWithoutExtension(row.path).Substring("added-".Length), row.title);
+            }
         });
     }
 
-    /// <summary>
-    /// streaming writerを最初のcommit開始で失敗させ、pipelineを待ち残さず元の原因でfault終端させる。
-    /// </summary>
+    /// <summary>最初のtransaction開始前のログ故障でも、保持した二つの解析を両方joinして元原因で終端します。</summary>
     [TestMethod]
     public void ApplyFileScanDiff_StreamingWriterFailureDoesNotBlockPipeline()
+        => AssertFileScanWriterFailure(sqlFailure: false);
+
+    /// <summary>第2chunk内の実INSERTを拒否すると、そのchunk全体と末尾を保存せず、第1chunkと全worker終端を保持します。</summary>
+    [TestMethod]
+    public void ApplyFileScanDiff_SecondChunkSqlFailurePreservesCommittedPrefix()
+        => AssertFileScanWriterFailure(sqlFailure: true);
+
+    private void AssertFileScanWriterFailure(bool sqlFailure)
     {
-
-        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        WithTemporaryLr2SongDb((lr2RootPath, songDbPath) =>
         {
-            string chartDirectoryPath = Path.Combine(lr2RootPath, "WriterFailure");
-            Directory.CreateDirectory(chartDirectoryPath);
-            List<string> paths = [];
-            for (int i = 0; i < 160; i++)
+            string chartDirectory = Directory.CreateDirectory(Path.Combine(lr2RootPath, "WriterFailure")).FullName;
+            string[] paths = Enumerable.Range(0, 7).Select(index => Path.Combine(chartDirectory, index + ".bms")).ToArray();
+            foreach (string path in paths) { File.WriteAllText(path, CreateValidBmsText("Writer Failure " + Path.GetFileNameWithoutExtension(path)), Encoding.ASCII); }
+            const string sqlCause = "injected second chunk SQL failure";
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
             {
-                string path = Path.Combine(chartDirectoryPath, "added-" + i.ToString("D4") + ".bms");
-                File.WriteAllText(path, CreateValidBmsText("Writer Failure " + i.ToString("D4")), Encoding.ASCII);
-                paths.Add(path);
+                setup.CreateTable<LR2SongDB.song>();
+                if (sqlFailure)
+                {
+                    setup.Execute("CREATE TRIGGER reject_fourth_song BEFORE INSERT ON song WHEN (SELECT COUNT(*) FROM song) = 3 BEGIN SELECT RAISE(ABORT, '" + sqlCause + "'); END;");
+                }
             }
-
-            using (LR2SongDBExtended songDbConnection = databaseScope.OpenSongWrite(songDbPath))
+            using var releaseFirst = new ManualResetEventSlim();
+            using var releaseSecond = new ManualResetEventSlim();
+            var heldEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var firstHeldExited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var failureReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            int calls = 0;
+            int active = 0;
+            int heldWorkers = 0;
+            var parser = new ChartInfoBuildService(null, parseBytes: (bytes, path, md5, sha256, timeout) =>
             {
-                songDbConnection.CreateTable<LR2SongDB.song>();
-            }
-
-            var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 2, inlineChartInfoBatchSizeOverride: 8, fileDiffCommitChunkSizeOverride: 8);
-            var injectedException = new InvalidOperationException("injected streaming writer failure");
-            Task<SongTableFileCheckResult> task = Task.Run(() => service.ApplyFileScanDiff(
+                Interlocked.Increment(ref active);
+                int call = Interlocked.Increment(ref calls);
+                int firstHeldCall = sqlFailure ? 5 : 3;
+                try
+                {
+                    if (call == firstHeldCall || call == firstHeldCall + 1)
+                    {
+                        if (Interlocked.Increment(ref heldWorkers) == 2) { heldEntered.TrySetResult(); }
+                        (call == firstHeldCall ? releaseFirst : releaseSecond).Wait();
+                    }
+                    return ChartInfoParser.ParseBytesDetailed(bytes, path, md5, sha256, timeout: timeout, retainChartString: false);
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref active);
+                    if (call == firstHeldCall || call == firstHeldCall + 1) { Interlocked.Decrement(ref heldWorkers); }
+                    if (call == firstHeldCall) { firstHeldExited.TrySetResult(); }
+                }
+            });
+            var service = new BmsLibraryInitializationService(2, parser, inlineChartInfoBatchSizeOverride: 2, fileDiffCommitChunkSizeOverride: 2);
+            var injected = new InvalidOperationException("injected streaming writer failure");
+            string[] prefix = [];
+            Task<SongTableFileCheckResult> operation = Task.Run(() => service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
-                new EverythingNative(ApplicationPathPolicy.Current),
-                new BmsLibraryOptionsSnapshot(),
-                [],
+                new EverythingNative(ApplicationPathPolicy.Current), new BmsLibraryOptionsSnapshot(), [],
                 new ChartScanExecutionResult
                 {
                     Success = true,
-                    Result = CreateScanResult(
-                        paths,
-                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
-                        {
-                            { chartDirectoryPath, Array.Empty<string>() }
-                        })
-                },
-                0L,
-                () => null,
-                null,
-                logInstallPerformance: delegate (string message)
+                    Result = CreateScanResult(paths, new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { [chartDirectory] = [] })
+                }, 0L, () => null, null,
+                logInstallPerformance: message =>
                 {
-                    if (message.Contains("song_tbl_file_check db_commit_chunk_start chunk=1"))
+                    if (sqlFailure && message.Contains("db_commit_chunk_done chunk=1", StringComparison.Ordinal))
                     {
-                        throw injectedException;
+                        using LR2SongDBExtended readback = databaseScope.OpenSongReadOnly(songDbPath);
+                        prefix = readback.Query<LR2SongDB.song>("SELECT * FROM song;").Select(row => row.path).ToArray();
                     }
+                    if (message.Contains("db_commit_chunk_start chunk=" + (sqlFailure ? 2 : 1), StringComparison.Ordinal))
+                    {
+                        heldEntered.Task.GetAwaiter().GetResult();
+                        if (!sqlFailure) { failureReached.TrySetResult(); throw injected; }
+                    }
+                },
+                logInstallPerformanceWarn: message =>
+                {
+                    if (sqlFailure && message.Contains("db_commit_chunk_failed chunk=2", StringComparison.Ordinal)
+                        && message.Contains(sqlCause, StringComparison.Ordinal)) { failureReached.TrySetResult(); }
                 }));
-
             try
             {
-                task.Wait();
+                AwaitFileScanFaultStage(failureReached.Task, operation).GetAwaiter().GetResult();
+                Assert.AreEqual(2, Volatile.Read(ref active));
+                Assert.IsFalse(operation.IsCompleted, "故障後も保持した開始済み解析の終端を待ちます。");
+                releaseFirst.Set();
+                AwaitFileScanFaultStage(firstHeldExited.Task, operation).GetAwaiter().GetResult();
+                Assert.AreEqual(1, Volatile.Read(ref heldWorkers));
+                Assert.IsFalse(operation.IsCompleted, "一つの解析が終わっても、残る開始済み解析のjoin前には終端しません。");
+                releaseSecond.Set();
+                Exception failure = Assert.Throws<Exception>(() => operation.GetAwaiter().GetResult());
+                if (sqlFailure) { StringAssert.Contains(failure.ToString(), sqlCause); }
+                else
+                {
+                    Assert.IsInstanceOfType<AggregateException>(failure);
+                    Assert.IsTrue(((AggregateException)failure).Flatten().InnerExceptions.Contains(injected), "pipelineの集約例外内に同じ元原因を保持します。");
+                }
+                Assert.AreEqual(0, Volatile.Read(ref active));
+                using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
+                LR2SongDB.song[] saved = [.. verify.Query<LR2SongDB.song>("SELECT * FROM song;")];
+                Assert.AreEqual(sqlFailure ? 2 : 0, saved.Length);
+                CollectionAssert.AreEquivalent(prefix, saved.Select(row => row.path).ToArray());
+                foreach (LR2SongDB.song row in saved)
+                {
+                    Assert.IsTrue(paths.Contains(row.path));
+                    Assert.AreEqual("Writer Failure " + Path.GetFileNameWithoutExtension(row.path), row.title);
+                }
+                if (sqlFailure)
+                {
+                    Assert.AreEqual(2, prefix.Length);
+                    Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_info;"));
+                    Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance;"));
+                }
             }
-            catch (AggregateException)
+            finally
             {
+                releaseFirst.Set();
+                releaseSecond.Set();
+                try { operation.GetAwaiter().GetResult(); } catch { /* 元原因を維持して全pipelineを回収してからDBを解放します。 */ }
             }
-            Assert.IsTrue(task.IsFaulted, "streaming writer failure should fault the pipeline.");
-            StringAssert.Contains(task.Exception.ToString(), injectedException.Message);
         });
     }
 

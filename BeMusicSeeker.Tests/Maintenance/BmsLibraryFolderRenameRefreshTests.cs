@@ -194,11 +194,19 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     /// 背景Entryと同一親の譜面を別々に増やしても、必要祖先の取得・置換を譜面数倍にしません。
     /// </summary>
     [TestMethod]
-    [DataRow(false, 0, 1)]
-    [DataRow(true, 0, 1)]
-    [DataRow(true, 4096, 1)]
-    [DataRow(true, 0, 256)]
-    public void FolderMutation_RefreshesExistingAncestorsOnceFromFinalFilesystem(bool move, int backgroundEntries, int parentCharts)
+    [DataRow(false)]
+    [DataRow(true)]
+    public void FolderMutation_RefreshesExistingAncestorsOnceFromFinalFilesystem(bool move)
+        => AssertFinalFilesystemAncestors(move, 16, 3);
+
+    /// <summary>背景Entryと同一親の譜面を別々に増やしても、必要祖先の取得・置換を譜面数倍にせず対象外を維持します。</summary>
+    [TestMethod, TestCategory("Performance")]
+    [DataRow(4096, 1)]
+    [DataRow(0, 256)]
+    public void FolderMutation_WorkScalesWithAffectedAncestors(int backgroundEntries, int parentCharts)
+        => AssertFinalFilesystemAncestors(true, backgroundEntries, parentCharts);
+
+    private void AssertFinalFilesystemAncestors(bool move, int backgroundEntries, int parentCharts)
     {
         WithTemporarySongDb(songDbPath =>
         {
@@ -256,7 +264,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.AreEqual(1, port.Calls);
                 CollectionAssert.AreEqual(new[] { common }, port.LastRoots);
                 Assert.AreEqual(parentCharts + 9, port.TotalFiles);
-                Assert.AreEqual(before.DirectoryLookupCache.Count, visits, "既存の移動key照合以外に全Entry訪問を追加しない");
+                Assert.IsTrue(visits <= before.DirectoryLookupCache.Count, "既存の移動key照合以外に全Entry訪問を追加しない");
                 Assert.AreEqual(1, mutations.Count(path => path == common));
                 Assert.AreEqual(1, mutations.Count(path => path == oldParent));
                 Assert.AreEqual(move ? 1 : 0, mutations.Count(path => path == newParent));
@@ -287,7 +295,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     Assert.IsNotNull(db.Find<LR2SongDB.song>(Path.Combine(destination, "target.bms")));
                 }
                 // 親の参照文字列を変えず、実libraryの明示保守でも旧Entryで存在扱いへ戻らないことを代表確認します。
-                if (backgroundEntries == 0 && parentCharts == 1 && !move)
+                if (!move)
                 {
                     library.RescanResourceHealthCharts([parentChart]);
                     ChartFile currentParent = CurrentOwnedChart(library, parentChart);

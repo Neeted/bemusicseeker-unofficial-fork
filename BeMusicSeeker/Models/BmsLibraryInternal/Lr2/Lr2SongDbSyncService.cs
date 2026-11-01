@@ -20,6 +20,9 @@ internal sealed record Lr2SongDbSyncCurrentFact(ChartFile Chart, bool HasLevel, 
 /// <summary>一回の全体同期の生成入力とrun IDを渡します。保存済みカーソルを新しい実行の開始位置に使いません。</summary>
 internal sealed class Lr2SongDbSyncRequest
 {
+    /// <summary>この要求だけの実行幅です。省略時は既存のCPU算出と1,000行commitを使い、永続署名や保存形式には含めません。</summary>
+    public Lr2SongSyncExecutionOptions ExecutionOptions { get; init; }
+
     public string RunId { get; set; }
 
     public IReadOnlyCollection<string> RootDirectories { get; set; } = [];
@@ -995,19 +998,20 @@ internal static class Lr2SongDbSyncService
         BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
         BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
         ChartInfoBuildService effectiveChartInfoBuildService = request?.ChartInfoBuildService ?? chartInfoBuildService;
-        const int songRowSyncChunkSize = 1000;
+        Lr2SongSyncExecutionOptions executionOptions = request?.ExecutionOptions;
+        int songRowSyncChunkSize = executionOptions?.ChunkSize ?? 1000;
         int processorCount = Environment.ProcessorCount;
-        int workerDegree = ResolveSongRowSyncWorkerDegree(processorCount);
+        int workerDegree = executionOptions?.WorkerCount ?? ResolveSongRowSyncWorkerDegree(processorCount);
         workerDegree = Math.Max(1, Math.Min(workerDegree, targetRows.Count - safeStartIndex));
         int remainingTargetCount = targetRows.Count - safeStartIndex;
         int readerDegree = ResolveSongRowSyncReaderDegree(processorCount, remainingTargetCount);
-        int orderingWindowCapacity = ResolveSongRowSyncOrderingWindowCapacity(
+        int orderingWindowCapacity = executionOptions?.OrderingWindowCapacity ?? ResolveSongRowSyncOrderingWindowCapacity(
             songRowSyncChunkSize,
             workerDegree,
             readerDegree,
             remainingTargetCount);
-        int readQueueCapacity = ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(workerDegree, readerDegree);
-        int computedQueueCapacity = Math.Max(songRowSyncChunkSize * 2, workerDegree * 32);
+        int readQueueCapacity = executionOptions?.ReadQueueCapacity ?? ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(workerDegree, readerDegree);
+        int computedQueueCapacity = executionOptions?.ComputedQueueCapacity ?? Math.Max(songRowSyncChunkSize * 2, workerDegree * 32);
         int processed = 0;
         int evaluatedStageProcessedCount = safeStartIndex;
         int committedProcessedCursor = baseProcessedCursor + safeStartIndex;
@@ -1125,7 +1129,7 @@ internal static class Lr2SongDbSyncService
             + " readerDegree=" + readerDegree
             + " workerDegree=" + workerDegree
             + " processorCount=" + processorCount
-            + " maxWorkerDegree=" + SongRowSyncMaxWorkerDegree
+            + " maxWorkerDegree=" + (executionOptions?.WorkerCount ?? SongRowSyncMaxWorkerDegree)
             + " orderingWindowCapacity=" + orderingWindowCapacity
             + " readQueueCapacity=" + readQueueCapacity
             + " computedQueueCapacity=" + computedQueueCapacity);
