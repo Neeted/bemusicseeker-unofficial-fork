@@ -17,7 +17,7 @@ public sealed class MainChartColumnSettingsBoundaryTests
     public async Task CompositionSharesColumnSettingsStoreAcrossMainTableAndSummaryCoordinator()
     {
         var store = new FakeMainChartColumnSettingsStore();
-        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
         {
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
         };

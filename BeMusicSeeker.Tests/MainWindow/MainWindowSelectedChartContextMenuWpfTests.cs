@@ -399,7 +399,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
 
                     MenuItem encoding = FindMenuItem(menu, "tableContextMenuItemFixEncoding").Items.OfType<MenuItem>().First();
                     RoutedEventArgs? encodingArgs = null;
-                    encodingTerminal = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => encodingArgs = RaiseMenuClick(encoding));
+                    encodingTerminal = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => encodingArgs = RaiseMenuClick(encoding));
                     Assert.IsFalse(encodingTerminal.IsCompleted);
                     Assert.AreEqual("shift_jis", encodingRequest!.Encoding);
                     Assert.AreEqual(1, encodingRequest!.Charts.Count);
@@ -1098,7 +1098,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 MenuItem item = failureKind >= 2
                     ? FindMenuItem(menu, "tableContextMenuItemFixEncoding").Items.OfType<MenuItem>().First()
                     : FindMenuItem(menu, "tableContextMenuItemRenameInvalidExt");
-                Task terminal = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(item));
+                Task terminal = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(item));
                 try
                 {
                     CollectionAssert.AreEqual(new[] { row.Chart.Path }, paths);
@@ -1171,7 +1171,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
                 var menu = (ContextMenu)window.FindResource("tableContextMenu");
                 menu.PlacementTarget = new FrameworkElement { DataContext = row };
-                Task terminal = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(
+                Task terminal = MainWindowEventCompletion.CaptureAsyncEventCompletion(
                     () => RaiseMenuClick(FindMenuItem(menu, "tableContextMenuItemRenameInvalidExt")));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "selected receipt event terminal");
                 Assert.AreEqual(1, dialogs.Messages.Count);
@@ -1226,7 +1226,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                         Assert.AreEqual(0, calls);
                         for (int i = 0; i < 2; i++)
                         {
-                            Task terminal = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(item));
+                            Task terminal = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(item));
                             TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "chart-properties-menu");
                             TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(
                                 entered[i].Task, window.ChartPropertiesWindows.ReadCompletion, "chart-properties-reader"), "chart-properties-reader");
@@ -1241,7 +1241,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                         table.SelectRowsByPredicate(candidate => ReferenceEquals(candidate, second));
                         OpenContextMenu(menu);
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                            MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(item)), "chart-properties-menu-b");
+                            MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(item)), "chart-properties-menu-b");
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(
                             entered[2].Task, window.ChartPropertiesWindows.ReadCompletion, "chart-properties-reader-b"), "chart-properties-reader-b");
                         release.Set();
@@ -1335,7 +1335,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                     OpenContextMenu(menu);
                     MenuItem item = FindMenuItem(menu, "tableContextMenuItemChartProperties");
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                        MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(item)), "chart-properties-show-failure");
+                        MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(item)), "chart-properties-show-failure");
                     Assert.IsNotNull(child);
                     Assert.IsTrue(child.ThemeCloseCompleted);
                     Assert.IsFalse(child.IsVisible);

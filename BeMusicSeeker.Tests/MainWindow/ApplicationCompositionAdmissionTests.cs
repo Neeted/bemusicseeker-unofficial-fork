@@ -42,7 +42,7 @@ public sealed partial class ApplicationCompositionTests
         values.UsePlayerBMIIDXView = false;
         values.IsLR2BackupEnabled = false;
         var session = new FakeSettingsEditSession { Values = values };
-        var player = new PlaybackPanelViewModelTests.FakeBmsPlayer();
+        var player = new FakeBmsPlayer();
         var dialogs = new FileDbReportRecordingDialogs();
         var composition = new ApplicationComposition(settingsEditSession: session,
             defaultBmsPlayerFactory: () => player, uiScheduler: new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher),
@@ -149,7 +149,7 @@ public sealed partial class ApplicationCompositionTests
         values.LR2ConfigXmlPath = TestLr2ConfigFactory.CreateLr2Config(scope.DirectoryPath).ConfigFilePath;
         values.Save();
         var session = new FakeSettingsEditSession { Values = values, PersistOwnedValues = true };
-        var player = new PlaybackPanelViewModelTests.FakeBmsPlayer();
+        var player = new FakeBmsPlayer();
         var dialogs = new FileDbReportRecordingDialogs();
         var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true };
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -265,7 +265,7 @@ public sealed partial class ApplicationCompositionTests
             ignore_folder_output = BeMusicSeeker.Models.LR2.LR2SongDBExtended.playlist.CustomFolderType.AllFolders
                 & ~BeMusicSeeker.Models.LR2.LR2SongDBExtended.playlist.CustomFolderType.UserFolder
                 & ~BeMusicSeeker.Models.LR2.LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
-            entries = [BmsPlaylistTestSupport.CreateEntry(new string('a', 32), "Folder A")],
+            entries = [PlaylistTestFixture.CreateEntry(new string('a', 32), "Folder A")],
             Folder_order = ["Folder A"]
         };
         playlist.BMSTables = new System.Collections.ObjectModel.ObservableCollection<BMSTable>([table]);
@@ -345,7 +345,7 @@ public sealed partial class ApplicationCompositionTests
                 & ~BeMusicSeeker.Models.LR2.LR2SongDBExtended.playlist.CustomFolderType.UserFolder
                 & ~BeMusicSeeker.Models.LR2.LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
                 & ~BeMusicSeeker.Models.LR2.LR2SongDBExtended.playlist.CustomFolderType.OtherFolder,
-            entries = [BmsPlaylistTestSupport.CreateEntry(new string('a', 32), "Folder A")],
+            entries = [PlaylistTestFixture.CreateEntry(new string('a', 32), "Folder A")],
             Folder_order = ["Folder A"]
         };
         playlist.BMSTables = new System.Collections.ObjectModel.ObservableCollection<BMSTable>([table]);
@@ -457,7 +457,7 @@ public sealed partial class ApplicationCompositionTests
             ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
                 & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
                 & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
-            entries = [BmsPlaylistTestSupport.CreateEntry(new string('a', 32), "Daily Folder")],
+            entries = [PlaylistTestFixture.CreateEntry(new string('a', 32), "Daily Folder")],
             Folder_order = ["Daily Folder"]
         };
         var runtime = new BmsLr2SongDbSyncWorkflowRuntime(() => library, () => playlist, () => lr2Mode);

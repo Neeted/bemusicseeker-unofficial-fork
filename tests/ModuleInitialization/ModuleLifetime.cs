@@ -1,3 +1,4 @@
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 
 namespace BeMusicSeeker.Tests.Infrastructure;
@@ -9,4 +10,8 @@ public sealed class ModuleLifetime
     /// <summary>テストケースの開始前に一回だけ実行領域を確定します。</summary>
     [AssemblyInitialize]
     public static void Initialize(TestContext context) => _ = TestRunDirectory.RootDirectory;
+
+    /// <summary>画面を起動せず、全ケースの終端後に共有設定fixtureの専有領域を回収します。</summary>
+    [AssemblyCleanup]
+    public static void Cleanup() => TestSettingsFactory.CleanupIsolatedSettingsDirectories();
 }

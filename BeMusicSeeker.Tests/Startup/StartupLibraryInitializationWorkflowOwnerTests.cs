@@ -29,7 +29,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
         using var gate = new SemaphoreSlim(1, 1);
         var owner = new StartupLibraryInitializationWorkflowOwner(databaseScope, new BmsDatabaseLoadOptions(true, true, true), gate);
         var messages = new List<string>();
-        var dialogs = new MainWindowViewModelStartupProgressTests.CompletionDialogs
+        var dialogs = new StartupCompletionTestFixture.CompletionDialogs
         {
             MessageObservedAsync = request =>
             {
@@ -69,7 +69,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         int count = 0;
         bool stopped = false;
-        var dialogs = new MainWindowViewModelStartupProgressTests.CompletionDialogs
+        var dialogs = new StartupCompletionTestFixture.CompletionDialogs
         {
             MessageObservedAsync = _ => { count++; entered.TrySetResult(); return release.Task; }
         };

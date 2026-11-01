@@ -25,7 +25,7 @@ public sealed partial class MainWindowViewHostTests
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
             var lifetime = new RecordingApplicationLifetime(firstStartup: fromSettings);
-            using var fixture = new MainWindowViewModelStartupProgressTests.CompletionFixture(lr2Mode: true, lifetime: lifetime);
+            using var fixture = new StartupCompletionTestFixture.CompletionFixture(lr2Mode: true, lifetime: lifetime);
             fixture.OptionalRelease.TrySetResult();
             fixture.Owner.StartupUpdateWorkflow.NotifyClosing();
             string database = fixture.Library.InitializationSongDbPath;

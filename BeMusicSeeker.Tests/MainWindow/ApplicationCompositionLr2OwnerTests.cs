@@ -24,7 +24,7 @@ public sealed partial class ApplicationCompositionTests
         string executable = Path.Combine(root, "LR2body.exe");
         File.WriteAllBytes(executable, []);
         File.WriteAllText(path, "<config><player><id>original</id></player><jukebox><path>A</path></jukebox></config>");
-        var gateway = new ExternalPlayerProcessGatewayTests.RecordingExternalPlayerProcessGateway();
+        var gateway = new RecordingExternalPlayerProcessGateway();
         gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
         var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new FakeSettingsEditSession { Values = testSettings },
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), externalPlayerProcessGateway: gateway,
@@ -39,7 +39,7 @@ public sealed partial class ApplicationCompositionTests
                 File.WriteAllText(path, "<external-broken");
                 gateway.Session.KeepRunning = true;
                 IBMSPlayer player = composition.CreateBmsPlayerForSettings(settings);
-                ((IExternalWindowPlayer)player).AttachWindowHost(new ExternalPlayerProcessGatewayTests.RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99))));
+                ((IExternalWindowPlayer)player).AttachWindowHost(new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99))));
                 try
                 {
                     player.PlayStart(Path.Combine(root, "test.bms"));

@@ -41,7 +41,7 @@ public sealed class MainWindowPlaybackWpfTests
             });
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(settings, (scope, viewModel, window) =>
             {
-                var player = new PlaybackPanelViewModelTests.FakeBmsPlayer();
+                var player = new FakeBmsPlayer();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.ReplacePlayerAsync(player), "current-cell-replace-player");
                 ChartFile a = ChartTestValues.Empty() with { Path = aPath, Md5 = new string('a', 32), RawTitle = "A" };
                 ChartFile b = ChartTestValues.Empty() with { Path = bPath, Md5 = new string('b', 32), RawTitle = "B" };
@@ -149,7 +149,7 @@ public sealed class MainWindowPlaybackWpfTests
                 TestSettingsFactory.CreateIsolatedSettings(),
                 (scope, viewModel, window) =>
                 {
-                    var player = new PlaybackPanelViewModelTests.FakeBmsPlayer();
+                    var player = new FakeBmsPlayer();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.ReplacePlayerAsync(player), "range-replace-player");
                     ChartFile first = ChartTestValues.Empty() with { Path = firstPath, RawTitle = "先頭の題名", Subtitle = "先頭の字幕", RawArtist = "先頭の作者" };
                     ChartFile last = ChartTestValues.Empty() with { Path = lastPath, RawTitle = "末尾の題名", Subtitle = "末尾の字幕", RawArtist = "末尾の作者" };
@@ -310,13 +310,13 @@ public sealed class MainWindowPlaybackWpfTests
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog());
                 MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
                 var ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
-                var processGateway = new ExternalPlayerProcessGatewayTests.RecordingExternalPlayerProcessGateway();
+                var processGateway = new RecordingExternalPlayerProcessGateway();
                 processGateway.Session.KeepRunning = true;
                 processGateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
                 int starts = 0;
                 processGateway.Session.BeforeStart = () => starts++;
                 var player = new BMIIDXView2015(executable,
-                    new ExternalPlayerProcessGatewayTests.RecordingPlayerSettingsGateway(), processGateway);
+                    new RecordingPlayerSettingsGateway(), processGateway);
                 ownership.Run(() =>
                 {
                     try
@@ -331,7 +331,7 @@ public sealed class MainWindowPlaybackWpfTests
                         viewModel.MainChartList.SelectedIndex = 0;
                         MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
                         var panelView = (PlaybackPanelView)window.FindName("playbackPanelView");
-                        viewModel.PlaybackPanel.AttachWindowHost(new ExternalPlayerProcessGatewayTests.RecordingExternalPlayerWindowHost(
+                        viewModel.PlaybackPanel.AttachWindowHost(new RecordingExternalPlayerWindowHost(
                             new ExternalWindowHandle(panelView.PlayerHostHandle)));
                         var table = (CustomTableView)window.FindName("customTableView");
                         table.SelectRowsByPredicate(row => ReferenceEquals(row, chart));
@@ -378,7 +378,7 @@ public sealed class MainWindowPlaybackWpfTests
         string path = Path.GetTempFileName();
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var player = new PlaybackPanelViewModelTests.PreloadBmsPlayer
+        var player = new PreloadBmsPlayer
         {
             SupportsBmson = true,
             Ready = ready.Task,
@@ -688,7 +688,7 @@ public sealed class MainWindowPlaybackWpfTests
         string path = Path.GetTempFileName();
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var player = new PlaybackPanelViewModelTests.PreloadBmsPlayer
+        var player = new PreloadBmsPlayer
         {
             SupportsBmson = true,
             Ready = ready.Task,

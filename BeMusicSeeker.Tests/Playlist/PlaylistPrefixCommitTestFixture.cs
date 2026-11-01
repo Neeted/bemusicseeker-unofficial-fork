@@ -36,7 +36,7 @@ internal sealed class PlaylistPrefixCommitTestFixture : IAsyncDisposable
     internal PlaylistPrefixCommitTestFixture(bool enableBmtOutput = false)
     {
         Directory.CreateDirectory(directory);
-        SongDb = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+        SongDb = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
         PlaylistPersistenceRepository.EnsureSchema(databaseScope, SongDb);
         string header = Path.Combine(directory, "header.json"), data = Path.Combine(directory, "data.json");
         HeaderPath = header;
@@ -78,7 +78,7 @@ internal sealed class PlaylistPrefixCommitTestFixture : IAsyncDisposable
         Playlist.BMSTables = new ObservableCollection<BMSTable>([Table]);
         Playlist.CommitBMSTableWithEntriesToDB(Table);
         Service = new PlaylistPropertySaveService(() => Playlist, () => Library, () => null!, () => new CustomFolderOutputSettingsSnapshot());
-        Workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _, playlistStoreProvider: () => Playlist,
+        Workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _, playlistStoreProvider: () => Playlist,
             playlistLibraryProvider: () => Library, propertySaveService: Service, dispatchPresentation: action => action());
 
         Workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };

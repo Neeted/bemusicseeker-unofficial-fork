@@ -11,9 +11,9 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-
 using static BeMusicSeeker.Tests.PlaylistWorkspaceFixtureFactory;
 using static BeMusicSeeker.Tests.PlaylistWorkspaceTestDataSupport;
+using static BeMusicSeeker.TestSupport.Components.SharedPlaylistWorkspaceFixture;
 using PlaylistWorkspaceViewModelTests = BeMusicSeeker.Tests.PlaylistWorkspaceExternalSourceTests;
 
 namespace BeMusicSeeker.Tests;
@@ -445,21 +445,21 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             _ => { },
             logs.Add,
             () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            PlaylistWorkspaceFixturePorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceFixturePorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceFixturePorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceFixturePorts.PlaylistUrlInstallSink,
+            PlaylistWorkspaceFixturePorts.PlaylistUrlBrowserOpenSink,
+            PlaylistWorkspaceFixturePorts.ExternalPlaylistImportWarningLog,
+            PlaylistWorkspaceFixturePorts.ExternalPlaylistImportInfoLog,
+            PlaylistWorkspaceFixturePorts.BeatorajaTableUrlImportWarningLog,
+            PlaylistWorkspaceFixturePorts.BeatorajaTableUrlImportInfoLog,
+            PlaylistWorkspaceFixturePorts.PlaylistSummaryColumnSettingsStore,
+            PlaylistWorkspaceFixturePorts.PlaylistSummaryBmtSortCoordinator,
+            PlaylistWorkspaceFixturePorts.KeywordSearchHistorySettingsStore,
+            PlaylistWorkspaceFixturePorts.KeywordSearchFavoritesSettingsStore,
+            PlaylistWorkspaceFixturePorts.PlaylistStoreProvider,
+            PlaylistWorkspaceFixturePorts.PlaylistPropertySaveService,
             () => null!,
             () => null!,
             _ => { },
@@ -471,7 +471,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck);
         var buildEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var buildRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var dataSource = new FakePlaylistDetailDataSource

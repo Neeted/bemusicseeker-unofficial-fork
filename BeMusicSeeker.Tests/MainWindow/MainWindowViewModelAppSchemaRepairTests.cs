@@ -29,7 +29,7 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
         var owner = new StartupLibraryInitializationWorkflowOwner(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), gate);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var dialogs = new MainWindowViewModelStartupProgressTests.CompletionDialogs
+        var dialogs = new StartupCompletionTestFixture.CompletionDialogs
         { ConfirmationObservedAsync = _ => { entered.TrySetResult(); return release.Task; } };
         string[] before;
         using (LR2SongDBExtended db = gateway.OpenSongDbReadOnly()) { before = db.Query<SchemaRow>("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY name").Select(row => row.sql).ToArray(); }
@@ -66,7 +66,7 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
         using var gate = new SemaphoreSlim(1, 1);
         var owner = new StartupLibraryInitializationWorkflowOwner(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), gate);
         var settings = new StartupSettingsSnapshot { LR2SongDBPath = scope.SongDbPath };
-        var dialogs = new MainWindowViewModelStartupProgressTests.CompletionDialogs { ConfirmationResult = MessageBoxResult.OK };
+        var dialogs = new StartupCompletionTestFixture.CompletionDialogs { ConfirmationResult = MessageBoxResult.OK };
         (AppSchemaPreflightResult Approval, bool ExitRequested) prepared = await owner.PrepareSchemaAsync(settings, dialogs, () => false);
         Assert.IsFalse(prepared.ExitRequested); Assert.IsNotNull(prepared.Approval);
         (AppSchemaPreflightResult Approval, bool ExitRequested) repeated = await owner.PrepareSchemaAsync(settings, dialogs, () => false);

@@ -182,7 +182,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.AreEqual(estimateCount, estimates.Count);
                     Assert.AreEqual(0, installs.Count);
-                    installEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(
+                    installEvent = MainWindowEventCompletion.CaptureAsyncEventCompletion(
                         () => buttons[1].RaiseEvent(new RoutedEventArgs(Button.ClickEvent, buttons[1])));
                     Assert.IsFalse(installEvent.IsCompleted);
                     Assert.AreEqual(PendingInstallPackageOperationKind.ManualInstall, installs.Single().Kind);
@@ -312,7 +312,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
 
     private static void ClickPendingBar(Button button)
     {
-        Task completion = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(
+        Task completion = MainWindowEventCompletion.CaptureAsyncEventCompletion(
             () => button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, button)));
         TestUiDispatcherHost.AwaitTaskOnDispatcher(completion, "pending-bar click consumer");
     }

@@ -46,7 +46,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
         if (scenario == "reset-failure") { input.BlockReset(databaseScope, scope.SongDbPath); }
         string originalHash = ChartFileContentReader.ReadSnapshot(input.A).Sha256;
         FileStream? held = input.LockB();
-        var dialogs = new MainWindowViewModelStartupProgressTests.CompletionDialogs();
+        var dialogs = new StartupCompletionTestFixture.CompletionDialogs();
         dialogs.PendingRestoreObservedAsync = () =>
         {
             Assert.AreEqual(3, gateway.LoadInstallPackages().Count, "復元失敗・削除失敗のどちらも、正常不存在を含む全行を保持します。");
@@ -118,7 +118,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
             notifications++;
             throw expected;
         };
-        var dialogs = new MainWindowViewModelStartupProgressTests.CompletionDialogs();
+        var dialogs = new StartupCompletionTestFixture.CompletionDialogs();
         try
         {
             LibraryFileInitializationResult files = library.InitializeStartup([], null, PerformanceInteraction.Start("pending-publication-workflow"),
@@ -175,7 +175,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
         using FileStream held = input.LockB();
         var expected = new IOException("dialog delivery failed");
         bool shutdown = scenario == "already-closing";
-        var dialogs = new MainWindowViewModelStartupProgressTests.CompletionDialogs
+        var dialogs = new StartupCompletionTestFixture.CompletionDialogs
         {
             PendingRestoreObservedAsync = () =>
             {

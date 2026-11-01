@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -94,7 +93,7 @@ public sealed class MainWindowTreePresentationWpfTests
             fileLoggerProvider.SetValue(null, (Func<Logger>)(() => logger));
             List<string> calls = [];
             List<UiMessageRequest> messages = [];
-            var dialogs = new MainWindowViewModelStartupProgressTests.CompletionDialogs
+            var dialogs = new StartupCompletionTestFixture.CompletionDialogs
             {
                 MessageObservedAsync = request => { messages.Add(request); return Task.CompletedTask; }
             };
@@ -119,8 +118,8 @@ public sealed class MainWindowTreePresentationWpfTests
                         Assert.IsFalse(folderItems[0] is Separator); Assert.IsFalse(folderItems[^1] is Separator);
                         for (int i = 1; i < folderItems.Length; i++) { Assert.IsFalse(folderItems[i] is Separator && folderItems[i - 1] is Separator); }
                         MenuItem[] normal = normalMenu.Items.OfType<MenuItem>().Take(2).ToArray();
-                        reloadEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(normal[0]));
-                        reinitializeEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(normal[1]));
+                        reloadEvent = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(normal[0]));
+                        reinitializeEvent = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(normal[1]));
                         Assert.IsFalse(reloadCompletion.Task.IsCompleted);
                         Assert.IsFalse(reinitializeCompletion.Task.IsCompleted);
                         if (shutdown)
@@ -461,34 +460,6 @@ public sealed class MainWindowTreePresentationWpfTests
 
 internal static class MainWindowPresentationTestHarness
 {
-    /// <summary>compiledイベントのasync void寿命を現在のDispatcherへ接続し、Taskや通知の完了から推測せず実ハンドラー終端を返します。</summary>
-    internal static Task CaptureAsyncEventCompletion(Action raiseEvent)
-    {
-        SynchronizationContext original = SynchronizationContext.Current
-            ?? throw new InvalidOperationException("The event fixture requires the WPF synchronization context.");
-        var context = new EventCompletionContext(original);
-        SynchronizationContext.SetSynchronizationContext(context);
-        try { raiseEvent(); }
-        finally { SynchronizationContext.SetSynchronizationContext(original); }
-        return context.Completion.Task;
-    }
-
-    /// <summary>async voidの開始・終端通知だけを観測し、処理・例外の配送は実Dispatcherへ委譲します。</summary>
-    private sealed class EventCompletionContext(SynchronizationContext original) : SynchronizationContext
-    {
-        internal TaskCompletionSource Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private int activeOperations;
-        public override void OperationStarted() { Interlocked.Increment(ref activeOperations); original.OperationStarted(); }
-        public override void OperationCompleted()
-        {
-            original.OperationCompleted();
-            if (Interlocked.Decrement(ref activeOperations) == 0) { Completion.TrySetResult(); }
-        }
-        public override void Post(SendOrPostCallback callback, object? state) => original.Post(callback, state);
-        public override void Send(SendOrPostCallback callback, object? state) => original.Send(callback, state);
-        public override SynchronizationContext CreateCopy() => this;
-    }
-
     /// <summary>constructor-onlyの表示保証に不要な実起動を、既存のactivation境界で抑止します。</summary>
     /// <remarks>実起動はMainWindowViewHostTestsとPlaylistのActualMainWindowFixtureが本番経路を検証します。</remarks>
     internal static void PrepareConstructorOnlyShell(MainWindowViewModel viewModel)

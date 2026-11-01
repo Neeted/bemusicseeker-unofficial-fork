@@ -65,7 +65,7 @@ public sealed class PlaylistSummaryPerformanceTests
                 lock (scheduled) { scheduled.Add(task); }
                 return task;
             }
-            using PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _,
+            using PlaylistWorkspaceViewModel workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _,
                 playlistStoreProvider: () => fixture.Playlist, playlistLibraryProvider: () => fixture.Library,
                 propertySaveService: fixture.Service, presentationRefreshDeferredProvider: _ => true,
                 restoreUiApplyScheduler: Schedule, restoreUiThreadCheck: () => TestUiDispatcherHost.Dispatcher.CheckAccess(),

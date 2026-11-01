@@ -35,7 +35,7 @@ public sealed class ResourceBearingNestedReinitializeTests
             File.WriteAllBytes(Path.Combine(child, "child.wav"), [3, 4]);
             try
             {
-                using var fixture = new MainWindowViewModelStartupProgressTests.CompletionFixture();
+                using var fixture = new StartupCompletionTestFixture.CompletionFixture();
                 fixture.OptionalRelease.TrySetResult();
                 ExecuteSongDbFixtureTransaction(fixture.Composition.DatabaseScope, fixture.Library.InitializationSongDbPath, db =>
                 {

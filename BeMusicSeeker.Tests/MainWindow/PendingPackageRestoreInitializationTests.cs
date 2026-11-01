@@ -29,7 +29,7 @@ public sealed class PendingPackageRestoreInitializationTests
         {
             using var input = new PendingRestoreInput();
             var failures = new List<StartupLibraryInitializationFailurePresentation>();
-            using var fixture = new MainWindowViewModelStartupProgressTests.CompletionFixture(
+            using var fixture = new StartupCompletionTestFixture.CompletionFixture(
                 new FailureRecorder(failures));
             fixture.OptionalRelease.TrySetResult();
             input.Register(fixture.Composition.DatabaseScope, fixture.Library.InitializationSongDbPath);
@@ -105,7 +105,7 @@ public sealed class PendingPackageRestoreInitializationTests
         TestUiDispatcherHost.Invoke(() =>
         {
             using var input = new PendingRestoreInput();
-            using var fixture = new MainWindowViewModelStartupProgressTests.CompletionFixture();
+            using var fixture = new StartupCompletionTestFixture.CompletionFixture();
             fixture.Settings.AutoInstallAfterAutomaticEstimation = false;
             fixture.OptionalRelease.TrySetResult();
             Task<bool> startup = fixture.Start();
@@ -169,7 +169,7 @@ public sealed class PendingPackageRestoreInitializationTests
         {
             using var input = new PendingRestoreInput();
             var failures = new List<StartupLibraryInitializationFailurePresentation>();
-            using var fixture = new MainWindowViewModelStartupProgressTests.CompletionFixture(new FailureRecorder(failures));
+            using var fixture = new StartupCompletionTestFixture.CompletionFixture(new FailureRecorder(failures));
             fixture.OptionalRelease.TrySetResult();
             input.Register(fixture.Composition.DatabaseScope, fixture.Library.InitializationSongDbPath);
             using FileStream held = input.LockB();
@@ -228,7 +228,7 @@ public sealed class PendingPackageRestoreInitializationTests
         TestUiDispatcherHost.Invoke(() =>
         {
             var failures = new List<StartupLibraryInitializationFailurePresentation>();
-            using var fixture = new MainWindowViewModelStartupProgressTests.CompletionFixture(new FailureRecorder(failures));
+            using var fixture = new StartupCompletionTestFixture.CompletionFixture(new FailureRecorder(failures));
             fixture.OptionalRelease.TrySetResult();
             var expected = new IOException("files phase failed");
             fixture.OptionsFailure = expected;

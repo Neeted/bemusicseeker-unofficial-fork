@@ -1985,7 +1985,7 @@ public sealed class PlaylistCatalogViewChangeTests
             table.entries = entries;
             Playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
             Playlist.CommitBMSTableWithEntriesToDB(table);
-            Workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _, playlistStoreProvider: () => Playlist,
+            Workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _, playlistStoreProvider: () => Playlist,
                 playlistLibraryProvider: () => Library,
                 dispatchPresentation: action => action(), restoreUiApplyScheduler: entryDeliveryScheduler);
             Workspace.SetDetailDataSource(new PlaylistDetailDataSource(Library, Playlist, new MainChartRowProjectionOwner()));

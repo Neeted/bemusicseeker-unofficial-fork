@@ -1617,9 +1617,9 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
             "https://example.test/releases/v2.0.0.0");
     }
 
-    private static PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService CreateAcceptedDialogService()
+    private static PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService CreateAcceptedDialogService()
     {
-        return new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+        return new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
         {
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK)
         };

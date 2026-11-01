@@ -22,7 +22,7 @@ public sealed partial class MainWindowViewHostTests
         {
             using var input = new PendingRestoreInput();
             var lifetime = new RecordingApplicationLifetime();
-            using var fixture = new MainWindowViewModelStartupProgressTests.CompletionFixture(lifetime: lifetime);
+            using var fixture = new StartupCompletionTestFixture.CompletionFixture(lifetime: lifetime);
             fixture.OptionalRelease.TrySetResult();
             input.Register(fixture.Composition.DatabaseScope, fixture.Library.InitializationSongDbPath);
             using FileStream held = input.LockB();

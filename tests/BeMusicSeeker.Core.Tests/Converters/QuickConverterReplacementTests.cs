@@ -1,0 +1,67 @@
+using System.Globalization;
+using System.Windows;
+using BeMusicSeeker.Views;
+
+namespace BeMusicSeeker.Tests;
+
+[TestClass]
+public sealed class QuickConverterReplacementTests
+{
+    private static readonly CultureInfo Culture = CultureInfo.InvariantCulture;
+
+    /// <summary>列表示のチェックをVisible・Hiddenへ往復し、Collapsedと未設定入力を区別して不正値を伝播しません。</summary>
+    [TestMethod]
+    public void VisibilityColumnRoundtripPreservesVisibleAndHiddenContract()
+    {
+        var converter = new visibilityToIsCheckedConverter();
+
+        Assert.IsTrue((bool)converter.Convert(Visibility.Visible, typeof(bool), null, Culture));
+        Assert.IsFalse((bool)converter.Convert(Visibility.Collapsed, typeof(bool), null, Culture));
+        Assert.AreSame(DependencyProperty.UnsetValue, converter.Convert(DependencyProperty.UnsetValue, typeof(bool), null, Culture));
+        Assert.AreEqual(Visibility.Visible, converter.ConvertBack(true, typeof(Visibility), null, Culture));
+        Assert.AreEqual(Visibility.Hidden, converter.ConvertBack(false, typeof(Visibility), null, Culture));
+    }
+
+    /// <summary>表示状態・正の長さ・文字列の型に応じた表示変換と不完全入力のUnsetValueを確認し、隠れた要素の高さを加算しません。</summary>
+    [TestMethod]
+    public void PresentationConvertersPreserveTypedBoundarySemantics()
+    {
+        var minHeight = new mainWindowMinHeightConverter();
+        Assert.AreEqual(328d, minHeight.Convert(new object[] { 286d, Visibility.Visible, 42d }, typeof(double), null, Culture));
+        Assert.AreEqual(286d, minHeight.Convert(new object[] { 286d, Visibility.Collapsed, 42d }, typeof(double), null, Culture));
+        Assert.AreSame(DependencyProperty.UnsetValue, minHeight.Convert(new object[] { 286d, Visibility.Visible }, typeof(double), null, Culture));
+
+        var playerTitle = new playerTitleVisibilityConverter();
+        Assert.AreEqual(Visibility.Collapsed, playerTitle.Convert(Visibility.Visible, typeof(Visibility), null, Culture));
+        Assert.AreEqual(Visibility.Visible, playerTitle.Convert(Visibility.Hidden, typeof(Visibility), null, Culture));
+
+        var duration = new positiveTimeSpanToVisibilityHiddenConverter();
+        Assert.AreEqual(Visibility.Visible, duration.Convert(TimeSpan.FromSeconds(1), typeof(Visibility), null, Culture));
+        Assert.AreEqual(Visibility.Hidden, duration.Convert(TimeSpan.Zero, typeof(Visibility), null, Culture));
+
+        var title = new stringToVisibilityHiddenConverter();
+        Assert.AreEqual(Visibility.Hidden, title.Convert(null, typeof(Visibility), null, Culture));
+        Assert.AreSame(DependencyProperty.UnsetValue, title.Convert(42, typeof(Visibility), null, Culture));
+
+        var collapsed = new stringToVisibilityCollapsedConverter();
+        Assert.AreEqual(Visibility.Collapsed, collapsed.Convert(null, typeof(Visibility), null, Culture));
+    }
+
+    /// <summary>保存済みバックアップ間隔を選択・解除へ往復し、不正な間隔指定や件数型を正常値へ置き換えません。</summary>
+    [TestMethod]
+    public void SettingsConvertersPreserveBackupValues()
+    {
+        var backup = new backupSpanRadioConverter();
+        Assert.IsTrue((bool)backup.Convert(7, typeof(bool), "7", Culture));
+        Assert.IsFalse((bool)backup.Convert(1, typeof(bool), "7", Culture));
+        Assert.AreEqual(30, backup.ConvertBack(true, typeof(int), "30", Culture));
+        Assert.AreEqual(0, backup.ConvertBack(false, typeof(int), "30", Culture));
+        Assert.AreSame(DependencyProperty.UnsetValue, backup.Convert(7, typeof(bool), "invalid", Culture));
+
+        var positiveCount = new positiveIntToBoolConverter();
+        Assert.IsFalse((bool)positiveCount.Convert((uint)0, typeof(bool), null, Culture));
+        Assert.IsTrue((bool)positiveCount.Convert((uint)2, typeof(bool), null, Culture));
+        Assert.AreSame(DependencyProperty.UnsetValue, positiveCount.Convert("2", typeof(bool), null, Culture));
+    }
+
+}

@@ -19,6 +19,8 @@ using Newtonsoft.Json;
 using Ribbit.Net;
 using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
 
+using static BeMusicSeeker.TestSupport.Components.PlaylistTestFixture;
+
 namespace BeMusicSeeker.Tests;
 
 /// <summary>外部表取得の対象失敗と操作失敗を、実取得・SQLite・Workspace・STATUSの境界で確認します。</summary>
@@ -148,7 +150,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
             }
             if (malformedPart == "unknown-startup")
             {
-                workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _,
+                workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _,
                     playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library,
                     externalSyncScheduler: (_, work) => { scheduledWork = work; return true; });
                 workspace.RefreshPlaylistTreeTables(playlist, library);

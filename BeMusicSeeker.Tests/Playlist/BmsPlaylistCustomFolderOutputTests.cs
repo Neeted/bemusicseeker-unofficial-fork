@@ -18,8 +18,9 @@ using BeMusicSeeker.ViewModels;
 using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Util.Extensions;
-
 using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
+
+using static BeMusicSeeker.TestSupport.Components.PlaylistTestFixture;
 
 namespace BeMusicSeeker.Tests;
 
@@ -3861,7 +3862,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             };
             playlist.ReOutputCustomFolderAndCommitToDB(table);
             var diagnostics = new List<(Exception Exception, string Diagnostic)>();
-            workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _,
+            workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _,
                 reloadFailureLog: (exception, diagnostic) =>
                 {
                     diagnostics.Add((exception, diagnostic));

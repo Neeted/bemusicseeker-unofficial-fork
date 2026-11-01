@@ -175,7 +175,7 @@ Releaseの公開に失敗したらmainを送信しません。mainへの送信�
 | ブランチと作業起点・コミット・統合方法 | [AGENTS.md](../../../AGENTS.md)、[CONTRIBUTING.md](../../../CONTRIBUTING.md)、[エージェント運用](agent-workflow.md)、[開発手順](../../setup.md)、GitHubのブランチ・タグ設定 | 文書と設定を照合する。統合手順は隔離したリポジトリの実Gitでfast-forward、分岐時の停止、作業ブランチのrebase、公開履歴のマージ、最新 `dev` からの次ブランチ作成と統合済み・全ワークツリー未使用の完了ブランチ削除を確認する。責任者による検証・独立レビュー後のローカルコミット、メイン作業ツリーの統合専用運用、準備済み単位からの統合、更新後の必要な検証・レビュー、統合引継ぎの版・根拠と全体ルートの確認は担当間の連絡と対象版を照合する。 |
 | バージョンの正本・互換ファイル不変・公開順序 | [release.ps1](../../../scripts/release.ps1) | [ReleaseScriptVersionSourceTests](../../../BeMusicSeeker.Tests/Verification/ReleaseScriptVersionSourceTests.cs): 隔離repoと実Git、GitHub CLIの代替を使い、本番スクリプトの入口から生成物・参照・失敗時の副作用を確認する。 |
 | 正式リリース前の配布物生成と引渡し | [publish.ps1](../../../scripts/publish.ps1)、[verify-refactor.ps1](../../../scripts/verify-refactor.ps1) | 公開候補のFullで配布物生成、既存データ利用、更新・起動を確認する。 |
-| 表示リソースの整合 | [Resources.resx](../../../BeMusicSeeker/Properties/Resources.resx)、[翻訳](../../../lang) | [LocalizationResourceParityTests](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs)。履歴内容は差分で確認する。 |
+| 表示リソースの整合 | [Resources.resx](../../../BeMusicSeeker/Properties/Resources.resx)、[翻訳](../../../lang) | [LocalizationResourceParityTests](../../../tests/BeMusicSeeker.Core.Tests/Localization/LocalizationResourceParityTests.cs)。履歴内容は差分で確認する。 |
 | 実公開 | [release.ps1](../../../scripts/release.ps1) | 自動テストでは実GitHubを変更しない。許可された公開でタグ・資産・リモートブランチの照合結果を確認する。 |
 
 ## 関連資料

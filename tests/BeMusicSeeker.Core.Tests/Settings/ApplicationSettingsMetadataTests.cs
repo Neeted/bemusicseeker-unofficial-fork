@@ -1,0 +1,206 @@
+using System.Configuration;
+using System.Reflection;
+using System.Xml.Linq;
+using BeMusicSeeker.Properties;
+
+namespace BeMusicSeeker.Tests;
+
+[TestClass]
+public sealed class ApplicationSettingsMetadataTests
+{
+    private const string SettingsGroupName = "userSettings";
+
+    private const string SettingsSectionName = "BeMusicSeeker.Properties.Settings";
+
+    /// <summary>実 app.config の型・provider・直列化形式と runtime の型付き既定を照合し、互換 XML の読込み不整合や非空の不正値を既定値で隠す誤りを検出します。</summary>
+    [TestMethod]
+    public void AppConfigCompatibilitySubsetMatchesRuntimeSettingsMetadataAndTypedDefaults()
+    {
+        XDocument config = LoadRepositoryAppConfig();
+        XElement configSections = RequireElement(config.Root?.Element("configSections"), "configSections");
+        XElement settingsGroupDefinition = RequireElement(
+            configSections.Elements("sectionGroup")
+                .SingleOrDefault(group => string.Equals((string?)group.Attribute("name"), SettingsGroupName, StringComparison.Ordinal)),
+            "userSettings section group definition");
+        Type settingsGroupType = ResolveConfigType(settingsGroupDefinition, "type");
+        Assert.AreEqual(typeof(UserSettingsGroup), settingsGroupType, "Unexpected userSettings section group type.");
+
+        XElement settingsSectionDefinition = RequireElement(
+            settingsGroupDefinition.Elements("section")
+                .SingleOrDefault(section => string.Equals((string?)section.Attribute("name"), SettingsSectionName, StringComparison.Ordinal)),
+            "settings section definition");
+        Type settingsSectionType = ResolveConfigType(settingsSectionDefinition, "type");
+        Assert.AreEqual(typeof(ClientSettingsSection), settingsSectionType, "Unexpected application settings section type.");
+
+        XElement settingsSection = GetSettingsSection(config);
+        var configSettings = settingsSection.Elements("setting").ToList();
+        Assert.IsTrue(configSettings.Count > 0, "The compatibility subset must not be empty.");
+
+        string?[] configNames = configSettings
+            .Select(setting => (string?)setting.Attribute("name"))
+            .ToArray();
+        Assert.IsFalse(configNames.Any(string.IsNullOrWhiteSpace), "Every config setting must have a non-empty name.");
+        string[] duplicateNames = configNames
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!)
+            .GroupBy(name => name, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToArray();
+        Assert.AreEqual(0, duplicateNames.Length, "Config setting names must be unique: " + string.Join(", ", duplicateNames));
+
+        Dictionary<string, SettingsProperty> runtimeProperties = GetRuntimeProperties();
+        SettingsProviderAttribute? settingsProviderAttribute = typeof(Settings).GetCustomAttribute<SettingsProviderAttribute>();
+        Assert.IsNotNull(settingsProviderAttribute, "Settings must declare its runtime settings provider.");
+        var providerType = Type.GetType(settingsProviderAttribute!.ProviderTypeName, throwOnError: true);
+
+        foreach (XElement configSetting in configSettings)
+        {
+            string? name = (string?)configSetting.Attribute("name");
+            string validName = name!;
+            Assert.IsTrue(runtimeProperties.TryGetValue(validName, out SettingsProperty? property), "Config setting has no runtime property: " + name);
+            SettingsProperty runtimeProperty = property!;
+            Assert.IsNotNull(runtimeProperty.Attributes[typeof(UserScopedSettingAttribute)], "Config setting is not user-scoped at runtime: " + name);
+            Assert.IsNotNull(runtimeProperty.Provider, "Config setting has no runtime provider: " + name);
+            SettingsProvider runtimeProvider = runtimeProperty.Provider!;
+            Assert.AreEqual(providerType, runtimeProvider.GetType(), "Config setting provider mismatch: " + name);
+
+            SettingsSerializeAs configSerializeAs = ParseSerializeAs(configSetting, validName);
+            Assert.AreEqual(runtimeProperty.SerializeAs, configSerializeAs, "Config serialization mismatch: " + name);
+            ConfigSettingValue value = ReadConfigValue(configSetting, configSerializeAs, validName);
+            AssertConfigValueMatchesRuntimeDefault(runtimeProperty, value, validName);
+        }
+
+    }
+
+    private static void AssertConfigValueMatchesRuntimeDefault(SettingsProperty property, ConfigSettingValue configValue, string name)
+    {
+        SettingsPropertyValue runtimeDefault = new(property);
+        object runtimeTypedValue = runtimeDefault.PropertyValue;
+
+        SettingsPropertyValue configPropertyValue = new(property);
+        configPropertyValue.SerializedValue = configValue.SerializedValue;
+        object configTypedValue = configPropertyValue.PropertyValue;
+        if (configPropertyValue.UsingDefaultValue)
+        {
+            // 空の payload だけが既定値を利用できます。非空の不正値を既定値で隠さないことも確認します。
+            Assert.IsTrue(
+                IsEmptyDefaultPayload(property, configValue),
+                "Non-empty config value fell back to the runtime default: " + name);
+            AssertTypedValueEqual(runtimeTypedValue, configTypedValue, "Config default fallback mismatch: " + name);
+            return;
+        }
+
+        AssertTypedValueEqual(runtimeTypedValue, configTypedValue, "Typed config/runtime parity mismatch: " + name);
+    }
+
+    private static bool IsEmptyDefaultPayload(SettingsProperty property, ConfigSettingValue configValue)
+    {
+        if (configValue.SerializeAs == SettingsSerializeAs.Xml)
+        {
+            return string.IsNullOrWhiteSpace(configValue.SerializedValue);
+        }
+
+        return configValue.SerializeAs == SettingsSerializeAs.String
+            && property.PropertyType == typeof(string)
+            && configValue.SerializedValue.Length == 0;
+    }
+
+    private static void AssertTypedValueEqual(object expected, object actual, string message)
+    {
+        if (expected is null)
+        {
+            Assert.IsNull(actual, message);
+            return;
+        }
+
+        Assert.IsNotNull(actual, message);
+        if (expected is byte[] expectedBytes && actual is byte[] actualBytes)
+        {
+            CollectionAssert.AreEqual(expectedBytes, actualBytes, message);
+            return;
+        }
+
+        Assert.AreEqual(expected, actual, message);
+    }
+
+    private static Dictionary<string, SettingsProperty> GetRuntimeProperties()
+    {
+        Settings settings = new();
+        return settings.Properties
+            .Cast<SettingsProperty>()
+            .ToDictionary(property => property.Name, StringComparer.Ordinal);
+    }
+
+    private static SettingsSerializeAs ParseSerializeAs(XElement setting, string name)
+    {
+        string? serializedAs = (string?)setting.Attribute("serializeAs");
+        Assert.IsTrue(
+            Enum.TryParse(serializedAs, ignoreCase: false, out SettingsSerializeAs result),
+            "Invalid serializeAs value for config setting: " + name);
+        return result;
+    }
+
+    private static ConfigSettingValue ReadConfigValue(XElement setting, SettingsSerializeAs serializeAs, string name)
+    {
+        XElement value = RequireElement(setting.Element("value"), "value for config setting " + name);
+        string serializedValue = serializeAs == SettingsSerializeAs.Xml
+            ? string.Concat(value.Nodes().Select(node => node.ToString(SaveOptions.DisableFormatting)))
+            : value.Value;
+        return new ConfigSettingValue(serializeAs, serializedValue);
+    }
+
+    private static XElement GetSettingsSection(XDocument config)
+    {
+        XElement settingsSection = RequireElement(
+            config.Root?.Element(SettingsGroupName)?.Element(SettingsSectionName),
+            SettingsGroupName + "." + SettingsSectionName);
+        return settingsSection;
+    }
+
+    private static Type ResolveConfigType(XElement element, string attributeName)
+    {
+        string? typeName = (string?)element.Attribute(attributeName);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(typeName), "Missing config type: " + attributeName);
+        var resolvedType = Type.GetType(typeName, throwOnError: false);
+        Assert.IsNotNull(resolvedType, "Unable to resolve config type: " + typeName);
+        return resolvedType!;
+    }
+
+    private static XDocument LoadRepositoryAppConfig()
+    {
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+        while (directory != null)
+        {
+            string path = Path.Combine(directory.FullName, "BeMusicSeeker", "app.config");
+            if (File.Exists(path))
+            {
+                return XDocument.Load(path, LoadOptions.PreserveWhitespace);
+            }
+
+            directory = directory.Parent;
+        }
+
+        Assert.Fail("Could not locate repository app.config from " + AppContext.BaseDirectory);
+        return null!;
+    }
+
+    private static XElement RequireElement(XElement? element, string description)
+    {
+        Assert.IsNotNull(element, "Missing XML element: " + description);
+        return element!;
+    }
+
+    private sealed class ConfigSettingValue
+    {
+        internal ConfigSettingValue(SettingsSerializeAs serializeAs, string serializedValue)
+        {
+            SerializeAs = serializeAs;
+            SerializedValue = serializedValue;
+        }
+
+        internal SettingsSerializeAs SerializeAs { get; }
+
+        internal string SerializedValue { get; }
+    }
+}

@@ -12,6 +12,8 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
 
+using static BeMusicSeeker.TestSupport.Components.PlaylistTestFixture;
+
 namespace BeMusicSeeker.Tests;
 
 [TestClass]

@@ -32,7 +32,7 @@ internal sealed class PlaylistRestoreOutputFixture : IAsyncDisposable
     internal PlaylistRestoreOutputFixture()
     {
         Directory.CreateDirectory(DirectoryPath);
-        SongDb = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, DirectoryPath);
+        SongDb = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, DirectoryPath);
         PlaylistPersistenceRepository.EnsureSchema(databaseScope, SongDb);
         string bms = Path.Combine(DirectoryPath, "BMS");
         string additional = Path.Combine(bms, "Additional");

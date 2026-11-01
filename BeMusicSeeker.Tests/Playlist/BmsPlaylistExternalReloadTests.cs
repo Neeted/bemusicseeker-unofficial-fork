@@ -20,6 +20,8 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
 using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
 
+using static BeMusicSeeker.TestSupport.Components.PlaylistTestFixture;
+
 namespace BeMusicSeeker.Tests;
 
 /// <summary>実外部再取得のDB確定、UI置換、取消と必要出力の終端を確認します。</summary>
@@ -719,7 +721,7 @@ public sealed class BmsPlaylistExternalReloadTests
             string refreshReason = automatic ? "external_playlist_sync" : "manual_playlist_resync";
             TestUiDispatcherHost.Invoke(() =>
             {
-                workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _,
+                workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _,
                     playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library,
                     dispatchPresentation: TestUiDispatcherHost.Invoke);
                 workspace.RefreshPlaylistTreeTables(playlist, library);
@@ -1082,7 +1084,7 @@ public sealed class BmsPlaylistExternalReloadTests
             Assert.IsFalse(initialReferences.Values.ContainsKey(changedReferenceKey));
             var diagnostics = new List<(Exception Exception, string Diagnostic)>();
             var diagnosticFailure = new InvalidOperationException("external receipt diagnostic failed");
-            workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _,
+            workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _,
                 reloadFailureLog: (exception, diagnostic) =>
                 {
                     diagnostics.Add((exception, diagnostic));
@@ -2546,7 +2548,7 @@ public sealed class BmsPlaylistExternalReloadTests
             Assert.IsTrue(notifications.TakeReceipt().IsEmpty);
             // U2-R2: 個別 reload の実 pending publication がある間、復元は DB 更新前に拒否する。
             competingRestore = playlist.RestorePlaylistDumpAsync(
-                PlaylistWorkspaceTestDataSupport.CreatePlaylistRestoreDump(77, "Rejected restore", "X"));
+                PlaylistWorkspaceFixtureData.CreatePlaylistRestoreDump(77, "Rejected restore", "X"));
             await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
                 competingRestore);
             using (LR2SongDBExtended db = databaseScope.OpenSongWrite(Path.Combine(tempDirectory, "song.db")))
@@ -2633,7 +2635,7 @@ public sealed class BmsPlaylistExternalReloadTests
             try
             {
                 await playlist.RestorePlaylistDumpAsync(
-                    PlaylistWorkspaceTestDataSupport.CreatePlaylistRestoreDump(77, "Committed despite UI failure", "R"));
+                    PlaylistWorkspaceFixtureData.CreatePlaylistRestoreDump(77, "Committed despite UI failure", "R"));
             }
             catch (Exception exception)
             {
@@ -2648,7 +2650,7 @@ public sealed class BmsPlaylistExternalReloadTests
             }
             // 独立した次の復元を受理する。失敗操作自身の repost / retry ではない。
             await playlist.RestorePlaylistDumpAsync(
-                PlaylistWorkspaceTestDataSupport.CreatePlaylistRestoreDump(88, "Next independent restore", "N"));
+                PlaylistWorkspaceFixtureData.CreatePlaylistRestoreDump(88, "Next independent restore", "N"));
             Assert.AreEqual(88, playlist.BMSTables.Single().playlist_id);
         }
         finally
@@ -2974,21 +2976,21 @@ public sealed class BmsPlaylistExternalReloadTests
                 _ => { },
                 _ => { },
                 () => new CustomFolderOutputSettingsSnapshot(),
-                PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-                PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-                PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-                PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-                PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-                PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-                PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-                PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
+                PlaylistWorkspaceFixturePorts.CreateUrlAcquisitionWorkflow(),
+                PlaylistWorkspaceFixturePorts.CreateExternalPackageLookupService(),
+                PlaylistWorkspaceFixturePorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceFixturePorts.PlaylistUrlInstallSink,
+            PlaylistWorkspaceFixturePorts.PlaylistUrlBrowserOpenSink,
+                PlaylistWorkspaceFixturePorts.ExternalPlaylistImportWarningLog,
+                PlaylistWorkspaceFixturePorts.ExternalPlaylistImportInfoLog,
+                PlaylistWorkspaceFixturePorts.BeatorajaTableUrlImportWarningLog,
+                PlaylistWorkspaceFixturePorts.BeatorajaTableUrlImportInfoLog,
+                PlaylistWorkspaceFixturePorts.PlaylistSummaryColumnSettingsStore,
+                PlaylistWorkspaceFixturePorts.PlaylistSummaryBmtSortCoordinator,
+                PlaylistWorkspaceFixturePorts.KeywordSearchHistorySettingsStore,
+                PlaylistWorkspaceFixturePorts.KeywordSearchFavoritesSettingsStore,
                 () => playlist,
-                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+                PlaylistWorkspaceFixturePorts.PlaylistPropertySaveService,
                 () => library,
                 () => null!,
                 _ => { },
@@ -3000,7 +3002,7 @@ public sealed class BmsPlaylistExternalReloadTests
                 () => false,
                 () => { },
                 message => lifecycleLogs.Add(message),
-                (exception, message) => workspaceFailureLogs.Add((exception, message)), (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+                (exception, message) => workspaceFailureLogs.Add((exception, message)), (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck);
             workspace.ConfigureCatalogNotificationQueue(action => action());
             PlaylistWorkspaceTestPorts.AttachImmediatePlaylistPresentationRouter(workspace);
             workspace.RefreshPlaylistTreeTables(playlist);

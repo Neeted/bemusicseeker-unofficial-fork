@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Processes;
 using BeMusicSeeker.TestSupport.Ui;
@@ -45,14 +46,18 @@ public sealed class UiModuleLifetime
         }
     }
 
-    /// <summary>全ケースの子process回収後、共有Dispatcher・一時sessionの実終端を待ってsession排他を解放します。</summary>
+    /// <summary>共有hostの終了確認後だけ設定を回収し、失敗時も一時sessionとsession排他の回収を継続して失敗を集約します。</summary>
     [AssemblyCleanup]
     public static async Task Cleanup()
     {
         List<Exception> failures = [];
         try
         {
-            try { TestUiDispatcherHost.ShutdownApplication(); }
+            try
+            {
+                TestUiDispatcherHost.ShutdownApplication();
+                TestSettingsFactory.CleanupIsolatedSettingsDirectories();
+            }
             catch (Exception failure) { failures.Add(failure); }
             try
             {

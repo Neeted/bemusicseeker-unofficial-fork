@@ -1,4 +1,3 @@
-using System;
 using System.IO;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
@@ -8,18 +7,6 @@ namespace BeMusicSeeker.Tests;
 
 internal static class PlaylistWorkspaceTestDataSupport
 {
-    internal static string CreatePlaylistRestoreDump(int playlistId, string name, string symbol)
-    {
-        string playlistSql = "INSERT INTO playlist (playlist_id, name, symbol, folder_order, folder_sort_key, folder_sort_ascending, entry_type, page_url, header_url, data_url, compat_prefix, last_update, org_name, org_symbol, ignore_folder_output, is_external_sync, output_dir, is_root_folder) VALUES ("
-            + playlistId
-            + ", '"
-            + name
-            + "', '"
-            + symbol
-            + "', '', 0, 1, 0, NULL, NULL, NULL, NULL, 638857728000000000, NULL, NULL, 0, 0, NULL, 0);";
-        return string.Join("\v" + Environment.NewLine, [playlistSql, string.Empty, string.Empty]);
-    }
-
     /// <summary>同じfixtureのDB所有者でLR2 IDと実scoreを準備し、ライブラリへ読み込みます。</summary>
     /// <param name="databaseScope">準備と読取りの接続を共有するDB所有者。</param>
     internal static BMSLibrary CreateLibraryWithLr2Id(ApplicationDatabaseScope databaseScope, string songDbPath, int lr2Id = 123)

@@ -826,7 +826,7 @@ public sealed partial class MainWindowViewHostTests
             var windowClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             MainWindowTestLifetime? ownership = null;
             Window[] baselineWindows = Application.Current.Windows.Cast<Window>().ToArray();
-            var failurePresenter = new MainWindowViewModelStartupProgressTests.RecordingStartupLibraryInitializationFailurePresenter();
+            var failurePresenter = new StartupCompletionTestFixture.RecordingStartupLibraryInitializationFailurePresenter();
             var lifetime = new RecordingApplicationLifetime();
             try
             {

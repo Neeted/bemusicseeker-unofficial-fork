@@ -57,16 +57,16 @@ public sealed partial class ApplicationCompositionTests
                 rows.Rows = new List<object> { ChartTestValues.Empty() with { Path = current } };
                 PlaylistWorkspaceViewModel workspace = composition.CreatePlaylistWorkspaceViewModel(
                     action => action(), rows, () => playlist, () => playlist.BMSTables,
-                    _ => { }, _ => { }, PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink, PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
+                    _ => { }, _ => { }, PlaylistWorkspaceFixturePorts.PlaylistUrlInstallSink, PlaylistWorkspaceFixturePorts.PlaylistUrlBrowserOpenSink,
                     (_, _) => { }, _ => { }, (_, _) => { }, _ => { }, () => null!, () => null!, _ => { },
                     new ObservableCollection<BMSTable>(), (_, _) => false, () => true, () => MainViewUpdateMode.FolderFilterSelected,
                     () => Task.CompletedTask, () => false, () => { }, _ => { }, (_, _) => { }, (_, _) => false, (_, _) => false,
-                    PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck,
+                    PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck,
                     playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
                 var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                var player = new PlaybackPanelViewModelTests.PreloadBmsPlayer { Completion = completion.Task };
+                var player = new PreloadBmsPlayer { Completion = completion.Task };
                 var dialogs = new FileDbReportRecordingDialogs();
                 MainWindowChildComposition children = composition.CreateMainWindowChildComposition(
                     rows, workspace, () => player, composition.OperationAdmission, _ => { }, action => action(), _ => { },
@@ -260,8 +260,8 @@ public sealed partial class ApplicationCompositionTests
                 () => [],
                 _ => { },
                 _ => { },
-                PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-                PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
+                PlaylistWorkspaceFixturePorts.PlaylistUrlInstallSink,
+                PlaylistWorkspaceFixturePorts.PlaylistUrlBrowserOpenSink,
                 (_, _) => { },
                 _ => { },
                 (_, _) => { },
@@ -277,7 +277,7 @@ public sealed partial class ApplicationCompositionTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
+                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
             AttachImmediatePlaylistPresentationRouter(missingProviderWorkspace);
             await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 () => missingProviderWorkspace.CreatePlaylistAsync());
@@ -290,8 +290,8 @@ public sealed partial class ApplicationCompositionTests
                 () => playlist.BMSTables,
                 _ => { },
                 _ => { },
-                PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-                PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
+                PlaylistWorkspaceFixturePorts.PlaylistUrlInstallSink,
+                PlaylistWorkspaceFixturePorts.PlaylistUrlBrowserOpenSink,
                 (_, _) => { },
                 _ => { },
                 (_, _) => { },
@@ -307,7 +307,7 @@ public sealed partial class ApplicationCompositionTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
+                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
             AttachImmediatePlaylistPresentationRouter(workspace);
             DateTime startedAt = DateTime.Now;
             BMSTable created = await workspace.CreatePlaylistAsync();
@@ -585,7 +585,7 @@ public sealed partial class ApplicationCompositionTests
                 values.OperationModeLR2DB = false;
                 values.ShowScoreViewerRegisterConfirmMsg = true;
             });
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes)
             };
@@ -650,8 +650,8 @@ public sealed partial class ApplicationCompositionTests
                 () => playlist.BMSTables,
                 _ => { },
                 _ => { },
-                PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-                PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
+                PlaylistWorkspaceFixturePorts.PlaylistUrlInstallSink,
+                PlaylistWorkspaceFixturePorts.PlaylistUrlBrowserOpenSink,
                 (_, _) => { },
                 _ => { },
                 (_, _) => { },
@@ -668,7 +668,7 @@ public sealed partial class ApplicationCompositionTests
                 () => { },
                 _ => { },
                 (exception, message) => { },
-                (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
+                (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
             AttachPlaylistPresentationRouter(workspace, deferSummaryData: true);
             workspace.IsPlaylistSummaryMode = true;
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
@@ -788,21 +788,21 @@ public sealed partial class ApplicationCompositionTests
                 _ => { },
                 _ => { },
                 () => new CustomFolderOutputSettingsSnapshot(),
-                PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-                PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-                PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-                PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-                PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+                PlaylistWorkspaceFixturePorts.CreateUrlAcquisitionWorkflow(),
+                PlaylistWorkspaceFixturePorts.CreateExternalPackageLookupService(),
+                PlaylistWorkspaceFixturePorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceFixturePorts.PlaylistUrlInstallSink,
+            PlaylistWorkspaceFixturePorts.PlaylistUrlBrowserOpenSink,
+                PlaylistWorkspaceFixturePorts.ExternalPlaylistImportWarningLog,
+                PlaylistWorkspaceFixturePorts.ExternalPlaylistImportInfoLog,
+                PlaylistWorkspaceFixturePorts.BeatorajaTableUrlImportWarningLog,
+                PlaylistWorkspaceFixturePorts.BeatorajaTableUrlImportInfoLog,
+                PlaylistWorkspaceFixturePorts.PlaylistSummaryColumnSettingsStore,
                 new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables),
-                PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-                PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
+                PlaylistWorkspaceFixturePorts.KeywordSearchHistorySettingsStore,
+                PlaylistWorkspaceFixturePorts.KeywordSearchFavoritesSettingsStore,
                 () => playlist,
-                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+                PlaylistWorkspaceFixturePorts.PlaylistPropertySaveService,
                 () => null!,
                 () => null!,
                 _ => { },
@@ -814,7 +814,7 @@ public sealed partial class ApplicationCompositionTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
+                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
             AttachImmediatePlaylistPresentationRouter(workspace);
             int completedOutputCount = 0;
             playlist.BmtOutput.RequestProgressReporter = (_, running) =>

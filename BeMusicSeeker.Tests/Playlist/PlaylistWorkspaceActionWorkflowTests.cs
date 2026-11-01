@@ -16,9 +16,8 @@ using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
-
-using static BeMusicSeeker.Tests.PlaylistWorkspaceFixtureFactory;
 using static BeMusicSeeker.Tests.PlaylistWorkspaceTestDataSupport;
+using static BeMusicSeeker.TestSupport.Components.SharedPlaylistWorkspaceFixture;
 using PlaylistWorkspaceViewModelTests = BeMusicSeeker.Tests.PlaylistWorkspaceExternalSourceTests;
 
 namespace BeMusicSeeker.Tests;
@@ -506,7 +505,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         PlaylistSummaryRow? row = null;
         var diagnostics = new List<Exception>();
-        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
         { MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
         bool gate = false;
         using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
@@ -779,7 +778,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         };
         owned.Store.BMSTables.Add(table);
         owned.Store.CommitBMSTableWithEntriesToDB(table);
-        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
         { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
         using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => owned.Store,
             playlistWorkspaceDialogService: dialogs);
@@ -958,7 +957,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         PlaylistPropertyDialogViewModel? dialog = null;
         try
         {
-            string songPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            string songPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songPath);
             string header = Path.Combine(directory, "header.json"), data = Path.Combine(directory, "data.json");
             File.WriteAllText(header, "{\"name\":\"Prefix replacement\",\"symbol\":\"P\",\"data_url\":\"data.json\"}");
@@ -2225,7 +2224,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         PlaylistWorkspaceViewModel? workspace = null;
         try
         {
-            string path = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            string path = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, path);
             string normal = Path.Combine(directory, "normal"), bmt = Path.Combine(directory, "bmt");
             var output = new CustomFolderOutputSettingsSnapshot
@@ -2255,7 +2254,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             playlist.BMSTables = new ObservableCollection<BMSTable>(isNew ? [sibling] : [table, sibling]);
             foreach (BMSTable current in playlist.BMSTables) { playlist.CommitBMSTableWithEntriesToDB(current); }
             var service = new PlaylistPropertySaveService(() => playlist, () => library, () => owner, () => output);
-            workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
+            workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
                 playlistLibraryProvider: () => library, propertySaveService: service, dispatchPresentation: action => action());
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             workspace.PlaylistSyncProgressChanged += (_, _) => { };
@@ -2497,7 +2496,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         await using var fixture = new PlaylistPrefixCommitTestFixture();
         fixture.Execute(@"UPDATE playlist SET output_dir = 'Legacy\Name';");
         fixture.Table.output_dir = @"Legacy\Name";
-        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
         using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
             playlistLibraryProvider: () => fixture.Library, propertySaveService: fixture.Service, playlistWorkspaceDialogService: dialogs);
         PlaylistSummaryPropertyEditCompletion result = await workspace.CompleteSummaryPropertyEditAsync(
@@ -2800,7 +2799,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 () => library,
                 () => null!,
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
             {
                 MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
@@ -2916,7 +2915,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         FileStream? blocker = null;
         try
         {
-            string songPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            string songPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songPath);
             string normal = Path.Combine(directory, "normal"), additional = Path.Combine(directory, "additional"), root = Path.Combine(directory, "root");
             var output = new CustomFolderOutputSettingsSnapshot
@@ -3050,7 +3049,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         FileStream? blocker = null;
         try
         {
-            string songPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            string songPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songPath);
             string bmt = Path.Combine(directory, "bmt");
             Directory.CreateDirectory(bmt);
@@ -3061,7 +3060,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmt },
                 () => new CustomFolderOutputSettingsSnapshot(),
-                BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songPath, CustomFolderOutputPhysicalSurface.Empty));
+                PlaylistTestFixture.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songPath, CustomFolderOutputPhysicalSurface.Empty));
             var library = new TestBmsLibrary(databaseScope, songPath, settings: TestSettingsFactory.CreateIsolatedSettings());
             PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(playlist, library);
             dialog = await workspace.CreatePlaylistPropertyDialogAsync()
@@ -3257,7 +3256,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     [TestMethod]
     public async Task PlaylistWorkspaceSummaryCellActionRequiresExternalSyncConfirmation()
     {
-        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
         {
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
         };
@@ -3312,7 +3311,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             };
             playlist.BMSTables.Add(table);
             playlist.CommitBMSTableHeadersToDB([table]);
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
@@ -3345,7 +3344,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     [TestMethod]
     public async Task PlaylistWorkspaceSummaryCellActionPropagatesDialogFailureWithoutMutation()
     {
-        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
         {
             ConfirmationResult = UiDialogResult.NotShown(UiDialogStatus.DispatcherUnavailable)
         };
@@ -3369,7 +3368,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     [TestMethod]
     public async Task PlaylistWorkspaceSummaryRemovalRequiresConfirmation()
     {
-        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
         var table = new BMSTable();
 
@@ -3388,7 +3387,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     [TestMethod]
     public async Task PlaylistWorkspaceFolderRemovalRequiresConfirmationAndRejectsInvalidTargets()
     {
-        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
         var table = new BMSTable();
         await workspace.PlaylistRemovalWorkflow.RemoveFolderAsync(table, PlaylistFolderNode.CreateFolder("Folder"));
@@ -3411,7 +3410,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     public async Task PlaylistRemovalWorkflowRejectsExternalSyncRaceAfterConfirmation()
     {
         var table = new BMSTable();
-        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
         {
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
             ConfirmationFactory = _ =>
@@ -3439,7 +3438,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     [TestMethod]
     public async Task PlaylistWorkspaceTableRemovalConfirmationIsOwnedByWorkflowOwner()
     {
-        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
         using PlaylistWorkspaceTestPorts.OwnedPlaylistStore owned = PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore(databaseScope);
         var table = new BMSTable { name = "Confirmed removal", playlist_id = 4201 };
         owned.Store.BMSTables.Add(table);
@@ -3469,7 +3468,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     [TestMethod]
     public async Task PlaylistTableLevelOverwriteWorkflowOwnsRecommendationAndConfirmation()
     {
-        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
         int libraryProviderCalls = 0;
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
             out _,
@@ -3508,7 +3507,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     [TestMethod]
     public async Task PlaylistWorkspaceSummaryColumnResetRequiresConfirmation()
     {
-        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
             out _,
             playlistWorkspaceDialogService: dialogs);
@@ -3542,7 +3541,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     [TestMethod]
     public async Task PlaylistWorkspaceSummaryColumnResetPropagatesDialogFailure()
     {
-        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
         {
             ConfirmationResult = UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable)
         };
@@ -3568,13 +3567,13 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Task<ExternalPlaylistImportQueueSummary>? completion = null;
         try
         {
-            string databasePath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            string databasePath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, databasePath);
             library = new TestBmsLibrary(databaseScope, databasePath, null, null, null, () => new BmsLibraryOptionsSnapshot());
             playlist = new TestBmsPlaylist(databaseScope, databasePath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
                 () => new CustomFolderOutputSettingsSnapshot(), recommendationScoreReader: _ => Task.FromResult(RecommendedImportScores()));
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
                 playlistWorkspaceDialogService: dialogs, playlistLibraryProvider: () => library);
             var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -3623,14 +3622,14 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Task<ExternalPlaylistImportQueueSummary>? completion = null;
         try
         {
-            string databasePath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            string databasePath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, databasePath);
             library = new TestBmsLibrary(databaseScope, databasePath, null, null, null, () => new BmsLibraryOptionsSnapshot());
             int reads = 0;
             playlist = new TestBmsPlaylist(databaseScope, databasePath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
                 () => new CustomFolderOutputSettingsSnapshot(), recommendationScoreReader: _ => { reads++; return Task.FromResult(RecommendedImportScores()); });
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
                 playlistWorkspaceDialogService: dialogs, playlistLibraryProvider: () => library);
             workspace.RefreshPlaylistTreeTables(playlist);

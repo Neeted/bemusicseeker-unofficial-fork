@@ -20,7 +20,7 @@ public sealed class PlaylistJsonExportDialogTests
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
             using var input = new PlaylistJsonExportDialogViewModel();
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
             var dialog = new PlaylistJsonExportDialog(input, dialogs, "source-header.json", "source-data.json");
             Exception? failure = null;
             scope.PrepareForOwnedPresentation(dialog);

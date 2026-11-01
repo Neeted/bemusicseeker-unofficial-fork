@@ -119,7 +119,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         var menu = (ContextMenu)window.FindResource("tableContextMenu"); menu.PlacementTarget = new FrameworkElement { DataContext = Current() };
                         MenuItem group = menu.Items.OfType<MenuItem>().Single(item => item.Items.OfType<MenuItem>().Any(child => Equals(child.Header, Resources.Reinstall_to_estimation)));
                         MenuItem command = group.Items.OfType<MenuItem>().Single(item => Equals(item.Header, Resources.Reinstall_to_estimation));
-                        Task invocation = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(command)); tasks.Add(invocation);
+                        Task invocation = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(command)); tasks.Add(invocation);
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(invocation, "fullscan-explicit-repair-event"); TestUiDispatcherHost.AwaitTaskOnDispatcher(repairTask, "fullscan-explicit-repair-task");
                         RepairInstalledLocationRequest captured = repaired ?? throw new AssertFailedException("compiled修復要求がありません。");
                         Assert.AreEqual(1, repairCalls); Assert.AreEqual(aDirectory, captured.RepairCharts.Single().InstallDestination);
@@ -1340,7 +1340,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 menu.PlacementTarget = new TreeViewItem { DataContext = package };
                 MenuItem group = menu.Items.OfType<MenuItem>().Single(item => item.Items.OfType<MenuItem>().Any(child => Equals(child.Header, Resources.Estimate_install_loc)));
                 MenuItem search = group.Items.OfType<MenuItem>().Single(item => Equals(item.Header, Resources.Estimate_install_loc));
-                Task searchEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(search));
+                Task searchEvent = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(search));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(searchEvent, "real pending estimation menu");
                 // ハンドラーは実推定Taskを待ちます。モデルの解除と活動終端を、表示行の寿命と分けて確認します。
                 Assert.IsFalse(entry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
@@ -1423,7 +1423,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 AssertEvidence();
                 MenuItem clear = group.Items.OfType<MenuItem>().Single(item => Equals(item.Header, Resources.Clear_estimation));
                 File.WriteAllText(Path.Combine(source, "sound.wav"), "added after registration");
-                Task clearEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(clear));
+                Task clearEvent = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(clear));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(clearEvent, "real pending destination clear menu");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 CaptureCurrentRows();
@@ -1870,7 +1870,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 foreach (MenuItem command in installCommands)
                 {
                     var args = new RoutedEventArgs(MenuItem.ClickEvent, command);
-                    Task terminal = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => command.RaiseEvent(args));
+                    Task terminal = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => command.RaiseEvent(args));
                     Assert.IsTrue(args.Handled);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "compiled-tree-pending-operation");
                 }
@@ -2216,7 +2216,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                                 Assert.IsTrue(current.Library.OperationAdmission.TryEnter(out IDisposable other));
                                 try
                                 {
-                                    firstHandler = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => duplicateRoot.IsSelected = true);
+                                    firstHandler = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => duplicateRoot.IsSelected = true);
                                     TestUiDispatcherHost.AwaitTaskOnDispatcher(firstHandler, "cold tree Busy actual handler");
                                     Assert.AreSame(selection, vm.RegularChartList.CaptureNavigation());
                                     Assert.AreEqual("target", vm.ChartFilters.KeywordFilter);
@@ -2252,7 +2252,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                             };
                             sourceProperty.AddValueChanged(actualTable, bound);
                             current.EnableGate();
-                            firstHandler = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => duplicateRoot.IsSelected = true);
+                            firstHandler = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => duplicateRoot.IsSelected = true);
                             try
                             {
                                 current.AwaitGate(); current.AwaitGroupsWhileGated();
@@ -2278,7 +2278,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                             return;
                         }
                         current.EnableGate();
-                        firstHandler = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => duplicateRoot.IsSelected = true);
+                        firstHandler = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => duplicateRoot.IsSelected = true);
                         bool staleFailed = false;
                         DependencyPropertyDescriptor? itemsSource = null;
                         EventHandler? sourceChanged = null;
@@ -2536,7 +2536,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Task? handler = null;
             try
             {
-                handler = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(merge));
+                handler = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(merge));
                 Assert.AreEqual(1, requests);
                 Assert.IsFalse(completion.Task.IsCompleted);
                 library.DuplicateChartGroups = [remaining];
@@ -2661,7 +2661,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         Task? handler = null;
         try
         {
-            handler = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(action);
+            handler = MainWindowEventCompletion.CaptureAsyncEventCompletion(action);
             operationStarted?.Invoke(handler);
             TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(handler, firstNavigation.Task), "duplicate actual request started");
             if (firstNavigation.Task.IsCompletedSuccessfully)
@@ -3047,7 +3047,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     foreach (MenuItem command in new[] { installCommands[0], installCommands[1], installCommands[3] })
                     {
                         var invalidArgs = new RoutedEventArgs(MenuItem.ClickEvent, command);
-                        Task invalidEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => command.RaiseEvent(invalidArgs));
+                        Task invalidEvent = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => command.RaiseEvent(invalidArgs));
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(invalidEvent, "compiled-invalid-placement-event");
                         Assert.IsFalse(invalidArgs.Handled);
                     }
@@ -3062,7 +3062,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         string header = keepUnrelated ? Resources.Estimate_install_loc_keep_unrelated : Resources.Estimate_install_loc;
                         MenuItem searchCommand = installGroup.Items.OfType<MenuItem>().Single(item => Equals(item.Header, header));
                         var searchInstallArgs = new RoutedEventArgs(MenuItem.ClickEvent, searchCommand);
-                        searchEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => searchCommand.RaiseEvent(searchInstallArgs));
+                        searchEvent = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => searchCommand.RaiseEvent(searchInstallArgs));
                         Assert.IsTrue(searchInstallArgs.Handled);
                         Assert.IsFalse(searchInstallCompletion.Task.IsCompleted);
                         Assert.AreEqual(keepUnrelated ? 1 : 2, pendingEstimateCalls.Count);
@@ -3283,7 +3283,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 MenuItem item = pendingBulk
                     ? menu.Items.OfType<MenuItem>().Last().Items.OfType<MenuItem>().First()
                     : menu.Items.OfType<MenuItem>().First();
-                Task terminal = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(item));
+                Task terminal = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(item));
                 try
                 {
                     Assert.AreEqual(1, calls);

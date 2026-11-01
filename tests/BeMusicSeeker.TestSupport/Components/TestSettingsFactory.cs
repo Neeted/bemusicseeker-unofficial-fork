@@ -1,13 +1,14 @@
 using System.Collections.Concurrent;
 using System.Configuration;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.TestSupport.Files;
 
 namespace BeMusicSeeker.TestSupport.Components;
 
 /// <summary>画面やテストクラスへ依存せず、専用設定とホスト終端まで保持する領域を準備します。</summary>
 internal static class TestSettingsFactory
 {
-    private static readonly ConcurrentBag<string> isolatedSettingsDirectories = [];
+    private static readonly ConcurrentBag<TestWorkspace> isolatedSettingsWorkspaces = [];
 
     /// <summary>専用パスの本番 provider を生成済み Settings wrapper に接続し、実保存・読戻しを確認できるようにします。</summary>
     internal static Settings OpenSettings(string path)
@@ -34,38 +35,38 @@ internal static class TestSettingsFactory
         return settings;
     }
 
-    /// <summary>専用設定と実LR2 XMLを、同じtesthost終端で回収する領域へ準備します。</summary>
+    /// <summary>専用設定と実LR2 XMLを同じtesthost終端で回収する領域を作成します。設定ファイル自体は保存まで作りません。</summary>
     internal static string CreateIsolatedSettingsDirectory()
     {
-        string directory = Path.Combine(Path.GetTempPath(), "BmsViewModelSettings-" + Guid.NewGuid().ToString("N"));
-        isolatedSettingsDirectories.Add(directory);
-        return directory;
+        var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        isolatedSettingsWorkspaces.Add(workspace);
+        return workspace.RootDirectory;
     }
 
-    /// <summary>このtesthostが生成した設定専用ディレクトリだけを、全テストと共有画面の終端後に回収します。</summary>
+    /// <summary>全テストと共有画面の終端後に、所有する全設定領域の回収を試し、失敗を集約して返します。</summary>
     internal static void CleanupIsolatedSettingsDirectories()
     {
-        string temporaryRoot = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar);
-        while (isolatedSettingsDirectories.TryTake(out string? ownedDirectory))
+        var failures = new List<Exception>();
+        while (isolatedSettingsWorkspaces.TryTake(out TestWorkspace? workspace))
         {
-            string fullPath = Path.GetFullPath(ownedDirectory);
-            if (!string.Equals(Path.GetDirectoryName(fullPath), temporaryRoot, StringComparison.OrdinalIgnoreCase)
-                || !Path.GetFileName(fullPath).StartsWith("BmsViewModelSettings-", StringComparison.Ordinal))
-            { throw new InvalidOperationException("設定fixture所有外の削除を拒否しました: " + fullPath); }
-            if (Directory.Exists(fullPath)) { Directory.Delete(fullPath, recursive: true); }
+            try { workspace.Dispose(); }
+            catch (Exception failure) { failures.Add(failure); }
         }
+        if (failures.Count != 0) { throw new AggregateException("設定fixtureの回収に失敗しました。", failures); }
     }
 }
 
 /// <summary>保存テストが独占する設定ファイルと一時ディレクトリを所有します。</summary>
 internal sealed class SettingsFiles : IDisposable
 {
+    private readonly TestWorkspace workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+
     /// <summary>このcaseだけが所有し、Disposeで回収する設定領域です。</summary>
-    internal string Directory { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BmsSettings-" + Guid.NewGuid().ToString("N"));
+    internal string Directory => workspace.RootDirectory;
     /// <summary>実providerへ渡す設定ファイルのパスです。</summary>
     internal string Path => System.IO.Path.Combine(Directory, "user.config");
     /// <summary>caseの開始時に専有ディレクトリを作成します。</summary>
-    internal SettingsFiles() => System.IO.Directory.CreateDirectory(Directory);
+    internal SettingsFiles() { }
     /// <summary>失敗再現に使う読取り専用属性を解除してから専有領域を回収します。</summary>
     public void Dispose()
     {
@@ -74,6 +75,6 @@ internal sealed class SettingsFiles : IDisposable
             File.SetAttributes(Path, FileAttributes.Normal);
         }
 
-        System.IO.Directory.Delete(Directory, true);
+        workspace.Dispose();
     }
 }

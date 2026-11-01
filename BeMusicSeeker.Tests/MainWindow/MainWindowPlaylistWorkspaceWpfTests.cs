@@ -387,7 +387,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         try
         {
             DragEventArgs? args = null;
-            operation = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => args = RaisePlaylistHeaderDrag(target, data, DragDrop.DropEvent));
+            operation = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => args = RaisePlaylistHeaderDrag(target, data, DragDrop.DropEvent));
             TestUiDispatcherHost.AwaitTaskOnDispatcher(accepted.Task.Unwrap(), "playlist-row-drop-accepted-terminal");
             TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "playlist-row-drop-event-terminal");
             Assert.AreEqual(0, rejected.Count);
@@ -533,7 +533,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                             nameof(PlaylistSummaryRow.OwnedCharts), System.ComponentModel.ListSortDirection.Descending)
                     };
                     bool resetApplied = false;
-                    operation = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => resetApplied = workspace.TryApplyPlaylistSummary(changed));
+                    operation = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => resetApplied = workspace.TryApplyPlaylistSummary(changed));
                     Assert.IsTrue(resetApplied);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "selection-summary-reset-edit-terminal");
                     Assert.AreEqual(1, editEnded);
@@ -934,7 +934,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 fixture.Library.BmsCharts = [ChartTestValues.Empty() with { Path = aPath, Md5 = aEntry.md5, RawTitle = "A" },
                     ChartTestValues.Empty() with { Path = bPath, Md5 = bEntry.md5, RawTitle = "B" }];
                 fixture.Table.entries = [aEntry, bEntry];
-                var player = new PlaybackPanelViewModelTests.FakeBmsPlayer();
+                var player = new FakeBmsPlayer();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.ViewModel.PlaybackPanel.ReplacePlayerAsync(player), "actual-detail-replace-player");
                 fixture.Playlist.BMSTables = new ObservableCollection<BMSTable>([fixture.Table]);
                 fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
@@ -1067,7 +1067,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 editor = Editor(summary) ?? throw new AssertFailedException("実summaryセルのeditorがありません。");
                 editor.Text = "  Saved summary  ";
                 holdOutput = true;
-                Task summaryEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => summary.HandleKeyDown(Key.Return, ModifierKeys.None));
+                Task summaryEvent = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => summary.HandleKeyDown(Key.Return, ModifierKeys.None));
                 terminal = summaryEvent;
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, summaryEvent,
                     "actual-summary-output"), "actual-summary-output-entry");
@@ -4490,7 +4490,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     MenuItem reload = FindMenuItemByHeaderBindingPath(menu, "Resources.Reload");
                     RoutedEventArgs? args = null;
                     phase = "reload-click";
-                    reloadEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => args = RaiseMenuClick(reload));
+                    reloadEvent = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => args = RaiseMenuClick(reload));
                     Assert.IsNotNull(args);
                     Assert.IsTrue(args.Handled);
                     Assert.AreEqual(1, callCount);
@@ -5679,7 +5679,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     TestUiDispatcherHost.ProcessQueuedPresentation();
 
                     RoutedEventArgs? args = null;
-                    Task terminal = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(
+                    Task terminal = MainWindowEventCompletion.CaptureAsyncEventCompletion(
                         () => args = RaiseMenuClick(removeTable));
                     // 通知開始だけでなく実イベント終端と空rootの選択通知まで待ちます。
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(
@@ -5738,7 +5738,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         PreparePlaylistTableRemovalContext(window, firstTable, secondTable);
 
                     RoutedEventArgs? args = null;
-                    handlerCompletion = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(
+                    handlerCompletion = MainWindowEventCompletion.CaptureAsyncEventCompletion(
                         () => args = RaiseMenuClick(removeTable));
                     Assert.IsNotNull(args);
                     Assert.IsTrue(args.Handled);
@@ -5802,7 +5802,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         PreparePlaylistTableRemovalContext(window, firstTable, secondTable);
 
                     RoutedEventArgs? args = null;
-                    handlerCompletion = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(
+                    handlerCompletion = MainWindowEventCompletion.CaptureAsyncEventCompletion(
                         () => args = RaiseMenuClick(removeTable));
                     Assert.IsNotNull(args);
                     Assert.IsTrue(args.Handled);
@@ -5875,7 +5875,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     TestUiDispatcherHost.ProcessQueuedPresentation();
 
                     RoutedEventArgs? args = null;
-                    handlerCompletion = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(
+                    handlerCompletion = MainWindowEventCompletion.CaptureAsyncEventCompletion(
                         () => args = RaiseMenuClick(removeTable));
                     Assert.IsNotNull(args);
                     Assert.IsTrue(args.Handled);

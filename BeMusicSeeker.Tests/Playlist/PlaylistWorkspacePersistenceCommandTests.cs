@@ -16,9 +16,10 @@ using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-
 using static BeMusicSeeker.Tests.PlaylistWorkspaceFixtureFactory;
 using static BeMusicSeeker.Tests.PlaylistWorkspaceTestDataSupport;
+using static BeMusicSeeker.TestSupport.Components.PlaylistWorkspaceFixtureData;
+using static BeMusicSeeker.TestSupport.Components.SharedPlaylistWorkspaceFixture;
 using PlaylistWorkspaceViewModelTests = BeMusicSeeker.Tests.PlaylistWorkspaceExternalSourceTests;
 
 namespace BeMusicSeeker.Tests;
@@ -183,7 +184,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         bool gateEnabled = false;
         try
         {
-            string db = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            string db = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, db);
             string root = Path.Combine(directory, "beatoraja");
             string output = Path.Combine(root, "table");
@@ -213,7 +214,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                     return options;
                 },
                 () => new CustomFolderOutputSettingsSnapshot(),
-                BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, db, CustomFolderOutputPhysicalSurface.Empty))
+                PlaylistTestFixture.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, db, CustomFolderOutputPhysicalSurface.Empty))
             { BMSTables = new ObservableCollection<BMSTable>(tables) };
             playlist.CommitBMSTablesWithEntriesToDB(tables);
             await playlist.BmtOutput.ExportAllAsync("order-test-initial");
@@ -499,7 +500,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     /// <param name="databaseScope">呼出し元と接続・書込み排他を共有するfixtureのDB所有者。</param>
     private static async Task<(TestBmsPlaylist Playlist, PlaylistWorkspaceViewModel Workspace, string DatabasePath, string ConfigPath, string OutputPath)> CreateBmtOrderFailureFixtureAsync(ApplicationDatabaseScope databaseScope, string directory, bool outputEnabled)
     {
-        string db = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+        string db = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
         PlaylistPersistenceRepository.EnsureSchema(databaseScope, db);
         string root = Path.Combine(directory, "beatoraja");
         string output = Path.Combine(root, "table");
@@ -519,7 +520,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }).ToArray();
         var playlist = new TestBmsPlaylist(databaseScope, db, null, null, null,
             () => new PlaylistUrlCompletionOptionsSnapshot(), () => options, () => new CustomFolderOutputSettingsSnapshot(),
-            BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, db, CustomFolderOutputPhysicalSurface.Empty))
+            PlaylistTestFixture.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, db, CustomFolderOutputPhysicalSurface.Empty))
         { BMSTables = new ObservableCollection<BMSTable>(tables) };
         playlist.CommitBMSTablesWithEntriesToDB(tables);
         await playlist.BmtOutput.ExportAllAsync("config-failure-initial");
@@ -719,7 +720,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Exception? primaryFailure = null;
         try
         {
-            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, tempDirectory);
+            string songDbPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
@@ -761,7 +762,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             };
             playlist = new TestBmsPlaylist(databaseScope, songDbPath, configOwner, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(), () => bmtSettings, () => outputSettings,
-                BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+                PlaylistTestFixture.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty))
             { BMSTables = new ObservableCollection<BMSTable>([new BMSTable { playlist_id = 1, name = "Before restore", symbol = "before" }]) };
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { auxiliary.Enqueue(Task.Run(work)); return true; };
             library = new TestBmsLibrary(databaseScope, songDbPath);
@@ -1199,7 +1200,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         PlaylistWorkspaceViewModel? workspace = null;
         try
         {
-            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            string songDbPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             library = new TestBmsLibrary(databaseScope, songDbPath);
             int customOutputInputs = 0;
@@ -1348,7 +1349,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         try
         {
             SerializationObservedTable table = CreateJsonExportTable();
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
             List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
             workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
@@ -1383,7 +1384,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             {
                 drive.AssertOwned();
                 SerializationObservedTable table = CreateJsonExportTable();
-                var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+                var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
                 PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
                 List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
                 workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
@@ -1418,7 +1419,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             var persistedDataUrl = new Uri(existingDataReference, UriKind.RelativeOrAbsolute);
             table.Data_url = persistedDataUrl;
             table.DataUrlReadObserver = () => AssertJsonExportSourceUrls(table, persistedDataUrl);
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
             List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
             workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
@@ -1458,7 +1459,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         try
         {
             var table = new BMSTable { name = "Export failure", Folder_order = [] };
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
             var diagnostics = new List<(Exception Exception, string Diagnostic)>();
             var presentationFailure = new InvalidOperationException("JSON export receipt display failed");
             var diagnosticFailure = new InvalidOperationException("JSON export diagnostic failed");
@@ -1563,7 +1564,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, tempDirectory);
+            string songDbPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             var table = new BMSTable
             {
@@ -1583,7 +1584,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             string beforeHeader = table.HeaderToJson();
             string beforeData = table.DataToJson();
             byte[] beforeDb = File.ReadAllBytes(songDbPath);
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
                 playlistWorkspaceDialogService: dialogs);
             var notifications = new List<PlaylistOperationNotificationPresentationRequestedEventArgs>();
@@ -1619,7 +1620,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
             var notifications = new List<PlaylistOperationNotificationPresentationRequestedEventArgs>();
             workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
@@ -1645,7 +1646,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     [TestMethod]
     public void PlaylistWorkspaceSummaryDataBuildCancelsSupersededAndHiddenWork()
     {
-        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceFixturePorts.PlaylistStoreProvider, () => null!);
         workspace.IsPlaylistSummaryMode = true;
 
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest first));
@@ -1685,7 +1686,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     [TestMethod]
     public void PlaylistWorkspaceTableCountCacheReusesContentKeyAcrossDataGenerations()
     {
-        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceFixturePorts.PlaylistStoreProvider, () => null!);
         var expected = new PlaylistSummaryCountResult
         {
             ScannedEntries = 4,
@@ -1718,7 +1719,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     [TestMethod]
     public void PlaylistWorkspaceTableCountCacheRejectsResultFromBuildBeforeInvalidation()
     {
-        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceFixturePorts.PlaylistStoreProvider, () => null!);
         workspace.IsPlaylistSummaryMode = true;
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest staleBuild));
         var staleResult = new PlaylistSummaryCountResult
@@ -1748,7 +1749,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     [TestMethod]
     public void PlaylistWorkspaceSummaryDataBuildCannotRestartAfterShutdownStop()
     {
-        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceFixturePorts.PlaylistStoreProvider, () => null!);
         workspace.IsPlaylistSummaryMode = true;
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest activeBuild));
         long presentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
@@ -1771,7 +1772,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     [TestMethod]
     public void PlaylistWorkspaceDeferredDataRefreshCancelsBuildAndDominatesPresentation()
     {
-        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceFixturePorts.PlaylistStoreProvider, () => null!);
         workspace.IsPlaylistSummaryMode = true;
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest activeBuild));
         workspace.RequestDeferredPlaylistSummaryPresentationRefresh();
@@ -1795,7 +1796,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     [TestMethod]
     public void PlaylistWorkspaceDeferredRefreshPrefersDataAndDropsPendingWorkOnModeExit()
     {
-        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceFixturePorts.PlaylistStoreProvider, () => null!);
         workspace.IsPlaylistSummaryMode = true;
         workspace.RequestDeferredPlaylistSummaryPresentationRefresh();
 
@@ -1816,7 +1817,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     [TestMethod]
     public void PlaylistWorkspaceDataRefreshRequestOwnsVisibilityAndDeferralDecision()
     {
-        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceFixturePorts.PlaylistStoreProvider, () => null!);
         long hiddenDataGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
         long hiddenCacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
 
@@ -1885,7 +1886,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     [TestMethod]
     public void PlaylistWorkspaceDeferredRefreshDrainOwnsHiddenAndPresentationRoutes()
     {
-        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceFixturePorts.PlaylistStoreProvider, () => null!);
 
         Assert.AreEqual(
             0L,
@@ -2277,11 +2278,11 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 BmsPlaylistTestSupport.CreateUtf8BomBytes(
                     "[{\"md5\":\"" + historyHash + "\",\"title\":\"Old source\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
-            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, tempDirectory);
+            string songDbPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             BMSPlaylist playlist = new TestBmsPlaylist(databaseScope,
                 songDbPath,
-                BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope,
+                PlaylistTestFixture.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope,
                     songDbPath,
                     CustomFolderOutputPhysicalSurface.Empty));
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerPath));
@@ -2388,7 +2389,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         PlaylistWorkspaceViewModel? workspace = null;
         try
         {
-            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, tempDirectory);
+            string songDbPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             string outputBase = Path.Combine(tempDirectory, "lr2");
             string bmtRoot = Path.Combine(tempDirectory, "beatoraja");
@@ -2409,7 +2410,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                     EnableBeatorajaBmtOutput = true,
                     BeatorajaBmtTablePath = Path.Combine(bmtRoot, "table.json")
                 },
-                lr2PlaylistFolderSynchronization: BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope,
+                lr2PlaylistFolderSynchronization: PlaylistTestFixture.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope,
                     songDbPath, CustomFolderOutputPhysicalSurface.Empty));
             string headerPath = Path.Combine(tempDirectory, "header.json");
             string scorePath = Path.Combine(tempDirectory, "score.json");
@@ -2587,7 +2588,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 LR2CustomFolderOutputBaseDirRootType = outputBaseDirectory,
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]"
             };
-            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, tempDirectory);
+            string songDbPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             var outputAdmission = new ChartFileOperationSynchronizer();
             Settings librarySettings = TestSettingsFactory.CreateIsolatedSettings();
@@ -2598,7 +2599,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             libraryForCleanup = library;
             int lr2SyncProbeCount = 0;
             int lr2SyncProbeLeaseUnavailableCount = 0;
-            TestLr2PlaylistFolderSynchronizationPort synchronization = BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope,
+            TestLr2PlaylistFolderSynchronizationPort synchronization = PlaylistTestFixture.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope,
                 songDbPath,
                 CustomFolderOutputPhysicalSurface.Empty);
             synchronization.SynchronizationStartProbe = mutationCapability =>
@@ -2925,7 +2926,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         try
         {
             string outputBaseDirectory = Path.Combine(tempDirectory, "custom-folder-output");
-            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, tempDirectory);
+            string songDbPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             CustomFolderOutputSettingsSnapshot outputSettings = new()
             {
@@ -2936,7 +2937,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             };
             var synchronizationStarted = new TaskCompletionSource<bool>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
-            TestLr2PlaylistFolderSynchronizationPort synchronization = BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope,
+            TestLr2PlaylistFolderSynchronizationPort synchronization = PlaylistTestFixture.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope,
                 songDbPath,
                 CustomFolderOutputPhysicalSurface.Empty);
             var playlist = new TestBmsPlaylist(databaseScope,
@@ -3051,7 +3052,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, tempDirectory);
+            string songDbPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             CustomFolderOutputSettingsSnapshot outputSettings = new();
             var currentEntry = new BMSTableEntry
@@ -3137,7 +3138,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     [TestMethod]
     public void PlaylistWorkspaceDropPolicyRejectsMixedExternalAndSpecialTargets()
     {
-        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceFixturePorts.PlaylistStoreProvider, () => null!);
         var table = new BMSTable();
         var entry = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder");
         PlaylistDetailRow playlistRow = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow();
@@ -3155,7 +3156,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     [TestMethod]
     public async Task PlaylistWorkspaceExternalMutationRejectsBeforePersistenceAccess()
     {
-        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceFixturePorts.PlaylistStoreProvider, () => null!);
         var table = new BMSTable { is_external_sync = true };
         var rejectedKinds = new List<PlaylistWorkspaceMutationKind>();
         workspace.MutationRejected += (_, request) => rejectedKinds.Add(request.Kind);
@@ -3191,7 +3192,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     [TestMethod]
     public async Task PlaylistWorkspaceSpecialFolderMutationIsIgnoredWithoutPersistenceAccess()
     {
-        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceFixturePorts.PlaylistStoreProvider, () => null!);
         var table = new BMSTable();
         var specialFolder = PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned);
 
@@ -3740,7 +3741,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         BMSTable table,
         IEnumerable<ChartFile> libraryFiles)
     {
-        string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, tempDirectory);
+        string songDbPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, tempDirectory);
         PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
         BMSPlaylist playlist = new TestBmsPlaylist(databaseScope,
             songDbPath,

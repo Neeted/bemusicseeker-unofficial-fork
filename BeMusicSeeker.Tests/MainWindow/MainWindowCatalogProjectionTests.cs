@@ -91,7 +91,7 @@ public sealed class MainWindowCatalogProjectionTests
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders,
                 entries = [entry]
             };
-            var dialogs = new MainWindowViewModelStartupProgressTests.CompletionDialogs();
+            var dialogs = new StartupCompletionTestFixture.CompletionDialogs();
             var delayedUi = new DelayedDrainUiScheduler(new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
             var composition = new ApplicationComposition(settingsEditSession: new NoOpSettingsEditSession(settings),
                 uiScheduler: delayedUi,

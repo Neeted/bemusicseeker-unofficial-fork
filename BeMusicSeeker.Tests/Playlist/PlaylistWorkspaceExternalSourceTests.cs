@@ -18,8 +18,7 @@ using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
-
-using static BeMusicSeeker.Tests.PlaylistWorkspaceFixtureFactory;
+using static BeMusicSeeker.TestSupport.Components.SharedPlaylistWorkspaceFixture;
 using PlaylistWorkspaceViewModelTests = BeMusicSeeker.Tests.PlaylistWorkspaceExternalSourceTests;
 
 namespace BeMusicSeeker.Tests;
@@ -60,7 +59,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         {
             Settings httpSettings = TestSettingsFactory.OpenSettings(Path.Combine(root, "library.config"));
             httpSettings.OperationModeLR2DB = false;
-            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, root);
+            string songDbPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, root);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             server = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, [], responseStatusCode: HttpStatusCode.NotFound));
             string inputUrl = server.Address.AbsoluteUri;
@@ -96,7 +95,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             };
             playlist = new TestBmsPlaylist(databaseScope, songDbPath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(), () => options, () => new CustomFolderOutputSettingsSnapshot(),
-                BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+                PlaylistTestFixture.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty))
             { BMSTables = new ObservableCollection<BMSTable>() };
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
             {
@@ -289,7 +288,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         TaskCompletionSource<BeatorajaTableUrlImportSummary> completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
-            string db = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            string db = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, db);
             string root = Path.Combine(directory, "beatoraja");
             string output = Path.Combine(root, "table");
@@ -311,7 +310,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             }).ToArray();
             playlist = new TestBmsPlaylist(databaseScope, db, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(), () => options, () => new CustomFolderOutputSettingsSnapshot(),
-                BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, db, CustomFolderOutputPhysicalSurface.Empty))
+                PlaylistTestFixture.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, db, CustomFolderOutputPhysicalSurface.Empty))
             { BMSTables = new ObservableCollection<BMSTable>(tables) };
             playlist.CommitBMSTablesWithEntriesToDB(tables);
             await playlist.BmtOutput.ExportAllAsync("import-initial");
@@ -600,7 +599,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         {
             Settings httpSettings = TestSettingsFactory.OpenSettings(Path.Combine(root, "library.config"));
             httpSettings.OperationModeLR2DB = false;
-            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, root);
+            string songDbPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, root);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             File.WriteAllBytes(Path.Combine(root, "data.json"), BmsPlaylistTestSupport.CreateUtf8BomBytes(
                 "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song B\",\"artist\":\"Artist B\",\"level\":\"2\"}]"));
@@ -647,7 +646,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => bmtOptions,
                 () => new CustomFolderOutputSettingsSnapshot(),
-                BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+                PlaylistTestFixture.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty))
             {
                 BMSTables = new ObservableCollection<BMSTable>(existing)
             };
@@ -855,7 +854,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         Exception? primaryFailure = null;
         try
         {
-            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, root);
+            string songDbPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, root);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             string unicodeHeader = Path.Combine(root, "unicode.json");
             string validHeader = Path.Combine(root, "valid.json");
@@ -884,7 +883,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             var configOwner = new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(Path.Combine(root, "LR2"), outputBase));
             playlist = new TestBmsPlaylist(databaseScope, songDbPath, configOwner, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => outputSettings,
-                BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+                PlaylistTestFixture.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty))
             { BMSTables = [] };
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
             {
@@ -1492,7 +1491,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         try
         {
             CultureInfo.CurrentCulture = new CultureInfo("en-US", useUserOverride: false);
-            string databasePath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            string databasePath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, databasePath);
             string headerPath = Path.Combine(directory, "header.json");
             string hash = new('e', 32);
@@ -1740,7 +1739,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         Exception? primaryFailure = null;
         try
         {
-            string databasePath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            string databasePath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, databasePath);
             string rejectedHeader = Path.Combine(directory, "unicode.json");
             string validHeader = Path.Combine(directory, "valid.json");
@@ -1759,7 +1758,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             var configOwner = new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(Path.Combine(directory, "LR2"), outputBase));
             playlist = new TestBmsPlaylist(databaseScope, databasePath, configOwner, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
-                () => outputSettings, BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, databasePath, CustomFolderOutputPhysicalSurface.Empty))
+                () => outputSettings, PlaylistTestFixture.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, databasePath, CustomFolderOutputPhysicalSurface.Empty))
             { BMSTables = [] };
             library = new TestBmsLibrary(databaseScope, databasePath);
             // 既存factoryのWorkspace設定はOperationModeLR2DB=falseです。登録先storeだけLR2を有効にします。
@@ -1854,7 +1853,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         {
             Settings httpSettings = TestSettingsFactory.OpenSettings(Path.Combine(directory, "library.config"));
             httpSettings.OperationModeLR2DB = false;
-            string databasePath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            string databasePath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, databasePath);
             string successPath = Path.Combine(directory, "success.json");
             string duplicateNamePath = Path.Combine(directory, "same-name.json");
@@ -2253,7 +2252,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             Settings httpSettings = TestSettingsFactory.OpenSettings(Path.Combine(directory, "library.config"));
             httpSettings.OperationModeLR2DB = false;
             CultureInfo.CurrentCulture = new CultureInfo("en-US", useUserOverride: false);
-            string path = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            string path = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, path);
             const string rows = "[{\"title\":\"Keep first\",\"adddate\":\"2026-10-19T03:04:05.0000001\"},{\"title\":\"Keep invalid\",\"artist\":\"Other\",\"adddate\":\"12/11/2025\"}]";
             SingleRequestHttpServer data = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, Encoding.UTF8.GetBytes(rows))); servers.Add(data);
@@ -2387,7 +2386,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         {
             Settings httpSettings = TestSettingsFactory.OpenSettings(Path.Combine(directory, "library.config"));
             httpSettings.OperationModeLR2DB = false;
-            string path = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            string path = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, path);
             string data = Path.Combine(directory, "data.json");
             File.WriteAllText(data, "[{\"title\":\"Keep valid\",\"adddate\":\"2026-10-19\"},{\"title\":\"Keep invalid\",\"adddate\":1700000000}]");
@@ -2406,7 +2405,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             }
             var options = new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaRootPath = beatoraja, RegisterBeatorajaBmtUrls = true };
             playlist = new TestBmsPlaylist(databaseScope, path, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => options,
-                () => new CustomFolderOutputSettingsSnapshot(), BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, path, CustomFolderOutputPhysicalSurface.Empty))
+                () => new CustomFolderOutputSettingsSnapshot(), PlaylistTestFixture.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, path, CustomFolderOutputPhysicalSurface.Empty))
             { BMSTables = [] };
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { tasks.Enqueue(Task.Run(work)); return true; };
             library = new TestBmsLibrary(databaseScope, path, settings: httpSettings);

@@ -33,7 +33,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
             var lifetime = new MainWindowPresentationTestHarness.PresentationApplicationLifetime();
-            using var fixture = new MainWindowViewModelStartupProgressTests.CompletionFixture(lifetime: lifetime);
+            using var fixture = new StartupCompletionTestFixture.CompletionFixture(lifetime: lifetime);
             fixture.Owner.StartupUpdateWorkflow.NotifyClosing();
             using var ownership = new MainWindowTestLifetime(fixture.Owner, lifetime.ShutdownRequested.Task);
             var terminals = new MainWindowProgressStatusBarTerminals(() => { }, () => { }, () => { });

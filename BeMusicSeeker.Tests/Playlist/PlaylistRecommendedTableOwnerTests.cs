@@ -18,6 +18,8 @@ using Ribbit.Net;
 using SQLite;
 using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
 
+using static BeMusicSeeker.TestSupport.Components.PlaylistTestFixture;
+
 namespace BeMusicSeeker.Tests;
 
 /// <summary>内蔵難度表・推薦表の生成と、選択スコアの読取り・保存・通知接続を検証する。</summary>
@@ -594,7 +596,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
         BMSLibrary? library = null;
         try
         {
-            string songPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            string songPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
             string scorePath = Path.Combine(directory, "score.db");
             WalkureRecommendationModel model = WalkureRecommendationModel.Bundled;
             string course = model.Entries.First(row => row.IsCourse).Md5;
@@ -641,7 +643,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
         BMSLibrary? library = null;
         try
         {
-            string songPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            string songPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
             string scorePath = Path.Combine(directory, "score.db");
             ImmutableArray<WalkureModelEntry> entries = WalkureRecommendationModel.Bundled.Entries;
             using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songPath))
@@ -716,7 +718,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
         Exception? primaryFailure = null;
         try
         {
-            string songPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            string songPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songPath);
             var repository = new PlaylistPersistenceRepository(databaseScope, songPath);
             var aggregate = new PlaylistAggregatePersistenceOwner(repository, new ReaderWriterLockSlimWrapper(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));

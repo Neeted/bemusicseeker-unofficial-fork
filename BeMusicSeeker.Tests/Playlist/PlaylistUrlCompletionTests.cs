@@ -815,7 +815,7 @@ public sealed class PlaylistUrlCompletionTests
 
             TestBmsPlaylist store = playlist;
             TestBmsLibrary catalog = library;
-            workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _, playlistStoreProvider: () => store,
+            workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _, playlistStoreProvider: () => store,
                 playlistLibraryProvider: () => catalog);
             workspace.SetDetailDataSource(new PlaylistDetailDataSource(catalog, store, new MainChartRowProjectionOwner()));
             workspace.RequestDetailSelection(table);
@@ -1506,7 +1506,7 @@ public sealed class PlaylistUrlCompletionTests
             playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
             playlist.CommitBMSTableWithEntriesToDB(table);
             TestBmsPlaylist store = playlist; TestBmsLibrary catalog = library;
-            workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _, playlistStoreProvider: () => store,
+            workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _, playlistStoreProvider: () => store,
                 playlistLibraryProvider: () => catalog);
             workspace.SetDetailDataSource(new PlaylistDetailDataSource(catalog, store, new MainChartRowProjectionOwner()));
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
@@ -1726,7 +1726,7 @@ public sealed class PlaylistUrlCompletionTests
         playlist.CommitBMSTableWithEntriesToDB(table);
         TestBmsPlaylist acceptedPlaylist = playlist;
         TestBmsLibrary acceptedLibrary = library;
-        PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _,
+        PlaylistWorkspaceViewModel workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _,
             playlistStoreProvider: () => acceptedPlaylist, playlistLibraryProvider: () => acceptedLibrary);
         workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
         workspace.SetDetailDataSource(new PlaylistDetailDataSource(acceptedLibrary, acceptedPlaylist, new MainChartRowProjectionOwner()));

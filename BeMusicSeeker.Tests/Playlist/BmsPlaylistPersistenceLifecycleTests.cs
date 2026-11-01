@@ -15,8 +15,9 @@ using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Util.Extensions;
-
 using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
+
+using static BeMusicSeeker.TestSupport.Components.PlaylistTestFixture;
 
 namespace BeMusicSeeker.Tests;
 
@@ -564,7 +565,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
             var library = new TestBmsLibrary(databaseScope, songDbPath, settings: testSettings);
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
@@ -576,21 +577,21 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 _ => { },
                 _ => { },
                 () => new CustomFolderOutputSettingsSnapshot(),
-                PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-                PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-                PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-                PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-                PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-                PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-                PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-                PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
+                PlaylistWorkspaceFixturePorts.CreateUrlAcquisitionWorkflow(),
+                PlaylistWorkspaceFixturePorts.CreateExternalPackageLookupService(),
+                PlaylistWorkspaceFixturePorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceFixturePorts.PlaylistUrlInstallSink,
+            PlaylistWorkspaceFixturePorts.PlaylistUrlBrowserOpenSink,
+                PlaylistWorkspaceFixturePorts.ExternalPlaylistImportWarningLog,
+                PlaylistWorkspaceFixturePorts.ExternalPlaylistImportInfoLog,
+                PlaylistWorkspaceFixturePorts.BeatorajaTableUrlImportWarningLog,
+                PlaylistWorkspaceFixturePorts.BeatorajaTableUrlImportInfoLog,
+                PlaylistWorkspaceFixturePorts.PlaylistSummaryColumnSettingsStore,
+                PlaylistWorkspaceFixturePorts.PlaylistSummaryBmtSortCoordinator,
+                PlaylistWorkspaceFixturePorts.KeywordSearchHistorySettingsStore,
+                PlaylistWorkspaceFixturePorts.KeywordSearchFavoritesSettingsStore,
                 () => playlist,
-                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+                PlaylistWorkspaceFixturePorts.PlaylistPropertySaveService,
                 () => library,
                 () => null!,
                 _ => { },
@@ -602,7 +603,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, dialogs);
+                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, dialogs);
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Mutation"));
             workspace.IsPlaylistDetailViewActive = true;
@@ -671,7 +672,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 BMSTables = new ObservableCollection<BMSTable>([firstTable, secondTable])
             };
             var library = new TestBmsLibrary(databaseScope, songDbPath, settings: testSettings);
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
             var workspace = new PlaylistWorkspaceViewModel(
                 action => action(),
                 new MainChartListViewModel(action => action()),
@@ -680,21 +681,21 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 _ => { },
                 _ => { },
                 () => new CustomFolderOutputSettingsSnapshot(),
-                PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-                PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-                PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-                PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-                PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-                PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-                PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-                PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-                PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-                PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
+                PlaylistWorkspaceFixturePorts.CreateUrlAcquisitionWorkflow(),
+                PlaylistWorkspaceFixturePorts.CreateExternalPackageLookupService(),
+                PlaylistWorkspaceFixturePorts.UrlAcquisitionOptionsProvider,
+                PlaylistWorkspaceFixturePorts.PlaylistUrlInstallSink,
+                PlaylistWorkspaceFixturePorts.PlaylistUrlBrowserOpenSink,
+                PlaylistWorkspaceFixturePorts.ExternalPlaylistImportWarningLog,
+                PlaylistWorkspaceFixturePorts.ExternalPlaylistImportInfoLog,
+                PlaylistWorkspaceFixturePorts.BeatorajaTableUrlImportWarningLog,
+                PlaylistWorkspaceFixturePorts.BeatorajaTableUrlImportInfoLog,
+                PlaylistWorkspaceFixturePorts.PlaylistSummaryColumnSettingsStore,
+                PlaylistWorkspaceFixturePorts.PlaylistSummaryBmtSortCoordinator,
+                PlaylistWorkspaceFixturePorts.KeywordSearchHistorySettingsStore,
+                PlaylistWorkspaceFixturePorts.KeywordSearchFavoritesSettingsStore,
                 () => playlist,
-                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+                PlaylistWorkspaceFixturePorts.PlaylistPropertySaveService,
                 () => library,
                 () => null!,
                 _ => { },
@@ -709,8 +710,8 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 (exception, message) => { },
                 (_, _) => false,
                 (_, _) => false,
-                PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler,
-                PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck,
+                PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler,
+                PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck,
                 dialogs);
             var notifications = new List<PlaylistOperationNotificationPresentationRequestedEventArgs>();
             workspace.PlaylistOperationNotificationPresentationRequested +=
@@ -831,7 +832,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
             playlist.CommitBMSTableWithEntriesToDB(table);
-            PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _,
+            PlaylistWorkspaceViewModel workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _,
                 playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
             var source = new PlaylistDetailSourceRow(entry, resolvedChart: null);
             workspace.DetailViewState.Source.Rows = [source];
@@ -1090,21 +1091,21 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 _ => { },
                 _ => { },
                 () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings),
-                PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-                PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-                PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-                PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-                PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-                PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-                PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-                PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
+                PlaylistWorkspaceFixturePorts.CreateUrlAcquisitionWorkflow(),
+                PlaylistWorkspaceFixturePorts.CreateExternalPackageLookupService(),
+                PlaylistWorkspaceFixturePorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceFixturePorts.PlaylistUrlInstallSink,
+            PlaylistWorkspaceFixturePorts.PlaylistUrlBrowserOpenSink,
+                PlaylistWorkspaceFixturePorts.ExternalPlaylistImportWarningLog,
+                PlaylistWorkspaceFixturePorts.ExternalPlaylistImportInfoLog,
+                PlaylistWorkspaceFixturePorts.BeatorajaTableUrlImportWarningLog,
+                PlaylistWorkspaceFixturePorts.BeatorajaTableUrlImportInfoLog,
+                PlaylistWorkspaceFixturePorts.PlaylistSummaryColumnSettingsStore,
+                PlaylistWorkspaceFixturePorts.PlaylistSummaryBmtSortCoordinator,
+                PlaylistWorkspaceFixturePorts.KeywordSearchHistorySettingsStore,
+                PlaylistWorkspaceFixturePorts.KeywordSearchFavoritesSettingsStore,
                 () => playlist,
-                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+                PlaylistWorkspaceFixturePorts.PlaylistPropertySaveService,
                 () => library,
                 () => null!,
                 warnings.Add,
@@ -1116,7 +1117,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck);
             workspace.ConfigureCatalogNotificationQueue(action => action());
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
 
@@ -1403,7 +1404,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             byte[] previousBytes = File.ReadAllBytes(previousFile);
             string backupPath = Path.Combine(directory, "restore.sql");
             File.WriteAllText(backupPath,
-                PlaylistWorkspaceTestDataSupport.CreatePlaylistRestoreDump(8011, "Restored root", "R")
+                PlaylistWorkspaceFixtureData.CreatePlaylistRestoreDump(8011, "Restored root", "R")
                 + "\v" + Environment.NewLine
                 + "UPDATE playlist SET output_dir = 'BlockedRoot', is_root_folder = 1 WHERE playlist_id = 8011;");
             IOException restoreFailure = await Assert.ThrowsExactlyAsync<IOException>(() =>
@@ -1493,7 +1494,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             {
                 // 実collection公開中の再入操作は、新しいDB復元を開始しません。
                 rejectedRestore ??= playlist.RestorePlaylistDumpAsync(
-                    PlaylistWorkspaceTestDataSupport.CreatePlaylistRestoreDump(77, "Rejected reload restore", "X"));
+                    PlaylistWorkspaceFixtureData.CreatePlaylistRestoreDump(77, "Rejected reload restore", "X"));
                 try
                 {
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(rejectedRestore, "restore rejection during publication");

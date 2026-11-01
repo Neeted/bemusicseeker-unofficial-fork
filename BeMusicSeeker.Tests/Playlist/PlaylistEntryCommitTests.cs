@@ -811,7 +811,7 @@ public sealed class PlaylistEntryCommitTests
         internal Fixture(int background = 2, Action<LR2SongDBExtended>? initializeEntryWriteConnection = null, double? initialLevel = 2d)
         {
             Directory.CreateDirectory(directory);
-            dbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            dbPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, dbPath);
             Repository = new(databaseScope, dbPath, initializeEntryWriteConnection);
             Owner = new(Repository, collectionLock, new TestUiScheduler(() => null), Work);

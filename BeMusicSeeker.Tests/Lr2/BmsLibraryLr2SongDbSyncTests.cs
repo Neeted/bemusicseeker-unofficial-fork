@@ -705,7 +705,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             };
             await using (HeldLr2Operation held = await HeldLr2Operation.StartAsync(library))
             {
-                var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+                var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
                 {
                     ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
                 };
@@ -1324,7 +1324,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
-                    BmsPlaylistTestSupport.CreateEntry(
+                    PlaylistTestFixture.CreateEntry(
                             "cccccccccccccccccccccccccccccccc",
                             "Folder C")
                 ],
@@ -1478,7 +1478,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
-                    BmsPlaylistTestSupport.CreateEntry(
+                    PlaylistTestFixture.CreateEntry(
                         "dddddddddddddddddddddddddddddddd",
                         "Folder D")
                 ],

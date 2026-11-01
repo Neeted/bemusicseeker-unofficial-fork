@@ -17,6 +17,8 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
 using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
 
+using static BeMusicSeeker.TestSupport.Components.PlaylistTestFixture;
+
 namespace BeMusicSeeker.Tests;
 
 /// <summary>保存済み表の出力先移行、実登録公開とBMT終端の確定状態を確認します。</summary>
@@ -799,21 +801,21 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 _ => { },
                 _ => { },
                 getOperationSettings,
-                PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-                PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-                PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-                PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-                PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-                PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-                PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-                PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-                PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
+                PlaylistWorkspaceFixturePorts.CreateUrlAcquisitionWorkflow(),
+                PlaylistWorkspaceFixturePorts.CreateExternalPackageLookupService(),
+                PlaylistWorkspaceFixturePorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceFixturePorts.PlaylistUrlInstallSink,
+            PlaylistWorkspaceFixturePorts.PlaylistUrlBrowserOpenSink,
+                PlaylistWorkspaceFixturePorts.ExternalPlaylistImportWarningLog,
+                PlaylistWorkspaceFixturePorts.ExternalPlaylistImportInfoLog,
+                PlaylistWorkspaceFixturePorts.BeatorajaTableUrlImportWarningLog,
+                PlaylistWorkspaceFixturePorts.BeatorajaTableUrlImportInfoLog,
+                PlaylistWorkspaceFixturePorts.PlaylistSummaryColumnSettingsStore,
+                PlaylistWorkspaceFixturePorts.PlaylistSummaryBmtSortCoordinator,
+                PlaylistWorkspaceFixturePorts.KeywordSearchHistorySettingsStore,
+                PlaylistWorkspaceFixturePorts.KeywordSearchFavoritesSettingsStore,
                 () => playlist,
-                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+                PlaylistWorkspaceFixturePorts.PlaylistPropertySaveService,
                 () => library,
                 () => configOwner,
                 _ => { },
@@ -825,8 +827,8 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck,
-                new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck,
+                new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
                 {
                     ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
                 });
@@ -1549,7 +1551,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 ]
             };
 
-            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
@@ -2103,7 +2105,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 visibleNotificationObserved = true;
                 // 実 registration publication 内の復元は DB 前に拒否する。
                 rejectedRestore = playlist.RestorePlaylistDumpAsync(
-                    PlaylistWorkspaceTestDataSupport.CreatePlaylistRestoreDump(77, "Rejected registration restore", "X"));
+                    PlaylistWorkspaceFixtureData.CreatePlaylistRestoreDump(77, "Rejected registration restore", "X"));
                 try
                 {
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(rejectedRestore, "restore rejection during publication");

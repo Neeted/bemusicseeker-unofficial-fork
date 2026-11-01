@@ -24,8 +24,9 @@ using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Settings;
 using BeMusicSeeker.Views.Settings.Pages;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-
 using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
+
+using static BeMusicSeeker.TestSupport.Components.PlaylistTestFixture;
 
 namespace BeMusicSeeker.Tests;
 
@@ -73,7 +74,7 @@ public sealed class PlaylistSummaryBulkEditTests
                 entries = [entry]
             };
             playlist.BMSTables.Add(table); playlist.CommitBMSTableWithEntriesToDB(table);
-            workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
+            workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
             await workspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync([new PlaylistSummaryRow { TableRef = table }],
                 new PlaylistWorkspaceViewModel.PlaylistSummaryExternalPropertyInitializationOptions { Name = true, Symbol = true });
             Assert.AreEqual("External name", table.name); Assert.AreEqual("EX", table.symbol);
@@ -133,7 +134,7 @@ public sealed class PlaylistSummaryBulkEditTests
             fixture.Playlist.CommitBMSTableHeadersToDB([first, second]);
             await fixture.Playlist.BmtOutput.ExportTablesAsync([first, second], "stale_bulk_setup");
             BMSPlaylist currentStore = fixture.Playlist;
-            using PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _,
+            using PlaylistWorkspaceViewModel workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _,
                 playlistStoreProvider: () => currentStore, playlistLibraryProvider: () => fixture.Library);
             PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel draft = workspace.OpenSummaryBulkEditDialog([new PlaylistSummaryRow { TableRef = first }, new PlaylistSummaryRow { TableRef = second }])
                 ?? throw new AssertFailedException("一括編集を準備できません。");

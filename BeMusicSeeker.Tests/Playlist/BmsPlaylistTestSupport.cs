@@ -58,22 +58,6 @@ internal static class BmsPlaylistTestSupport
             synchronization ?? new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath));
     }
 
-    /// <summary>
-    /// 指定した変更不能な物理出力snapshotを使い、同じDB所有者の同期境界を作ります。
-    /// </summary>
-    /// <param name="databaseScope">接続と書込み排他を共有するfixtureのDB所有者。</param>
-    internal static TestLr2PlaylistFolderSynchronizationPort CreateDeterministicLr2PlaylistFolderSynchronizationPort(
-        ApplicationDatabaseScope databaseScope,
-        string songDbPath,
-        CustomFolderOutputPhysicalSurface physicalSurface)
-    {
-        ArgumentNullException.ThrowIfNull(physicalSurface);
-        return new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath)
-        {
-            PhysicalSurfaceFactory = () => physicalSurface
-        };
-    }
-
     internal static PlaylistWorkspaceViewModel CreatePlaylistWorkspace(
         BMSPlaylist playlist,
         BMSLibrary library,
@@ -91,19 +75,19 @@ internal static class BmsPlaylistTestSupport
             _ => { },
             _ => { },
             settingsProvider,
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
+            PlaylistWorkspaceFixturePorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceFixturePorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceFixturePorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceFixturePorts.PlaylistUrlInstallSink,
+            PlaylistWorkspaceFixturePorts.PlaylistUrlBrowserOpenSink,
+            PlaylistWorkspaceFixturePorts.ExternalPlaylistImportWarningLog,
+            PlaylistWorkspaceFixturePorts.ExternalPlaylistImportInfoLog,
+            PlaylistWorkspaceFixturePorts.BeatorajaTableUrlImportWarningLog,
+            PlaylistWorkspaceFixturePorts.BeatorajaTableUrlImportInfoLog,
+            PlaylistWorkspaceFixturePorts.PlaylistSummaryColumnSettingsStore,
+            PlaylistWorkspaceFixturePorts.PlaylistSummaryBmtSortCoordinator,
+            PlaylistWorkspaceFixturePorts.KeywordSearchHistorySettingsStore,
+            PlaylistWorkspaceFixturePorts.KeywordSearchFavoritesSettingsStore,
             () => playlist,
             new PlaylistPropertySaveService(
                 () => playlist,
@@ -124,8 +108,8 @@ internal static class BmsPlaylistTestSupport
             (_, _) => { },
             (_, _) => false,
             (_, _) => false,
-            PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler,
-            PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+            PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler,
+            PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck);
         workspace.ConfigureCatalogNotificationQueue(action => action());
         PlaylistWorkspaceTestPorts.AttachImmediatePlaylistPresentationRouter(workspace);
         workspace.PlaylistPropertyValidationError += (_, _) => { };
@@ -140,29 +124,11 @@ internal static class BmsPlaylistTestSupport
         return workspace;
     }
 
-    /// <summary>同じfixtureのDB所有者で、songとfolderの実schemaを準備します。</summary>
-    /// <param name="databaseScope">準備中の接続を所有するfixtureのDB所有者。</param>
-    internal static string CreateTempSongDbPath(ApplicationDatabaseScope databaseScope, string tempDirectory)
-    {
-        string tempSongDbPath = Path.Combine(tempDirectory, "song.db");
-        using (LR2SongDBExtended db = databaseScope.OpenSongWrite(tempSongDbPath))
-        {
-            db.CreateTable<LR2SongDB.song>();
-            db.CreateTable<LR2SongDB.folder>();
-        }
-        return tempSongDbPath;
-    }
-
     internal static string ReadShiftJisText(string path)
     {
         using FileStream stream = LongPathFileSystem.OpenRead(path);
         using var reader = new StreamReader(stream, Encoding.GetEncoding("shift_jis"), detectEncodingFromByteOrderMarks: true);
         return reader.ReadToEnd();
-    }
-
-    internal static BMSTableEntry CreateEntry(string md5, string folder)
-    {
-        return new BMSTableEntry(JObject.Parse("{\"md5\":\"" + md5 + "\",\"title\":\"" + md5 + "\",\"level\":\"" + folder + "\"}"));
     }
 
     internal static BMSTableEntry CreateEntryWithLevel(string md5, int level)
