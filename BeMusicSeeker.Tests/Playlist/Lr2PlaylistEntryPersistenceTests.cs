@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -8,6 +9,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2PlaylistEntryPersistenceTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>playlist項目を実SQLiteへ保存し接続を閉じて再読込みしてもタイトルを保持し、列mappingや永続化の欠落を検出します。</summary>
     [TestMethod]
     public void PlaylistEntryTitleRoundTripsThroughSongDb()
@@ -17,7 +20,7 @@ public sealed class Lr2PlaylistEntryPersistenceTests
         string databasePath = Path.Combine(root, "song.db");
         try
         {
-            using (var database = new LR2SongDBExtended(databasePath))
+            using (LR2SongDBExtended database = databaseScope.OpenSongWrite(databasePath))
             {
                 database.CreateTable<LR2SongDBExtended.playlist_entry>();
                 database.Insert(new LR2SongDBExtended.playlist_entry
@@ -28,7 +31,7 @@ public sealed class Lr2PlaylistEntryPersistenceTests
                 });
             }
 
-            using (var database = new LR2SongDBExtended(databasePath))
+            using (LR2SongDBExtended database = databaseScope.OpenSongWrite(databasePath))
             {
                 LR2SongDBExtended.playlist_entry entry = database.FindWithQuery<LR2SongDBExtended.playlist_entry>(
                     "SELECT * FROM playlist_entry WHERE playlist_id = ?",

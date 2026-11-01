@@ -20,6 +20,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2SongDbSyncServiceTests
 {
+    /// <summary>このケースのモデルと接続で共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
 
     /// <summary>
     /// 通常・folderinfo・カスタム・楽曲の実対象数で進捗を報告し、準備完了時には旧保存行とカーソルを保持し、生成反映後も全体の完了保存は要求coordinatorへ残す。
@@ -52,7 +55,7 @@ public sealed class Lr2SongDbSyncServiceTests
         ChartFile firstSong = CreateSyncTestFile(firstChart, ChartFileContentReader.ReadSnapshot(firstChart));
         ChartFile secondSong = CreateSyncTestFile(secondChart, ChartFileContentReader.ReadSnapshot(secondChart));
         string stalePath = ToFolderPath(Path.Combine(scope.DirectoryPath, "stale"));
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.folder>();
         songDb.CreateTable<LR2SongDB.song>();
         songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(firstSong), typeof(LR2SongDB.song));
@@ -179,7 +182,7 @@ public sealed class Lr2SongDbSyncServiceTests
             song = song with { Favorite = 7 };
             songs.Add(song);
         }
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.RunInTransaction(() =>
         {
@@ -248,8 +251,8 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual("Running", durable.status);
         Assert.IsNull(durable.completed_at);
         Assert.IsFalse(events.Any(progress => progress.Stage == "song_rows_saving"));
-        using var observation = new SQLite.SQLiteConnection(scope.SongDbPath,
-            SQLite.SQLiteOpenFlags.ReadOnly | SQLite.SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        using SQLiteConnectionEx observation = databaseScope.OpenProviderConnection(scope.SongDbPath,
+            SQLite.SQLiteOpenFlags.ReadOnly | SQLite.SQLiteOpenFlags.FullMutex);
         Assert.AreEqual(targetCount, observation.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
         for (int index = 0; index < targetCount; index++)
         {
@@ -274,7 +277,7 @@ public sealed class Lr2SongDbSyncServiceTests
         Directory.CreateDirectory(firstDirectory);
         Directory.CreateDirectory(secondDirectory);
         DateTime rootTime = new(2026, 6, 8, 7, 0, 0, DateTimeKind.Utc);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.folder>();
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
@@ -306,7 +309,7 @@ public sealed class Lr2SongDbSyncServiceTests
     public void SyncService_EmptyInputOmitsCountedStages(bool withFolder)
     {
         using var scope = TestDatabaseScope.Create();
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         var progressEvents = new List<Lr2SongDbSyncProgress>();
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
@@ -356,7 +359,7 @@ public sealed class Lr2SongDbSyncServiceTests
     {
         using var scope = TestDatabaseScope.Create();
         string stalePath = Path.Combine(scope.DirectoryPath, "stale.bms");
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
         ChartFile existing = ((ChartTestValues.Empty() with
@@ -393,7 +396,7 @@ public sealed class Lr2SongDbSyncServiceTests
             Path = chartPath
         };
         file = file with { Title = "New chart", RawTitle = "New chart" };
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
 
@@ -426,7 +429,7 @@ public sealed class Lr2SongDbSyncServiceTests
         DateTime mtime = new(2026, 6, 5, 2, 0, 0, DateTimeKind.Utc);
         File.SetLastWriteTimeUtc(lr2FolderPath, mtime);
         Directory.SetLastWriteTimeUtc(rootDirectory, mtime);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
         songDb.InsertOrReplace(new LR2SongDB.folder
@@ -471,7 +474,7 @@ public sealed class Lr2SongDbSyncServiceTests
         using var scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "EpochRoot");
         Directory.CreateDirectory(rootDirectory);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
         DateTime epoch = new(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -509,7 +512,7 @@ public sealed class Lr2SongDbSyncServiceTests
         ChartFileSnapshot chartSnapshot = ChartFileContentReader.ReadSnapshot(chartPath);
         ChartFile file = CreateSyncTestFile(chartPath, chartSnapshot);
 
-        using (var sourceDb = new LR2SongDBExtended(scope.SongDbPath))
+        using (LR2SongDBExtended sourceDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath))
         {
             sourceDb.CreateTable<LR2SongDB.song>();
             ChartFile existing = ((ChartTestValues.Empty() with
@@ -527,7 +530,7 @@ public sealed class Lr2SongDbSyncServiceTests
         Directory.CreateDirectory(copiedDirectory);
         string copiedSongDbPath = Path.Combine(copiedDirectory, "song.db");
         File.Copy(scope.SongDbPath, copiedSongDbPath, overwrite: true);
-        using var copiedDb = new LR2SongDBExtended(copiedSongDbPath);
+        using LR2SongDBExtended copiedDb = databaseScope.OpenSongWrite(copiedSongDbPath);
         copiedDb.CreateTable<LR2SongDB.folder>();
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(copiedDb, new Lr2SongDbSyncRequest
@@ -574,7 +577,7 @@ public sealed class Lr2SongDbSyncServiceTests
         capturedStorageRow.maxbpm = 314;
         capturedStorageRow.minbpm = 157;
         capturedStorageRow.karinotes = 2718;
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
         songDb.InsertOrReplace(capturedStorageRow, typeof(LR2SongDB.song));
@@ -622,7 +625,7 @@ public sealed class Lr2SongDbSyncServiceTests
         DateTime preEpoch = new(1969, 12, 31, 23, 59, 59, DateTimeKind.Utc);
         File.SetLastWriteTimeUtc(chartPath, preEpoch);
         ChartFile file = CreateSyncTestFile(chartPath, ChartFileContentReader.ReadSnapshot(chartPath));
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
         songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
@@ -659,7 +662,7 @@ public sealed class Lr2SongDbSyncServiceTests
         File.WriteAllText(chartPath, "#TITLE Null Date\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
         ChartFile file = CreateSyncTestFile(chartPath, ChartFileContentReader.ReadSnapshot(chartPath));
         file = file with { Date = null };
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
         songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
@@ -695,7 +698,7 @@ public sealed class Lr2SongDbSyncServiceTests
         Directory.CreateDirectory(legacyDirectory);
         DateTime legacyTime = new(2026, 6, 5, 2, 0, 0, DateTimeKind.Utc);
         Directory.SetLastWriteTimeUtc(legacyDirectory, legacyTime);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
         songDb.InsertOrReplace(new LR2SongDB.folder
@@ -739,7 +742,7 @@ public sealed class Lr2SongDbSyncServiceTests
         ChartFile secondFile = CreateSyncTestFile(secondPath, ChartFileContentReader.ReadSnapshot(secondPath));
         firstFile = firstFile with { Title = "stale first", RawTitle = "stale first" };
         secondFile = secondFile with { Title = "stale second", RawTitle = "stale second" };
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
         songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(firstFile), typeof(LR2SongDB.song));
@@ -813,7 +816,7 @@ public sealed class Lr2SongDbSyncServiceTests
         file = file with { Md5 = snapshot.Md5 };
         file = file with { Sha256 = snapshot.Sha256 };
         file = file with { Title = "Stale Title", RawTitle = "Stale Title" };
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
         var notifiedTitles = new List<string>();
@@ -856,7 +859,7 @@ public sealed class Lr2SongDbSyncServiceTests
             Encoding = encoding,
             EncodingFixed = true
         });
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         // 全体同期は所持済みsongを更新するため、入力と同じ保存行を先に用意します。
         songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
@@ -880,7 +883,7 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(1, result.SongRowProcessedCount);
         Assert.AreEqual(0, result.SongRowParseFailureCount);
         Assert.AreEqual(1, reads);
-        using LR2SongDBExtended read = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+        using LR2SongDBExtended read = new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
         LR2SongDB.song saved = read.Table<LR2SongDB.song>().Single();
         Assert.AreEqual(title, saved.title);
         Assert.AreEqual(subtitle, saved.subtitle);
@@ -922,7 +925,7 @@ public sealed class Lr2SongDbSyncServiceTests
                 EncodingFixed = condition != "not-fixed"
             });
         }
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         // 全体同期の生成列更新は既存songだけを対象にします。
         songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
@@ -935,7 +938,7 @@ public sealed class Lr2SongDbSyncServiceTests
         });
 
         Assert.AreEqual(0, result.SongRowParseFailureCount);
-        using LR2SongDBExtended read = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+        using LR2SongDBExtended read = new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
         LR2SongDB.song saved = read.Table<LR2SongDB.song>().Single();
         Assert.AreEqual("日本語題名", saved.title);
         Assert.AreEqual("副題", saved.subtitle);
@@ -966,7 +969,7 @@ public sealed class Lr2SongDbSyncServiceTests
         ChartFile currentFile = CreateSyncTestFile(currentPath, currentSnapshot);
         ChartFile staleFile = CreateSyncTestFile(stalePath, staleSnapshot);
         ChartFile mismatchFile = CreateSyncTestFile(mismatchPath, mismatchSnapshot);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
         BeMusicSeeker.Models.ChartDetails currentInfo = CreateChartInfo(currentSnapshot.Sha256, currentSnapshot.Md5, level: 77);
@@ -1036,7 +1039,7 @@ public sealed class Lr2SongDbSyncServiceTests
         File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE failure skip\r\n#BPM 150\r\n#WAV01 kick.wav\r\n#00111:01\r\n");
         ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
         ChartFile file = CreateSyncTestFile(chartPath, snapshot);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
         bool chartInfoCallbackCalled = false;
@@ -1076,7 +1079,7 @@ public sealed class Lr2SongDbSyncServiceTests
         File.WriteAllText(chartPath, "#TITLE resolver\r\n");
         ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
         ChartFile file = CreateSyncTestFile(chartPath, snapshot);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
 
@@ -1115,7 +1118,7 @@ public sealed class Lr2SongDbSyncServiceTests
         File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE stale resolver\r\n#BPM 150\r\n#WAV01 kick.wav\r\n#00111:01\r\n");
         ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
         ChartFile file = CreateSyncTestFile(chartPath, snapshot);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
 
@@ -1143,7 +1146,7 @@ public sealed class Lr2SongDbSyncServiceTests
     public void SyncService_UnexpectedCancellationMarksFailedStatus()
     {
         using var scope = TestDatabaseScope.Create();
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
@@ -1174,7 +1177,7 @@ public sealed class Lr2SongDbSyncServiceTests
         string rootFolderPath = ToFolderPath(rootDirectory);
         DateTime directoryTime = new(2026, 6, 5, 2, 0, 0, DateTimeKind.Utc);
         Directory.SetLastWriteTimeUtc(rootDirectory, directoryTime);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
         songDb.InsertOrReplace(new LR2SongDB.folder
@@ -1240,7 +1243,7 @@ public sealed class Lr2SongDbSyncServiceTests
         ChartFile file = CreateSyncTestFile(chartPath, snapshot);
         file = file with { Title = "Durable song before shutdown", RawTitle = "Durable song before shutdown" };
         file = file with { Artist = "Stale artist before shutdown", RawArtist = "Stale artist before shutdown" };
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
         songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
@@ -1309,7 +1312,7 @@ public sealed class Lr2SongDbSyncServiceTests
         string chartPath = Path.Combine(songDirectory, "chart.bms");
         File.WriteAllText(chartPath, "#TITLE cancel retry\r\n#00111:01\r\n", Encoding.ASCII);
         ChartFile file = CreateSyncTestFile(chartPath, ChartFileContentReader.ReadSnapshot(chartPath));
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
         songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
@@ -1388,7 +1391,7 @@ public sealed class Lr2SongDbSyncServiceTests
         WriteBasicBms(chartPath, "lr2 compatibility", CreateLr2TooLongResourcePath());
         ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
         ChartFile file = CreateSyncTestFile(chartPath, snapshot);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
         songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = chartPath, hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", wav_files_defined = 99, wav_files_existing = 88 }, typeof(LR2SongDBExtended.maintenance));
@@ -1423,7 +1426,7 @@ public sealed class Lr2SongDbSyncServiceTests
         WriteBasicBms(path, "changed");
         ChartFile file = CreateSyncTestFile(path, ChartFileContentReader.ReadSnapshot(path));
         const string oldHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
         BmsLibraryDbGateway.EnsureLr2SongDbSyncStatusSchema(songDb);
@@ -1439,7 +1442,7 @@ public sealed class Lr2SongDbSyncServiceTests
             ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb)
         }));
 
-        using LR2SongDBExtended read = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+        using LR2SongDBExtended read = new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
         LR2SongDBExtended.maintenance saved = read.Table<LR2SongDBExtended.maintenance>().Single();
         Assert.AreEqual(oldHash, saved.hash);
         Assert.AreEqual("big5", saved.encoding);
@@ -1464,7 +1467,7 @@ public sealed class Lr2SongDbSyncServiceTests
         ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
         ChartFile file = CreateSyncTestFile(chartPath, snapshot);
         string existingPath = Path.Combine(songDirectory, "CHART.BMS");
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
         songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = existingPath, hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, typeof(LR2SongDBExtended.maintenance));
@@ -1501,7 +1504,7 @@ public sealed class Lr2SongDbSyncServiceTests
         })) with
         { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Favorite = null };
         file = file with { Title = "fallback row", RawTitle = "fallback row" };
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
         int existingFlags = (int)(Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported
@@ -1535,7 +1538,7 @@ public sealed class Lr2SongDbSyncServiceTests
         string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
         Directory.CreateDirectory(rootDirectory);
         string missingPath = Path.Combine(rootDirectory, "missing.lr2folder");
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.folder>();
         songDb.InsertOrReplace(new LR2SongDB.folder
         {
@@ -1577,7 +1580,7 @@ public sealed class Lr2SongDbSyncServiceTests
         DateTime enumeratedTimestamp = new(2026, 6, 5, 1, 2, 3, DateTimeKind.Utc);
         DateTime liveTimestamp = enumeratedTimestamp.AddMinutes(10);
         File.SetLastWriteTimeUtc(lr2FolderPath, liveTimestamp);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.folder>();
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
@@ -1618,7 +1621,7 @@ public sealed class Lr2SongDbSyncServiceTests
         Directory.CreateDirectory(insaneDirectory);
         File.WriteAllText(lr2FolderPath, "#TITLE INSANE02");
         DateTime timestamp = new(2026, 6, 5, 1, 2, 3, DateTimeKind.Utc);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.folder>();
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
@@ -1656,7 +1659,7 @@ public sealed class Lr2SongDbSyncServiceTests
         DateTime enumeratedTimestamp = new(2026, 6, 5, 5, 0, 0, DateTimeKind.Utc);
         DateTime liveTimestamp = enumeratedTimestamp.AddMinutes(10);
         Directory.SetLastWriteTimeUtc(rootDirectory, liveTimestamp);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.folder>();
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
@@ -1696,7 +1699,7 @@ public sealed class Lr2SongDbSyncServiceTests
             File.WriteAllText(path, "#TITLE detail" + index + "\r\n#PLAYLEVEL 9\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
             charts.Add(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path)) with { Level = 2, Title = "old" });
         }
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
         songDb.RunInTransaction(() =>
@@ -1752,7 +1755,7 @@ public sealed class Lr2SongDbSyncServiceTests
             Assert.AreEqual(0, result.SongRowSkippedCount);
             Assert.AreEqual(3, result.SongRowChartInfoAppliedCount);
             Assert.AreEqual(0, activeParses);
-            using var verify = new LR2SongDBExtended(scope.SongDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended verify = scope.DatabaseScope.OpenSongReadOnly(scope.SongDbPath);
             Assert.AreEqual(4, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE level = 9 AND favorite = 3 AND tag = 'keep' AND adddate = 123;"));
             for (int index = 0; index < charts.Count; index++)
             {
@@ -1792,7 +1795,7 @@ public sealed class Lr2SongDbSyncServiceTests
             });
         }
         int ownerThread = Environment.CurrentManagedThreadId;
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
         songDb.RunInTransaction(() =>
@@ -1846,7 +1849,7 @@ public sealed class Lr2SongDbSyncServiceTests
             Assert.AreEqual(1, result.SongRowSkippedCount);
             Assert.AreEqual(0, result.SongRowParseFailureCount);
             Assert.AreEqual(0, activeReaders);
-            using (var verify = new LR2SongDBExtended(scope.SongDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            using (LR2SongDBExtended verify = scope.DatabaseScope.OpenSongReadOnly(scope.SongDbPath))
             {
                 Assert.AreEqual(4, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE favorite = 3 AND tag = 'keep' AND adddate = 123;"));
                 for (int index = 0; index < charts.Count; index++)
@@ -1886,7 +1889,7 @@ public sealed class Lr2SongDbSyncServiceTests
             catch (Exception) { /* 一次表明を保持し、全Task終端後にDBを解放します。 */ }
         }
         Assert.AreEqual(ownerThread, Environment.CurrentManagedThreadId);
-        Assert.IsTrue(LR2SongDBExtended.IsProcessLockEnteredByCurrentThread());
+        Assert.IsTrue(scope.DatabaseScope.IsSongGateEnteredByCurrentThread);
     }
 
     /// <summary>要求取消を伝播し、全callback終端後も確定済みチャンク・利用者列・処理位置を保持する。</summary>
@@ -1913,11 +1916,11 @@ public sealed class Lr2SongDbSyncServiceTests
             templates[0].Bytes, templates[0].Path, retainChartString: false).Row;
         var indices = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         List<ChartFile> charts = [];
-        Assert.IsFalse(LR2SongDBExtended.IsProcessLockEnteredByCurrentThread());
+        Assert.IsFalse(scope.DatabaseScope.IsSongGateEnteredByCurrentThread);
         int songDbThreadId = Environment.CurrentManagedThreadId;
-        using (var songDb = new LR2SongDBExtended(scope.SongDbPath))
+        using (LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath))
         {
-            Assert.IsTrue(LR2SongDBExtended.IsProcessLockEnteredByCurrentThread());
+            Assert.IsTrue(scope.DatabaseScope.IsSongGateEnteredByCurrentThread);
             songDb.CreateTable<LR2SongDB.song>();
             BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
             songDb.RunInTransaction(() =>
@@ -2046,9 +2049,9 @@ public sealed class Lr2SongDbSyncServiceTests
                 }
             }
             Assert.AreEqual(songDbThreadId, Environment.CurrentManagedThreadId);
-            Assert.IsTrue(LR2SongDBExtended.IsProcessLockEnteredByCurrentThread());
+            Assert.IsTrue(scope.DatabaseScope.IsSongGateEnteredByCurrentThread);
         }
-        Assert.IsFalse(LR2SongDBExtended.IsProcessLockEnteredByCurrentThread());
+        Assert.IsFalse(scope.DatabaseScope.IsSongGateEnteredByCurrentThread);
     }
 
     private static void WaitForLr2FaultStage(Task stage, Task operation)
@@ -2081,7 +2084,7 @@ public sealed class Lr2SongDbSyncServiceTests
             Tag = "keep",
             AddDate = 123
         };
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
         int rowsCalls = 0;
@@ -2099,7 +2102,7 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(raw.SQLITE_OK, raw.sqlite3_set_authorizer(songDb.Handle, authorizer, null));
         void ObserveCommit()
         {
-            using LR2SongDBExtended readback = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
             callbackTitle = readback.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", path);
             callbackCursor = readback.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName).processed_cursor;
             callbackChartInfoCount = readback.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_info WHERE sha256 = ?;", file.Sha256);
@@ -2192,11 +2195,11 @@ public sealed class Lr2SongDbSyncServiceTests
             Tag = "keep",
             AddDate = 321
         })];
-        Assert.IsFalse(LR2SongDBExtended.IsProcessLockEnteredByCurrentThread());
+        Assert.IsFalse(scope.DatabaseScope.IsSongGateEnteredByCurrentThread);
         int songDbThreadId = Environment.CurrentManagedThreadId;
-        using (var songDb = new LR2SongDBExtended(scope.SongDbPath))
+        using (LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath))
         {
-            Assert.IsTrue(LR2SongDBExtended.IsProcessLockEnteredByCurrentThread());
+            Assert.IsTrue(scope.DatabaseScope.IsSongGateEnteredByCurrentThread);
             songDb.CreateTable<LR2SongDB.song>();
             songDb.RunInTransaction(() =>
             {
@@ -2248,7 +2251,7 @@ public sealed class Lr2SongDbSyncServiceTests
             }
             void AssertDurablePrefix(string expectedStatus)
             {
-                using LR2SongDBExtended readback = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended readback = new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
                 LR2SongDBExtended.lr2_song_db_sync_status status = readback.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
                 Assert.AreEqual(expectedStatus, status.status);
                 Assert.AreEqual("song_rows", status.stage);
@@ -2433,9 +2436,9 @@ public sealed class Lr2SongDbSyncServiceTests
                 }
             }
             Assert.AreEqual(songDbThreadId, Environment.CurrentManagedThreadId);
-            Assert.IsTrue(LR2SongDBExtended.IsProcessLockEnteredByCurrentThread());
+            Assert.IsTrue(scope.DatabaseScope.IsSongGateEnteredByCurrentThread);
         }
-        Assert.IsFalse(LR2SongDBExtended.IsProcessLockEnteredByCurrentThread());
+        Assert.IsFalse(scope.DatabaseScope.IsSongGateEnteredByCurrentThread);
     }
 
     /// <summary>終了取消後のmanaged rollback故障は直接SQLの成功なら通常取消を保ち、両故障なら未解決transactionを実失敗として返して確定prefix/cursorを保持する。</summary>
@@ -2460,7 +2463,7 @@ public sealed class Lr2SongDbSyncServiceTests
             Path = Path.Combine(scope.DirectoryPath, index.ToString("D4") + ".bms"),
             Title = "old", RawTitle = "old", Favorite = 7, Tag = "keep", AddDate = 321
         })];
-        var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         using var cancellation = new CancellationTokenSource();
         bool shutdown = false;
         int writerCalls = 0;
@@ -2568,7 +2571,7 @@ public sealed class Lr2SongDbSyncServiceTests
             }
             finally { songDb.Dispose(); }
         }
-        using LR2SongDBExtended readback = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+        using LR2SongDBExtended readback = new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
         Assert.AreEqual("prefix committed", readback.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", files[0].Path));
         Assert.AreEqual("old", readback.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", files[^1].Path));
         Assert.AreEqual(7, readback.ExecuteScalar<int>("SELECT favorite FROM song WHERE path = ?;", files[0].Path));

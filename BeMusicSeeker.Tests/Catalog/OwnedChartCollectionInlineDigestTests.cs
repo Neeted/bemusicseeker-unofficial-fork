@@ -22,17 +22,18 @@ public sealed class OwnedChartCollectionInlineDigestTests
     [TestMethod]
     public void BuildInlineChartInfo_DispatchesDigestMutationToOwnedAdjacentIndexes()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            new BmsLibraryDbGateway(songDbPath).EnsureChartInfoSchema();
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).EnsureChartInfoSchema();
             string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "InlineDigest");
             Directory.CreateDirectory(chartDirectory);
             string chartPath = Path.Combine(chartDirectory, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE hash update\r\n#BPM 120\r\n#00111:01\r\n", System.Text.Encoding.ASCII);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, null);
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
             SetDuplicateChartGroupsWithoutNotification(library, []);
@@ -120,10 +121,11 @@ public sealed class OwnedChartCollectionInlineDigestTests
     [DataRow(16)]
     public void BuildInlineChartInfo_WarmDigestDeltaStaysLocalAcrossTwoOperations(int backgroundCount)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            new BmsLibraryDbGateway(songDbPath).EnsureChartInfoSchema();
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).EnsureChartInfoSchema();
             string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "InlineLocalWork");
             Directory.CreateDirectory(chartDirectory);
             string firstPath = Path.Combine(chartDirectory, "first.bms");
@@ -149,7 +151,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
                 files.Add(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(backgroundPath)));
             }
 
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             SetLibraryFilesWithoutNotification(library, files);
             SetLibraryBmsonSongsWithoutNotification(library, []);
             SetDuplicateChartGroupsWithoutNotification(library, []);
@@ -341,10 +343,11 @@ public sealed class OwnedChartCollectionInlineDigestTests
     [TestMethod]
     public void BuildInlineChartInfo_ShaOnlyChangeUpdatesShaLookupAndResourceHealthWithoutPrimaryLookupRebuild()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            new BmsLibraryDbGateway(songDbPath).EnsureChartInfoSchema();
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).EnsureChartInfoSchema();
             string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "InlineShaOnly");
             Directory.CreateDirectory(chartDirectory);
             string chartPath = Path.Combine(chartDirectory, "chart.bms");
@@ -355,7 +358,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             string staleSha256 = new string('b', 64);
             ChartFile bmsFile = CreateFile(snapshot.Md5, chartPath, staleSha256);
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
             InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
@@ -409,10 +412,11 @@ public sealed class OwnedChartCollectionInlineDigestTests
     [TestMethod]
     public void BuildInlineChartInfo_StorageFailureDoesNotPublishDigestIndexSessionIndexOrWarning()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            new BmsLibraryDbGateway(songDbPath).EnsureChartInfoSchema();
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).EnsureChartInfoSchema();
             string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "InlineFailure");
             Directory.CreateDirectory(chartDirectory);
             string chartPath = Path.Combine(chartDirectory, "chart.bms");
@@ -422,7 +426,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
                 System.Text.Encoding.ASCII);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, null);
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
             InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
@@ -430,7 +434,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
             int initialNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int initialCollectionVersion = library.CatalogRevision;
             int initialChartInfoIndexVersion = library.ChartInfoIndexVersion;
-            using (var setup = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
             {
                 setup.Execute("CREATE TRIGGER fail_inline_chart_info BEFORE INSERT ON chart_info BEGIN SELECT RAISE(ABORT, 'forced inline chart-info failure'); END;");
             }
@@ -453,7 +457,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
             Assert.IsTrue(initialLookup.ContainsPrimaryHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
             Assert.IsTrue(InvokeCreateInstalledChartLookupSnapshot(library)
                 .ContainsPrimaryHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, verify.Table<LR2SongDB.song>().Count(row => row.path == chartPath));
             Assert.AreEqual(0, verify.Table<LR2SongDBExtended.chart_info>().Count());
         });

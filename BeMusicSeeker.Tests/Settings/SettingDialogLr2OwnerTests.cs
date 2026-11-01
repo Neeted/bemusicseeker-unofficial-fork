@@ -74,7 +74,7 @@ public sealed partial class SettingDialogEditCompletionTests
             string outsidePath = Lr2FolderPath.ToFolderPath(Path.Combine(root, "Outside"));
             string obsoleteParent = Lr2FolderPath.ToFolderPath(Path.Combine(previousBase, "GoneExternal"));
             string obsoleteCustom = Path.Combine(previousBase, "GoneExternal", "external.lr2folder");
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDb())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).OpenSongDb())
             {
                 foreach (LR2SongDB.folder row in db.Table<LR2SongDB.folder>().ToList().Where(row => IsUnder(row.path, previousTable)))
                 { row.adddate = 321; db.InsertOrReplace(row); }
@@ -89,9 +89,9 @@ public sealed partial class SettingDialogEditCompletionTests
                     "generated-complete", library.Lr2SongDbSyncRequestedVersion, DateTime.UtcNow);
                 db.Execute("UPDATE lr2_song_db_sync_status SET signature = ?;", completedSignature);
             }
-            string[] originalManaged = ReadManaged(values, previousTable);
+            string[] originalManaged = ReadManaged(composition.DatabaseScope, values, previousTable);
             Assert.IsTrue(originalManaged.Length > 3);
-            AssertHierarchy(values, previousBase);
+            AssertHierarchy(composition.DatabaseScope, values, previousBase);
             Assert.IsFalse(library.Lr2Synchronization.EvaluateLr2SongDbSyncStatus(true, DateTime.UtcNow).IsNeeded);
             if (detectOnStartup)
             {
@@ -114,8 +114,8 @@ public sealed partial class SettingDialogEditCompletionTests
             if (changed) { RenameOutputBase(root, previousBase, currentBase); }
             (scanner ?? throw new AssertFailedException()).Current = Scan(values, currentBase);
             TestUiDispatcherHost.AwaitTaskOnDispatcher(shell.ReloadFileDiffAsync(), "normal-output-file-diff");
-            AssertHierarchy(values, currentBase);
-            string[] afterFirst = ReadManaged(values, currentTable);
+            AssertHierarchy(composition.DatabaseScope, values, currentBase);
+            string[] afterFirst = ReadManaged(composition.DatabaseScope, values, currentTable);
             if (!changed) { CollectionAssert.AreEqual(originalManaged, afterFirst); }
             AssertConverged(root, values, composition);
             CollectionAssert.Contains(shell.SettingDialog.BmsRootPathList.ToArray(), candidate);
@@ -124,12 +124,12 @@ public sealed partial class SettingDialogEditCompletionTests
             Assert.AreEqual(changed ? 1 : 0, publications);
             if (changed) { Assert.IsTrue(confirmedNotifications > 0); Assert.IsTrue(library.BMSParentFolderListCacheVersion > cacheVersion); }
             TestUiDispatcherHost.AwaitTaskOnDispatcher(shell.ReloadFileDiffAsync(), "normal-output-second-diff");
-            CollectionAssert.AreEqual(afterFirst, ReadManaged(values, currentTable));
+            CollectionAssert.AreEqual(afterFirst, ReadManaged(composition.DatabaseScope, values, currentTable));
             Assert.AreEqual(changed ? 1 : 0, publications);
             Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
             stableRows = afterFirst;
             stableFiles = CaptureFileTimes(currentTable);
-            using LR2SongDBExtended statusDb = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended statusDb = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).OpenSongDbReadOnly();
             Assert.AreEqual(1, statusDb.ExecuteScalar<int>("SELECT COUNT(1) FROM playlist_custom_folder_output_status WHERE playlist_id = ? AND output_directory = ?;", table.playlist_id, currentTable));
         }, scannerFactory: (root, values) =>
         {
@@ -139,17 +139,17 @@ public sealed partial class SettingDialogEditCompletionTests
         }, afterRestart: (root, values, composition, shell, factory, failures, dialogs) =>
         {
             string tableDirectory = Path.Combine(root, observedName, "Table");
-            AssertHierarchy(values, Path.Combine(root, observedName));
+            AssertHierarchy(composition.DatabaseScope, values, Path.Combine(root, observedName));
             if (detectOnStartup)
             {
                 AssertConverged(root, values, composition);
-                Assert.AreEqual(stableRows.Length, ReadManaged(values, tableDirectory).Length);
+                Assert.AreEqual(stableRows.Length, ReadManaged(composition.DatabaseScope, values, tableDirectory).Length);
             }
             else
             {
-                CollectionAssert.AreEqual(stableRows, ReadManaged(values, tableDirectory), "保存済み出力状態が現行のfresh起動でも、初回生成で欠損を隠しません。");
+                CollectionAssert.AreEqual(stableRows, ReadManaged(composition.DatabaseScope, values, tableDirectory), "保存済み出力状態が現行のfresh起動でも、初回生成で欠損を隠しません。");
             }
-            AssertCompletedRun(values);
+            AssertCompletedRun(composition.DatabaseScope, values);
             PlaylistSyncProgressSnapshot[] repair = [.. restartProgress.Where(progress => progress.Source == "custom_folder_repair")];
             Assert.IsTrue(repair.Length > 0, "起動の修復終端通知を実際に受け取ります。");
             Assert.IsTrue(repair.All(progress => !progress.IsActive && progress.TotalTableCount == 0 && progress.CompletedTableCount == 0),
@@ -170,12 +170,12 @@ public sealed partial class SettingDialogEditCompletionTests
             Assert.AreEqual(previousBase, values.LR2CustomFolderOutputBaseDir);
             Assert.AreEqual(previousBase, PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "settings", "user.config")).LR2CustomFolderOutputBaseDir);
             CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), previousBase);
-            CollectionAssert.AreEqual(stableRows, ReadManaged(values, Path.Combine(previousBase, "Table")));
-            using LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
+            CollectionAssert.AreEqual(stableRows, ReadManaged(MainWindowViewModelTestFactory.GetComposition(shell).DatabaseScope, values, Path.Combine(previousBase, "Table")));
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(MainWindowViewModelTestFactory.GetComposition(shell).DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).OpenSongDbReadOnly();
             LR2SongDB.song song = db.Table<LR2SongDB.song>().Single(row => row.hash == hash);
             Assert.AreEqual(Path.Combine(previousBase, "Pack", "normal.bms"), song.path);
             Assert.AreEqual(((int?)7, "user-tag", (int?)123), (song.favorite, song.tag, song.adddate));
-            AssertCompletedRun(values);
+            AssertCompletedRun(MainWindowViewModelTestFactory.GetComposition(shell).DatabaseScope, values);
         });
 
         void AssertConverged(string root, Settings values, ApplicationComposition composition)
@@ -187,7 +187,7 @@ public sealed partial class SettingDialogEditCompletionTests
             string obsoleteCustom = Path.Combine(previousBase, "GoneExternal", "external.lr2folder");
             string outsidePath = Lr2FolderPath.ToFolderPath(Path.Combine(root, "Outside"));
             bool changed = !string.Equals(previousBase, currentBase, StringComparison.Ordinal);
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).OpenSongDbReadOnly())
             {
                 var rows = db.Table<LR2SongDB.folder>().ToList();
                 Assert.IsFalse(rows.Any(row => row.path == obsoleteParent || row.path == obsoleteCustom));
@@ -207,12 +207,12 @@ public sealed partial class SettingDialogEditCompletionTests
             Assert.AreEqual(currentBase, composition.ResolveLr2Config(values.LR2ConfigXmlPath).Capture().Placement.LR2CustomFolderOutputBaseDir);
             CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), currentBase);
             CollectionAssert.Contains(composition.ResolveLr2Config(values.LR2ConfigXmlPath).Capture().RegisteredRoots.ToArray(), currentBase);
-            AssertCompletedRun(values);
+            AssertCompletedRun(composition.DatabaseScope, values);
         }
 
-        void AssertCompletedRun(Settings values)
+        void AssertCompletedRun(ApplicationDatabaseScope databaseScope, Settings values)
         {
-            using LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).OpenSongDbReadOnly();
             LR2SongDBExtended.lr2_song_db_sync_status status = db.Table<LR2SongDBExtended.lr2_song_db_sync_status>().Single();
             Assert.AreEqual("generated-complete", status.run_id, "強制全体同期で表記訂正を救済しません。");
             Assert.AreEqual(completedSignature, status.signature);
@@ -240,15 +240,15 @@ public sealed partial class SettingDialogEditCompletionTests
         static IChartFileScanner Scan(Settings values, string outputBase) => CapturedChartFileScanner.FromFixture(
             [Path.Combine(values.BMSInstallDir, "song.bms"), Path.Combine(outputBase, "Pack", "normal.bms")],
             new Dictionary<string, IEnumerable<string>>(), [values.BMSInstallDir, outputBase]);
-        static string[] ReadManaged(Settings values, string directory)
+        static string[] ReadManaged(ApplicationDatabaseScope databaseScope, Settings values, string directory)
         {
-            using LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).OpenSongDbReadOnly();
             return db.Table<LR2SongDB.folder>().ToList().Where(row => IsUnder(row.path, directory)).OrderBy(row => row.path, StringComparer.Ordinal)
                 .Select(Newtonsoft.Json.JsonConvert.SerializeObject).ToArray();
         }
-        static void AssertHierarchy(Settings values, string outputBase)
+        static void AssertHierarchy(ApplicationDatabaseScope databaseScope, Settings values, string outputBase)
         {
-            using LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).OpenSongDbReadOnly();
             var rows = db.Table<LR2SongDB.folder>().ToDictionary(row => row.path, StringComparer.Ordinal);
             Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, rows[Lr2FolderPath.ToFolderPath(outputBase)].parent);
             string table = Path.Combine(outputBase, "Table");
@@ -399,7 +399,7 @@ public sealed partial class SettingDialogEditCompletionTests
             CollectionAssert.DoesNotContain(ReadRegisteredRoots(), managed);
             CollectionAssert.DoesNotContain(config.Capture().RegisteredRoots.ToArray(), managed);
             Assert.IsFalse(ReadFolderPaths().Any(path => path.StartsWith(managed + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).OpenSongDbReadOnly())
             { Assert.AreEqual(0, db.Table<BMSTable>().Count(row => row.playlist_id == table.playlist_id)); }
             AssertSong();
             Assert.AreEqual("inside volume, outside table", File.ReadAllText(Path.Combine(owned.Root, "outside-table.txt")));
@@ -409,7 +409,7 @@ public sealed partial class SettingDialogEditCompletionTests
             string[] ReadRegisteredRoots() => new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking().ToArray();
             string[] ReadFolderPaths()
             {
-                using LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).OpenSongDbReadOnly();
                 return db.Table<LR2SongDB.folder>().Select(row => row.path).ToArray();
             }
             void AssertCandidates()
@@ -426,7 +426,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 CollectionAssert.AreEqual(audio, File.ReadAllBytes(Path.Combine(songs, "Song", "sound.wav")));
                 Assert.AreEqual(installedChart, library.BmsCharts.Single().Path);
                 Assert.AreEqual(installedChart, library.ChartPackagesInstalled.Single().ChartEntries.Single().Chart.Path);
-                using LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).OpenSongDbReadOnly();
                 Assert.AreEqual(installedChart, db.Table<LR2SongDB.song>().Single().path);
             }
         }, ownedResource: root => drive = OwnedTestDrive.Create(root));

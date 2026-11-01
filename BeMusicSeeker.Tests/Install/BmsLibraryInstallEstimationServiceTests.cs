@@ -2413,6 +2413,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [TestMethod]
     public void ValidateInstallDestination_RegisteredCasingFlowsThroughManualInstallAndSongIdentity()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithWorkspace((tempRoot, _) =>
         {
             string libraryRoot = Path.Combine(tempRoot, "MiXeDParent");
@@ -2436,7 +2437,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             package.path = pendingDirectory;
             package.delete_parent = false;
             string songDbPath = Path.Combine(tempRoot, "song.db");
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, db =>
             {
                 db.CreateTable<LR2SongDB.song>();
                 db.CreateTable<LR2SongDB.folder>();
@@ -2447,7 +2448,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 db.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
             });
             LR2SongDB.song ownedBefore;
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
             {
                 ownedBefore = db.Table<LR2SongDB.song>().ToArray().Single();
             }
@@ -2455,7 +2456,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Assert.IsFalse(string.IsNullOrEmpty(ownedBefore.parent));
             Settings settings = TestBmsFactory.CreateRootSettings([libraryRoot]);
             settings.BMSInstallDir = libraryRoot;
-            var library = new TestBmsLibrary(songDbPath, null, null, new ResilientFileMutationService(), new FileDbReportRecordingDialogs(),
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new ResilientFileMutationService(), new FileDbReportRecordingDialogs(),
                 new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(settings), settings: settings)
             {
                 BmsCharts = [owned],
@@ -2491,7 +2492,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 CollectionAssert.AreEqual(pendingBytes, File.ReadAllBytes(expectedPath));
                 CollectionAssert.AreEqual(ownedBytes, File.ReadAllBytes(ownedPath));
                 Assert.IsTrue(string.Equals(expectedPath, library.ChartPackagesInstalled.Single().ChartEntries.Single().Chart.Path, StringComparison.Ordinal));
-                using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 LR2SongDB.song[] savedRows = verify.Table<LR2SongDB.song>().ToArray();
                 Assert.AreEqual(2, savedRows.Length);
                 LR2SongDB.song added = savedRows.Single(row => row.hash == pending.Md5);

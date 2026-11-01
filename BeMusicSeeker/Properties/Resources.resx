@@ -4103,4 +4103,5 @@ ON：すべての使用リソースを要求し、不足時は保留にします
 指定先: {1}
 組込みフォルダ: {2}</value></data>
   <data name="Error_InstallDestinationMissing" xml:space="preserve"><value>導入先フォルダーが見つかりません。INSTL DSTを選び直してください。</value></data>
+  <data name="DatabaseConnectionCloseFailed" xml:space="preserve"><value>データベース接続の終了処理でエラーが発生しました。</value></data>
 </root>

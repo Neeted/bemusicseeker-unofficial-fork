@@ -26,7 +26,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>保守操作の実ファイル・DB反映と、compiledメニューから管理主体への接続を検証します。</summary>
 /// <remarks>要求の可否とreceipt単体は下位へ任せ、ここでは実画面の選択・編集保持やクリックの配送先と非同期終端を観測します。</remarks>
 [TestClass]
-// 実VMの終了がプロセス共通のSQLite接続と音声資源を解放するため、他の実DBケースと並列にしません。
+// 実画面の共有Resourcesと音声資源を、終了まで同じfixtureで所有します。
 [DoNotParallelize]
 public sealed partial class MainWindowPackageMaintenanceWpfTests
 {
@@ -101,7 +101,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         Assert.AreEqual(aDirectory, Current().instl_dst);
                         Assert.AreEqual(0, repairCalls); CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(sourcePath));
                         Assert.IsFalse(File.Exists(movedPath));
-                        using (var db = new LR2SongDBExtended(songDb))
+                        using (LR2SongDBExtended db = MainWindowViewModelTestFactory.GetComposition(vm).DatabaseScope.OpenSongWrite(songDb))
                         { Assert.AreEqual(1, db.Table<LR2SongDB.song>().Count(chart => chart.path == sourcePath)); Assert.AreEqual(0, db.Table<LR2SongDB.song>().Count(chart => chart.path == movedPath)); }
                         Task pending = vm.RegularChartList.NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected); tasks.Add(pending);
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(pending, "destination-pending-navigation"); TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -127,7 +127,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         {
                             Assert.IsFalse(File.Exists(sourcePath)); CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(movedPath));
                             Assert.IsTrue(currentLibrary.BmsCharts.Any(chart => chart.Path == movedPath));
-                            using var db = new LR2SongDBExtended(songDb);
+                            using LR2SongDBExtended db = MainWindowViewModelTestFactory.GetComposition(vm).DatabaseScope.OpenSongWrite(songDb);
                             Assert.AreEqual(0, db.Table<LR2SongDB.song>().Count(chart => chart.path == sourcePath));
                             Assert.AreEqual(1, db.Table<LR2SongDB.song>().Count(chart => chart.path == movedPath));
                         }
@@ -187,7 +187,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 {
                     prepared = vm;
                     ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(vm);
-                    library = new TestBmsLibrary(songDb, getLR2Config: null, _lr2ScoreDB: null, startupRequiredFileScanReason: null,
+                    library = new TestBmsLibrary(composition.DatabaseScope, songDb, getLR2Config: null, _lr2ScoreDB: null, startupRequiredFileScanReason: null,
                         optionsSnapshotProvider: () => options, applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge, chartFileScanner: scanner,
                         operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: TestBmsFactory.CreateRootSettings([root]))
                     { StartupBackgroundTaskScheduler = (_, _, _, _) => false };
@@ -197,7 +197,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         var entry = PackageChartEntry.FromChart(library.BmsCharts.Single(chart => chart.Path == sourcePath));
                         BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry);
                         var package = ChartPackage.FromChartEntries([entry]); package.path = sourceDirectory; library.ChartPackagesPending = [package];
-                        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDb, db => { db.CreateTable<LR2SongDBExtended.install>(); db.InsertOrReplace(package, typeof(LR2SongDBExtended.install)); });
+                        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(library.DatabaseScope, songDb, db => { db.CreateTable<LR2SongDBExtended.install>(); db.InsertOrReplace(package, typeof(LR2SongDBExtended.install)); });
                     }
                     ((IStartupLibraryApplicationPort)vm).AttachStartupLibrary(library);
                     physicalRepair = new PendingPackageWorkflowOwner(() => library, composition.OperationAdmission, new ChartMutationActivityOwner(), vm.PlaybackPanel,
@@ -311,10 +311,10 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     return BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path));
                 }).ToArray();
                 string songDb = Path.Combine(directory, "song.db");
-                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDb, db =>
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(MainWindowViewModelTestFactory.GetComposition(vm).DatabaseScope, songDb, db =>
                 { db.CreateTable<LR2SongDB.song>(); db.CreateTable<LR2SongDB.folder>(); db.CreateTable<LR2SongDBExtended.maintenance>(); });
-                new BmsLibraryDbGateway(songDb).UpsertSongs(charts);
-                library = MainWindowViewModelTestFactory.CreateLibrary(songDb, settings, vm);
+                new BmsLibraryDbGateway(MainWindowViewModelTestFactory.GetComposition(vm).DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).UpsertSongs(charts);
+                library = MainWindowViewModelTestFactory.CreateLibrary(MainWindowViewModelTestFactory.GetComposition(vm).DatabaseScope, songDb, settings, vm);
                 library.BmsCharts = charts;
                 ((IStartupLibraryApplicationPort)vm).AttachStartupLibrary(library);
             });
@@ -346,17 +346,17 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     ChartFile bms = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsPath));
                     ChartFile bmson = BmsonChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsonPath));
                     string dbPath = Path.Combine(root, "song.db");
-                    using (var db = new LR2SongDBExtended(dbPath))
+                    using (LR2SongDBExtended db = MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope.OpenSongWrite(dbPath))
                     {
                         db.CreateTable<LR2SongDB.song>();
                         db.CreateTable<LR2SongDBExtended.bmson_song>();
                     }
-                    TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(dbPath, settings, viewModel);
+                    TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope, dbPath, settings, viewModel);
                     library.BmsCharts = [bms];
                     library.BmsonCharts = [bmson];
                     bms = library.BmsCharts.Single();
                     bmson = library.BmsonCharts.Single();
-                    using (var db = new LR2SongDBExtended(dbPath))
+                    using (LR2SongDBExtended db = library.DatabaseScope.OpenSongWrite(dbPath))
                     {
                         db.CreateTable<LR2SongDB.song>();
                         db.CreateTable<LR2SongDBExtended.bmson_song>();
@@ -476,7 +476,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                             .Select(chart => chart.Token).Distinct().Count());
                         Assert.IsTrue(appliedBatches.SelectMany(batch => batch.CatalogCommits).SelectMany(commit => commit.Changes)
                             .Any(change => change.Before?.Path == bmsPath && change.After?.Path == first.Chart.Path));
-                        using LR2SongDBExtended readback = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+                        using LR2SongDBExtended readback = new BmsLibraryDbGateway(library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly();
                         Assert.IsNotNull(readback.Find<LR2SongDB.song>(first.Chart.Path));
                         Assert.IsNotNull(readback.Find<LR2SongDBExtended.bmson_song>(second.Chart.Path));
                     }
@@ -537,14 +537,6 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 string lr2Root = Path.Combine(root, "LR2");
                 LR2Config config = BmsPlaylistTestSupport.CreateLr2Config(lr2Root, root);
                 var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
-                using (var db = new LR2SongDBExtended(dbPath))
-                {
-                    db.CreateTable<LR2SongDB.song>();
-                    db.CreateTable<LR2SongDB.folder>();
-                    db.CreateTable<LR2SongDBExtended.maintenance>();
-                    db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song));
-                    db.Execute("CREATE TRIGGER fail_report_finalizer BEFORE INSERT ON folder WHEN NEW.path LIKE '%ReceiptTarget%' BEGIN SELECT RAISE(ABORT, 'consumer-finalizer-marker'); END;");
-                }
                 var composition = new ApplicationComposition(
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                     settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
@@ -552,7 +544,15 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     applicationLifetime: TestApplicationContext.CreateLifetime(),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     fileDbMutationDialogService: dialogs);
-                var library = new TestBmsLibrary(dbPath, configOwner, null,
+                using (LR2SongDBExtended db = composition.DatabaseScope.OpenSongWrite(dbPath))
+                {
+                    db.CreateTable<LR2SongDB.song>();
+                    db.CreateTable<LR2SongDB.folder>();
+                    db.CreateTable<LR2SongDBExtended.maintenance>();
+                    db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song));
+                    db.Execute("CREATE TRIGGER fail_report_finalizer BEFORE INSERT ON folder WHEN NEW.path LIKE '%ReceiptTarget%' BEGIN SELECT RAISE(ABORT, 'consumer-finalizer-marker'); END;");
+                }
+                var library = new TestBmsLibrary(composition.DatabaseScope, dbPath, configOwner, null,
                     new ResilientFileMutationService(), dialogs,
                     new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     () => new BmsLibraryOptionsSnapshot
@@ -615,7 +615,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 ChartFile current = library.BmsCharts.Single();
                 Assert.AreEqual(sourceChart, chart.Path);
                 Assert.IsTrue(File.Exists(current.Path));
-                using LR2SongDBExtended verifyDb = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended verifyDb = new BmsLibraryDbGateway(library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly();
                 Assert.IsNotNull(verifyDb.Find<LR2SongDB.song>(current.Path));
             }
             finally
@@ -651,16 +651,6 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Directory.CreateDirectory(installRoot);
                 string destination = Path.Combine(installRoot, "DropTarget");
                 string dbPath = Path.Combine(root, "song.db");
-                using (var db = new LR2SongDBExtended(dbPath))
-                {
-                    db.CreateTable<LR2SongDB.song>();
-                    db.CreateTable<LR2SongDB.folder>();
-                    db.CreateTable<LR2SongDBExtended.maintenance>();
-                    if (failureKind == 2)
-                    {
-                        db.Execute("CREATE TRIGGER fail_drop BEFORE INSERT ON song WHEN NEW.path LIKE '%DropTarget%' BEGIN SELECT RAISE(ABORT, 'drop-primary-marker'); END;");
-                    }
-                }
                 var dialogs = new FileDbReportRecordingDialogs();
                 IFileMutationService files = failureKind == 1
                     ? new BmsLibraryPackageInstallServiceTests.FailingDestinationDeleteFileMutationService(source)
@@ -673,7 +663,17 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     applicationLifetime: TestApplicationContext.CreateLifetime(),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     fileDbMutationDialogService: dialogs);
-                var library = new TestBmsLibrary(dbPath, null, null, files, dialogs,
+                using (LR2SongDBExtended db = composition.DatabaseScope.OpenSongWrite(dbPath))
+                {
+                    db.CreateTable<LR2SongDB.song>();
+                    db.CreateTable<LR2SongDB.folder>();
+                    db.CreateTable<LR2SongDBExtended.maintenance>();
+                    if (failureKind == 2)
+                    {
+                        db.Execute("CREATE TRIGGER fail_drop BEFORE INSERT ON song WHEN NEW.path LIKE '%DropTarget%' BEGIN SELECT RAISE(ABORT, 'drop-primary-marker'); END;");
+                    }
+                }
+                var library = new TestBmsLibrary(composition.DatabaseScope, dbPath, null, null, files, dialogs,
                     new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     () => new BmsLibraryOptionsSnapshot
                     {
@@ -716,7 +716,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         failureKind == 1 ? "injected-destination-delete-failure" : "drop-primary-marker");
                     StringAssert.Contains(dialogs.Messages[0].MessageBoxText, source);
                 }
-                using LR2SongDBExtended verifyDb = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended verifyDb = new BmsLibraryDbGateway(library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly();
                 Assert.AreEqual(failureKind != 2, verifyDb.Find<LR2SongDB.song>(Path.Combine(destination, "chart.bms")) != null);
                 Assert.AreEqual(failureKind != 0, Directory.Exists(source));
             }
@@ -745,7 +745,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(), fileDbMutationDialogService: dialogs);
-            var fixture = new PackageInstallWorkflowOwnerTests.AutomaticContinuationFixture(true, false,
+            var fixture = new PackageInstallWorkflowOwnerTests.AutomaticContinuationFixture(composition.DatabaseScope, true, false,
                 operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission,
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
             MainWindowViewModel? viewModel = null;
@@ -770,7 +770,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 string second = fixture.WriteInput("B", "b.bms", "b");
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.InitializeAsync(), "automatic-report.initialize");
                 fixture.Options = fixture.CreateOptions(true, false, keepNewPending: false);
-                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(fixture.Database, db => db.Execute(
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(fixture.Library.DatabaseScope, fixture.Database, db => db.Execute(
                     "CREATE TRIGGER fail_actual_automatic_receiver BEFORE INSERT ON song WHEN NEW.path = '"
                     + Path.Combine(fixture.Destination, "b.bms").Replace("'", "''")
                     + "' BEGIN SELECT RAISE(ABORT, 'automatic-receiver-marker'); END;"));
@@ -801,7 +801,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Assert.AreEqual(cleanupRoot, outcome.InputCleanupFailures.Single().Path);
                 Assert.IsTrue(Directory.Exists(cleanupRoot));
                 Assert.IsFalse(File.Exists(managedZip));
-                using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly())
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly())
                 {
                     Assert.IsNotNull(db.Table<LR2SongDB.song>().Single(row => row.path.EndsWith("normal.bms", StringComparison.OrdinalIgnoreCase)));
                 }
@@ -905,12 +905,12 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 ResourceHealthMaintenanceSnapshot initialMaintenance = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(chart);
                 chart = ChartFileProjection.WithMaintenance(chart, initialMaintenance);
                 string songDbPath = Path.Combine(root, "song.db");
-                using (var songDb = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended songDb = MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope.OpenSongWrite(songDbPath))
                 {
                     songDb.CreateTable<LR2SongDB.song>(); songDb.CreateTable<LR2SongDB.folder>();
                     songDb.CreateTable<LR2SongDBExtended.maintenance>(); songDb.CreateTable<LR2SongDBExtended.bmson_song>();
                 }
-                TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, settings, viewModel);
+                TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope, songDbPath, settings, viewModel);
                 library.BmsCharts = [];
                 // 通常ルートを受理した後にライブラリを接続する、実際の起動順を保つ。
                 ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
@@ -1229,7 +1229,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 {
                     preparedViewModel = viewModel;
                     ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
-                    var library = new TestBmsLibrary(
+                    var library = new TestBmsLibrary(composition.DatabaseScope,
                         songDbPath,
                         getLR2Config: null,
                         _lr2ScoreDB: null,
@@ -1519,7 +1519,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         ChartFile rootOwnedCurrent = currentLibrary.BmsCharts.Single(chart => chart.Path == rootOwnedPath);
                         Assert.AreEqual(rootOwnedPath, rootOwnedCurrent.Path);
                         Assert.AreSame(rootOwnedBefore.Token, rootOwnedCurrent.Token);
-                        using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                        using LR2SongDBExtended readback = new BmsLibraryDbGateway(library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                         Assert.AreEqual(rootOwnedPath, readback.Table<LR2SongDB.song>().Single(chart => chart.path == rootOwnedPath).path);
                     }
                     finally { viewModel.RegularChartList.NormalLibraryRefreshApplied -= OnRefresh; }
@@ -1562,7 +1562,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             }, prepareViewModel: viewModel =>
             {
                 ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
-                library = new TestBmsLibrary(songDbPath, getLR2Config: null, _lr2ScoreDB: null, startupRequiredFileScanReason: null,
+                library = new TestBmsLibrary(composition.DatabaseScope, songDbPath, getLR2Config: null, _lr2ScoreDB: null, startupRequiredFileScanReason: null,
                     optionsSnapshotProvider: () => options, applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
                     chartFileScanner: scanner, operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: TestBmsFactory.CreateRootSettings([absoluteRoot, destinationRoot]))
                 {
@@ -1571,7 +1571,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 };
                 library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
                 library.ChartPackagesPending = new[] { package, otherPackage };
-                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(library.DatabaseScope, songDbPath, db =>
                 {
                     db.CreateTable<LR2SongDBExtended.install>();
                     db.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
@@ -1729,7 +1729,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     ChartFile current = currentLibrary.BmsCharts.Single(chart => ReferenceEquals(chart.Token, rootOwnedBefore.Token));
                     Assert.AreEqual(rootOwnedPath, current.Path);
                     Assert.AreSame(rootOwnedBefore.Token, current.Token);
-                    using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                    using LR2SongDBExtended readback = new BmsLibraryDbGateway(library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                     Assert.AreEqual(rootOwnedPath, readback.Table<LR2SongDB.song>().Single(chart => chart.path == rootOwnedPath).path);
                 }
                 void ChangeCandidate(Action operation, string nextCandidate)
@@ -1753,14 +1753,14 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             }, prepareViewModel: viewModel =>
             {
                 ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
-                library = new TestBmsLibrary(songDbPath, getLR2Config: null, _lr2ScoreDB: null, startupRequiredFileScanReason: null,
+                library = new TestBmsLibrary(composition.DatabaseScope, songDbPath, getLR2Config: null, _lr2ScoreDB: null, startupRequiredFileScanReason: null,
                     optionsSnapshotProvider: () => options, applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
                     chartFileScanner: scanner, operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission,
                     settings: TestBmsFactory.CreateRootSettings([absoluteRoot, destinationRoot]))
                 { StartupBackgroundTaskScheduler = (_, _, _, _) => false };
                 library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
                 library.ChartPackagesPending = [package];
-                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(library.DatabaseScope, songDbPath, db =>
                 {
                     db.CreateTable<LR2SongDBExtended.install>();
                     db.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
@@ -2424,7 +2424,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count, "元のフォルダの行選択は次群へ持ち越しません。");
                 Assert.IsFalse(Directory.Exists(sourceCharts[0].Directory));
                 Assert.IsTrue(File.Exists(sourceCharts[1].Path));
-                using (var db = new LR2SongDBExtended(Path.Combine(Path.GetDirectoryName(sourceCharts[0].Directory) ?? throw new AssertFailedException(), "song.db")))
+                using (LR2SongDBExtended db = library.DatabaseScope.OpenSongWrite(Path.Combine(Path.GetDirectoryName(sourceCharts[0].Directory) ?? throw new AssertFailedException(), "song.db")))
                 {
                     Assert.IsFalse(db.Table<LR2SongDB.song>().Any(row => row.path == sourceCharts[0].Path));
                     Assert.IsTrue(db.Table<LR2SongDB.song>().Any(row => row.path == sourceCharts[1].Path));
@@ -2497,7 +2497,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Assert.AreEqual(1, original.Count(chart => File.Exists(chart.Path)));
                 string removed = original.Single(chart => !File.Exists(chart.Path)).Path;
                 Assert.IsFalse(library.BmsCharts.Any(chart => chart.Path == removed));
-                using (var db = new LR2SongDBExtended(Path.Combine(Path.GetDirectoryName(original[0].Directory) ?? throw new AssertFailedException(), "song.db")))
+                using (LR2SongDBExtended db = library.DatabaseScope.OpenSongWrite(Path.Combine(Path.GetDirectoryName(original[0].Directory) ?? throw new AssertFailedException(), "song.db")))
                 { Assert.IsFalse(db.Table<LR2SongDB.song>().Any(row => row.path == removed)); }
                 var tree = (TreeView)window.FindName("treeView");
                 Assert.IsInstanceOfType(tree.SelectedItem, typeof(DuplicateGroup));
@@ -2602,17 +2602,17 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     }
                     charts = paths.Select(path => BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path))).ToArray();
                     string songDb = Path.Combine(directory, "song.db");
-                    BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDb, db =>
+                    BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope, songDb, db =>
                     {
                         db.CreateTable<LR2SongDB.song>();
                         db.CreateTable<LR2SongDB.folder>();
                         db.CreateTable<LR2SongDBExtended.maintenance>();
                     });
-                    var gateway = new BmsLibraryDbGateway(songDb);
+                    var gateway = new BmsLibraryDbGateway(MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb);
                     gateway.UpsertSongs(charts);
                     ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
                     // 実store/FS/SQLiteを通し、ごみ箱等のOS操作だけ既存のfixture用境界へ閉じます。
-                    library = new TestBmsLibrary(songDb, null, null,
+                    library = new TestBmsLibrary(composition.DatabaseScope, songDb, null, null,
                         fileMutations ?? new OwnedChartCollectionTestSupport.TestFileMutationService(), dialogService: null,
                         uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                         optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),

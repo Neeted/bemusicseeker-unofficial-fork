@@ -32,7 +32,7 @@ public sealed class PendingPackageRestoreInitializationTests
             using var fixture = new MainWindowViewModelStartupProgressTests.CompletionFixture(
                 new FailureRecorder(failures));
             fixture.OptionalRelease.TrySetResult();
-            input.Register(fixture.Library.InitializationSongDbPath);
+            input.Register(fixture.Composition.DatabaseScope, fixture.Library.InitializationSongDbPath);
             string originalHash = ChartFileContentReader.ReadSnapshot(input.A).Sha256;
             FileStream? held = input.LockB();
             var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -42,7 +42,7 @@ public sealed class PendingPackageRestoreInitializationTests
                 // model lock・transactionを保持する誤りは、選択到達前のこの独立操作を完了できない。
                 await Task.WhenAll(Task.Run(() => fixture.Library.GetPendingBmsFormatChartFilesSnapshot()),
                     Task.Run(() => fixture.Library.CaptureNormalLibraryChartSnapshot()),
-                    Task.Run(() => new BmsLibraryDbGateway(fixture.Library.InitializationSongDbPath).ExecuteSongDbTransaction(
+                    Task.Run(() => new BmsLibraryDbGateway(fixture.Composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Library.InitializationSongDbPath).ExecuteSongDbTransaction(
                         db => db.Execute("CREATE TABLE pending_recovery_probe (value TEXT)"))));
                 entered.TrySetResult();
                 return new(UiDialogStatus.Accepted, await release.Task);
@@ -70,7 +70,7 @@ public sealed class PendingPackageRestoreInitializationTests
                 Assert.AreEqual(0, failures.Count);
                 Assert.IsFalse(fixture.Owner.ProgressHub.StartupProgress.IsFailed);
                 Assert.IsFalse(fixture.Owner.IsInitializationCompleted);
-                Assert.AreEqual(3, new BmsLibraryDbGateway(fixture.Library.InitializationSongDbPath).LoadInstallPackages().Count);
+                Assert.AreEqual(3, new BmsLibraryDbGateway(fixture.Composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Library.InitializationSongDbPath).LoadInstallPackages().Count);
                 Assert.AreEqual(0, fixture.Library.ChartPackagesPending.Count);
                 File.WriteAllText(input.A, PendingRestoreInput.Chart("Fresh A"));
                 held?.Dispose(); held = null;
@@ -112,8 +112,8 @@ public sealed class PendingPackageRestoreInitializationTests
             TestUiDispatcherHost.AwaitTaskOnDispatcher(startup, "pending-reset-first-startup");
             Assert.IsTrue(startup.GetAwaiter().GetResult());
             TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "pending-reset-first-background");
-            input.Register(fixture.Library.InitializationSongDbPath);
-            input.BlockReset(fixture.Library.InitializationSongDbPath);
+            input.Register(fixture.Composition.DatabaseScope, fixture.Library.InitializationSongDbPath);
+            input.BlockReset(fixture.Composition.DatabaseScope, fixture.Library.InitializationSongDbPath);
             byte[] originalA = File.ReadAllBytes(input.A);
             byte[] originalB = File.ReadAllBytes(input.B);
             using FileStream held = input.LockB();
@@ -130,15 +130,15 @@ public sealed class PendingPackageRestoreInitializationTests
             {
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(second.Task, reinitialize, "pending-reset-reselection"), "pending-reset-second-choice");
                 Assert.IsFalse(reinitialize.IsCompleted);
-                Assert.AreEqual(3, new BmsLibraryDbGateway(fixture.Library.InitializationSongDbPath).LoadInstallPackages().Count);
+                Assert.AreEqual(3, new BmsLibraryDbGateway(fixture.Composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Library.InitializationSongDbPath).LoadInstallPackages().Count);
                 Assert.AreEqual(0, fixture.Library.ChartPackagesPending.Count);
-                ExecuteSongDbFixtureTransaction(fixture.Library.InitializationSongDbPath, db => db.Execute("DROP TRIGGER pending_reset_fail"));
+                ExecuteSongDbFixtureTransaction(fixture.Composition.DatabaseScope, fixture.Library.InitializationSongDbPath, db => db.Execute("DROP TRIGGER pending_reset_fail"));
                 release.TrySetResult(PendingPackageRestoreChoice.Reset);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(reinitialize, "pending-reset-reinitialize");
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "pending-reset-background");
                 Assert.IsTrue(fixture.Owner.IsInitializationCompleted);
                 Assert.AreEqual(2, fixture.Dialogs.PendingRestoreCount);
-                Assert.AreEqual(0, new BmsLibraryDbGateway(fixture.Library.InitializationSongDbPath).LoadInstallPackages().Count);
+                Assert.AreEqual(0, new BmsLibraryDbGateway(fixture.Composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Library.InitializationSongDbPath).LoadInstallPackages().Count);
                 Assert.AreEqual(0, fixture.Library.ChartPackagesPending.Count);
                 CollectionAssert.AreEqual(originalA, File.ReadAllBytes(input.A));
                 held.Dispose();
@@ -171,7 +171,7 @@ public sealed class PendingPackageRestoreInitializationTests
             var failures = new List<StartupLibraryInitializationFailurePresentation>();
             using var fixture = new MainWindowViewModelStartupProgressTests.CompletionFixture(new FailureRecorder(failures));
             fixture.OptionalRelease.TrySetResult();
-            input.Register(fixture.Library.InitializationSongDbPath);
+            input.Register(fixture.Composition.DatabaseScope, fixture.Library.InitializationSongDbPath);
             using FileStream held = input.LockB();
             int exits = 0;
             bool releasedAtExit = false;
@@ -208,7 +208,7 @@ public sealed class PendingPackageRestoreInitializationTests
                     Assert.IsTrue(fixture.Owner.ProgressHub.StartupProgress.IsFailed);
                 }
                 Assert.IsFalse(fixture.Owner.IsInitializationCompleted);
-                Assert.AreEqual(3, new BmsLibraryDbGateway(fixture.Library.InitializationSongDbPath).LoadInstallPackages().Count);
+                Assert.AreEqual(3, new BmsLibraryDbGateway(fixture.Composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Library.InitializationSongDbPath).LoadInstallPackages().Count);
                 if (shutdown != null)
                 {
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(shutdown, "pending-exit-shutdown");

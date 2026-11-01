@@ -67,7 +67,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Assert.IsTrue(outcome.CommandResult.RecoveryPaths.Contains(cleanup.Path));
             Assert.AreEqual(0, fixture.Library.ChartPackagesPending.Count);
             Assert.AreEqual(0, fixture.Library.ChartPackagesInstalled.Count);
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(0, db.Table<LR2SongDB.song>().Count());
                 Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());
@@ -186,7 +186,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Assert.AreEqual(0, fixture.Library.ChartPackagesPending.Count);
             Assert.AreEqual(0, fixture.Library.ChartPackagesInstalled.Count);
             Assert.AreEqual(0, fixture.Library.BmsCharts.Count);
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(0, db.Table<LR2SongDB.song>().Count());
                 Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());
@@ -290,7 +290,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 Assert.AreEqual(2, fixture.Library.BmsCharts.Count);
                 Assert.IsFalse(File.Exists(next));
                 Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
-                using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
                 Assert.AreEqual(2, db.Table<LR2SongDB.song>().Count());
             }
         }

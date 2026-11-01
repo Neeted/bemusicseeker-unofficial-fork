@@ -16,6 +16,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistSchemaMigrationTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>異なるカルチャーでdump・復元し、数値風TEXT・空白・引用符・日本語・NULLとINTEGER/REALを型ごと保持する。制御文字と途中SQL失敗時の旧3表・対象外保全も確認し、文字列損失・型変換・部分復元を検出する。</summary>
     [TestMethod]
     // fr-FRからの復元はNUL・垂直TAB・CRLFも含む。en-USからは同じ保存型を別カルチャーで確認する。
@@ -23,7 +25,7 @@ public sealed class PlaylistSchemaMigrationTests
     [DataRow("en-US", "fr-FR")]
     public void PlaylistDump_RoundTripPreservesValuesAndStorageTypesAcrossCultures(string dumpCulture, string restoreCulture)
     {
-        string path = CreateEmptySongDbPath();
+        string path = CreateEmptySongDbPath(databaseScope);
         CultureInfo previous = CultureInfo.CurrentCulture;
         bool hasNulMemo = dumpCulture == "fr-FR";
         // 数値風TEXT・空文字・空白・多言語・SQL引用符・NULLを独立の期待値として往復する。
@@ -31,8 +33,8 @@ public sealed class PlaylistSchemaMigrationTests
         const long ticks = 638857728000000000;
         try
         {
-            PlaylistPersistenceRepository.EnsureSchema(path);
-            using (var setup = new LR2SongDBExtended(path))
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, path);
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(path))
             {
                 setup.RunInTransaction(() =>
                 {
@@ -76,18 +78,18 @@ public sealed class PlaylistSchemaMigrationTests
                     }
                 });
             }
-            var repository = new PlaylistPersistenceRepository(path);
+            var repository = new PlaylistPersistenceRepository(databaseScope, path);
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(dumpCulture);
             string dump = repository.GetPlaylistDump();
             if (hasNulMemo)
             {
-                using var mutate = new LR2SongDBExtended(path);
+                using LR2SongDBExtended mutate = databaseScope.OpenSongWrite(path);
                 mutate.Execute("UPDATE playlist_entry SET memo='replacement marker' WHERE playlist_id=1;");
                 mutate.Execute("UPDATE playlist_entry SET comment='replacement marker' WHERE playlist_id=4;");
             }
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(restoreCulture);
             repository.LoadPlaylistDump(dump);
-            VerifyDumpRows(path, values, ticks, hasNulMemo);
+            VerifyDumpRows(databaseScope, path, values, ticks, hasNulMemo);
 
             // 有効な部分INSERTを通過した後でSQL実行を失敗させ、旧三表の全行を保全する。
             string separator = "\v" + Environment.NewLine;
@@ -95,7 +97,7 @@ public sealed class PlaylistSchemaMigrationTests
                 [dump.Split(separator)[0], "INSERT INTO missing_backup_table VALUES (1);", ""]);
             SQLite.SQLiteException failure = Assert.ThrowsExactly<SQLite.SQLiteException>(() => repository.LoadPlaylistDump(partial));
             StringAssert.Contains(failure.Message, "missing_backup_table");
-            VerifyDumpRows(path, values, ticks, hasNulMemo);
+            VerifyDumpRows(databaseScope, path, values, ticks, hasNulMemo);
         }
         finally
         {
@@ -104,9 +106,11 @@ public sealed class PlaylistSchemaMigrationTests
         }
     }
 
-    private static void VerifyDumpRows(string path, IReadOnlyList<string?> values, long ticks, bool hasNulMemo)
+    /// <summary>呼出し元と同じDB所有者でテスト対象と保存入力を準備します。</summary>
+    /// <param name="databaseScope">呼出し元と接続・書込み排他を共有するfixtureのDB所有者。</param>
+    private static void VerifyDumpRows(ApplicationDatabaseScope databaseScope, string path, IReadOnlyList<string?> values, long ticks, bool hasNulMemo)
     {
-        using LR2SongDBExtended read = new BmsLibraryDbGateway(path).OpenSongDbReadOnly();
+        using LR2SongDBExtended read = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), path).OpenSongDbReadOnly();
         DumpValueRow[] headers = read.Query<DumpValueRow>("SELECT playlist_id AS Id, name AS Value, typeof(name) AS StorageType, last_update AS IntegerValue, typeof(last_update) AS IntegerType FROM playlist ORDER BY playlist_id;").ToArray();
         DumpValueRow[] entries = read.Query<DumpValueRow>("SELECT playlist_id AS Id, title AS Value, typeof(title) AS StorageType, level AS RealValue, typeof(level) AS RealType, folder AS Folder FROM playlist_entry ORDER BY playlist_id;").ToArray();
         DumpValueRow[] courses = read.Query<DumpValueRow>("SELECT playlist_id AS Id, course_json AS Value, typeof(course_json) AS StorageType, course_order AS IntegerValue, typeof(course_order) AS IntegerType FROM playlist_course ORDER BY playlist_id;").ToArray();
@@ -166,10 +170,10 @@ public sealed class PlaylistSchemaMigrationTests
     [TestCategory("Playlist")]
     public void BMSPlaylist_Constructor_DoesNotMigrateLegacyPlaylistEntrySchema()
     {
-        string tempDbPath = CreateEmptySongDbPath();
+        string tempDbPath = CreateEmptySongDbPath(databaseScope);
         try
         {
-            using (var db = new LR2SongDBExtended(tempDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(tempDbPath))
             {
                 db.DropTable<LR2SongDBExtended.playlist>();
                 db.DropTable<LR2SongDBExtended.playlist_entry>();
@@ -178,9 +182,9 @@ public sealed class PlaylistSchemaMigrationTests
                 db.Execute("CREATE UNIQUE INDEX playlist_entry_idx_uniq ON playlist_entry(md5, playlist_id, folder, lr2_bmsid, title, is_removed);");
             }
 
-            _ = new TestBmsPlaylist(tempDbPath);
+            _ = new TestBmsPlaylist(databaseScope, tempDbPath);
 
-            using var verify = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended verify = databaseScope.OpenSongWrite(tempDbPath);
             string tableSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'playlist_entry';");
             Assert.IsFalse(tableSql.IndexOf("sha256", StringComparison.OrdinalIgnoreCase) >= 0);
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'playlist_entry_idx_sha256';"));
@@ -198,10 +202,10 @@ public sealed class PlaylistSchemaMigrationTests
     [TestCategory("Playlist")]
     public void BMSPlaylist_EnsureSchema_MigratesLegacyPlaylistEntrySchema()
     {
-        string tempDbPath = CreateEmptySongDbPath();
+        string tempDbPath = CreateEmptySongDbPath(databaseScope);
         try
         {
-            using (var db = new LR2SongDBExtended(tempDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(tempDbPath))
             {
                 db.DropTable<LR2SongDBExtended.playlist>();
                 db.DropTable<LR2SongDBExtended.playlist_entry>();
@@ -210,9 +214,9 @@ public sealed class PlaylistSchemaMigrationTests
                 db.Execute("CREATE UNIQUE INDEX playlist_entry_idx_uniq ON playlist_entry(md5, playlist_id, folder, lr2_bmsid, title, is_removed);");
             }
 
-            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, tempDbPath);
 
-            using var verify = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended verify = databaseScope.OpenSongWrite(tempDbPath);
             string tableSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'playlist_entry';");
             StringAssert.Contains(tableSql, "sha256");
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'playlist_entry_idx_sha256';"));
@@ -230,17 +234,17 @@ public sealed class PlaylistSchemaMigrationTests
     [TestCategory("Playlist")]
     public void BMSPlaylist_EnsureSchema_AddsPlaylistMetadataAndCourseStorage()
     {
-        string tempDbPath = CreateEmptySongDbPath();
+        string tempDbPath = CreateEmptySongDbPath(databaseScope);
         try
         {
-            using (var db = new LR2SongDBExtended(tempDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(tempDbPath))
             {
                 db.DropTable<LR2SongDBExtended.playlist_course>();
             }
 
-            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, tempDbPath);
 
-            using var verify = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended verify = databaseScope.OpenSongWrite(tempDbPath);
             string playlistSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'playlist';");
             StringAssert.Contains(playlistSql, "tag");
             StringAssert.Contains(playlistSql, "header_sha256");
@@ -264,10 +268,10 @@ public sealed class PlaylistSchemaMigrationTests
     [TestCategory("Playlist")]
     public void LoadPlaylistDump_RestoresLegacyDumpWithoutBmtColumns()
     {
-        string tempDbPath = CreateEmptySongDbPath();
+        string tempDbPath = CreateEmptySongDbPath(databaseScope);
         try
         {
-            var playlist = new TestBmsPlaylist(tempDbPath);
+            var playlist = new TestBmsPlaylist(databaseScope, tempDbPath);
             string separator = "\v" + Environment.NewLine;
             string legacyPlaylistDump =
                 "INSERT INTO playlist (playlist_id, name, symbol, folder_order, folder_sort_key, folder_sort_ascending, entry_type, page_url, header_url, data_url, compat_prefix, last_update, org_name, org_symbol, ignore_folder_output, is_external_sync, output_dir, is_root_folder) "
@@ -276,7 +280,7 @@ public sealed class PlaylistSchemaMigrationTests
 
             playlist.LoadPlaylistDump(dump);
 
-            using var verify = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended verify = databaseScope.OpenSongWrite(tempDbPath);
             BMSTable restored = verify.Table<BMSTable>().Single();
             Assert.AreEqual(1, restored.bmt_sort);
             Assert.AreEqual(true, restored.is_bmt_output);
@@ -293,12 +297,12 @@ public sealed class PlaylistSchemaMigrationTests
     [TestCategory("Playlist")]
     public void LoadPlaylistDump_RestoresSha256Indexes()
     {
-        string tempDbPath = CreateEmptySongDbPath();
+        string tempDbPath = CreateEmptySongDbPath(databaseScope);
         try
         {
-            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
-            var playlist = new TestBmsPlaylist(tempDbPath);
-            using (var db = new LR2SongDBExtended(tempDbPath))
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, tempDbPath);
+            var playlist = new TestBmsPlaylist(databaseScope, tempDbPath);
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(tempDbPath))
             {
                 db.Execute("DELETE FROM playlist_entry;");
                 db.Execute("DELETE FROM playlist;");
@@ -307,7 +311,7 @@ public sealed class PlaylistSchemaMigrationTests
 
             playlist.LoadPlaylistDump(dump);
 
-            using var verify = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended verify = databaseScope.OpenSongWrite(tempDbPath);
             string tableSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'playlist_entry';");
             StringAssert.Contains(tableSql, "sha256");
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'playlist_entry_idx_sha256';"));
@@ -325,22 +329,22 @@ public sealed class PlaylistSchemaMigrationTests
     [TestCategory("Playlist")]
     public void LoadPlaylistDump_StepFailureAfterPartialRowsPreservesPriorGeneration()
     {
-        string tempDbPath = CreateEmptySongDbPath();
+        string tempDbPath = CreateEmptySongDbPath(databaseScope);
         try
         {
-            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, tempDbPath);
             var previousTable = new BMSTable
             {
                 playlist_id = 71,
                 name = "Prior generation",
                 symbol = "prior"
             };
-            using (var setup = new LR2SongDBExtended(tempDbPath))
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(tempDbPath))
             {
                 setup.InsertOrReplace(previousTable, typeof(LR2SongDBExtended.playlist));
             }
 
-            var playlist = new TestBmsPlaylist(tempDbPath)
+            var playlist = new TestBmsPlaylist(databaseScope, tempDbPath)
             {
                 BMSTables = new ObservableCollection<BMSTable>([previousTable])
             };
@@ -371,7 +375,7 @@ public sealed class PlaylistSchemaMigrationTests
             Assert.AreEqual(71, liveTable.playlist_id);
             Assert.AreEqual("Prior generation", liveTable.name);
             Assert.AreEqual("prior", liveTable.symbol);
-            using var verify = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended verify = databaseScope.OpenSongWrite(tempDbPath);
             Assert.AreEqual(
                 "Prior generation",
                 verify.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id = 71;"));
@@ -388,12 +392,14 @@ public sealed class PlaylistSchemaMigrationTests
         }
     }
 
-    private static string CreateEmptySongDbPath()
+    /// <summary>呼出し元と同じDB所有者でテスト対象と保存入力を準備します。</summary>
+    /// <param name="databaseScope">呼出し元と接続・書込み排他を共有するfixtureのDB所有者。</param>
+    private static string CreateEmptySongDbPath(ApplicationDatabaseScope databaseScope)
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "PlaylistSchemaMigrationTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         string tempDbPath = Path.Combine(tempDirectory, "song.db");
-        using (var _ = new LR2SongDBExtended(tempDbPath))
+        using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(tempDbPath))
         {
         }
         return tempDbPath;

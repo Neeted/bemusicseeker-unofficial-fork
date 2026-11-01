@@ -22,6 +22,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryMaintenanceServiceTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>三用途とも先頭非空値を分類後に繰り上げず、後続の実在・不足・親参照を健康度や全定義探索へ混ぜません。</summary>
     [TestMethod]
     [DataRow(".png", "live.png", false, false)]
@@ -504,12 +506,12 @@ public sealed class BmsLibraryMaintenanceServiceTests
             ChartFile file = BmsChartFileParser.ParseSnapshot(snapshot);
             BmsLibraryMaintenanceService.MaintenanceEvaluationResult first =
                 BmsLibraryMaintenanceService.EvaluateMaintenanceForInline(file, snapshot, lookupContext: null, forceUpdate: true);
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.InsertOrReplace(MaintenanceStorageMapping.ToStorage(first.MaintenanceInfo), typeof(LR2SongDBExtended.maintenance));
             }
             ResourceHealthMaintenanceSnapshot hydrated;
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
             {
                 hydrated = MaintenanceStorageMapping.ToCommon(db.Table<LR2SongDBExtended.maintenance>().Single(), MaintenanceInfoOrigin.DbHydrated);
             }
@@ -1238,7 +1240,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             active = active with { Path = @"C:\Library\active.bms" };
             active = ChartFileProjection.WithMaintenance(active, new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = active.Path, Hash = active.Md5, WavFilesDefined = 2, WavFilesExisting = 1 });
             ChartFile activeChart = (active);
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = [active],
                 BmsonCharts = []
@@ -1266,7 +1268,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             file = file with { Path = chartPath };
             file = ChartFileProjection.WithMaintenance(file, new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5, WavFilesDefined = 1, WavFilesExisting = 0, FilesWarningIgnored = false });
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = [file],
                 BmsonCharts = []
@@ -1327,7 +1329,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             ChartFile lowerCasePath = CreateFile(sharedHash);
             lowerCasePath = lowerCasePath with { Path = @"c:\library\case.bms" };
             lowerCasePath = ChartFileProjection.WithMaintenance(lowerCasePath, new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = lowerCasePath.Path, Hash = sharedHash, BgaFilesDefined = 3, BgaFilesExisting = 1 });
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = [upperCasePath, lowerCasePath],
                 BmsonCharts = []
@@ -1382,7 +1384,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 Hash = file.Md5,
                 Encoding = "unknown"
             });
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             SetStorageRows(library, [file], []);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int ownedVersion = library.CatalogRevision;
@@ -1476,7 +1478,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 background = ChartFileProjection.WithMaintenance(background, new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = background.Path, Hash = background.Md5, WavFilesDefined = 1, WavFilesExisting = 0 });
                 files.Add(background);
             }
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             SetStorageRows(library, files, []);
             EnsureCurrentResourceHealthIndex(library);
             List<string> storeWork = [];
@@ -1567,7 +1569,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             second = second with { Resources = TestChartResources.ReplaceAudio(second.Resources, ["missing.wav"]) };
             second = ChartFileProjection.WithMaintenance(second, new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = second.Path, Hash = second.Md5, WavFilesDefined = 0, WavFilesExisting = 0, BgaFilesDefined = 0, BgaFilesExisting = 0, MovieFilesDefined = 0, MovieFilesExisting = 0, StagefileDefined = false, StagefileExisting = false, BannerDefined = false, BannerExisting = false, BackbmpDefined = false, BackbmpExisting = false, Encoding = "shift_jis", EncodingFixed = true });
 
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             SetStorageRows(library, [first, second], []);
             int handledVersion = library.NormalLibraryRefreshNotificationVersion;
             int failedNotificationCount = 0;
@@ -1589,7 +1591,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             CollectionAssert.AreEquivalent(new[] { firstPath, secondPath }, batch.ChangedCharts.Select(chart => chart.Path).ToArray());
             Assert.IsTrue(library.BmsCharts.All(chart => chart.ResourceHealthMaintenanceSnapshot.WavFilesExisting == 0));
             Assert.IsTrue(progress.Any(update => update?.IsCompleted == true));
-            using var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance WHERE path = ?;", firstPath));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance WHERE path = ?;", secondPath));
         });
@@ -1614,7 +1616,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             ChartFile unrelated = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             unrelated = unrelated with { Path = unrelatedPath };
             ChartFile targetChart = (target);
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             SetStorageRows(library, [target, unrelated], []);
             library.BmsCharts = new List<ChartFile> { target, unrelated };
 
@@ -1640,7 +1642,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             file = file with { Path = @"C:\Library\warning.bms" };
             file = ChartFileProjection.WithMaintenance(file, new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5, WavFilesDefined = 2, WavFilesExisting = 1, FilesWarningIgnored = false });
             ChartFile chart = (file);
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             SetStorageRows(library, [file], []);
             EnsureCurrentResourceHealthIndex(library);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
@@ -1675,7 +1677,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             var execution = new List<(OperationProgressRequest Request, bool Running)>();
             library.StartupProgressRequestFactory = (name, version) => new(3, 19, name, version);
             library.StartupRequestProgressReporter = (request, running) => execution.Add((request, running));
@@ -1729,14 +1731,14 @@ public sealed class BmsLibraryMaintenanceServiceTests
             file = file with { Path = chartPath };
             file = ChartFileProjection.WithMaintenance(file, new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5, WavFilesDefined = 0, WavFilesExisting = 0 });
 
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.UpsertMaintenanceInfos(
             [
                 new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = chartPath, Hash = file.Md5, WavFilesDefined = 2, WavFilesExisting = 1 },
                 new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = stalePath, Hash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", WavFilesDefined = 1, WavFilesExisting = 0 }
             ]);
 
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             SetStorageRows(library, [file], []);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             library.StartupBackgroundTaskScheduler = delegate (string _, string _, string _, Func<System.Threading.Tasks.Task> work)
@@ -1753,7 +1755,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             file = library.BmsCharts.Single();
             Assert.AreEqual(2, file.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
             Assert.AreEqual(1, file.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
-            using (var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            using (LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath))
             {
                 Assert.AreEqual(1, verify.Query<LR2SongDBExtended.maintenance>("SELECT * FROM maintenance;").Count());
                 Assert.AreEqual(chartPath, verify.Query<LR2SongDBExtended.maintenance>("SELECT * FROM maintenance;").Single().path);
@@ -1782,7 +1784,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             unrelated = unrelated with { Path = @"C:\Library\unrelated-warning.bms" };
             unrelated = ChartFileProjection.WithMaintenance(unrelated, new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = unrelated.Path, Hash = unrelated.Md5, WavFilesDefined = 2, WavFilesExisting = 1, FilesWarningIgnored = false });
             ChartFile targetChart = (target);
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             SetStorageRows(library, [target, unrelated], []);
             library.BmsCharts = new List<ChartFile> { target, unrelated };
 
@@ -1816,7 +1818,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 "#PLAYER 1\r\n#TITLE warning after\r\n#WAV01 missing.wav\r\n#00111:01\r\n",
                 Encoding.ASCII);
             ChartFile chart = (file);
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             SetStorageRows(library, [file], []);
             EnsureCurrentResourceHealthIndex(library);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
@@ -1870,7 +1872,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { BackbmpDefined = false });
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { BannerDefined = false });
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { Encoding = null });
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -1897,7 +1899,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(3, bmsFile.Favorite);
             Assert.AreEqual(12345, bmsFile.AddDate);
             Assert.AreEqual("keep-user-tag", bmsFile.Tag);
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
             Assert.AreEqual("保守する曲", row.title);
             Assert.AreEqual("副題", row.subtitle);
@@ -2498,7 +2500,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             ChartFile registered = CreateFile("dddddddddddddddddddddddddddddddd");
             registered = registered with { Path = @"C:\Library\registered.bms" };
             registered = ChartFileProjection.WithMaintenance(registered, new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = registered.Path, Hash = registered.Md5, Encoding = "shift_jis", EncodingFixed = false });
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             SetStorageRows(library, [garbled, fixedGarbled, lr2Warning, parentBlankWithoutWarning, registered], []);
 
             garbled = library.BmsCharts.Single(chart => chart.Path == garbled.Path);
@@ -2863,7 +2865,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsFilePath));
             file = ChartFileProjection.WithMaintenance(file, new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5 });
 
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -2912,7 +2914,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         try
         {
             ChartFile song = ChartTestValues.ReadBmson(bmsonFilePath);
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -2937,7 +2939,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(true, song.ResourceHealthMaintenanceSnapshot.StagefileDefined);
             Assert.AreEqual(false, song.ResourceHealthMaintenanceSnapshot.StagefileExisting);
 
-            using (var songDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongReadOnly(songDbPath))
             {
                 Assert.AreEqual(1, songDb.Table<LR2SongDBExtended.maintenance>().Count());
                 Assert.AreEqual(0, songDb.Table<LR2SongDB.song>().Count());
@@ -2972,7 +2974,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         try
         {
             ChartFile song = ChartTestValues.ReadBmson(bmsonFilePath);
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -3028,7 +3030,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             DateTime timestamp = song.LastWriteTimeUtc;
             File.WriteAllText(bmsonFilePath, "{ \"info\": { \"title\": \"Broken\" }, \"bga\": \"unterminated", new UTF8Encoding(false));
             File.SetLastWriteTimeUtc(bmsonFilePath, timestamp);
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -3086,7 +3088,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             ChartFile song = ChartTestValues.ReadBmson(bmsonFilePath);
             File.WriteAllText(bmsonFilePath, "{ \"info\": { \"title\": \"Broken\" }, \"bga\": \"unterminated", new UTF8Encoding(false));
             File.SetLastWriteTimeUtc(bmsonFilePath, song.LastWriteTimeUtc.AddMinutes(1));
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -3139,7 +3141,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             song = song with { ResourceHealthMaintenanceSnapshot = new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = song.Path, Hash = "ffffffffffffffffffffffffffffffff", Encoding = "utf-8", WavFilesDefined = 1, WavFilesExisting = 1, BgaFilesDefined = 0, MovieFilesDefined = 0, StagefileDefined = false, BannerDefined = false, BackbmpDefined = false } };
             File.WriteAllText(bmsonFilePath, "{ \"info\": { \"title\": \"Broken\" }, \"bga\": \"unterminated", new UTF8Encoding(false));
             File.SetLastWriteTimeUtc(bmsonFilePath, song.LastWriteTimeUtc.AddMinutes(1));
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -3155,7 +3157,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(1, result.BmsonReparseFailedCount);
             Assert.AreEqual(0, result.MaintenanceInfoUpsertCount);
             Assert.AreEqual(0, result.ChangedCharts.Count);
-            using (var songDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongReadOnly(songDbPath))
             {
                 Assert.AreEqual(0, songDb.Table<LR2SongDBExtended.maintenance>().Count());
             }
@@ -3198,7 +3200,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 Sha256 = parsed.Sha256,
                 LastWriteTimeUtc = parsed.LastWriteTimeUtc
             };
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -3248,7 +3250,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         try
         {
             ChartFile song = ChartTestValues.ReadBmson(bmsonFilePath);
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -3349,7 +3351,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         {
             ChartFile bmsFile = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsFilePath));
             ChartFile bmsonSong = ChartTestValues.ReadBmson(bmsonFilePath);
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -3383,7 +3385,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.IsNull(bmsFile.Resources);
             Assert.IsNull(bmsonSong.Resources);
 
-            using (var songDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongReadOnly(songDbPath))
             {
                 Assert.AreEqual(2, songDb.Table<LR2SongDBExtended.maintenance>().Count());
                 Assert.IsFalse(songDb.Table<LR2SongDB.song>().ToList().Any(song => song.hash == bmsonSong.Md5));
@@ -3418,7 +3420,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         try
         {
             ChartFile bmsFile = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsFilePath));
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -3479,7 +3481,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { BackbmpDefined = false });
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { BannerDefined = false });
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { Encoding = "shift_jis" });
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -3536,7 +3538,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { BackbmpDefined = false });
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { BannerDefined = false });
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { Encoding = null });
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -3595,7 +3597,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, new ResourceHealthMaintenanceSnapshot { Path = bmsFile.Path, Hash = bmsFile.Md5, Origin = MaintenanceInfoOrigin.Placeholder });
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { Encoding = "shift_jis" });
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { FilesWarningIgnored = true });
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -3764,7 +3766,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         {
             ChartFile invalidRow = CreateBmsonSong(invalidBmsonPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             ChartFile validRow = ChartTestValues.ReadBmson(validBmsonPath);
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -3787,7 +3789,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(1, validRow.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
             Assert.AreEqual(0, validRow.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
 
-            using (var songDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongReadOnly(songDbPath))
             {
                 List<LR2SongDBExtended.maintenance> rows = [.. songDb.Table<LR2SongDBExtended.maintenance>()];
                 Assert.AreEqual(1, rows.Count);
@@ -3817,7 +3819,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             ChartFile bms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             bms = bms with { Path = Path.Combine(tempDirectoryPath, "chart.bms") };
             ChartFile bmson = CreateBmsonSong(Path.Combine(tempDirectoryPath, "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = bms.Path, hash = bms.Md5 }, typeof(LR2SongDBExtended.maintenance));
@@ -3825,10 +3827,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = Path.Combine(tempDirectoryPath, "stale.bms"), hash = "cccccccccccccccccccccccccccccccc" }, typeof(LR2SongDBExtended.maintenance));
             }
 
-            int deleted = new BmsLibraryDbGateway(songDbPath).DeleteMaintenanceRows([Path.Combine(tempDirectoryPath, "stale.bms")]);
+            int deleted = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).DeleteMaintenanceRows([Path.Combine(tempDirectoryPath, "stale.bms")]);
 
             Assert.AreEqual(1, deleted);
-            using (var songDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongReadOnly(songDbPath))
             {
                 Assert.AreEqual(2, songDb.Table<LR2SongDBExtended.maintenance>().Count());
                 Assert.IsTrue(songDb.Table<LR2SongDBExtended.maintenance>().Any(info => info.path == bms.Path));
@@ -4029,14 +4031,14 @@ public sealed class BmsLibraryMaintenanceServiceTests
             workflowHasUpdates);
     }
 
-    private static void WithTemporarySongDb(Action<string> testAction)
+    private void WithTemporarySongDb(Action<string> testAction)
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_MaintenanceTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         try
         {
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDB.folder>();
@@ -4054,9 +4056,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
-    private static Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> CreateDurableWriter(string songDbPath)
+    private Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> CreateDurableWriter(string songDbPath)
     {
-        var owner = new CatalogMutationOwner(new CatalogOwnedCollectionOwner(), new BmsLibraryDbGateway(songDbPath));
+        var owner = new CatalogMutationOwner(new CatalogOwnedCollectionOwner(), new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath));
         return owner.ApplyMaintenanceWrite;
     }
 

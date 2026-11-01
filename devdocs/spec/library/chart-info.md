@@ -90,6 +90,8 @@ LR2連携と単独動作は、同じ読み取り専用の処理で実在する�
 
 現在より古い解析器版のmetadata bundleは取込みの版検査で不採用とし、既存の取込み失敗経路でログ後に保存済みカタログの読込みへ進みます。保存済みデータの必須読込み後に操作を解禁し、所持する旧情報は通常起動の背景補完へ回します。補完完了を利用開始の条件にせず、必須DB自体の読込み失敗は既存どおり失敗として扱います。
 
+起動時metadata bundleは選択済みの`ApplicationPathSnapshot.ProfileDirectory`からだけ取り込み、成功後は同profileの`imported_metadata`へ移動します。通常のprofileと実行ファイル配置が一致する構成では従来の配置を維持します。別profileを指定した構成は実行ファイル側や共有Assetsのbundleを消費・移動しません。実startup入口の入力隔離、最終DBとarchive、共有側の準備済みファイルの不変は [`ShellShutdownDatabaseScopeTests.StartupMetadata_ConsumesOnlyProfileBundleAndPreservesBaseAndAssets`](../../../BeMusicSeeker.Tests/MainWindow/ShellShutdownDatabaseScopeTests.cs) で確認し、実ATTACHと所有Taskの終端は[終了仕様](../runtime/shutdown.md#実装とテストの対応)へ分担します。
+
 
 `lr2_song_db_sync_status` はLR2の生成行の同期状態です。同期済み、またはファイル差分なしという状態は、`chart_info` の存在と完全性を証明しません。どちらの動作モードでも、現在の情報も失敗もない所持譜面は補完候補になります。
 

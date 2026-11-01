@@ -25,6 +25,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistViewPipelineTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>有効folderの空・空白を除きA/aを同一視します。編集中は採用済み集合、flush後は追加Bを数え、表示集計と一致させます。</summary>
     [TestMethod]
     public void PlaylistDetailFolders_ExcludeBlankIgnoreCaseAndPublishAdoptedCounts()
@@ -2706,17 +2708,19 @@ public sealed class PlaylistViewPipelineTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            using (var _ = new LR2SongDBExtended(songDbPath))
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+            ApplicationDatabaseScope databaseScope = MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope;
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
             {
             }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             var table = new BMSTable
             {
                 playlist_id = 9101,
                 name = "External",
                 is_external_sync = true
             };
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
             }
@@ -2736,9 +2740,8 @@ public sealed class PlaylistViewPipelineTests
                 Sha256 = entry.sha256
             };
             PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, (bmson)).CreateViewRow();
-            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
             using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
-            BMSPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings());
+            BMSPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(databaseScope, songDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings());
             table.entries = [entry];
             playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
             typeof(MainWindowViewModel).GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, playlist);
@@ -2752,7 +2755,7 @@ public sealed class PlaylistViewPipelineTests
                 new MainChartListCellEditEndedEventArgs(context, "updated memo", commit: true));
             await commitTask;
 
-            using LR2SongDBExtended verifyDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verifyDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             BMSTableEntry stored = verifyDb.Table<BMSTableEntry>().Single(dbRow => dbRow.playlist_id == table.playlist_id);
             Assert.IsNull(entry.md5);
             Assert.IsNull(stored.md5);

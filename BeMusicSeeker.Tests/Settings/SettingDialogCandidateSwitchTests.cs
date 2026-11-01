@@ -565,7 +565,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 else { values.OperationModeLR2DB = false; values.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([original, alternate]); }
                 values.Save();
                 owner = CreateViewModel(new SettingsEditSession(values), firstStartup: false, dialogs: new RecordingRootDialogService());
-                library = MainWindowViewModelTestFactory.CreateLibrary(values.LR2SongDBPath, values, owner);
+                library = MainWindowViewModelTestFactory.CreateLibrary(MainWindowViewModelTestFactory.GetComposition(owner ?? throw new AssertFailedException()).DatabaseScope, values.LR2SongDBPath, values, owner);
                 held = library.TryBeginLibraryFileMutation("independent-install-test", showMessage: false);
                 Assert.IsNotNull(held);
                 SettingsDialogViewModel dialog = owner.SettingDialog;
@@ -583,7 +583,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 File.WriteAllText(chartPath, "#TITLE Removed root");
                 ChartFile chart = ChartTestValues.Empty() with { Path = chartPath, Md5 = new string('a', 32) };
                 library.BmsCharts = [chart]; library.BmsonCharts = [];
-                new BmsLibraryDbGateway(values.LR2SongDBPath).UpsertSongs([chart]);
+                new BmsLibraryDbGateway(MainWindowViewModelTestFactory.GetComposition(owner ?? throw new AssertFailedException()).DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).UpsertSongs([chart]);
                 LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
                     library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(chart)]), false, [original]);
                 Assert.AreEqual(1, removal.ConfirmedChartCount);

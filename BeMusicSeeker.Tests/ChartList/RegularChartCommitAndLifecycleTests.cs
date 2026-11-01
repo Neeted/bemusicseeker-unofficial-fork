@@ -77,9 +77,10 @@ public sealed class RegularChartCommitAndLifecycleTests
     [TestMethod]
     public void DuplicateData_DeliveryFailureRemainsOnNavigationOperation()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDb =>
         {
-            var library = new TestBmsLibrary(songDb);
+            var library = new TestBmsLibrary(databaseScope, songDb);
             using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner(), action => action(), chartFileOperations: library.OperationAdmission);
             owner.AttachNormalLibraryRefreshSource(library);
             owner.MaintenanceNavigationPresentationRequested += (_, _) => { };
@@ -102,10 +103,11 @@ public sealed class RegularChartCommitAndLifecycleTests
     [DataRow(true)]
     public void RegularSort_BlockedOrderIsOwnedByStopAndCannotOverwriteLaterNavigation(bool stopWhileBlocked)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         TestUiDispatcherHost.Invoke(() => WithTemporarySongDb(songDb =>
         {
             string directory = System.IO.Path.GetDirectoryName(songDb) ?? throw new AssertFailedException();
-            var library = new TestBmsLibrary(songDb)
+            var library = new TestBmsLibrary(databaseScope, songDb)
             {
                 BmsCharts = [CreateTestableBmsFile(System.IO.Path.Combine(directory, "alpha.bms")) with { Title = "Alpha", Artist = "Z" },
                     CreateTestableBmsFile(System.IO.Path.Combine(directory, "beta.bms")) with { Title = "Beta", Artist = "M" },
@@ -207,9 +209,10 @@ public sealed class RegularChartCommitAndLifecycleTests
     [TestMethod]
     public void StopAsync_WaitsForAcceptedDuplicateProducerBeforeItsOwnerNotification()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         TestUiDispatcherHost.Invoke(() => WithTemporarySongDb(songDb =>
         {
-            var library = new TestBmsLibrary(songDb)
+            var library = new TestBmsLibrary(databaseScope, songDb)
             {
                 BmsCharts = [CreateTestableBmsFile(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(songDb) ?? string.Empty, "a", "a.bms")),
                     CreateTestableBmsFile(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(songDb) ?? string.Empty, "b", "b.bms"))]

@@ -85,7 +85,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         Assert.IsTrue(Directory.Exists(pendingRoot));
         Assert.IsFalse(Directory.Exists(Path.Combine(pendingRoot, "Child")), "成功した子だけを消費し、根の保留譜面を保ちます。");
         Assert.IsFalse(Directory.Exists(later), "後続の成功フォルダも消費します。");
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
         CollectionAssert.AreEquivalent(installedPaths, db.Table<LR2SongDB.song>().ToArray().Select(row => row.path).ToArray());
         CollectionAssert.AreEquivalent(fixture.Library.ChartPackagesPending.Select(package => package.path).ToArray(),
             db.Table<LR2SongDBExtended.install>().ToArray().Select(row => row.path).ToArray());
@@ -135,7 +135,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         string firstSourcePath = first.path;
         string otherSourcePath = other.path;
         Assert.AreEqual(Path.GetDirectoryName(firstSourcePath), Path.GetDirectoryName(otherSourcePath));
-        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly())
         {
             CollectionAssert.AreEquivalent(new[] { firstSourcePath, otherSourcePath, childPath }, db.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
         }
@@ -160,7 +160,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         Assert.IsTrue(string.IsNullOrWhiteSpace(other.ChartEntries.Single().Chart.InstallDestination));
         Assert.AreEqual(installedPath, fixture.Library.ChartPackagesInstalled.Single().ChartEntries.Single().Chart.Path);
         CollectionAssert.AreEquivalent(new[] { ownedPath, targetExistingPath, installedPath }, fixture.Library.BmsCharts.Select(chart => chart.Path).ToArray());
-        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly())
         {
             CollectionAssert.AreEquivalent(new[] { otherSourcePath, childPath }, db.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
             CollectionAssert.AreEquivalent(new[] { ownedPath, targetExistingPath, installedPath }, db.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
@@ -190,7 +190,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
         Assert.IsTrue(File.Exists(entry.Chart.Path));
         Assert.IsTrue(Directory.Exists(input));
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
         Assert.AreEqual(pending.path, db.Table<LR2SongDBExtended.install>().Single().path);
         Assert.AreEqual(1, fixture.Library.BmsCharts.Count);
         Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
@@ -234,7 +234,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         Assert.AreEqual(0, fixture.Library.BmsCharts.Count);
         ChartPackage pending = fixture.Library.ChartPackagesPending.Single();
         CollectionAssert.AreEquivalent(expected.Keys.ToArray(), pending.ChartEntries.Select(entry => Path.GetFileName(entry.Chart.Path)).ToArray());
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
         Assert.AreEqual(pending.path, db.Table<LR2SongDBExtended.install>().Single().path);
         Assert.AreEqual(0, db.Table<LR2SongDB.song>().Count());
         foreach (PackageChartEntry entry in pending.ChartEntries)
@@ -278,7 +278,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         CollectionAssert.AreEqual(resourceBytes, File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(destination) ?? throw new AssertFailedException(), "sound", "sub", "tone.wav")));
         Assert.IsTrue(extracted.Keys.Any(path => path.EndsWith(Path.Combine("wrapper", "work", "chart.bms"), StringComparison.OrdinalIgnoreCase)));
         Assert.IsTrue(extracted.Keys.Any(path => path.EndsWith(Path.Combine("wrapper", "work", "sound", "sub", "tone.wav"), StringComparison.OrdinalIgnoreCase)));
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
         Assert.IsNotNull(db.Find<LR2SongDB.song>(destination));
         Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());
         Assert.AreEqual(destination, fixture.Library.BmsCharts.Single().Path);
@@ -310,7 +310,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         Assert.AreEqual(0, result.OperationMessages.Count);
         if (kind == "managed") { Assert.IsFalse(File.Exists(input), "正常展開済みの管理元ZIPは消費します。"); }
         if (kind == "borrowed") { Assert.IsTrue(File.Exists(input), "借用元ZIPは保持します。"); }
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
         if (resources)
         {
             Assert.AreEqual(1, result.RegisteredPackages.Count);
@@ -380,7 +380,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         Assert.AreEqual(0, fixture.Library.ChartPackagesPending.Count);
         Assert.IsFalse(File.Exists(archive));
         Assert.IsFalse(Directory.Exists(folder));
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
         ChartFile[] installedCharts = result.RegisteredPackages.Select(package => package.ChartEntries.Single().Chart).ToArray();
         string[] destinations = installedCharts.Select(chart => chart.Path).ToArray();
         CollectionAssert.AreEquivalent(expected.Keys.ToArray(), installedCharts.Select(chart => chart.Title).ToArray());
@@ -439,7 +439,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         Assert.AreEqual(0, fixture.Dialogs.ModelMessages);
         Assert.IsFalse(File.Exists(rejected));
         Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
         Assert.AreEqual(timestampFailure ? 0 : 1, db.Table<LR2SongDB.song>().Count());
         Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());
     }

@@ -15,6 +15,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>バックアップ・修復・完了案内の独立した通知を全て試み、表示のIO失敗と所有していない取消しを初期化へ再送出しません。</summary>
     /// <remarks>Windowを作らず、実通知管理主体と表示依存だけを用います。失敗位置と例外種類を変えて後続通知の欠落も検査します。</remarks>
     [TestMethod]
@@ -25,7 +27,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
     public async Task CompletionNotifications_FailurePreservesIndependentNotices(int failureIndex, bool unownedCancellation)
     {
         using var gate = new SemaphoreSlim(1, 1);
-        var owner = new StartupLibraryInitializationWorkflowOwner(gate);
+        var owner = new StartupLibraryInitializationWorkflowOwner(databaseScope, new BmsDatabaseLoadOptions(true, true, true), gate);
         var messages = new List<string>();
         var dialogs = new MainWindowViewModelStartupProgressTests.CompletionDialogs
         {
@@ -62,7 +64,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
     public async Task CompletionNotifications_ShutdownOrStaleRequestStopsSubsequentNotices(bool shutdown)
     {
         using var gate = new SemaphoreSlim(1, 1);
-        var owner = new StartupLibraryInitializationWorkflowOwner(gate);
+        var owner = new StartupLibraryInitializationWorkflowOwner(databaseScope, new BmsDatabaseLoadOptions(true, true, true), gate);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         int count = 0;
@@ -99,7 +101,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
     public async Task GateLease_ReleasesExactlyOnceAndAllowsImmediateNextAcquire()
     {
         using var gate = new SemaphoreSlim(1, 1);
-        var owner = new StartupLibraryInitializationWorkflowOwner(gate);
+        var owner = new StartupLibraryInitializationWorkflowOwner(databaseScope, new BmsDatabaseLoadOptions(true, true, true), gate);
         StartupLibraryInitializationGateLease first = await owner.AcquireGateAsync();
         Task<StartupLibraryInitializationGateLease> secondAcquire = owner.AcquireGateAsync();
 

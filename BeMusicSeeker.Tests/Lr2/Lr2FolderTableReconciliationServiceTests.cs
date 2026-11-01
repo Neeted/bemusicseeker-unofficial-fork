@@ -27,7 +27,7 @@ public sealed class Lr2FolderTableReconciliationServiceTests
         string infoPath = Path.Combine(deep, "folderinfo.txt");
         File.WriteAllText(infoPath, "#TITLE Info only", Encoding.ASCII);
         DateTime timestamp = new(2026, 6, 8, 0, 0, 0, DateTimeKind.Utc);
-        using var db = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended db = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         db.CreateTable<LR2SongDB.folder>();
         if (existing) { db.Insert(new LR2SongDB.folder { path = ToFolderPath(deep), title = "Old", type = 1, adddate = 123 }); }
         Lr2FolderTableReconciliationService.Reconcile(db, new Lr2SongDbSyncRequest
@@ -206,7 +206,7 @@ public sealed class Lr2FolderTableReconciliationServiceTests
     public void Reconcile_IncompleteOrLatePreparationFailureLeavesExistingRowsUnchanged()
     {
         using var scope = TestDatabaseScope.Create();
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.folder>();
         string stalePath = ToFolderPath(Path.Combine(scope.DirectoryPath, "stale"));
         songDb.InsertOrReplace(new LR2SongDB.folder
@@ -260,7 +260,7 @@ public sealed class Lr2FolderTableReconciliationServiceTests
         string unexpectedPath = ToFolderPath(Path.Combine(scope.DirectoryPath, "unexpected"));
         DateTime epoch = new(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         DateTime beforeEpoch = epoch.AddDays(-1);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.folder>();
         songDb.InsertOrReplace(new LR2SongDB.folder
         {
@@ -305,7 +305,7 @@ public sealed class Lr2FolderTableReconciliationServiceTests
         string root = Path.Combine(scope.DirectoryPath, "AddDateRoot");
         Directory.CreateDirectory(root);
         DateTime rootTime = new(2026, 6, 8, 5, 0, 0, DateTimeKind.Utc);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.folder>();
         string rootRowPath = ToFolderPath(root);
         if (exactExists)

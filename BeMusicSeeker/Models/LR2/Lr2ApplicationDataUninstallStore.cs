@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Models.LR2;
 
@@ -8,6 +9,14 @@ namespace BeMusicSeeker.Models.LR2;
 /// </summary>
 internal sealed class Lr2ApplicationDataUninstallStore : IApplicationDataUninstallStore
 {
+    private readonly ApplicationDatabaseScope databaseScope;
+
+    /// <summary>アンインストールと接続に同じ書込み排他を適用するスコープを受け取ります。</summary>
+    internal Lr2ApplicationDataUninstallStore(ApplicationDatabaseScope databaseScope)
+    {
+        this.databaseScope = databaseScope ?? throw new ArgumentNullException(nameof(databaseScope));
+    }
+
     public void Uninstall(string songDbPath)
     {
         if (string.IsNullOrWhiteSpace(songDbPath) || !File.Exists(songDbPath))
@@ -15,32 +24,38 @@ internal sealed class Lr2ApplicationDataUninstallStore : IApplicationDataUninsta
             return;
         }
 
-        bool unlockAfterOperation = !LR2SongDBExtended.IsProcessLockEnteredByCurrentThread();
-        if (!LR2SongDBExtended.Lock(new TimeSpan(0, 1, 0)))
+        using IDisposable lease = databaseScope.TryEnterSong(new TimeSpan(0, 1, 0));
+        if (lease == null)
         {
             throw new TimeoutException(BeMusicSeeker.Properties.Resources.Msg_error_timeout_dblock_uninstall);
         }
+
+        // 外側の待機と接続内の再入は、それぞれの所有権をusingで戻します。
+        using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
+        string savepoint = songDb.SaveTransactionPoint();
         try
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
-            string savepoint = songDb.SaveTransactionPoint();
+            songDb.Uninstall();
+            songDb.Commit();
+        }
+        catch (Exception)
+        {
             try
             {
-                songDb.Uninstall();
-                songDb.Commit();
-            }
-            catch (Exception)
-            {
                 songDb.RollbackTo(savepoint);
-                throw;
             }
-        }
-        finally
-        {
-            if (unlockAfterOperation)
+            catch (Exception rollbackException)
             {
-                LR2SongDBExtended.Unlock();
+                try
+                {
+                    NLogWrapper.FileLogger?.Warn(rollbackException, "application_data_uninstall_rollback_failed");
+                }
+                catch
+                {
+                    // 任意診断の失敗でアンインストールの元原因を置き換えません。
+                }
             }
+            throw;
         }
     }
 }

@@ -203,9 +203,11 @@ internal static class PlaylistWorkspaceFixtureFactory
     }
 
     /// <summary>実DBのバックアップ・復元と必要UIを接続します。受付を観測する場合は同じfixture libraryを共有します。</summary>
+    /// <param name="databaseScope">復元する接続・ライブラリ・プレイリストが共有するDB所有者。</param>
     /// <param name="libraryOverride">復元のL/Pとモデルのbindingへ共通に渡す、テストが所有するlibrary。</param>
     /// <param name="reloadFailureLog">通知表示などの二次失敗を観測する診断先。省略時は記録しません。</param>
     internal static PlaylistWorkspaceViewModel CreateBackupWorkspace(
+        ApplicationDatabaseScope databaseScope,
         string songDbPath,
         IEnumerable<BMSTable> tables,
         out BMSPlaylist playlist,
@@ -215,12 +217,12 @@ internal static class PlaylistWorkspaceFixtureFactory
         TestBmsLibrary? libraryOverride = null,
         Action<Exception, string>? reloadFailureLog = null)
     {
-        PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+        PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
         Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
             });
-        TestBmsLibrary library = libraryOverride ?? MainWindowViewModelTestFactory.CreateLibrary(songDbPath, settings);
+        TestBmsLibrary library = libraryOverride ?? MainWindowViewModelTestFactory.CreateLibrary(databaseScope, songDbPath, settings);
         var createdPlaylist = new BMSPlaylist(
             new BmsPlaylistLibraryBindings(library),
             songDbPath, null, null,

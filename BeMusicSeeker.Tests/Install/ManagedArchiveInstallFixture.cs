@@ -21,12 +21,13 @@ internal sealed class ManagedArchiveInstallFixture : IDisposable
 
     internal ManagedArchiveInstallFixture(bool knownCandidate = false, bool deletePendingSource = false, bool knownInstallDestination = false)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         Root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ManagedArchiveTests_" + Guid.NewGuid().ToString("N"));
         InstallRoot = Path.Combine(Root, "Library");
         Directory.CreateDirectory(InstallRoot);
         SongDb = Path.Combine(Root, "song.db");
         File.WriteAllBytes(SongDb, []);
-        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(SongDb, db =>
+        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, SongDb, db =>
         {
             db.CreateTable<LR2SongDB.song>();
             db.CreateTable<LR2SongDB.folder>();
@@ -80,7 +81,7 @@ internal sealed class ManagedArchiveInstallFixture : IDisposable
             }
         });
         Dialogs = new FileDbReportRecordingDialogs();
-        Library = new TestBmsLibrary(SongDb, null, null, Files, Dialogs,
+        Library = new TestBmsLibrary(databaseScope, SongDb, null, null, Files, Dialogs,
             new TestUiScheduler(() => null), () => Options,
             CapturedChartFileScanner.FromFixture(charts, resources, resources.Keys), settings: TestBmsFactory.CreateRootSettings([InstallRoot]))
         {

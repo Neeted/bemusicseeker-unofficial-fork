@@ -1,9 +1,9 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
@@ -75,6 +75,8 @@ internal sealed class ShellShutdownWorkflowCompletionReceipt
 /// </summary>
 internal sealed class ShellShutdownWorkflowOwner
 {
+    private readonly ApplicationDatabaseScope databaseScope;
+
     private static readonly TimeSpan ShutdownDrainWarningThreshold = TimeSpan.FromSeconds(60);
 
     private static readonly TimeSpan ShutdownQueueDrainWarningThreshold = TimeSpan.FromSeconds(20);
@@ -210,7 +212,9 @@ internal sealed class ShellShutdownWorkflowOwner
     /// <param name="logShutdownWarning">終了時の警告診断を記録する処理。</param>
     /// <param name="formatTextForLog">終了診断用に値を整形する処理。</param>
     /// <param name="reportSettingsSaveFailure">owner lock外で保存警告を通知する処理。通知失敗時も後処理を継続します。</param>
+    /// <param name="databaseScope">読取り専用接続も含む同じ構成のDB終端を待つ所有者。</param>
     internal ShellShutdownWorkflowOwner(
+        ApplicationDatabaseScope databaseScope,
         StartupUpdateWorkflowOwner startupUpdateWorkflow,
         ElevatedProcessWarningWorkflowOwner elevatedProcessWarningWorkflow,
         StartupBackgroundTaskSchedulerOwner startupBackgroundTaskScheduler,
@@ -238,6 +242,7 @@ internal sealed class ShellShutdownWorkflowOwner
         IUiDialogService restartFailureDialogs = null,
         Action<Exception> reportRestartFailure = null)
     {
+        this.databaseScope = databaseScope ?? throw new ArgumentNullException(nameof(databaseScope));
         this.startupUpdateWorkflow = startupUpdateWorkflow ?? throw new ArgumentNullException(nameof(startupUpdateWorkflow));
         this.elevatedProcessWarningWorkflow = elevatedProcessWarningWorkflow ?? throw new ArgumentNullException(nameof(elevatedProcessWarningWorkflow));
         this.startupBackgroundTaskScheduler = startupBackgroundTaskScheduler ?? throw new ArgumentNullException(nameof(startupBackgroundTaskScheduler));
@@ -374,7 +379,9 @@ internal sealed class ShellShutdownWorkflowOwner
         TryShutdownStep("audio_native_runtime", Ribbit.Media.Audio.BassAudioRuntime.Shutdown);
         try
         {
-            await WaitForLr2DbProcessLocksAsync(new ShutdownWaitTracker()).ConfigureAwait(true);
+            var databaseWaitTracker = new ShutdownWaitTracker();
+            await WaitForDatabaseGatesAsync(databaseWaitTracker).ConfigureAwait(true);
+            await WaitForSqliteConnectionsIdleAsync(databaseWaitTracker).ConfigureAwait(true);
         }
         catch (Exception exception)
         {
@@ -395,6 +402,8 @@ internal sealed class ShellShutdownWorkflowOwner
             try { await terminalApplicationDataUninstall().ConfigureAwait(true); }
             catch (Exception exception) { LogWarningSafely(exception, "application_data_uninstall_terminal_failed"); }
         }
+        await databaseScope.WaitForConnectionsIdleAsync().ConfigureAwait(true);
+        ThrowIfSqliteCloseFailed();
     }
 
     /// <summary>通常Close・更新・モード変更と同じUI Dispatcherで撤去を先着判定し、新規受付を停止します。終端待機は要求元へ返しません。</summary>
@@ -921,11 +930,9 @@ internal sealed class ShellShutdownWorkflowOwner
     {
         Task regularChartListStop = BeginShutdownRequested("preparation_failure");
         var stopwatch = Stopwatch.StartNew();
-        int sqliteCloseFailureBaseline = ShutdownOperationTracker.SqliteCloseFailureCount;
         await CollectShutdownPreparationResultAsync(
             "preparation_failure",
             stopwatch,
-            sqliteCloseFailureBaseline,
             regularChartListStop).ConfigureAwait(false);
     }
 
@@ -964,26 +971,23 @@ internal sealed class ShellShutdownWorkflowOwner
         Task regularChartListStop = BeginShutdownRequested(reason);
         var stopwatch = Stopwatch.StartNew();
         logShutdown("prepare_start reason=" + formatTextForLog(reason));
-        int sqliteCloseFailureBaseline = ShutdownOperationTracker.SqliteCloseFailureCount;
         TryShutdownStep("set_ui_blocked", () => startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(true));
 
         ShutdownPreparationResult result = await CollectShutdownPreparationResultAsync(
             reason,
             stopwatch,
-            sqliteCloseFailureBaseline,
             regularChartListStop).ConfigureAwait(false);
         logShutdown("prepare_done " + result.ToLogFields());
+        ThrowIfSqliteCloseFailed();
         return result;
     }
 
     private async Task<ShutdownPreparationResult> CollectShutdownPreparationResultAsync(
         string reason,
         Stopwatch stopwatch = null,
-        int? sqliteCloseFailureBaseline = null,
         Task regularChartListStopTask = null)
     {
         stopwatch ??= Stopwatch.StartNew();
-        sqliteCloseFailureBaseline ??= ShutdownOperationTracker.SqliteCloseFailureCount;
         var waitTracker = new ShutdownWaitTracker();
         await WaitForTaskCompletionAsync(
             "regularChartListWarmup",
@@ -1018,9 +1022,9 @@ internal sealed class ShellShutdownWorkflowOwner
         await WaitForPlaylistShutdownBlockingWorkAsync(waitTracker).ConfigureAwait(false);
         await WaitForDeferredPlaylistWorkersIdleAsync(waitTracker).ConfigureAwait(false);
         await WaitForPlaylistReloadCleanupIdleAsync(waitTracker).ConfigureAwait(false);
-        await WaitForLr2DbProcessLocksAsync(waitTracker).ConfigureAwait(false);
+        await WaitForDatabaseGatesAsync(waitTracker).ConfigureAwait(false);
         await WaitForSqliteConnectionsIdleAsync(waitTracker).ConfigureAwait(false);
-        int sqliteCloseFailureCount = Math.Max(0, ShutdownOperationTracker.SqliteCloseFailureCount - sqliteCloseFailureBaseline.Value);
+        int sqliteCloseFailureCount = databaseScope.SqliteCloseFailureCount;
         stopwatch.Stop();
         return new ShutdownPreparationResult(
             reason,
@@ -1243,12 +1247,20 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private async Task WaitForSqliteConnectionsIdleAsync(ShutdownWaitTracker tracker)
     {
-        await WaitForConditionAsync(
-            "sqliteConnections",
-            () => ShutdownOperationTracker.ActiveSqliteConnectionCount == 0,
-            ShutdownQueueDrainWarningThreshold,
-            tracker,
-            () => "activeSqliteConnectionCount=" + ShutdownOperationTracker.ActiveSqliteConnectionCount).ConfigureAwait(false);
+        Task idle = databaseScope.WaitForConnectionsIdleAsync();
+        await WaitForTaskCompletionAsync(
+            "sqliteConnections", idle, ShutdownQueueDrainWarningThreshold, tracker,
+            () => "activeSqliteConnectionCount=" + databaseScope.ActiveConnectionCount).ConfigureAwait(false);
+        await idle.ConfigureAwait(false);
+    }
+
+    // 接続数ゼロは解放の完了だけを示す。過去のclose失敗を同じappの正常終了へ読み替えません。
+    private void ThrowIfSqliteCloseFailed()
+    {
+        if (databaseScope.SqliteCloseFailureCount != 0)
+        {
+            throw new IOException(BeMusicSeeker.Properties.Resources.DatabaseConnectionCloseFailed);
+        }
     }
 
     private async Task WaitForTaskCompletionAsync(
@@ -1262,6 +1274,7 @@ internal sealed class ShellShutdownWorkflowOwner
         {
             return;
         }
+        LogWaitStart(target);
         var stopwatch = Stopwatch.StartNew();
         bool warningLogged = false;
         var warningDelay = Task.Delay(warningThreshold);
@@ -1283,6 +1296,7 @@ internal sealed class ShellShutdownWorkflowOwner
         {
             return;
         }
+        LogWaitStart(target);
         var stopwatch = Stopwatch.StartNew();
         bool warningLogged = false;
         while (true)
@@ -1309,49 +1323,31 @@ internal sealed class ShellShutdownWorkflowOwner
         mainOperationSemaphore.Release();
     }
 
-    private async Task WaitForLr2DbProcessLocksAsync(ShutdownWaitTracker tracker)
+    private async Task WaitForDatabaseGatesAsync(ShutdownWaitTracker tracker)
     {
-        await Task.Run(() =>
+        var drain = Task.Run(() =>
         {
-            var stopwatch = Stopwatch.StartNew();
-            bool warningLogged = false;
-            while (true)
-            {
-                bool songLockTaken = false;
-                bool scoreLockTaken = false;
-                try
-                {
-                    songLockTaken = LR2SongDBExtended.Lock(TimeSpan.FromMilliseconds(100));
-                    if (songLockTaken)
-                    {
-                        scoreLockTaken = LR2ScoreDBExtended.Lock(TimeSpan.FromMilliseconds(100));
-                    }
-                    if (songLockTaken && scoreLockTaken)
-                    {
-                        return;
-                    }
-                }
-                finally
-                {
-                    if (scoreLockTaken)
-                    {
-                        LR2ScoreDBExtended.Unlock();
-                    }
-                    if (songLockTaken)
-                    {
-                        LR2SongDBExtended.Unlock();
-                    }
-                }
-                LogSlowWaitIfNeeded(
-                    "lr2DbProcessLocks",
-                    stopwatch,
-                    ShutdownDrainWarningThreshold,
-                    tracker,
-                    ref warningLogged,
-                    () => "songLockTaken=" + FormatBool(songLockTaken) + " scoreLockTaken=" + FormatBool(scoreLockTaken));
-                Thread.Sleep(100);
-            }
-        }).ConfigureAwait(false);
+            // 開始済み操作の終端後に、外側の再入leaseも同じスレッド内で回収します。
+            using (databaseScope.EnterSong()) { }
+            using (databaseScope.EnterScore()) { }
+        });
+        await WaitForTaskCompletionAsync(
+            "lr2DbProcessLocks", drain, ShutdownDrainWarningThreshold, tracker,
+            () => "databaseGateDrainCompleted=" + FormatBool(drain.IsCompleted)).ConfigureAwait(false);
+        await drain.ConfigureAwait(false);
+    }
+
+    private void LogWaitStart(string target)
+    {
+        try
+        {
+            logShutdown("wait_start target=" + formatTextForLog(target));
+        }
+        catch (Exception exception)
+        {
+            // 待機箇所の診断が失敗しても、受理済み処理の実終端を待ち続けます。
+            LogWarningSafely(exception, "shutdown_wait_start_log_failed");
+        }
     }
 
     private void LogSlowWaitIfNeeded(

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using BeMusicSeeker.Models.LR2;
-using SQLite;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -11,6 +10,14 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class BeatorajaScoreDbLoader
 {
+    private readonly ApplicationDatabaseScope databaseScope;
+
+    /// <summary>接続とその寿命を所有するスコープを受け取ります。</summary>
+    internal BeatorajaScoreDbLoader(ApplicationDatabaseScope databaseScope)
+    {
+        this.databaseScope = databaseScope ?? throw new ArgumentNullException(nameof(databaseScope));
+    }
+
     private const int NormalScoreMode = 0;
 
     /// <summary>
@@ -26,7 +33,7 @@ internal sealed class BeatorajaScoreDbLoader
             return scores;
         }
 
-        using var connection = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex);
+        using SQLiteConnectionEx connection = databaseScope.OpenReadOnly(scoreDbPath);
         List<BeatorajaScoreRow> rows = connection.Query<BeatorajaScoreRow>(
             "SELECT sha256, clear, epg, lpg, egr, lgr, notes, combo, minbp, playcount, clearcount FROM score WHERE mode = ?",
             NormalScoreMode);

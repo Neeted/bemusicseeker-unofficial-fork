@@ -20,12 +20,14 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryIrStartupTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>実起動の既存/新規cache成績をAAA/90で公開し、既存通常ownerのrank検索への加入と同snapshotのDJ集計へ接続します。</summary>
     /// <remarks>局所の高/低/同点条件表はサービス試験へ分担し、ここでは実DB/XML・worker・通常配送の終端と購読解放を確認します。</remarks>
     [TestMethod]
     public async Task InitializeStartup_RankingCacheDerivedValuesReachNormalSearchAndLampAggregation()
     {
-        await using var fixture = new StartupFixture(waitForCancellation: false, failFirstRequest: false, exerciseDerivedValues: true);
+        await using var fixture = new StartupFixture(databaseScope, waitForCancellation: false, failFirstRequest: false, exerciseDerivedValues: true);
         await fixture.InitializeAsync();
         await TestUiDispatcherHost.AwaitNotificationAsync(fixture.Client.Started.Task, fixture.WaitForWorkersAsync(), "本人IR通信開始");
         using var table = new MainChartListViewModel(action => action());
@@ -89,7 +91,7 @@ public sealed class BmsLibraryIrStartupTests
     [TestMethod]
     public async Task InitializeStartup_FailedPrefetchIsReportedWithoutRetryOrScoreMutation()
     {
-        await using var fixture = new StartupFixture(waitForCancellation: false, failFirstRequest: false, exerciseUnrecognizedResponse: true);
+        await using var fixture = new StartupFixture(databaseScope, waitForCancellation: false, failFirstRequest: false, exerciseUnrecognizedResponse: true);
         await fixture.InitializeAsync();
         await TestUiDispatcherHost.AwaitNotificationAsync(fixture.Client.Started.Task, fixture.WaitForWorkersAsync(), "本人IR通信開始");
         BMSScore before = fixture.Library.GetBMSScores().Single();
@@ -144,7 +146,7 @@ public sealed class BmsLibraryIrStartupTests
     [TestMethod]
     public async Task RequestShutdown_CancelsInflightIrAndDrainsRankingBeforeBecomingIdle()
     {
-        await using var fixture = new StartupFixture(waitForCancellation: true);
+        await using var fixture = new StartupFixture(databaseScope, waitForCancellation: true);
         await fixture.InitializeAsync();
         await fixture.Client.Started.Task;
         await fixture.RankingStarted.Task;
@@ -172,7 +174,7 @@ public sealed class BmsLibraryIrStartupTests
     [DataRow(true)]
     public async Task IrCommunication_LeavesAdmissionFreeAndRetiredResultDoesNotCommit(bool retire)
     {
-        await using var fixture = new StartupFixture(waitForCancellation: false, failFirstRequest: false);
+        await using var fixture = new StartupFixture(databaseScope, waitForCancellation: false, failFirstRequest: false);
         await fixture.InitializeAsync();
         await fixture.Client.Started.Task;
         Assert.IsTrue(fixture.Library.OperationAdmission.TryEnter(out IDisposable parent), "通信中に設定の新規Lを拒否しません。");
@@ -203,7 +205,7 @@ public sealed class BmsLibraryIrStartupTests
     [TestMethod]
     public async Task ScoreSubscriptions_ReloadAndShutdownDetachPreviousScore()
     {
-        await using var fixture = new StartupFixture(waitForCancellation: false);
+        await using var fixture = new StartupFixture(databaseScope, waitForCancellation: false);
         fixture.Client.Release.TrySetResult();
         await fixture.InitializeAsync();
         await fixture.RankingCompleted.Task;
@@ -303,9 +305,9 @@ public sealed class BmsLibraryIrStartupTests
     public Task RankingRefresh_UsesAcceptanceReporterForNextRequestAndIsolatesPublicationFailure(bool failNextPublication)
         => VerifyAcceptanceReporterAsync(failNextPublication);
 
-    private static async Task VerifyAcceptanceReporterAsync(bool failNextPublication)
+    private async Task VerifyAcceptanceReporterAsync(bool failNextPublication)
     {
-        await using var fixture = new StartupFixture(waitForCancellation: false);
+        await using var fixture = new StartupFixture(databaseScope, waitForCancellation: false);
         const string taskName = "ranking_refresh_deferred";
         var reports = new ConcurrentQueue<(int Callback, int Version, bool Running)>();
         var firstStarted = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -377,7 +379,7 @@ public sealed class BmsLibraryIrStartupTests
     [TestMethod]
     public async Task InitializeStartup_SavedRankingReadFailurePreservesCacheAndAllowsNextRequest()
     {
-        await using var fixture = new StartupFixture(waitForCancellation: false, failFirstRequest: false, exerciseRankingReadFailure: true);
+        await using var fixture = new StartupFixture(databaseScope, waitForCancellation: false, failFirstRequest: false, exerciseRankingReadFailure: true);
         await fixture.InitializeAsync();
         await TestUiDispatcherHost.AwaitNotificationAsync(fixture.Client.Started.Task, fixture.WaitForWorkersAsync(), "本人IR通信開始");
         BMSScore before = fixture.Library.GetBMSScores().Single(score => score.hash == StartupFixture.CacheHash);
@@ -437,7 +439,7 @@ public sealed class BmsLibraryIrStartupTests
     [TestMethod]
     public async Task InitializeStartup_SavedIrScoreReadFailurePreservesScoresAndAllowsNextRequest()
     {
-        await using var fixture = new StartupFixture(waitForCancellation: false, failFirstRequest: false, exerciseReadFailure: true);
+        await using var fixture = new StartupFixture(databaseScope, waitForCancellation: false, failFirstRequest: false, exerciseReadFailure: true);
         await fixture.InitializeAsync();
         await TestUiDispatcherHost.AwaitNotificationAsync(fixture.Client.Started.Task, fixture.WaitForWorkersAsync(), "本人IR通信開始");
         BMSScore before = fixture.Library.GetBMSScores().Single();
@@ -493,7 +495,7 @@ public sealed class BmsLibraryIrStartupTests
     [TestMethod]
     public async Task InitializeStartup_IrMetadataSaveFailurePreservesScoresAndAllowsNextRequest()
     {
-        await using var fixture = new StartupFixture(waitForCancellation: false, failFirstRequest: false, exerciseSaveFailure: true);
+        await using var fixture = new StartupFixture(databaseScope, waitForCancellation: false, failFirstRequest: false, exerciseSaveFailure: true);
         await fixture.InitializeAsync();
         await TestUiDispatcherHost.AwaitNotificationAsync(fixture.Client.Started.Task, fixture.WaitForWorkersAsync(), "本人IR通信開始");
         BMSScore before = fixture.Library.GetBMSScores().Single();
@@ -548,7 +550,7 @@ public sealed class BmsLibraryIrStartupTests
     [DataRow(true)]
     public async Task InitializeStartup_NotificationFailurePreservesCommittedSnapshotAndIndependentCache(bool failSnapshot)
     {
-        await using var fixture = new StartupFixture(waitForCancellation: false, failFirstRequest: false, exercisePublication: true);
+        await using var fixture = new StartupFixture(databaseScope, waitForCancellation: false, failFirstRequest: false, exercisePublication: true);
         await fixture.InitializeAsync();
         await TestUiDispatcherHost.AwaitNotificationAsync(fixture.Client.Started.Task, fixture.WaitForWorkersAsync(), "本人IR通信開始");
         var observations = new ConcurrentQueue<(int Version, int SnapshotVersion, bool Ready, int Subscriptions, int? Score, bool AdmissionFree)>();
@@ -627,8 +629,8 @@ public sealed class BmsLibraryIrStartupTests
         string root = Path.Combine(Path.GetTempPath(), "BmsScoreOnDemand", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         string songPath = Path.Combine(root, "song.db");
-        using (var db = new LR2SongDBExtended(songPath)) { db.CreateTable<LR2SongDB.song>(); }
-        var library = new TestBmsLibrary(songPath);
+        using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songPath)) { db.CreateTable<LR2SongDB.song>(); }
+        var library = new TestBmsLibrary(databaseScope, songPath);
         int attempts = 0;
         System.ComponentModel.PropertyChangedEventHandler handler = (_, args) =>
         {
@@ -660,6 +662,7 @@ public sealed class BmsLibraryIrStartupTests
 
     internal sealed class StartupFixture : IAsyncDisposable
     {
+        private readonly ApplicationDatabaseScope databaseScope;
         internal const string IrHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         internal const string CacheHash = "cccccccccccccccccccccccccccccccc";
         private readonly bool exercisePublication;
@@ -677,8 +680,19 @@ public sealed class BmsLibraryIrStartupTests
 
         private readonly ConcurrentBag<Task> scheduledWorkers = [];
 
-        internal StartupFixture(bool waitForCancellation, bool failFirstRequest = true, bool exerciseReadFailure = false, bool exerciseSaveFailure = false, bool exercisePublication = false, bool exerciseRankingReadFailure = false, bool exerciseUnrecognizedResponse = false, bool exerciseDerivedValues = false)
+        /// <summary>呼出し元アプリと同じDB所有者で、起動時IR処理の専用入力とライブラリを準備します。</summary>
+        /// <param name="databaseScope">接続と終了待機を共有するアプリケーションのDB所有者。</param>
+        /// <param name="waitForCancellation">IR要求を取消まで保留するか。</param>
+        /// <param name="failFirstRequest">最初のIR要求を失敗させるか。</param>
+        /// <param name="exerciseReadFailure">保存済みIR読取りの失敗を準備するか。</param>
+        /// <param name="exerciseSaveFailure">IR保存の失敗を準備するか。</param>
+        /// <param name="exercisePublication">ランキング結果の公開を観測するか。</param>
+        /// <param name="exerciseRankingReadFailure">ランキング読取りの失敗を準備するか。</param>
+        /// <param name="exerciseUnrecognizedResponse">認識不能なIR応答を準備するか。</param>
+        /// <param name="exerciseDerivedValues">保存済みスコアとランキング由来の値を準備するか。</param>
+        internal StartupFixture(ApplicationDatabaseScope databaseScope, bool waitForCancellation, bool failFirstRequest = true, bool exerciseReadFailure = false, bool exerciseSaveFailure = false, bool exercisePublication = false, bool exerciseRankingReadFailure = false, bool exerciseUnrecognizedResponse = false, bool exerciseDerivedValues = false)
         {
+            this.databaseScope = databaseScope;
             this.exercisePublication = exercisePublication;
             bool exerciseRankingCache = exerciseReadFailure || exerciseSaveFailure || exercisePublication || exerciseRankingReadFailure || exerciseUnrecognizedResponse || exerciseDerivedValues;
             Directory.CreateDirectory(root);
@@ -687,7 +701,7 @@ public sealed class BmsLibraryIrStartupTests
                 ? Path.Combine(root, "LR2files", "Database", "score.db")
                 : Path.Combine(root, "score.db");
             Directory.CreateDirectory(Path.GetDirectoryName(scorePath));
-            using (var db = new LR2SongDBExtended(songPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songPath))
             {
                 db.RunInTransaction(() =>
                 {
@@ -706,7 +720,7 @@ public sealed class BmsLibraryIrStartupTests
                     }
                 });
             }
-            using (var db = new LR2ScoreDBExtended(scorePath))
+            using (LR2ScoreDBExtended db = databaseScope.OpenScoreWrite(scorePath))
             {
                 db.RunInTransaction(() =>
                 {
@@ -728,7 +742,7 @@ public sealed class BmsLibraryIrStartupTests
                     }
                 });
             }
-            gateway = new BmsLibraryDbGateway(songPath, scorePath);
+            gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath, scorePath);
             gateway.ReplaceIrScoreTableAndRefreshMetadata([new LR2IRScore { hash = Hash, pg = 123, gr = 67 }], 123, "retained-startup-digest");
             metadataUpdatedAt = gateway.LoadIrScoreRefreshMetadata(123).updated_at;
             if (exerciseRankingCache)
@@ -765,7 +779,7 @@ public sealed class BmsLibraryIrStartupTests
                 PendingInstallEstimateMaxParallelPackages = 1
             };
             var lr2Owner = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(root));
-            Library = new TestBmsLibrary(songPath, lr2Owner, scorePath, null, () => options,
+            Library = new TestBmsLibrary(databaseScope, songPath, lr2Owner, scorePath, null, () => options,
                 TestBmsFactory.MissingEverythingBridge,
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), irClient: Client);
             Library.StartupBackgroundTaskScheduler = (name, _, _, process) =>

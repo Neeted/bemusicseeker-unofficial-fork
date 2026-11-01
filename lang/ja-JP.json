@@ -1389,5 +1389,6 @@
   "ChartPropertiesCountedUnfulfilled": "個別の未充足として計数します",
   "ChartPropertiesNotCounted": "要求数に含めません",
   "ChartPropertiesCp932AlternativeInterpretation": "LR2用の別解釈（CP932・通常の解釈と併記される場合があります）",
-  "Validation_Lr2BuiltinCustomFolderReservedFormat": "{0}には、LR2組込みカスタムフォルダの予約領域を指定できません。\n指定先: {1}\n組込みフォルダ: {2}"
+  "Validation_Lr2BuiltinCustomFolderReservedFormat": "{0}には、LR2組込みカスタムフォルダの予約領域を指定できません。\n指定先: {1}\n組込みフォルダ: {2}",
+  "DatabaseConnectionCloseFailed": "データベース接続の終了処理でエラーが発生しました。"
 }

@@ -2407,6 +2407,9 @@ public partial class BMSLibrary : ObservableObject
 
     private readonly BmsLibraryDbGateway dbGateway;
 
+    /// <summary>再構築前後のモデルと終了処理が共有する、構成寿命のDB所有者です。</summary>
+    internal ApplicationDatabaseScope DatabaseScope => dbGateway.DatabaseScope;
+
     private readonly BmsLibraryDuplicateService duplicateService = new();
 
     private readonly BmsLibraryParentFolderCacheService parentFolderCacheService = new();
@@ -2591,7 +2594,11 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="bmsRootRegistrations">構成の確定登録readerと保存主体。standaloneの別可変一覧を持ちません。</param>
     /// <param name="operationAdmission">構成で共有するL受付。独立した内部利用では専用受付を作ります。</param>
     /// <param name="playlistOperationAdmission">再構築前後で構成が共有するP受付。独立構成は専用受付を作り、DB・処理・終了状態はこのライブラリへ個別に所有します。</param>
+    /// <param name="databaseScope">新旧モデル・読取り・終了処理が共有するDB所有者。</param>
+    /// <param name="databaseLoadOptions">構成で捕捉済みのDB読取り方式。</param>
     internal BMSLibrary(
+        ApplicationDatabaseScope databaseScope,
+        BmsDatabaseLoadOptions databaseLoadOptions,
         string _lr2SongDB,
         Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
@@ -2605,7 +2612,7 @@ public partial class BMSLibrary : ObservableObject
         IBmsLibraryIrClient irClient = null,
         ChartFileOperationSynchronizer operationAdmission = null,
         ChartFileOperationSynchronizer playlistOperationAdmission = null)
-        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, null, null, startupRequiredFileScanReason, optionsSnapshotProvider, uiScheduler, applicationPathSnapshot, bmsRootRegistrations, null, chartFileScanner, rootFileEnumerator, irClient, operationAdmission, playlistOperationAdmission)
+        : this(databaseScope, databaseLoadOptions, _lr2SongDB, getLR2Config, _lr2ScoreDB, null, null, startupRequiredFileScanReason, optionsSnapshotProvider, uiScheduler, applicationPathSnapshot, bmsRootRegistrations, null, chartFileScanner, rootFileEnumerator, irClient, operationAdmission, playlistOperationAdmission)
     {
     }
 
@@ -2619,7 +2626,11 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="bmsRootRegistrations">構成の確定登録readerと保存主体。standaloneの別可変一覧を持ちません。</param>
     /// <param name="operationAdmission">構成で共有するL受付。独立した内部利用では専用受付を作ります。</param>
     /// <param name="playlistOperationAdmission">再構築前後で構成が共有するP受付。独立構成は専用受付を作り、DB・処理・終了状態はこのライブラリへ個別に所有します。</param>
+    /// <param name="databaseScope">新旧モデル・読取り・終了処理が共有するDB所有者。</param>
+    /// <param name="databaseLoadOptions">構成で捕捉済みのDB読取り方式。</param>
     internal BMSLibrary(
+        ApplicationDatabaseScope databaseScope,
+        BmsDatabaseLoadOptions databaseLoadOptions,
         string _lr2SongDB,
         Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
@@ -2671,7 +2682,7 @@ public partial class BMSLibrary : ObservableObject
         this.fileMutationService = fileMutationService ?? new ResilientFileMutationService();
         this.dialogService = dialogService ?? new BmsLibraryDialogService();
         scopedOperationDialogService = new(this.dialogService);
-        dbGateway = new BmsLibraryDbGateway(lr2SongDBPath, lr2ScoreDBPath);
+        dbGateway = new BmsLibraryDbGateway(databaseScope, databaseLoadOptions, lr2SongDBPath, lr2ScoreDBPath);
         catalogChartInfoOwner = new(
             RaisePropertyChanged,
             () => IsShutdownRequested,
@@ -5412,7 +5423,7 @@ public partial class BMSLibrary : ObservableObject
 
     private void TryImportChartInfoMetadataBundleAtStartup()
     {
-        catalogChartInfoOwner.TryImportMetadataBundle(applicationPathSnapshot.BaseDirectory, dbGateway);
+        catalogChartInfoOwner.TryImportMetadataBundle(applicationPathSnapshot.ProfileDirectory, dbGateway);
     }
 
     /// <summary>保存目録を一度読込み、親操作の公開効果へ接続します。通信や補完は開始しません。</summary>

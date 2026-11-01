@@ -14,6 +14,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
@@ -38,7 +39,6 @@ public sealed partial class MainWindowViewHostTests
     [TestMethod]
     public async Task PackageInstallAsyncNotificationFailure_IsReportedWithoutEndingDispatcherAndNextRequestSucceeds()
     {
-
         using var directory = new TestTemporaryDirectory("package-notification-terminal");
         string source = Path.Combine(directory.Path, "source");
         Directory.CreateDirectory(source);
@@ -75,7 +75,6 @@ public sealed partial class MainWindowViewHostTests
             LogManager.Configuration = configuration;
             TestUiDispatcherHost.Invoke(() =>
             {
-                using (var db = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath)) { }
                 Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
                 composition = new ApplicationComposition(
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
@@ -90,6 +89,7 @@ public sealed partial class MainWindowViewHostTests
                         if (Interlocked.Increment(ref installationCount) == 1) { throw originalFailure; }
                         return new PackageInstallCommandResult([], null);
                     }));
+                using (LR2SongDBExtended db = composition.DatabaseScope.OpenSongWrite(songDbPath)) { }
                 viewModel = composition.CreateMainWindowViewModel();
                 BMSLibrary library = composition.CreateBmsLibrary(new LibraryProfile(false, songDbPath, [],
                     null, null, false, false, false, false, "notification-terminal"));
@@ -573,6 +573,7 @@ public sealed partial class MainWindowViewHostTests
 
     private static Settings CreatePlaybackHostSettings(string directory)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         var settings = (Settings)System.Configuration.SettingsBase.Synchronized(
             PortableSettingsPersistenceTests.OpenSettings(Path.Combine(directory, "user.config")));
         settings.OperationModeLR2DB = false;
@@ -595,8 +596,8 @@ public sealed partial class MainWindowViewHostTests
         var fixturePath = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory, "BeMusicSeeker.exe"));
         string songDbPath = fixturePath.StandaloneSongDbPath;
         Directory.CreateDirectory(fixturePath.DataDirectoryPath);
-        StartupLibraryConstructionTestSupport.CreateSongDatabase(songDbPath);
-        PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+        StartupLibraryConstructionTestSupport.CreateSongDatabase(databaseScope, songDbPath);
+        PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
         return settings;
     }
 
@@ -607,7 +608,7 @@ public sealed partial class MainWindowViewHostTests
         StartupLibraryMutationPreparation? mutationPreparation = null)
     {
         string songDbPath = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory, "BeMusicSeeker.exe")).StandaloneSongDbPath;
-        var library = new TestBmsLibrary(songDbPath, getLR2Config: null, _lr2ScoreDB: null,
+        var library = new TestBmsLibrary(composition.DatabaseScope, songDbPath, getLR2Config: null, _lr2ScoreDB: null,
             fileMutationService: null, dialogService: null,
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
             optionsSnapshotProvider: mutationPreparation == null
@@ -1274,8 +1275,6 @@ public sealed partial class MainWindowViewHostTests
         var fixturePath = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe"));
         string songDbPath = fixturePath.StandaloneSongDbPath;
         Directory.CreateDirectory(fixturePath.DataDirectoryPath);
-        StartupLibraryConstructionTestSupport.CreateSongDatabase(songDbPath);
-        PlaylistPersistenceRepository.EnsureSchema(songDbPath);
 
         using var playerRelease = new ManualResetEventSlim(false);
         var playerEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1336,7 +1335,9 @@ public sealed partial class MainWindowViewHostTests
                         reportedSettingsFailures.Add(exception);
                         settingsSaveFailureReported.TrySetResult(exception);
                     });
-                library = new TestBmsLibrary(
+                StartupLibraryConstructionTestSupport.CreateSongDatabase(composition.DatabaseScope, songDbPath);
+                PlaylistPersistenceRepository.EnsureSchema(composition.DatabaseScope, songDbPath);
+                library = new TestBmsLibrary(composition.DatabaseScope,
                     songDbPath,
                     getLR2Config: null,
                     _lr2ScoreDB: null,
@@ -1346,7 +1347,7 @@ public sealed partial class MainWindowViewHostTests
                     operationAdmission: composition.OperationAdmission,
                     playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: settings);
                 mutationPreparation.Library = library;
-                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings, library: library);
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, songDbPath, settings, library: library);
                 var startupFactory = new FixedStartupLibraryFactory(library, playlist);
                 viewModel = new MainWindowViewModel(composition, startupFactory);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();

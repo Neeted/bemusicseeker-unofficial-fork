@@ -21,6 +21,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class SelectedChartMutationWorkflowOwnerTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>実LR2のroot削除と出力内file削除を同時に受理し、実親L/Pの保持から解放後の保留画面通知まで接続します。</summary>
     [TestMethod]
     [DoNotParallelize]
@@ -44,11 +46,11 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 CreateFile(new string('b', 32), Path.Combine(managed, "managed.bms"))];
             foreach (ChartFile chart in charts) { File.WriteAllText(chart.Path, "#TITLE Owned\n#BPM 120\n"); }
             var playlist = new ChartFileOperationSynchronizer();
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new FileDbReportRecordingDialogs(),
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new FileDbReportRecordingDialogs(),
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
                 playlistOperationAdmission: playlist, settings: settings)
             { BmsCharts = [.. charts], BmsonCharts = [] };
-            new BmsLibraryDbGateway(songDbPath).UpsertSongs(charts);
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs(charts);
             using var observation = RootPendingPublicationObservation.Seed(library, songDbPath, retained, Path.Combine(root, "Unrelated"), playlist);
             var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var releaseStop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -84,7 +86,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 Assert.IsFalse(File.Exists(charts[1].Path));
                 CollectionAssert.AreEqual(new[] { retained }, new BmsRootRegistrationStore(settings, () => library.FixtureLr2Owner).CaptureUserRoots().ToArray());
                 Assert.AreEqual(0, library.BmsCharts.Count);
-                using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 Assert.AreEqual(0, db.Table<LR2SongDB.song>().Count());
             }
             finally
@@ -117,9 +119,9 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([source, retained]);
             settings.BMSRootPath = source; settings.BMSInstallDir = decision == "protected" ? source : retained; settings.Save();
             ChartFile chart = CreateFile(new string('a', 32), chartPath);
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), settings: settings)
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), settings: settings)
             { BmsCharts = [chart], BmsonCharts = [] };
-            new BmsLibraryDbGateway(songDbPath).UpsertSongs([chart]);
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs([chart]);
             var dialogs = new FakeUiDialogService
             {
                 ConfirmationResults = new Queue<UiDialogResult>([UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
@@ -155,7 +157,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 string[] expectedRoots = decision == "yes" ? [retained] : [source, retained];
                 CollectionAssert.AreEqual(expectedRoots, StandaloneBmsRootPathSettings.Deserialize(
                     PortableSettingsPersistenceTests.OpenSettings(settingsPath).StandaloneBmsRootPaths).ToArray());
-                using LR2SongDBExtended read = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended read = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 Assert.AreEqual(decision == "protected" ? 1 : 0, read.Table<LR2SongDB.song>().Count());
                 Assert.AreEqual(decision == "protected" ? 1 : 0, dialogs.Messages.Count);
                 if (decision == "protected")
@@ -202,9 +204,9 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             settings.BMSRootPath = folders[0]; settings.BMSInstallDir = retained; settings.Save();
             byte[] savedSettings = File.ReadAllBytes(settingsPath);
             var filesystem = new TestFileMutationService();
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, settings: settings)
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, filesystem, settings: settings)
             { BmsCharts = [.. charts], BmsonCharts = [] };
-            new BmsLibraryDbGateway(songDbPath).UpsertSongs(charts);
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs(charts);
             var reached = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var answer = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
             int folderCount = 0;
@@ -238,7 +240,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                     Assert.AreEqual("resource " + index, File.ReadAllText(Path.Combine(folders[index], "user.wav")));
                     Assert.AreSame(charts[index], library.BmsCharts.Single(chart => chart.Path == charts[index].Path));
                 }
-                using LR2SongDBExtended read = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended read = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 CollectionAssert.AreEquivalent(charts.Select(chart => chart.Path + "|" + chart.Md5).ToArray(),
                     read.Table<LR2SongDB.song>().Select(row => row.path + "|" + row.hash).ToArray());
                 CollectionAssert.AreEqual(savedSettings, File.ReadAllBytes(settingsPath));
@@ -905,10 +907,10 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             settings.Save();
             byte[] savedSettings = File.ReadAllBytes(settingsPath);
             var modelDialogs = new RegisteredRootMoveDialogs();
-            var library = new TestBmsLibrary(songDbPath, null, null, null, modelDialogs,
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, modelDialogs,
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => BmsLibraryOptionsSnapshot.CreateCurrent(settings), settings: settings)
             { BmsCharts = [rootChart, childChart], BmsonCharts = [] };
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.UpsertSongs([rootChart, childChart]);
             InstalledChartLookupIndexSnapshot originalLookup = InvokeCreateInstalledChartLookupSnapshot(library);
             int initialVersion = library.NormalLibraryRefreshNotificationVersion;
@@ -1014,7 +1016,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             string lr2Root = Path.Combine(root, "LR2");
             LR2Config config = BmsPlaylistTestSupport.CreateLr2Config(lr2Root, source);
             var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
-            var library = new TestBmsLibrary(songDbPath, configOwner, null, null,
+            var library = new TestBmsLibrary(databaseScope, songDbPath, configOwner, null, null,
                 new FileDbReportRecordingDialogs(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 () => new BmsLibraryOptionsSnapshot
                 {
@@ -1023,7 +1025,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                     LR2CustomFolderOutputBaseDir = blockedDestination
                 })
             { BmsCharts = charts, BmsonCharts = [] };
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.UpsertSongs(charts);
             InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
             foreach (ChartFile chart in charts)
@@ -1499,7 +1501,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             File.WriteAllText(path, "#PLAYER 1");
             File.WriteAllText(Path.Combine(folder, "keep.wav"), "keep folder");
             var filesystem = new TestFileMutationService();
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem,
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, filesystem,
                 new FileDbReportRecordingDialogs(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
             { BmsCharts = [CreateFile(new string('a', 32), path)], BmsonCharts = [] };
@@ -1519,7 +1521,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 File.Move(path, moved);
                 ChangeCurrent(selected with { Path = moved });
             }
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.UpsertSongs(library.BmsCharts);
             ChartFileOperationSynchronizer gate = library.OperationAdmission;
             var activity = new ChartMutationActivityOwner();
@@ -1576,7 +1578,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 probe.Dispose();
                 Assert.AreEqual(new string('a', 32), selected.Md5);
                 Assert.AreEqual(path, selected.Path);
-                using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 if (scenario == 0)
                 {
                     Assert.IsTrue(result.Succeeded);
@@ -1634,7 +1636,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         await WithTemporarySongDbAsync(async songDbPath =>
         {
             var scheduler = new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher);
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(),
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(),
                 new FileDbReportRecordingDialogs(), scheduler,
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false });
             var presentation = new RecordingPresentation();
@@ -1721,7 +1723,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     {
         await WithTemporarySongDbAsync(async songDbPath =>
         {
-            using var fixture = new MaintenanceMetadataSongFixture(songDbPath);
+            using var fixture = new MaintenanceMetadataSongFixture(databaseScope, songDbPath);
             TestBmsLibrary library = fixture.Library;
             var target = new ChartOperationTarget(fixture.Chart, null, ChartOperationSourceScope.Library,
                 true, false, false, ChartOperationCapabilities.RunBmsEncodingFix);
@@ -1748,18 +1750,18 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             if (resourcesOnly) { File.WriteAllBytes(Path.Combine(Path.GetDirectoryName(path)!, "中文.ogg"), []); }
             ChartFile parsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path));
             ResourceHealthMaintenanceSnapshot initial = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(parsed) with { Encoding = "shift_jis" };
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(),
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(),
                 new FileDbReportRecordingDialogs(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
             { BmsCharts = [ChartFileProjection.WithMaintenance(parsed, initial)], BmsonCharts = [] };
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.UpsertSongs(library.BmsCharts);
             ChartFile chart = library.BmsCharts.Single();
             ResourceHealthIndexSnapshot beforeIndex = library.GetResourceHealthIndexSnapshotForView("encoding-before");
             Assert.AreEqual(resourcesOnly, beforeIndex.GetProjection(chart).HasIssues);
             if (resourcesOnly)
             {
-                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, db =>
                 {
                     db.Execute("CREATE TRIGGER reject_encoding_only_song_update BEFORE UPDATE ON song BEGIN SELECT RAISE(ABORT, 'unexpected song update'); END;");
                     db.Execute("CREATE TRIGGER reject_encoding_only_song_insert BEFORE INSERT ON song BEGIN SELECT RAISE(ABORT, 'unexpected song insert'); END;");
@@ -1864,16 +1866,16 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             File.Copy(pendingPath, ownedPath);
             ChartFile owned = ChartFileProjection.WithMaintenance(parsed with { Path = ownedPath }, initial with { Path = ownedPath });
             if (decode) { owned = owned with { Title = "before", RawTitle = "before" }; }
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(),
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(),
                 new FileDbReportRecordingDialogs(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
             { BmsCharts = includeOwned ? [owned] : [], BmsonCharts = [], ChartPackagesPending = [package] };
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, db =>
             {
                 db.CreateTable<LR2SongDBExtended.install>();
                 db.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
             });
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.UpsertSongs(library.BmsCharts);
             ResourceHealthMaintenanceSnapshot stored = initial with
             {
@@ -1898,7 +1900,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             if (storedState != "absent") { gateway.UpsertMaintenanceInfos([stored]); }
             ChartFile? ownedBefore = includeOwned ? library.BmsCharts.Single() : null;
             string pendingSqlPath = pendingPath.Replace("'", "''", StringComparison.Ordinal);
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, db =>
             {
                 db.Execute($"CREATE TRIGGER reject_pending_maintenance_insert BEFORE INSERT ON maintenance WHEN NEW.path = '{pendingSqlPath}' BEGIN SELECT RAISE(ABORT, 'unexpected pending insert'); END;");
                 db.Execute($"CREATE TRIGGER reject_pending_maintenance_update BEFORE UPDATE ON maintenance WHEN NEW.path = '{pendingSqlPath}' BEGIN SELECT RAISE(ABORT, 'unexpected pending update'); END;");
@@ -2008,7 +2010,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry);
             var package = ChartPackage.FromChartEntries([entry]);
             package.path = path;
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(),
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(),
                 new FileDbReportRecordingDialogs(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
             { BmsCharts = [], BmsonCharts = [], ChartPackagesPending = [package] };

@@ -15,6 +15,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class StartupBackgroundTaskSchedulerOwnerTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>実受付の置換を一件に集約し、失敗・破棄・同じ起動からの派生を実終端で数えます。受付scope外の手動仕事は集計せず、独立仕事が残っていても追加親は終端します。</summary>
     [TestMethod]
     public async Task AdditionalProgress_CountsLogicalWorkAndTerminalStatesWithoutLeakingScope()
@@ -472,13 +474,13 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         try
         {
             string songDbPath = Path.Combine(directory, "song.db");
-            using (var db = new LR2SongDBExtended(songDbPath)) { }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, null, null, null,
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath)) { }
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 () => new CustomFolderOutputSettingsSnapshot(),
-                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+                new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath))
             { BMSTables = [] };
             playlist.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => owner.Queue(name, reason, dependency, work);
             var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());

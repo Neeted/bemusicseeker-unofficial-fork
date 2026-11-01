@@ -4,12 +4,12 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-
 using static BeMusicSeeker.Tests.StartupLibraryConstructionTestSupport;
 namespace BeMusicSeeker.Tests;
 
@@ -17,6 +17,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class StartupLibraryFailureContractTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>
     /// 保証：作成先がnullまたは例外の場合は途中組だけを停止して旧組と共有受付を維持し、後の成功時だけ旧組を停止する。
     /// </summary>
@@ -35,7 +37,7 @@ public sealed class StartupLibraryFailureContractTests
 
         string temporaryRoot = CreateTemporaryRoot();
         string songDbPath = Path.Combine(temporaryRoot, "song.db");
-        CreateSongDatabase(songDbPath);
+        CreateSongDatabase(databaseScope, songDbPath);
         try
         {
             ApplicationComposition composition = CreateComposition();
@@ -125,7 +127,7 @@ public sealed class StartupLibraryFailureContractTests
         byte[] scoreBytes = [110, 111, 116, 45, 97, 45, 115, 113, 108, 105, 116, 101, 45, 100, 98];
         try
         {
-            CreateSongDatabase(songDbPath);
+            CreateSongDatabase(databaseScope, songDbPath);
             Directory.CreateDirectory(nestedScoreDirectoryPath);
             Directory.CreateDirectory(backupRoot);
             File.WriteAllBytes(scoreDbPath, scoreBytes);
@@ -147,7 +149,7 @@ public sealed class StartupLibraryFailureContractTests
                 LR2BackupNum = 1
             };
 
-            IReadOnlyList<UiMessageRequest> notifications = await StartupLibraryConstructionOwner.PrepareBackupAsync(settings);
+            IReadOnlyList<UiMessageRequest> notifications = await StartupLibraryConstructionOwner.PrepareBackupAsync(databaseScope, settings);
 
             string publishedDirectory = Path.Combine(backupRoot, DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
             Assert.IsTrue(File.Exists(Path.Combine(publishedDirectory, "song.db")));
@@ -197,8 +199,8 @@ public sealed class StartupLibraryFailureContractTests
             }
             else
             {
-                CreateSongDatabase(song);
-                using var scoreDb = new LR2ScoreDBExtended(score);
+                CreateSongDatabase(databaseScope, song);
+                using LR2ScoreDBExtended scoreDb = databaseScope.OpenScoreWrite(score);
                 scoreDb.Execute("CREATE TABLE user_data(value TEXT);");
                 scoreDb.Execute("INSERT INTO user_data VALUES ('score-content');");
             }
@@ -216,7 +218,7 @@ public sealed class StartupLibraryFailureContractTests
                 LR2BackupNum = 1
             };
 
-            IReadOnlyList<UiMessageRequest> notifications = await StartupLibraryConstructionOwner.PrepareBackupAsync(settings);
+            IReadOnlyList<UiMessageRequest> notifications = await StartupLibraryConstructionOwner.PrepareBackupAsync(databaseScope, settings);
 
             Assert.AreEqual(0, notifications.Count);
             Assert.AreEqual(1, Directory.GetDirectories(backups).Length);
@@ -231,7 +233,7 @@ public sealed class StartupLibraryFailureContractTests
             {
                 CollectionAssert.AreEqual(songBytes, File.ReadAllBytes(Path.Combine(today, "song.db")));
                 CollectionAssert.AreEqual(scoreBytes, File.ReadAllBytes(Path.Combine(today, "Score", "score.db")));
-                using var scoreDb = new LR2ScoreDBExtended(score);
+                using LR2ScoreDBExtended scoreDb = databaseScope.OpenScoreWrite(score);
                 Assert.AreEqual("score-content", scoreDb.ExecuteScalar<string>("SELECT value FROM user_data;"));
             }
         }
@@ -250,7 +252,7 @@ public sealed class StartupLibraryFailureContractTests
     {
         string temporaryRoot = CreateTemporaryRoot();
         string songDbPath = Path.Combine(temporaryRoot, "song.db");
-        CreateSongDatabase(songDbPath);
+        CreateSongDatabase(databaseScope, songDbPath);
         try
         {
             LibraryProfile profile = CreateProfile(temporaryRoot, songDbPath);

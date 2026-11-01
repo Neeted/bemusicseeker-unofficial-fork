@@ -11,6 +11,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -34,10 +35,10 @@ public sealed class MainWindowPlayHistoryWpfTests
         {
             RegularChartListOwnerTestSupport.WithTemporarySongDb(songDb =>
             {
-                using (var db = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDb)) { BmsLibraryDbGateway.EnsureChartInfoSchema(db); }
-                var library = new TestBmsLibrary(songDb);
                 MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(MainWindowViewModelTestFactory.CreateIsolatedSettings(), (scope, vm, window) =>
             {
+                using (LR2SongDBExtended db = MainWindowViewModelTestFactory.GetComposition(vm).DatabaseScope.OpenSongWrite(songDb)) { BmsLibraryDbGateway.EnsureChartInfoSchema(db); }
+                var library = new TestBmsLibrary(MainWindowViewModelTestFactory.GetComposition(vm).DatabaseScope, songDb);
                 MainWindowPresentationTestHarness.ShowCompiledContent(scope, vm, window);
                 Lr2PlayHistoryRecord first = CreateResolvedPlayHistoryRow(playedAt: 1000).Raw;
                 Lr2PlayHistoryRecord second = CreateResolvedPlayHistoryRow(playedAt: 1001).Raw;
@@ -45,7 +46,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                 var raw = new Lr2PlayHistoryReadResult(PlayHistorySourceProfile.Lr2("score.db"), [first, second], [], Lr2PlayHistorySchemaStatus.Installed);
                 var snapshot = new BMSLibrary.ScoreSnapshot
                 { PlayHistorySnapshot = new ScorePlayHistorySnapshot(ActiveScoreSource.Lr2, "score.db", raw), SourceGeneration = 1 };
-                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDb, MainWindowViewModelTestFactory.CreateIsolatedSettings(), library: library);
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(library.DatabaseScope, songDb, MainWindowViewModelTestFactory.CreateIsolatedSettings(), library: library);
                 BMSTable targetTable = CreateTargetTable("Before");
                 playlist.BMSTables = [targetTable];
                 vm.PlayHistory.ConfigureDisplayTargetCatalogRefresh(() => false, () => playlist.BMSTables.ToArray(), action => action());

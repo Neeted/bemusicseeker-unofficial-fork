@@ -20,6 +20,11 @@ internal static class Lr2SongDbSyncTestSupport
     internal sealed class TestDatabaseScope : IDisposable
     {
         /// <summary>
+        /// このfixture内のモデルと接続で共有するDBの所有者を返します。
+        /// </summary>
+        internal ApplicationDatabaseScope DatabaseScope { get; } = new();
+
+        /// <summary>
         /// このscopeだけが所有する一時ディレクトリを返します。
         /// </summary>
         internal string DirectoryPath { get; }
@@ -33,7 +38,7 @@ internal static class Lr2SongDbSyncTestSupport
         {
             DirectoryPath = directoryPath;
             SongDbPath = Path.Combine(directoryPath, "song.db");
-            using var _ = new LR2SongDBExtended(SongDbPath);
+            using LR2SongDBExtended _ = DatabaseScope.OpenSongWrite(SongDbPath);
         }
 
         /// <summary>

@@ -71,7 +71,9 @@ internal static class PlaylistSummaryAggregationTestSupport
         OwnedChartCollectionTestSupport.SetLibraryBmsonSongsWithoutNotification(library, songs);
     }
 
-    internal static void WithTemporarySongDb(System.Action<string> testAction)
+    /// <summary>呼出し側と同じDB所有者で一時曲DBを準備し、処理終端後に回収します。</summary>
+    /// <param name="databaseScope">準備と検証対象が共有するfixtureのDB所有者。</param>
+    internal static void WithTemporarySongDb(ApplicationDatabaseScope databaseScope, System.Action<string> testAction)
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlaylistSummaryAggregation_" + System.Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
@@ -79,7 +81,7 @@ internal static class PlaylistSummaryAggregationTestSupport
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDB.folder>();

@@ -26,6 +26,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistWorkspacePresentationStateTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
 
     /// <summary>実VMのsummary検索補助はoutput field候補を出して値候補を混入させず、blur後に候補を閉じて詳細用補助との誤接続を検出します。</summary>
     [TestMethod]
@@ -1207,18 +1209,18 @@ public sealed class PlaylistWorkspacePresentationStateTests
         try
         {
             string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
             {
             }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
             var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
-            var playlist = new TestBmsPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath)
             {
                 BMSTables = new ObservableCollection<BMSTable>([first, second])
             };
             playlist.CommitBMSTableHeadersToDB([first, second]);
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.Execute(
                     "CREATE TRIGGER fail_bmt_sort_insert BEFORE INSERT ON playlist "
@@ -1257,7 +1259,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             Assert.IsTrue(
                 failure!.ToString().Contains("bmt sort persistence failure", StringComparison.Ordinal));
             Assert.AreEqual(0, refreshRequestCount);
-            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(
                     1,

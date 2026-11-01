@@ -24,7 +24,7 @@ public sealed partial class MainWindowViewHostTests
             var lifetime = new RecordingApplicationLifetime();
             using var fixture = new MainWindowViewModelStartupProgressTests.CompletionFixture(lifetime: lifetime);
             fixture.OptionalRelease.TrySetResult();
-            input.Register(fixture.Library.InitializationSongDbPath);
+            input.Register(fixture.Composition.DatabaseScope, fixture.Library.InitializationSongDbPath);
             using FileStream held = input.LockB();
             fixture.Owner.StartupUpdateWorkflow.NotifyClosing();
             var choiceReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -62,7 +62,7 @@ public sealed partial class MainWindowViewHostTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(window.CloseCompletion, "pending-exit-real-close-completion");
                 Assert.AreEqual(1, lifetime.RequestShutdownCount);
                 Assert.AreEqual(1, fixture.Dialogs.PendingRestoreCount);
-                Assert.AreEqual(3, new BmsLibraryDbGateway(fixture.Library.InitializationSongDbPath).LoadInstallPackages().Count);
+                Assert.AreEqual(3, new BmsLibraryDbGateway(fixture.Composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Library.InitializationSongDbPath).LoadInstallPackages().Count);
                 Assert.IsFalse(fixture.Owner.IsInitializationCompleted);
             }
             catch (Exception failure) { primary = failure; throw; }

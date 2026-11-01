@@ -270,7 +270,7 @@ public sealed class PlaylistCatalogViewChangeTests
     private async Task<int[]> MeasureOtherTableReferenceFlow(int background)
     {
         using var sql = new SqliteStatementObservation();
-        await using var fixture = new Fixture(background, openEntryWriteConnection: sql.OpenSongDb);
+        await using var fixture = new Fixture(background, initializeEntryWriteConnection: sql.Attach);
         var reference = new BMSTable
         {
             playlist_id = 4189,
@@ -500,7 +500,7 @@ public sealed class PlaylistCatalogViewChangeTests
         var reference = new BMSTable { playlist_id = 4189, name = "Late reference", symbol = "LATE", entries = [] };
         fixture.Playlist.BMSTables.Add(reference); fixture.Playlist.CommitBMSTableWithEntriesToDB(reference);
         BMSTableEntry entry = fixture.Playlist.BMSTables[0].entries[0];
-        using (var db = new LR2SongDBExtended(fixture.SongDb))
+        using (LR2SongDBExtended db = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb))
         { db.Execute("INSERT INTO playlist_entry(playlist_id,md5,title,folder,is_removed) VALUES(?,?,?,?,?);", reference.playlist_id, entry.md5, "hydrated", "late", 0); }
         reference.MarkEntriesNotLoaded();
         await fixture.Refresh();
@@ -680,7 +680,7 @@ public sealed class PlaylistCatalogViewChangeTests
         Assert.AreEqual("2.5", row.Level);
         Assert.AreEqual("entry memo", row.memo);
         Assert.AreSame(target.OwnedCurrent.Token, row.Chart.Token);
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
         Assert.AreEqual("entry memo", db.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE title = 'entry 0';"));
         Assert.AreEqual(2.5, db.ExecuteScalar<double>("SELECT level FROM playlist_entry WHERE title = 'entry 0';"));
     }
@@ -701,13 +701,13 @@ public sealed class PlaylistCatalogViewChangeTests
         fixture.Playlist.CommitBMSTableEntry(entries[0], nameof(PlaylistDetailRow.memo), "saved memo", null);
         Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
         Assert.AreEqual(negated ? 2 : 0, rows.Count);
-        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly())
         { Assert.AreEqual("saved memo", db.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE title = 'entry 0';")); }
         fixture.Playlist.CommitBMSTableEntry(entries[0], nameof(PlaylistDetailRow.memo), string.Empty, null);
         Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
         Assert.AreEqual(1, rows.Count);
         Assert.AreSame(entries[negated ? 1 : 0], ((PlaylistDetailRow)rows[0]).Entry);
-        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly())
         { Assert.AreEqual(string.Empty, db.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE title = 'entry 0';")); }
     }
 
@@ -740,7 +740,7 @@ public sealed class PlaylistCatalogViewChangeTests
         Assert.AreEqual(1, rows.Count);
         Assert.AreSame(target, rows[0]);
         Assert.AreEqual("changed memo", target.memo);
-        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly())
         {
             Assert.AreEqual("changed memo", db.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE title = 'entry 0';"));
             Assert.AreEqual(matchingTitle, db.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE title = 'entry 1';"));
@@ -836,7 +836,7 @@ public sealed class PlaylistCatalogViewChangeTests
         Assert.AreEqual("entry 1", ((PlaylistDetailRow)rows[0]).Entry.title);
         Assert.AreEqual(5, ((PlaylistDetailRow)rows[0]).score);
         Assert.AreEqual("entry memo", target.memo);
-        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly())
         { Assert.AreEqual("entry memo", db.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE title = 'entry 0';")); }
         Assert.AreEqual(40d, target.stddevVal);
         Assert.IsTrue(work.Count(kind => kind == "playlist_order_access") <= 12 * Math.Ceiling(Math.Log2(count)) + 12);
@@ -955,7 +955,7 @@ public sealed class PlaylistCatalogViewChangeTests
         Assert.AreEqual(1, built.SuccessCount);
         Assert.AreEqual(0, built.ParseFailedCount);
         fixture.Deliver();
-        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly())
         { Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT notes FROM chart_info WHERE sha256 = ?;", file.Sha256)); }
         Assert.AreEqual(revision, fixture.Library.CatalogRevision);
         Assert.AreEqual(1, target.ChartNotes);
@@ -995,7 +995,7 @@ public sealed class PlaylistCatalogViewChangeTests
         fixture.BatchNotificationsOnDelivery = true;
         ChartInfoInlineBuildResult built = fixture.Library.BuildAndPersistInlineChartInfoForInstalledCharts("detail-patch-before-ui-apply", [file]);
         Assert.AreEqual(1, built.SuccessCount);
-        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly())
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly())
         { Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT notes FROM chart_info WHERE sha256 = ?;", file.Sha256)); }
         PlaylistRequestIdentity before = fixture.Workspace.DetailViewState.View.CurrentIdentity ?? throw new AssertFailedException();
         var request = new PlaylistBuildRequest
@@ -1246,7 +1246,7 @@ public sealed class PlaylistCatalogViewChangeTests
         table.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName != nameof(BMSTable.FolderNodes)) { return; }
-            using LR2SongDBExtended database = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+            using LR2SongDBExtended database = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
             published.Add((table.FolderNodes.Where(node => !node.IsSpecial).Select(node => node.FolderName).ToArray(),
                 database.ExecuteScalar<int>("SELECT count(*) FROM playlist_entry WHERE folder='a';")));
         };
@@ -1328,7 +1328,7 @@ public sealed class PlaylistCatalogViewChangeTests
             Assert.AreSame(next, rows[1]);
             Assert.AreEqual(referenceSymbol, adopted.RefTablesSymbols);
             Assert.AreEqual(table.name, adopted.RefTablesNames);
-            using (var db = new LR2SongDBExtended(fixture.SongDb))
+            using (LR2SongDBExtended db = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb))
             { Assert.AreEqual("background", db.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE title = 'entry 0';")); }
             Assert.AreEqual(1, work.Count(kind => kind == "playlist_source_projection"));
             Assert.AreEqual(1, work.Count(kind => kind == "playlist_detail_materialized"));
@@ -1354,7 +1354,7 @@ public sealed class PlaylistCatalogViewChangeTests
             Assert.AreEqual("source", next.Folder);
             Assert.AreEqual("entry memo", next.memo);
             Assert.AreEqual("saved after folder move", adopted.Entry.memo);
-            using (var db = new LR2SongDBExtended(fixture.SongDb))
+            using (LR2SongDBExtended db = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb))
             {
                 Assert.AreEqual("background", db.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE title = 'entry 0';"));
                 Assert.AreEqual("saved after folder move", db.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE title = 'entry 0';"));
@@ -1500,7 +1500,7 @@ public sealed class PlaylistCatalogViewChangeTests
         Assert.AreEqual(string.Empty, target.RefTablesSymbols);
         Assert.AreEqual(string.Empty, target.RefTablesNames);
         Assert.AreEqual("saved with no reference", target.Entry.memo);
-        using (var db = new LR2SongDBExtended(fixture.SongDb))
+        using (LR2SongDBExtended db = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb))
         { Assert.AreEqual("saved with no reference", db.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE title = 'entry 0';")); }
         Assert.AreEqual(0, modelWork.Count(kind => kind == "reference_lookup"));
     }
@@ -1892,6 +1892,10 @@ public sealed class PlaylistCatalogViewChangeTests
 
     private sealed class Fixture : IAsyncDisposable
     {
+        private readonly ApplicationDatabaseScope databaseScope = new();
+        /// <summary>このfixtureの接続とモデルが共有するDB所有者です。</summary>
+        internal ApplicationDatabaseScope DatabaseScope => databaseScope;
+
         private readonly string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistCatalogViewChangeTests), Guid.NewGuid().ToString("N"));
         private readonly Queue<Action> deliveries = new();
         private readonly PropertyChangedEventHandler? notification;
@@ -1918,14 +1922,14 @@ public sealed class PlaylistCatalogViewChangeTests
         /// <summary>所属・hash索引を確立するentries取込み前に表と未登録entryを準備し、初回捕捉も同じ正規保存値から開始します。</summary>
         internal Fixture(int count, bool bmson = false, string? firstFolder = null,
             bool regularDelivery = false, bool oracleScores = false, bool connectDelivery = true,
-            Func<string, LR2SongDBExtended>? openEntryWriteConnection = null, Action<BMSTable, List<BMSTableEntry>>? prepareTable = null,
+            Action<LR2SongDBExtended>? initializeEntryWriteConnection = null, Action<BMSTable, List<BMSTableEntry>>? prepareTable = null,
             Func<Action, Task>? entryDeliveryScheduler = null)
         {
             this.bmson = bmson;
             Directory.CreateDirectory(directory);
             SongDb = Path.Combine(directory, "song.db");
-            using (var db = new LR2SongDBExtended(SongDb)) { }
-            PlaylistPersistenceRepository.EnsureSchema(SongDb);
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(SongDb)) { }
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, SongDb);
             var charts = new List<ChartFile>();
             for (int index = 0; index < count; index++)
             {
@@ -1944,10 +1948,10 @@ public sealed class PlaylistCatalogViewChangeTests
                 for (int index = 0; index < count; index++)
                 { db.Insert(new LR2ScoreDB.score { hash = charts[index].Md5, great = index switch { 0 => 10, 1 => 30, 2 => 20, _ => 1 }, totalnotes = 100 }); }
             }
-            Library = new TestBmsLibrary(SongDb, null, scorePath, startupRequiredFileScanReason: null, settings: settings);
+            Library = new TestBmsLibrary(databaseScope, SongDb, null, scorePath, startupRequiredFileScanReason: null, settings: settings);
             Library.BmsCharts = bmson ? [] : charts;
             Library.BmsonCharts = bmson ? charts : [];
-            new BmsLibraryDbGateway(SongDb).UpsertSongs(charts);
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), SongDb).UpsertSongs(charts);
             if (oracleScores) { Library.InitializeScoresOnly(null); }
             if (oracleScores)
             {
@@ -1960,7 +1964,7 @@ public sealed class PlaylistCatalogViewChangeTests
                 () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings),
                 playlistUrlCompletionOptionsProvider: () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(settings),
                 beatorajaBmtOptionsProvider: () => BeatorajaBmtOptionsSnapshot.CreateCurrent(settings),
-                openEntryWriteConnection: openEntryWriteConnection);
+                initializeEntryWriteConnection: initializeEntryWriteConnection);
             var table = new BMSTable
             {
                 playlist_id = 4188,

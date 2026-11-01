@@ -1629,6 +1629,7 @@ public sealed class SettingsDialogBehaviorTests
             Func<OperationModeRestartRequest, Task<bool>>? restart = null, IAudioDeviceCatalog? audioDeviceCatalog = null,
             IReadOnlyList<PlaylistTablePresentationSnapshot>? playlistSnapshots = null)
         {
+            var databaseScope = new ApplicationDatabaseScope();
             var state = new RecordingSettingsStatePort(activeLibraryProfile) { ReloadFileDiffHandler = reloadFileDiff };
             var workspace = new RecordingWorkspacePort { Snapshots = playlistSnapshots ?? [] };
             var output = new RecordingCustomFolderOutputPort(() => composition?.CustomFolderOutputSettingsProvider()
@@ -1641,8 +1642,8 @@ public sealed class SettingsDialogBehaviorTests
             Task<bool> UnexpectedRestart(OperationModeRestartRequest _) => throw new AssertFailedException("局所設定の確認から環境再起動しません。");
             SettingsDialogViewModel dialog = composition != null
                 ? composition.CreateSettingDialogViewModel(state, workspace, output, history, roots, selectedFactory, playback, sync, restart ?? UnexpectedRestart)
-                : new SettingsDialogViewModel(state, workspace, output, history, roots, selectedFactory, playback, sync,
-                    new SettingsEditSession(values), applicationLifetime: TestApplicationContext.CreateLifetime(),
+                : new SettingsDialogViewModel(databaseScope, state, workspace, output, history, roots, selectedFactory, playback, sync,
+                    new SettingsEditSession(values), new ApplicationDataUninstallWorkflowOwner(dialogs ?? new RecordingDialogService(), new Lr2ApplicationDataUninstallStore(databaseScope)), applicationLifetime: TestApplicationContext.CreateLifetime(),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(), schemaDialogs: dialogs ?? new RecordingDialogService(),
                     reportApplyFailure: reportApplyFailure, externalShellGateway: ExternalShellGatewayPolicy.Current,
                     applicationPathSnapshot: ApplicationPathPolicy.Current, audioDeviceCatalog: audioDeviceCatalog ?? new TestAudioDeviceCatalog(),

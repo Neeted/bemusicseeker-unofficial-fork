@@ -257,12 +257,13 @@ public sealed class ChartWarningCollectionTests
     [TestMethod]
     public void Warning_IsNotPersistedInSongInstallOrMaintenanceTables()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_WarningSchema_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
         try
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.song>();
             songDb.CreateTable<LR2SongDBExtended.install>();
             songDb.CreateTable<LR2SongDBExtended.maintenance>();

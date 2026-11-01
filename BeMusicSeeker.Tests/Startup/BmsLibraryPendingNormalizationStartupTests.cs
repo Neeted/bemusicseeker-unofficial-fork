@@ -43,14 +43,14 @@ public sealed partial class BmsLibraryInitializationInstallTests
             string[] rawPaths = overlapping
                 ? [good, goodChild, Path.Combine(good, "."), missing, bad, child]
                 : [good, goodChild, Path.Combine(good, "."), missing, locked];
-            ExecuteSongDbFixtureTransaction(database, db =>
+            ExecuteSongDbFixtureTransaction(databaseScope, database, db =>
             {
                 db.CreateTable<LR2SongDBExtended.install>();
                 for (int index = 0; index < rawPaths.Length; index++)
                 { db.Insert(new LR2SongDBExtended.install { path = rawPaths[index], delete_parent = index % 2 == 0 }); }
             });
             Dictionary<string, byte[]> bytes = Directory.GetFiles(root, "*.bms", SearchOption.AllDirectories).ToDictionary(path => path, File.ReadAllBytes);
-            var gateway = new BmsLibraryDbGateway(database);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), database);
             var oldRows = gateway.LoadInstallPackages().ToDictionary(row => row.path, row => row.delete_parent, StringComparer.Ordinal);
             int publications = 0;
             var owner = new PackageLifecycleOwner(gateway, new TestUiScheduler(() => null), _ => publications++,
@@ -94,12 +94,12 @@ public sealed partial class BmsLibraryInitializationInstallTests
             File.WriteAllText(chart, CreateValidBmsText("A"), Encoding.ASCII);
             byte[] bytes = File.ReadAllBytes(chart);
             string[] rawPaths = [good, Path.Combine(root, "Missing"), invalidPath];
-            ExecuteSongDbFixtureTransaction(database, db =>
+            ExecuteSongDbFixtureTransaction(databaseScope, database, db =>
             {
                 db.CreateTable<LR2SongDBExtended.install>();
                 foreach (string path in rawPaths) { db.Insert(new LR2SongDBExtended.install { path = path, delete_parent = true }); }
             });
-            var gateway = new BmsLibraryDbGateway(database);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), database);
             var owner = new PackageLifecycleOwner(gateway, new TestUiScheduler(() => null), _ => { },
                 packages => new ObservableCollection<ChartPackage>(packages ?? []), () => { }, _ => { });
             var existing = new ChartPackage { path = good };
@@ -127,14 +127,14 @@ public sealed partial class BmsLibraryInitializationInstallTests
             Directory.CreateDirectory(child);
             File.WriteAllText(Path.Combine(parent, "a.bms"), CreateValidBmsText("A"), Encoding.ASCII);
             File.WriteAllText(Path.Combine(child, "c.bms"), CreateValidBmsText("C"), Encoding.ASCII);
-            ExecuteSongDbFixtureTransaction(database, db =>
+            ExecuteSongDbFixtureTransaction(databaseScope, database, db =>
             {
                 db.CreateTable<LR2SongDBExtended.install>();
                 db.Insert(new LR2SongDBExtended.install { path = parent, delete_parent = true });
                 db.Insert(new LR2SongDBExtended.install { path = child });
                 db.Execute("CREATE TRIGGER fail_startup_normalization AFTER INSERT ON install BEGIN SELECT RAISE(ABORT, 'startup-normalization'); END;");
             });
-            var gateway = new BmsLibraryDbGateway(database);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), database);
             int publications = 0;
             var owner = new PackageLifecycleOwner(gateway, new TestUiScheduler(() => null), _ => publications++,
                 packages => new ObservableCollection<ChartPackage>(packages ?? []), () => { }, _ => { });
@@ -169,7 +169,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
                 string installedChart = Path.Combine(root, "installed.bms");
                 File.WriteAllText(installedChart, CreateValidBmsText("Installed"), Encoding.ASCII);
                 string[] keys = [borrowed, Path.Combine(borrowed, "."), chart, Path.Combine(root, "Missing"), managed, "", "   "];
-                ExecuteSongDbFixtureTransaction(database, db =>
+                ExecuteSongDbFixtureTransaction(databaseScope, database, db =>
                 {
                     db.CreateTable<LR2SongDBExtended.install>();
                     db.CreateTable<LR2SongDB.song>();
@@ -184,7 +184,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
                 });
                 var paths = new List<string> { chart, installedChart, Path.Combine(managed, "managed.bms"), Path.Combine(managed, "readme.txt") };
                 var bytes = paths.ToDictionary(path => path, File.ReadAllBytes);
-                var gateway = new BmsLibraryDbGateway(database);
+                var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), database);
                 int publications = 0;
                 int? rowsAtPublication = null;
                 var owner = new PackageLifecycleOwner(gateway, new TestUiScheduler(() => null), property =>
@@ -249,12 +249,12 @@ public sealed partial class BmsLibraryInitializationInstallTests
             string pending = Path.Combine(root, "Pending");
             Directory.CreateDirectory(pending);
             File.WriteAllText(Path.Combine(pending, "a.bms"), CreateValidBmsText("A"), Encoding.ASCII);
-            ExecuteSongDbFixtureTransaction(database, db =>
+            ExecuteSongDbFixtureTransaction(databaseScope, database, db =>
             {
                 db.CreateTable<LR2SongDBExtended.install>();
                 db.Insert(new LR2SongDBExtended.install { path = Path.Combine(pending, ".") });
             });
-            var gateway = new BmsLibraryDbGateway(database);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), database);
             var expected = new InvalidOperationException("committed publication failure");
             var owner = new PackageLifecycleOwner(gateway, new TestUiScheduler(() => null), _ => throw expected,
                 packages => new ObservableCollection<ChartPackage>(packages ?? []), () => { }, _ => { });
@@ -280,9 +280,10 @@ public sealed partial class BmsLibraryInitializationInstallTests
     public Task PendingRestoreStage_PropagatesPublicationFailureAfterCommit(bool reject)
         => VerifyPendingPublicationStageAsync(reset: false, fail: true, reject: reject);
 
-    private static async Task VerifyPendingPublicationStageAsync(bool reset, bool fail, bool reject)
+    private async Task VerifyPendingPublicationStageAsync(bool reset, bool fail, bool reject)
     {
         using var scope = Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
+        ApplicationDatabaseScope databaseScope = scope.DatabaseScope;
         string root = scope.DirectoryPath;
         string songDb = scope.SongDbPath;
         string installed = Path.Combine(root, "Library", "Owned");
@@ -296,7 +297,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
         File.WriteAllBytes(Path.Combine(installed, "sound.wav"), [1]);
         byte[] originalBytes = File.ReadAllBytes(pendingChart);
         string alias = Path.Combine(pending, ".");
-        ExecuteSongDbFixtureTransaction(songDb, db =>
+        ExecuteSongDbFixtureTransaction(databaseScope, songDb, db =>
         {
             db.CreateTable<LR2SongDBExtended.install>();
             db.Insert(new LR2SongDBExtended.install { path = alias, delete_parent = true });
@@ -304,11 +305,11 @@ public sealed partial class BmsLibraryInitializationInstallTests
         var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, ScanBmsFilesOnStartup = true };
         var expected = new InvalidOperationException(reject ? "required-publication-rejected" : "required-subscriber-fault");
         var scheduler = new PendingPublicationGateUiScheduler(reject ? expected : null);
-        var library = new TestBmsLibrary(songDb, null, null, null, new RecordingDialogService(), scheduler, () => options,
+        var library = new TestBmsLibrary(databaseScope, songDb, null, null, null, new RecordingDialogService(), scheduler, () => options,
             CapturedChartFileScanner.FromFixture([ownedChart], new Dictionary<string, IEnumerable<string>> { [installed] = ["sound.wav"] }, [installed]),
             settings: TestBmsFactory.CreateRootSettings([Path.Combine(root, "Library")]));
         using var gate = new SemaphoreSlim(1, 1);
-        var parent = new StartupLibraryInitializationWorkflowOwner(gate);
+        var parent = new StartupLibraryInitializationWorkflowOwner(databaseScope, new BmsDatabaseLoadOptions(true, true, true), gate);
         StartupRequiredOperationLease? accepted = null;
         Task? stage = null;
         Task? probes = null;
@@ -345,7 +346,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
             Assert.IsFalse(readiness.PendingPackagesRestored);
             Assert.IsFalse(readiness.InstallReady);
             Assert.AreEqual(0, notifications);
-            var gateway = new BmsLibraryDbGateway(songDb);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb);
             probes = Task.WhenAll(
                 Task.Run(() =>
                 {

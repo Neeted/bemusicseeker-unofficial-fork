@@ -11,7 +11,6 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using SQLite;
 using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
 namespace BeMusicSeeker.Tests;
 
@@ -21,6 +20,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartInfoBackfillStorageTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>未登録・現在版・旧20の実DB行を順に補完し、成功優先・進捗を保って符号依存hashを独立ASCII期待へ再解析保存し、未所持の旧行は保持する。</summary>
     /// <remarks>実SQLiteの確定・rollbackと本番補完経路を観測し、保存前の計算結果だけで成功としない。</remarks>
     [TestMethod]
@@ -37,7 +38,7 @@ public sealed class ChartInfoBackfillStorageTests
             string oldCultureHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(oldCultureChart)));
             File.WriteAllText(chartPath, input, Encoding.ASCII);
             ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.EnsureChartInfoSchema();
             var service = new ChartInfoBuildService();
             List<Tuple<int, int, string>> progress = [];
@@ -55,8 +56,8 @@ public sealed class ChartInfoBackfillStorageTests
             Assert.AreEqual("full", first.Mode);
             Assert.AreEqual(1, first.FileReadCount);
             Assert.AreEqual(new FileInfo(chartPath).Length, first.FileReadBytes);
-            Assert.AreEqual(1L, CountChartInfoRows(songDbPath, file.Sha256));
-            using (var firstSaved = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            Assert.AreEqual(1L, CountChartInfoRows(databaseScope, songDbPath, file.Sha256));
+            using (LR2SongDBExtended firstSaved = databaseScope.OpenSongReadOnly(songDbPath))
             {
                 Assert.AreEqual(22, firstSaved.ExecuteScalar<int>("SELECT parser_version FROM chart_info WHERE sha256 = ?;", file.Sha256));
             }
@@ -96,7 +97,7 @@ public sealed class ChartInfoBackfillStorageTests
             Dictionary<string, ChartDetails>? currentRows = gateway.TryLoadCurrentChartInfoMapReadOnly();
             Assert.IsNotNull(currentRows);
             Assert.IsFalse(currentRows.ContainsKey(file.Sha256));
-            using (var before = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            using (LR2SongDBExtended before = databaseScope.OpenSongReadOnly(songDbPath))
             {
                 Assert.AreEqual(oldParserVersion, before.ExecuteScalar<int>("SELECT parser_version FROM chart_info WHERE sha256 = ?;", file.Sha256));
                 Assert.AreEqual(oldCultureHash, before.ExecuteScalar<string>("SELECT charthash FROM chart_info WHERE sha256 = ?;", file.Sha256));
@@ -129,7 +130,7 @@ public sealed class ChartInfoBackfillStorageTests
             Assert.AreEqual(new FileInfo(chartPath).Length, third.FileReadBytes);
             Assert.AreEqual(1, progress.Last().Item1);
             Assert.AreEqual(1, progress.Last().Item2);
-            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
             Assert.AreEqual(22, verify.ExecuteScalar<int>("SELECT parser_version FROM chart_info WHERE sha256 = ?;", file.Sha256));
             Assert.AreEqual(expectedHash, verify.ExecuteScalar<string>("SELECT charthash FROM chart_info WHERE sha256 = ?;", file.Sha256));
             Assert.AreEqual(oldParserVersion, verify.ExecuteScalar<int>("SELECT parser_version FROM chart_info WHERE sha256 = ?;", unownedSha256));
@@ -150,7 +151,7 @@ public sealed class ChartInfoBackfillStorageTests
             File.WriteAllText(chartPath, "#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
             ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
             string savedHash = new('a', 64);
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.UpsertChartInfos(
             [
                 CreateChartInfoRow(file.Sha256, file.Md5, savedParserVersion) with { charthash = savedHash }
@@ -180,7 +181,7 @@ public sealed class ChartInfoBackfillStorageTests
             Assert.AreEqual(1, result.CurrentRowSkippedCount);
             Assert.AreEqual(0, result.FileReadCount);
             Assert.AreEqual(0, fileReadCount);
-            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
             Assert.AreEqual(savedParserVersion, verify.ExecuteScalar<int>("SELECT parser_version FROM chart_info WHERE sha256 = ?;", file.Sha256));
             Assert.AreEqual(savedHash, verify.ExecuteScalar<string>("SELECT charthash FROM chart_info WHERE sha256 = ?;", file.Sha256));
         });
@@ -201,9 +202,9 @@ public sealed class ChartInfoBackfillStorageTests
             ChartFile digest = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
             ChartFile file = (ChartTestValues.Empty() with { Path = chartPath });
             file = file with { Md5 = digest.Md5 };
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.UpsertSongs([file]);
-            using (var seed = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended seed = databaseScope.OpenSongWrite(songDbPath))
             {
                 seed.Execute(
                     "UPDATE song SET title = ?, subtitle = ?, artist = ?, subartist = ?, genre = ?, type = ?, "
@@ -252,7 +253,7 @@ public sealed class ChartInfoBackfillStorageTests
             Assert.AreEqual(1, result.SongProjectionMatchedCount);
             Assert.AreEqual(1, result.SongProjectionChangedCount);
             Assert.AreEqual(0, result.SongProjectionMissingCount);
-            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
             BeMusicSeeker.Models.ChartDetails chartInfo = verify.Query<BeMusicSeeker.Models.ChartDetails>(
                 "SELECT * FROM chart_info WHERE sha256 = ?;",
                 digest.Sha256).Single();
@@ -304,7 +305,7 @@ public sealed class ChartInfoBackfillStorageTests
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             ChartFile file = (ChartTestValues.Empty() with { Path = chartPath });
             file = file with { Md5 = snapshot.Md5 };
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.UpsertSongs([file]);
             BeMusicSeeker.Models.ChartDetails current = CreateChartInfoRow(
                 snapshot.Sha256,
@@ -336,7 +337,7 @@ public sealed class ChartInfoBackfillStorageTests
             Assert.AreEqual(5, committedValues.Single().Difficulty);
             Assert.AreEqual(1, committedRows.Count);
             Assert.AreSame(current, committedRows[0]);
-            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
             LR2SongDB.song song = verify.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?;", chartPath).Single();
             Assert.AreEqual(17, song.level);
             Assert.AreEqual(5, song.difficulty);
@@ -361,8 +362,8 @@ public sealed class ChartInfoBackfillStorageTests
             ChartFile digest = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
             ChartFile file = (ChartTestValues.Empty() with { Path = chartPath, Level = 2, Difficulty = 1 });
             file = file with { Md5 = digest.Md5 };
-            var gateway = new BmsLibraryDbGateway(songDbPath);
-            using (var setup = new LR2SongDBExtended(songDbPath))
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
             {
                 setup.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureChartInfoSchema(setup);
@@ -396,7 +397,7 @@ public sealed class ChartInfoBackfillStorageTests
             Assert.IsTrue(warnings.Any(message => message.StartsWith("chart_info_backfill song_projection_missing", StringComparison.Ordinal)));
             Assert.AreEqual(1, committedRows.Count);
             Assert.AreEqual(digest.Sha256, result.DigestChanges.Single().NewSha256);
-            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", digest.Sha256));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", digest.Md5, digest.Sha256));
@@ -413,7 +414,7 @@ public sealed class ChartInfoBackfillStorageTests
             string chartPath = Path.Combine(tempRootPath, "identity-mismatch.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
             ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.EnsureChartInfoSchema();
             gateway.UpsertChartInfos(
             [
@@ -432,7 +433,7 @@ public sealed class ChartInfoBackfillStorageTests
             Assert.AreEqual(1, result.TargetCount);
             Assert.AreEqual(1, result.BackfilledCount);
             Assert.AreEqual(0, result.CurrentRowSkippedCount);
-            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
             Assert.AreEqual(
                 file.Md5,
                 verify.ExecuteScalar<string>("SELECT md5 FROM chart_info WHERE sha256 = ?;", file.Sha256));
@@ -463,7 +464,7 @@ public sealed class ChartInfoBackfillStorageTests
             file = file with { Md5 = digest.Md5 };
             file = ChartFileProjection.WithMaintenance(file, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = file.Path, hash = file.Md5, encoding = "ks_c_5601-1987?" }));
 
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.EnsureChartInfoSchema();
             var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1);
 
@@ -474,7 +475,7 @@ public sealed class ChartInfoBackfillStorageTests
 
             Assert.AreEqual(1, result.TargetCount);
             Assert.AreEqual(1, result.BackfilledCount);
-            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
             BeMusicSeeker.Models.ChartDetails row = verify.Query<BeMusicSeeker.Models.ChartDetails>("SELECT * FROM chart_info WHERE sha256 = ?;", result.DigestChanges.Single().NewSha256).Single();
             Assert.AreEqual(1, row.level);
         });
@@ -497,7 +498,7 @@ public sealed class ChartInfoBackfillStorageTests
             ChartFile fileB = (ChartTestValues.Empty() with { Path = chartBPath });
             fileA = fileA with { Md5 = digest.Md5 };
             fileB = fileB with { Md5 = digest.Md5 };
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.UpsertSongs([fileA, fileB]);
             int readCount = 0;
             List<string> logs = [];
@@ -529,8 +530,8 @@ public sealed class ChartInfoBackfillStorageTests
             Assert.AreEqual(1, result.FileReadCount);
             Assert.AreEqual(new FileInfo(chartAPath).Length, result.FileReadBytes);
             Assert.AreEqual(digest.Sha256, result.DigestChanges.Last().NewSha256);
-            Assert.AreEqual(1L, CountChartInfoRows(songDbPath, digest.Sha256));
-            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            Assert.AreEqual(1L, CountChartInfoRows(databaseScope, songDbPath, digest.Sha256));
+            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
             BeMusicSeeker.Models.ChartDetails chartInfo = verify.Query<BeMusicSeeker.Models.ChartDetails>(
                 "SELECT * FROM chart_info WHERE sha256 = ?;",
                 digest.Sha256).Single();
@@ -610,7 +611,7 @@ public sealed class ChartInfoBackfillStorageTests
             if (!totalDefined) { json = json.Replace(",\"total\":100", string.Empty); }
             File.WriteAllText(chartPath, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
             ChartFile song = ChartTestValues.ReadBmson(chartPath);
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.EnsureChartInfoSchema();
             var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1);
 
@@ -624,7 +625,7 @@ public sealed class ChartInfoBackfillStorageTests
             Assert.AreEqual(0, result.DigestTargetCount);
             Assert.AreEqual(0, result.DigestBackfilledCount);
             ChartDetails row;
-            using (var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            using (LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath))
             {
                 row = verify.Query<ChartDetails>("SELECT * FROM chart_info WHERE sha256 = ?;", song.Sha256).Single();
                 Assert.AreEqual(song.Md5, row.md5);
@@ -650,7 +651,7 @@ public sealed class ChartInfoBackfillStorageTests
             ChartInfoBackfillResult reparsed = BackfillChartInfos(service, gateway, [], [song]);
             Assert.AreEqual(1, reparsed.FileReadCount);
             Assert.AreEqual(1, reparsed.BackfilledCount);
-            using (var saved = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            using (LR2SongDBExtended saved = databaseScope.OpenSongReadOnly(songDbPath))
             {
                 Assert.AreEqual(22, saved.ExecuteScalar<int>("SELECT parser_version FROM chart_info WHERE sha256 = ?;", song.Sha256));
                 Assert.AreEqual(row.charthash, saved.ExecuteScalar<string>("SELECT charthash FROM chart_info WHERE sha256 = ?;", song.Sha256));
@@ -660,7 +661,7 @@ public sealed class ChartInfoBackfillStorageTests
             ChartInfoBackfillResult reused = BackfillChartInfos(service, gateway, [], [song]);
             Assert.AreEqual(0, reused.FileReadCount);
             Assert.AreEqual(1, reused.CurrentRowSkippedCount);
-            using var retained = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended retained = databaseScope.OpenSongReadOnly(songDbPath);
             Assert.AreEqual(22, retained.ExecuteScalar<int>("SELECT parser_version FROM chart_info WHERE sha256 = ?;", song.Sha256));
             Assert.AreEqual(savedHash, retained.ExecuteScalar<string>("SELECT charthash FROM chart_info WHERE sha256 = ?;", song.Sha256));
         });
@@ -682,10 +683,10 @@ public sealed class ChartInfoBackfillStorageTests
                 File.WriteAllText(path, "#TITLE chart" + index + "\r\n#PLAYLEVEL 9\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
                 charts.Add(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path)) with { Sha256 = string.Empty, Level = 2 });
             }
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.UpsertSongs(charts);
             gateway.EnsureChartInfoBackfillSchema();
-            using (var setup = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
             {
                 setup.Execute("UPDATE song SET favorite = 3, tag = 'keep', adddate = 123;");
             }
@@ -785,7 +786,7 @@ public sealed class ChartInfoBackfillStorageTests
                 Assert.AreEqual(3, result.DigestBackfilledCount);
                 Assert.AreEqual(0, result.FailurePersistedCount);
                 Assert.AreEqual(0, activeCallbacks);
-                using (var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+                using (LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath))
                 {
                     Assert.AreEqual(2L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
                     Assert.AreEqual(3L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
@@ -802,7 +803,7 @@ public sealed class ChartInfoBackfillStorageTests
                 Assert.IsFalse(committed.ContainsKey(charts[2].Path), "解析できない対象の詳細現在値は公開しません。");
                 var digests = publications.SelectMany(publication => publication.DigestChanges).ToDictionary(change => change.Path);
                 Assert.IsFalse(string.IsNullOrWhiteSpace(digests[charts[2].Path].NewSha256));
-                using (var verifyDigest = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+                using (LR2SongDBExtended verifyDigest = databaseScope.OpenSongReadOnly(songDbPath))
                 {
                     Assert.AreEqual(ChartFileContentReader.ReadSnapshot(charts[2].Path).Sha256,
                         verifyDigest.ExecuteScalar<string>("SELECT sha256 FROM chart_digest_map WHERE md5 = ?;", charts[2].Md5));
@@ -818,7 +819,7 @@ public sealed class ChartInfoBackfillStorageTests
                 Assert.AreEqual(2, next.TargetCount);
                 Assert.AreEqual(2, next.BackfilledCount);
                 Assert.AreEqual(0, next.FailedCount);
-                using var finalVerify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+                using LR2SongDBExtended finalVerify = databaseScope.OpenSongReadOnly(songDbPath);
                 Assert.AreEqual(4L, finalVerify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
                 Assert.AreEqual(4L, finalVerify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE level = 9 AND favorite = 3 AND tag = 'keep' AND adddate = 123;"));
                 Assert.AreEqual(0L, finalVerify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
@@ -859,12 +860,12 @@ public sealed class ChartInfoBackfillStorageTests
             ChartFile digest = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
             ChartFile file = (ChartTestValues.Empty() with { Path = chartPath, Level = 2 });
             file = file with { Md5 = digest.Md5 };
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.UpsertSongs([file]);
             bool indexPublished = false;
             var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1);
             gateway.EnsureChartInfoBackfillSchema();
-            using (var setup = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
             {
                 setup.Execute("CREATE TRIGGER fail_chart_info_storage BEFORE INSERT ON chart_info BEGIN SELECT RAISE(ABORT, 'injected transaction failure'); END;");
             }
@@ -879,7 +880,7 @@ public sealed class ChartInfoBackfillStorageTests
 
             Assert.IsTrue(exception.Flatten().InnerExceptions.Any(inner => inner.Message.Contains("injected transaction failure", StringComparison.Ordinal)));
             Assert.IsFalse(indexPublished);
-            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
             LR2SongDB.song song = verify.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?;", chartPath).Single();
             Assert.AreEqual(2, song.level);
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
@@ -904,7 +905,7 @@ public sealed class ChartInfoBackfillStorageTests
             ChartFile secondFile = (ChartTestValues.Empty() with { Path = secondPath, Level = 3 });
             firstFile = firstFile with { Md5 = firstDigest.Md5 };
             secondFile = secondFile with { Md5 = secondDigest.Md5 };
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.UpsertSongs([firstFile, secondFile]);
             var service = new ChartInfoBuildService(
                 File.ReadAllBytes,
@@ -913,7 +914,7 @@ public sealed class ChartInfoBackfillStorageTests
             int writerCalls = 0;
             var publications = new List<ChartInfoStorageCommitPublication>();
             gateway.EnsureChartInfoBackfillSchema();
-            using (var setup = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
             {
                 setup.Execute("CREATE TRIGGER fail_later_chart_info_chunk BEFORE INSERT ON chart_info WHEN (SELECT COUNT(1) FROM chart_info) >= 1 BEGIN SELECT RAISE(ABORT, 'injected later chunk failure'); END;");
             }
@@ -942,7 +943,7 @@ public sealed class ChartInfoBackfillStorageTests
             int failedLevel = ReferenceEquals(failedFile, firstFile) ? 2 : 3;
             Assert.AreEqual(committedSha256, publications[0].DigestChanges.Single().NewSha256);
             Assert.AreEqual(committedLevel, publications[0].CurrentValues.Single().Level);
-            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
             Assert.AreEqual(committedLevel, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", committedFile.Path));

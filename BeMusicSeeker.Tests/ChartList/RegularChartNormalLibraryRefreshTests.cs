@@ -27,6 +27,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     [DataRow(true)]
     public void FirstBmsInstall_NormalizesExistingBmsonViewOrderAndKeepsSelection(bool referenceBoundary)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(path =>
         {
             string root = Path.GetDirectoryName(path) ?? throw new InvalidOperationException();
@@ -41,7 +42,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
             }
             ChartFile b = Bmson("b"), a = Bmson("a");
             Assert.AreEqual(a.Md5, b.Md5);
-            var gateway = new BmsLibraryDbGateway(path);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), path);
             gateway.UpsertBmsonSongs([b, a]);
             string pending = Path.Combine(root, "pending");
             Directory.CreateDirectory(pending);
@@ -64,7 +65,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 EnableSmartComponentOverwrite = false,
                 KeepSmartOverwriteProtectedFilesByRenaming = false
             };
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath: path,
                 getLR2Config: null,
                 _lr2ScoreDB: null,
@@ -262,6 +263,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     [DataRow(128, true)]
     public void MaintenanceCommit_ChangesOnlyTargetProjectionAndKeepsUnvisitedRows(int count, bool dependOnHealth)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(path => RunAsync(path).GetAwaiter().GetResult());
 
         async Task RunAsync(string path)
@@ -273,8 +275,8 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 File.WriteAllText(file, "#PLAYER 1\r\n#TITLE Song " + index.ToString("D3") + "\r\n#WAV01 missing.wav\r\n#00111:01\r\n");
                 return BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(file));
             }).ToArray();
-            new BmsLibraryDbGateway(path).UpsertSongs(charts);
-            var library = new TestBmsLibrary(path) { BmsCharts = charts };
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), path).UpsertSongs(charts);
+            var library = new TestBmsLibrary(databaseScope, path) { BmsCharts = charts };
             var table = new MainChartListViewModel();
             using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner(table));
             var request = new RegularVirtualNormalLibraryApplyRequest
@@ -386,6 +388,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     [DataRow(true)]
     public void CatalogCandidate_WaitsForUndeliveredCommitAndResumesOnlyAffectedRows(bool deliveryBeforeAdoption)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(path =>
         {
             string root = Path.GetDirectoryName(path) ?? throw new InvalidOperationException();
@@ -396,8 +399,8 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
             string secondPath = Path.Combine(root, "background.bms");
             File.WriteAllText(secondPath, "#PLAYER 1\r\n#TITLE B background\r\n");
             ChartFile second = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(secondPath));
-            new BmsLibraryDbGateway(path).UpsertSongs([first, second]);
-            var library = new TestBmsLibrary(path) { BmsCharts = [first, second] };
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), path).UpsertSongs([first, second]);
+            var library = new TestBmsLibrary(databaseScope, path) { BmsCharts = [first, second] };
             var table = new MainChartListViewModel();
             using var scheduler = new ScoreDeliveryUiScheduler();
             using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner(table), action => action(),
@@ -494,6 +497,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     [DataRow(true, true)]
     public void CatalogMembershipCommits_UpdateCountsAndDistinctFoldersLocally(bool includeBmson, bool filtered)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(path =>
         {
             string root = Path.GetDirectoryName(path) ?? throw new InvalidOperationException();
@@ -511,10 +515,10 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
             ChartFile first = CreateChart("Shared", "a", "Keep A");
             ChartFile background = CreateChart("Shared", "b", "Drop B");
             ChartFile bmson = CreateChart("Other", "z", "Keep Z", bmson: true);
-            var gateway = new BmsLibraryDbGateway(path);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), path);
             gateway.UpsertSongs([first, background]);
             gateway.UpsertBmsonSongs([bmson]);
-            var library = new TestBmsLibrary(path) { BmsCharts = [first, background], BmsonCharts = [bmson] };
+            var library = new TestBmsLibrary(databaseScope, path) { BmsCharts = [first, background], BmsonCharts = [bmson] };
             CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
             var mutations = new CatalogMutationOwner(catalog, gateway);
             var queue = new Queue<Action>();
@@ -613,11 +617,11 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     [TestMethod]
     public void MaintenanceMetadataChange_ReachesAttachedViewAndWarmPlaylistDeltaOnce()
     {
-
         WithTemporarySongDb(songDbPath => RunAsync(songDbPath).GetAwaiter().GetResult());
 
         static async Task RunAsync(string songDbPath)
         {
+            var databaseScope = new ApplicationDatabaseScope();
             string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException();
             string firstPath = Path.Combine(root, "first.bms");
             string secondPath = Path.Combine(root, "second.bms");
@@ -640,8 +644,8 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 RawArtist = "old second"
             };
             ChartFile background = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(backgroundPath));
-            new BmsLibraryDbGateway(songDbPath).UpsertSongs([first, second, background]);
-            var library = new TestBmsLibrary(songDbPath) { BmsCharts = [first, second, background] };
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs([first, second, background]);
+            var library = new TestBmsLibrary(databaseScope, songDbPath) { BmsCharts = [first, second, background] };
             OwnedChartCollectionState collection = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library).Collection;
             first = collection.ResolveCurrentChart(LibraryChartRef.FromPath(ChartFileKind.Bms, firstPath, null, null));
             second = collection.ResolveCurrentChart(LibraryChartRef.FromPath(ChartFileKind.Bms, secondPath, null, null));
@@ -689,7 +693,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
             Task<MaintenanceWorkflowResult>? operation = null;
             void AssertSavedMetadataAndEncoding()
             {
-                using LR2SongDBExtended songDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended songDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 foreach ((string path, string title, string artist) in new[] { (firstPath, "Zあ", "作者あ"), (secondPath, "Bあ", "別作者あ") })
                 {
                     LR2SongDB.song row = songDb.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?", path).Single();
@@ -760,7 +764,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 request.Stopwatch = System.Diagnostics.Stopwatch.StartNew();
                 Assert.IsTrue(receiver.TryApplyVirtualNormalLibrary(request).WasCommitted);
                 CollectionAssert.AreEqual(new[] { "Bあ", "M before", "Zあ" }, table.Rows.Cast<LibraryChartRow>().Select(row => row.Title).ToArray());
-                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, db =>
                 {
                     foreach (string tableName in new[] { "song", "maintenance" })
                     {
@@ -869,9 +873,10 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     [TestMethod]
     public void InstalledBatch_AllPresentationEffectsIssueOneDisplayRequestAndKeepRows()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             var table = new MainChartListViewModel();
             using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner(table));
             ChartFile before = ChartTestValues.Empty(ChartFileKind.Bmson) with { Token = new OwnedChartToken(), Path = @"C:\before.bmson", Title = "A" };
@@ -903,12 +908,13 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     [TestMethod]
     public void InstalledTitleChangeThroughOwnerFactsRebuildsFinalTitleOrder()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             var table = new MainChartListViewModel();
             using RegularChartListOwner receiver = CreateOwner(table, CreateWorkspaceForOwner(table));
-            var producer = new PackageLifecycleOwner(new BmsLibraryDbGateway(songDbPath),
+            var producer = new PackageLifecycleOwner(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), _ => { },
                 packages => new System.Collections.ObjectModel.ObservableCollection<ChartPackage>(packages ?? []), () => { }, _ => { });
             ChartFile before = ChartTestValues.Empty(ChartFileKind.Bms) with
@@ -987,13 +993,14 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     [TestMethod]
     public void AttachedScoreSnapshotSource_RefreshesOnlyMatchingRowFromRealScoreSetter()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;
             string scorePath = Path.Combine(root, "score.db");
             const string affectedHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             const string unrelatedHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-            using (var db = new LR2ScoreDBExtended(scorePath))
+            using (LR2ScoreDBExtended db = databaseScope.OpenScoreWrite(scorePath))
             {
                 db.RunInTransaction(() =>
                 {
@@ -1005,7 +1012,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 });
             }
             var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2RootPath = root };
-            var library = new TestBmsLibrary(songDbPath, null, scorePath, null, () => options,
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, scorePath, null, () => options,
                 TestBmsFactory.MissingEverythingBridge);
             library.InitializeScoresOnly(null);
             library.BmsCharts =
@@ -1055,9 +1062,10 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     [TestMethod]
     public void AttachNormalLibraryRefreshSource_CatchesUpOnceAndSuppressesDuplicate()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             library.BmsCharts = [CreateTestableBmsFile("C:\\Charts\\catch-up.bms")];
             RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
             RegularMaterializedChartListApplyResult materialized = owner.TryApplyMaterialized(
@@ -1099,9 +1107,10 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     [TestMethod]
     public void AttachedNormalLibraryRefreshSource_AppliesPublishedStorageReplacement()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
             using var applied = new ManualResetEventSlim();
             int appliedCount = 0;
@@ -1134,9 +1143,10 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     [TestMethod]
     public void StopAsync_DrainsInFlightNormalLibraryRefreshApplication()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
             owner.AttachNormalLibraryRefreshSource(library);
             using var applyEntered = new ManualResetEventSlim();
@@ -1196,9 +1206,10 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     [TestMethod]
     public void AttachedNormalLibraryRefreshSource_MarshalsApplyToExecutionLane()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             library.BmsCharts = [CreateTestableBmsFile("C:\\Charts\\queued.bms")];
             var pendingActions = new Queue<Action>();
             RegularChartListOwner owner = CreateOwner(
@@ -1233,9 +1244,10 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     [TestMethod]
     public void AttachedNormalLibraryRefreshSource_QueuesUiDeliveryWhileCatalogWriterHeld()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             var queue = new Queue<Action>();
             using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner(),
                 action => action(), new ActionQueueUiScheduler(queue.Enqueue));
@@ -1282,9 +1294,10 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     [TestMethod]
     public void StopAsync_QueuedNormalLibraryRefreshBecomesNoOp()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             library.BmsCharts = [CreateTestableBmsFile("C:\\Charts\\queued-stop.bms")];
             var pendingActions = new Queue<Action>();
             RegularChartListOwner owner = CreateOwner(
@@ -1313,9 +1326,10 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     [TestMethod]
     public void StopAsync_AcceptedButAbortedNormalLibraryRefreshDoesNotHang()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = [CreateTestableBmsFile("C:\\Charts\\aborted-refresh.bms")]
             };
@@ -1336,9 +1350,10 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     [TestMethod]
     public void AttachedNormalLibraryRefreshSource_ApplyFailureDoesNotBlockLaterVersion()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             using RegularChartListOwner owner = CreateOwner(
                 new MainChartListViewModel(),
                 CreateWorkspaceForOwner());

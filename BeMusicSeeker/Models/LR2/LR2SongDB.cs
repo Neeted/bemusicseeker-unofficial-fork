@@ -379,22 +379,18 @@ public class LR2SongDB : SQLiteConnectionEx
                 }
                 return;
             }
-            Close();
             throw new FileNotFoundException(BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbFile, value);
         }
     }
 
     public string LR2RootPath { get; private set; }
 
-    public LR2SongDB(string dbPath)
-        : base(dbPath)
+    /// <summary>ownerのfactoryから必須leaseとopen flagsを受け取り、native接続だけを生成します。</summary>
+    internal LR2SongDB(string dbPath, SQLiteOpenFlags openFlags, ApplicationDatabaseScope.ConnectionLease lease)
+        : base(dbPath, openFlags, lease)
     {
-        DBPath = dbPath;
     }
 
-    internal LR2SongDB(string dbPath, SQLiteOpenFlags openFlags)
-        : base(dbPath, openFlags)
-    {
-        DBPath = dbPath;
-    }
+    /// <summary>factoryが接続参照を保持してから既存のパス受理条件を検査し、失敗時も接続を回収可能にします。</summary>
+    internal void InitializePath(string dbPath) => DBPath = dbPath;
 }

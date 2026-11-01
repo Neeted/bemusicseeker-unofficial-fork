@@ -27,6 +27,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(true, true)]
     public void RemoveLibraryCharts_RegistrationAndCatalogFinalizeIndependently(bool failCatalog, bool failRegistration)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -55,10 +56,10 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                     throw physicalFailure;
                 }
             };
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, settings: settings) { BmsCharts = charts, BmsonCharts = [] };
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, filesystem, settings: settings) { BmsCharts = charts, BmsonCharts = [] };
             try
             {
-                using (var db = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
                 {
                     foreach (ChartFile chart in charts) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song)); }
                     if (failCatalog) { db.Execute("CREATE TRIGGER root_catalog_failure BEFORE DELETE ON song BEGIN SELECT RAISE(ABORT, 'root-catalog-marker'); END;"); }
@@ -82,7 +83,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 CollectionAssert.AreEqual(expected, StandaloneBmsRootPathSettings.Deserialize(fresh.StandaloneBmsRootPaths, fresh.BMSRootPath).ToArray());
                 CollectionAssert.AreEqual(expected, new BmsRootRegistrationStore(settings, () => null).CaptureUserRoots().ToArray());
                 Assert.AreEqual(retained, fresh.BMSInstallDir);
-                using LR2SongDBExtended read = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended read = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 Assert.AreEqual(failCatalog ? 3 : 2, read.Table<LR2SongDB.song>().Count());
                 if (failCatalog && failRegistration)
                 {
@@ -104,6 +105,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow("no")]
     public void RemoveLibraryCharts_ProtectedWholeScopePreservesRootsAndContinuesIndependentTargets(string condition)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -121,10 +123,10 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             string resource = Path.Combine(scope, "resource.wav"); File.WriteAllText(resource, "keep");
             ChartFile[] charts = condition == "mixed" ? [chart, independent] : [chart];
             var filesystem = new TestFileMutationService();
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, settings: settings) { BmsCharts = charts, BmsonCharts = [] };
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, filesystem, settings: settings) { BmsCharts = charts, BmsonCharts = [] };
             try
             {
-                using (var db = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
                 { foreach (ChartFile file in charts) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song)); } }
                 LibraryChartRemovalPreflight prepared = library.PrepareLibraryChartRemoval(charts.Select(chart => LibraryChartRef.FromChartFile(chart)));
                 LibraryChartRemovalOutcome result = library.RemoveLibraryCharts(prepared, false,
@@ -136,7 +138,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 Assert.AreEqual(condition != "mixed", File.Exists(independent.Path));
                 CollectionAssert.AreEqual(roots, new BmsRootRegistrationStore(settings, () => null).CaptureUserRoots().ToArray());
                 Assert.AreEqual(install, settings.BMSInstallDir);
-                using LR2SongDBExtended read = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended read = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 Assert.AreEqual(condition == "no" ? 0 : 1, read.Table<LR2SongDB.song>().Count());
                 if (condition != "no")
                 {
@@ -157,6 +159,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(true)]
     public void RemoveLibraryCharts_ProtectedAncestorPreservesExplicitChildDecision(bool wholeChild)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -177,9 +180,9 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([ancestor, retained]);
             settings.BMSRootPath = ancestor; settings.BMSInstallDir = ancestor; settings.Save();
             byte[] savedSettings = File.ReadAllBytes(configPath);
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), settings: settings)
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), settings: settings)
             { BmsCharts = [parent, child], BmsonCharts = [] };
-            new BmsLibraryDbGateway(songDbPath).UpsertSongs(library.BmsCharts);
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs(library.BmsCharts);
             try
             {
                 LibraryChartRemovalPreflight prepared = library.PrepareLibraryChartRemoval(library.BmsCharts.Select(chart => LibraryChartRef.FromChartFile(chart)));
@@ -203,7 +206,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                     Assert.AreEqual("unregistered chart", File.ReadAllText(unmanagedChart));
                 }
                 Assert.AreEqual(parent.Path, library.BmsCharts.Single().Path);
-                using LR2SongDBExtended read = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended read = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 Assert.AreEqual(parent.Path, read.Table<LR2SongDB.song>().Single().path);
                 CollectionAssert.AreEqual(new[] { ancestor, retained }, new BmsRootRegistrationStore(settings, () => null).CaptureUserRoots().ToArray());
                 CollectionAssert.AreEqual(savedSettings, File.ReadAllBytes(configPath));
@@ -219,6 +222,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void RemoveLibraryCharts_EmptyProtectedChildPreservesContainingGroupsAndContinuesFree()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -245,9 +249,9 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize(roots);
             settings.BMSRootPath = outer; settings.BMSInstallDir = install; settings.Save();
             byte[] savedSettings = File.ReadAllBytes(configPath);
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), settings: settings)
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), settings: settings)
             { BmsCharts = charts, BmsonCharts = [] };
-            new BmsLibraryDbGateway(songDbPath).UpsertSongs(library.BmsCharts);
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs(library.BmsCharts);
             try
             {
                 LibraryChartRemovalPreflight prepared = library.PrepareLibraryChartRemoval(library.BmsCharts.Select(chart => LibraryChartRef.FromChartFile(chart)));
@@ -272,7 +276,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 Assert.IsNull(result.RegistrationFailure);
                 string[] expectedPaths = charts.Take(2).Select(chart => chart.Path).ToArray();
                 CollectionAssert.AreEquivalent(expectedPaths, library.BmsCharts.Select(chart => chart.Path).ToArray());
-                using LR2SongDBExtended read = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended read = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 CollectionAssert.AreEquivalent(expectedPaths, read.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
                 CollectionAssert.AreEqual(roots, new BmsRootRegistrationStore(settings, () => null).CaptureUserRoots().ToArray());
                 CollectionAssert.AreEqual(savedSettings, File.ReadAllBytes(configPath));
@@ -290,6 +294,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(true)]
     public void RemoveLibraryCharts_WholeRegisteredRootUnregistersOnlyAfterPhysicalSuccess(bool lr2)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -313,7 +318,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             string chartPath = Path.Combine(removed, "chart.bms");
             File.WriteAllText(chartPath, "#TITLE Removed");
             ChartFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), settings: settings)
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), settings: settings)
             { BmsCharts = [chart], BmsonCharts = [] };
             string retainedSource = Path.Combine(retained, "pending.bms"); File.WriteAllText(retainedSource, "#TITLE Retained pending");
             string unrelatedSource = Path.Combine(Directory.CreateDirectory(Path.Combine(root, "UnrelatedPending")).FullName, "pending.bms");
@@ -321,7 +326,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             var stale = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(retainedSource)))]); stale.path = retained;
             var unrelated = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(unrelatedSource)))]); unrelated.path = Path.GetDirectoryName(unrelatedSource) ?? throw new InvalidOperationException();
             library.ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([stale, unrelated]);
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, db =>
             { db.CreateTable<LR2SongDBExtended.install>(); db.InsertOrReplace(stale, typeof(LR2SongDBExtended.install)); db.InsertOrReplace(unrelated, typeof(LR2SongDBExtended.install)); });
             var publishedPendingPaths = new List<string[]>();
             var publicationFailures = new List<Exception>();
@@ -334,7 +339,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             library.PropertyChanged += ObservePendingPublication;
             try
             {
-                using (var db = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
                 { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song)); }
                 LibraryChartRemovalOutcome result = library.RemoveLibraryCharts(
                     library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(chart)]), false, [removed]);
@@ -351,7 +356,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 Assert.AreEqual(retained, fresh.BMSInstallDir);
                 CollectionAssert.AreEqual(new[] { unrelated.path }, library.ChartPackagesPending.Select(package => package.path).ToArray());
                 Assert.IsTrue(File.Exists(retainedSource)); Assert.IsTrue(File.Exists(unrelatedSource));
-                using LR2SongDBExtended verifyPending = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended verifyPending = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 CollectionAssert.AreEqual(new[] { unrelated.path }, verifyPending.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
                 Assert.AreEqual(0, publicationFailures.Count, string.Join(Environment.NewLine, publicationFailures));
                 Assert.IsTrue(publishedPendingPaths.Count > 0, "direct自己受付の終端でも保留通知を公開します。");
@@ -374,6 +379,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(true)]
     public void RemoveLibraryCharts_PublishesOneResourceGenerationForConfirmedFoldersOnly(bool recycle)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(songDbPath =>
         {
@@ -403,14 +409,14 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                     }
                 }
             };
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem,
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, filesystem,
                 new FileDbReportRecordingDialogs(), new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
             {
                 BmsCharts = [.. files, parentChart, siblingChart],
                 BmsonCharts = []
             };
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 foreach (ChartFile file in files.Concat([parentChart, siblingChart]))
                 {
@@ -515,7 +521,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             CollectionAssert.AreEqual(new[] { root }, after.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(LibraryResourceIndexTestSupport.ResourceHash("B/shared.wav")).ToArray());
             Assert.AreEqual(0, after.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(LibraryResourceIndexTestSupport.ResourceHash("A/shared.wav")).Count);
             Assert.AreEqual(0, after.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(LibraryResourceIndexTestSupport.ResourceHash("C/shared.wav")).Count);
-            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             CollectionAssert.AreEquivalent(new[] { files[1].Path, parentChart.Path, siblingChart.Path }, readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
         });
     }
@@ -529,6 +535,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(true)]
     public void RemoveLibraryCharts_CatalogFailureReturnsAfterConfirmedFilesystemDeletion(bool afterCommit)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(songDbPath =>
         {
@@ -542,7 +549,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             LR2Config config = BmsPlaylistTestSupport.CreateLr2Config(lr2Root, root);
             var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             var filesystem = new TestFileMutationService();
-            var library = new TestBmsLibrary(songDbPath, configOwner, null, filesystem, null,
+            var library = new TestBmsLibrary(databaseScope, songDbPath, configOwner, null, filesystem, null,
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = afterCommit, LR2RootPath = lr2Root })
             {
@@ -550,7 +557,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 BmsonCharts = []
             };
             string folderRowPath = Lr2FolderPath.ToFolderPath(folder);
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
                 db.InsertOrReplace(new LR2SongDB.folder { path = folderRowPath, title = "Pack", type = 1 }, typeof(LR2SongDB.folder));
@@ -593,7 +600,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             CollectionAssert.AreEqual(
                 new[] { folder },
                 resourceAfter.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(shared).ToArray());
-            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(afterCommit ? 0 : 1, readback.Table<LR2SongDB.song>().Count());
             Assert.AreEqual(1, readback.Table<LR2SongDB.folder>().Count(row => row.path == folderRowPath));
         });
@@ -606,6 +613,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void RemoveLibraryCharts_OnlySuccessfulApiTargetsAreConfirmed()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(songDbPath =>
         {
@@ -631,9 +639,9 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             }
             };
             var dialogs = new FileDbReportRecordingDialogs();
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, dialogs)
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, filesystem, dialogs)
             { BmsCharts = files, BmsonCharts = [] };
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 foreach (ChartFile? file in files)
                 {
@@ -654,7 +662,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.AreEqual(1, filesystem.FileDeleteCalls);
             Assert.AreEqual(1, filesystem.DirectoryDeleteCalls);
             Assert.AreEqual(0, dialogs.ModelMessages);
-            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             CollectionAssert.AreEquivalent(new[] { missing, partial }, readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
         });
     }
@@ -670,6 +678,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(3, true)] // 子の全体削除を拒否し個別削除が失敗、ごみ箱指定。
     public void RemoveLibraryCharts_ParentDeletionDependsOnObservedChildResult(int childState, bool recycle)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(songDbPath =>
         {
@@ -722,12 +731,12 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                     }
                 }
             };
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
             {
                 BmsCharts = [parentChart, independentChart, siblingChart],
                 BmsonCharts = [childChart]
             };
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(parentChart), typeof(LR2SongDB.song));
                 db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(independentChart), typeof(LR2SongDB.song));
@@ -777,7 +786,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
 
             Assert.AreEqual(0, library.BmsCharts.Count);
             Assert.AreEqual(childState == 0 ? 0 : 1, library.BmsonCharts.Count);
-            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
             string[] retained = readback.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path).ToArray();
             CollectionAssert.AreEqual(childState == 0 ? Array.Empty<string>() : new[] { childChartPath }, retained);
@@ -793,6 +802,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void RemoveLibraryCharts_UnselectedDescendantKeepsResourcesAndRows()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(songDbPath =>
         {
@@ -806,9 +816,9 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             string resource = Path.Combine(folder, "sound.wav");
             File.WriteAllText(resource, "keep");
             var filesystem = new TestFileMutationService();
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
             { BmsCharts = [selected, kept], BmsonCharts = [] };
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 foreach (ChartFile? file in new[] { selected, kept })
                 {
@@ -827,7 +837,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.IsTrue(File.Exists(kept.Path));
             Assert.AreEqual("keep", File.ReadAllText(resource));
             Assert.AreSame(kept, library.BmsCharts.Single());
-            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(kept.Path, readback.Table<LR2SongDB.song>().Single().path);
         });
     }
@@ -841,6 +851,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(false)]
     public void RemoveLibraryCharts_ResolvesSelectionThroughProductionOwner(bool pathOnly)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(songDbPath =>
         {
@@ -850,13 +861,13 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             File.WriteAllText(path, "#PLAYER 1");
             ChartFile canonical = CreateFile(new string('a', 32), path);
             var filesystem = new TestFileMutationService();
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
             { BmsCharts = [canonical], BmsonCharts = [] };
             ChartFile owned = library.BmsCharts.Single();
             LibraryChartRef selected = pathOnly
                 ? LibraryChartRef.FromPath(ChartFileKind.Bms, path, owned.Md5, owned.Sha256)
                 : LibraryChartRef.FromChartFile(owned with { Title = "captured selection" });
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(canonical), typeof(LR2SongDB.song));
             }
@@ -870,7 +881,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.AreEqual(pathOnly ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently,
                 filesystem.DirectoryRecycleOptions.Single());
             Assert.AreEqual(0, library.BmsCharts.Count);
-            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
         });
     }
@@ -882,6 +893,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void RemoveLibraryCharts_CaseOnlyExactRowsAreBothRemoved()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(songDbPath =>
         {
@@ -893,12 +905,12 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             ChartFile lower = CreateFile(new string('a', 32), lowerPath);
             ChartFile upper = CreateFile(new string('b', 32), upperPath);
             var filesystem = new TestFileMutationService();
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
             {
                 BmsCharts = [lower, upper],
                 BmsonCharts = []
             };
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(lower), typeof(LR2SongDB.song));
                 db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(upper), typeof(LR2SongDB.song));
@@ -919,7 +931,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.AreEqual(1, filesystem.DirectoryDeleteCalls);
             Assert.IsFalse(Directory.Exists(folder));
             Assert.AreEqual(0, library.BmsCharts.Count);
-            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
         });
     }
@@ -933,6 +945,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(true)]
     public void RemoveLibraryCharts_PhysicalAliasExactRowsAreBothRemovedWithoutWholeFolderDelete(bool useDotAlias)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(songDbPath =>
         {
@@ -946,12 +959,12 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             ChartFile canonical = CreateFile(new string('a', 32), canonicalPath);
             ChartFile alias = CreateFile(new string('b', 32), aliasPath);
             var filesystem = new TestFileMutationService();
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
             {
                 BmsCharts = [canonical, alias],
                 BmsonCharts = []
             };
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(canonical), typeof(LR2SongDB.song));
                 db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(alias), typeof(LR2SongDB.song));
@@ -973,7 +986,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.AreEqual(0, filesystem.DirectoryDeleteCalls);
             Assert.IsFalse(File.Exists(canonicalPath));
             Assert.AreEqual(0, library.BmsCharts.Count);
-            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
         });
     }
@@ -985,6 +998,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void RemoveLibraryCharts_PhysicalAliasDeleteFailureIsNotRetried()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(songDbPath =>
         {
@@ -1000,12 +1014,12 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             {
                 BeforeFileDelete = _ => throw failure
             };
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
             {
                 BmsCharts = [canonical, alias],
                 BmsonCharts = []
             };
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(canonical), typeof(LR2SongDB.song));
                 db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(alias), typeof(LR2SongDB.song));
@@ -1023,7 +1037,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.AreEqual(2, library.BmsCharts.Count);
             Assert.IsTrue(outcome.Targets.All(target => target.State == LibraryChartRemovalState.Unconfirmed));
             Assert.IsTrue(outcome.Targets.All(target => ReferenceEquals(failure, target.Failure)));
-            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             CollectionAssert.AreEquivalent(
                 new[] { canonicalPath, aliasPath },
                 readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
@@ -1037,6 +1051,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void GetLibraryWholeFolderDeleteConfirmationPaths_PreservesCaseOnlyNestedSelections()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(songDbPath =>
         {
@@ -1051,7 +1066,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             ChartFile parentChart = CreateFile(new string('a', 32), parentPath);
             ChartFile lower = CreateFile(new string('b', 32), lowerPath);
             ChartFile upper = CreateFile(new string('c', 32), upperPath);
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(),
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(),
                 new FileDbReportRecordingDialogs())
             {
                 BmsCharts = [parentChart, lower, upper],
@@ -1077,6 +1092,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(4)] // 未登録の大小文字別表記。
     public void RemoveLibraryCharts_UnresolvedSelectionKeepsFilesystemAndDatabase(int selectionKind)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(songDbPath =>
         {
@@ -1097,7 +1113,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 ? LibraryChartRef.FromChartFile((canonical))
                 : LibraryChartRef.FromPath(ChartFileKind.Bms, selectedPath,
                     selectionKind is 1 or 3 or 4 ? canonical.Md5 : null, null);
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(canonical), typeof(LR2SongDB.song));
             }
@@ -1108,7 +1124,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             }
 
             var filesystem = new TestFileMutationService();
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
             { BmsCharts = [canonical], BmsonCharts = [] };
 
             LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([selected]), false, [folder]);
@@ -1121,7 +1137,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.AreEqual(0, filesystem.DirectoryDeleteCalls);
             Assert.IsTrue(File.Exists(catalogPath));
             Assert.IsTrue(File.Exists(selectedPath));
-            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(catalogPath, readback.Table<LR2SongDB.song>().Single().path);
         });
     }
@@ -1138,6 +1154,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(4)] // 同tokenでも選択パスの大小文字が不一致。
     public void RemoveLibraryCharts_PreflightChecksCapturedKindAndExactPathButAllowsOldHash(int change)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(songDbPath =>
         {
@@ -1148,7 +1165,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             File.WriteAllText(Path.Combine(folder, "resource.wav"), "retain folder");
             var filesystem = new TestFileMutationService();
             var dialogs = new RecordingRemovalDialogs();
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, dialogs)
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, filesystem, dialogs)
             { BmsCharts = [CreateFile(new string('a', 32), originalPath)], BmsonCharts = [] };
             try
             {
@@ -1184,7 +1201,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                     selected = LibraryChartRef.FromChartFile(captured with { Path = captured.Path.ToUpperInvariant() });
                 }
                 ChartFile current = library.BmsCharts.Single();
-                new BmsLibraryDbGateway(songDbPath).UpsertSongs([current]);
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs([current]);
                 Assert.AreEqual(change == 0 ? 1 : 0, library.PrepareLibraryChartRemoval([selected]).WholeFolderCandidatePaths.ToList().Count);
                 LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([selected]), false, []);
                 Assert.AreEqual(0, dialogs.CallCount);
@@ -1194,7 +1211,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 Assert.AreEqual(change != 0, File.Exists(current.Path));
                 Assert.AreEqual(new string('a', 32), captured.Md5);
                 Assert.AreEqual(change == 4 ? originalPath.ToUpperInvariant() : originalPath, selected.Path);
-                using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 if (change == 0)
                 {
                     Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
@@ -1223,6 +1240,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void PreparedRequests_RejectRetiredTargetBeforeAnyPhysicalOrCatalogMutation()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(songDbPath =>
         {
@@ -1233,7 +1251,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             File.WriteAllText(firstPath, "#PLAYER 1");
             File.WriteAllText(lastPath, "#PLAYER 1");
             var filesystem = new TestFileMutationService();
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
             { BmsCharts = [CreateFile(new string('a', 32), firstPath), CreateFile(new string('b', 32), lastPath)], BmsonCharts = [] };
             try
             {
@@ -1248,7 +1266,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 ChartFile replacement = before.Single(chart => chart.Path == lastPath);
                 Assert.AreNotSame(retired.Token, replacement.Token);
                 Assert.AreEqual(retired.Md5, replacement.Md5);
-                new BmsLibraryDbGateway(songDbPath).UpsertSongs(before);
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs(before);
                 int version = owner.CatalogRevision;
                 int notifications = library.NormalLibraryRefreshNotificationVersion;
                 OwnedChartHashIndexSnapshot hashes = owner.Collection.CreateOwnedHashIndexSnapshot();
@@ -1273,7 +1291,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 Assert.AreEqual(version, owner.CatalogRevision);
                 Assert.AreEqual(notifications, library.NormalLibraryRefreshNotificationVersion);
                 CollectionAssert.AreEquivalent(hashes.Md5Hashes.ToArray(), owner.Collection.CreateOwnedHashIndexSnapshot().Md5Hashes.ToArray());
-                using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 CollectionAssert.AreEquivalent(before.Select(chart => chart.Path + ":" + chart.Md5).ToArray(),
                     readback.Table<LR2SongDB.song>().Select(row => row.path + ":" + row.hash).ToArray());
                 using LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation("prepared_failure_released", showMessage: false);
@@ -1290,6 +1308,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void PreparedRename_UsesCurrentDigestAndFixedSourceWithoutHashHistoryComparison()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(songDbPath =>
         {
@@ -1298,12 +1317,12 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             string path = Path.Combine(folder, "chart.bms");
             File.WriteAllText(path, "#PLAYER 1");
             var filesystem = new TestFileMutationService();
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
             { BmsCharts = [CreateFile(new string('b', 32), path) with { Sha256 = new string('c', 64) }], BmsonCharts = [] };
             try
             {
                 ChartFile current = library.BmsCharts.Single();
-                new BmsLibraryDbGateway(songDbPath).UpsertSongs([current]);
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs([current]);
                 ChartFile oldDigest = current with { Md5 = new string('a', 32), Sha256 = new string('d', 64) };
                 var prepared = new LibraryFileExtensionRenameBatch([oldDigest], ".bmx");
 
@@ -1328,7 +1347,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 Assert.IsTrue(hashes.Sha256Hashes.Contains(current.Sha256, StringComparer.OrdinalIgnoreCase));
                 Assert.IsFalse(hashes.Md5Hashes.Contains(oldDigest.Md5, StringComparer.OrdinalIgnoreCase));
                 Assert.IsFalse(hashes.Sha256Hashes.Contains(oldDigest.Sha256, StringComparer.OrdinalIgnoreCase));
-                using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 LR2SongDB.song row = readback.Table<LR2SongDB.song>().Single();
                 Assert.AreEqual(destination, row.path);
                 Assert.AreEqual(current.Md5, row.hash);
@@ -1348,6 +1367,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(true)]
     public void RemoveLibraryCharts_LastChartHonorsExplicitWholeFolderDecision(bool deleteWholeFolder)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(songDbPath =>
         {
@@ -1358,9 +1378,9 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             File.WriteAllText(Path.Combine(folder, "resource.wav"), "remove with the folder");
             var filesystem = new TestFileMutationService();
             var dialogs = new RecordingRemovalDialogs();
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, dialogs)
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, filesystem, dialogs)
             { BmsCharts = [chart], BmsonCharts = [] };
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song));
             }
@@ -1376,7 +1396,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.AreEqual(!deleteWholeFolder, Directory.Exists(folder));
             Assert.AreEqual(!deleteWholeFolder, File.Exists(Path.Combine(folder, "resource.wav")));
             Assert.AreEqual(0, library.BmsCharts.Count);
-            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
         });
     }
@@ -1388,6 +1408,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void RemoveLibraryCharts_UnregisterKeepsOwnedCollectionInitializedAndSynced()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -1402,7 +1423,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             File.WriteAllText(secondPath, "#PLAYER 1");
             ChartFile first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", firstPath);
             ChartFile second = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", secondPath);
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             using var initialBmsFilesNotification = new ManualResetEventSlim(false);
             System.ComponentModel.PropertyChangedEventHandler initialHandler = delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
@@ -1466,12 +1487,13 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void BMSFilesReplacement_InvalidatesCatalogRevisionAndRebuildsOnNextView()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
             ChartFile first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "First", "chart.bms"));
             ChartFile replacement = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Replacement", "chart.bms"));
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = [first],
                 BmsonCharts = []
@@ -1493,6 +1515,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void StorageRowPropertiesExposeReadOnlyViews()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -1500,7 +1523,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             ChartFile bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             List<ChartFile> inputBmsFiles = [bmsFile];
             List<ChartFile> inputBmsonSongs = [bmsonSong];
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = inputBmsFiles,
                 BmsonCharts = inputBmsonSongs
@@ -1533,6 +1556,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void HasOwnedChartUnderRealPath_UsesOwnedCollectionForBmsAndBmson()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -1542,7 +1566,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             ChartFile bmsonSong = CreateBmsonSong(
                 Path.Combine("C:\\Installed", "Bmson", "chart.bmson"),
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = [bmsFile],
                 BmsonCharts = [bmsonSong]
@@ -1564,6 +1588,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void RemoveLibraryCharts_UnregistersBmsonStorageRowsInLibraryBoundary()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -1578,7 +1603,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             File.WriteAllText(secondPath, "{}");
             ChartFile first = CreateBmsonSong(firstPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             ChartFile second = CreateBmsonSong(secondPath, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             SetLibraryFilesWithoutNotification(library, []);
             SetLibraryBmsonSongsWithoutNotification(library, [first, second]);
             List<ChartFile> initialSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
@@ -1619,6 +1644,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(16)]
     public void RemoveLibraryCharts_TwoWarmOperationsPreserveRemainingOwnersWithoutFullRebuild(int backgroundCount)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(songDbPath =>
         {
@@ -1649,14 +1675,14 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             files.Add(remaining);
             files.Add(first);
             files.Add(second);
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new FileDbReportRecordingDialogs())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new FileDbReportRecordingDialogs())
             {
                 BmsCharts = files,
                 BmsonCharts = [],
                 DuplicateChartGroups = []
             };
             // warm操作前のfixture seedは本番保存契約を検証しないため、一つのtransactionにまとめて共通DBロックの保持時間を短縮する。
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, db =>
             {
                 foreach (ChartFile file in files)
                 {
@@ -1731,7 +1757,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 Assert.IsFalse(InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library)
                     .Any(chart => string.Equals(chart.Path, oldPath, StringComparison.OrdinalIgnoreCase)));
                 // ここはSELECT専用の観測なので、writer接続を保持せずread-only入口を使う。
-                using (LR2SongDBExtended verifyDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                using (LR2SongDBExtended verifyDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
                 {
                     string[] dbPaths = verifyDb.Table<LR2SongDB.song>().Select(row => row.path).ToArray();
                     Assert.IsFalse(dbPaths.Contains(oldPath, StringComparer.OrdinalIgnoreCase));
@@ -1833,6 +1859,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void RemoveLibraryCharts_UnregisterAppliesCurrentResourceHealthIndexDelta()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -1842,7 +1869,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             File.WriteAllText(resourcePath, "#PLAYER 1");
             ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", resourcePath);
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = bmsFile.Path, hash = bmsFile.Md5, wav_files_defined = 2, wav_files_existing = 1 }));
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), null);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), null);
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
             EnsureCurrentResourceHealthIndex(library);
@@ -1872,6 +1899,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void RenameChartFolder_InvalidatesCurrentResourceHealthIndex()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -1886,7 +1914,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             {
                 ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldBmsPath);
                 bmsFile = ChartFileProjection.WithMaintenance(bmsFile, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = bmsFile.Path, hash = bmsFile.Md5, wav_files_defined = 2, wav_files_existing = 1 }));
-                var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), null);
+                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), null);
                 SetLibraryFilesWithoutNotification(library, [bmsFile]);
                 SetLibraryBmsonSongsWithoutNotification(library, []);
                 EnsureCurrentResourceHealthIndex(library);
@@ -1918,6 +1946,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void RenameChartFolder_DispatchesParentFolderOnceAndClearsDuplicateCache()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -1935,7 +1964,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             {
                 ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldBmsPath);
                 ChartFile bmsonSong = CreateBmsonSong(oldBmsonPath, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-                var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), null);
+                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), null);
                 SetLibraryFilesWithoutNotification(library, [bmsFile]);
                 SetLibraryBmsonSongsWithoutNotification(library, [bmsonSong]);
                 SetDuplicateChartGroupsWithoutNotification(library, []);

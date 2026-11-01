@@ -38,7 +38,7 @@ public sealed class Lr2SongDbSyncCommittedInputTests
         ChartFile[] excluded = [CreateRow("first"), CreateRow("middle"), CreateRow("last")];
         ChartFile failed = CreateRow("failed");
         ChartFile otherPathSameMd5 = CreateRow("same-md5");
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         ChartFile[] rows = [excluded[0], processedFile, excluded[1], failed, otherPathSameMd5, excluded[2]];
         songDb.RunInTransaction(() =>
@@ -108,7 +108,7 @@ public sealed class Lr2SongDbSyncCommittedInputTests
         using var scope = TestDatabaseScope.Create();
         string chartDirectory = Path.Combine(scope.DirectoryPath, "Charts");
         Directory.CreateDirectory(chartDirectory);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         ChartFile[] songRows = [.. Enumerable.Range(0, rowCount).Select(index =>
         {

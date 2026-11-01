@@ -102,9 +102,10 @@ public sealed class BmsLibraryParentFolderCacheServiceTests
     [TestMethod]
     public void BmsonSongsSetter_RaisesParentFolderCacheVersionChanged()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             int parentFolderCacheVersionChanged = 0;
             library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
@@ -147,13 +148,14 @@ public sealed class BmsLibraryParentFolderCacheServiceTests
 
     private static void WithTemporarySongDb(Action<string> testAction)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ParentFolderCacheDb_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDB.folder>();

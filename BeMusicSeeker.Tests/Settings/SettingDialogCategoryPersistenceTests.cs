@@ -13,6 +13,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
@@ -360,8 +361,8 @@ public sealed partial class SettingDialogEditCompletionTests
                     return new AudioDeviceCapabilityResult(request.Backend, request.DeviceIdentity, request.DeviceName, AudioDeviceCapabilityStatus.Unsupported, []);
                 }));
             ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(owner);
-            using var dialog = new SettingsDialogViewModel(owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace, owner.PlayHistory, owner.LibraryFolderTree,
-                composition, owner.PlaybackPanel, owner.Lr2SongDbSyncWorkflow, new SettingsEditSession(values), reportApplyFailure: failures.Add,
+            using var dialog = new SettingsDialogViewModel(composition.DatabaseScope, owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace, owner.PlayHistory, owner.LibraryFolderTree,
+                composition, owner.PlaybackPanel, owner.Lr2SongDbSyncWorkflow, new SettingsEditSession(values), new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(composition.DatabaseScope)), reportApplyFailure: failures.Add,
                 applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 externalShellGateway: ExternalShellGatewayPolicy.Current, applicationPathSnapshot: ApplicationPathPolicy.Current,
                 audioDeviceCatalog: catalog, audioSettingsGateway: new SettingsAudioGateway(() => values), audioDeviceTestWorkflow: workflow);

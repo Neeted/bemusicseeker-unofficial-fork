@@ -250,17 +250,19 @@ public class Backup : ObservableObject
     /// <summary>
     /// 存在するLR2の楽曲・スコアDBを最適化します。失敗は対象パスと元原因を診断してfalseを返し、公開済みバックアップを変更しません。
     /// </summary>
+    /// <param name="databaseScope">全プレイヤーのDB接続と排他を共有するスコープ。</param>
     /// <param name="songDBPath">最適化する楽曲DBのパス。nullまたは欠損なら省略します。</param>
     /// <param name="scoreDBPaths">最適化するスコアDBのパス。nullまたは欠損の対象は省略します。</param>
     /// <returns>指定された既存DBの最適化が正常に完了した場合はtrue。処理または列挙に失敗した場合はfalse。</returns>
-    public static bool RebuildDatabase(string songDBPath, IEnumerable<string> scoreDBPaths)
+    internal static bool RebuildDatabase(ApplicationDatabaseScope databaseScope, string songDBPath, IEnumerable<string> scoreDBPaths)
     {
+        ArgumentNullException.ThrowIfNull(databaseScope);
         string databasePath = songDBPath;
         try
         {
             if (songDBPath != null && LongPathFileSystem.FileExists(songDBPath))
             {
-                using var lR2SongDBExtended = new LR2SongDBExtended(songDBPath);
+                using LR2SongDBExtended lR2SongDBExtended = databaseScope.OpenSongWrite(songDBPath);
                 lR2SongDBExtended.Execute("VACUUM;");
                 lR2SongDBExtended.Execute("REINDEX;");
             }
@@ -272,7 +274,7 @@ public class Backup : ObservableObject
                     databasePath = item;
                     if (LongPathFileSystem.FileExists(item))
                     {
-                        using var lR2ScoreDBExtended = new LR2ScoreDBExtended(item);
+                        using LR2ScoreDBExtended lR2ScoreDBExtended = databaseScope.OpenScoreWrite(item);
                         lR2ScoreDBExtended.Execute("VACUUM;");
                         lR2ScoreDBExtended.Execute("REINDEX;");
                     }

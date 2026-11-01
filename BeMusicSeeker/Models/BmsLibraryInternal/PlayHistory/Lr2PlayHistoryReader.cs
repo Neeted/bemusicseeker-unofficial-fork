@@ -4,12 +4,20 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using BeMusicSeeker.Models.LR2;
-using SQLite;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>LR2の履歴を、構成が所有する読取り専用接続で取得します。</summary>
 internal sealed class Lr2PlayHistoryReader
 {
+    private readonly ApplicationDatabaseScope databaseScope;
+
+    /// <summary>接続とその寿命を所有するスコープを受け取ります。</summary>
+    internal Lr2PlayHistoryReader(ApplicationDatabaseScope databaseScope)
+    {
+        this.databaseScope = databaseScope ?? throw new ArgumentNullException(nameof(databaseScope));
+    }
+
     /// <summary>LR2のハッシュ長32の単曲履歴を一覧・日付索引用に読み取り専用で全件取得します。件数上限は設けません。</summary>
     internal Lr2PlayHistoryReadResult Read(Lr2PlayHistoryReadRequest request)
     {
@@ -24,7 +32,7 @@ internal sealed class Lr2PlayHistoryReader
         var sourceProfile = PlayHistorySourceProfile.Lr2(request.ScoreDbPath);
         var diagnostics = new List<PlayHistoryDiagnostic>();
 
-        Lr2PlayHistorySchemaCheckResult schema = new Lr2PlayHistorySchemaService().Check(request.ScoreDbPath, request.IsLr2LinkedProfile);
+        Lr2PlayHistorySchemaCheckResult schema = new Lr2PlayHistorySchemaService(databaseScope).Check(request.ScoreDbPath, request.IsLr2LinkedProfile);
         cancellationToken.ThrowIfCancellationRequested();
         if (!EvaluateSchema(schema, request, diagnostics))
         {
@@ -39,7 +47,7 @@ internal sealed class Lr2PlayHistoryReader
 
         try
         {
-            using LR2ScoreDBExtended db = new(request.ScoreDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, acquireProcessLock: false);
+            using LR2ScoreDBExtended db = databaseScope.OpenScoreReadOnly(request.ScoreDbPath);
             List<object> args = [];
             string sql = BuildReadSql(request, args);
             cancellationToken.ThrowIfCancellationRequested();

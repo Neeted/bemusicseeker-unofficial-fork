@@ -1389,5 +1389,6 @@
   "ChartPropertiesCountedUnfulfilled": "개별 미충족 요구로 계산",
   "ChartPropertiesNotCounted": "요구 수에서 제외",
   "ChartPropertiesCp932AlternativeInterpretation": "LR2용 별도 해석(CP932, 일반 해석과 함께 표시될 수 있음)",
-  "Validation_Lr2BuiltinCustomFolderReservedFormat": "{0}에는 LR2 기본 사용자 폴더의 예약 영역을 지정할 수 없습니다.\n지정 위치: {1}\n기본 폴더: {2}"
+  "Validation_Lr2BuiltinCustomFolderReservedFormat": "{0}에는 LR2 기본 사용자 폴더의 예약 영역을 지정할 수 없습니다.\n지정 위치: {1}\n기본 폴더: {2}",
+  "DatabaseConnectionCloseFailed": "데이터베이스 연결을 닫는 중 오류가 발생했습니다."
 }

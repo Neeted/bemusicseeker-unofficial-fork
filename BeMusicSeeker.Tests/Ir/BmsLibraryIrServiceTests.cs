@@ -135,7 +135,7 @@ public sealed class BmsLibraryIrServiceTests
         gateway.ReplaceIrScoreTableAndRefreshMetadata(saved.ScoreTable, 123, "old-digest");
         if (missingMetadata)
         {
-            using var db = new SQLiteConnection(env.SongDbPath);
+            using SQLiteConnectionEx db = env.DatabaseScope.OpenProviderConnection(env.SongDbPath);
             db.Execute("DELETE FROM ir_score_refresh_metadata WHERE lr2id = 123;");
         }
         string beforeScores = CaptureRawIrDatabase(env.SongDbPath).Split('\n')[0];
@@ -167,20 +167,19 @@ public sealed class BmsLibraryIrServiceTests
             new FakeIrClient(BuildPlayerScoreXml("12345678901234567890123456789012", 321, 45)), PlayerScoreRegex);
         setupGateway.ReplaceIrScoreTableAndRefreshMetadata(fetched.ScoreTable, 123, "old-digest");
         setupGateway.UpsertIrScoreRefreshMetadata(456, "other-digest");
-        using (var db = new SQLiteConnection(env.SongDbPath))
+        using (SQLiteConnectionEx db = env.DatabaseScope.OpenProviderConnection(env.SongDbPath))
         {
             Assert.AreEqual("delete", db.ExecuteScalar<string>("PRAGMA journal_mode=DELETE;"));
         }
         string before = CaptureRawIrDatabase(env.SongDbPath);
         using var observation = new SqliteStatementObservation();
-        var gateway = new BmsLibraryDbGateway(env.SongDbPath, env.ScoreDbPath, path =>
+        var gateway = new BmsLibraryDbGateway(env.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), env.SongDbPath, env.ScoreDbPath, writer =>
         {
-            LR2SongDBExtended writer = observation.OpenSongDb(path);
+            observation.Attach(writer);
             writer.BusyTimeout = TimeSpan.Zero;
-            return writer;
         });
         IrScoreTableUpdateResult result;
-        using (var reader = new SQLiteConnection(env.SongDbPath, SQLiteOpenFlags.ReadOnly))
+        using (SQLiteConnectionEx reader = env.DatabaseScope.OpenProviderConnection(env.SongDbPath, SQLiteOpenFlags.ReadOnly))
         {
             reader.BeginTransaction();
             try
@@ -210,7 +209,7 @@ public sealed class BmsLibraryIrServiceTests
         BmsLibraryDbGateway gateway = env.CreateGateway();
         gateway.ReplaceIrScoreTableAndRefreshMetadata([new LR2IRScore("12345678901234567890123456789012") { pg = 321, gr = 45 }], 123, "retained-digest");
         gateway.UpsertIrScoreRefreshMetadata(456, "other-digest");
-        using (var db = new SQLiteConnection(env.SongDbPath))
+        using (SQLiteConnectionEx db = env.DatabaseScope.OpenProviderConnection(env.SongDbPath))
         {
             db.Execute("CREATE TRIGGER reject_ir_metadata BEFORE INSERT ON ir_score_refresh_metadata BEGIN SELECT RAISE(ABORT, 'controlled metadata failure'); END;");
         }
@@ -506,12 +505,13 @@ public sealed class BmsLibraryIrServiceTests
     [TestMethod]
     public void BeatorajaScoreDbLoader_ReadsModeZeroScoresOnly()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string rootDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerBeatorajaScoreTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(rootDirectoryPath);
         string scoreDbPath = Path.Combine(rootDirectoryPath, "score.db");
         try
         {
-            using (var connection = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx connection = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 connection.Execute(
                     "CREATE TABLE score (sha256 TEXT NOT NULL, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER, PRIMARY KEY(sha256, mode));");
@@ -535,7 +535,7 @@ public sealed class BmsLibraryIrServiceTests
                 });
             }
 
-            var loader = new BeatorajaScoreDbLoader();
+            var loader = new BeatorajaScoreDbLoader(databaseScope);
             Dictionary<string, BMSScore> scores = loader.LoadModeZeroScores(scoreDbPath);
 
             Assert.AreEqual(4, scores.Count);
@@ -571,12 +571,12 @@ public sealed class BmsLibraryIrServiceTests
             Assert.AreEqual(4, zeroBpScore.playcount);
             Assert.AreEqual(1, zeroBpScore.clearcount);
 
-            using (var observation = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex))
+            using (SQLiteConnectionEx observation = databaseScope.OpenProviderConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex))
             {
                 Assert.AreEqual(int.MaxValue, observation.ExecuteScalar<int>("SELECT minbp FROM score WHERE sha256 = ? AND mode = 0;", unrecordedScore.hash));
                 Assert.AreEqual(0, observation.ExecuteScalar<int>("SELECT minbp FROM score WHERE sha256 = ? AND mode = 0;", zeroBpScore.hash));
             }
-            using (var externalPlayer = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx externalPlayer = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 externalPlayer.Execute("UPDATE score SET epg = ?, lpg = ?, egr = ?, lgr = ?, notes = ?, combo = ?, minbp = ?, playcount = ?, clearcount = ? WHERE sha256 = ? AND mode = 0;", 100, 20, 30, 10, 200, 180, 12, 10, 3, unrecordedScore.hash);
             }
@@ -711,7 +711,7 @@ public sealed class BmsLibraryIrServiceTests
     public void LoadScoreTable_EmptySelectedDatabaseIsLoaded(bool beatoraja)
     {
         using var env = TempIrEnvironment.Create();
-        using (var db = new SQLiteConnection(env.ScoreDbPath))
+        using (SQLiteConnectionEx db = env.DatabaseScope.OpenProviderConnection(env.ScoreDbPath))
         {
             db.RunInTransaction(() =>
             {
@@ -735,7 +735,7 @@ public sealed class BmsLibraryIrServiceTests
         });
         Assert.AreEqual(ScoreTableLoadStatus.Loaded, result.Status);
         Assert.AreEqual(0, result.Scores.Count + result.BeatorajaScoresBySha256.Count);
-        using var writeAfterRead = new SQLiteConnection(env.ScoreDbPath);
+        using SQLiteConnectionEx writeAfterRead = env.DatabaseScope.OpenProviderConnection(env.ScoreDbPath);
         writeAfterRead.Execute("CREATE TABLE released_connection (value INTEGER)");
     }
 
@@ -749,7 +749,7 @@ public sealed class BmsLibraryIrServiceTests
     {
         using var env = TempIrEnvironment.Create();
         var service = new BmsLibraryInitializationService();
-        ScoreTableLoadResult result = service.LoadScoreTable(new BmsLibraryDbGateway(env.SongDbPath, null),
+        ScoreTableLoadResult result = service.LoadScoreTable(new BmsLibraryDbGateway(env.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), env.SongDbPath, null),
             new BmsLibraryOptionsSnapshot { UseBeatorajaScoreDb = beatoraja });
         Assert.AreEqual(ScoreTableLoadStatus.NotConfigured, result.Status);
         Assert.AreEqual(0, result.Scores.Count + result.BeatorajaScoresBySha256.Count);
@@ -816,7 +816,7 @@ public sealed class BmsLibraryIrServiceTests
             new LR2IRData(otherHash) { lr2id = 123, rank = 30, players_num = 100, pg = 300, gr = 10 },
             new LR2IRData(hash) { lr2id = 456, rank = 40, pg = 200 }
         ]);
-        using (var db = new SQLiteConnection(env.SongDbPath))
+        using (SQLiteConnectionEx db = env.DatabaseScope.OpenProviderConnection(env.SongDbPath))
         {
             db.Execute("UPDATE ir_data SET hash = 'unmaterializable-hash' WHERE hash = ? AND lr2id = 123", otherHash);
         }
@@ -1238,7 +1238,7 @@ public sealed class BmsLibraryIrServiceTests
     public void EnsureIrDataSchema_AllowsLegacyDuplicateRows()
     {
         using var env = TempIrEnvironment.Create();
-        using (var songDb = new LR2SongDBExtended(env.SongDbPath))
+        using (LR2SongDBExtended songDb = env.DatabaseScope.OpenSongWrite(env.SongDbPath))
         {
             songDb.Execute("INSERT INTO ir_data (hash, lr2id) VALUES (?, ?);", "31313131313131313131313131313131", 123);
             songDb.Execute("INSERT INTO ir_data (hash, lr2id) VALUES (?, ?);", "31313131313131313131313131313131", 123);
@@ -1443,11 +1443,7 @@ public sealed class BmsLibraryIrServiceTests
             using var env = TempIrEnvironment.Create();
             var service = new BmsLibraryIrService();
             int writeConnections = 0;
-            var gateway = new BmsLibraryDbGateway(env.SongDbPath, env.ScoreDbPath, path =>
-            {
-                writeConnections++;
-                return new LR2SongDBExtended(path);
-            });
+            var gateway = new BmsLibraryDbGateway(env.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), env.SongDbPath, env.ScoreDbPath, _ => writeConnections++);
             string hash = "44444444444444444444444444444444";
             var client = new FakeIrClient(BuildPlayerScoreXml(hash, pg: 700, gr: 50));
 
@@ -1694,7 +1690,7 @@ public sealed class BmsLibraryIrServiceTests
         IrScorePrefetchResult fetched = service.PrefetchIrScoreTableWithMetrics(
             123, new FakeIrClient(BuildPlayerScoreXml(hash, pg: 999, gr: 1)), PlayerScoreRegex);
         Assert.IsTrue(fetched.Succeeded);
-        using (var db = new SQLiteConnection(env.SongDbPath))
+        using (SQLiteConnectionEx db = env.DatabaseScope.OpenProviderConnection(env.SongDbPath))
         {
             db.Execute("ALTER TABLE ir_score_refresh_metadata RENAME TO retained_ir_score_refresh_metadata");
         }
@@ -1734,7 +1730,7 @@ public sealed class BmsLibraryIrServiceTests
         {
             gateway.UpsertIrScoreRefreshMetadata(123, fetched.ScoreDigestSha256);
         }
-        using (var db = new SQLiteConnection(env.SongDbPath))
+        using (SQLiteConnectionEx db = env.DatabaseScope.OpenProviderConnection(env.SongDbPath))
         {
             db.Execute("INSERT INTO ir_score (hash, clear, notes, combo, pg, gr, gd, bd, pr, minbp, option, lastupdate) VALUES ('unmaterializable-hash', 4, 1000, 900, 321, 45, 10, 2, 1, 12, 0, 20261010)");
         }
@@ -1756,13 +1752,15 @@ public sealed class BmsLibraryIrServiceTests
 
     private static string CaptureRawRankingDatabase(string path)
     {
-        using var db = new SQLiteConnection(path, SQLiteOpenFlags.ReadOnly);
+        var databaseScope = new ApplicationDatabaseScope();
+        using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(path, SQLiteOpenFlags.ReadOnly);
         return db.ExecuteScalar<string>("SELECT group_concat(value, ';') FROM (SELECT quote(hash)||','||quote(rank)||','||quote(players_num)||','||quote(lr2id)||','||quote(clear)||','||quote(notes)||','||quote(combo)||','||quote(pg)||','||quote(gr)||','||quote(minbp)||','||quote(average)||','||quote(sigma)||','||quote(lastupdate)||','||quote(lastcacheupdate) AS value FROM ir_data ORDER BY lr2id, hash)");
     }
 
     private static string CaptureRawIrDatabase(string path, string metadataTable = "ir_score_refresh_metadata")
     {
-        using var db = new SQLiteConnection(path, SQLiteOpenFlags.ReadOnly);
+        var databaseScope = new ApplicationDatabaseScope();
+        using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(path, SQLiteOpenFlags.ReadOnly);
         string scores = db.ExecuteScalar<string>("SELECT group_concat(value, ';') FROM (SELECT quote(hash)||','||quote(clear)||','||quote(notes)||','||quote(combo)||','||quote(pg)||','||quote(gr)||','||quote(gd)||','||quote(bd)||','||quote(pr)||','||quote(minbp)||','||quote(option)||','||quote(lastupdate) AS value FROM ir_score ORDER BY hash)");
         string metadata = db.ExecuteScalar<string>("SELECT group_concat(value, ';') FROM (SELECT quote(lr2id)||','||quote(score_digest_sha256)||','||quote(updated_at) AS value FROM " + metadataTable + " ORDER BY lr2id)");
         string schema = db.ExecuteScalar<string>("SELECT group_concat(value, ';') FROM (SELECT quote(type)||','||quote(name)||','||quote(tbl_name)||','||quote(sql) AS value FROM sqlite_master ORDER BY type, name)");
@@ -1805,8 +1803,9 @@ public sealed class BmsLibraryIrServiceTests
 
     private static void CreateLr2ScoreDb(string scoreDbPath)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         Directory.CreateDirectory(Path.GetDirectoryName(scoreDbPath)!);
-        using var connection = new SQLiteConnection(scoreDbPath);
+        using SQLiteConnectionEx connection = databaseScope.OpenProviderConnection(scoreDbPath);
         connection.RunInTransaction(() =>
         {
             connection.CreateTable<BMSScore>();
@@ -1831,8 +1830,9 @@ public sealed class BmsLibraryIrServiceTests
 
     private static void CreateBeatorajaScoreDb(string scoreDbPath)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         Directory.CreateDirectory(Path.GetDirectoryName(scoreDbPath)!);
-        using var connection = new SQLiteConnection(scoreDbPath);
+        using SQLiteConnectionEx connection = databaseScope.OpenProviderConnection(scoreDbPath);
         connection.RunInTransaction(() =>
         {
             connection.Execute(
@@ -1957,6 +1957,8 @@ public sealed class BmsLibraryIrServiceTests
 
     private sealed class TempIrEnvironment : IDisposable
     {
+        /// <summary>fixtureの実接続と窓口が同じ排他・寿命を共有します。</summary>
+        internal ApplicationDatabaseScope DatabaseScope { get; } = new();
         private TempIrEnvironment(string rootDirectoryPath)
         {
             RootDirectoryPath = rootDirectoryPath;
@@ -1965,7 +1967,7 @@ public sealed class BmsLibraryIrServiceTests
             IrDirectoryPath = Path.Combine(rootDirectoryPath, "Ir");
             Directory.CreateDirectory(Path.GetDirectoryName(ScoreDbPath)!);
             Directory.CreateDirectory(IrDirectoryPath);
-            using var songDb = new LR2SongDBExtended(SongDbPath);
+            using LR2SongDBExtended songDb = DatabaseScope.OpenSongWrite(SongDbPath);
             songDb.RunInTransaction(() =>
             {
                 BmsLibraryDbGateway.EnsureIrDataSchema(songDb);
@@ -1991,7 +1993,7 @@ public sealed class BmsLibraryIrServiceTests
 
         public BmsLibraryDbGateway CreateGateway()
         {
-            return new BmsLibraryDbGateway(SongDbPath, ScoreDbPath);
+            return new BmsLibraryDbGateway(DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), SongDbPath, ScoreDbPath);
         }
 
         public void WriteCacheXml(string hash, DateTime fileWriteTime, DateTime lastUpdate, int lr2Id = 123, int pg = 450, int gr = 50)

@@ -23,7 +23,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataRow(true)]
     public async Task ProductionIngress_FullChartScopeKeepsEmbeddedArchiveWithoutSeparateExpansion(bool selectAll)
     {
-        await using var fixture = new AutomaticContinuationFixture(true, false, temporaryIngress: true, destinationSounds: ["a.wav", "b.wav"]);
+        var databaseScope = new ApplicationDatabaseScope();
+        await using var fixture = new AutomaticContinuationFixture(databaseScope, true, false, temporaryIngress: true, destinationSounds: ["a.wav", "b.wav"]);
         string source = fixture.WriteInput(Path.Combine("ExternalTemp", "Pack"), "a.bms", "a");
         fixture.WriteInput(Path.Combine("ExternalTemp", "Pack"), "b.bms", "b");
         foreach (string name in new[] { "a", "b" })
@@ -46,7 +47,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Assert.AreEqual(staged, pending.path);
             CollectionAssert.AreEquivalent(new[] { Path.Combine(staged, "a.bms"), Path.Combine(staged, "b.bms") },
                 pending.ChartEntries.Select(entry => entry.Chart.Path).ToArray());
-            using LR2SongDBExtended before = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly();
+            using LR2SongDBExtended before = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly();
             Assert.AreEqual(staged, before.Table<LR2SongDBExtended.install>().Single().path);
             AssertArchiveTree(expected, staged);
             registered = true;
@@ -70,7 +71,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Assert.AreEqual(ownedBefore + 2, fixture.Library.BmsCharts.Count);
         AssertArchiveTree(destinationBefore.Concat(expected).ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase), fixture.Destination);
         AssertArchiveTree(expected, source);
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly();
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly();
         Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());
         Assert.IsNotNull(db.Find<LR2SongDB.song>(Path.Combine(fixture.Destination, "a.bms")));
         Assert.IsNotNull(db.Find<LR2SongDB.song>(Path.Combine(fixture.Destination, "b.bms")));
@@ -84,7 +85,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataRow(true)]
     public async Task ProductionIngress_PartialAndChartlessArchiveSelectionsKeepSeparateExpansion(bool chartless)
     {
-        await using var fixture = new AutomaticContinuationFixture(false, false, temporaryIngress: true);
+        var databaseScope = new ApplicationDatabaseScope();
+        await using var fixture = new AutomaticContinuationFixture(databaseScope, false, false, temporaryIngress: true);
         string source = Path.Combine(fixture.Root, "ExternalTemp", "Pack");
         Directory.CreateDirectory(source);
         string firstArchive = Path.Combine(source, "first.zip");
@@ -127,7 +129,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Assert.IsFalse(File.Exists(Path.Combine(staged, "b.bms")));
             Assert.IsFalse(File.Exists(Path.Combine(staged, "readme.txt")));
         }
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly();
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly();
         CollectionAssert.AreEquivalent(fixture.Library.ChartPackagesPending.Select(package => package.path).ToArray(),
             db.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
         AssertArchiveTree(expected, source);
@@ -139,8 +141,9 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task ProductionImport_KnownFileRedropKeepsFileScopeAndDestination()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         var port = new ObservingInstallMutationPort();
-        await using var fixture = new AutomaticContinuationFixture(false, false, mutationPort: port);
+        await using var fixture = new AutomaticContinuationFixture(databaseScope, false, false, mutationPort: port);
         string parent = fixture.WriteInput("Partial", "a.bms", "known-file");
         fixture.WriteInput("Partial", "b.bms", "unselected");
         File.WriteAllText(Path.Combine(parent, "readme.txt"), "unselected");
@@ -172,7 +175,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Assert.AreEqual(destination.Artist, entry.Chart.InstallDestinationArtist);
         CollectionAssert.AreEqual(destination.Suggestions.ToArray(), entry.Chart.InstallDestinationSuggestions.ToArray());
         Assert.IsTrue(fixture.Library.ChartPackagesPending.Any(package => package.path == independent));
-        var gateway = new BmsLibraryDbGateway(fixture.Database);
+        var gateway = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database);
         CollectionAssert.AreEquivalent(new[] { chart, independent }, gateway.LoadInstallPackages().Select(row => row.path).ToArray());
         Assert.AreEqual(deleteParent, gateway.LoadInstallPackages().Single(row => row.path == chart).delete_parent);
         foreach ((string path, byte[] bytes) in before) { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path)); }
@@ -200,7 +203,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataRow("partial-_preview")]
     public async Task ProductionIngress_PreservesOriginalSelectionAcrossPrivateCopy(string selection)
     {
-        await using var fixture = new AutomaticContinuationFixture(false, false, temporaryIngress: true);
+        var databaseScope = new ApplicationDatabaseScope();
+        await using var fixture = new AutomaticContinuationFixture(databaseScope, false, false, temporaryIngress: true);
         string source = fixture.WriteInput(Path.Combine("ExternalTemp", "Pack"), "a.bms", "a");
         fixture.WriteInput(Path.Combine("ExternalTemp", "Pack"), "b.bms", "b");
         string a = Path.Combine(source, "a.bms");
@@ -223,7 +227,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         bool partial = selection.StartsWith("partial", StringComparison.Ordinal);
         string[] expectedPackages = partial ? [Path.Combine(staged, "a.bms"), Path.Combine(staged, "b.bms")] : [staged];
         CollectionAssert.AreEquivalent(expectedPackages, fixture.Library.ChartPackagesPending.Select(package => package.path).ToArray());
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly();
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly();
         CollectionAssert.AreEquivalent(expectedPackages, db.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
         foreach (string name in new[] { "a.bms", "b.bms" })
         { CollectionAssert.AreEqual(File.ReadAllBytes(Path.Combine(source, name)), File.ReadAllBytes(Path.Combine(staged, name))); }
@@ -245,7 +249,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataRow("database", false)]
     public async Task ProductionImport_ReplacesSamePhysicalPendingScopeOnlyAfterAcceptedCompleteRead(string failureKind, bool selectAll)
     {
-        await using var fixture = new AutomaticContinuationFixture(false, false);
+        var databaseScope = new ApplicationDatabaseScope();
+        await using var fixture = new AutomaticContinuationFixture(databaseScope, false, false);
         string source = fixture.WriteInput("Reimport", "a.bms", "a");
         string a = Path.Combine(source, "a.bms");
         File.WriteAllText(a, CreateValidBmsText("Café").Replace("sound.wav", "missing-a.wav"), new UTF8Encoding(false));
@@ -272,7 +277,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         oldEntry.RestoreInstallDestinationState(new PackageChartInstallDestinationState(fixture.Destination, "Previous", "Previous", [fixture.Destination]));
         string expectedTitle = oldEntry.Chart.Title;
         string[] originalRows;
-        using (LR2SongDBExtended before = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly())
+        using (LR2SongDBExtended before = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly())
         { originalRows = before.Table<LR2SongDBExtended.install>().Select(row => row.path + "|" + row.delete_parent).ToArray(); }
         string? independent = null;
         using var cancellation = new CancellationTokenSource();
@@ -287,7 +292,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             }
             if (failureKind == "database")
             {
-                ExecuteSongDbFixtureTransaction(fixture.Database, db => db.Execute(
+                ExecuteSongDbFixtureTransaction(fixture.Library.DatabaseScope, fixture.Database, db => db.Execute(
                     "CREATE TRIGGER fail_scope_replacement BEFORE INSERT ON install WHEN NEW.path = '" + source.Replace("'", "''") + "' BEGIN SELECT RAISE(ABORT, 'scope-replacement'); END;"));
             }
             if (failureKind == "cancel")
@@ -308,7 +313,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             }
         }
         finally { held?.Dispose(); }
-        using LR2SongDBExtended after = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly();
+        using LR2SongDBExtended after = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly();
         if (failureKind == "success")
         {
             Assert.IsNull(fixture.Failure, fixture.Failure?.Exception.ToString());

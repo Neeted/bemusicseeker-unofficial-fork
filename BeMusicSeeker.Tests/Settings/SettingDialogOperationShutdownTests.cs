@@ -71,11 +71,11 @@ public sealed partial class SettingDialogEditCompletionTests
                 values.Commit((nameof(Settings.LR2SongDBPath), validSong));
                 if (boundary == "preparation")
                 {
-                    new BmsLibraryDbGateway(validSong).EnsureAppOwnedSchema();
+                    new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), validSong).EnsureAppOwnedSchema();
                     string candidate = Path.Combine(root, "LeapCandidate");
                     Directory.CreateDirectory(candidate);
                     Directory.SetLastWriteTime(candidate, new DateTime(2024, 2, 29, 12, 0, 0));
-                    using var db = new LR2SongDBExtended(validSong);
+                    using LR2SongDBExtended db = composition.DatabaseScope.OpenSongWrite(validSong);
                     db.CreateTable<LR2SongDB.song>(); db.CreateTable<LR2SongDB.folder>();
                     db.Insert(new LR2SongDB.folder { path = candidate + Path.DirectorySeparatorChar, type = 1, adddate = 0 });
                     dialogs.ConfirmationObservedAsync = () => { entered.TrySetResult(); return release.Task; };
@@ -92,8 +92,8 @@ public sealed partial class SettingDialogEditCompletionTests
                     AwaitStartupBackgroundCompletionOnDispatcher(owner, "settings-operation-bmt-background-terminal");
                     owner.SettingDialog.Dispose();
                     var workspace = new SettingsOperationWorkspace(() => { entered.TrySetResult(); return release.Task; });
-                    var dialog = new SettingsDialogViewModel(owner, workspace, owner.PlaylistWorkspace, owner.PlayHistory, owner.LibraryFolderTree,
-                        composition, owner.PlaybackPanel, owner.Lr2SongDbSyncWorkflow, session, reportApplyFailure: failures.Add,
+                    var dialog = new SettingsDialogViewModel(composition.DatabaseScope, owner, workspace, owner.PlaylistWorkspace, owner.PlayHistory, owner.LibraryFolderTree,
+                        composition, owner.PlaybackPanel, owner.Lr2SongDbSyncWorkflow, session, new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(composition.DatabaseScope)), reportApplyFailure: failures.Add,
                         applicationLifetime: lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                         externalShellGateway: ExternalShellGatewayPolicy.Current, applicationPathSnapshot: ApplicationPathPolicy.Current,
                         audioDeviceCatalog: new TestAudioDeviceCatalog(), audioSettingsGateway: new SettingsAudioGateway(() => values),
@@ -211,8 +211,8 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.IsTrue(owner.IsInitializationCompleted && owner.HasActiveLibraryProfile);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "manual-resync-shell-background-terminal");
                 owner.SettingDialog.Dispose();
-                var dialog = new SettingsDialogViewModel(owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace, owner.PlayHistory, owner.LibraryFolderTree,
-                    fixture.Composition, owner.PlaybackPanel, new Lr2SongDbSyncWorkflowOwner(terminalRuntime), settingsSession,
+                var dialog = new SettingsDialogViewModel(fixture.Composition.DatabaseScope, owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace, owner.PlayHistory, owner.LibraryFolderTree,
+                    fixture.Composition, owner.PlaybackPanel, new Lr2SongDbSyncWorkflowOwner(terminalRuntime), settingsSession, new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(fixture.Composition.DatabaseScope)),
                     applicationLifetime: lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     externalShellGateway: ExternalShellGatewayPolicy.Current, applicationPathSnapshot: fixture.Composition.ApplicationPathSnapshot,
                     audioDeviceCatalog: new TestAudioDeviceCatalog(), audioSettingsGateway: new SettingsAudioGateway(() => fixture.Settings),

@@ -25,6 +25,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsPlaylistPersistenceLifecycleTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>実SQL保存→別状態の出力→復元を通し、追加・改名・空集合・ID再利用・別表の旧path再利用・旧親新子・旧ROOTの通常/追加先化・種類一部/全無効で旧ファイルと行だけを整理します。追加代表は同じlibraryの実差分再読込みでも再発見されないことを確認します。</summary>
     [TestMethod]
     [DataRow("append")]
@@ -67,7 +69,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         if (scenario == "id-reuse") { current[0].entries.Single().md5 = new string('b', 32); }
         fixture.PersistAndOutput(current);
         // 実ファイルが既に消えた残存行も、同じ配置の期待集合から除かれることを確認します。
-        using (var stale = new LR2SongDBExtended(fixture.SongDb))
+        using (LR2SongDBExtended stale = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb))
         { stale.InsertOrReplace(new LR2SongDB.folder { path = Path.Combine(fixture.OutputDirectory(current[0]), "db-only.lr2folder"), title = "DB-only stale" }); }
         string[] oldFiles = current.SelectMany(table => Directory.GetFiles(fixture.OutputDirectory(table), "*.lr2folder", SearchOption.AllDirectories)).ToArray();
         string? ordinary = scenario is "partial-disabled" or "all-disabled" ? Path.Combine(fixture.OutputDirectory(current[0]), "keep.txt") : null;
@@ -81,7 +83,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         foreach (string oldFile in oldFiles.Where(file => !saved.Any(table =>
             file.StartsWith(fixture.OutputDirectory(table) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))))
         { Assert.IsFalse(File.Exists(oldFile), oldFile); }
-        using (var db = new LR2SongDBExtended(fixture.SongDb))
+        using (LR2SongDBExtended db = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb))
         {
             foreach (BMSTable retired in current.Where(table => !saved.Any(target => fixture.OutputDirectory(target) == fixture.OutputDirectory(table)
                 || fixture.OutputDirectory(target).StartsWith(fixture.OutputDirectory(table) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))))
@@ -100,7 +102,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             fixture.Library.ReloadFileDiff();
             Assert.IsTrue(File.Exists(Path.Combine(fixture.OutputDirectory(saved[0]), "0000.lr2folder")));
             Assert.IsFalse(Directory.Exists(fixture.OutputDirectory(current[1])));
-            using var db = new LR2SongDBExtended(fixture.SongDb);
+            using LR2SongDBExtended db = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb);
             string removedPrefix = fixture.OutputDirectory(current[1]) + Path.DirectorySeparatorChar;
             Assert.IsFalse(db.Table<LR2SongDB.folder>().Any(row => row.path.StartsWith(removedPrefix, StringComparison.OrdinalIgnoreCase)));
         }
@@ -123,7 +125,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         Dictionary<string, DateTime> times = files.ToDictionary(path => path, File.GetLastWriteTimeUtc);
         string[] BeforeRows()
         {
-            using var db = new LR2SongDBExtended(fixture.SongDb);
+            using LR2SongDBExtended db = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb);
             return db.Query<LR2SongDB.folder>("SELECT * FROM folder ORDER BY path;")
                 .Select(Newtonsoft.Json.JsonConvert.SerializeObject).ToArray();
         }
@@ -155,13 +157,13 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         Assert.ThrowsExactly<InvalidOperationException>(() => fixture.Playlist.CommitBMSTableHeadersToDB([active, fixture.Table]));
         Assert.AreEqual(0, fixture.Playlist.CommitBMSTableHeadersToDB([]).Count);
         Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
-        using (var db = new LR2SongDBExtended(fixture.SongDb))
+        using (LR2SongDBExtended db = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb))
         {
             Assert.AreEqual("Before", db.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id = ?", active.playlist_id));
         }
         Assert.AreEqual(0, fixture.Playlist.CommitBMSTableHeadersToDB([fixture.Table], requireCurrentTarget: false).Count);
         Assert.AreEqual(1, fixture.Playlist.CommitBMSTableHeadersToDB([active, fixture.Table], requireCurrentTarget: false).Count);
-        using var verify = new LR2SongDBExtended(fixture.SongDb);
+        using LR2SongDBExtended verify = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb);
         Assert.AreEqual("After", verify.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id = ?", active.playlist_id));
         Assert.AreEqual("Prefix", verify.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id = ?", fixture.Table.playlist_id));
     }
@@ -177,9 +179,9 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var repository = new PlaylistPersistenceRepository(songDbPath);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            var repository = new PlaylistPersistenceRepository(databaseScope, songDbPath);
             var expected = new CustomFolderOutputStatusRow
             {
                 PlaylistId = 7101,
@@ -233,11 +235,11 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             const int playlistId = 6101;
             const int legacyMask = 0x7FE;
-            using (var setup = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
             {
                 setup.InsertOrReplace(new BMSTable
                 {
@@ -248,9 +250,9 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 }, typeof(LR2SongDBExtended.playlist));
             }
 
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
 
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(
                 legacyMask,
                 verify.ExecuteScalar<int>("SELECT ignore_folder_output FROM playlist WHERE playlist_id = ?;", playlistId));
@@ -279,8 +281,8 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Directory.CreateDirectory(tempDirectory);
             try
             {
-                string songDbPath = CreateTempSongDbPath(tempDirectory);
-                PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+                string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+                PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
                 const int playlistId = 9071;
                 BMSTableEntry targetEntry = CreateEntry(
                     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -301,14 +303,14 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                     entries = [targetEntry, retainedEntry]
                 };
                 table.Folder_order = ["Original", "Keep"];
-                using (var setup = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
                 {
                     setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
                     setup.InsertOrReplace(targetEntry, typeof(LR2SongDBExtended.playlist_entry));
                     setup.InsertOrReplace(retainedEntry, typeof(LR2SongDBExtended.playlist_entry));
                 }
 
-                var playlist = new TestBmsPlaylist(
+                var playlist = new TestBmsPlaylist(databaseScope,
                     songDbPath,
                     null,
                     null,
@@ -316,7 +318,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                     () => new PlaylistUrlCompletionOptionsSnapshot(),
                     () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = false },
                     () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },
-                    CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+                    CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope,
                         songDbPath,
                         CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
                 {
@@ -328,7 +330,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 string[] initialFolderOrder = [.. table.Folder_order];
                 string[] initialEntryFolders = [targetEntry.folder, retainedEntry.folder];
                 const string triggerName = "playlist_mutation_test_write_failure";
-                using (var failDatabaseWrite = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended failDatabaseWrite = databaseScope.OpenSongWrite(songDbPath))
                 {
                     failDatabaseWrite.Execute(
                         "CREATE TRIGGER " + triggerName + " "
@@ -366,7 +368,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 Assert.AreEqual("Target before failure", targetEntry.title, mutationKind);
                 Assert.AreEqual("Retained before failure", retainedEntry.title, mutationKind);
 
-                using (LR2SongDBExtended verifyFailedWrite = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                using (LR2SongDBExtended verifyFailedWrite = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
                 {
                     BMSTable persistedTable = verifyFailedWrite.Table<BMSTable>()
                         .Single(item => item.playlist_id == playlistId);
@@ -383,14 +385,14 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                         item.title is "Target before failure" or "Retained before failure"), mutationKind);
                 }
 
-                using (var removeFailureTrigger = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended removeFailureTrigger = databaseScope.OpenSongWrite(songDbPath))
                 {
                     removeFailureTrigger.Execute("DROP TRIGGER " + triggerName + ";");
                 }
 
                 ApplyMutationAfterFailure(playlist, table, targetEntry, mutationKind, "AfterFailure");
 
-                using (LR2SongDBExtended verifyFollowingWrite = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                using (LR2SongDBExtended verifyFollowingWrite = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
                 {
                     BMSTable persistedTable = verifyFollowingWrite.Table<BMSTable>()
                         .Single(item => item.playlist_id == playlistId);
@@ -540,8 +542,8 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             BMSTable table = new()
             {
                 playlist_id = 9012,
@@ -552,16 +554,16 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             BMSTableEntry entry = table.entries.Single();
             entry.folder = "Mutation";
             entry.parent = table;
-            using (var setup = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
             {
                 setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
                 setup.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
             }
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
-            var library = new TestBmsLibrary(songDbPath, settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, settings: testSettings);
             var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
@@ -639,8 +641,8 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             BMSTable firstTable = new()
             {
                 playlist_id = 9013,
@@ -657,18 +659,18 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             BMSTableEntry secondEntry = secondTable.entries.Single();
             firstEntry.playlist_id = firstTable.playlist_id;
             secondEntry.playlist_id = secondTable.playlist_id;
-            using (var setup = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
             {
                 setup.InsertOrReplace(firstTable, typeof(LR2SongDBExtended.playlist));
                 setup.InsertOrReplace(secondTable, typeof(LR2SongDBExtended.playlist));
                 setup.InsertOrReplace(firstEntry, typeof(LR2SongDBExtended.playlist_entry));
                 setup.InsertOrReplace(secondEntry, typeof(LR2SongDBExtended.playlist_entry));
             }
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>([firstTable, secondTable])
             };
-            var library = new TestBmsLibrary(songDbPath, settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, settings: testSettings);
             var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
             var workspace = new PlaylistWorkspaceViewModel(
                 action => action(),
@@ -721,7 +723,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Assert.IsFalse(firstTable.entries.Contains(firstEntry));
             Assert.IsFalse(secondTable.entries.Contains(secondEntry));
             Assert.AreEqual(1, notifications.Count, "一要求の二表削除は成功事実を一つの通知receiptへ集約します。");
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, verify.Table<BMSTableEntry>().Count(entry =>
                 (entry.playlist_id == firstTable.playlist_id && entry.md5 == firstEntry.md5
                     || entry.playlist_id == secondTable.playlist_id && entry.md5 == secondEntry.md5)
@@ -746,12 +748,13 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+            ApplicationDatabaseScope databaseScope = MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope;
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>([new BMSTable { name = "Initial" }])
             };
-            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
             using SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
             List<string> workspacePropertyNames = [];
             int playlistTablesPresentationChangedCount = 0;
@@ -810,8 +813,8 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             BMSTable table = new()
             {
                 playlist_id = 9032,
@@ -819,7 +822,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 entries = [CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Removed")]
             };
             BMSTableEntry entry = table.entries.Single();
-            var library = new TestBmsLibrary(songDbPath, null, null, null,
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null,
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false }, settings: testSettings);
             var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath,
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },
@@ -853,7 +856,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Assert.IsTrue(rejected.IsStale);
             Assert.IsFalse(rejected.IsBusy);
             Assert.AreEqual(deletedDatabase, playlist.GetPlaylistDump());
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(removeEntryOnly ? 1 : 0, verify.Table<BMSTable>().Count(row => row.playlist_id == table.playlist_id));
             Assert.AreEqual(0, verify.Table<BMSTableEntry>().Count(row => row.playlist_id == table.playlist_id && row.md5 == entry.md5));
         }
@@ -872,10 +875,10 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath,
-                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath,
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
             int notifications = 0;
             playlist.BMSTables.CollectionChanged += (_, _) => notifications++;
             BMSTable draft = playlist.CreateBMSTable();
@@ -883,7 +886,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Assert.IsNull(draft.playlist_id);
             Assert.AreEqual(0, notifications);
             Assert.AreEqual(0, playlist.BMSTables.Count);
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, verify.Table<BMSTable>().Count());
         }
         finally { Directory.Delete(tempDirectory, recursive: true); }
@@ -898,22 +901,22 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             BMSTable table = new()
             {
                 playlist_id = 9033,
                 name = "RemovalNotificationFailure",
                 entries = [CreateEntry("cccccccccccccccccccccccccccccccc", "Removed")]
             };
-            using (var setup = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
             {
                 setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
                 setup.InsertOrReplace(table.entries.Single(), typeof(LR2SongDBExtended.playlist_entry));
             }
-            var playlist = new TestBmsPlaylist(
+            var playlist = new TestBmsPlaylist(databaseScope,
                 songDbPath,
-                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
@@ -930,7 +933,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
 
             Assert.AreEqual("test remove notification failure", notificationFailure.Message);
             Assert.AreEqual(0, playlist.BMSTables.Count);
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, verify.Table<BMSTable>().Count(row => row.playlist_id == table.playlist_id));
             Assert.AreEqual(0, verify.Table<BMSTableEntry>().Count(row => row.playlist_id == table.playlist_id));
         }
@@ -952,8 +955,8 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
             var table = new BMSTable
             {
                 name = "NoUri",
@@ -994,9 +997,9 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             File.WriteAllBytes(goodScorePath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Good Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
             File.WriteAllBytes(badHeaderPath, CreateUtf8BomBytes("{ invalid json"));
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
             BMSTable goodTable = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(goodHeaderPath));
             var badTable = new BMSTable
             {
@@ -1059,9 +1062,9 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             }
             string headerCPath = Path.Combine(tempDirectory, "header-c.json");
             File.WriteAllBytes(headerCPath, CreateUtf8BomBytes("{\"name\":\"Safe\",\"symbol\":\"C2\",\"data_url\":\"./score.json\"}"));
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
             BMSTable tableA = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerAPath));
             BMSTable tableB = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerBPath));
             tableA.playlist_id = 9502;
@@ -1077,7 +1080,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             tableC.symbol = "C1";
             playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { tableA, tableB, tableC });
             playlist.CommitBMSTableHeadersToDB(playlist.BMSTables);
-            var library = new TestBmsLibrary(songDbPath, settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, settings: testSettings);
             List<string> warnings = [];
             var workspace = new PlaylistWorkspaceViewModel(
                 action => action(),
@@ -1134,7 +1137,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Assert.AreEqual("OutputB", tableB.Output_dir);
             Assert.AreEqual("C2", tableC.symbol);
             Assert.AreEqual(conflict == "retained" ? 2 : 1, warnings.Count);
-            using LR2SongDBExtended reader = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended reader = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual("A1", reader.Table<BMSTable>().Single(table => table.playlist_id == 9502).symbol);
             Assert.AreEqual(conflict == "retained" ? "B1" : "B2", reader.Table<BMSTable>().Single(table => table.playlist_id == 9503).symbol);
             Assert.AreEqual("C2", reader.Table<BMSTable>().Single(table => table.playlist_id == 9504).symbol);
@@ -1168,9 +1171,9 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 scoreJsonPath,
                 CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"External Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 9501;
             table.name = "Local Name";
@@ -1188,7 +1191,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
             playlist.CommitBMSTableWithEntriesToDB(table);
 
-            BMSLibrary library = new TestBmsLibrary(songDbPath, settings: testSettings);
+            BMSLibrary library = new TestBmsLibrary(databaseScope, songDbPath, settings: testSettings);
             PlaylistWorkspaceViewModel workspace = CreatePlaylistWorkspace(playlist, library);
             int detailReloadCount = 0;
             int keywordValueCandidatesChangedCount = 0;
@@ -1223,7 +1226,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Assert.AreEqual(1, detailReloadCount);
 
 
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             LR2SongDBExtended.playlist persisted = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == 9501);
             Assert.AreEqual("External:Name", persisted.name);
             Assert.AreEqual("😀", persisted.symbol);
@@ -1261,8 +1264,8 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         TestBmsPlaylist? playlist = null;
         try
         {
-            string songDbPath = CreateTempSongDbPath(directory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string songDbPath = CreateTempSongDbPath(databaseScope, directory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             string bmsRoot = Path.Combine(directory, "BMS");
             Directory.CreateDirectory(bmsRoot);
             testSettings.OperationModeLR2DB = true;
@@ -1286,7 +1289,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 Folder_order = ["A1"]
             };
             table.entries.Single().playlist_id = table.playlist_id;
-            using (var setup = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
             {
                 setup.CreateTable<LR2SongDB.folder>();
                 setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
@@ -1298,7 +1301,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                     title = "Restored song"
                 }, typeof(LR2SongDB.song));
             }
-            var synchronization = new TestLr2PlaylistFolderSynchronizationPort(songDbPath)
+            var synchronization = new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath)
             {
                 PhysicalSurfaceFactory = () => Directory.Exists(testSettings.LR2CustomFolderOutputBaseDir)
                     ? CustomFolderOutputPhysicalSurface.FromEntries(
@@ -1308,7 +1311,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                         discoveryComplete: true)
                     : CustomFolderOutputPhysicalSurface.Empty
             };
-            playlist = new TestBmsPlaylist(songDbPath, configOwner, synchronization, settings: testSettings)
+            playlist = new TestBmsPlaylist(databaseScope, songDbPath, configOwner, synchronization, settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>([table]),
                 StartupBackgroundTaskScheduler = (_, _, _, _) => false
@@ -1327,7 +1330,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Assert.AreEqual(lastUpdate, table.last_update);
             StringAssert.Contains(File.ReadAllText(outputPath, Encoding.GetEncoding("shift_jis")), "#TITLE B1");
             await playlist.ReloadTablesAsync(exportBeatorajaBmt: false);
-            CustomFolderOutputStatusRow beforeRestore = new PlaylistPersistenceRepository(songDbPath)
+            CustomFolderOutputStatusRow beforeRestore = new PlaylistPersistenceRepository(databaseScope, songDbPath)
                 .ReadCustomFolderOutputStatusRows()[table.playlist_id!.Value];
             Assert.AreEqual(lastUpdate.Ticks, beforeRestore.LastUpdateTicks);
             Assert.AreEqual(table.header_sha256 ?? string.Empty, beforeRestore.HeaderSha256);
@@ -1343,7 +1346,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             StringAssert.Contains(output, "#TITLE A1");
             string command = output.Split(["\r\n", "\n"], StringSplitOptions.None)
                 .Single(line => line.StartsWith("#COMMAND ", StringComparison.Ordinal))["#COMMAND ".Length..];
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual("A1", verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ?;", table.playlist_id));
             Assert.AreEqual("A1", verify.Table<LR2SongDB.folder>().Single(row => row.path == outputPath).title);
             CollectionAssert.AreEqual(new[] { table.entries.Single().md5 },
@@ -1368,8 +1371,8 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         Task? readiness = null;
         try
         {
-            string dbPath = CreateTempSongDbPath(directory);
-            PlaylistPersistenceRepository.EnsureSchema(dbPath);
+            string dbPath = CreateTempSongDbPath(databaseScope, directory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, dbPath);
             string lr2Root = Path.Combine(directory, "LR2");
             // 配置検証ではなく、出力先の子にある通常ファイルとの衝突で I/O 失敗を起こす。
             string bmsRoot = Path.Combine(directory, "BMS");
@@ -1385,12 +1388,12 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 LR2RootPath = lr2Root,
                 LR2CustomFolderOutputBaseDirRootType = outputBase
             };
-            playlist = new TestBmsPlaylist(
+            playlist = new TestBmsPlaylist(databaseScope,
                 dbPath, configOwner, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 () => settings,
-                CreateDeterministicLr2PlaylistFolderSynchronizationPort(dbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, dbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
             playlist.StartupBackgroundTaskScheduler = (_, _, _, _) => false;
             BMSTable previous = PlaylistRestoreOutputFixture.Table(8010, "OldRoot", root: true);
             playlist.BMSTables.Add(previous);
@@ -1406,7 +1409,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             IOException restoreFailure = await Assert.ThrowsExactlyAsync<IOException>(() =>
                 playlist.RestorePlaylistDumpAsync(File.ReadAllText(backupPath)));
 
-            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly())
             {
                 BMSTable restored = verify.Table<BMSTable>().Single();
                 Assert.AreEqual(8011, restored.playlist_id);
@@ -1416,7 +1419,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Assert.AreEqual(8011, playlist.BMSTables.Single().playlist_id);
             Assert.AreEqual("Restored root", playlist.BMSTables.Single().name);
             CollectionAssert.AreEqual(previousBytes, File.ReadAllBytes(previousFile));
-            using (var previousOutput = new LR2SongDBExtended(dbPath))
+            using (LR2SongDBExtended previousOutput = databaseScope.OpenSongWrite(dbPath))
             { Assert.IsTrue(previousOutput.Table<LR2SongDB.folder>().Any(row => row.path == previousFile)); }
 
             readiness = playlist.StartupReadiness.WaitForRequiredPlaylistReadinessAsync();
@@ -1450,10 +1453,10 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         try
         {
             string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
             {
             }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             var persistedTable = new BMSTable
             {
                 playlist_id = 7001,
@@ -1461,11 +1464,11 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 symbol = "R",
                 Output_dir = "ReloadedTable"
             };
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.InsertOrReplace(persistedTable, typeof(LR2SongDBExtended.playlist));
             }
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[]
                     {
@@ -1503,7 +1506,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             await playlist.ReloadTablesAsync(exportBeatorajaBmt: false);
             Assert.IsNotNull(rejectedRestore);
             await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => rejectedRestore!);
-            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(7001, verify.Table<BMSTable>().Single().playlist_id);
             }
@@ -1552,9 +1555,9 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]"
             };
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty);
             var tableA = new BMSTable
             {
                 playlist_id = 7603,
@@ -1588,7 +1591,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                     entry.playlist_id = table.playlist_id;
                 }
             }
-            var playlist = new TestBmsPlaylist(
+            var playlist = new TestBmsPlaylist(databaseScope,
                 songDbPath,
                 configOwner,
                 null,
@@ -1601,7 +1604,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 BMSTables = new ObservableCollection<BMSTable>([tableA, tableB])
             };
 
-            using (var seed = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended seed = databaseScope.OpenSongWrite(songDbPath))
             {
                 foreach (BMSTable table in new[] { tableA, tableB })
                 {
@@ -1628,7 +1631,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             File.Delete(missingFileB);
             string staleFile = Path.Combine(outputDirA, "stale.lr2folder");
             File.WriteAllText(staleFile, "#TITLE stale", Encoding.GetEncoding("shift_jis"));
-            using (var seed = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended seed = databaseScope.OpenSongWrite(songDbPath))
             {
                 seed.Insert(new LR2SongDB.folder
                 {
@@ -1651,7 +1654,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             var capturedPhysicalSurface =
                 CustomFolderOutputPhysicalSurface.FromEntries(physicalEntries, discoveryComplete: true);
             synchronization.PhysicalSurfaceFactory = () => capturedPhysicalSurface;
-            PlaylistPersistenceRepository statusRepository = new(songDbPath);
+            PlaylistPersistenceRepository statusRepository = new(databaseScope, songDbPath);
             Dictionary<int, CustomFolderOutputStatusRow> seededStatusRows =
                 statusRepository.ReadCustomFolderOutputStatusRows();
             Assert.IsTrue(seededStatusRows.TryGetValue(tableB.playlist_id!.Value, out CustomFolderOutputStatusRow? seededStatusB));
@@ -1686,14 +1689,14 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Assert.AreEqual(preservedTimestamp, File.GetLastWriteTimeUtc(preservedFile));
             Assert.AreEqual("playlist_lr2folder_batch_sync", synchronization.Operations[^1]);
 
-            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", staleFile));
                 Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", missingFileA));
                 Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", missingFileB));
             }
             Dictionary<int, CustomFolderOutputStatusRow> statusRows =
-                new PlaylistPersistenceRepository(songDbPath).ReadCustomFolderOutputStatusRows();
+                new PlaylistPersistenceRepository(databaseScope, songDbPath).ReadCustomFolderOutputStatusRows();
             Assert.IsTrue(statusRows.TryGetValue(tableA.playlist_id!.Value, out CustomFolderOutputStatusRow? statusA));
             Assert.IsTrue(statusRows.TryGetValue(tableB.playlist_id!.Value, out CustomFolderOutputStatusRow? statusB));
             Assert.AreEqual(tableA.Output_dir, Path.GetFileName(statusA!.OutputDirectory.TrimEnd(Path.DirectorySeparatorChar)));
@@ -1788,9 +1791,9 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 LR2CustomFolderOutputBaseDirRootType = testSettings.LR2CustomFolderOutputBaseDirRootType,
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]"
             };
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            playlist = new TestBmsPlaylist(
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            playlist = new TestBmsPlaylist(databaseScope,
                 songDbPath,
                 configOwner,
                 null,
@@ -1798,7 +1801,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 () => repairSettings,
-                CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope,
                     songDbPath,
                     CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
             var repairProgress = new List<PlaylistSyncProgressSnapshot>();
@@ -1906,8 +1909,8 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]"
             };
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             const int playlistId = 7611;
             BMSTable persistedTable = new()
             {
@@ -1922,7 +1925,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             {
                 entry.playlist_id = playlistId;
             }
-            using (var seed = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended seed = databaseScope.OpenSongWrite(songDbPath))
             {
                 seed.InsertOrReplace(persistedTable, typeof(LR2SongDBExtended.playlist));
                 foreach (BMSTableEntry entry in persistedTable.entries)
@@ -1931,11 +1934,11 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 }
             }
 
-            TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+            TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope,
                 songDbPath,
                 CustomFolderOutputPhysicalSurface.Empty);
             var outputAdmission = new ChartFileOperationSynchronizer();
-            var playlist = new TestBmsPlaylist(
+            var playlist = new TestBmsPlaylist(databaseScope,
                 songDbPath,
                 configOwner,
                 null,
@@ -1966,7 +1969,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 long EntryCount, string EntryMd5, string EntryFolder, long FolderRowCount,
                 long StatusRowCount) SnapshotDatabase()
             {
-                using var db = new LR2SongDBExtended(songDbPath);
+                using LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath);
                 return (
                     db.ExecuteScalar<long>("SELECT COUNT(1) FROM playlist WHERE playlist_id = ?;", playlistId),
                     db.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id = ?;", playlistId),
@@ -2037,8 +2040,8 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             const int playlistId = 7051;
             BMSTable persistedTable = new()
             {
@@ -2051,7 +2054,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 "dddddddddddddddddddddddddddddddd",
                 "Receipt folder");
             persistedEntry.playlist_id = playlistId;
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.InsertOrReplace(persistedTable, typeof(LR2SongDBExtended.playlist));
                 db.InsertOrReplace(persistedEntry, typeof(LR2SongDBExtended.playlist_entry));
@@ -2065,11 +2068,11 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 Output_dir = persistedTable.Output_dir
             };
             table.MarkEntriesNotLoaded();
-            var playlist = new TestBmsPlaylist(songDbPath, null, null, null,
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },
-                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -2125,8 +2128,8 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             BMSTable table = new()
             {
                 playlist_id = 7052,
@@ -2135,11 +2138,11 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 Output_dir = "HydrationFailure"
             };
             table.MarkEntriesNotLoaded();
-            var playlist = new TestBmsPlaylist(songDbPath, null, null, null,
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },
-                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -2185,8 +2188,8 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             var table = new BMSTable
             {
                 playlist_id = 7101,
@@ -2194,12 +2197,12 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 symbol = "BN",
                 Output_dir = "BeforeName"
             };
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
                 db.Execute("INSERT INTO playlist_entry (playlist_id, md5, title, folder) VALUES (7101, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'Song', '1');");
             }
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -2207,7 +2210,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             table.name = "AfterName";
             playlist.CommitBMSTableHeaderToDB(table);
 
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual("AfterName", verify.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id = 7101;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM playlist_entry WHERE playlist_id = 7101;"));
         }
@@ -2230,8 +2233,8 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             var table = new BMSTable
             {
                 playlist_id = 7201,
@@ -2246,7 +2249,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 ],
                 Folder_order = ["LEVEL 2", "LEVEL 1"]
             };
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
                 foreach (BMSTableEntry entry in table.entries)
@@ -2254,7 +2257,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                     db.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
                 }
             }
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -2266,7 +2269,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Assert.AreEqual(lastUpdate, table.last_update);
             Assert.AreEqual(2, receipts.Single().Changes.Length);
 
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             string firstFolder = verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = 7201 AND md5 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';");
             string secondFolder = verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = 7201 AND md5 = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';");
             CollectionAssert.AreEqual(new[] { "★1", "★2" }, new[] { firstFolder, secondFolder });
@@ -2291,8 +2294,8 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             const int playlistId = 7251;
             BMSTable persistedTable = new()
             {
@@ -2305,7 +2308,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 "cccccccccccccccccccccccccccccccc",
                 "Hydrated folder");
             persistedEntry.playlist_id = playlistId;
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.InsertOrReplace(persistedTable, typeof(LR2SongDBExtended.playlist));
                 db.InsertOrReplace(persistedEntry, typeof(LR2SongDBExtended.playlist_entry));
@@ -2319,7 +2322,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 Output_dir = persistedTable.Output_dir
             };
             unloadedTable.MarkEntriesNotLoaded();
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { unloadedTable })
             };
@@ -2329,7 +2332,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
 
             Assert.IsTrue(unloadedTable.ArePlaylistEntriesLoaded);
             Assert.AreEqual(1, unloadedTable.entries.Count);
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(
                 1L,
                 verify.ExecuteScalar<long>(

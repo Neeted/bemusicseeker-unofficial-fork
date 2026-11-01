@@ -15,7 +15,6 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using ChartInfoExportTool;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using SQLite;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
@@ -47,9 +46,12 @@ internal static class ChartInfoMetadataTestSupport
 
 
     /// <summary>補完の実保存件数を読み取り専用接続で観測し、検査側でDBを更新しません。</summary>
-    internal static long CountChartInfoRows(string songDbPath, string sha256)
+    /// <param name="databaseScope">補完対象ライブラリと共有する接続所有者。</param>
+    /// <param name="songDbPath">観測対象のsong.db。</param>
+    /// <param name="sha256">保存件数を観測する譜面のSHA-256。</param>
+    internal static long CountChartInfoRows(ApplicationDatabaseScope databaseScope, string songDbPath, string sha256)
     {
-        using var songDb = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+        using LR2SongDBExtended songDb = databaseScope.OpenSongReadOnly(songDbPath);
         return songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", sha256);
     }
 
@@ -398,7 +400,12 @@ internal static class ChartInfoMetadataTestSupport
     }
 
     /// <summary>取込み条件を作る入力行を一括準備し、本番exportの保存形式で局所bundleを生成します。</summary>
+    /// <param name="databaseScope">生成元DBの接続所有者。</param>
+    /// <param name="tempRootPath">生成元DBとbundleを置く一時領域。</param>
+    /// <param name="chartInfos">生成元へ保存する譜面情報。</param>
+    /// <param name="chartDigests">生成元へ保存するdigest対応。</param>
     internal static string CreateChartInfoMetadataBundle(
+        ApplicationDatabaseScope databaseScope,
         string tempRootPath,
         IEnumerable<BeMusicSeeker.Models.ChartDetails> chartInfos,
         IEnumerable<LR2SongDBExtended.chart_digest_map>? chartDigests = null)
@@ -406,7 +413,7 @@ internal static class ChartInfoMetadataTestSupport
         string sourceDirectoryPath = Path.Combine(tempRootPath, Guid.NewGuid().ToString("N") + "-source");
         Directory.CreateDirectory(sourceDirectoryPath);
         string sourcePath = Path.Combine(sourceDirectoryPath, "song.db");
-        using (var sourceDb = new LR2SongDBExtended(sourcePath))
+        using (LR2SongDBExtended sourceDb = databaseScope.OpenSongWrite(sourcePath))
         {
             BmsLibraryDbGateway.EnsureBmsonSchema(sourceDb);
             BmsLibraryDbGateway.EnsureChartInfoSchema(sourceDb);

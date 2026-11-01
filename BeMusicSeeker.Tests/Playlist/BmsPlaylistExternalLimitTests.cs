@@ -10,6 +10,8 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class BmsPlaylistExternalLoadTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>ローカル初回JSONはHTML上限を超える空白を含む100MiBちょうどまで許可し、+1は解析前に拒否します。相対data_urlも維持します。</summary>
     [TestMethod]
     public async Task ExternalJson_RealLimitIncludesLeadingWhitespaceAndRejectsOneExtraByte()
@@ -29,7 +31,7 @@ public sealed partial class BmsPlaylistExternalLoadTests
                 while (remaining > 0) { int count = Math.Min(remaining, whitespace.Length); file.Write(whitespace, 0, count); remaining -= count; }
                 file.Write(header);
             }
-            var playlist = new TestBmsPlaylist(CreateTempSongDbPath(root), settings: testSettings);
+            var playlist = new TestBmsPlaylist(databaseScope, CreateTempSongDbPath(databaseScope, root), settings: testSettings);
             BMSTable result = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerPath));
             Assert.AreEqual("Bounded", result.name);
             Assert.AreEqual(0, result.entries.Count);
@@ -59,7 +61,7 @@ public sealed partial class BmsPlaylistExternalLoadTests
         try
         {
             await using var server = new SingleRequestHttpServer(compressed, additionalResponseHeaders: "Content-Encoding: gzip\r\n");
-            var playlist = new TestBmsPlaylist(CreateTempSongDbPath(root), settings: testSettings);
+            var playlist = new TestBmsPlaylist(databaseScope, CreateTempSongDbPath(databaseScope, root), settings: testSettings);
             await Assert.ThrowsExactlyAsync<InvalidDataException>(() => playlist.ExternalSyncOwner.LoadExternalTableAsync(server.Address));
         }
         finally { Directory.Delete(root, true); }

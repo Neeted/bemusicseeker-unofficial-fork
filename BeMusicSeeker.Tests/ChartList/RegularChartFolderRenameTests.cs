@@ -25,6 +25,7 @@ public sealed class RegularChartFolderRenameTests
     [TestMethod]
     public void FolderRename_ManagedPlaylistBusyRejectsBeforePlaybackStopAndFreshRequestSucceeds()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(songDbPath =>
         {
@@ -37,10 +38,10 @@ public sealed class RegularChartFolderRenameTests
             File.WriteAllText(path, "#PLAYER 1\n#TITLE Managed\n");
             ChartFile chart = CreateTestableBmsFile(path);
             var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2CustomFolderOutputBaseDir = managed };
-            var library = new TestBmsLibrary(songDbPath, new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(root)),
+            var library = new TestBmsLibrary(databaseScope, songDbPath, new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(root)),
                 null, null, new FileDbReportRecordingDialogs(), new TestUiScheduler(() => null!), () => options)
             { BmsCharts = [chart], BmsonCharts = [] };
-            new BmsLibraryDbGateway(songDbPath).UpsertSongs([chart]);
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs([chart]);
             var playback = new NoOpChartMutationPlaybackPort();
             using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner(), action => action(),
                 chartFileOperations: library.OperationAdmission, mutationDialogs: new FileDbReportRecordingDialogs(), mutationPlayback: playback);
@@ -55,7 +56,7 @@ public sealed class RegularChartFolderRenameTests
                 Assert.IsTrue(File.Exists(path));
                 Assert.IsFalse(Directory.Exists(destination));
                 Assert.IsFalse(library.OperationAdmission.IsActive);
-                using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
                 { Assert.IsNotNull(db.Find<LR2SongDB.song>(path)); Assert.IsNull(db.Find<LR2SongDB.song>(Path.Combine(destination, "chart.bms"))); }
             }
             finally { held.Dispose(); }
@@ -76,6 +77,7 @@ public sealed class RegularChartFolderRenameTests
     [DataRow(true)]
     public void StopAsync_DrainsInFlightFolderRename(bool finalizationFails)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -97,7 +99,7 @@ public sealed class RegularChartFolderRenameTests
             {
                 LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, libraryRoot);
                 var lr2ConfigOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(lr2Config);
-                library = new TestBmsLibrary(
+                library = new TestBmsLibrary(databaseScope,
                     songDbPath,
                     lr2ConfigOwner,
                     null,
@@ -109,7 +111,7 @@ public sealed class RegularChartFolderRenameTests
                         OperationModeLR2DB = true,
                         LR2RootPath = lr2RootPath
                     });
-                using (var songDb = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
                 {
                     songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
                     songDb.Execute(
@@ -119,7 +121,7 @@ public sealed class RegularChartFolderRenameTests
             }
             else
             {
-                library = new TestBmsLibrary(
+                library = new TestBmsLibrary(databaseScope,
                     songDbPath,
                     null,
                     null,
@@ -230,6 +232,7 @@ public sealed class RegularChartFolderRenameTests
     [TestMethod]
     public void FolderRename_FailsFastWhenSharedChartFileGateIsBusyWithoutRefresh()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string libraryRoot = Path.GetDirectoryName(songDbPath)!;
@@ -238,7 +241,7 @@ public sealed class RegularChartFolderRenameTests
             Directory.CreateDirectory(sourceDirectory);
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE busy\r\n");
             ChartFile file = CreateTestableBmsFile(chartPath);
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = [file]
             };
@@ -281,6 +284,7 @@ public sealed class RegularChartFolderRenameTests
     [TestMethod]
     public void FolderRename_RemainsAllowedWhilePlaylistCommunicationIsActive()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string libraryRoot = Path.GetDirectoryName(songDbPath)!;
@@ -290,11 +294,11 @@ public sealed class RegularChartFolderRenameTests
             Directory.CreateDirectory(sourceDirectory);
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE playlist communication\r\n");
             ChartFile file = CreateTestableBmsFile(chartPath);
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = [file]
             };
-            var playlist = new TestBmsPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath)
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
@@ -333,6 +337,7 @@ public sealed class RegularChartFolderRenameTests
     [TestMethod]
     public void FolderRenames_WaitForCurrentRowsBeforeReleasingAdmission()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string libraryRoot = Path.GetDirectoryName(songDbPath)!;
@@ -346,7 +351,7 @@ public sealed class RegularChartFolderRenameTests
             File.WriteAllText(secondChartPath, "#PLAYER 1\r\n#TITLE second\r\n");
             ChartFile firstFile = CreateTestableBmsFile(firstChartPath);
             ChartFile secondFile = CreateTestableBmsFile(secondChartPath);
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = [firstFile, secondFile]
             };
@@ -418,6 +423,7 @@ public sealed class RegularChartFolderRenameTests
     [TestMethod]
     public void FolderRename_StopAsyncDrainsQueuedRefresh()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string libraryRoot = Path.GetDirectoryName(songDbPath)!;
@@ -426,7 +432,7 @@ public sealed class RegularChartFolderRenameTests
             Directory.CreateDirectory(sourceDirectory);
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE queued\r\n");
             ChartFile file = CreateTestableBmsFile(chartPath);
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = [file]
             };
@@ -482,6 +488,7 @@ public sealed class RegularChartFolderRenameTests
     [DataRow(true)]
     public void FolderRename_Lr2FinalizationFailureStillDisplaysCommittedValues(bool reporterThrows)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -508,7 +515,7 @@ public sealed class RegularChartFolderRenameTests
                 ChartFile file = CreateTestableBmsFile(chartPath);
                 LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, libraryRoot);
                 var lr2ConfigOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(lr2Config);
-                var library = new TestBmsLibrary(
+                var library = new TestBmsLibrary(databaseScope,
                     songDbPath,
                     lr2ConfigOwner,
                     null,
@@ -535,7 +542,7 @@ public sealed class RegularChartFolderRenameTests
 
                     logicalAdmissionHeldDuringNotification = library.OperationAdmission.IsActive;
                 };
-                using (var songDb = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
                 {
                     songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
                     songDb.Execute(
@@ -592,7 +599,7 @@ public sealed class RegularChartFolderRenameTests
                 Assert.IsTrue(logicalAdmissionHeldDuringNotification);
                 StringAssert.Contains(dialogs.Messages[0].MessageBoxText, "forced durable finalization failure");
                 StringAssert.Contains(renameFailure!.ToString(), "forced durable finalization failure");
-                using (LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                using (LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
                 {
                     Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(destinationChartPath));
                     Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(chartPath));

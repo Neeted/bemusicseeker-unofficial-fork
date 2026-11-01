@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -23,6 +24,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataRow(true)]
     public async Task AutomaticInstall_WaitsForPlaybackStopAndDoesNotWriteOnStopFailure(bool failStop)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), "bms-install-stop-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -42,7 +44,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 return new PackageInstallCommandResult([], null);
             }), new AwaitablePlaybackStop(entered, stop.Task), action => { action(); return true; });
         owner.FailurePublished += failure => reported = failure.Exception;
-        owner.AttachLibrary(new TestBmsLibrary(database, null, null, string.Empty));
+        owner.AttachLibrary(new TestBmsLibrary(databaseScope, database, null, null, string.Empty));
         try
         {
             Assert.IsTrue(owner.Enqueue([Path.Combine(root, "source.zip")]));
@@ -107,9 +109,6 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             {
                 TestUiDispatcherHost.Invoke(() =>
                 {
-                    using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
-                    {
-                    }
                     var composition = new ApplicationComposition(
                         runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                         settingsEditSession: new NoOpSettingsEditSession(settings),
@@ -117,6 +116,9 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                         applicationLifetime: TestApplicationContext.CreateLifetime(),
                         cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                         fileDbMutationDialogService: new FileDbReportRecordingDialogs());
+                    using (LR2SongDBExtended _ = composition.DatabaseScope.OpenSongWrite(songDbPath))
+                    {
+                    }
                     viewModel = composition.CreateMainWindowViewModel();
                     scheduler.ReleaseAll();
                     library = composition.CreateBmsLibrary(new LibraryProfile(false, songDbPath, [], null, null,
@@ -277,6 +279,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task ActiveProgressBurst_QueuesOneLatestStatusBeforeCompletionAndInactive()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(
             Path.GetTempPath(),
@@ -288,7 +291,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         var notifications = new Queue<Action>();
         try
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, string.Empty);
             var published = new List<string>();
             PackageInstallWorkflowOwner owner = CreateOwner(
                 (current, paths, token, progressWriter) =>
@@ -346,6 +349,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task ProgressWriter_BoundsActiveDispatchAndDropsLateProgressAfterSeal()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(
             Path.GetTempPath(),
@@ -367,7 +371,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Exception? cleanupFailure = null;
         try
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, string.Empty);
             owner = new PackageInstallWorkflowOwner(
                 new FileDbReportRecordingDialogs(),
                 chartFileOperations,
@@ -547,6 +551,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task ProgressWriter_SealsBeforeLateSourceCanReachNextBatch()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(
             Path.GetTempPath(),
@@ -567,7 +572,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Exception? cleanupFailure = null;
         try
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, string.Empty);
             owner = new PackageInstallWorkflowOwner(
                 new FileDbReportRecordingDialogs(),
                 chartFileOperations,
@@ -779,6 +784,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task RetiredQueuePruningWaitsForTerminalReceiptAfterStatusDispatchStops()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(
             Path.GetTempPath(),
@@ -799,8 +805,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Task? idle = null;
         try
         {
-            var first = new TestBmsLibrary(firstDb, null, null, string.Empty);
-            var second = new TestBmsLibrary(secondDb, null, null, string.Empty);
+            var first = new TestBmsLibrary(databaseScope, firstDb, null, null, string.Empty);
+            var second = new TestBmsLibrary(databaseScope, secondDb, null, null, string.Empty);
             owner = CreateOwner(
                 (library, paths, token, progressWriter) =>
                 {
@@ -892,6 +898,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task AcquireAndTryEnqueueDroppedPaths_RejectsBusyBeforeAcquisitionWithoutReservation()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -915,7 +922,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             return new PackageInstallCommandResult([], null);
         }, action => { action(); return true; },
             droppedInstallIngressMaterializer: materializer, chartFileOperations: gate);
-        owner.AttachLibrary(new TestBmsLibrary(songDbPath));
+        owner.AttachLibrary(new TestBmsLibrary(databaseScope, songDbPath));
         try
         {
             Assert.IsTrue(gate.TryEnter(out IDisposable lease));
@@ -951,6 +958,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task AcquireAndTryEnqueueDroppedPaths_MissingSourcePreservesFailureAndReleasesAdmissionForFreshRequest()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         string sourceRoot = Path.Combine(root, "system-temp");
@@ -992,7 +1000,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             return new PackageInstallCommandResult([], null);
         }, action => { action(); return true; },
             droppedInstallIngressMaterializer: materializer, chartFileOperations: gate);
-        owner.AttachLibrary(new TestBmsLibrary(songDbPath));
+        owner.AttachLibrary(new TestBmsLibrary(databaseScope, songDbPath));
         try
         {
             DroppedInstallIngressAcquisitionResult failure = owner.AcquireAndTryEnqueueDroppedPaths([missingSource]);
@@ -1034,6 +1042,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task AcquireAndTryEnqueueDroppedPaths_StagesTransientSourceThroughMutationPort()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(
             Path.GetTempPath(),
@@ -1054,7 +1063,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         PackageInstallWorkflowOwner? owner = null;
         try
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, string.Empty);
             var materializer = new DroppedInstallIngressMaterializer(
                 systemTempRoot,
                 _ => false,
@@ -1118,6 +1127,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task Enqueue_PublishesCompletionAfterLiveInstallReturnsAndContinuesAfterFailure()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -1137,7 +1147,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         bool workerStarted = false;
         try
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, string.Empty);
             var calls = new List<string>();
             var failures = new List<PackageInstallFailure>();
             var eventOrder = new List<string>();
@@ -1263,6 +1273,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task AttachLibrary_InvalidatesCompletionFromPreviousGeneration()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -1278,8 +1289,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         PackageInstallWorkflowOwner? owner = null;
         try
         {
-            var first = new TestBmsLibrary(firstDb, null, null, string.Empty);
-            var second = new TestBmsLibrary(secondDb, null, null, string.Empty);
+            var first = new TestBmsLibrary(databaseScope, firstDb, null, null, string.Empty);
+            var second = new TestBmsLibrary(databaseScope, secondDb, null, null, string.Empty);
             var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             owner = CreateOwner(
@@ -1322,6 +1333,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task Enqueue_RejectsBusyBeforeQueueingThenRunsAfterRelease()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -1337,7 +1349,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         PackageInstallWorkflowOwner? owner = null;
         try
         {
-            var first = new TestBmsLibrary(firstDb, null, null, string.Empty);
+            var first = new TestBmsLibrary(databaseScope, firstDb, null, null, string.Empty);
             var chartFileOperations = new ChartFileOperationSynchronizer();
             var chartMutationActivity = new ChartMutationActivityOwner();
             int mutationCalls = 0;
@@ -1405,6 +1417,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task GateBusy_AbandonsOwnedIngressWithoutCallingInstaller()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         string songDbPath = Path.Combine(root, "song.db");
@@ -1414,7 +1427,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, string.Empty);
             var chartFileOperations = new ChartFileOperationSynchronizer();
             var chartMutationActivity = new ChartMutationActivityOwner();
             int mutationCalls = 0;
@@ -1465,6 +1478,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task DelayedFailurePublication_ReportsDiagnosticsAfterGenerationChanges()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -1479,8 +1493,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         var notifications = new Queue<Action>();
         try
         {
-            var first = new TestBmsLibrary(firstDb, null, null, string.Empty);
-            var second = new TestBmsLibrary(secondDb, null, null, string.Empty);
+            var first = new TestBmsLibrary(databaseScope, firstDb, null, null, string.Empty);
+            var second = new TestBmsLibrary(databaseScope, secondDb, null, null, string.Empty);
             int failurePublished = 0;
             int diagnosticReports = 0;
             var owner = new PackageInstallWorkflowOwner(
@@ -1523,6 +1537,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task DispatcherRejection_ReportsOriginalInstallFailure()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -1530,7 +1545,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, string.Empty);
             var diagnosticReports = new List<Exception>();
             var owner = new PackageInstallWorkflowOwner(
                 new FileDbReportRecordingDialogs(),
@@ -1571,6 +1586,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task DispatcherException_ReportsOriginalInstallFailure()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -1578,7 +1594,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, string.Empty);
             var diagnosticReports = new List<Exception>();
             var owner = new PackageInstallWorkflowOwner(
                 new FileDbReportRecordingDialogs(),
@@ -1622,6 +1638,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task FailureNotificationException_ReportsInstallAndNotificationFailures()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -1629,7 +1646,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, string.Empty);
             var diagnosticReports = new List<Exception>();
             PackageInstallWorkflowOwner owner = CreateOwner(
                 (current, paths, token, progressWriter) => throw new InvalidOperationException("install failed"),
@@ -1669,6 +1686,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task CancelAfterLiveApplyReturns_PublishesCompletionReceipt()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -1678,7 +1696,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         PackageInstallWorkflowOwner? owner = null;
         try
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, string.Empty);
             var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             owner = CreateOwner(
@@ -1726,6 +1744,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task DurableFinalizationFailure_PublishesTypedCompletionWithoutRegisteredPackages()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(
             Path.GetTempPath(),
@@ -1780,7 +1799,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 RecordTerminalAdmission();
                 completion.TrySetResult(published);
             };
-            owner.AttachLibrary(new TestBmsLibrary(songDbPath, null, null, string.Empty));
+            owner.AttachLibrary(new TestBmsLibrary(databaseScope, songDbPath, null, null, string.Empty));
             owner.Enqueue([Path.Combine(root, "source.zip")]);
 
             await TestUiDispatcherHost.AwaitNotificationAsync(completion.Task, owner.WaitForIdleAsync(), "package-install.receipt-publication");
@@ -1808,6 +1827,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task AttachLibrary_BusyRequestFailsFastThenFreshRequestRunsAfterRelease()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -1823,8 +1843,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         PackageInstallWorkflowOwner? owner = null;
         try
         {
-            var first = new TestBmsLibrary(firstDb, null, null, string.Empty);
-            var second = new TestBmsLibrary(secondDb, null, null, string.Empty);
+            var first = new TestBmsLibrary(databaseScope, firstDb, null, null, string.Empty);
+            var second = new TestBmsLibrary(databaseScope, secondDb, null, null, string.Empty);
             var firstStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var secondStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var busyFailure = new TaskCompletionSource<PackageInstallFailure>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1889,6 +1909,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task RequestShutdown_PreventsLaterEnqueueFromStartingLiveMutation()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -1896,7 +1917,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, string.Empty);
             int mutationCalls = 0;
             PackageInstallWorkflowOwner owner = CreateOwner(
                 (current, paths, token, progressWriter) =>
@@ -1929,6 +1950,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task NotificationFailure_DoesNotStopQueueLifecycle()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -1936,7 +1958,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, string.Empty);
             int mutationCalls = 0;
             var secondFinished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             PackageInstallWorkflowOwner owner = CreateOwner(
@@ -1999,6 +2021,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task RequestShutdown_AfterPhysicalInsertionDrainsRequestWithoutPrivateLockCoordination()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         string songDbPath = Path.Combine(root, "song.db");
@@ -2016,7 +2039,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Exception? cleanupFailure = null;
         try
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, string.Empty);
             int mutationCalls = 0;
             int blockNextDispatch = 0;
             int blockedDispatchConsumed = 0;
@@ -2085,6 +2108,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task CancelAll_AfterPhysicalInsertionCannotCancelFreshPostDrainAdmission()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         string songDbPath = Path.Combine(root, "song.db");
@@ -2102,7 +2126,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Exception? cleanupFailure = null;
         try
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, string.Empty);
             int mutationCalls = 0;
             int blockNextDispatch = 0;
             int blockedDispatchConsumed = 0;
@@ -2179,6 +2203,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task AdditionalRequest_IsRejectedAndReclaimedWhileHandedOffActiveIngressIsPreserved()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         string firstDb = Path.Combine(root, "first", "song.db");
@@ -2198,8 +2223,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Exception? cleanupFailure = null;
         try
         {
-            var firstLibrary = new TestBmsLibrary(firstDb, null, null, string.Empty);
-            var secondLibrary = new TestBmsLibrary(secondDb, null, null, string.Empty);
+            var firstLibrary = new TestBmsLibrary(databaseScope, firstDb, null, null, string.Empty);
+            var secondLibrary = new TestBmsLibrary(databaseScope, secondDb, null, null, string.Empty);
             owner = CreateOwner(
                 (library, _, token, _) =>
                 {
@@ -2250,6 +2275,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task OperationDialogs_AreDispatchedWithoutBlockingQueueOrChangingMutationResult()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -2260,7 +2286,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         try
         {
             var immediateDialogs = new BmsLibraryInitializationTestSupport.RecordingDialogService();
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath, null, null,
                 new BmsLibraryInitializationTestSupport.TestFileMutationService(), immediateDialogs);
             var bufferedDialogs = new ScopedOperationDialogCoordinator(immediateDialogs);

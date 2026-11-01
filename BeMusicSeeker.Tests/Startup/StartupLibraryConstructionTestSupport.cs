@@ -68,9 +68,12 @@ internal static class StartupLibraryConstructionTestSupport
         return path;
     }
 
-    internal static void CreateSongDatabase(string songDbPath)
+    /// <summary>指定した所有者の書込み接続で、起動構築へ渡すsong.dbを作成します。</summary>
+    /// <param name="databaseScope">生成する接続の所有者。</param>
+    /// <param name="songDbPath">生成対象のsong.db。</param>
+    internal static void CreateSongDatabase(ApplicationDatabaseScope databaseScope, string songDbPath)
     {
-        using var initialize = new LR2SongDBExtended(songDbPath);
+        using LR2SongDBExtended initialize = databaseScope.OpenSongWrite(songDbPath);
     }
 
     internal static IEnumerable<MethodBase> EnumerateCalledMethods(MethodBase method)

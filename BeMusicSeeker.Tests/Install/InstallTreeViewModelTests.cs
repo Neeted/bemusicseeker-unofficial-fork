@@ -161,13 +161,14 @@ public sealed class InstallTreeViewModelTests
 
     private static void WithLibrary(Action<BMSLibrary> action)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_InstallTree_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 ChartPackagesInstalled = CreatePackageCollection([]),
                 ChartPackagesPending = CreatePackageCollection([])

@@ -18,9 +18,10 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     [TestMethod]
     public void NormalInitialView_DoesNotBuildOrPublishUnpreparedScores()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(path =>
         {
-            var library = new TestBmsLibrary(path) { BmsCharts = [CreateTestableBmsFile(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path) ?? throw new InvalidOperationException(), "no-score.bms"))] };
+            var library = new TestBmsLibrary(databaseScope, path) { BmsCharts = [CreateTestableBmsFile(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path) ?? throw new InvalidOperationException(), "no-score.bms"))] };
             var table = new MainChartListViewModel();
             using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner(table));
             owner.AttachNormalLibraryRefreshSource(library);

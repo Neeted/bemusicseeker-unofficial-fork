@@ -1,11 +1,11 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-
 using static BeMusicSeeker.Tests.StartupLibraryConstructionTestSupport;
 namespace BeMusicSeeker.Tests;
 
@@ -13,6 +13,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class StartupLibraryProfileTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>
     /// 保証：同じプロファイルでライブラリを先に作り、そのライブラリへプレイリストを接続してから適用し、同じ確定readerから登録を捕捉する。
     /// </summary>
@@ -22,7 +24,7 @@ public sealed class StartupLibraryProfileTests
     {
         string temporaryRoot = CreateTemporaryRoot();
         string songDbPath = Path.Combine(temporaryRoot, "song.db");
-        CreateSongDatabase(songDbPath);
+        CreateSongDatabase(databaseScope, songDbPath);
         try
         {
             Settings settings = TestBmsFactory.CreateRootSettings([Path.Combine(temporaryRoot, "root-a"), Path.Combine(temporaryRoot, "root-b")]);
@@ -76,7 +78,7 @@ public sealed class StartupLibraryProfileTests
     {
         string temporaryRoot = CreateTemporaryRoot();
         string songDbPath = Path.Combine(temporaryRoot, "song.db");
-        CreateSongDatabase(songDbPath);
+        CreateSongDatabase(databaseScope, songDbPath);
         try
         {
             string actualRoot = Directory.CreateDirectory(Path.Combine(temporaryRoot, "xml-root")).FullName;

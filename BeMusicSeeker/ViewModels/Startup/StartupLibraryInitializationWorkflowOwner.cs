@@ -51,13 +51,19 @@ internal interface IStartupLibraryInitializationFailurePresenter
 internal sealed class StartupLibraryInitializationWorkflowOwner
 {
     private readonly SemaphoreSlim operationGate;
+    private readonly ApplicationDatabaseScope databaseScope;
+    private readonly BmsDatabaseLoadOptions databaseLoadOptions;
 
     /// <summary>
     /// 起動ライブラリ初期化の管理主体を作成します。
     /// </summary>
     /// <param name="operationGate">起動と再読込みを直列化する既存の共有gate。</param>
-    internal StartupLibraryInitializationWorkflowOwner(SemaphoreSlim operationGate)
+    /// <param name="databaseScope">schema検査とモデル生成・終了処理で共有するDB所有者。</param>
+    /// <param name="databaseLoadOptions">構成で捕捉済みのDB読取り方式。</param>
+    internal StartupLibraryInitializationWorkflowOwner(ApplicationDatabaseScope databaseScope, BmsDatabaseLoadOptions databaseLoadOptions, SemaphoreSlim operationGate)
     {
+        this.databaseScope = databaseScope ?? throw new ArgumentNullException(nameof(databaseScope));
+        this.databaseLoadOptions = databaseLoadOptions ?? throw new ArgumentNullException(nameof(databaseLoadOptions));
         this.operationGate = operationGate
             ?? throw new ArgumentNullException(nameof(operationGate));
     }
@@ -76,7 +82,7 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
         var service = new BmsLibraryInitializationService();
         IReadOnlyList<LeapYearFolderRepairCandidate> unreadable = [];
         IReadOnlyList<LeapYearFolderRepairCandidate> candidates = await Task.Run(() =>
-            service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(songDbPath), out unreadable));
+            service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(databaseScope, databaseLoadOptions, songDbPath), out unreadable));
         ThrowIfShutdownRequested();
         List<LeapYearFolderRepairCandidate> approved = [];
         foreach (LeapYearFolderRepairCandidate candidate in candidates)
@@ -132,7 +138,7 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
     {
         void CheckShutdown() { if (isShutdownRequested()) { throw new OperationCanceledException(); } }
         CheckShutdown();
-        var service = new AppSchemaPreflightService();
+        var service = new AppSchemaPreflightService(databaseScope);
         AppSchemaPreflightResult preflight = await Task.Run(() => service.Inspect(settings.LR2SongDBPath)).ConfigureAwait(false);
         CheckShutdown();
         if (preflight.WarnRequired && !schemaRepairApprovedForSession)
@@ -153,7 +159,7 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
     internal Task ApplyPreparedSchemaAsync(StartupSettingsSnapshot settings, AppSchemaPreflightResult approved)
         => Task.Run(() =>
         {
-            var service = new AppSchemaPreflightService();
+            var service = new AppSchemaPreflightService(databaseScope);
             AppSchemaPreflightResult current = service.Inspect(settings.LR2SongDBPath);
             if (current.WarnRequired && !approved.WarnRequired && !schemaRepairApprovedForSession)
             {
@@ -162,12 +168,12 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
             ApplyAppSchemaRepairForStartupOrThrow(service, current, settings.LR2SongDBPath);
         });
 
-    private static void ApplyAppSchemaRepairForStartupOrThrow(
+    private void ApplyAppSchemaRepairForStartupOrThrow(
         AppSchemaPreflightService appSchemaPreflightService,
         AppSchemaPreflightResult preflightResult,
         string songDbPath)
     {
-        var gateway = new BmsLibraryDbGateway(songDbPath);
+        var gateway = new BmsLibraryDbGateway(databaseScope, databaseLoadOptions, songDbPath);
         if (preflightResult.WarnRequired || preflightResult.NeedsAppSchemaVersionRepair || preflightResult.RepairRequired)
         {
             gateway.RepairAppOwnedSchema();

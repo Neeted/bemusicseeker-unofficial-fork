@@ -192,18 +192,20 @@ internal static class PlaylistWorkspaceTestPorts
     internal static Func<BMSPlaylist> PlaylistStoreProvider => () => null!;
 
     /// <summary>
-    /// Creates a schema-backed store owned by one test case.
+    /// 呼出し側のDB所有者を共有し、一つのテストケースがschemaを所有するプレイリストを作ります。
     /// </summary>
-    internal static OwnedPlaylistStore CreateOwnedPlaylistStore()
+    /// <param name="databaseScope">同じappの接続とモデルが共有するDB所有者。</param>
+    internal static OwnedPlaylistStore CreateOwnedPlaylistStore(ApplicationDatabaseScope databaseScope)
     {
         string directory = System.IO.Path.Combine(
             System.IO.Path.GetTempPath(),
             nameof(PlaylistWorkspaceTestPorts),
             "PlaylistStore-" + Guid.NewGuid().ToString("N"));
         System.IO.Directory.CreateDirectory(directory);
-        string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
-        BeMusicSeeker.Models.BmsLibraryInternal.PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+        string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+        BeMusicSeeker.Models.BmsLibraryInternal.PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
         BMSPlaylist playlist = new TestBmsPlaylist(
+            databaseScope,
             songDbPath,
             null,
             null,
@@ -211,8 +213,8 @@ internal static class PlaylistWorkspaceTestPorts
             () => new PlaylistUrlCompletionOptionsSnapshot(),
             () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = false },
             () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },
-            new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
-        return new OwnedPlaylistStore(playlist, songDbPath, directory);
+            new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath));
+        return new OwnedPlaylistStore(databaseScope, playlist, songDbPath, directory);
     }
 
     internal sealed class OwnedPlaylistStore : IDisposable
@@ -220,12 +222,17 @@ internal static class PlaylistWorkspaceTestPorts
         private readonly string directory;
         private int disposed;
 
-        internal OwnedPlaylistStore(BMSPlaylist playlist, string songDbPath, string directory)
+        /// <summary>生成したDB所有者と実storeの寿命を一つのfixtureへ集めます。</summary>
+        internal OwnedPlaylistStore(ApplicationDatabaseScope databaseScope, BMSPlaylist playlist, string songDbPath, string directory)
         {
+            DatabaseScope = databaseScope;
             Store = playlist ?? throw new ArgumentNullException(nameof(playlist));
             SongDbPath = songDbPath ?? throw new ArgumentNullException(nameof(songDbPath));
             this.directory = directory ?? throw new ArgumentNullException(nameof(directory));
         }
+
+        /// <summary>このstoreと、後から接続する同じappのモデルが共有するDB所有者です。</summary>
+        internal ApplicationDatabaseScope DatabaseScope { get; }
 
         internal BMSPlaylist Store { get; }
 

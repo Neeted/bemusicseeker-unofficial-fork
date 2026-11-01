@@ -16,8 +16,10 @@ internal static class BmsLibraryInitializationTestSupport
 {
 
     /// <summary>直接のfile diffテストでも、全登録走査の操作と同じ実DB一括取得結果を明示して渡します。</summary>
-    internal static Lr2FolderTableSnapshot CaptureNormalFolderSnapshot(string songDbPath)
-        => new BmsLibraryInitializationService().LoadFolderTableSnapshot(new BmsLibraryDbGateway(songDbPath),
+    /// <param name="databaseScope">対象ライブラリと共有する接続所有者。</param>
+    /// <param name="songDbPath">読取り対象のsong.db。</param>
+    internal static Lr2FolderTableSnapshot CaptureNormalFolderSnapshot(ApplicationDatabaseScope databaseScope, string songDbPath)
+        => new BmsLibraryInitializationService().LoadFolderTableSnapshot(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
             new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true });
 
     internal static void WithTemporaryLr2SongDb(Action<string, string> testAction)
@@ -67,11 +69,15 @@ internal static class BmsLibraryInitializationTestSupport
     /// <remarks>
     /// fixture準備のautocommit反復による共通DBロックを減らします。本番の保存経路やtransaction契約は変更しません。
     /// </remarks>
+    /// <param name="databaseScope">対象ライブラリと共有する接続所有者。</param>
+    /// <param name="songDbPath">準備対象のsong.db。</param>
+    /// <param name="setup">同じ書込み接続で行う準備。</param>
     internal static void ExecuteSongDbFixtureTransaction(
+        ApplicationDatabaseScope databaseScope,
         string songDbPath,
         Action<LR2SongDBExtended> setup)
     {
-        using var songDb = new LR2SongDBExtended(songDbPath);
+        using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
         songDb.BeginTransaction();
         try
         {

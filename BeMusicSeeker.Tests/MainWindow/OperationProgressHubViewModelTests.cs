@@ -73,7 +73,7 @@ public sealed class OperationProgressHubViewModelTests
         {
             var urlGateway = new BlockingPlaylistUrlDownloadGateway(urlRoot);
             using PlaylistWorkspaceTestPorts.OwnedPlaylistStore ownedPlaylistStore =
-                PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore();
+                PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore(new ApplicationDatabaseScope());
             PlaylistWorkspaceViewModel playlistWorkspace = PlaylistWorkspaceTestPorts.CreateProgressWorkspace(
                 action => action(),
                 new PlaylistUrlAcquisitionWorkflow(urlGateway, _ => { }),
@@ -1188,14 +1188,15 @@ public sealed class OperationProgressHubViewModelTests
 
         internal static ProgressWorkflowFixture Create(OperationProgressHubViewModel hub, int packageTotalCount = 5)
         {
+            var databaseScope = new ApplicationDatabaseScope();
             string root = Path.Combine(Path.GetTempPath(), nameof(OperationProgressHubViewModelTests), Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             string databasePath = Path.Combine(root, "song.db");
             File.WriteAllBytes(databasePath, []);
-            using (var _ = new LR2SongDBExtended(databasePath))
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(databasePath))
             {
             }
-            BMSLibrary library = new TestBmsLibrary(databasePath, null, null, string.Empty);
+            BMSLibrary library = new TestBmsLibrary(databaseScope, databasePath, null, null, string.Empty);
             var packageProgressStarted = new ManualResetEventSlim(false);
             var maintenanceProgressStarted = new ManualResetEventSlim(false);
             var folderProgressStarted = new ManualResetEventSlim(false);

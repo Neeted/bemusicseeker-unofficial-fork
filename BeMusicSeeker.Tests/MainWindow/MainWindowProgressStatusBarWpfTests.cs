@@ -178,8 +178,6 @@ public sealed class MainWindowProgressStatusBarWpfTests
             {
                 values.OperationModeLR2DB = false;
             });
-        using PlaylistWorkspaceTestPorts.OwnedPlaylistStore ownedPlaylistStore =
-            PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore();
         var composition = new ApplicationComposition(
             runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             settingsEditSession: new NoOpSettingsEditSession(settings),
@@ -187,8 +185,10 @@ public sealed class MainWindowProgressStatusBarWpfTests
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+        using PlaylistWorkspaceTestPorts.OwnedPlaylistStore ownedPlaylistStore =
+            PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore(composition.DatabaseScope);
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
-        TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(
+        TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(composition.DatabaseScope,
             ownedPlaylistStore.SongDbPath,
             settings,
             viewModel);

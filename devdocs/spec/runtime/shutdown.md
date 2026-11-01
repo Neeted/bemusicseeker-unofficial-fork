@@ -44,13 +44,15 @@
 | プレイリスト・履歴 | 入力構築、絞込み、参照索引の事前計算を取り消し、履歴の条件・表示先更新、参照反映、外部同期、再読込みの後片付け、出力と読込み、プレイリスト局所受付の必須公開・通知・後片付けの実終端まで待つ |
 | ライブラリ変更 | 登録済みの通常リネームとその更新、ドロップ導入から直接自動推定までと手動推定を取り消すか実完了まで待つ。取消後も開始済み全評価Taskと後片付けを待機し、未反映の兄弟成功は適用しない。リネームの失敗でも残りの待機を省かない |
 | 後続のデータ読込み | 譜面情報、保守、スコア、順位などが終了要求を確認して処理を終えられるようにする |
-| 同期と接続 | 起動・再読込みのセマフォ、各待機対象、LR2のDB用ロック、追跡済みSQLite接続が未使用になるまで待つ |
+| 同期と接続 | 起動・再読込みのセマフォ、各待機対象、同じ構成が所有するsong/scoreの再入排他、readonlyを含む全SQLite接続の実終端を待つ |
 
 起動の追加親が消えても、終了待機はスケジューラーが追跡する全仕事と事前準備の実終端を待ちます。難易度表リスト取得も通信からUI適用まで同じ仕事として追跡し、終了取消を保ちます。表示親の寿命を終了待機の条件に使いません。
 
 IR通信・解析・保存は順位更新の一つのscheduler workとして実終端まで追跡します。共有prefetch Taskを別に切り離しません。HTTP本文の受信へ取消を伝え、終了要求後の結果をDBやスコアへ適用しません。利用側の待ちだけを解除して通信を切り離しません。
 
 アプリ内の正常な終了に、時間超過で未完了処理を置き去りにする経路はありません。主処理は60秒、キューと事前計算は20秒を遅延警告の基準にし、超過時に `shutdown wait_slow` を一回記録して待機を続けます。強制終了は外部の責務です。
+
+未完了Task・未idle条件の待機へ入るときは、待機対象を`wait_start target=...`で一回記録します。遅延警告に達する前の停止箇所も診断でき、診断の失敗では実処理の待機を打ち切りません。
 
 ライブラリ受付とプレイリスト受付の実idle Taskも待機し、音声変換のnative解放、通信・必要出力・cleanupを実行中フラグだけから完了と推定しません。
 
@@ -117,7 +119,13 @@ sequenceDiagram
 
 ### SQLiteと失敗の観測
 
-`SQLiteConnectionEx` は `ShutdownOperationTracker` で接続の寿命を追跡し、終了準備は接続数0まで待ちます。生の値を読む `GetRawValuesAsString` は例外時も準備済みの文を解放します。接続を閉じる失敗の件数は結果とログに保持します。
+`ApplicationComposition` はアプリの寿命で一つの `ApplicationDatabaseScope` を所有します。同じ構成の再構築前後のlibraryとplaylist、全playerのスコア、履歴、backup、schema操作、撤去と終了処理へ同じownerを明示的に渡します。別の構成とは排他・接続数・close失敗を共有しません。ownerを省略する生成経路やprocess全体の代替ownerは持ちません。
+
+ownerはsong/score別の再入可能なMonitorと接続寿命を管理します。書込み接続はgate取得、接続lease取得、native open、パスとtimeoutの初期化、呼出し側の初期化の順で生成します。readonly接続は書込みgateを取得せず、同じownerの寿命へ登録します。生成・初期化失敗でも取得済みの資源を解放し、後片付けの二次例外で最初の失敗を置き換えません。生の値を読む `GetRawValuesAsString` は例外時も準備済みの文を解放します。
+
+接続の解放はnative close、接続lease、書込みgateの順で一度だけ行います。close失敗も接続数を解放しますが、そのownerの累積失敗を保持します。最後の接続leaseが実際に解放された時だけidle Taskを完了し、次の接続群には新しいidle Taskを作ります。接続数0や終了準備開始時との差分0を、close成功の証拠にはしません。過去のclose失敗も終了準備の失敗として既存の結果・通知経路へ渡し、更新の `Proceed` を許可しません。
+
+終了は新規受付を止め、所有Taskの実終端、song/score gateのdrain、自ownerの接続idleの順に待ちます。metadataのATTACHも同じ接続leaseと所有Taskに含めます。撤去が必要ならその後に同ownerで実行し、再度idleと累積close失敗を確認します。異なる構成の生存中readonly接続は待機対象にしません。
 
 終端でのLR2楽曲・スコアDBのロック確認は取得後に必ず解除します。未取得なら遅延警告後も待ちます。これは通常の終了準備後の最終確認であり、先行処理の追跡を代替しません。
 
@@ -147,6 +155,10 @@ sequenceDiagram
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 構成別DB排他、readonly寿命、生成失敗とclose失敗 | [`ApplicationDatabaseScope`](../../../BeMusicSeeker/Models/ApplicationDatabaseScope.cs)、[`SQLiteConnectionEx`](../../../BeMusicSeeker/Models/LR2/SQLiteConnectionEx.cs) | [`ApplicationDatabaseScopeTests`](../../../BeMusicSeeker.Tests/Runtime/ApplicationDatabaseScopeTests.cs) は再入・DB種別とownerの独立、readonlyの非排他、生成失敗後の再取得、idle世代、実接続解放後の故障注入による累積失敗と一回解放を確認する。初期化失敗と二次close失敗の組合せで元例外を保持する制御は静的に確認する。 |
+| 自ownerだけの接続待ちと、過去close失敗の終了・更新への伝播 | [`ShellShutdownWorkflowOwner`](../../../BeMusicSeeker/ViewModels/MainWindow/ShellShutdownWorkflowOwner.cs) | [`ShellShutdownDatabaseScopeTests`](../../../BeMusicSeeker.Tests/MainWindow/ShellShutdownDatabaseScopeTests.cs) は同一processのA/B readonly非干渉、自ownerのDispose前の未終端、active 0でも更新準備と通常終了が失敗することを確認する。更新のAbort・失敗通知・終了は既存の [`StartupUpdateWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Startup/StartupUpdateWorkflowOwnerTests.cs) の準備失敗ケースへ分担する。 |
+| metadata接続とarchiveまでの所有Taskの両終端 | [`ChartInfoMetadataBundleStartupImporter`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoMetadataBundleStartupImporter.cs)、`ShellShutdownWorkflowOwner` | [`ShellShutdownDatabaseScopeTests`](../../../BeMusicSeeker.Tests/MainWindow/ShellShutdownDatabaseScopeTests.cs) の `WindowClose_JoinsMetadataAttachmentAndImporterArchiveTerminal` は実ATTACH後とclose済み・archive前を別々に保持し、schedulerが受理した実importerと終了の未完了、解放後のarchive・再open・移動を確認する。実startupの所有接続は静的配線と [`StartupRequiredInitializationTests`](../../../BeMusicSeeker.Tests/Startup/StartupRequiredInitializationTests.cs) の `RequiredInitialization_HeaderFailureJoinsStartedFileTaskBeforeReleasingAdmissions` へ分担する。 |
+| URL本文と先行cleanupの完了順に依存しない終了待ち | `ShellShutdownWorkflowOwner`、`PlaylistUrlAcquisitionOwner` | [`PlaylistUrlAcquisitionDeadlineTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistUrlAcquisitionDeadlineTests.cs) の `WindowClose_JoinsEarlierCleanupAndLaterBodyIndependently` は本文先行・cleanup先行の両方で片方だけの終端では終了しないことを確認する。 |
 | アプリの起動失敗・最終防壁と、診断・終了の分離 | [`App`](../../../BeMusicSeeker/App.cs) | 必須起動準備と収集待ちの非干渉は [`ApplicationStartupCompositionOwnerTests`](../../../BeMusicSeeker.Tests/Startup/ApplicationStartupCompositionOwnerTests.cs)、通常終了は [`ShellShutdownWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/MainWindow/ShellShutdownWorkflowOwnerTests.cs)、上限付きフラッシュは [`NLogWrapperTests`](../../../BeMusicSeeker.Tests/Runtime/NLogWrapperTests.cs) が分担する。ローカル診断の捕捉、限定したSQLite抑止、CLR終端、通知・窓閉鎖の失敗後も最終終了へ進む制御、非UIで窓を操作しないこと、各終端からのフラッシュ接続とミューテックス解放は静的に確認する。致命的な終了の実行は自動テストでは未確認。 |
 | 既存宛先の復元不能と通常終了の区別 | [標準構成](../../../BeMusicSeeker/ViewModels/MainWindow/ApplicationComposition.cs)、[lifetime境界](../../../BeMusicSeeker/AppApplicationLifetime.cs)、[最終終了](../../../BeMusicSeeker/App.cs) | 操作所有者からの終了到達は[整合性のテスト分担](../library/file-db-consistency.md#実装とテストの対応)で確認する。Appの明示入口から非常用案内と最終終了への接続、通常Close・設定保存・一時領域削除・再起動を通さないことは静的に確認する。実プロセスの最終終了は代替しており、自動テストで実行しない。 |
 | 局所プレイリストの空の結果記録の配送終端を待つ終了 | [`ShellShutdownWorkflowOwner`](../../../BeMusicSeeker/ViewModels/MainWindow/ShellShutdownWorkflowOwner.cs) | [`DefaultComposition_OutputPlacementChangesAfterPersistenceAndPlaylistNotificationDrainsOnClose`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) は、ドロップの空の結果記録の購読処理中も受理Task・Pを保持し、競合拒否と終了要求の待機を確認する。配送後はドロップと `RequestWindowCloseAsync` が終端し、L/Pを解放する。実ダイアログの表示待ちを確認するケースではない。 |
@@ -161,6 +173,8 @@ sequenceDiagram
 | 拡張データ削除の受付、実処理終端後の撤去、失敗通知後の終了、LR2既存テーブルの保護 | [`ApplicationDataUninstallWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Settings/ApplicationDataUninstallWorkflowOwner.cs)、[`LR2SongDB`](../../../BeMusicSeeker/Models/LR2/LR2SongDB.cs) | [`ApplicationDataUninstallWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationDataUninstallWorkflowOwnerTests.cs)、[`ShellShutdownUninstallTests`](../../../BeMusicSeeker.Tests/MainWindow/ShellShutdownUninstallTests.cs)、[`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs)、[`LR2SongDBExtendedUninstallTests`](../../../BeMusicSeeker.Tests/Lr2/LR2SongDBExtendedUninstallTests.cs) |
 | 再起動の引数、実行パス、作業ディレクトリと引渡し順 | [`ApplicationRestartRequest`](../../../BeMusicSeeker/Models/Utils/Processes/ApplicationRestartGateway.cs)、[`ApplicationRestartArgumentsPolicy`](../../../BeMusicSeeker/Models/Utils/Processes/ApplicationRestartGateway.cs) | [`ApplicationRestartGatewayTests`](../../../BeMusicSeeker.Tests/Processes/ApplicationRestartGatewayTests.cs) |
 
+
+自ownerのreadonly待機とmetadata所有Taskの待機は、終了側の`wait_start`到達通知をClose Taskと競合して待ち、対象待機の呼出し脱落を動的に識別します。待機呼出しを残したまま`await`だけを除く変更まで動的に保証するものではありません。`CollectShutdownPreparationResultAsync`からSQLite idle・startup scheduler待機への二つの呼出しと、それぞれのhelper内の`await`接続は独立静的レビューで確認します。
 
 ## 関連資料
 

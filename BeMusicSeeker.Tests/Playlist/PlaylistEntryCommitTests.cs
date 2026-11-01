@@ -642,7 +642,7 @@ public sealed class PlaylistEntryCommitTests
     private static CandidateLookupWork MeasureCandidateLookup(int background, string hashKind)
     {
         using var observation = new SqliteStatementObservation();
-        using var fixture = new Fixture(background, observation.OpenSongDb);
+        using var fixture = new Fixture(background, observation.Attach);
         fixture.Execute("DELETE FROM playlist_entry WHERE playlist_id = 9201;");
         for (int index = 0; index < background; index++)
         {
@@ -802,6 +802,10 @@ public sealed class PlaylistEntryCommitTests
 
     private sealed class Fixture : IDisposable
     {
+        private readonly ApplicationDatabaseScope databaseScope = new();
+        /// <summary>このfixtureの接続とモデルが共有するDB所有者です。</summary>
+        internal ApplicationDatabaseScope DatabaseScope => databaseScope;
+
         private readonly string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistEntryCommitTests), Guid.NewGuid().ToString("N"));
         private readonly string dbPath;
         private readonly ReaderWriterLockSlimWrapper collectionLock = new();
@@ -811,12 +815,12 @@ public sealed class PlaylistEntryCommitTests
         internal BMSTable[] Tables { get; }
         internal List<PlaylistEntryCommitReceipt> Receipts { get; } = [];
 
-        internal Fixture(int background = 2, Func<string, LR2SongDBExtended>? openEntryWriteConnection = null, double? initialLevel = 2d)
+        internal Fixture(int background = 2, Action<LR2SongDBExtended>? initializeEntryWriteConnection = null, double? initialLevel = 2d)
         {
             Directory.CreateDirectory(directory);
-            dbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
-            PlaylistPersistenceRepository.EnsureSchema(dbPath);
-            Repository = new(dbPath, openEntryWriteConnection);
+            dbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, dbPath);
+            Repository = new(databaseScope, dbPath, initializeEntryWriteConnection);
             Owner = new(Repository, collectionLock, new TestUiScheduler(() => null), Work);
             Tables = [CreateTable(9201, background, initialLevel), CreateTable(9202, 2)];
             Owner.MarkActiveTables(Tables);
@@ -837,9 +841,9 @@ public sealed class PlaylistEntryCommitTests
 
         internal PlaylistEntryCommitReceipt Commit(BMSTableEntry entry, string property, string text)
             => Owner.CommitEntry(entry, property, text, null, Receipts.Add, () => collectionLock.GetReaderGuard());
-        internal LR2SongDBExtended OpenRead() => new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
-        internal IReadOnlyList<BMSTableEntry> FreshStartupEntries() => new PlaylistPersistenceRepository(dbPath).LoadStartupPlaylistEntries().Entries;
-        internal void EnsureSchema() => PlaylistPersistenceRepository.EnsureSchema(dbPath);
+        internal LR2SongDBExtended OpenRead() => new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly();
+        internal IReadOnlyList<BMSTableEntry> FreshStartupEntries() => new PlaylistPersistenceRepository(databaseScope, dbPath).LoadStartupPlaylistEntries().Entries;
+        internal void EnsureSchema() => PlaylistPersistenceRepository.EnsureSchema(databaseScope, dbPath);
         internal IReadOnlyList<string> Explain(string sql)
         {
             using LR2SongDBExtended db = OpenRead();
@@ -847,11 +851,11 @@ public sealed class PlaylistEntryCommitTests
         }
         internal void InsertRawEntry(string? md5, string? sha256, bool removed = false, string memo = "before", string? title = null)
         {
-            using var db = new LR2SongDBExtended(dbPath);
+            using LR2SongDBExtended db = databaseScope.OpenSongWrite(dbPath);
             db.Execute("INSERT INTO playlist_entry (playlist_id, md5, sha256, folder, title, lr2_bmsid, is_removed, memo) VALUES (9201, ?, ?, 'folder', ?, NULL, ?, ?);",
                 md5, sha256, title, removed ? 1 : 0, memo);
         }
-        internal void Execute(params string[] statements) { using var db = new LR2SongDBExtended(dbPath); foreach (string sql in statements) { db.Execute(sql); } }
+        internal void Execute(params string[] statements) { using LR2SongDBExtended db = databaseScope.OpenSongWrite(dbPath); foreach (string sql in statements) { db.Execute(sql); } }
         public void Dispose()
         {
             foreach (BMSTable table in Tables) { table.ReaderWriterLock.Dispose(); }

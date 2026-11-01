@@ -23,6 +23,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartInfoInlineHydrationTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>実inline保存・公開後の負PLAYLEVELをASCII表記で詳細行へ渡し、その無変更文字列を実保存ownerが受理します。実F2操作と取消はworkspace画面テストが分担します。</summary>
     [TestMethod]
     public void InlinePublication_NegativeLevelCanBeCommittedFromDetailRowWithoutEditing()
@@ -36,7 +38,7 @@ public sealed class ChartInfoInlineHydrationTests
                 string path = Path.Combine(root, "negative-level.bms");
                 File.WriteAllText(path, "#PLAYER 1\r\n#TITLE negative\r\n#PLAYLEVEL -1\r\n#BPM 130\r\n#00111:01\r\n", Encoding.ASCII);
                 ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path));
-                var library = new TestBmsLibrary(dbPath, settings: testSettings);
+                var library = new TestBmsLibrary(databaseScope, dbPath, settings: testSettings);
                 OwnedChartCollectionTestSupport.SetLibraryFilesWithoutNotification(library, [file]);
                 OwnedChartCollectionTestSupport.SetLibraryBmsonSongsWithoutNotification(library, []);
                 OwnedChartCollectionTestSupport.SetDuplicateChartGroupsWithoutNotification(library, []);
@@ -44,11 +46,11 @@ public sealed class ChartInfoInlineHydrationTests
                 ChartFile current = library.BmsCharts.Single();
                 Assert.AreEqual("-1", current.LevelText);
 
-                PlaylistPersistenceRepository.EnsureSchema(dbPath);
+                PlaylistPersistenceRepository.EnsureSchema(databaseScope, dbPath);
                 var collectionLock = new BeMusicSeeker.Models.Utils.ReaderWriterLockSlimWrapper();
                 try
                 {
-                    var persistence = new PlaylistAggregatePersistenceOwner(new PlaylistPersistenceRepository(dbPath), collectionLock, new TestUiScheduler(() => null));
+                    var persistence = new PlaylistAggregatePersistenceOwner(new PlaylistPersistenceRepository(databaseScope, dbPath), collectionLock, new TestUiScheduler(() => null));
                     var entry = new BMSTableEntry { title = "negative", md5 = current.Md5, folder = "" };
                     var table = new BMSTable { playlist_id = 9321, name = "Negative", entries = [entry] };
                     persistence.MarkActiveTables([table]);
@@ -57,7 +59,7 @@ public sealed class ChartInfoInlineHydrationTests
                     Assert.AreEqual("-1", row.Level);
                     persistence.CommitEntry(entry, "Level", row.Level, null, _ => { }, () => collectionLock.GetReaderGuard());
                     Assert.AreEqual(-1d, entry.level);
-                    using LR2SongDBExtended db = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+                    using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly();
                     Assert.AreEqual(-1d, db.Table<BMSTableEntry>().Single(e => e.playlist_id == 9321).level);
                 }
                 finally { collectionLock.Dispose(); }
@@ -75,7 +77,7 @@ public sealed class ChartInfoInlineHydrationTests
     {
         WithTemporarySongDb((root, songDbPath) =>
         {
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             ChartFile[] charts = CreateCoverageCharts(root, "S", "F", "X");
             string successSha256 = charts[0].Sha256;
             string internalFaultSha256 = charts[2].Sha256;
@@ -85,7 +87,7 @@ public sealed class ChartInfoInlineHydrationTests
             gateway.EnsureChartInfoBackfillSchema();
             gateway.UpsertChartInfoParseFailures([CreateChartInfoParseFailureRow(charts[1].Md5, charts[1].Sha256, charts[1].Path,
                 BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "stored input failure", null)]);
-            using (var prepared = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            using (LR2SongDBExtended prepared = databaseScope.OpenSongReadOnly(songDbPath))
             {
                 // Fは準備時の生成行保存で既存digestも保存する。今回補完するS/Xの二行と区別する。
                 Assert.AreEqual(1, prepared.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_digest_map;"));
@@ -114,7 +116,7 @@ public sealed class ChartInfoInlineHydrationTests
             Assert.AreEqual(internalFaultSha256, rows.BmsRows.Single(chart => chart.Path == charts[2].Path).Sha256);
             CollectionAssert.AreEquivalent(new[] { charts[0].Path, charts[2].Path }, reads.ToArray());
             CollectionAssert.AreEquivalent(new[] { charts[0].Path, charts[2].Path }, parses.ToArray());
-            using (var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            using (LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath))
             {
                 Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
                 Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
@@ -148,11 +150,11 @@ public sealed class ChartInfoInlineHydrationTests
     {
         WithTemporarySongDb((root, songDbPath) =>
         {
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             ChartFile[] charts = CreateCoverageCharts(root, "one", "two", "three");
             gateway.UpsertSongs(charts);
             gateway.EnsureChartInfoBackfillSchema();
-            using (var setup = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
             {
                 setup.Execute("CREATE TRIGGER fail_later_coverage BEFORE INSERT ON chart_info WHEN (SELECT COUNT(1) FROM chart_info) >= 1 BEGIN SELECT RAISE(ABORT, 'later coverage chunk fault'); END;");
             }
@@ -170,7 +172,7 @@ public sealed class ChartInfoInlineHydrationTests
             Assert.IsFalse(owner.ChartInfoBackfillRunning);
             Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
             string committedSha;
-            using (var verify = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended verify = databaseScope.OpenSongWrite(songDbPath))
             {
                 Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
                 committedSha = verify.ExecuteScalar<string>("SELECT sha256 FROM chart_info;");
@@ -188,7 +190,7 @@ public sealed class ChartInfoInlineHydrationTests
             Assert.IsTrue(rows.TryCapturePendingChartInfoInputs(out pending));
             Assert.AreEqual(0, pending.Count);
             foreach (ChartFile chart in rows.BmsRows) { Assert.IsNotNull(owner.ResolveChartInfo(chart.Sha256, chart.Md5)); }
-            using var completed = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended completed = databaseScope.OpenSongReadOnly(songDbPath);
             Assert.AreEqual(3, completed.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
         });
     }
@@ -209,7 +211,7 @@ public sealed class ChartInfoInlineHydrationTests
     {
         WithTemporarySongDb((root, songDbPath) =>
         {
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             var observer = new BackfillInputWorkObserver();
             var rows = new CatalogOwnedCollectionOwner(observer);
             var charts = new List<ChartFile>();
@@ -259,7 +261,7 @@ public sealed class ChartInfoInlineHydrationTests
     }
 
     /// <summary>候補取得前と受付後保存前のDB準備故障を隠さず、未採用のDB・現在値と実Taskの失敗を保持する。</summary>
-    /// <remarks>既存gatewayの接続factoryで候補取得または受付後の最初のDB準備だけを失敗させる。同じSQLiteの後続接続、要求終端と次の明示要求を確認する。</remarks>
+    /// <remarks>既存gatewayの接続初期化で候補取得または受付後の最初のDB準備だけを失敗させる。同じSQLiteの後続接続、要求終端と次の明示要求を確認する。</remarks>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -270,14 +272,13 @@ public sealed class ChartInfoInlineHydrationTests
             (ChartFile? file, CatalogOwnedCollectionOwner? rows) = CreateBackfillOwnerInput(root, songDbPath);
             bool requestAccepted = false;
             bool preparationFault = true;
-            var gateway = new BmsLibraryDbGateway(songDbPath, songDbFactory: path =>
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, initializeSongConnection: _ =>
             {
                 if (preparationFault && (!afterAcceptance || requestAccepted))
                 {
                     preparationFault = false;
                     throw new InvalidOperationException(afterAcceptance ? "backfill DB preparation fault" : "candidate preparation fault");
                 }
-                return new LR2SongDBExtended(path);
             });
             var owner = new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, null, _ => { });
             owner.ConfigureWorkflow(gateway, new CatalogMutationOwner(rows, gateway), rows, _ => { }, _ => { },
@@ -296,7 +297,7 @@ public sealed class ChartInfoInlineHydrationTests
                 Assert.AreEqual(0, owner.ChartInfoBackfillDigestBackfilledCount);
                 Assert.IsNull(owner.ResolveChartInfo(null, file.Md5));
                 Assert.AreEqual(string.Empty, rows.BmsRows.Single().Sha256);
-                using (var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+                using (LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath))
                 {
                     Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
                     Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_digest_map;"));
@@ -324,11 +325,11 @@ public sealed class ChartInfoInlineHydrationTests
         await WithTemporarySongDb(async (root, songDbPath) =>
         {
             (ChartFile? file, CatalogOwnedCollectionOwner? rows) = CreateBackfillOwnerInput(root, songDbPath);
-            using (var setup = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
             {
                 setup.Execute("CREATE TRIGGER fail_owner_backfill BEFORE INSERT ON chart_info BEGIN SELECT RAISE(ABORT, 'owner transaction fault'); END;");
             }
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var nextEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             using var releaseFirst = new ManualResetEventSlim();
@@ -361,13 +362,13 @@ public sealed class ChartInfoInlineHydrationTests
                 Assert.IsFalse(operation.IsCompleted);
                 Assert.IsNull(owner.ResolveChartInfo(null, file.Md5));
                 Assert.AreEqual(string.Empty, rows.BmsRows.Single().Sha256);
-                using (var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+                using (LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath))
                 {
                     Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
                     Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_digest_map;"));
                     Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", file.Path));
                 }
-                using (var setup = new LR2SongDBExtended(songDbPath)) { setup.Execute("DROP TRIGGER fail_owner_backfill;"); }
+                using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath)) { setup.Execute("DROP TRIGGER fail_owner_backfill;"); }
                 releaseNext.Set();
                 await AssertOwnerBackfillFault(operation, "owner transaction fault");
                 Assert.IsFalse(owner.ChartInfoBackfillRunning);
@@ -381,7 +382,7 @@ public sealed class ChartInfoInlineHydrationTests
                 Assert.AreEqual(22L, nextRequest.OperationToken);
                 Assert.AreEqual(1, owner.ChartInfoBackfillDigestBackfilledCount);
                 Assert.IsNotNull(owner.ResolveChartInfo(rows.BmsRows.Single().Sha256, file.Md5));
-                Assert.AreEqual(1L, CountChartInfoRows(songDbPath, rows.BmsRows.Single().Sha256));
+                Assert.AreEqual(1L, CountChartInfoRows(databaseScope, songDbPath, rows.BmsRows.Single().Sha256));
                 await Task.Run(() => owner.QueueBackfill("explicit_after_drain", processSynchronously: true));
                 Assert.IsFalse(owner.ChartInfoBackfillRunning);
                 Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
@@ -404,7 +405,7 @@ public sealed class ChartInfoInlineHydrationTests
         await WithTemporarySongDb(async (root, songDbPath) =>
         {
             (ChartFile? file, CatalogOwnedCollectionOwner? rows) = CreateBackfillOwnerInput(root, songDbPath);
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             bool windowReleased = false;
             var owner = new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, null, _ => { });
             owner.ConfigureWorkflow(gateway, new CatalogMutationOwner(rows, gateway), rows, _ => { }, _ => { },
@@ -420,7 +421,7 @@ public sealed class ChartInfoInlineHydrationTests
                 Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
                 Assert.AreEqual(1, owner.ChartInfoBackfillDigestBackfilledCount);
                 string sha256 = ChartFileContentReader.ReadSnapshot(file.Path).Sha256;
-                using var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+                using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
                 Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", sha256));
                 Assert.AreEqual(sha256, verify.ExecuteScalar<string>("SELECT sha256 FROM chart_digest_map WHERE md5 = ?;", file.Md5));
                 Assert.AreEqual(9, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", file.Path));
@@ -441,7 +442,7 @@ public sealed class ChartInfoInlineHydrationTests
         await WithTemporarySongDb(async (root, songDbPath) =>
         {
             (ChartFile? file, CatalogOwnedCollectionOwner? rows) = CreateBackfillOwnerInput(root, songDbPath);
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             bool checkpointAttempted = false;
             int indexPublications = 0;
             var progress = new ConcurrentQueue<(OperationProgressRequest Request, bool Running)>();
@@ -475,8 +476,8 @@ public sealed class ChartInfoInlineHydrationTests
                 Assert.AreEqual(9, current.Level);
                 Assert.IsFalse(string.IsNullOrWhiteSpace(current.Sha256));
                 Assert.IsNotNull(owner.ResolveChartInfo(current.Sha256, file.Md5));
-                Assert.AreEqual(1L, CountChartInfoRows(songDbPath, current.Sha256));
-                using var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+                Assert.AreEqual(1L, CountChartInfoRows(databaseScope, songDbPath, current.Sha256));
+                using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
                 Assert.AreEqual(9, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", file.Path));
                 Assert.AreEqual(current.Sha256, verify.ExecuteScalar<string>("SELECT sha256 FROM chart_digest_map WHERE md5 = ?;", file.Md5));
             }
@@ -495,12 +496,12 @@ public sealed class ChartInfoInlineHydrationTests
         await stage;
     }
 
-    private static (ChartFile File, CatalogOwnedCollectionOwner Rows) CreateBackfillOwnerInput(string root, string songDbPath)
+    private (ChartFile File, CatalogOwnedCollectionOwner Rows) CreateBackfillOwnerInput(string root, string songDbPath)
     {
         string path = Path.Combine(root, "owner-backfill.bms");
         File.WriteAllText(path, "#PLAYER 1\r\n#TITLE owner\r\n#PLAYLEVEL 9\r\n#BPM 130\r\n#00111:01\r\n", Encoding.ASCII);
         ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path)) with { Sha256 = string.Empty, Level = 2 };
-        var setup = new BmsLibraryDbGateway(songDbPath);
+        var setup = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
         setup.UpsertSongs([file]);
         setup.EnsureChartInfoBackfillSchema();
         var rows = new CatalogOwnedCollectionOwner();
@@ -537,7 +538,7 @@ public sealed class ChartInfoInlineHydrationTests
             File.WriteAllText(missingPath, "#PLAYER 1\n#TITLE followup\n#BPM 130\n#00111:01\n", Encoding.ASCII);
             ChartFile missing = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(missingPath));
             ChartFile current = ChartTestValues.Empty() with { Path = currentPath, Md5 = currentMd5, Sha256 = currentSha };
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(db);
@@ -548,7 +549,7 @@ public sealed class ChartInfoInlineHydrationTests
                 db.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(currentSha, currentMd5,
                     BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
             }
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             var rows = new CatalogOwnedCollectionOwner();
             rows.ReplaceCharts([current, missing], null, replaceBmson: false);
             var mutation = new CatalogMutationOwner(rows, gateway);
@@ -672,7 +673,7 @@ public sealed class ChartInfoInlineHydrationTests
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             using var observation = new SqliteStatementObservation();
-            var gateway = new BmsLibraryDbGateway(songDbPath, songDbFactory: observation.OpenSongDb);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, initializeSongConnection: observation.Attach);
 
             Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> result = gateway.LoadCurrentChartInfoParseFailuresByMd5(
                 [],
@@ -700,7 +701,7 @@ public sealed class ChartInfoInlineHydrationTests
             string currentMd5 = new('a', 32);
             string staleParserMd5 = new('b', 32);
             string shortTimeoutMd5 = new('c', 32);
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.EnsureChartInfoSchema();
             gateway.UpsertChartInfoParseFailures(
             [
@@ -749,7 +750,7 @@ public sealed class ChartInfoInlineHydrationTests
             Assert.IsFalse(skipped.ParseFailed);
             Assert.IsNull(skipped.ParseFailureRow);
             Assert.IsTrue(string.IsNullOrEmpty(skipped.ParseFailureDeleteMd5));
-            using var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
             Assert.AreEqual("InvalidOperationException", verify.ExecuteScalar<string>("SELECT exception_type FROM chart_info_parse_failure WHERE md5 = ?;", currentMd5));
             Assert.AreEqual(3, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
         });
@@ -764,7 +765,7 @@ public sealed class ChartInfoInlineHydrationTests
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             string md5 = new('a', 32);
             string firstSha = new('1', 64);
             string secondSha = new('2', 64);
@@ -797,7 +798,7 @@ public sealed class ChartInfoInlineHydrationTests
     {
         await WithTemporarySongDb(async (tempRootPath, songDbPath) =>
         {
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             string md5 = new('a', 32);
             string sha256 = new('1', 64);
             gateway.UpsertChartInfos([CreateChartInfoRow(sha256, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
@@ -805,7 +806,8 @@ public sealed class ChartInfoInlineHydrationTests
             using var releaseLock = new ManualResetEventSlim(false);
             var lockHolder = Task.Run(() =>
             {
-                Assert.IsTrue(LR2SongDBExtended.Lock(TimeSpan.FromSeconds(5)));
+                IDisposable? gateLease = databaseScope.TryEnterSong(TimeSpan.FromSeconds(5));
+                Assert.IsNotNull(gateLease);
                 try
                 {
                     lockAcquired.TrySetResult();
@@ -813,7 +815,7 @@ public sealed class ChartInfoInlineHydrationTests
                 }
                 finally
                 {
-                    LR2SongDBExtended.Unlock();
+                    gateLease.Dispose();
                 }
             });
             Task<Dictionary<string, BeMusicSeeker.Models.ChartDetails>>? lookupTask = null;
@@ -871,7 +873,7 @@ public sealed class ChartInfoInlineHydrationTests
 
         await WithTemporarySongDb(async delegate (string tempRootPath, string songDbPath)
         {
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             string md5 = new('a', 32);
             string firstSha = new('1', 64);
             string secondSha = new('2', 64);
@@ -882,7 +884,7 @@ public sealed class ChartInfoInlineHydrationTests
                 CreateChartInfoRow(firstSha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion),
                 CreateChartInfoRow(unrelatedSha, new string('b', 32), BmsLibraryDbGateway.CurrentChartInfoParserVersion)
             ]);
-            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings);
             var workers = new ConcurrentBag<Task>();
             library.StartupBackgroundTaskScheduler = (_, _, _, work) =>
             {
@@ -952,7 +954,7 @@ public sealed class ChartInfoInlineHydrationTests
             var service = new ChartInfoInlineBuildService(new ChartInfoBuildService(), parserDegree: 1);
 
             ChartInfoInlineBuildResult result = service.BuildForSnapshots(
-                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 [
                     InlineChartSnapshotTarget.FromChart((firstFile), firstSnapshot),
                     InlineChartSnapshotTarget.FromChart((secondFile), secondSnapshot)
@@ -998,7 +1000,7 @@ public sealed class ChartInfoInlineHydrationTests
                 batchSizeOverride: 1);
 
             ChartInfoInlineBuildResult result = service.BuildForExistingCharts(
-                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 [
                     (firstFile),
                     (secondFile)
@@ -1033,7 +1035,7 @@ public sealed class ChartInfoInlineHydrationTests
             };
             file = file with { Md5 = snapshot.Md5 };
             file = file with { Sha256 = snapshot.Sha256 };
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             BeMusicSeeker.Models.ChartDetails expected = CreateChartInfoRow(file.Sha256, file.Md5, parserVersion: BmsLibraryDbGateway.CurrentChartInfoParserVersion);
             gateway.UpsertChartInfos([expected]);
             var service = new ChartInfoInlineBuildService(new ChartInfoBuildService(), parserDegree: 1);
@@ -1143,9 +1145,9 @@ public sealed class ChartInfoInlineHydrationTests
             string chartPath = Path.Combine(tempRootPath, "bad-target.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE bad\r\n#00111:01\r\n", Encoding.ASCII);
             ChartFile captured = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath)) with { Sha256 = string.Empty };
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             var service = new ChartInfoInlineBuildService(new ChartInfoBuildService(), parserDegree: 1);
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
             }
@@ -1171,7 +1173,7 @@ public sealed class ChartInfoInlineHydrationTests
             ChartFile committed = result.StorageApplications.Single().CreateCurrentValue();
             Assert.IsFalse(string.IsNullOrWhiteSpace(committed.Sha256));
             Assert.IsTrue(string.IsNullOrWhiteSpace(captured.Sha256));
-            using var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + committed.Md5 + "' AND sha256 = '" + committed.Sha256 + "';"));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
             BeMusicSeeker.Models.ChartParseFailure failure = verify.Query<BeMusicSeeker.Models.ChartParseFailure>("SELECT * FROM chart_info_parse_failure WHERE md5 = ?;", committed.Md5).Single();
@@ -1208,11 +1210,11 @@ public sealed class ChartInfoInlineHydrationTests
                 Md5 = new string('b', 32),
                 Sha256 = bmsonSha
             };
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             BeMusicSeeker.Models.ChartDetails bmsRow = CreateChartInfoRow(bmsSha, file.Md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
             BeMusicSeeker.Models.ChartDetails bmsonRow = CreateChartInfoRow(bmsonSha, bmsonSong.Md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
             gateway.UpsertChartInfos([bmsRow, bmsonRow]);
-            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings)
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings)
             {
                 BmsCharts = [file],
                 BmsonCharts = [bmsonSong]
@@ -1297,7 +1299,7 @@ public sealed class ChartInfoInlineHydrationTests
             BeMusicSeeker.Models.ChartDetails row = CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
             row = row with { speedchange = "120.0,0.0;240.0,1000.0" };
             row = row with { lanenotes = "1,2,3,4" };
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
@@ -1317,11 +1319,11 @@ public sealed class ChartInfoInlineHydrationTests
                 if (operationModeLr2Db)
                 {
                     string signature = "lr2_song_db_sync_v2|appSchema=1|chartInfoSchema=1|chartInfoParser=21|operationModeLR2DB=1";
-                    using var songDb = new LR2SongDBExtended(songDbPath);
+                    using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
                     Lr2SongDbSyncStatusService.MarkCompleted(songDb, "unit-test", 1, DateTime.UtcNow);
                     songDb.Execute("UPDATE lr2_song_db_sync_status SET signature = ?;", signature);
                 }
-                var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings)
+                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings)
                 {
                     BmsCharts = [file]
                 };
@@ -1401,7 +1403,7 @@ public sealed class ChartInfoInlineHydrationTests
             };
             file = file with { Md5 = md5 };
             file = file with { Sha256 = sha256 };
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
@@ -1412,7 +1414,7 @@ public sealed class ChartInfoInlineHydrationTests
                     CreateChartInfoRow(sha256, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
             }
 
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             var storageRowsOwner = new CatalogOwnedCollectionOwner();
             storageRowsOwner.ReplaceCharts([file], null, replaceBmson: false);
             CatalogOwnedCollectionOwner ownedCollectionOwner = storageRowsOwner;
@@ -1517,14 +1519,14 @@ public sealed class ChartInfoInlineHydrationTests
             string chartPath = Path.Combine(tempRootPath, "request-progress.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE progress\r\n#BPM 130\r\n#00111:01\r\n", Encoding.ASCII);
             ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                 BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
                 InsertSongForSummary(songDb, chartPath, file.Md5);
             }
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             var storageRowsOwner = new CatalogOwnedCollectionOwner();
             storageRowsOwner.ReplaceCharts([file], null, replaceBmson: false);
             CatalogOwnedCollectionOwner ownedCollectionOwner = storageRowsOwner;
@@ -1624,7 +1626,7 @@ public sealed class ChartInfoInlineHydrationTests
             ChartFile file = (ChartTestValues.Empty() with { Path = chartPath });
             file = file with { Md5 = md5 };
             file = file with { Sha256 = sha256 };
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
@@ -1633,7 +1635,7 @@ public sealed class ChartInfoInlineHydrationTests
                 songDb.InsertOrReplace(CreateChartDigestRow(md5, sha256), typeof(LR2SongDBExtended.chart_digest_map));
                 songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(sha256, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
             }
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             var storageRowsOwner = new CatalogOwnedCollectionOwner();
             storageRowsOwner.ReplaceCharts([file], null, replaceBmson: false);
             CatalogOwnedCollectionOwner ownedCollectionOwner = storageRowsOwner;
@@ -1742,7 +1744,7 @@ public sealed class ChartInfoInlineHydrationTests
                 chartPath,
                 "#PLAYER 1\r\n#TITLE publication order after\r\n#PLAYLEVEL 7\r\n#BPM 130\r\n#00111:01\r\n",
                 Encoding.ASCII);
-            var library = new TestBmsLibrary(songDbPath, settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, settings: testSettings);
             OwnedChartCollectionTestSupport.SetLibraryFilesWithoutNotification(library, [file]);
             OwnedChartCollectionTestSupport.SetLibraryBmsonSongsWithoutNotification(library, []);
             OwnedChartCollectionTestSupport.SetDuplicateChartGroupsWithoutNotification(library, []);
@@ -1821,7 +1823,7 @@ public sealed class ChartInfoInlineHydrationTests
             };
             file = file with { Md5 = digest.Md5 };
             file = file with { Sha256 = digest.Sha256, Level = staleRow ? 12 : null };
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
@@ -1844,7 +1846,7 @@ public sealed class ChartInfoInlineHydrationTests
             try
             {
                 testSettings.OperationModeLR2DB = operationModeLr2Db;
-                var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings)
+                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings)
                 {
                     BmsCharts = [file]
                 };
@@ -1866,7 +1868,7 @@ public sealed class ChartInfoInlineHydrationTests
                     await Task.WhenAll(workers);
                     await TestUiDispatcherHost.AwaitNotificationAsync(
                         AwaitChartInfoBackfillAsync(library), Task.WhenAll(workers), "chart-info.backfill-completion");
-                    using var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+                    using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
                     Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", file.Sha256));
                     Assert.AreEqual(staleRow ? 3 : 13, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
                     Assert.AreEqual(staleRow ? 3 : 13, library.BmsCharts.Single().Level);
@@ -1876,7 +1878,7 @@ public sealed class ChartInfoInlineHydrationTests
                     Assert.AreEqual(22, verify.ExecuteScalar<int>("SELECT parser_version FROM chart_info WHERE sha256 = ?;", file.Sha256));
                     Assert.AreEqual(0, library.Lr2SongDbSyncRequestedVersion);
                     SongTableLoadResult reloaded = new BmsLibraryInitializationService().LoadSongTable(
-                        new BmsLibraryDbGateway(songDbPath), new BmsLibraryOptionsSnapshot { OperationModeLR2DB = operationModeLr2Db },
+                        new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath), new BmsLibraryOptionsSnapshot { OperationModeLR2DB = operationModeLr2Db },
                         null, new OwnedChartCollectionTestSupport.TestFileMutationService(), null, exception => exception.Message);
                     Assert.AreEqual(staleRow ? 3 : 13, reloaded.LoadedFiles.Single().Level);
                 }
@@ -1919,7 +1921,7 @@ public sealed class ChartInfoInlineHydrationTests
 
         await WithTemporarySongDb(async delegate (string tempRootPath, string songDbPath)
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings);
             var workers = new ConcurrentBag<Task>();
             library.StartupBackgroundTaskScheduler = (_, _, _, work) =>
             {
@@ -1964,7 +1966,7 @@ public sealed class ChartInfoInlineHydrationTests
     /// <summary>
     /// 保存行の表示射影と更新時刻を保ってparser版/timeoutから現行集合を分類し、軽量読込みで情報や再試行条件を失う誤りを検出する。
     /// </summary>
-    /// <remarks>実SQLiteの表示用軽量読取りと完全行読取りを照合する。共通の環境変数を一時変更するため非並列とし、元値を必ず復元する。</remarks>
+    /// <remarks>実SQLiteを異なるownerのraw/SQLite.NET/raw snapshotで読み、表示射影と完全行を各方式に応じて照合します。文化設定は必ず復元します。</remarks>
     [TestMethod]
     [DoNotParallelize]
     [DataRow("en-US")]
@@ -1973,14 +1975,12 @@ public sealed class ChartInfoInlineHydrationTests
     public void LoadChartInfoHydrationData_UsesRawProjectionAndPreservesCurrentness(string cultureName)
     {
         CultureInfo previousCulture = CultureInfo.CurrentCulture;
-        string? previousMode = Environment.GetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE");
-        Environment.SetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE", null);
         try
         {
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
             WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
             {
-                var gateway = new BmsLibraryDbGateway(songDbPath);
+                var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
                 string currentMd5 = new('a', 32);
                 string staleMd5 = new('b', 32);
                 string currentFailureMd5 = new('c', 32);
@@ -2005,7 +2005,7 @@ public sealed class ChartInfoInlineHydrationTests
                 staleRow = staleRow with { speedchange = "120.0,0.0;240.0,1.0" };
                 staleRow = staleRow with { lanenotes = "1,2,3,4" };
 
-                using (var songDb = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
                 {
                     BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
                     songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(currentRow), typeof(LR2SongDBExtended.chart_info));
@@ -2017,34 +2017,46 @@ public sealed class ChartInfoInlineHydrationTests
                         CreateChartInfoParseFailureRow(staleFailureMd5, staleFailureSha, Path.Combine(tempRootPath, "stale-timeout.bms"), BmsLibraryDbGateway.CurrentChartInfoParserVersion, "timeout", "ChartInfoParseTimeoutException", "old timeout", 500)), typeof(LR2SongDBExtended.chart_info_parse_failure));
                 }
 
-                ChartInfoHydrationLoadResult result = gateway.LoadChartInfoHydrationData(TimeSpan.FromMilliseconds(1000));
+                var mappedScope = new ApplicationDatabaseScope();
+                var mappedGateway = new BmsLibraryDbGateway(mappedScope, new BmsDatabaseLoadOptions(true, true, false), songDbPath);
+                foreach ((BmsLibraryDbGateway reader, bool raw) in new[] { (gateway, true), (mappedGateway, false), (gateway, true) })
+                {
+                    ChartInfoHydrationLoadResult result = reader.LoadChartInfoHydrationData(TimeSpan.FromMilliseconds(1000));
 
-                Assert.AreEqual("raw_typed_display", result.MaterializeMode);
-                Assert.AreEqual(2, result.ChartInfoRows);
-                Assert.AreEqual(2, result.ParseFailureRows);
-                Assert.AreEqual(4, result.RawRows);
-                Assert.AreEqual(2, result.ChartInfoBySha256.Count);
-                Assert.IsTrue(result.CurrentChartInfoSha256s.Contains(currentSha));
-                Assert.IsFalse(result.CurrentChartInfoSha256s.Contains(staleSha));
-                Assert.IsTrue(result.CurrentParseFailureMd5s.Contains(currentFailureMd5));
-                Assert.IsFalse(result.CurrentParseFailureMd5s.Contains(staleFailureMd5));
-                AssertChartInfoDisplayProjectionEquivalent(currentRow, result.ChartInfoBySha256[currentSha]);
-                AssertChartInfoDisplayProjectionEquivalent(staleRow, result.ChartInfoBySha256[staleSha]);
-                Assert.AreEqual(BitConverter.DoubleToInt64Bits(Math.BitIncrement(1.5)), BitConverter.DoubleToInt64Bits(result.ChartInfoBySha256[currentSha].mainbpm ?? double.NaN));
-                Assert.AreEqual(639029198450000001L, result.ChartInfoBySha256[currentSha].updated_at.Ticks);
-                Assert.AreEqual(currentRow.updated_at, result.ChartInfoBySha256[currentSha].updated_at);
-                Assert.AreEqual(staleRow.updated_at, result.ChartInfoBySha256[staleSha].updated_at);
+                    Assert.AreEqual(raw ? "raw_typed_display" : "sqlite_net", result.MaterializeMode);
+                    Assert.AreEqual(2, result.ChartInfoRows);
+                    Assert.AreEqual(2, result.ParseFailureRows);
+                    Assert.AreEqual(raw ? 4 : 0, result.RawRows);
+                    Assert.AreEqual(2, result.ChartInfoBySha256.Count);
+                    Assert.IsTrue(result.CurrentChartInfoSha256s.Contains(currentSha));
+                    Assert.IsFalse(result.CurrentChartInfoSha256s.Contains(staleSha));
+                    Assert.IsTrue(result.CurrentParseFailureMd5s.Contains(currentFailureMd5));
+                    Assert.IsFalse(result.CurrentParseFailureMd5s.Contains(staleFailureMd5));
+                    if (raw)
+                    {
+                        AssertChartInfoDisplayProjectionEquivalent(currentRow, result.ChartInfoBySha256[currentSha]);
+                        AssertChartInfoDisplayProjectionEquivalent(staleRow, result.ChartInfoBySha256[staleSha]);
+                    }
+                    else
+                    {
+                        AssertChartInfoEquivalent(currentRow, result.ChartInfoBySha256[currentSha]);
+                        AssertChartInfoEquivalent(staleRow, result.ChartInfoBySha256[staleSha]);
+                    }
+                    Assert.AreEqual(BitConverter.DoubleToInt64Bits(Math.BitIncrement(1.5)), BitConverter.DoubleToInt64Bits(result.ChartInfoBySha256[currentSha].mainbpm ?? double.NaN));
+                    Assert.AreEqual(639029198450000001L, result.ChartInfoBySha256[currentSha].updated_at.Ticks);
+                    Assert.AreEqual(currentRow.updated_at, result.ChartInfoBySha256[currentSha].updated_at);
+                    Assert.AreEqual(staleRow.updated_at, result.ChartInfoBySha256[staleSha].updated_at);
 
-                Dictionary<string, BeMusicSeeker.Models.ChartDetails> fullRows = gateway.LoadChartInfosBySha256([currentSha, staleSha]);
+                    Dictionary<string, BeMusicSeeker.Models.ChartDetails> fullRows = reader.LoadChartInfosBySha256([currentSha, staleSha]);
 
-                AssertChartInfoEquivalent(currentRow, fullRows[currentSha]);
-                AssertChartInfoEquivalent(staleRow, fullRows[staleSha]);
+                    AssertChartInfoEquivalent(currentRow, fullRows[currentSha]);
+                    AssertChartInfoEquivalent(staleRow, fullRows[staleSha]);
+                }
             });
         }
         finally
         {
             CultureInfo.CurrentCulture = previousCulture;
-            Environment.SetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE", previousMode);
         }
     }
 
@@ -2054,58 +2066,52 @@ public sealed class ChartInfoInlineHydrationTests
     [DoNotParallelize]
     public void LoadChartInfoHydrationData_PreservesFixedTextCompatibilityAndInvalidDefaults()
     {
-        string? previousMode = Environment.GetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE");
-        Environment.SetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE", null);
-        try
+        WithTemporarySongDb((_, path) =>
         {
-            WithTemporarySongDb((_, path) =>
+            string firstSha = new('5', 64), secondSha = new('6', 64);
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(path))
             {
-                string firstSha = new('5', 64), secondSha = new('6', 64);
-                using (var db = new LR2SongDBExtended(path))
+                BmsLibraryDbGateway.EnsureChartInfoSchema(db);
+                // schema準備後に入力だけの表を作り、補修による通常型への置換を避けて旧TEXT互換へ到達します。
+                string projection = string.Join(", ", db.GetMapping(typeof(LR2SongDBExtended.chart_info)).Columns.Select(column => column.Name switch
                 {
-                    BmsLibraryDbGateway.EnsureChartInfoSchema(db);
-                    // schema準備後に入力だけの表を作り、補修による通常型への置換を避けて旧TEXT互換へ到達します。
-                    string projection = string.Join(", ", db.GetMapping(typeof(LR2SongDBExtended.chart_info)).Columns.Select(column => column.Name switch
-                    {
-                        "level" or "difficulty_defined" or "notes" or "updated_at" => $"CAST({column.Name} AS TEXT) AS {column.Name}",
-                        "difficulty" => "+difficulty AS difficulty",
-                        _ => column.Name
-                    }));
-                    db.Execute($"CREATE TABLE chart_info_fixture AS SELECT {projection} FROM chart_info WHERE 0;");
-                    db.Execute("DROP TABLE chart_info;");
-                    db.Execute("ALTER TABLE chart_info_fixture RENAME TO chart_info;");
-                    db.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(firstSha, new string('e', 32), BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
-                    db.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(secondSha, new string('f', 32), BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
-                    db.Execute("UPDATE chart_info SET level = '12', difficulty = 3.5, difficulty_defined = 'True', mainbpm = '1,234.5', feature = 2147483648, notes = '34', updated_at = '2026/1/2' WHERE sha256 = ?;", firstSha);
-                    db.Execute("UPDATE chart_info SET level = '2147483648', difficulty = NULL, difficulty_defined = 'false', mainbpm = 'invalid', notes = 'invalid', updated_at = '639029198450000001' WHERE sha256 = ?;", secondSha);
-                    Assert.AreEqual("text|real|text|integer|text|text", db.ExecuteScalar<string>("SELECT typeof(level) || '|' || typeof(difficulty) || '|' || typeof(mainbpm) || '|' || typeof(feature) || '|' || typeof(notes) || '|' || typeof(updated_at) FROM chart_info WHERE sha256 = ?;", firstSha));
-                }
+                    "level" or "difficulty_defined" or "notes" or "updated_at" => $"CAST({column.Name} AS TEXT) AS {column.Name}",
+                    "difficulty" => "+difficulty AS difficulty",
+                    _ => column.Name
+                }));
+                db.Execute($"CREATE TABLE chart_info_fixture AS SELECT {projection} FROM chart_info WHERE 0;");
+                db.Execute("DROP TABLE chart_info;");
+                db.Execute("ALTER TABLE chart_info_fixture RENAME TO chart_info;");
+                db.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(firstSha, new string('e', 32), BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
+                db.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(secondSha, new string('f', 32), BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
+                db.Execute("UPDATE chart_info SET level = '12', difficulty = 3.5, difficulty_defined = 'True', mainbpm = '1,234.5', feature = 2147483648, notes = '34', updated_at = '2026/1/2' WHERE sha256 = ?;", firstSha);
+                db.Execute("UPDATE chart_info SET level = '2147483648', difficulty = NULL, difficulty_defined = 'false', mainbpm = 'invalid', notes = 'invalid', updated_at = '639029198450000001' WHERE sha256 = ?;", secondSha);
+                Assert.AreEqual("text|real|text|integer|text|text", db.ExecuteScalar<string>("SELECT typeof(level) || '|' || typeof(difficulty) || '|' || typeof(mainbpm) || '|' || typeof(feature) || '|' || typeof(notes) || '|' || typeof(updated_at) FROM chart_info WHERE sha256 = ?;", firstSha));
+            }
 
-                ChartInfoHydrationLoadResult result = new BmsLibraryDbGateway(path).LoadChartInfoHydrationData(TimeSpan.FromSeconds(1));
-                Assert.AreEqual(2, result.ChartInfoBySha256.Count);
-                Assert.AreEqual(2, result.CurrentChartInfoSha256s.Count);
-                ChartDetails first = result.ChartInfoBySha256[firstSha];
-                Assert.AreEqual(12, first.level);
-                Assert.IsNull(first.difficulty);
-                Assert.IsTrue(first.difficulty_defined);
-                Assert.AreEqual(1234.5, first.mainbpm);
-                Assert.AreEqual(0, first.feature);
-                Assert.AreEqual(34, first.notes);
-                Assert.AreEqual(default(DateTime), first.updated_at);
-                ChartDetails second = result.ChartInfoBySha256[secondSha];
-                Assert.IsNull(second.level);
-                Assert.IsNull(second.difficulty);
-                Assert.IsFalse(second.difficulty_defined);
-                Assert.IsNull(second.mainbpm);
-                Assert.AreEqual(0, second.notes);
-                Assert.AreEqual(639029198450000001L, second.updated_at.Ticks);
-                Assert.IsTrue(result.ReadOnly);
-                using var verify = new LR2SongDBExtended(path, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
-                Assert.AreEqual("2026/1/2|34|2147483648", verify.ExecuteScalar<string>("SELECT updated_at || '|' || notes || '|' || feature FROM chart_info WHERE sha256 = ?;", firstSha));
-                Assert.AreEqual("invalid", verify.ExecuteScalar<string>("SELECT notes FROM chart_info WHERE sha256 = ?;", secondSha));
-            });
-        }
-        finally { Environment.SetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE", previousMode); }
+            ChartInfoHydrationLoadResult result = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), path).LoadChartInfoHydrationData(TimeSpan.FromSeconds(1));
+            Assert.AreEqual(2, result.ChartInfoBySha256.Count);
+            Assert.AreEqual(2, result.CurrentChartInfoSha256s.Count);
+            ChartDetails first = result.ChartInfoBySha256[firstSha];
+            Assert.AreEqual(12, first.level);
+            Assert.IsNull(first.difficulty);
+            Assert.IsTrue(first.difficulty_defined);
+            Assert.AreEqual(1234.5, first.mainbpm);
+            Assert.AreEqual(0, first.feature);
+            Assert.AreEqual(34, first.notes);
+            Assert.AreEqual(default(DateTime), first.updated_at);
+            ChartDetails second = result.ChartInfoBySha256[secondSha];
+            Assert.IsNull(second.level);
+            Assert.IsNull(second.difficulty);
+            Assert.IsFalse(second.difficulty_defined);
+            Assert.IsNull(second.mainbpm);
+            Assert.AreEqual(0, second.notes);
+            Assert.AreEqual(639029198450000001L, second.updated_at.Ticks);
+            Assert.IsTrue(result.ReadOnly);
+            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(path);
+            Assert.AreEqual("2026/1/2|34|2147483648", verify.ExecuteScalar<string>("SELECT updated_at || '|' || notes || '|' || feature FROM chart_info WHERE sha256 = ?;", firstSha));
+            Assert.AreEqual("invalid", verify.ExecuteScalar<string>("SELECT notes FROM chart_info WHERE sha256 = ?;", secondSha));
+        });
     }
 
     /// <summary>
@@ -2117,7 +2123,7 @@ public sealed class ChartInfoInlineHydrationTests
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             string currentMd5 = new('a', 32);
             string missingDigestMd5 = new('b', 32);
             string staleMd5 = new('c', 32);
@@ -2125,7 +2131,7 @@ public sealed class ChartInfoInlineHydrationTests
             string currentSha = new('1', 64);
             string staleSha = new('2', 64);
             string failureSha = new('3', 64);
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
@@ -2190,7 +2196,7 @@ public sealed class ChartInfoInlineHydrationTests
                 File.WriteAllText(path, "#TITLE inline" + index + "\r\n#PLAYLEVEL 9\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
                 charts.Add(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path)) with { Level = 2 });
             }
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.UpsertSongs(charts);
             gateway.EnsureChartInfoBackfillSchema();
             var service = new ChartInfoInlineBuildService(new ChartInfoBuildService(), parserDegree: 1);
@@ -2210,7 +2216,7 @@ public sealed class ChartInfoInlineHydrationTests
                 new CatalogChartInfoWriteRequest(chartInfoRows: result.ChartInfoRows,
                     parseFailureRows: result.ParseFailureRows, parseFailureDeleteMd5s: result.ParseFailureDeleteMd5s)));
             Assert.IsTrue(receipt.Applied);
-            using var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
             Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", charts[0].Path));
             Assert.AreEqual(9, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", charts[1].Path));
             Assert.AreEqual(charts[0].Md5, verify.ExecuteScalar<string>("SELECT hash FROM song WHERE path = ?;", charts[0].Path));
@@ -2290,7 +2296,7 @@ public sealed class ChartInfoInlineHydrationTests
         Assert.AreEqual("JsonSerializationException", result.ParseFailureRow.exception_type);
     }
 
-    private static TargetedFailureQueryRun ExecuteTargetedFailureQueryCase(int backgroundCount)
+    private TargetedFailureQueryRun ExecuteTargetedFailureQueryCase(int backgroundCount)
     {
         const string targetMd5 = "ffffffffffffffffffffffffffffffff";
         string tempRootPath = Path.Combine(
@@ -2301,7 +2307,7 @@ public sealed class ChartInfoInlineHydrationTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            var setupGateway = new BmsLibraryDbGateway(songDbPath);
+            var setupGateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             setupGateway.EnsureChartInfoSchema();
             setupGateway.UpsertChartInfoParseFailures(
                 Enumerable.Range(0, backgroundCount)
@@ -2325,7 +2331,7 @@ public sealed class ChartInfoInlineHydrationTests
                         null)));
 
             using var observation = new SqliteStatementObservation();
-            var gateway = new BmsLibraryDbGateway(songDbPath, songDbFactory: observation.OpenSongDb);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, initializeSongConnection: observation.Attach);
             Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> result = gateway.LoadCurrentChartInfoParseFailuresByMd5(
                 [targetMd5],
                 TimeSpan.FromSeconds(60));

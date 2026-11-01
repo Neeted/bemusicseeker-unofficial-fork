@@ -1389,5 +1389,6 @@
   "ChartPropertiesCountedUnfulfilled": "Counted as an individual unfulfilled requirement",
   "ChartPropertiesNotCounted": "Excluded from required resources",
   "ChartPropertiesCp932AlternativeInterpretation": "Alternative interpretation for LR2 (CP932; may appear alongside the normal interpretation)",
-  "Validation_Lr2BuiltinCustomFolderReservedFormat": "{0} cannot use a reserved location for LR2 built-in custom folders.\nSelected: {1}\nBuilt-in folder: {2}"
+  "Validation_Lr2BuiltinCustomFolderReservedFormat": "{0} cannot use a reserved location for LR2 built-in custom folders.\nSelected: {1}\nBuilt-in folder: {2}",
+  "DatabaseConnectionCloseFailed": "An error occurred while closing database connections."
 }

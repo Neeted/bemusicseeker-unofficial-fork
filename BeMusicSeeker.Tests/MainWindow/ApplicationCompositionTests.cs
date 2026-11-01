@@ -40,19 +40,19 @@ public sealed partial class ApplicationCompositionTests
         try
         {
             string songDb = Path.Combine(root, "song.db");
-            new BmsLibraryDbGateway(songDb).EnsureAppOwnedSchema();
-            new BmsLibraryDbGateway(songDb).EnsureLibraryStartupSchema();
-            PlaylistPersistenceRepository.EnsureSchema(songDb);
             TestUiDispatcherHost.Invoke(() =>
             {
                 var scheduler = new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher);
                 var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), bmsLibraryOptionsProvider: () => new BmsLibraryOptionsSnapshot(),
                     settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: scheduler,
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-                var library = new TestBmsLibrary(songDb, null, null, new ResilientFileMutationService(), null, scheduler,
+                new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).EnsureAppOwnedSchema();
+                new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).EnsureLibraryStartupSchema();
+                PlaylistPersistenceRepository.EnsureSchema(composition.DatabaseScope, songDb);
+                var library = new TestBmsLibrary(composition.DatabaseScope, songDb, null, null, new ResilientFileMutationService(), null, scheduler,
                     () => new BmsLibraryOptionsSnapshot(), operationAdmission: composition.OperationAdmission, settings: testSettings);
                 library.ChartPackagesPending = new ObservableCollection<ChartPackage>([new ChartPackage { path = managed }]);
-                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDb, testSettings, library: library);
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, songDb, testSettings, library: library);
                 MainChartListViewModel rows = composition.CreateMainChartListViewModel(action => action(), _ => { });
                 rows.Rows = new List<object> { ChartTestValues.Empty() with { Path = current } };
                 PlaylistWorkspaceViewModel workspace = composition.CreatePlaylistWorkspaceViewModel(
@@ -122,10 +122,6 @@ public sealed partial class ApplicationCompositionTests
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         string songDbPath = Path.Combine(tempDirectory, "song.db");
-        using (var initialize = new LR2SongDBExtended(songDbPath))
-        {
-        }
-
         try
         {
             var composition = new ApplicationComposition(
@@ -135,6 +131,10 @@ public sealed partial class ApplicationCompositionTests
                 uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            using (LR2SongDBExtended initialize = composition.DatabaseScope.OpenSongWrite(songDbPath))
+            {
+            }
+
             var profile = new LibraryProfile(
                 operationModeLR2DB: false,
                 songDbPath: songDbPath,
@@ -158,7 +158,7 @@ public sealed partial class ApplicationCompositionTests
 
             string secondDbPath = Path.Combine(tempDirectory, "Second", "song.db");
             Directory.CreateDirectory(Path.GetDirectoryName(secondDbPath)!);
-            using (var initialize = new LR2SongDBExtended(secondDbPath)) { }
+            using (LR2SongDBExtended initialize = composition.DatabaseScope.OpenSongWrite(secondDbPath)) { }
             LibraryProfile secondProfile = StartupLibraryConstructionTestSupport.CreateProfile(tempDirectory, secondDbPath);
             BMSLibrary secondLibrary = composition.CreateBmsLibrary(secondProfile);
             BMSPlaylist secondPlaylist = composition.CreateBmsPlaylist(secondProfile, secondLibrary);
@@ -242,16 +242,16 @@ public sealed partial class ApplicationCompositionTests
         try
         {
             string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(songDbPath))
-            {
-            }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings);
-            playlist.BMSTables = new ObservableCollection<BMSTable>();
             var composition = new ApplicationComposition(
                 runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 () => new BmsLibraryOptionsSnapshot(),
                 settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            using (LR2SongDBExtended _ = composition.DatabaseScope.OpenSongWrite(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(composition.DatabaseScope, songDbPath);
+            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, songDbPath, testSettings);
+            playlist.BMSTables = new ObservableCollection<BMSTable>();
             MainChartListViewModel missingProviderMainChartList = composition.CreateMainChartListViewModel(action => action(), _ => { });
             PlaylistWorkspaceViewModel missingProviderWorkspace = composition.CreatePlaylistWorkspaceViewModel(
                 action => action(),
@@ -630,18 +630,18 @@ public sealed partial class ApplicationCompositionTests
         try
         {
             string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(songDbPath))
-            {
-            }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
-            var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
-            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings);
-            playlist.BMSTables = new ObservableCollection<BMSTable>([first, second]);
             var composition = new ApplicationComposition(
                 runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 () => new BmsLibraryOptionsSnapshot(),
                 settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            using (LR2SongDBExtended _ = composition.DatabaseScope.OpenSongWrite(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(composition.DatabaseScope, songDbPath);
+            var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
+            var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
+            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, songDbPath, testSettings);
+            playlist.BMSTables = new ObservableCollection<BMSTable>([first, second]);
             MainChartListViewModel mainChartList = composition.CreateMainChartListViewModel(action => action(), _ => { });
             PlaylistWorkspaceViewModel workspace = composition.CreatePlaylistWorkspaceViewModel(
                 action => action(),
@@ -716,7 +716,7 @@ public sealed partial class ApplicationCompositionTests
                 Assert.AreEqual(
                     PlaylistSummaryDeferredRefreshKind.Data,
                     workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false));
-                using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                using (LR2SongDBExtended verify = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
                 {
                     Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT bmt_sort FROM playlist WHERE playlist_id = ?;", 1));
                     Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT bmt_sort FROM playlist WHERE playlist_id = ?;", 2));
@@ -750,20 +750,21 @@ public sealed partial class ApplicationCompositionTests
     [TestMethod]
     public void PlaylistWorkspaceBmtOutputTogglePersistsDistinctChangedHeadersAndRequestsSummaryRefresh()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(ApplicationCompositionTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
             string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
             {
             }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             var first = new BMSTable { playlist_id = 11, name = "First", is_bmt_output = null };
             var second = new BMSTable { playlist_id = 12, name = "Second", is_bmt_output = false };
             var third = new BMSTable { playlist_id = 13, name = "Third", is_bmt_output = true };
             string bmtPath = Path.Combine(tempDirectory, "beatoraja", "table.json");
-            var playlist = new TestBmsPlaylist(
+            var playlist = new TestBmsPlaylist(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -845,7 +846,7 @@ public sealed partial class ApplicationCompositionTests
             Assert.AreEqual(generationBeforeNoOp, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
             Assert.AreEqual(1, completedOutputCount, "変更のない再要求は必要出力を再実行しません。");
 
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             LR2SongDBExtended.playlist persistedFirst = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == first.playlist_id);
             LR2SongDBExtended.playlist persistedSecond = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == second.playlist_id);
             LR2SongDBExtended.playlist persistedThird = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == third.playlist_id);
@@ -903,7 +904,7 @@ public sealed partial class ApplicationCompositionTests
                     KeepInstallablePackagesPending = true,
                     PendingInstallEstimateMaxParallelPackages = 2
                 };
-                var library = new TestBmsLibrary(songDb, null, null, null, new FileDbReportRecordingDialogs(),
+                var library = new TestBmsLibrary(MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope, songDb, null, null, null, new FileDbReportRecordingDialogs(),
                     new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => options,
                     CapturedChartFileScanner.FromFixture([installedChart],
                         new Dictionary<string, IEnumerable<string>> { [installed] = ["sound.wav"] }, [installed]),
@@ -946,7 +947,7 @@ public sealed partial class ApplicationCompositionTests
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(
                         TestUiDispatcherHost.AwaitNotificationAsync(Task.WhenAll(rowsApplied.Task, treeApplied.Task), idle,
                             "pending-composition.presentation"), "pending-composition.presentation");
-                    using (LR2SongDBExtended connection = new BmsLibraryDbGateway(songDb).OpenSongDbReadOnly())
+                    using (LR2SongDBExtended connection = new BmsLibraryDbGateway(library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).OpenSongDbReadOnly())
                     {
                         Assert.AreEqual(2, connection.Table<LR2SongDBExtended.install>().Count());
                     }
@@ -1030,8 +1031,6 @@ public sealed partial class ApplicationCompositionTests
         File.WriteAllBytes(songDb, []);
         try
         {
-            new BmsLibraryDbGateway(songDb).EnsureAppOwnedSchema();
-            PlaylistPersistenceRepository.EnsureSchema(songDb);
             TestUiDispatcherHost.Invoke(() =>
             {
                 var scheduler = new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher);
@@ -1039,6 +1038,8 @@ public sealed partial class ApplicationCompositionTests
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                     settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: scheduler,
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).EnsureAppOwnedSchema();
+                PlaylistPersistenceRepository.EnsureSchema(composition.DatabaseScope, songDb);
                 MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
                 PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
                 var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1064,8 +1065,8 @@ public sealed partial class ApplicationCompositionTests
                 Task<PackageCatalogMutationResult>? removal = null;
                 try
                 {
-                    TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDb, testSettings, viewModel);
-                    TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDb, testSettings, library: library);
+                    TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(composition.DatabaseScope, songDb, testSettings, viewModel);
+                    TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, songDb, testSettings, library: library);
                     var expectedTable = new BMSTable { playlist_id = 17, name = "Summary fixture", symbol = "S" };
                     expectedTable.entries = [PlaylistSummaryAggregationTestSupport.CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", null)];
                     playlist.BMSTables = new ObservableCollection<BMSTable>([expectedTable]);
@@ -1674,10 +1675,11 @@ public sealed partial class ApplicationCompositionTests
     [TestMethod]
     public void LibraryEvaluatesTheInjectedOptionsProviderForEachOperation()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BeMusicSeekerOptionsProvider_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         string songDbPath = Path.Combine(tempDirectory, "song.db");
-        using (var initialize = new LR2SongDBExtended(songDbPath))
+        using (LR2SongDBExtended initialize = databaseScope.OpenSongWrite(songDbPath))
         {
         }
         BmsLibraryOptionsSnapshot current = new()
@@ -1686,7 +1688,7 @@ public sealed partial class ApplicationCompositionTests
         };
         try
         {
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,

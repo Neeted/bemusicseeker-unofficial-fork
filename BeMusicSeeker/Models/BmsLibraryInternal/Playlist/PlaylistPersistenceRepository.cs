@@ -45,20 +45,24 @@ internal sealed class PlaylistPersistenceRepository
 {
     private readonly string songDbPath;
 
-    private readonly Func<string, LR2SongDBExtended> openEntryWriteConnection;
+    private readonly ApplicationDatabaseScope databaseScope;
 
-    /// <summary>保存先と entry 書込み接続を受け取り、実 SQL の観測も各保存の接続寿命内に限定します。</summary>
-    internal PlaylistPersistenceRepository(string songDbPath, Func<string, LR2SongDBExtended> openEntryWriteConnection = null)
+    private readonly Action<LR2SongDBExtended> initializeEntryWriteConnection;
+
+    /// <summary>接続所有者、保存先とentry書込み時の初期化を受け取り、実SQLの観測も各保存の接続寿命内に限定します。</summary>
+    internal PlaylistPersistenceRepository(ApplicationDatabaseScope databaseScope, string songDbPath, Action<LR2SongDBExtended> initializeEntryWriteConnection = null)
     {
+        this.databaseScope = databaseScope ?? throw new ArgumentNullException(nameof(databaseScope));
         this.songDbPath = songDbPath ?? throw new ArgumentNullException(nameof(songDbPath));
-        this.openEntryWriteConnection = openEntryWriteConnection ?? (path => new LR2SongDBExtended(path));
+        this.initializeEntryWriteConnection = initializeEntryWriteConnection;
     }
 
     /// <summary>
     /// 指定された song.db の playlist schema を transaction 単位で現在の形へ揃えます。
     /// </summary>
-    internal static void EnsureSchema(string songDbPath)
+    internal static void EnsureSchema(ApplicationDatabaseScope databaseScope, string songDbPath)
     {
+        ArgumentNullException.ThrowIfNull(databaseScope);
         if (songDbPath == null)
         {
             throw new ArgumentNullException(nameof(songDbPath));
@@ -67,7 +71,7 @@ internal sealed class PlaylistPersistenceRepository
         {
             throw new ArgumentException(string.Format(Resources.Error_LR2SongDBNotFound, songDbPath), nameof(songDbPath));
         }
-        using var db = new LR2SongDBExtended(songDbPath);
+        using LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath);
         string savepoint = db.SaveTransactionPoint();
         try
         {
@@ -138,7 +142,7 @@ internal sealed class PlaylistPersistenceRepository
 
     internal Dictionary<int, CustomFolderOutputStatusRow> ReadCustomFolderOutputStatusRows()
     {
-        using var db = new LR2SongDBExtended(songDbPath);
+        using LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath);
         EnsureCustomFolderOutputStatusTable(db);
         return db.Query<CustomFolderOutputStatusRow>(
                 "SELECT "
@@ -168,7 +172,7 @@ internal sealed class PlaylistPersistenceRepository
             return;
         }
 
-        using var db = new LR2SongDBExtended(songDbPath);
+        using LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath);
         EnsureCustomFolderOutputStatusTable(db);
         string savepoint = db.SaveTransactionPoint();
         try
@@ -208,7 +212,7 @@ internal sealed class PlaylistPersistenceRepository
             return;
         }
 
-        using var db = new LR2SongDBExtended(songDbPath);
+        using LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath);
         EnsureCustomFolderOutputStatusTable(db);
         db.Execute(
             "DELETE FROM playlist_custom_folder_output_status WHERE playlist_id = ?;",
@@ -231,7 +235,7 @@ internal sealed class PlaylistPersistenceRepository
             return [];
         }
 
-        using var db = new LR2SongDBExtended(songDbPath);
+        using LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath);
         IEnumerable<LR2SongDB.folder> exactRows = layoutOnly
             ? Lr2FolderExistingRowLookup.QueryExactPathsForCustomFolderLayout(db, exactPathList)
             : Lr2FolderExistingRowLookup.QueryExactPaths(db, exactPathList);
@@ -251,14 +255,14 @@ internal sealed class PlaylistPersistenceRepository
             return [];
         }
 
-        using var db = new LR2SongDBExtended(songDbPath);
+        using LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath);
         return Lr2FolderExistingRowLookup.QueryExactPathsForCustomFolderLayout(db, pathList).ToList();
     }
 
     internal List<BMSTable> LoadPlaylistHeaders()
     {
         List<BMSTable> tables;
-        using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+        using (LR2SongDBExtended db = databaseScope.OpenSongReadOnly(songDbPath))
         {
             tables = [.. (from table in db.Table<BMSTable>()
                           orderby table.name
@@ -278,7 +282,7 @@ internal sealed class PlaylistPersistenceRepository
         {
             return [];
         }
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+        using LR2SongDBExtended db = databaseScope.OpenSongReadOnly(songDbPath);
         using (BMSTableEntry.BeginBulkLoadParseSuppression())
         {
             string sql = "SELECT * FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName()
@@ -296,7 +300,7 @@ internal sealed class PlaylistPersistenceRepository
     internal PlaylistEntriesHydrationLoadResult LoadStartupPlaylistEntries()
     {
         var result = new PlaylistEntriesHydrationLoadResult();
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+        using LR2SongDBExtended db = databaseScope.OpenSongReadOnly(songDbPath);
         result.ReadOnly = db.IsReadOnlyConnection;
         result.DbLockWaitMs = db.ProcessLockWaitMs;
         string tableName = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
@@ -363,7 +367,7 @@ internal sealed class PlaylistPersistenceRepository
         {
             return;
         }
-        using var db = new LR2SongDBExtended(songDbPath);
+        using LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath);
         string savepoint = db.SaveTransactionPoint();
         try
         {
@@ -400,7 +404,7 @@ internal sealed class PlaylistPersistenceRepository
         {
             return;
         }
-        using var db = new LR2SongDBExtended(songDbPath);
+        using LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath);
         string savepoint = db.SaveTransactionPoint();
         try
         {
@@ -429,7 +433,7 @@ internal sealed class PlaylistPersistenceRepository
         {
             throw new ArgumentNullException(nameof(entry));
         }
-        using LR2SongDBExtended db = openEntryWriteConnection(songDbPath);
+        using LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath, initializeEntryWriteConnection);
         string savepoint = db.SaveTransactionPoint();
         try
         {
@@ -457,7 +461,7 @@ internal sealed class PlaylistPersistenceRepository
         {
             return;
         }
-        using var db = new LR2SongDBExtended(songDbPath);
+        using LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath);
         string savepoint = db.SaveTransactionPoint();
         try
         {
@@ -485,7 +489,7 @@ internal sealed class PlaylistPersistenceRepository
     /// <summary>少数追加削除だけを、複数表で一つの transaction として保存します。対象外の保存行は書き直しません。</summary>
     internal void CommitEntryMutations(IReadOnlyList<BMSTable.EntryMutation> mutations)
     {
-        using LR2SongDBExtended db = openEntryWriteConnection(songDbPath);
+        using LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath, initializeEntryWriteConnection);
         string savepoint = db.SaveTransactionPoint();
         try
         {
@@ -520,7 +524,7 @@ internal sealed class PlaylistPersistenceRepository
     /// <summary>保存済み三表の値とSQLite型を保持するSQLバックアップを生成します。</summary>
     internal string GetPlaylistDump()
     {
-        using var db = new LR2SongDBExtended(songDbPath);
+        using LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath);
         string separator = "\v" + Environment.NewLine;
         string playlistDump = string.Join(separator, from sql in db.Dump<LR2SongDBExtended.playlist>()
                                                      select sql.Replace(separator, Environment.NewLine));
@@ -538,7 +542,7 @@ internal sealed class PlaylistPersistenceRepository
         {
             throw new ArgumentNullException(nameof(sql));
         }
-        using var db = new LR2SongDBExtended(songDbPath);
+        using LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath);
         string savepoint = db.SaveTransactionPoint();
         try
         {

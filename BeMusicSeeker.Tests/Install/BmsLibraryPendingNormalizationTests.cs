@@ -176,6 +176,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [DataRow(true)]
     public void ApplyPendingPackageMutationDelta_NormalizationUsesOneTransactionBeforePublication(bool abortAfterInsert)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb((database, root) =>
         {
             string parent = Path.Combine(root, "Collection");
@@ -187,12 +188,12 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             var oldChild = new ChartPackage { path = child };
             var unrelated = new ChartPackage { path = Path.Combine(root, "Unrelated"), delete_parent = true };
             ChartPackage[] originals = [oldParent, oldChild, unrelated];
-            ExecuteSongDbFixtureTransaction(database, db =>
+            ExecuteSongDbFixtureTransaction(databaseScope, database, db =>
             {
                 db.CreateTable<LR2SongDBExtended.install>();
                 foreach (ChartPackage package in originals) { db.Insert(package, typeof(LR2SongDBExtended.install)); }
             });
-            var gateway = new BmsLibraryDbGateway(database);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), database);
             int publications = 0;
             var owner = new PackageLifecycleOwner(gateway, new TestUiScheduler(() => null), _ => publications++,
                 packages => new ObservableCollection<ChartPackage>(packages ?? []), () => { }, _ => { });
@@ -203,7 +204,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             PendingPackageMutationDelta delta = service.BuildPendingPackageMutationDelta(originals, group.Sources);
             if (abortAfterInsert)
             {
-                ExecuteSongDbFixtureTransaction(database, db =>
+                ExecuteSongDbFixtureTransaction(databaseScope, database, db =>
                     db.Execute("CREATE TRIGGER fail_normalization AFTER INSERT ON install BEGIN SELECT RAISE(ABORT, 'normalization-insert'); END;"));
             }
             if (abortAfterInsert)

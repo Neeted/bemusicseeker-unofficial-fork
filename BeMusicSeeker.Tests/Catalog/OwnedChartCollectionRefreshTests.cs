@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.Tests.OwnedChartCollectionTestSupport;
 
@@ -17,6 +18,7 @@ public sealed class OwnedChartCollectionRefreshTests
     [DataRow(true)]
     public void RenameInstalledFolder_SharesCommittedCurrentInsteadOfPartialPathRequest(bool bmson)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -38,11 +40,11 @@ public sealed class OwnedChartCollectionRefreshTests
                 Favorite = 3,
                 Tag = "kept tag"
             };
-            var library = new TestBmsLibrary(songDbPath) { BmsCharts = bmson ? [] : [before], BmsonCharts = bmson ? [before] : [] };
+            var library = new TestBmsLibrary(databaseScope, songDbPath) { BmsCharts = bmson ? [] : [before], BmsonCharts = bmson ? [before] : [] };
             try
             {
                 before = (bmson ? library.BmsonCharts : library.BmsCharts).Single();
-                using (var db = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
                 {
                     db.CreateTable<BeMusicSeeker.Models.LR2.LR2SongDB.song>();
                     db.CreateTable<BeMusicSeeker.Models.LR2.LR2SongDBExtended.bmson_song>();
@@ -86,9 +88,10 @@ public sealed class OwnedChartCollectionRefreshTests
     [TestMethod]
     public void Publisher_PreservesEarlierTitleDependencyAndFinalCurrentInOneBatch()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
-            var owner = new PackageLifecycleOwner(new BmsLibraryDbGateway(songDbPath),
+            var owner = new PackageLifecycleOwner(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), _ => { },
                 packages => new System.Collections.ObjectModel.ObservableCollection<ChartPackage>(packages ?? []), () => { }, _ => { });
             ChartFile before = ChartTestValues.Empty(ChartFileKind.Bms) with
@@ -169,12 +172,13 @@ public sealed class OwnedChartCollectionRefreshTests
     [TestMethod]
     public void ApplyFileScanCatalogResidual_UpdatesInstallDestinationProjectionThroughTypedFacts()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed", "scan-residual.bms");
             ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
@@ -216,12 +220,13 @@ public sealed class OwnedChartCollectionRefreshTests
     [TestMethod]
     public void ApplyFileScanCatalogResidual_EmptyFactsDoNotAddMutationOrNotification()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed", "scan-residual-empty.bms");
             ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
 
             OwnedChartHashIndexVersionedSnapshot beforeHash = library.GetOwnedChartHashIndexSnapshot();

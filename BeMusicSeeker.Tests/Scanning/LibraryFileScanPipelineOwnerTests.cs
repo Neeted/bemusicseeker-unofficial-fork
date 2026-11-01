@@ -17,6 +17,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class LibraryFileScanPipelineOwnerTests
 {
     private string? ownedDirectoryPath;
+    private readonly ApplicationDatabaseScope databaseScope = new();
 
     /// <summary>runnerから注入される任意contextへ、終端を確認できず保持した専用fixtureの場所を記録します。</summary>
     public TestContext? TestContext { get; set; }
@@ -280,11 +281,11 @@ public sealed class LibraryFileScanPipelineOwnerTests
             int committedCatalogRevision = callbacks.CatalogOwnedCollectionOwner.CatalogRevision;
             Assert.AreEqual(initialCatalogRevision + 1, committedCatalogRevision);
 
-            using (var db = new LR2SongDBExtended(Path.Combine(directoryPath, "song.db"))) { db.CreateTable<LR2SongDB.folder>(); }
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(Path.Combine(directoryPath, "song.db"))) { db.CreateTable<LR2SongDB.folder>(); }
             generation = owner.BeginFileScanRequest(options, [directoryPath], "test_incomplete",
                 reportScanner: _ => { if (prefetchThrows) { throw new IOException("test_prefetch_failed"); } });
             Lr2FolderTableSnapshot snapshot = new BmsLibraryInitializationService().LoadFolderTableSnapshot(
-                new BmsLibraryDbGateway(Path.Combine(directoryPath, "song.db")), options);
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(directoryPath, "song.db")), options);
             apply = Task.Run(() => owner.ApplyActiveFileScan(generation, true, InstallDestinationCleanupSnapshot.Empty,
                 folderTableSnapshot: snapshot));
             Lr2FolderFileDiffPreparationResult skipped = await apply;
@@ -298,7 +299,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
             Assert.IsTrue(callbacks.LastCatalogReplacement.Receipt.Applied);
             Assert.AreEqual(committedCatalogRevision, callbacks.CatalogOwnedCollectionOwner.CatalogRevision);
-            using (var db = new LR2SongDBExtended(Path.Combine(directoryPath, "song.db")))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(Path.Combine(directoryPath, "song.db")))
             { Assert.AreEqual(bmsPath, db.Table<LR2SongDB.song>().Single().path); }
             long nextGeneration = owner.BeginFileScanRequest(options, [directoryPath], "test_next_explicit_request");
             owner.ApplyActiveFileScan(nextGeneration, true, InstallDestinationCleanupSnapshot.Empty, folderTableSnapshot: CaptureNormalOperationSnapshot(directoryPath));
@@ -341,7 +342,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             Assert.AreEqual("everything_not_running", result.FileCheckResult.ScanFallbackReason);
             Assert.AreEqual(0, callbacks.IncompleteWarningCount);
             Assert.AreEqual(1, scanner.ScanCount);
-            using var db = new LR2SongDBExtended(Path.Combine(directoryPath, "song.db"));
+            using LR2SongDBExtended db = databaseScope.OpenSongWrite(Path.Combine(directoryPath, "song.db"));
             Assert.AreEqual(bmsPath, db.Table<LR2SongDB.song>().Single().path);
             Assert.AreEqual(1, callbacks.CatalogOwnedCollectionOwner.BmsRows.Count);
         }
@@ -409,14 +410,14 @@ public sealed class LibraryFileScanPipelineOwnerTests
             string[] committedEventOrder = callbacks.EventOrder.ToArray();
             string songDbPath = Path.Combine(directoryPath, "song.db");
             LR2SongDB.song committedSong;
-            using (LR2SongDBExtended baseline = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended baseline = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
             {
                 committedSong = baseline.Query<LR2SongDB.song>("SELECT * FROM song;").Single();
             }
 
             string rejectedPath = Path.Combine(directoryPath, "rejected.bms");
             File.WriteAllText(rejectedPath, "#PLAYER 1\r\n#TITLE Rejected\r\n#BPM 150\r\n#00111:01\r\n");
-            using (var setup = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
             {
                 setup.Execute("CREATE TRIGGER fail_scan_preparation_commit BEFORE INSERT ON song WHEN NEW.path = '"
                     + rejectedPath.Replace("'", "''", StringComparison.Ordinal)
@@ -489,7 +490,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
                 Assert.IsFalse(callbacks.PerformanceMessages.Any(message =>
                     message.StartsWith("lr2folder_file_diff_prepare reason=" + failedReason + " ", StringComparison.Ordinal)));
             }
-            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
             {
                 LR2SongDB.song retainedSong = verify.Query<LR2SongDB.song>("SELECT * FROM song;").Single();
                 Assert.AreEqual(committedSong.path, retainedSong.path);
@@ -1006,7 +1007,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             if (scenario == "root-recheck") { Directory.Delete(actual, true); }
             if (scenario == "db-failure")
             {
-                using var db = new LR2SongDBExtended(Path.Combine(directory, "song.db"));
+                using LR2SongDBExtended db = databaseScope.OpenSongWrite(Path.Combine(directory, "song.db"));
                 db.CreateTable<LR2SongDB.song>();
                 db.Execute("CREATE TRIGGER fail_song BEFORE INSERT ON song BEGIN SELECT RAISE(ABORT, 'test DB failure'); END;");
             }
@@ -1041,7 +1042,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
                 Assert.IsNotNull(result);
                 CollectionAssert.AreEqual(new[] { adopted }, result.SynchronizationInput.Options.StandaloneBmsRootPaths.ToArray());
                 Assert.AreEqual(adopted, result.SynchronizationInput.Options.BMSInstallDir);
-                using var db = new LR2SongDBExtended(Path.Combine(directory, "song.db"));
+                using LR2SongDBExtended db = databaseScope.OpenSongWrite(Path.Combine(directory, "song.db"));
                 if (scenario == "empty") { Assert.AreEqual(0, db.Table<LR2SongDB.song>().Count()); }
                 else { Assert.AreEqual(Path.Combine(adopted, "chart.bms"), db.Table<LR2SongDB.song>().Single().path); }
             }
@@ -1061,7 +1062,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
     /// <summary>直接のLR2走査要求へ、同じfixture DBから実取得した操作snapshotを渡します。</summary>
     private Lr2FolderTableSnapshot CaptureNormalOperationSnapshot(string? directoryPath = null)
-        => BmsLibraryInitializationTestSupport.CaptureNormalFolderSnapshot(Path.Combine(directoryPath ?? ownedDirectoryPath
+        => BmsLibraryInitializationTestSupport.CaptureNormalFolderSnapshot(databaseScope, Path.Combine(directoryPath ?? ownedDirectoryPath
             ?? throw new InvalidOperationException("操作用DBが準備されていません。"), "song.db"));
 
     private LibraryFileScanPipelineOwner CreateOwner(
@@ -1074,11 +1075,11 @@ public sealed class LibraryFileScanPipelineOwnerTests
         directoryPath ??= ownedDirectoryPath ??= Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directoryPath);
         string songDbPath = Path.Combine(directoryPath, "song.db");
-        using (new LR2SongDBExtended(songDbPath))
+        using (databaseScope.OpenSongWrite(songDbPath))
         {
         }
         TestBmsLibrary library = lr2ModeEnabled
-            ? new TestBmsLibrary(
+            ? new TestBmsLibrary(databaseScope,
                 songDbPath,
                 getLR2Config: new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(directoryPath)),
                 _lr2ScoreDB: null,
@@ -1087,8 +1088,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
                 {
                     OperationModeLR2DB = true
                 })
-            : new TestBmsLibrary(songDbPath);
-        var dbGateway = new BmsLibraryDbGateway(songDbPath);
+            : new TestBmsLibrary(databaseScope, songDbPath);
+        var dbGateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
         var storageRowsOwner = new CatalogOwnedCollectionOwner();
         callbacks.CatalogOwnedCollectionOwner = storageRowsOwner;
         storageRowsOwner.ReplaceCharts([.. callbacks.BmsFiles], null, replaceBmson: false);

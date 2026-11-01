@@ -16,6 +16,8 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class PlaylistUrlAcquisitionOwnershipTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>URLの未受理cleanupが失敗しても、独立した実再走査の終端前にClose・撤去へ進まず、元要求の故障と終了診断を保持します。</summary>
     [TestMethod]
     [DataRow(false)]
@@ -23,10 +25,12 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     [DoNotParallelize]
     public async Task WindowClose_UrlCleanupFailureStillJoinsIndependentWorker(bool uninstall)
     {
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        ApplicationDatabaseScope databaseScope = MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope;
         string root = Path.Combine(Path.GetTempPath(), "PlaylistFailedShutdownJoin-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         string songPath = Path.Combine(root, "song.db");
-        using (var setup = new LR2SongDBExtended(songPath)) { }
+        using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songPath)) { }
         var cleanupEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseCleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var workerEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -34,7 +38,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         var diagnostic = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         var cleanupFailure = new IOException("shutdown-cleanup-failure-marker");
         var events = new ConcurrentQueue<string>();
-        var library = new TestBmsLibrary(songPath);
+        var library = new TestBmsLibrary(databaseScope, songPath);
         var maintenance = new MaintenanceRescanWorkflowOwner(
             (_, _, _, _) =>
             {
@@ -54,10 +58,9 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         };
         gateway.AddResponse(uri, () => new AppHttpResponse(uri, new MemoryStream([1, 2, 3], writable: false)));
         var dialogs = new RecordingPlaylistUrlDialogService();
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope, action => action(),
             () => new PlaylistUrlAcquisitionOptionsSnapshot { AutoInstall = true, ScanBmsFilesOnStartup = true },
             new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }), ownedInstallSink: _ => false, dialogService: dialogs);
-        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         ShellShutdownWorkflowOwner owner = ShellShutdownWorkflowOwnerTests.CreateDirectOwner(viewModel,
             playlistWorkspace: workspace, maintenanceRescanWorkflow: maintenance, restartFailureDialogs: dialogs,
             requestApplicationShutdown: () => events.Enqueue("exit"),
@@ -73,7 +76,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             if (uninstall)
             {
                 Assert.IsTrue(await owner.RequestApplicationDataUninstallAsync(new ApplicationDataUninstallWorkflowOwner(dialogs,
-                    new OrderedShutdownUninstallStore(events)), songPath));
+                    new OrderedShutdownUninstallStore(databaseScope, events)), songPath));
             }
             Task<ShellShutdownWorkflowCompletionReceipt> close = owner.RequestWindowCloseAsync();
             terminal = CompleteCloseAsync(close);
@@ -108,12 +111,12 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
-    private sealed class OrderedShutdownUninstallStore(ConcurrentQueue<string> events) : IApplicationDataUninstallStore
+    private sealed class OrderedShutdownUninstallStore(ApplicationDatabaseScope databaseScope, ConcurrentQueue<string> events) : IApplicationDataUninstallStore
     {
         public void Uninstall(string songDbPath)
         {
             events.Enqueue("drop");
-            new Lr2ApplicationDataUninstallStore().Uninstall(songDbPath);
+            new Lr2ApplicationDataUninstallStore(databaseScope).Uninstall(songDbPath);
         }
     }
 
@@ -126,7 +129,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         await using var server = new SingleRequestHttpServer([1, 2, 3, 4], holdBody: true);
         var gateway = new BodyGateway(root, Stream.Null) { RealHttp = true };
         int browsers = 0;
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope, action => action(),
             () => new PlaylistUrlAcquisitionOptionsSnapshot { AutoInstall = true, ScanBmsFilesOnStartup = true },
             new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }), browserSink: _ => browsers++);
         Task request = workspace.RunSinglePlaylistUrlAsync(new Uri(server.Address, "file.zip"));
@@ -157,7 +160,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var gateway = new RecordingPlaylistUrlDownloadGateway(root) { TransportException = new IOException("normal network failure") };
         int browsers = 0;
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope, action => action(),
             () => new PlaylistUrlAcquisitionOptionsSnapshot { AutoInstall = true, ScanBmsFilesOnStartup = true },
             new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }), browserSink: _ => browsers++,
             presentationScheduler: async action => { entered.TrySetResult(); await release.Task; action(); });
@@ -176,10 +179,14 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         finally { release.TrySetResult(); try { await request; } catch (OperationCanceledException) { } Directory.Delete(root, true); }
     }
 
-    /// <summary>先行取得の未受理cleanup中に次の取得を開始でき、Closeは両方の実Taskを回収してから完了します。</summary>
+    /// <summary>先行取得の未受理cleanup中に次の取得を開始でき、どちらを先に解放してもCloseは両方の実Task終端まで完了しません。</summary>
     [TestMethod]
-    public async Task WindowClose_JoinsEarlierCleanupAndLaterBodyIndependently()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task WindowClose_JoinsEarlierCleanupAndLaterBodyIndependently(bool bodyCompletesFirst)
     {
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        ApplicationDatabaseScope databaseScope = MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope;
         string root = Path.Combine(Path.GetTempPath(), "PlaylistDoubleJoin-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         var cleanupEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -192,11 +199,10 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         gateway.BeforeDelete = () => { if (Interlocked.Increment(ref deletes) == 1) { cleanupEntered.TrySetResult(); releaseCleanup.Task.GetAwaiter().GetResult(); } };
         gateway.AddResponse(firstUri, () => new AppHttpResponse(firstUri, new MemoryStream([1, 2, 3], writable: false)));
         gateway.AddResponse(secondUri, () => new AppHttpResponse(secondUri, body));
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope, action => action(),
             () => new PlaylistUrlAcquisitionOptionsSnapshot { AutoInstall = true, ScanBmsFilesOnStartup = true },
             new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }), ownedInstallSink: _ => false,
             dialogService: new RecordingPlaylistUrlDialogService());
-        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         ShellShutdownWorkflowOwner owner = ShellShutdownWorkflowOwnerTests.CreateDirectOwner(viewModel, playlistWorkspace: workspace);
         Task first = workspace.RunSinglePlaylistUrlAsync(firstUri);
         Task? second = null;
@@ -210,11 +216,22 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             close = owner.RequestWindowCloseAsync();
             await body.Cancelled.Task;
             Assert.IsFalse(close.IsCompleted);
-            releaseCleanup.TrySetResult();
-            await first;
-            Assert.IsFalse(close.IsCompleted, "先行cleanupだけの解放で後続readを切り離しません。");
-            body.Terminal.TrySetResult();
-            try { await second; } catch (OperationCanceledException) { }
+            if (bodyCompletesFirst)
+            {
+                body.Terminal.TrySetResult();
+                try { await second; } catch (OperationCanceledException) { }
+                Assert.IsFalse(close.IsCompleted, "後続readだけの解放で先行cleanupを切り離しません。");
+                releaseCleanup.TrySetResult();
+                await first;
+            }
+            else
+            {
+                releaseCleanup.TrySetResult();
+                await first;
+                Assert.IsFalse(close.IsCompleted, "先行cleanupだけの解放で後続readを切り離しません。");
+                body.Terminal.TrySetResult();
+                try { await second; } catch (OperationCanceledException) { }
+            }
             await close;
         }
         finally
@@ -304,7 +321,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         using var stream = new StagedBodyStream();
         var gateway = new BodyGateway(root, stream);
         int browsers = 0;
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope, action => action(),
             optionsProvider: () => new PlaylistUrlAcquisitionOptionsSnapshot { AutoInstall = true, ScanBmsFilesOnStartup = true },
             acquisitionWorkflow: new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }), browserSink: _ => browsers++);
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());

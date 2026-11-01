@@ -2047,7 +2047,7 @@ public partial class MainWindowViewModel : ViewModel,
         chartFileOperations = composition.OperationAdmission;
         playHistoryRuntimeEventReporter = new PlayHistoryRuntimeEventReporter(ReportPlayHistoryRuntimeEvent);
         startupLibraryConstructionOwner = new StartupLibraryConstructionOwner(startupLibraryFactory);
-        startupLibraryInitializationWorkflowOwner = new StartupLibraryInitializationWorkflowOwner(_semaphore);
+        startupLibraryInitializationWorkflowOwner = new StartupLibraryInitializationWorkflowOwner(applicationComposition.DatabaseScope, applicationComposition.RuntimeOptions.DatabaseLoadOptions, _semaphore);
         this.startupLibraryInitializationFailurePresenter = startupLibraryInitializationFailurePresenter
             ?? new DefaultStartupLibraryInitializationFailurePresenter();
         uiScheduler = composition.UiScheduler;
@@ -2386,6 +2386,7 @@ public partial class MainWindowViewModel : ViewModel,
         regularChartListOwner.SortRefreshRequested += RegularChartListOwnerSortRefreshRequested;
 
         ShellShutdownWorkflow = new ShellShutdownWorkflowOwner(
+            applicationComposition.DatabaseScope,
             StartupUpdateWorkflow,
             ElevatedProcessWarningWorkflow,
             startupBackgroundTaskScheduler,
@@ -3534,7 +3535,7 @@ public partial class MainWindowViewModel : ViewModel,
         {
             if (schemaApproval != null) { await startupLibraryInitializationWorkflowOwner.ApplyPreparedSchemaAsync(startupSettings, schemaApproval); }
             StartupLibraryConstructionOwner.RepairCustomFolderSearchRoots(startupSettings, startupLr2Config);
-            LibraryProfile libraryProfile = StartupLibraryConstructionOwner.CreateProfile(startupSettings, startupLr2Config, applicationComposition.ApplicationPathSnapshot);
+            LibraryProfile libraryProfile = StartupLibraryConstructionOwner.CreateProfile(applicationComposition.DatabaseScope, startupSettings, startupLr2Config, applicationComposition.ApplicationPathSnapshot);
             lr2config = startupLr2Config;
             if (startupLr2Config != null) { applicationComposition.Lr2ConfigSession.Adopt(startupLr2Config); }
             StartupLibraryServices libraryServices = startupLibraryConstructionOwner.CreateAndApply(
@@ -3620,7 +3621,7 @@ public partial class MainWindowViewModel : ViewModel,
             UpdateInstallEstimationProgressStatus(files.GetInstallEstimationProgressSnapshot());
         });
         UpdateInstallEstimationProgressStatus(files.GetInstallEstimationProgressSnapshot());
-        IReadOnlyList<UiMessageRequest> backupNotifications = await StartupLibraryConstructionOwner.PrepareBackupAsync(startupSettings);
+        IReadOnlyList<UiMessageRequest> backupNotifications = await StartupLibraryConstructionOwner.PrepareBackupAsync(applicationComposition.DatabaseScope, startupSettings);
         Thread.Yield();
         startupReadyInstallStopwatch = Stopwatch.StartNew();
         startupReadyOperableStopwatch = Stopwatch.StartNew();

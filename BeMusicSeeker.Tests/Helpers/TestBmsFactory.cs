@@ -55,6 +55,7 @@ internal static class TestBmsFactory
             Path.Combine(AppContext.BaseDirectory, "BeMusicSeeker.Tests.exe"));
 }
 
+/// <summary>呼出し側が所有するDB寿命と、固定した全機能有効の読込み条件を共有するテスト用ライブラリです。</summary>
 internal sealed class TestBmsLibrary : BMSLibrary
 {
     /// <summary>当該fixtureが所有する実確定設定です。稼働rootの別一覧は保持しません。</summary>
@@ -77,12 +78,13 @@ internal sealed class TestBmsLibrary : BMSLibrary
     }
 
     internal TestBmsLibrary(
+        ApplicationDatabaseScope databaseScope,
         string songDbPath,
         Lr2ConfigOwner getLR2Config = null,
         string _lr2ScoreDB = null,
         string startupRequiredFileScanReason = null,
         Settings settings = null)
-        : base(songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, startupRequiredFileScanReason, CreateOptions(settings ??= CreateSettings(getLR2Config)), new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge, new BmsRootRegistrationStore(settings, () => getLR2Config))
+        : base(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, startupRequiredFileScanReason, CreateOptions(settings ??= CreateSettings(getLR2Config)), new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge, new BmsRootRegistrationStore(settings, () => getLR2Config))
     {
         FixtureSettings = settings;
         FixtureLr2Owner = getLR2Config;
@@ -90,12 +92,13 @@ internal sealed class TestBmsLibrary : BMSLibrary
     }
 
     internal TestBmsLibrary(
+        ApplicationDatabaseScope databaseScope,
         string songDbPath,
         Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
         IFileMutationService fileMutationService,
         Settings settings = null)
-        : base(songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, fileMutationService, null, null, CreateOptions(settings ??= CreateSettings(getLR2Config)), new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge, new BmsRootRegistrationStore(settings, () => getLR2Config))
+        : base(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, fileMutationService, null, null, CreateOptions(settings ??= CreateSettings(getLR2Config)), new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge, new BmsRootRegistrationStore(settings, () => getLR2Config))
     {
         FixtureSettings = settings;
         FixtureLr2Owner = getLR2Config;
@@ -103,13 +106,14 @@ internal sealed class TestBmsLibrary : BMSLibrary
     }
 
     internal TestBmsLibrary(
+        ApplicationDatabaseScope databaseScope,
         string songDbPath,
         Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
         IFileMutationService fileMutationService,
         IBmsLibraryDialogService dialogService,
         Settings settings = null)
-        : base(songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, fileMutationService, dialogService, null, CreateOptions(settings ??= CreateSettings(getLR2Config)), new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge, new BmsRootRegistrationStore(settings, () => getLR2Config))
+        : base(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, fileMutationService, dialogService, null, CreateOptions(settings ??= CreateSettings(getLR2Config)), new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge, new BmsRootRegistrationStore(settings, () => getLR2Config))
     {
         FixtureSettings = settings;
         FixtureLr2Owner = getLR2Config;
@@ -120,6 +124,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
     /// Creates a test library with the narrow install-estimation diagnostic boundary enabled.
     /// </summary>
     internal TestBmsLibrary(
+        ApplicationDatabaseScope databaseScope,
         string songDbPath,
         Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
@@ -128,6 +133,8 @@ internal sealed class TestBmsLibrary : BMSLibrary
         IInstallEstimationExecutionObserver installEstimationExecutionObserver,
         Settings settings = null)
         : base(
+            databaseScope,
+            new BmsDatabaseLoadOptions(true, true, true),
             songDbPath,
             getLR2Config ??= ResolveOwner(settings),
             _lr2ScoreDB,
@@ -146,6 +153,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
     }
 
     internal TestBmsLibrary(
+        ApplicationDatabaseScope databaseScope,
         string songDbPath,
         Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
@@ -153,7 +161,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         IBmsLibraryDialogService dialogService,
         IUiScheduler uiScheduler,
         Settings settings = null)
-        : base(songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, fileMutationService, dialogService, null, CreateOptions(settings ??= CreateSettings(getLR2Config)), uiScheduler, TestBmsFactory.MissingEverythingBridge, new BmsRootRegistrationStore(settings, () => getLR2Config))
+        : base(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, fileMutationService, dialogService, null, CreateOptions(settings ??= CreateSettings(getLR2Config)), uiScheduler, TestBmsFactory.MissingEverythingBridge, new BmsRootRegistrationStore(settings, () => getLR2Config))
     {
         FixtureSettings = settings;
         FixtureLr2Owner = getLR2Config;
@@ -169,6 +177,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
     /// <param name="operationAdmission">実ownerと共有する受付。省略時は独立受付。</param>
     /// <param name="playlistOperationAdmission">実起動構成と共有するプレイリスト局所受付。</param>
     internal TestBmsLibrary(
+        ApplicationDatabaseScope databaseScope,
         string songDbPath,
         Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
@@ -183,6 +192,8 @@ internal sealed class TestBmsLibrary : BMSLibrary
         Settings settings = null,
         IRootFileEnumerator rootFileEnumerator = null)
         : base(
+            databaseScope,
+            new BmsDatabaseLoadOptions(true, true, true),
             songDbPath,
             getLR2Config ??= ResolveOwner(settings),
             _lr2ScoreDB,
@@ -208,6 +219,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
     /// <param name="operationAdmission">起動を接続する共通受付。独立fixtureでは省略できます。</param>
     /// <param name="playlistOperationAdmission">同compositionのプレイリスト局所受付。</param>
     internal TestBmsLibrary(
+        ApplicationDatabaseScope databaseScope,
         string songDbPath,
         Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
@@ -216,7 +228,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         ChartFileOperationSynchronizer operationAdmission = null,
         ChartFileOperationSynchronizer playlistOperationAdmission = null,
         Settings settings = null, BmsRootRegistrationStore bmsRootRegistrations = null)
-        : base(songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, startupRequiredFileScanReason, optionsSnapshotProvider,
+        : base(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, startupRequiredFileScanReason, optionsSnapshotProvider,
             new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge,
             bmsRootRegistrations ?? new BmsRootRegistrationStore(settings ??= CreateSettings(getLR2Config), () => getLR2Config),
             operationAdmission: operationAdmission, playlistOperationAdmission: playlistOperationAdmission)
@@ -238,6 +250,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
     /// <param name="operationAdmission">本番ownerと共有する論理受付。省略時は独立受付です。</param>
     /// <param name="playlistOperationAdmission">同compositionのプレイリスト局所受付。</param>
     internal TestBmsLibrary(
+        ApplicationDatabaseScope databaseScope,
         string songDbPath,
         Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
@@ -253,6 +266,8 @@ internal sealed class TestBmsLibrary : BMSLibrary
         ChartFileOperationSynchronizer playlistOperationAdmission = null,
         Settings settings = null)
         : base(
+            databaseScope: databaseScope,
+            databaseLoadOptions: new BmsDatabaseLoadOptions(true, true, true),
             _lr2SongDB: songDbPath,
             getLR2Config: getLR2Config ??= ResolveOwner(settings),
             _lr2ScoreDB: _lr2ScoreDB,
@@ -279,10 +294,11 @@ internal sealed class TestBmsLibrary : BMSLibrary
     /// Creates a production-shaped library with the shipped Everything bridge.
     /// </summary>
     internal TestBmsLibrary(
+        ApplicationDatabaseScope databaseScope,
         string songDbPath,
         ApplicationPathSnapshot applicationPathSnapshot,
         Settings settings = null, Lr2ConfigOwner getLR2Config = null)
-        : base(songDbPath, getLR2Config ??= ResolveOwner(settings), null, null, CreateOptions(settings ??= CreateSettings()), new TestUiScheduler(() => Dispatcher.CurrentDispatcher), applicationPathSnapshot, new BmsRootRegistrationStore(settings, () => getLR2Config))
+        : base(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, getLR2Config ??= ResolveOwner(settings), null, null, CreateOptions(settings ??= CreateSettings()), new TestUiScheduler(() => Dispatcher.CurrentDispatcher), applicationPathSnapshot, new BmsRootRegistrationStore(settings, () => getLR2Config))
     {
         FixtureSettings = settings;
         FixtureLr2Owner = getLR2Config;
@@ -290,6 +306,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
     }
 }
 
+/// <summary>同じライブラリ、または明示したDB所有者の寿命でプレイリストを構成します。</summary>
 internal sealed class TestBmsPlaylist : BMSPlaylist
 {
     private static Func<PlaylistUrlCompletionOptionsSnapshot> CreatePlaylistUrlOptions(Settings settings)
@@ -318,7 +335,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
     /// <param name="playlistUrlCompletionOptionsProvider">専用設定からURL補完入力を捕捉する既存依存。</param>
     /// <param name="beatorajaBmtOptionsProvider">専用設定からBMT入力を捕捉する既存依存。</param>
     /// <param name="recommendationScoreReader">推薦だけの固定原観測読取り。省略時は実ライブラリを使います。</param>
-    /// <param name="openEntryWriteConnection">entry保存の実DB接続をテスト所有のSQL観測へ接続します。</param>
+    /// <param name="initializeEntryWriteConnection">entry保存の実DB接続をテスト所有のSQL観測へ接続します。</param>
     /// <param name="lr2PlaylistFolderSynchronization">参照と受付は型付き構成で共有し、独立した出力境界だけを明示します。</param>
     internal TestBmsPlaylist(
         BmsPlaylistLibraryBindings libraryBindings,
@@ -329,7 +346,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
         Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider = null,
         Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null,
         Settings settings = null, IUiScheduler uiScheduler = null,
-        Func<string, LR2SongDBExtended> openEntryWriteConnection = null,
+        Action<LR2SongDBExtended> initializeEntryWriteConnection = null,
         ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization = null)
         : base(
             libraryBindings,
@@ -342,7 +359,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             TestBmsFactory.MissingEverythingBridge,
             uiScheduler ?? new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             recommendationScoreReader: recommendationScoreReader,
-            openEntryWriteConnection: openEntryWriteConnection,
+            initializeEntryWriteConnection: initializeEntryWriteConnection,
             lr2PlaylistFolderSynchronization: lr2PlaylistFolderSynchronization)
     {
     }
@@ -354,6 +371,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
     }
 
     internal TestBmsPlaylist(
+        ApplicationDatabaseScope databaseScope,
         string songDbPath,
         Lr2ConfigOwner getLr2Config = null,
         string scoreDbPath = null,
@@ -361,6 +379,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
         Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null,
         Settings settings = null)
         : base(
+            databaseScope,
             songDbPath,
             getLr2Config,
             scoreDbPath,
@@ -370,17 +389,19 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             CreateCustomFolderOptions(settings),
             TestBmsFactory.MissingEverythingBridge,
             new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-            new TestLr2PlaylistFolderSynchronizationPort(songDbPath),
+            new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath),
             new ChartFileOperationSynchronizer(),
             recommendationScoreReader: recommendationScoreReader)
     {
     }
 
     internal TestBmsPlaylist(
+        ApplicationDatabaseScope databaseScope,
         string songDbPath,
         ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization,
         Settings settings = null)
         : base(
+            databaseScope,
             songDbPath,
             null,
             null,
@@ -402,11 +423,13 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
     /// <param name="lr2PlaylistFolderSynchronization">The LR2 folder synchronization port.</param>
     /// <param name="uiScheduler">The scheduler whose accepted-operation lifecycle the test controls.</param>
     internal TestBmsPlaylist(
+        ApplicationDatabaseScope databaseScope,
         string songDbPath,
         ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization,
         IUiScheduler uiScheduler,
         Settings settings = null)
         : base(
+            databaseScope,
             songDbPath,
             null,
             null,
@@ -422,11 +445,13 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
     }
 
     internal TestBmsPlaylist(
+        ApplicationDatabaseScope databaseScope,
         string songDbPath,
         Lr2ConfigOwner getLr2Config,
         ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization,
         Settings settings = null)
         : base(
+            databaseScope,
             songDbPath,
             getLr2Config,
             null,
@@ -442,11 +467,13 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
     }
 
     internal TestBmsPlaylist(
+        ApplicationDatabaseScope databaseScope,
         string songDbPath,
         string scoreDbPath,
         ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization,
         Settings settings = null)
         : base(
+            databaseScope,
             songDbPath,
             null,
             scoreDbPath,
@@ -463,6 +490,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
 
     /// <summary>明示設定と読取り・UI反映の境界を接続し、実保存経路を持つプレイリストを作成します。</summary>
     internal TestBmsPlaylist(
+        ApplicationDatabaseScope databaseScope,
         string songDbPath,
         Lr2ConfigOwner getLr2Config,
         string scoreDbPath,
@@ -478,6 +506,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
         IUiScheduler uiScheduler = null,
         Settings settings = null)
         : base(
+            databaseScope,
             songDbPath,
             getLr2Config,
             scoreDbPath,
@@ -487,7 +516,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             customFolderOutputSettingsProvider,
             TestBmsFactory.MissingEverythingBridge,
             uiScheduler ?? new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-            lr2PlaylistFolderSynchronization ?? new TestLr2PlaylistFolderSynchronizationPort(songDbPath),
+            lr2PlaylistFolderSynchronization ?? new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath),
             mutationAdmission ?? new ChartFileOperationSynchronizer(),
             playlistUrlCompletionTsvContentFetcher,
             playlistUrlCompletionStellaContentFetcher,

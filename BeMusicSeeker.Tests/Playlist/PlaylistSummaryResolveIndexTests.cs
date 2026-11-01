@@ -16,13 +16,15 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistSummaryResolveIndexTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>索引を再利用した後にライブラリ集合を差替えると、新世代で旧ハッシュを除き新ハッシュを解決する。集合差替後の索引失効漏れを検出する。</summary>
     [TestMethod]
     public void GetPlaylistLibraryResolveIndexSnapshot_CachesAndRebuildsAfterOwnershipChange()
     {
-        WithTemporarySongDb(delegate (string songDbPath)
+        WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BmsCharts =
                 [
@@ -64,7 +66,7 @@ public sealed class PlaylistSummaryResolveIndexTests
     [TestMethod]
     public void GetPlaylistLibraryResolveIndexSnapshot_AppliesRemovalAndKeepsPriorSnapshots()
     {
-        WithTemporarySongDb(delegate (string songDbPath)
+        WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
             const string sharedMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             const string sharedSha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -79,7 +81,7 @@ public sealed class PlaylistSummaryResolveIndexTests
             ChartFile firstFile = CreateLibraryFile(firstPath, sharedMd5, sharedSha256);
             ChartFile middleFile = CreateLibraryFile(middlePath, sharedMd5, sharedSha256);
             ChartFile lastFile = CreateLibraryFile(lastPath, sharedMd5, sharedSha256);
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BmsCharts = [firstFile, middleFile, lastFile]
             };
@@ -145,7 +147,7 @@ public sealed class PlaylistSummaryResolveIndexTests
     [TestMethod]
     public void ReloadFileDiff_ReplacesExactCandidateAndRetainsOldSnapshot()
     {
-        WithTemporarySongDb(delegate (string songDbPath)
+        WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
             string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Replacement");
             Directory.CreateDirectory(chartDirectory);
@@ -172,7 +174,7 @@ public sealed class PlaylistSummaryResolveIndexTests
                     [chartDirectory] = []
                 },
                 [chartDirectory]);
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 getLR2Config: null,
                 _lr2ScoreDB: null,
@@ -225,7 +227,7 @@ public sealed class PlaylistSummaryResolveIndexTests
     [TestMethod]
     public void GetPlaylistLibraryResolveIndexSnapshot_MovesCandidateAndKeepsCanonicalCandidateOrder()
     {
-        WithTemporarySongDb(delegate (string songDbPath)
+        WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
             const string sharedMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             const string sharedSha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -240,7 +242,7 @@ public sealed class PlaylistSummaryResolveIndexTests
             File.WriteAllText(movedPath, "#PLAYER 1");
             ChartFile firstFile = CreateLibraryFile(firstPath, sharedMd5, sharedSha256);
             ChartFile movedFile = CreateLibraryFile(movedPath, sharedMd5, sharedSha256);
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BmsCharts = [firstFile, movedFile]
             };
@@ -284,7 +286,7 @@ public sealed class PlaylistSummaryResolveIndexTests
     [TestMethod]
     public void ReloadFileDiff_RebuildsResolveIndexForInitialBmsonAndFollowingBmsScan()
     {
-        WithTemporarySongDb(delegate (string songDbPath)
+        WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
             string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "BmsonBoundary");
             Directory.CreateDirectory(chartDirectory);
@@ -313,7 +315,7 @@ public sealed class PlaylistSummaryResolveIndexTests
                 PendingInstallEstimateMaxParallelPackages = 1
             };
             var chartFileScanner = new MutableChartFileScanner([bmsonPath, firstBmsPath]);
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 getLR2Config: null,
                 _lr2ScoreDB: null,
@@ -388,7 +390,7 @@ public sealed class PlaylistSummaryResolveIndexTests
     [TestMethod]
     public void GetPlaylistLibraryResolveIndexSnapshot_WarmDeltaDoesNotEnumerateUnchangedSource()
     {
-        WithTemporarySongDb(delegate (string songDbPath)
+        WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
             const string removedMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             const string removedSha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -409,7 +411,7 @@ public sealed class PlaylistSummaryResolveIndexTests
                 files.Add(CreateLibraryFile(path, hash, sha256));
             }
 
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BmsCharts = files
             };

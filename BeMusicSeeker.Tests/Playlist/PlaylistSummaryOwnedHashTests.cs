@@ -11,13 +11,15 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistSummaryOwnedHashTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>取消済み要求で所持hash索引を取得すると取消を返し、取消後の索引構築成功を検出します。</summary>
     [TestMethod]
     public void GetOwnedChartHashIndexSnapshot_RejectsCanceledBuildBeforeReadingStorage()
     {
-        WithTemporarySongDb(delegate (string songDbPath)
+        WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
             using var cancellation = new CancellationTokenSource();
             cancellation.Cancel();
 
@@ -30,9 +32,9 @@ public sealed class PlaylistSummaryOwnedHashTests
     [TestMethod]
     public void GetOwnedChartHashIndexSnapshot_IncludesBmsonHashes()
     {
-        WithTemporarySongDb(delegate (string songDbPath)
+        WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
             SetLibraryFilesWithoutNotification(library,
             [
                 CreateLibraryFile(@"C:\Songs\bms.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")

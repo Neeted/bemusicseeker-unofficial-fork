@@ -30,6 +30,7 @@ public sealed class RegularChartNavigationTests
     [TestMethod]
     public void InstallDestinationEdit_SurvivesRedisplayButNotFullReinitializeOrNewOwner()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDb =>
         {
             string root = Path.GetDirectoryName(songDb) ?? throw new AssertFailedException();
@@ -41,7 +42,7 @@ public sealed class RegularChartNavigationTests
                 new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { [source] = [], [destination] = [] }, [root]);
             var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, ScanBmsFilesOnStartup = true };
             var synchronizer = new ChartFileOperationSynchronizer();
-            TestBmsLibrary CreateLibrary(ChartFileOperationSynchronizer admission) => new(songDb, getLR2Config: null, _lr2ScoreDB: null, startupRequiredFileScanReason: null,
+            TestBmsLibrary CreateLibrary(ChartFileOperationSynchronizer admission) => new TestBmsLibrary(databaseScope, songDb, getLR2Config: null, _lr2ScoreDB: null, startupRequiredFileScanReason: null,
                 optionsSnapshotProvider: () => options, applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge, chartFileScanner: scanner,
                 operationAdmission: admission, settings: TestBmsFactory.CreateRootSettings([root]))
             { StartupBackgroundTaskScheduler = (_, _, _, _) => false };
@@ -123,6 +124,7 @@ public sealed class RegularChartNavigationTests
     [DataRow(128, true)]
     public void InstallDestinationProjection_UpdatesOnlyDependentRows(int count, bool package)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDb =>
         {
             var charts = Enumerable.Range(0, count).Select(index => ChartTestValues.Empty() with
@@ -131,7 +133,7 @@ public sealed class RegularChartNavigationTests
                 Md5 = (index + 1).ToString("x32"),
                 Title = index == 0 ? "A target" : "B background " + index
             }).ToList();
-            var library = new TestBmsLibrary(songDb) { BmsCharts = charts };
+            var library = new TestBmsLibrary(databaseScope, songDb) { BmsCharts = charts };
             var table = new MainChartListViewModel();
             using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner(table));
             PackageChartEntry? entry = null;
@@ -304,9 +306,10 @@ public sealed class RegularChartNavigationTests
     [TestMethod]
     public void NavigateMaintenance_OwnsSummaryTransitionAndAllMaintenanceRefreshRequests()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 DuplicateChartGroups = []
             };
@@ -1122,7 +1125,7 @@ public sealed class RegularChartNavigationTests
                 Assert.IsFalse(File.Exists(original.Path));
                 string actualPath = movedPath ?? throw new AssertFailedException("実移動のパス通知がありません。");
                 Assert.IsTrue(File.Exists(actualPath));
-                using (var read = new LR2SongDBExtended(Path.Combine(Path.GetDirectoryName(fixture.Target.Directory) ?? throw new AssertFailedException(), "song.db")))
+                using (LR2SongDBExtended read = fixture.Library.DatabaseScope.OpenSongWrite(Path.Combine(Path.GetDirectoryName(fixture.Target.Directory) ?? throw new AssertFailedException(), "song.db")))
                 { Assert.IsTrue(read.Table<LR2SongDB.song>().Any(row => row.path == actualPath)); }
                 if (displayed)
                 {
@@ -1158,6 +1161,7 @@ public sealed class RegularChartNavigationTests
         WithTemporarySongDb(newSongDb => RunColdDuplicateFixture(fixture =>
         {
             MainWindowViewModel vm = fixture.ViewModel;
+            ApplicationDatabaseScope databaseScope = MainWindowViewModelTestFactory.GetComposition(vm).DatabaseScope;
             Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
@@ -1174,10 +1178,10 @@ public sealed class RegularChartNavigationTests
                 return CreateTestableBmsFile(path) with { Md5 = new string('d', 32), Title = title, RawTitle = title, Artist = artist, RawArtist = artist };
             }
             ChartFile[] newCharts = [NewChart("new-a", "New Alpha", "Z"), NewChart("new-b", "New Zeta", "A")];
-            using (var db = new LR2SongDBExtended(newSongDb)) { db.CreateTable<LR2SongDBExtended.bmson_song>(); }
-            TestBmsLibrary newLibrary = MainWindowViewModelTestFactory.CreateLibrary(newSongDb, settings, vm);
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(newSongDb)) { db.CreateTable<LR2SongDBExtended.bmson_song>(); }
+            TestBmsLibrary newLibrary = MainWindowViewModelTestFactory.CreateLibrary(databaseScope, newSongDb, settings, vm);
             newLibrary.BmsCharts = newCharts;
-            new BmsLibraryDbGateway(newSongDb).UpsertSongs(newCharts);
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), newSongDb).UpsertSongs(newCharts);
             using var release = new ManualResetEventSlim(false);
             var workerReached = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var rootStarted = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1346,6 +1350,7 @@ public sealed class RegularChartNavigationTests
     [DoNotParallelize]
     public void ColdDuplicate_AutoRefreshCannotAdoptOldTargetWhileAcceptedInstallUiIsPending()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         var phase = new PendingTargetPhaseLog(TestContext ?? throw new AssertFailedException("標準TestContextが注入されていません。"));
         Exception? primaryFailure = null;
         var probe = new ProjectionTaskCollector(new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher));
@@ -1401,7 +1406,7 @@ public sealed class RegularChartNavigationTests
                 ChartFile added = Extra("accepted-target-added", 'a');
                 var sentinelPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(sentinel)]);
                 fixture.Library.BmsCharts = [.. fixture.Library.BmsCharts, sentinel];
-                new BmsLibraryDbGateway(Path.Combine(root, "song.db")).UpsertSongs([sentinel, added]);
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(root, "song.db")).UpsertSongs([sentinel, added]);
                 fixture.Library.ChartPackagesInstalled = new ObservableCollection<ChartPackage>([fixture.Package, sentinelPackage]);
                 Task initialSource = vm.RegularChartList.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None);
                 phase.TaskState("initial-source-await", initialSource);
@@ -1665,6 +1670,7 @@ public sealed class RegularChartNavigationTests
     [DataRow(true)]
     public void DuplicateInvalidation_NormalFiltersAwaitReadyInputAndAdoptLatestFilter(bool modeFilter)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         var scheduler = new ProjectionTaskCollector(new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher));
         using var companionRelease = new ManualResetEventSlim(false);
         using var searchRelease = new ManualResetEventSlim(false);
@@ -1715,7 +1721,7 @@ public sealed class RegularChartNavigationTests
                 fixture.AllCharts[2] with { Title = "Other A", RawTitle = "Other A", Mode = 14 },
                 Extra("other-b", fixture.Target.Md5, "Other B", 14)];
             ChartFile added = Extra("keep-added", fixture.Duplicates[0].Md5, "Keep C", 7);
-            new BmsLibraryDbGateway(Path.Combine(root, "song.db")).UpsertSongs([.. initial, added]);
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(root, "song.db")).UpsertSongs([.. initial, added]);
             fixture.Library.BmsCharts = initial;
             TestUiDispatcherHost.AwaitTaskOnDispatcher(vm.RegularChartList.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None), "filter fixture initial source");
             TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.NavigateDuplicate(MainViewUpdateMode.DuplicateFilterSelected, null), "filter fixture actual root");
@@ -2200,12 +2206,12 @@ internal sealed class DuplicateNavigationTestFixture : IDisposable
             CreateChart("target", new string('b', 32), "target", "target artist")];
         Duplicates = AllCharts[..2];
         Target = AllCharts[2];
-        using (var db = new LR2SongDBExtended(songDb)) { db.CreateTable<LR2SongDBExtended.bmson_song>(); }
-        Library = MainWindowViewModelTestFactory.CreateLibrary(songDb, settings, viewModel);
+        using (LR2SongDBExtended db = MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope.OpenSongWrite(songDb)) { db.CreateTable<LR2SongDBExtended.bmson_song>(); }
+        Library = MainWindowViewModelTestFactory.CreateLibrary(MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope, songDb, settings, viewModel);
         Library.BmsCharts = AllCharts;
-        new BmsLibraryDbGateway(songDb).UpsertSongs(AllCharts);
-        PlaylistPersistenceRepository.EnsureSchema(songDb);
-        TestBmsPlaylist playlist = Playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDb, settings, library: Library);
+        new BmsLibraryDbGateway(MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).UpsertSongs(AllCharts);
+        PlaylistPersistenceRepository.EnsureSchema(MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope, songDb);
+        TestBmsPlaylist playlist = Playlist = MainWindowViewModelTestFactory.CreatePlaylist(MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope, songDb, settings, library: Library);
         Entry = new BMSTableEntry { md5 = Target.Md5, title = "target", artist = "target artist" };
         Table = new BMSTable { playlist_id = 701, name = "target playlist", entries = [Entry] };
         playlist.BMSTables = new ObservableCollection<BMSTable>([Table]);

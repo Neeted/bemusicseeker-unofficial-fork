@@ -24,6 +24,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistExternalFailureBoundaryTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>
     /// 通常の取得失敗で全体同期が例外終了せず、旧表・成功表のDB・STATUSと受付解放を保つことを確認します。
     /// 全対象失敗も全件成功とは通知しません。明示的な再取得では同じ表の失敗状態が解消します。
@@ -69,8 +71,8 @@ public sealed class PlaylistExternalFailureBoundaryTests
         try
         {
             Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
-            string songPath = CreateTempSongDbPath(directory);
-            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            string songPath = CreateTempSongDbPath(databaseScope, directory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songPath);
             string header = Path.Combine(directory, "good-header.json");
             string data = Path.Combine(directory, "good-data.json");
             string badHeader = Path.Combine(directory, "bad-header.json");
@@ -80,13 +82,13 @@ public sealed class PlaylistExternalFailureBoundaryTests
             File.WriteAllText(data, oldData);
             File.WriteAllText(badHeader, "{\"name\":\"Bad\",\"symbol\":\"B\",\"data_url\":\"bad-data.json\"}");
             File.WriteAllText(badData, oldData);
-            var library = new TestBmsLibrary(songPath, settings: settings);
+            var library = new TestBmsLibrary(databaseScope, songPath, settings: settings);
             acceptedLibrary = library;
-            var playlist = new TestBmsPlaylist(songPath, null, null, null,
+            var playlist = new TestBmsPlaylist(databaseScope, songPath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 () => new CustomFolderOutputSettingsSnapshot(),
-                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songPath, CustomFolderOutputPhysicalSurface.Empty),
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songPath, CustomFolderOutputPhysicalSurface.Empty),
                 settings: settings);
             acceptedPlaylist = playlist;
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { auxiliaryTasks.Enqueue(Task.Run(work)); return true; };
@@ -203,7 +205,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
             Assert.IsTrue(status.HasFailureStatus);
             Assert.IsFalse(string.IsNullOrWhiteSpace(status.StatusText));
             Assert.IsFalse(status.Detail.Contains("System.AggregateException", StringComparison.Ordinal));
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(1, db.Table<LR2SongDBExtended.playlist_entry>().Count(entry => entry.playlist_id == 7902));
                 LR2SongDBExtended.playlist retained = db.Find<LR2SongDBExtended.playlist>(7902);
@@ -340,19 +342,19 @@ public sealed class PlaylistExternalFailureBoundaryTests
     {
         string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistExternalFailureBoundaryTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
-        string songPath = CreateTempSongDbPath(directory);
+        string songPath = CreateTempSongDbPath(databaseScope, directory);
         bool triggerCreated = false;
         try
         {
             Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
-            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songPath);
             string header = Path.Combine(directory, "header.json"), data = Path.Combine(directory, "data.json");
             File.WriteAllText(header, "{\"name\":\"External\",\"symbol\":\"E\",\"data_url\":\"data.json\"}");
             File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"}]");
-            var playlist = new TestBmsPlaylist(songPath, null, null, null,
+            var playlist = new TestBmsPlaylist(databaseScope, songPath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
                 () => new CustomFolderOutputSettingsSnapshot(),
-                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songPath, CustomFolderOutputPhysicalSurface.Empty), settings: settings);
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songPath, CustomFolderOutputPhysicalSurface.Empty), settings: settings);
             BMSTable oldTable = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(header));
             oldTable.playlist_id = 7903;
             oldTable.is_bmt_output = false;
@@ -361,7 +363,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
             playlist.CommitBMSTableWithEntriesToDB(oldTable);
             string oldHash = oldTable.data_sha256;
             File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"After\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Added\",\"level\":\"2\"}]");
-            using (var db = new LR2SongDBExtended(songPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songPath))
             {
                 db.Execute("CREATE TRIGGER external_save_failure BEFORE INSERT ON playlist WHEN NEW.playlist_id = 7903 BEGIN SELECT RAISE(ABORT, 'external DB save failure'); END;");
                 triggerCreated = true;
@@ -382,7 +384,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
             StringAssert.Contains(surfaced?.ToString() ?? string.Empty, "external DB save failure");
             Assert.AreSame(oldTable, playlist.BMSTables.Single());
             Assert.AreEqual(oldHash, oldTable.data_sha256);
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(oldHash, db.Table<BMSTable>().Single().data_sha256);
                 Assert.AreEqual("Before", db.Table<LR2SongDBExtended.playlist_entry>().Single().title);
@@ -391,21 +393,21 @@ public sealed class PlaylistExternalFailureBoundaryTests
             bool accepted = playlist.TryEnterPlaylistMutation(out IDisposable admission);
             admission?.Dispose();
             Assert.IsTrue(accepted);
-            using (var db = new LR2SongDBExtended(songPath)) { db.Execute("DROP TRIGGER external_save_failure;"); }
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songPath)) { db.Execute("DROP TRIGGER external_save_failure;"); }
             triggerCreated = false;
             PlaylistExternalSyncOwner.PlaylistReloadOperationResult next =
                 await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([oldTable]);
             next.ThrowIfFailed();
             Assert.IsTrue(next.Single().Succeeded);
             Assert.AreEqual(2, playlist.BMSTables.Single().entries.Count);
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath).OpenSongDbReadOnly();
             Assert.AreEqual(2, verify.Table<LR2SongDBExtended.playlist_entry>().Count());
         }
         finally
         {
             if (triggerCreated)
             {
-                using var cleanup = new LR2SongDBExtended(songPath);
+                using LR2SongDBExtended cleanup = databaseScope.OpenSongWrite(songPath);
                 cleanup.Execute("DROP TRIGGER external_save_failure;");
             }
             Directory.Delete(directory, recursive: true);
@@ -430,16 +432,16 @@ public sealed class PlaylistExternalFailureBoundaryTests
         try
         {
             Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => { values.EnablePlaylistUrlCompletion = false; values.OperationModeLR2DB = false; });
-            string path = CreateTempSongDbPath(directory); PlaylistPersistenceRepository.EnsureSchema(path);
+            string path = CreateTempSongDbPath(databaseScope, directory); PlaylistPersistenceRepository.EnsureSchema(databaseScope, path);
             string headerPath = Path.Combine(directory, "header.json"), dataPath = Path.Combine(directory, "data.json");
             const string validHeader = "{\"name\":\"Date external\",\"data_url\":\"data.json\"}";
             const string originalRows = "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Old\",\"adddate\":\"2020-01-02\"}]";
             File.WriteAllText(headerPath, validHeader); File.WriteAllText(dataPath, originalRows);
-            playlist = new TestBmsPlaylist(path, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(),
+            playlist = new TestBmsPlaylist(databaseScope, path, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, settings: settings)
             { BMSTables = [] };
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { tasks.Enqueue(Task.Run(work)); return true; };
-            library = new TestBmsLibrary(path, settings: settings);
+            library = new TestBmsLibrary(databaseScope, path, settings: settings);
             var old = new BMSTable(validHeader, null, new Uri(headerPath), originalRows)
             { playlist_id = 7910, last_update = new DateTime(2021, 2, 3), is_bmt_output = false };
             old.entries.Single().memo = "local memo";
@@ -471,7 +473,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
             Assert.IsFalse(workspace.CapturePlaylistSyncStatusSnapshot()["id:7910"].HasFailureStatus);
             Assert.AreEqual(0, notifications.Count, "任意日時の不適合をUI通知へ流しません。");
             Assert.IsTrue(progress.Any(item => item.IsActive)); Assert.IsFalse(progress.Last().IsActive);
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(path).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), path).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(3, db.Table<BMSTableEntry>().Count());
                 BMSTableEntry persisted = db.Table<BMSTableEntry>().Single(entry => entry.md5 == new string('a', 32));

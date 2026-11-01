@@ -20,6 +20,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class SettingDialogCustomFolderOutputBaseTests
 {
+    /// <summary>このケースの準備とモデルで共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>設定受理の予約領域条件を集約する。出力基点三種は組込み自身・配下・直上を拒否し、LR2rootより上の祖先、BMS親・drive、兄弟と未知LR2rootを維持する。実drive/UNCへアクセスしない。</summary>
     [TestMethod]
     [DataRow("normal", "same", true)]
@@ -137,7 +140,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         try
         {
             string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (new LR2SongDBExtended(songDbPath))
+            using (databaseScope.OpenSongWrite(songDbPath))
             {
             }
             testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
@@ -1427,7 +1430,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     private void SetViewModelTables(MainWindowViewModel viewModel, string songDbPath, BMSTable[] tables)
     {
         MainWindowViewModelTestFactory.GetComposition(viewModel).Lr2ConfigSession.TryResolve(testSettings.LR2ConfigXmlPath, out Lr2ConfigOwner? config);
-        TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings, getLr2Config: config);
+        TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope, songDbPath, testSettings, getLr2Config: config);
         playlist.BMSTables = new ObservableCollection<BMSTable>(tables);
         SetViewModelField(viewModel, "tables", playlist);
         viewModel.PlaylistWorkspace.RefreshPlaylistTreeTables(playlist);

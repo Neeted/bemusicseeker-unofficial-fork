@@ -246,6 +246,7 @@ public sealed class BmsLibrarySavedScoreAvailabilityTests
 
     private sealed class ScoreFixture : IDisposable
     {
+        private readonly ApplicationDatabaseScope databaseScope = new();
         private const string Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         private const string Sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         private readonly string root = Path.Combine(Path.GetTempPath(), "BmsSavedScoreAvailability", Guid.NewGuid().ToString("N"));
@@ -263,8 +264,8 @@ public sealed class BmsLibrarySavedScoreAvailabilityTests
             Directory.CreateDirectory(root);
             string songPath = Path.Combine(root, "song.db");
             scorePath = Path.Combine(root, "score.db");
-            using (var db = new LR2SongDBExtended(songPath)) { db.CreateTable<LR2SongDB.song>(); }
-            using (var db = new SQLiteConnection(scorePath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songPath)) { db.CreateTable<LR2SongDB.song>(); }
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scorePath))
             {
                 if (beatoraja)
                 {
@@ -279,7 +280,7 @@ public sealed class BmsLibrarySavedScoreAvailabilityTests
                 }
             }
             options = new BmsLibraryOptionsSnapshot { UseBeatorajaScoreDb = beatoraja, BeatorajaScoreDbPath = configured ? scorePath : string.Empty };
-            Library = new TestBmsLibrary(songPath, null, beatoraja || !configured ? null : scorePath,
+            Library = new TestBmsLibrary(databaseScope, songPath, null, beatoraja || !configured ? null : scorePath,
                 fileMutationService: null, dialogService: Dialogs,
                 uiScheduler: new TestUiScheduler(() => null), optionsSnapshotProvider: () => options)
             { BmsCharts = [] };
@@ -312,7 +313,7 @@ public sealed class BmsLibrarySavedScoreAvailabilityTests
 
         internal void CreateHistory()
         {
-            using var db = new SQLiteConnection(Path.Combine(root, "scorelog.db"));
+            using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(Path.Combine(root, "scorelog.db"));
             db.Execute("CREATE TABLE scorelog (sha256 TEXT, mode INTEGER, clear INTEGER, oldclear INTEGER, score INTEGER, oldscore INTEGER, combo INTEGER, oldcombo INTEGER, minbp INTEGER, oldminbp INTEGER, date INTEGER)");
             db.Execute("INSERT INTO scorelog VALUES (?, 0, 5, 4, 20, 10, 0, 0, 0, 1, 1000)", Sha256);
         }
@@ -322,26 +323,26 @@ public sealed class BmsLibrarySavedScoreAvailabilityTests
         internal void SelectBrokenBeatorajaDatabase()
         {
             scorePath = Path.Combine(root, "other-score.db");
-            using (var db = new SQLiteConnection(scorePath)) { db.Execute("CREATE TABLE unrelated (id INTEGER)"); }
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scorePath)) { db.Execute("CREATE TABLE unrelated (id INTEGER)"); }
             options = new BmsLibraryOptionsSnapshot { UseBeatorajaScoreDb = true, BeatorajaScoreDbPath = scorePath };
         }
 
         internal void BreakScoreSelect()
         {
-            using var db = new SQLiteConnection(scorePath);
+            using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scorePath);
             db.Execute("ALTER TABLE score RENAME TO retained_score");
             // 本番と同じ対象SELECTが実際に失敗する状態を確認し、単なる正常空を故障入力にしません。
-            if (beatoraja) { Assert.ThrowsExactly<SQLiteException>(() => new BeatorajaScoreDbLoader().LoadModeZeroScores(scorePath)); }
+            if (beatoraja) { Assert.ThrowsExactly<SQLiteException>(() => new BeatorajaScoreDbLoader(databaseScope).LoadModeZeroScores(scorePath)); }
             else
             {
-                using var read = new LR2ScoreDBExtended(scorePath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+                using LR2ScoreDBExtended read = databaseScope.OpenScoreReadOnly(scorePath);
                 Assert.ThrowsExactly<SQLiteException>(() => read.Table<BMSScore>().ToList());
             }
         }
 
         internal void RestoreEmptyScoreTable()
         {
-            using var db = new SQLiteConnection(scorePath);
+            using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scorePath);
             db.Execute("ALTER TABLE retained_score RENAME TO score");
             db.Execute("DELETE FROM score");
         }

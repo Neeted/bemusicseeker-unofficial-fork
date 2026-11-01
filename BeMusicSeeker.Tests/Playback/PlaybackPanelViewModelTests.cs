@@ -291,6 +291,7 @@ public sealed class PlaybackPanelViewModelTests
     public async Task PendingPlayerReplacement_StopCancelsStartWithoutConsumingUnadoptedOrNewRequest(
         bool temporaryInstall, bool afterAdoption, bool saveNewRequest)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string root = Path.Combine(Path.GetTempPath(), "bms-stop-replacement-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         string firstPath = Path.Combine(root, "first.bms");
@@ -317,7 +318,7 @@ public sealed class PlaybackPanelViewModelTests
         {
             string songDb = Path.Combine(root, "song.db");
             File.WriteAllBytes(songDb, []);
-            panel.AttachLibrary(new TestBmsLibrary(songDb, settings: testSettings));
+            panel.AttachLibrary(new TestBmsLibrary(databaseScope, songDb, settings: testSettings));
         }
         var settingsRuntime = (ISettingsDialogPlaybackRuntimePort)panel;
         int secondCreated = 0;
@@ -463,6 +464,7 @@ public sealed class PlaybackPanelViewModelTests
     [DataRow(true)]
     public async Task ConfirmedPlayerFactory_ApplyFailureKeepsCandidateForNextExplicitStart(bool temporaryInstall)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string root = Path.Combine(Path.GetTempPath(), "bms-next-player-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         string oldPath = Path.Combine(root, "old.bms");
@@ -483,7 +485,7 @@ public sealed class PlaybackPanelViewModelTests
         var operations = new ChartFileOperationSynchronizer();
         var panel = new PlaybackPanelViewModel(first, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
             new InMemoryPlaybackSettingsStore(), dialogs, _ => Assert.Fail("入力故障へ読み替えません。"), operations);
-        if (temporaryInstall) { panel.AttachLibrary(new TestBmsLibrary(songDb, settings: testSettings)); }
+        if (temporaryInstall) { panel.AttachLibrary(new TestBmsLibrary(databaseScope, songDb, settings: testSettings)); }
         int created = 0;
         Task operation = Task.CompletedTask;
         try
@@ -549,6 +551,7 @@ public sealed class PlaybackPanelViewModelTests
     [DataRow("PlayButton")]
     public async Task TemporaryCopy_AdmissionRacePreservesExistingSessionUntilExplicitInput(string entry)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string root = Path.Combine(Path.GetTempPath(), "bms-admission-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         string source = Path.Combine(root, "pending.bms");
@@ -576,7 +579,7 @@ public sealed class PlaybackPanelViewModelTests
         var dialogs = new FakePlaybackDialogService();
         var settings = new InMemoryPlaybackSettingsStore { SinglePlay = true };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), queue, settings, dialogs, _ => { }, operations);
-        panel.AttachLibrary(new TestBmsLibrary(songDb, settings: testSettings));
+        panel.AttachLibrary(new TestBmsLibrary(databaseScope, songDb, settings: testSettings));
         Task attempt = Task.CompletedTask;
         IDisposable? otherOperation = null;
         try
@@ -701,6 +704,7 @@ public sealed class PlaybackPanelViewModelTests
     [DataRow(true, false)]
     public void SurfaceRequest_PendingPlayerReplacementSelectsAvailableSurface(bool temporaryInstall, bool playButton)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
             string directory = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "pending-player-surface-" + Guid.NewGuid().ToString("N"))).FullName;
@@ -732,7 +736,7 @@ public sealed class PlaybackPanelViewModelTests
             {
                 string songDb = Path.Combine(directory, "song.db");
                 File.WriteAllBytes(songDb, []);
-                panel.AttachLibrary(new TestBmsLibrary(songDb, settings: testSettings));
+                panel.AttachLibrary(new TestBmsLibrary(databaseScope, songDb, settings: testSettings));
             }
             var view = new PlaybackPanelView { DataContext = panel };
             var window = new Window { Content = view, Width = 640, Height = 360, ShowInTaskbar = false };
@@ -1495,6 +1499,7 @@ public sealed class PlaybackPanelViewModelTests
     [DataRow(true)] // 完了して現在曲が外れた後でも管理入力を回収。
     public async Task PendingRemoval_ConvergesPausedOrCompletedPlaybackAndRejectsNewStart(bool completed)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string root = Path.Combine(Path.GetTempPath(), "bms-pending-panel-" + Guid.NewGuid().ToString("N"));
         string managed = TempDirectoryPublisher.Get("pending-panel");
         Directory.CreateDirectory(root);
@@ -1503,9 +1508,9 @@ public sealed class PlaybackPanelViewModelTests
         File.WriteAllText(current, "#TITLE current");
         File.WriteAllText(pendingPath, "#TITLE pending");
         string db = Path.Combine(root, "song.db");
-        new BmsLibraryDbGateway(db).EnsureAppOwnedSchema();
-        new BmsLibraryDbGateway(db).EnsureLibraryStartupSchema();
-        var library = new TestBmsLibrary(db, null, null, new ResilientFileMutationService(),
+        new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), db).EnsureAppOwnedSchema();
+        new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), db).EnsureLibraryStartupSchema();
+        var library = new TestBmsLibrary(databaseScope, db, null, null, new ResilientFileMutationService(),
             new FileDbReportRecordingDialogs(), new TestUiScheduler(() => null));
         library.ChartPackagesPending = new ObservableCollection<ChartPackage>([new ChartPackage { path = managed }]);
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1948,6 +1953,7 @@ public sealed class PlaybackPanelViewModelTests
     public async Task LegacyStart_WaitsForPreviousCloseAndRetainsInputUntilInvocation(
         bool temporaryTarget, bool failAtInvocation)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         int unexpectedNotificationCount = 0;
         string directory = Path.Combine(Path.GetTempPath(), "bms-legacy-start-" + Guid.NewGuid().ToString("N"));
         string source = Path.Combine(directory, "source");
@@ -1973,7 +1979,7 @@ public sealed class PlaybackPanelViewModelTests
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList), new InMemoryPlaybackSettingsStore(),
             dialogs, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer());
-        panel.AttachLibrary(new TestBmsLibrary(songDbPath, settings: testSettings));
+        panel.AttachLibrary(new TestBmsLibrary(databaseScope, songDbPath, settings: testSettings));
         var closeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseClose = new ManualResetEventSlim();
@@ -6312,6 +6318,7 @@ public sealed class PlaybackPanelViewModelTests
         string? packageRoot = null,
         ChartPackage? discoveredPackage = null)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         PackageChartEntry entry = discoveredPackage?.ChartEntries.Single(item => item.Chart.Path == chartPath)
             ?? ChartPackageTestExtensions.CreateEntry(ChartTestValues.Empty() with { Path = chartPath });
         entry.SetInstallDestinationPathOnly(installDirectory);
@@ -6331,7 +6338,7 @@ public sealed class PlaybackPanelViewModelTests
             dialogs,
             _ => { },
             operations ?? new ChartFileOperationSynchronizer());
-        var library = new TestBmsLibrary(songDbPath, settings: testSettings);
+        var library = new TestBmsLibrary(databaseScope, songDbPath, settings: testSettings);
         if (discoveredPackage != null)
         {
             library.ChartPackagesPending = [discoveredPackage];

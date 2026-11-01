@@ -15,6 +15,10 @@ namespace BeMusicSeeker.Tests;
 /// <summary>SQL復元の配置整理だけに使う実SQLite・専用LR2設定・物理出力を所有します。画面は生成しません。</summary>
 internal sealed class PlaylistRestoreOutputFixture : IAsyncDisposable
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+    /// <summary>このfixtureの接続とモデルが共有するDB所有者です。</summary>
+    internal ApplicationDatabaseScope DatabaseScope => databaseScope;
+
     internal string DirectoryPath { get; } = Path.Combine(Path.GetTempPath(), nameof(PlaylistRestoreOutputFixture), Guid.NewGuid().ToString("N"));
     internal string SongDb { get; }
     internal Settings Settings { get; }
@@ -28,8 +32,8 @@ internal sealed class PlaylistRestoreOutputFixture : IAsyncDisposable
     internal PlaylistRestoreOutputFixture()
     {
         Directory.CreateDirectory(DirectoryPath);
-        SongDb = BmsPlaylistTestSupport.CreateTempSongDbPath(DirectoryPath);
-        PlaylistPersistenceRepository.EnsureSchema(SongDb);
+        SongDb = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, DirectoryPath);
+        PlaylistPersistenceRepository.EnsureSchema(databaseScope, SongDb);
         string bms = Path.Combine(DirectoryPath, "BMS");
         string additional = Path.Combine(bms, "Additional");
         Settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
@@ -47,9 +51,9 @@ internal sealed class PlaylistRestoreOutputFixture : IAsyncDisposable
         Directory.CreateDirectory(Settings.LR2CustomFolderOutputBaseDirRootType);
         Config = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(Settings.LR2RootPath, bms));
         Config.SetPlacement(OutputSettings);
-        Library = new TestBmsLibrary(SongDb, Config, null, null,
+        Library = new TestBmsLibrary(databaseScope, SongDb, Config, null, null,
             () => BmsLibraryOptionsSnapshot.CreateCurrent(Settings), settings: Settings);
-        var synchronization = new TestLr2PlaylistFolderSynchronizationPort(SongDb)
+        var synchronization = new TestLr2PlaylistFolderSynchronizationPort(databaseScope, SongDb)
         {
             PhysicalSurfaceFactory = () => CustomFolderOutputPhysicalSurface.FromEntries(
                 Directory.GetFiles(DirectoryPath, "*.lr2folder", SearchOption.AllDirectories)
@@ -66,10 +70,10 @@ internal sealed class PlaylistRestoreOutputFixture : IAsyncDisposable
         foreach (string path in new[] { ExternalFile, SiblingFile })
         {
             File.WriteAllText(path, "#TITLE external\r\n#COMMAND 1\r\n");
-            using var db = new LR2SongDBExtended(SongDb);
+            using LR2SongDBExtended db = databaseScope.OpenSongWrite(SongDb);
             db.InsertOrReplace(new LR2SongDB.folder { path = path, title = "external" });
         }
-        using var setup = new LR2SongDBExtended(SongDb);
+        using LR2SongDBExtended setup = databaseScope.OpenSongWrite(SongDb);
         setup.InsertOrReplace(new LR2SongDB.song { path = "unrelated.bms", hash = new string('a', 32), title = "kept song" });
         setup.Execute("CREATE TABLE user_data (value TEXT);");
         setup.Execute("INSERT INTO user_data VALUES ('kept user value');");
@@ -94,7 +98,7 @@ internal sealed class PlaylistRestoreOutputFixture : IAsyncDisposable
     /// <summary>復元前後の独立した保存状態を準備し、本番の生成・同期入口で物理出力も成立させます。</summary>
     internal void PersistAndOutput(params BMSTable[] tables)
     {
-        using (var db = new LR2SongDBExtended(SongDb))
+        using (LR2SongDBExtended db = databaseScope.OpenSongWrite(SongDb))
         {
             db.Execute("DELETE FROM playlist_entry;");
             db.Execute("DELETE FROM playlist;");
@@ -123,7 +127,7 @@ internal sealed class PlaylistRestoreOutputFixture : IAsyncDisposable
             Assert.IsTrue(Directory.GetFiles(OutputDirectory(table), "*.lr2folder").Any(path =>
                 BmsPlaylistTestSupport.ReadShiftJisText(path).Contains("#TITLE " + table.entries.Single().folder, StringComparison.Ordinal)));
         }
-        using var db = new LR2SongDBExtended(SongDb);
+        using LR2SongDBExtended db = databaseScope.OpenSongWrite(SongDb);
         foreach (string file in files)
         {
             string command = BmsPlaylistTestSupport.ReadShiftJisText(file).Split(["\r\n", "\n"], StringSplitOptions.None)
@@ -143,7 +147,7 @@ internal sealed class PlaylistRestoreOutputFixture : IAsyncDisposable
     /// <summary>復元する保存状態にあったディレクトリ行・ROOT親・ファイル行の配置を捕捉します。日時と生成順は固定しません。</summary>
     internal string[] CaptureFolderLayout(params string[] outputDirectories)
     {
-        using var db = new LR2SongDBExtended(SongDb);
+        using LR2SongDBExtended db = databaseScope.OpenSongWrite(SongDb);
         return db.Table<LR2SongDB.folder>().AsEnumerable().Where(row => outputDirectories.Any(directory =>
                 string.Equals(row.path.TrimEnd(Path.DirectorySeparatorChar), directory, StringComparison.OrdinalIgnoreCase)
                 || row.path.StartsWith(directory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))

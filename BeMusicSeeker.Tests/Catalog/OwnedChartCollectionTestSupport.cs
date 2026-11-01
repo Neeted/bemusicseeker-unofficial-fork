@@ -177,12 +177,13 @@ internal static class OwnedChartCollectionTestSupport
 
     internal static void WithTemporarySongDb(Action<string> testAction)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_OwnedChartCollection_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         try
         {
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.RunInTransaction(() =>
                 {
@@ -206,12 +207,13 @@ internal static class OwnedChartCollectionTestSupport
     /// <summary>非同期の確認接続試験にも、同じ独立した最小DBと後片付けを提供します。</summary>
     internal static async Task WithTemporarySongDbAsync(Func<string, Task> testAction)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_OwnedChartCollection_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         try
         {
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.RunInTransaction(() =>
                 {

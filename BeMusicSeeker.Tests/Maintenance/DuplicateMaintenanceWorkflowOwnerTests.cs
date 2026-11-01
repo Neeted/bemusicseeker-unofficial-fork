@@ -22,6 +22,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class DuplicateMaintenanceWorkflowOwnerTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>実在親folderのHash整理で登録子rootだけを削除し、cleanup中の親L保持と解放後の実保留通知を確認します。Pは取得しません。</summary>
     [TestMethod]
     [DoNotParallelize]
@@ -37,10 +39,10 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             ChartFile keeper = CreateFile(new string('a', 32), Path.Combine(parent, "a.bms"));
             ChartFile duplicate = CreateFile(new string('a', 32), Path.Combine(child, "long-duplicate.bms"));
             foreach (ChartFile chart in new[] { keeper, duplicate }) { File.WriteAllText(chart.Path, "#TITLE Duplicate\n#BPM 120\n"); }
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new FileDbReportRecordingDialogs(),
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new FileDbReportRecordingDialogs(),
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => BmsLibraryOptionsSnapshot.CreateCurrent(settings), settings: settings)
             { BmsCharts = [keeper, duplicate], BmsonCharts = [] };
-            new BmsLibraryDbGateway(songDbPath).UpsertSongs([keeper, duplicate]);
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs([keeper, duplicate]);
             using var observation = RootPendingPublicationObservation.Seed(library, songDbPath, parent, Path.Combine(root, "Unrelated"));
             var dialogs = new FakeUiDialogService
             {
@@ -77,7 +79,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 Assert.IsTrue(File.Exists(keeper.Path));
                 CollectionAssert.AreEqual(new[] { parent }, new BmsRootRegistrationStore(settings, () => null).CaptureUserRoots().ToArray());
                 Assert.AreEqual(keeper.Path, library.BmsCharts.Single().Path);
-                using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 Assert.AreEqual(keeper.Path, db.Table<LR2SongDB.song>().Single().path);
             }
             finally
@@ -108,10 +110,10 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             ChartFile[] charts = [LibraryResourceIndexTestSupport.CreateChart(source, "same.bms"), LibraryResourceIndexTestSupport.CreateChart(destination, "same.bms"), LibraryResourceIndexTestSupport.CreateChart(normal, "same.bms"), LibraryResourceIndexTestSupport.CreateChart(normal, "unique.bms")];
             Directory.CreateDirectory(empty);
             File.WriteAllText(Path.Combine(source, "kept.wav"), "protected audio");
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new FileDbReportRecordingDialogs(),
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new FileDbReportRecordingDialogs(),
                 settings: TestBmsFactory.CreateRootSettings([root, empty]))
             { BmsCharts = charts };
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.UpsertSongs(charts);
             var events = new List<string>();
             var presentation = new RecordingPresentation(events);
@@ -163,7 +165,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             File.WriteAllText(keeper.Path, "same content");
             File.WriteAllText(duplicate.Path, "same content");
             FakeUiDialogService dialogs = AcceptedDialogs();
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new FileDbReportRecordingDialogs(),
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new FileDbReportRecordingDialogs(),
                 settings: TestBmsFactory.CreateRootSettings([root]))
             { BmsCharts = [keeper, duplicate] };
             var originalFailure = new IOException("required original finalization failure");
@@ -817,11 +819,11 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             byte[] registeredConfig = File.ReadAllBytes(configPath);
             string resource = Path.Combine(folder, "user.wav"); File.WriteAllText(resource, "keep resource");
             var filesystem = new TestFileMutationService();
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem,
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, filesystem,
                 new FileDbReportRecordingDialogs(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 () => BmsLibraryOptionsSnapshot.CreateCurrent(settings), settings: settings)
             { BmsCharts = [CreateFile(new string('a', 32), keeperPath), CreateFile(new string('a', 32), duplicatePath)], BmsonCharts = [] };
-            new BmsLibraryDbGateway(songDbPath).UpsertSongs(library.BmsCharts);
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs(library.BmsCharts);
             ChartFile[] selected = library.BmsCharts.ToArray();
             var group = new DuplicateGroup([.. selected], [folder]);
             var confirmation = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -892,7 +894,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 Assert.IsTrue(File.Exists(keeperPath));
                 Assert.IsFalse(File.Exists(duplicatePath));
                 Assert.AreEqual(keeperPath, library.BmsCharts.Single().Path);
-                using (LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                using (LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
                 { Assert.AreEqual(keeperPath, readback.Table<LR2SongDB.song>().Single().path); }
                 releaseCleanup.Set();
                 DuplicateMaintenanceMutationResult result = await operation;
@@ -960,11 +962,11 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             File.SetLastWriteTimeUtc(deletionPath, fixedDate);
             var filesystem = new TestFileMutationService();
             var modelDialogs = new FileDbReportRecordingDialogs();
-            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, modelDialogs,
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, filesystem, modelDialogs,
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
             { BmsCharts = [CreateFile(new string('a', 32), keeperPath), CreateFile(new string('a', 32), deletionPath)], BmsonCharts = [] };
-            new BmsLibraryDbGateway(songDbPath).UpsertSongs(library.BmsCharts);
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs(library.BmsCharts);
             var group = new DuplicateGroup([.. library.BmsCharts], [root]);
             var store = new DelegatingPreparedStore();
             ChartFileOperationSynchronizer gate = library.OperationAdmission;
@@ -1036,7 +1038,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 Assert.IsFalse(activity.IsActive);
                 Assert.IsTrue(File.Exists(keeperPath));
                 Assert.IsTrue(Directory.Exists(keeperFolder));
-                using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 Assert.AreEqual(decision != 2, result.Succeeded);
                 Assert.IsNull(result.Failure);
                 Assert.AreEqual(decision == 2 ? 0 : 1, result.RemovedChartCount);
@@ -1279,11 +1281,11 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(destinationChart))];
             string songDbPath = Path.Combine(root, "song.db");
             File.WriteAllBytes(songDbPath, []);
-            using (var initialize = new LR2SongDBExtended(songDbPath)) { }
+            using (LR2SongDBExtended initialize = databaseScope.OpenSongWrite(songDbPath)) { }
             var files = new UnrestoredDestinationFileMutationService(Path.Combine(destination, "note.wav"));
             var playlist = new ChartFileOperationSynchronizer();
             var configOwner = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(Path.Combine(root, "LR2"), root));
-            library = new TestBmsLibrary(songDbPath, configOwner, null, files,
+            library = new TestBmsLibrary(databaseScope, songDbPath, configOwner, null, files,
                 new FileDbReportRecordingDialogs(), new TestUiScheduler(() => null),
                 () => new BmsLibraryOptionsSnapshot
                 {
@@ -1294,7 +1296,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 },
                 playlistOperationAdmission: playlist)
             { BmsCharts = charts.ToList(), BmsonCharts = [] };
-            new BmsLibraryDbGateway(songDbPath).UpsertSongs(charts);
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs(charts);
             ChartFileOperationSynchronizer gate = library.OperationAdmission;
             var activity = new ChartMutationActivityOwner();
             var cleanupReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1332,7 +1334,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             Assert.AreEqual("old resource", File.ReadAllText(files.BackupPath));
             Assert.IsTrue(File.Exists(sourceChart));
             Assert.IsTrue(File.Exists(destinationChart));
-            using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(2, db.ExecuteScalar<int>("SELECT COUNT(1) FROM song;"));
             Assert.AreEqual(0, dialogs.Messages.Count);
         }

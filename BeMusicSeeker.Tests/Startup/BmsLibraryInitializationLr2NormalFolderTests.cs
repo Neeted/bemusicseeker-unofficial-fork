@@ -15,6 +15,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryInitializationLr2NormalFolderTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>
     /// 完全scanでLR2通常folderを同期し、folderinfoのtitleと実folder日時をDBへ保存する。
     /// </summary>
@@ -31,7 +33,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             File.WriteAllText(bmsPath, CreateValidBmsText("Folder Sync"), Encoding.ASCII);
             File.WriteAllText(folderInfoPath, "#TITLE Synced Folder", Encoding.GetEncoding(932));
 
-            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDbConnection = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDbConnection.RunInTransaction(() =>
                 {
@@ -50,7 +52,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
-                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
@@ -67,7 +69,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 null,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
-                folderTableSnapshot: CaptureNormalFolderSnapshot(songDbPath));
+                folderTableSnapshot: CaptureNormalFolderSnapshot(databaseScope, songDbPath));
 
             Assert.IsTrue(result.Lr2NormalFolderSyncExecuted);
             Assert.IsFalse(result.Lr2NormalFolderSyncFailed);
@@ -79,7 +81,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             Assert.AreEqual(1, result.Lr2NormalFolderInfoCandidateCount);
             Assert.AreEqual(1, result.Lr2NormalFolderInfoAppliedCount);
 
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder root = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(lr2RootPath));
             LR2SongDB.folder pack = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(packDirectoryPath));
             Assert.AreEqual(1, root.type);
@@ -118,7 +120,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 Date = Lr2SongRowEnricher.ToLr2UnixSeconds(previousDirectoryTimestamp)
             };
 
-            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDbConnection = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDbConnection.RunInTransaction(() =>
                 {
@@ -154,7 +156,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
-                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
@@ -171,13 +173,13 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 null,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
-                folderTableSnapshot: CaptureNormalFolderSnapshot(songDbPath));
+                folderTableSnapshot: CaptureNormalFolderSnapshot(databaseScope, songDbPath));
 
             Assert.IsFalse(result.HasDbDiff);
             Assert.IsTrue(result.Lr2NormalFolderSyncExecuted);
             Assert.AreEqual(1, result.Lr2NormalFolderInfoCandidateCount);
             Assert.AreEqual(1, result.Lr2NormalFolderInfoAppliedCount);
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder pack = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(packDirectoryPath));
             Assert.AreEqual("Updated Folder", pack.title);
             LR2SongDB.folder savedRoot = verify.Find<LR2SongDB.folder>(ToFolderPath(lr2RootPath));
@@ -213,7 +215,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             };
             currentFile = currentFile with { Txt = 0 };
 
-            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDbConnection = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDbConnection.RunInTransaction(() =>
                 {
@@ -251,7 +253,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             var logs = new List<string>();
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
-                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
@@ -269,12 +271,12 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 logInstallPerformance: logs.Add,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
-                folderTableSnapshot: CaptureNormalFolderSnapshot(songDbPath));
+                folderTableSnapshot: CaptureNormalFolderSnapshot(databaseScope, songDbPath));
 
             Assert.IsFalse(result.HasDbDiff);
             Assert.IsTrue(result.Lr2NormalFolderSyncExecuted);
             Assert.IsFalse(result.Lr2NormalFolderSyncFailed);
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder pack = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(packDirectoryPath));
             Assert.AreEqual("Updated Folder", pack.title);
         });
@@ -291,7 +293,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
             string appManagedLr2FolderPath = Path.Combine(lr2RootPath, "LR2files", "CustomFolder", "Table.lr2folder");
             string outsideFolderPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_Outside_" + Guid.NewGuid().ToString("N"));
-            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDbConnection = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDbConnection.RunInTransaction(() =>
                 {
@@ -341,7 +343,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             var logs = new List<string>();
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             Lr2FolderTableSnapshot snapshot = service.LoadFolderTableSnapshot(
-                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
@@ -356,7 +358,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             Assert.AreEqual("Pack", snapshot.ExistingRowsByPath[ToFolderPath(packDirectoryPath)].title);
             Assert.AreEqual("Alias", snapshot.ExistingRowsByPath[ToFolderPath(packDirectoryPath).ToUpperInvariant()].title);
             Assert.AreEqual(91, snapshot.ExistingRowsByPath["Pack\\"].adddate);
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             foreach (LR2SongDB.folder row in verify.Table<LR2SongDB.folder>())
             {
                 LR2SongDB.folder captured = snapshot.ExistingRowsByPath[row.path];
@@ -433,7 +435,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 Assert.AreNotEqual(currentFile.Md5, removedFile.Md5);
             }
             string[] outside = [ToFolderPath(oldRoot + "Other"), ToFolderPath(Path.Combine(Path.GetDirectoryName(root)!, "Unrelated"))];
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.RunInTransaction(() =>
                 {
@@ -470,7 +472,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             scan.FolderInfoFilePaths.Add(folderInfoPath); scan.FolderInfoFileEntriesByPath[folderInfoPath] = folderInfoEntry;
             string[] scanPaths = scan.ChartFilePaths.ToArray();
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             // Greekでは登録・song・実file・scan・prefetch要求の全てが現αで、folderだけが旧Α。
             Lr2FolderTableSnapshot Capture() => fullLoad
                 ? service.LoadSongTable(gateway, options, null, new TestFileMutationService(), null, failure => failure.Message).FolderTableSnapshot
@@ -589,7 +591,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             };
             currentFile = currentFile with { Txt = 0 };
 
-            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDbConnection = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDbConnection.RunInTransaction(() =>
                 {
@@ -622,7 +624,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
-                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
@@ -639,12 +641,12 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 null,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
-                folderTableSnapshot: CaptureNormalFolderSnapshot(songDbPath));
+                folderTableSnapshot: CaptureNormalFolderSnapshot(databaseScope, songDbPath));
 
             Assert.IsFalse(result.HasDbDiff);
             Assert.IsTrue(result.Lr2NormalFolderSyncExecuted);
             Assert.AreEqual(0, result.Lr2NormalFolderInfoCandidateCount);
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder pack = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(packDirectoryPath));
             Assert.AreEqual("Pack", pack.title);
         });
@@ -667,7 +669,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             DateTime packSurfaceTimestamp = new(2026, 6, 7, 2, 0, 0, DateTimeKind.Utc);
             DateTime liveTimestamp = new(2026, 6, 8, 1, 0, 0, DateTimeKind.Utc);
 
-            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDbConnection = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDbConnection.RunInTransaction(() =>
                 {
@@ -691,7 +693,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
-                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
@@ -708,10 +710,10 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 null,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
-                folderTableSnapshot: CaptureNormalFolderSnapshot(songDbPath));
+                folderTableSnapshot: CaptureNormalFolderSnapshot(databaseScope, songDbPath));
 
             Assert.IsTrue(result.Lr2NormalFolderSyncExecuted);
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder root = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(lr2RootPath));
             LR2SongDB.folder pack = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(packDirectoryPath));
             Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(rootSurfaceTimestamp), root.date);
@@ -759,7 +761,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             var logs = new List<string>();
 
             File.Delete(removedPath);
-            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDbConnection = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDbConnection.RunInTransaction(() =>
                 {
@@ -787,7 +789,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
-                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
@@ -810,7 +812,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 logInstallPerformance: logs.Add,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
-                folderTableSnapshot: CaptureNormalFolderSnapshot(songDbPath));
+                folderTableSnapshot: CaptureNormalFolderSnapshot(databaseScope, songDbPath));
 
             Assert.IsTrue(result.HasDbDiff);
             Assert.IsTrue(result.Lr2NormalFolderSyncExecuted);
@@ -819,7 +821,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 && message.Contains("directoryPaths=2")
                 && message.Contains("pruneScopes=1")));
 
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", removedFolderPath));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", staleOtherFolderPath));
         });
@@ -861,7 +863,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             var logs = new List<string>();
 
             File.Delete(removedPath);
-            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDbConnection = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDbConnection.RunInTransaction(() =>
                 {
@@ -895,7 +897,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
-                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
@@ -918,7 +920,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 logInstallPerformance: logs.Add,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
-                folderTableSnapshot: CaptureNormalFolderSnapshot(songDbPath));
+                folderTableSnapshot: CaptureNormalFolderSnapshot(databaseScope, songDbPath));
 
             Assert.IsTrue(result.HasDbDiff);
             Assert.IsTrue(result.Lr2NormalFolderSyncExecuted);
@@ -927,7 +929,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 && message.Contains("directoryPaths=3")
                 && message.Contains("pruneScopes=1")));
 
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", removedFolderPath));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", bigFolderPath));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", staleSiblingFolderPath));
@@ -958,7 +960,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             string removedFolderPath = ToFolderPath(removedDirectoryPath);
 
             File.Delete(removedPath);
-            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDbConnection = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDbConnection.RunInTransaction(() =>
                 {
@@ -986,7 +988,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
-                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
@@ -1006,13 +1008,13 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 null,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
-                folderTableSnapshot: CaptureNormalFolderSnapshot(songDbPath));
+                folderTableSnapshot: CaptureNormalFolderSnapshot(databaseScope, songDbPath));
 
             Assert.IsTrue(result.HasDbDiff);
             Assert.IsTrue(result.Lr2NormalFolderSyncExecuted);
             Assert.AreEqual(2, result.Lr2NormalFolderDeletedCount);
 
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", removedFolderPath));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", packFolderPath));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", ToFolderPath(lr2RootPath)));
@@ -1051,7 +1053,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             var logs = new List<string>();
 
             File.Delete(removedPath);
-            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDbConnection = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDbConnection.RunInTransaction(() =>
                 {
@@ -1081,7 +1083,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
-                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
@@ -1104,14 +1106,14 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 logInstallPerformance: logs.Add,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
-                folderTableSnapshot: CaptureNormalFolderSnapshot(songDbPath));
+                folderTableSnapshot: CaptureNormalFolderSnapshot(databaseScope, songDbPath));
 
             Assert.IsTrue(result.HasDbDiff);
             Assert.IsTrue(result.Lr2NormalFolderSyncExecuted);
             Assert.IsFalse(result.Lr2NormalFolderSyncFailed);
             Assert.AreEqual(1, result.Lr2NormalFolderDeletedCount);
 
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", staleFolderPath));
         });
     }
@@ -1131,7 +1133,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             File.WriteAllText(bmsPath, CreateValidBmsText("Folder Sync Disabled"), Encoding.ASCII);
             string stalePath = ToFolderPath(Path.Combine(lr2RootPath, "Stale"));
 
-            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDbConnection = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDbConnection.RunInTransaction(() =>
                 {
@@ -1147,7 +1149,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
-                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
@@ -1171,7 +1173,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath]);
 
             Assert.IsFalse(result.Lr2NormalFolderSyncExecuted);
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", stalePath));
         });
@@ -1193,7 +1195,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             string stalePath = ToFolderPath(Path.Combine(lr2RootPath, "Stale"));
             var logs = new List<string>();
 
-            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDbConnection = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDbConnection.RunInTransaction(() =>
                 {
@@ -1209,7 +1211,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
-                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
@@ -1234,13 +1236,13 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 logInstallPerformance: logs.Add,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
-                folderTableSnapshot: CaptureNormalFolderSnapshot(songDbPath));
+                folderTableSnapshot: CaptureNormalFolderSnapshot(databaseScope, songDbPath));
 
             Assert.IsFalse(result.Lr2NormalFolderSyncExecuted);
             Assert.IsFalse(result.HasDbDiff);
             Assert.AreEqual("directory_enumeration_failed:" + lr2RootPath, result.ScanFallbackReason);
             Assert.IsFalse(logs.Any(message => message.Contains("lr2_normal_folder_sync")));
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", stalePath));
         });
@@ -1272,7 +1274,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             string stalePath = ToFolderPath(Path.Combine(lr2RootPath, "Stale"));
             var logs = new List<string>();
 
-            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDbConnection = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDbConnection.RunInTransaction(() =>
                 {
@@ -1301,7 +1303,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
-                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
@@ -1324,12 +1326,12 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 logInstallPerformance: logs.Add,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
-                folderTableSnapshot: CaptureNormalFolderSnapshot(songDbPath));
+                folderTableSnapshot: CaptureNormalFolderSnapshot(databaseScope, songDbPath));
 
             Assert.IsFalse(result.HasDbDiff);
             Assert.IsTrue(result.Lr2NormalFolderSyncExecuted);
             Assert.IsFalse(result.Lr2NormalFolderSyncFailed);
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(2L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder;"));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", stalePath));
         });
@@ -1363,7 +1365,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             string stalePath = ToFolderPath(Path.Combine(lr2RootPath, "Stale"));
             var logs = new List<string>();
 
-            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDbConnection = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDbConnection.RunInTransaction(() =>
                 {
@@ -1392,7 +1394,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
-                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot
                 {
@@ -1415,13 +1417,13 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 logInstallPerformance: logs.Add,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
-                folderTableSnapshot: CaptureNormalFolderSnapshot(songDbPath));
+                folderTableSnapshot: CaptureNormalFolderSnapshot(databaseScope, songDbPath));
 
             Assert.IsTrue(result.HasDbDiff);
             Assert.AreEqual(1, result.BmsTextOnlyUpdateCount);
             Assert.IsTrue(result.Lr2NormalFolderSyncExecuted);
             Assert.IsFalse(result.Lr2NormalFolderSyncFailed);
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", stalePath));
         });
     }

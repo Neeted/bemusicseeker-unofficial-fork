@@ -21,6 +21,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryPlaylistLampDataSourceTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>実フォルダ名[NO SONG]と未所持MD5エントリを捕捉し、実chart_infoの補完SHAを所持SHAとは区別して渡す。名前による所属欠落・補完漏れ・所持誤認を検出する。</summary>
     [TestMethod]
     public async Task CaptureAsync_keepsChartInfoShaSeparateAndUsesItForBeatorajaLookup()
@@ -30,14 +32,14 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
         {
             string md5 = new('a', 32);
             string chartInfoSha256 = new('c', 64);
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
                 songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(
                     CreateChartInfoRow(chartInfoSha256, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
             }
 
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new ChartInfoMetadataTestSupport.RecordingDialogService())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new ChartInfoMetadataTestSupport.RecordingDialogService())
             {
                 BmsCharts = []
             };
@@ -52,7 +54,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
                 Folder_order = ["[NO SONG]"],
                 entries = [entry]
             };
-            var playlist = new TestBmsPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath)
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
@@ -79,7 +81,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
 
         await WithTemporarySongDb(async (_, songDbPath) =>
         {
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -96,7 +98,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
                 Folder_order = ["folder"],
                 entries = [entry]
             };
-            var playlist = new TestBmsPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath)
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
@@ -136,37 +138,37 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
             string hash = new('f', 32);
             string sha = new('b', 64);
             string scorePath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(songDbPath) ?? throw new AssertFailedException(), "score.db");
-            using (var db = new LR2ScoreDBExtended(scorePath))
+            using (LR2ScoreDBExtended db = databaseScope.OpenScoreWrite(scorePath))
             {
                 db.CreateTable<LR2ScoreDB.player>();
                 db.CreateTable<LR2ScoreDB.score>();
                 db.Insert(new LR2ScoreDB.score { hash = hash, clear = ClearType.CLEAR, perfect = 10, totalnotes = 100 });
             }
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed,
-                new Lr2PlayHistorySchemaService().InstallOrRepair(scorePath, isLr2LinkedProfile: true).Status);
+                new Lr2PlayHistorySchemaService(databaseScope).InstallOrRepair(scorePath, isLr2LinkedProfile: true).Status);
             // 日付選択は取得済み履歴の範囲内でだけ可能です。外部更新より前の取得組へ既存の履歴を含めます。
-            using (var db = new LR2ScoreDBExtended(scorePath)) { InsertLr2SourceHistory(db, hash, DateTime.Today.AddDays(-1), 10); }
+            using (LR2ScoreDBExtended db = databaseScope.OpenScoreWrite(scorePath)) { InsertLr2SourceHistory(db, hash, DateTime.Today.AddDays(-1), 10); }
             Settings sourceSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = true);
             var sourceOwner = new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(Path.GetDirectoryName(songDbPath) ?? throw new AssertFailedException()));
-            var library = new TestBmsLibrary(songDbPath, sourceOwner, scorePath, new TestFileMutationService(), new PlaylistSummaryAggregationTestSupport.RecordingDialogService(), settings: sourceSettings) { BmsCharts = [] };
+            var library = new TestBmsLibrary(databaseScope, songDbPath, sourceOwner, scorePath, new TestFileMutationService(), new PlaylistSummaryAggregationTestSupport.RecordingDialogService(), settings: sourceSettings) { BmsCharts = [] };
             try
             {
                 library.InitializeScoresOnly(null);
                 BMSTableEntry entry = CreateEntry(hash, sha);
                 entry.folder = "first";
                 var table = new BMSTable { playlist_id = 21, Folder_order = ["first"], entries = [entry] };
-                var playlist = new TestBmsPlaylist(songDbPath) { BMSTables = new ObservableCollection<BMSTable>([table]) };
+                var playlist = new TestBmsPlaylist(databaseScope, songDbPath) { BMSTables = new ObservableCollection<BMSTable>([table]) };
                 var source = new BmsLibraryPlaylistLampDataSource(playlist, library, PlaylistLampHistoricalScoreSourceContext.FromSnapshot);
                 PlaylistLampAggregationRequest first = await source.CaptureAsync(PlaylistLampViewerQuery.Latest("21"), default);
                 Assert.AreEqual(ScoreTableLoadStatus.Loaded, first.ScoreSnapshot.LoadStatus);
                 Assert.AreEqual(20, first.ScoreSnapshot.Resolve(first.Entries.Single()).ExScore);
                 Assert.IsFalse(first.Entries.Single().IsOwned);
-                using (var db = new LR2ScoreDBExtended(scorePath)) { db.Execute("UPDATE score SET perfect = 30, playcount = playcount + 1 WHERE hash = ?", hash); }
+                using (LR2ScoreDBExtended db = databaseScope.OpenScoreWrite(scorePath)) { db.Execute("UPDATE score SET perfect = 30, playcount = playcount + 1 WHERE hash = ?", hash); }
                 // DB更新だけではアプリの保持scoreを変更せず、明示捕捉でもその保持値を使う。
                 PlaylistLampAggregationRequest beforeReload = await source.CaptureAsync(new PlaylistLampViewerQuery("21", DateTime.Today), default);
                 Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Available, beforeReload.HistoricalStatus);
                 Assert.AreEqual(20, beforeReload.ScoreSnapshot.Resolve(beforeReload.Entries.Single()).ExScore);
-                using (var db = new LR2ScoreDBExtended(scorePath))
+                using (LR2ScoreDBExtended db = databaseScope.OpenScoreWrite(scorePath))
                 {
                     db.Execute("ALTER TABLE score RENAME TO retained_score");
                     Assert.ThrowsExactly<SQLite.SQLiteException>(() => db.Table<BMSScore>().ToList());
@@ -175,7 +177,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
                 PlaylistLampAggregationRequest afterFailure = await source.CaptureAsync(PlaylistLampViewerQuery.Latest("21"), default);
                 Assert.AreEqual(ScoreTableLoadStatus.Failed, afterFailure.ScoreSnapshot.LoadStatus);
                 Assert.IsFalse(afterFailure.ScoreSnapshot.IsScoreDataAvailable);
-                using (var db = new LR2ScoreDBExtended(scorePath)) { db.Execute("ALTER TABLE retained_score RENAME TO score"); }
+                using (LR2ScoreDBExtended db = databaseScope.OpenScoreWrite(scorePath)) { db.Execute("ALTER TABLE retained_score RENAME TO score"); }
                 library.InitializeScoresOnly(null);
                 library.BmsCharts = [CreateLibraryFile("C:/charts/source.bms", hash, sha)];
                 BMSTableEntry changed = CreateEntry(hash, sha);
@@ -202,16 +204,17 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
     {
         WithComposedResolver((viewModel, settings, root, songDbPath) =>
         {
+            ApplicationDatabaseScope databaseScope = MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope;
             string h1 = new('1', 64), h2 = new('2', 64), outside = new('3', 64);
             string pathA = CreateBeatorajaSource(Path.Combine(root, "A"), h1, h2, outside, 100, 180, 80, ClearType.CLEAR, ClearType.CLEAR, 150, new DateTime(2026, 8, 1));
             string pathB = CreateBeatorajaSource(Path.Combine(root, "B"), h1, h2, outside, 200, 360, 240, ClearType.HARD, ClearType.HARD, 100, new DateTime(2026, 8, 10));
             settings.UseBeatorajaScoreDb = true;
             settings.BeatorajaScoreDbPath = pathA;
-            var library = new TestBmsLibrary(songDbPath, settings: settings) { BmsCharts = [] };
+            var library = new TestBmsLibrary(databaseScope, songDbPath, settings: settings) { BmsCharts = [] };
             try
             {
                 library.InitializeScoresOnly(null);
-                TestBmsPlaylist playlist = CreateScorePlaylist(songDbPath, null, h1, h2);
+                TestBmsPlaylist playlist = CreateScorePlaylist(databaseScope, songDbPath, null, h1, h2);
                 bool switchSource = true;
                 PlaylistLampHistoricalScoreSourceContext? capturedA = null;
                 var source = new BmsLibraryPlaylistLampDataSource(playlist, library, snapshot =>
@@ -259,10 +262,11 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
     {
         WithComposedResolver((viewModel, settings, root, songDbPath) =>
         {
+            ApplicationDatabaseScope databaseScope = MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope;
             string h1 = new('1', 64), h2 = new('2', 64);
             settings.UseBeatorajaScoreDb = true;
             settings.BeatorajaScoreDbPath = CreateBeatorajaSource(root, h1, h2, new string('3', 64), 100, 180, 80, ClearType.CLEAR, ClearType.CLEAR, 150, new DateTime(2026, 8, 1));
-            var library = new TestBmsLibrary(songDbPath, settings: settings) { BmsCharts = [] };
+            var library = new TestBmsLibrary(databaseScope, songDbPath, settings: settings) { BmsCharts = [] };
             int workCount = 0, notificationCount = 0;
             library.ScoreSnapshotWorkObserver = _ => Interlocked.Increment(ref workCount);
             library.PropertyChanged += (_, args) =>
@@ -276,7 +280,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
             {
                 int version = library.ScoreSnapshotVersion;
                 var source = new BmsLibraryPlaylistLampDataSource(
-                    CreateScorePlaylist(songDbPath, null, h1, h2), library,
+                    CreateScorePlaylist(databaseScope, songDbPath, null, h1, h2), library,
                     viewModel.ResolvePlaylistLampHistoricalScoreSourceContext);
                 Assert.IsFalse(library.ScoreSnapshotReady);
                 PlaylistLampAggregationRequest latest = CaptureOnDispatcher(source, null);
@@ -311,26 +315,27 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
     {
         WithComposedResolver((viewModel, settings, root, songDbPath) =>
         {
+            ApplicationDatabaseScope databaseScope = MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope;
             string hash = new('a', 32);
             string pathA = Path.Combine(root, "score.db");
-            using (var db = new LR2ScoreDBExtended(pathA))
+            using (LR2ScoreDBExtended db = databaseScope.OpenScoreWrite(pathA))
             {
                 db.CreateTable<LR2ScoreDB.player>();
                 db.CreateTable<LR2ScoreDB.score>();
                 db.Insert(new LR2ScoreDB.score { hash = hash, clear = ClearType.HARD, perfect = 90, totalnotes = 100, playcount = 3 });
             }
-            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, new Lr2PlayHistorySchemaService().InstallOrRepair(pathA, true).Status);
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, new Lr2PlayHistorySchemaService(databaseScope).InstallOrRepair(pathA, true).Status);
             using (var db = new SQLite.SQLiteConnection(pathA))
             {
                 InsertLr2SourceHistory(db, hash, new DateTime(2026, 8, 1), 40);
                 InsertLr2SourceHistory(db, hash, new DateTime(2026, 8, 21), 120);
             }
             settings.OperationModeLR2DB = true;
-            var library = new TestBmsLibrary(songDbPath, _lr2ScoreDB: pathA, settings: settings) { BmsCharts = [] };
+            var library = new TestBmsLibrary(databaseScope, songDbPath, _lr2ScoreDB: pathA, settings: settings) { BmsCharts = [] };
             try
             {
                 library.InitializeScoresOnly(null);
-                var source = new BmsLibraryPlaylistLampDataSource(CreateScorePlaylist(songDbPath, hash), library, snapshot =>
+                var source = new BmsLibraryPlaylistLampDataSource(CreateScorePlaylist(databaseScope, songDbPath, hash), library, snapshot =>
                 {
                     settings.OperationModeLR2DB = false;
                     settings.LR2RootPath = Path.Combine(root, "B");
@@ -365,13 +370,15 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
         }));
     }
 
-    private static TestBmsPlaylist CreateScorePlaylist(string songDbPath, string? md5, params string[] sha256s)
+    /// <summary>呼出し元と同じDB所有者でテスト対象と保存入力を準備します。</summary>
+    /// <param name="databaseScope">呼出し元と接続・書込み排他を共有するfixtureのDB所有者。</param>
+    private static TestBmsPlaylist CreateScorePlaylist(ApplicationDatabaseScope databaseScope, string songDbPath, string? md5, params string[] sha256s)
     {
         BMSTableEntry[] entries = sha256s.Length == 0
             ? [CreateEntry(md5, null)]
             : sha256s.Select(sha256 => CreateEntry(md5, sha256)).ToArray();
         foreach (BMSTableEntry entry in entries) { entry.folder = "scores"; }
-        return new TestBmsPlaylist(songDbPath)
+        return new TestBmsPlaylist(databaseScope, songDbPath)
         {
             BMSTables = new ObservableCollection<BMSTable>([new BMSTable { playlist_id = 25, Folder_order = ["scores"], entries = entries }])
         };
@@ -432,11 +439,11 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
     {
         await WithTemporarySongDb(async (_, songDbPath) =>
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService()) { BmsCharts = [] };
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService()) { BmsCharts = [] };
             var header = new BMSTable { playlist_id = 22 };
             header.MarkEntriesNotLoaded();
             var ready = new BMSTable { playlist_id = 23, entries = [] };
-            var playlist = new TestBmsPlaylist(songDbPath) { BMSTables = new ObservableCollection<BMSTable>([header, ready]) };
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath) { BMSTables = new ObservableCollection<BMSTable>([header, ready]) };
             playlist.StartupReadiness.BeginPlaylistInitialization();
             var source = new BmsLibraryPlaylistLampDataSource(playlist, library);
             Task<PlaylistLampAggregationRequest> waiting = source.CaptureAsync(PlaylistLampViewerQuery.Latest("22"), default).AsTask();
@@ -467,10 +474,10 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
     {
         await WithTemporarySongDb(async (_, songDbPath) =>
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService()) { BmsCharts = [] };
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService()) { BmsCharts = [] };
             var table = new BMSTable { playlist_id = 24 };
             table.MarkEntriesNotLoaded();
-            var playlist = new TestBmsPlaylist(songDbPath) { BMSTables = new ObservableCollection<BMSTable>([table]) };
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath) { BMSTables = new ObservableCollection<BMSTable>([table]) };
             playlist.StartupReadiness.BeginPlaylistInitialization();
             var source = new BmsLibraryPlaylistLampDataSource(playlist, library);
             using var cancel = new CancellationTokenSource();

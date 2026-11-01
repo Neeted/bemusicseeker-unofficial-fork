@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -13,6 +14,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2NormalFolderDbSyncServiceTests
 {
+    /// <summary>このケースのモデルと接続で共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>削除候補の直接custom・別子custom・親欠落・customなしを限定読取りと生成へ接続し、必要親だけを生成保持します。custom全列と無関係ルートの不変性も観測します。</summary>
     [TestMethod]
     // 直接親の保持、祖先の別子による保持、欠落親の補完、依存なしのpruneをそれぞれ識別します。
@@ -23,7 +27,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
     public void Sync_ConfirmedCustomDependenciesKeepOnlyRequiredAncestors(bool hasCustom, bool sibling, bool parentsExist)
     {
         using var scope = Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
-        using var db = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended db = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         db.CreateTable<LR2SongDB.folder>();
         string root = @"D:\BMS", parent = @"D:\BMS\Pack", removed = @"D:\BMS\Pack\Removed";
         string customParent = sibling ? @"D:\BMS\Pack\Sibling\Deep" : removed;
@@ -88,7 +92,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
     public void Sync_UsesRawExactFolderSet(string oldName, string currentName, bool hasOld, bool hasCurrent, int? currentAddDate)
     {
         using var scope = Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
-        using var db = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended db = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         db.CreateTable<LR2SongDB.folder>();
         string root = @"D:\BMS", oldPath = FolderPath(Path.Combine(root, oldName)), currentDirectory = Path.Combine(root, currentName);
         string currentPath = FolderPath(currentDirectory);
@@ -145,7 +149,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         string songDbPath = Path.Combine(tempDirectory, "song.db");
         try
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string stalePath = FolderPath(@"D:\BMS\Removed");
             string customPath = FolderPath(@"D:\BMS\Custom");
@@ -225,7 +229,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         string songDbPath = Path.Combine(tempDirectory, "song.db");
         try
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string packPath = FolderPath(@"D:\BMS\Pack");
             string childPath = FolderPath(@"D:\BMS\Pack\Song");
@@ -293,7 +297,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         string songDbPath = Path.Combine(tempDirectory, "song.db");
         try
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string exactStalePath = FolderPath(@"D:\BMS\Pack\Song");
             string caseVariantStalePath = FolderPath(@"D:\BMS\PACK\SONG");
@@ -345,7 +349,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         string songDbPath = Path.Combine(tempDirectory, "song.db");
         try
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string removedPath = FolderPath(@"D:\BMS\Removed");
             string untouchedPath = FolderPath(@"D:\BMS\Other");
@@ -403,7 +407,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         string songDbPath = Path.Combine(tempDirectory, "song.db");
         try
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string stalePackagePath = FolderPath(@"D:\BMS\RemovedPackage");
             string staleSongPath = FolderPath(@"D:\BMS\RemovedPackage\Song");
@@ -461,7 +465,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         string songDbPath = Path.Combine(tempDirectory, "song.db");
         try
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string stalePath = FolderPath(@"D:\BMS\Removed");
             songDb.InsertOrReplace(new LR2SongDB.folder
@@ -505,7 +509,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         string songDbPath = Path.Combine(tempDirectory, "song.db");
         try
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string stalePath = FolderPath(@"D:\BMS\Removed");
             songDb.InsertOrReplace(new LR2SongDB.folder
@@ -549,7 +553,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         string songDbPath = Path.Combine(tempDirectory, "song.db");
         try
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
 
             Lr2NormalFolderDbSyncResult result = Lr2NormalFolderDbSyncService.Sync(songDb, new Lr2NormalFolderDbSyncRequest
@@ -586,7 +590,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         string songDbPath = Path.Combine(tempDirectory, "song.db");
         try
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string stalePath = FolderPath(@"D:\BMS\Removed");
             songDb.InsertOrReplace(new LR2SongDB.folder
@@ -635,7 +639,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         string songDbPath = Path.Combine(tempDirectory, "song.db");
         try
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string stalePath = FolderPath(@"D:\BMS\Removed");
             songDb.InsertOrReplace(new LR2SongDB.folder
@@ -736,7 +740,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         string songDbPath = Path.Combine(tempDirectory, "song.db");
         try
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             DateTime timestamp = new(2026, 6, 9, 1, 2, 3, DateTimeKind.Utc);
 

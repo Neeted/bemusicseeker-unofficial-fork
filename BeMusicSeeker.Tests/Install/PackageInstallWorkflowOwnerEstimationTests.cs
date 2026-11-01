@@ -26,6 +26,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataRow(false)]
     public async Task ProductionImport_ChildOwnedHashResolvesOnlyMatchingPackageRoot(bool matchingLayout)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         string libraryRoot = Path.Combine(root, "Library");
         string songRoot = Path.Combine(libraryRoot, "Song");
@@ -63,7 +64,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         File.WriteAllBytes(dbPath, []);
         var background = new ConcurrentQueue<Func<Task>>();
         var admission = new ChartFileOperationSynchronizer();
-        var library = new TestBmsLibrary(dbPath, null, null, null, new FileDbReportRecordingDialogs(),
+        var library = new TestBmsLibrary(databaseScope, dbPath, null, null, null, new FileDbReportRecordingDialogs(),
             new TestUiScheduler(() => null), () => options,
             CapturedChartFileScanner.FromFixture([installedOld, outsideChart],
                 new Dictionary<string, IEnumerable<string>> { [installedChild] = ["tone.wav"], [outside] = ["sub/tone.wav"] },
@@ -100,7 +101,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 CollectionAssert.AreEqual(new byte[] { 1, 2 }, File.ReadAllBytes(Path.Combine(inputChild, "tone.wav")));
                 Assert.IsFalse(File.Exists(Path.Combine(songRoot, "root-new.bms")));
                 Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
-                using LR2SongDBExtended pendingDb = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended pendingDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly();
                 Assert.AreEqual(1, pendingDb.Table<LR2SongDBExtended.install>().Count());
                 Assert.AreEqual(2, pendingDb.Table<LR2SongDB.song>().Count());
                 return;
@@ -131,7 +132,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Assert.IsFalse(File.Exists(Path.Combine(songRoot, "new.bms")));
             CollectionAssert.AreEqual(originalOldBytes, File.ReadAllBytes(installedOld));
             Assert.AreEqual(originalOldMd5, library.BmsCharts.Single(chart => chart.Path == installedOld).Md5);
-            using LR2SongDBExtended db = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());
             CollectionAssert.AreEquivalent(expectedCharts, db.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
             Assert.AreEqual(originalOldMd5, db.Find<LR2SongDB.song>(installedOld).hash);
@@ -154,6 +155,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataRow(true, true)]
     public async Task ProductionImport_UsesCapturedCompletenessPolicyAndEstimatesMissingAudio(bool onlyVisualMissing, bool invalidAuxiliary)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         string libraryRoot = Path.Combine(root, "Library");
         string candidate = Path.Combine(libraryRoot, "Candidate");
@@ -198,7 +200,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         var background = new ConcurrentQueue<Func<Task>>();
         var admission = new ChartFileOperationSynchronizer();
         var observer = new CompletenessEstimationObserver();
-        var library = new TestBmsLibrary(songDb, null, null, null, new FileDbReportRecordingDialogs(),
+        var library = new TestBmsLibrary(databaseScope, songDb, null, null, null, new FileDbReportRecordingDialogs(),
             new TestUiScheduler(() => null), () => options,
             CapturedChartFileScanner.FromFixture([installedChart], new Dictionary<string, IEnumerable<string>> { [candidate] = candidateSounds }, [candidate]), observer, admission, settings: TestBmsFactory.CreateRootSettings([libraryRoot]))
         {
@@ -231,7 +233,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Assert.IsNull(failure, failure?.Exception.ToString());
             ChartPackage package = library.ChartPackagesPending.Single();
             Assert.AreEqual(1, changed);
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDb).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(1, db.Table<LR2SongDBExtended.install>().Count());
             }
@@ -301,6 +303,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataRow(true, true, true, false)]
     public async Task ProductionImport_CompleteSourceAudioStillEvaluatesKnownHashCandidates(bool strong, bool tied, bool autoInstall, bool allowAmbiguous)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         string libraryRoot = Path.Combine(root, "Library");
         string candidate = Path.Combine(libraryRoot, "A");
@@ -362,7 +365,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         };
         string dbPath = Path.Combine(root, "song.db");
         File.WriteAllBytes(dbPath, []);
-        var library = new TestBmsLibrary(dbPath, null, null, null, new FileDbReportRecordingDialogs(),
+        var library = new TestBmsLibrary(databaseScope, dbPath, null, null, null, new FileDbReportRecordingDialogs(),
             new TestUiScheduler(() => null), () => options,
             CapturedChartFileScanner.FromFixture(installed, indexed, indexed.Keys), observer, admission, settings: TestBmsFactory.CreateRootSettings([libraryRoot]))
         {
@@ -392,7 +395,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                     string destination = Path.Combine(candidate, "missing" + index + ".bms");
                     Assert.IsTrue(File.Exists(destination));
                     Assert.IsTrue(library.BmsCharts.Any(chart => chart.Path == destination));
-                    using LR2SongDBExtended db = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+                    using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly();
                     Assert.IsNotNull(db.Find<LR2SongDB.song>(destination));
                     Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());
                 }
@@ -433,6 +436,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataRow(true)]
     public async Task ProductionImport_SkipsOwnedAndNewPackagesBeforePreparationButEstimatesMixedSibling(bool autoInstall)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         string libraryRoot = Path.Combine(root, "Library");
         string candidate = Path.Combine(libraryRoot, "Candidate");
@@ -463,7 +467,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         var background = new ConcurrentQueue<Func<Task>>();
         var admission = new ChartFileOperationSynchronizer();
         var observer = new CompletenessEstimationObserver();
-        var library = new TestBmsLibrary(dbPath, null, null, null, new FileDbReportRecordingDialogs(),
+        var library = new TestBmsLibrary(databaseScope, dbPath, null, null, null, new FileDbReportRecordingDialogs(),
             new TestUiScheduler(() => null), () => options,
             CapturedChartFileScanner.FromFixture([installedChart],
                 new Dictionary<string, IEnumerable<string>> { [candidate] = ["sound.wav"] }, [candidate]), observer, admission, settings: TestBmsFactory.CreateRootSettings([libraryRoot]))
@@ -494,7 +498,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Assert.IsFalse(File.Exists(Path.Combine(candidate, "new.bms")));
             Assert.AreEqual(body, File.ReadAllText(Path.Combine(ownedSource, "owned.bms"), Encoding.ASCII));
             Assert.AreEqual(body + "#GENRE new\n", File.ReadAllText(Path.Combine(newSource, "new.bms"), Encoding.ASCII));
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly())
             {
                 string[] expectedPending = autoInstall ? [ownedSource, newSource] : [ownedSource, newSource, mixedSource];
                 CollectionAssert.AreEquivalent(expectedPending, db.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
@@ -539,6 +543,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataRow(true)]
     public async Task ProductionImport_AllOwnedSplitKeepsInitialPackagesWithOrWithoutCancellation(bool cancelAfterRegistration)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         string libraryRoot = Path.Combine(root, "Library");
         string installed = Path.Combine(libraryRoot, "Installed");
@@ -562,7 +567,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         var background = new ConcurrentQueue<Func<Task>>();
         var admission = new ChartFileOperationSynchronizer();
         var observer = new CompletenessEstimationObserver();
-        var library = new TestBmsLibrary(dbPath, null, null, null, new FileDbReportRecordingDialogs(),
+        var library = new TestBmsLibrary(databaseScope, dbPath, null, null, null, new FileDbReportRecordingDialogs(),
             new TestUiScheduler(() => null), () => options,
             CapturedChartFileScanner.FromFixture(installedCharts,
                 new Dictionary<string, IEnumerable<string>> { [installed] = sounds }, [installed]), observer, admission, settings: TestBmsFactory.CreateRootSettings([libraryRoot]))
@@ -598,7 +603,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Assert.AreEqual(2, library.ChartPackagesPending.Count);
             string[] expectedPaths = sourceCharts;
             CollectionAssert.AreEquivalent(expectedPaths, library.ChartPackagesPending.Select(package => package.path).ToArray());
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly())
             {
                 CollectionAssert.AreEquivalent(expectedPaths, db.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
             }
@@ -663,6 +668,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task AutoInstall_ManagedBusyAfterInputPreparationKeepsAdmissionUntilActualCleanupWithoutReplay()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         string installRoot = Path.Combine(root, "Library");
@@ -684,7 +690,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             FolderNameFormat = "%TITLE%",
             KeepInstallablePackagesPending = false
         };
-        var library = new TestBmsLibrary(songDb, null, null, null, new FileDbReportRecordingDialogs(),
+        var library = new TestBmsLibrary(databaseScope, songDb, null, null, null, new FileDbReportRecordingDialogs(),
             new TestUiScheduler(() => null!), () => options, settings: TestBmsFactory.CreateRootSettings([installRoot], lr2: true))
         {
             BmsCharts = [],
@@ -748,7 +754,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Assert.IsFalse(Directory.Exists(Path.Combine(installRoot, "Crossing")));
             Assert.IsTrue(library.ChartPackagesPending.SelectMany(package => package.ChartEntries)
                 .All(entry => (entry.Chart.Status & ChartFileStatus.SEARCHING) == 0));
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDb).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(1, db.Table<LR2SongDBExtended.install>().Count());
                 Assert.IsNull(db.Find<LR2SongDB.song>(Path.Combine(installRoot, "Crossing", "chart.bms")));
@@ -782,6 +788,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataRow(true)]
     public async Task ProductionImport_StopsDispatchAndApplyThenJoinsSuccessfulSiblingBeforeAdmissionRelease(bool fault)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         string installed = Path.Combine(root, "Library", "Song");
@@ -818,7 +825,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             AutoInstallAfterAutomaticEstimation = true,
             PendingInstallEstimateMaxParallelPackages = 2
         };
-        var library = new TestBmsLibrary(songDb, null, null, files, new FileDbReportRecordingDialogs(),
+        var library = new TestBmsLibrary(databaseScope, songDb, null, null, files, new FileDbReportRecordingDialogs(),
             new TestUiScheduler(() => null), () => options,
             CapturedChartFileScanner.FromFixture([installedChart],
                 new Dictionary<string, IEnumerable<string>> { [installed] = ["sound.wav"] }, [installed]),
@@ -845,12 +852,12 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Task initialIdle = owner.WaitForIdleAsync();
             await Task.WhenAny(arrivals, observer.Stopped.Task, initialIdle);
             Assert.IsTrue(arrivals.IsCompletedSuccessfully, "実停止・終端が評価到達通知に先行したため、finallyで兄弟を解放して全joinします。");
-            using (LR2SongDBExtended connection = new BmsLibraryDbGateway(songDb).OpenSongDbReadOnly())
+            using (LR2SongDBExtended connection = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(4, connection.Table<LR2SongDBExtended.install>().Count(), "保留登録の実確定後も同じ操作が推定を所有します。");
             }
             Assert.IsTrue(admission.IsActive);
-            new BmsLibraryDbGateway(songDb).UpsertChartInfos([CreateChartInfoRow(newSha, newMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).UpsertChartInfos([CreateChartInfoRow(newSha, newMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
             InvokeDeferredChartInfoHydration(library, "accepted_during_estimation", queueFullBackfillAfterHydration: false);
             Assert.IsTrue(background.TryDequeue(out Func<Task>? hydrationWork));
             acceptedHydration = hydrationWork();
@@ -933,6 +940,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task ProductionHydration_BlocksNewImportUntilActualInputPublicationCompletes()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -946,7 +954,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         var background = new ConcurrentQueue<Func<Task>>();
         var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, ScanBmsFilesOnStartup = true, KeepInstallablePackagesPending = true };
         var observer = new HeldSuccessfulEvaluations(false);
-        var library = new TestBmsLibrary(songDb, null, null, null, new FileDbReportRecordingDialogs(),
+        var library = new TestBmsLibrary(databaseScope, songDb, null, null, null, new FileDbReportRecordingDialogs(),
             new TestUiScheduler(() => null), () => options,
             CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(), []), observer, admission, settings: TestBmsFactory.CreateRootSettings([Path.Combine(root, "Library")]))
         {
@@ -974,7 +982,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             while (background.TryDequeue(out Func<Task>? work)) { await work(); }
             string sha = new('9', 64);
             string md5 = new('8', 32);
-            new BmsLibraryDbGateway(songDb).UpsertChartInfos([CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).UpsertChartInfos([CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
             library.PropertyChanged += HoldPublication;
             InvokeDeferredChartInfoHydration(library, "prior_input_update", queueFullBackfillAfterHydration: false);
             Assert.IsTrue(background.TryDequeue(out Func<Task>? hydrationWork));

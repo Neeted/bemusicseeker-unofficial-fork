@@ -21,12 +21,12 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
     public async Task PrepareSchemaAsync_CancelPreservesDatabaseAndReturnsExit(MessageBoxResult choice)
     {
         using var scope = Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
-        var gateway = new BmsLibraryDbGateway(scope.SongDbPath);
+        var gateway = new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath);
         gateway.EnsureLibraryStartupSchema();
-        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(scope.SongDbPath,
+        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(scope.DatabaseScope, scope.SongDbPath,
             db => db.Execute("UPDATE app_schema_version SET version = 0 WHERE name = 'app_schema'"));
         using var gate = new SemaphoreSlim(1, 1);
-        var owner = new StartupLibraryInitializationWorkflowOwner(gate);
+        var owner = new StartupLibraryInitializationWorkflowOwner(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), gate);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         var dialogs = new MainWindowViewModelStartupProgressTests.CompletionDialogs
@@ -57,14 +57,14 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
     public async Task PrepareSchemaAsync_ApprovedOrUnwarnedPreparationCanApply(string scenario)
     {
         using var scope = Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
-        var gateway = new BmsLibraryDbGateway(scope.SongDbPath);
+        var gateway = new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath);
         if (scenario != "normal") { gateway.EnsureLibraryStartupSchema(); }
         if (scenario == "approval")
-        { BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(scope.SongDbPath, db => db.Execute("UPDATE app_schema_version SET version = 0 WHERE name = 'app_schema'")); }
+        { BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(scope.DatabaseScope, scope.SongDbPath, db => db.Execute("UPDATE app_schema_version SET version = 0 WHERE name = 'app_schema'")); }
         if (scenario == "repair-only")
-        { BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(scope.SongDbPath, db => db.Execute("DROP TABLE IF EXISTS " + SQLiteTable<LR2SongDBExtended.bmson_song>.GetTableName())); }
+        { BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(scope.DatabaseScope, scope.SongDbPath, db => db.Execute("DROP TABLE IF EXISTS " + SQLiteTable<LR2SongDBExtended.bmson_song>.GetTableName())); }
         using var gate = new SemaphoreSlim(1, 1);
-        var owner = new StartupLibraryInitializationWorkflowOwner(gate);
+        var owner = new StartupLibraryInitializationWorkflowOwner(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), gate);
         var settings = new StartupSettingsSnapshot { LR2SongDBPath = scope.SongDbPath };
         var dialogs = new MainWindowViewModelStartupProgressTests.CompletionDialogs { ConfirmationResult = MessageBoxResult.OK };
         (AppSchemaPreflightResult Approval, bool ExitRequested) prepared = await owner.PrepareSchemaAsync(settings, dialogs, () => false);
@@ -73,7 +73,7 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
         Assert.IsFalse(repeated.ExitRequested);
         Assert.AreEqual(scenario == "approval" ? 1 : 0, dialogs.ConfirmationCount);
         await owner.ApplyPreparedSchemaAsync(settings, prepared.Approval);
-        AppSchemaPreflightResult after = new AppSchemaPreflightService().Inspect(scope.SongDbPath);
+        AppSchemaPreflightResult after = new AppSchemaPreflightService(scope.DatabaseScope).Inspect(scope.SongDbPath);
         Assert.IsFalse(after.RepairRequired); Assert.IsFalse(after.NeedsAppSchemaVersionRepair);
     }
 

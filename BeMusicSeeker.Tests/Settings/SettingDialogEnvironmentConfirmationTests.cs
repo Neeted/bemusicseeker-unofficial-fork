@@ -203,7 +203,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         Assert.IsNotNull(saved.Commit); Assert.IsNull(saved.ValidationError); Assert.IsNull(saved.Commit.Exception);
                         string output = Path.Combine(lr2, "CustomFolder");
                         Assert.IsTrue(Directory.GetFiles(output, "*.lr2folder").Length > 0);
-                        using (var db = new LR2SongDBExtended(layout.SongDb))
+                        using (LR2SongDBExtended db = composition.DatabaseScope.OpenSongWrite(layout.SongDb))
                         { Assert.AreEqual("CustomFolder", db.Table<BMSTable>().Single(row => row.playlist_id == 9091).name); }
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(playlist.WaitForPlaylistMutationIdleAsync(), "accepted-property-mutation-idle");
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.PlaylistWorkspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "accepted-property-summary-idle");
@@ -246,7 +246,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 foreach (string score in new[] { oldScore, nextScore })
                 {
                     Directory.CreateDirectory(Path.GetDirectoryName(score)!);
-                    using var database = new SQLite.SQLiteConnection(score);
+                    using SQLiteConnectionEx database = databaseScope.OpenProviderConnection(score);
                     database.RunInTransaction(() =>
                     {
                         database.CreateTable<LR2ScoreDB.score>();
@@ -255,7 +255,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         database.Execute("INSERT INTO retained_data VALUES (?);", score);
                     });
                 }
-                var schema = new Lr2PlayHistorySchemaService();
+                var schema = new Lr2PlayHistorySchemaService(databaseScope);
                 Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, schema.InstallOrRepair(oldScore, isLr2LinkedProfile: true).Status);
                 byte[] previousDatabase = File.ReadAllBytes(oldScore);
                 string settingsPath = Path.Combine(root, "user.config");
@@ -301,7 +301,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.AreEqual(initialRootSelection ? 2 : 1, dialogs.ConfirmationCount, "初回rootの詳細候補破棄と、新対象のschema導入だけを確認します。");
                 Assert.AreEqual(1, failures.Count);
                 CollectionAssert.AreEqual(previousDatabase, File.ReadAllBytes(oldScore), "旧DBのschemaと保存行は変更しません。");
-                using var verify = new SQLite.SQLiteConnection(nextScore, SQLite.SQLiteOpenFlags.ReadOnly);
+                using SQLiteConnectionEx verify = MainWindowViewModelTestFactory.GetComposition(owner ?? throw new AssertFailedException()).DatabaseScope.OpenProviderConnection(nextScore, SQLite.SQLiteOpenFlags.ReadOnly);
                 Assert.AreEqual(nextScore, verify.ExecuteScalar<string>("SELECT value FROM retained_data;"));
             }
             finally
@@ -560,11 +560,11 @@ public sealed partial class SettingDialogEditCompletionTests
             {
                 string settingsPath = Path.Combine(root, "user.config");
                 Settings values = CreateValidCustomFolderSettings(root, [], PortableSettingsPersistenceTests.OpenSettings(settingsPath));
-                new BmsLibraryDbGateway(values.LR2SongDBPath).EnsureAppOwnedSchema();
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).EnsureAppOwnedSchema();
                 string folder = Path.Combine(root, "LeapCandidate");
                 Directory.CreateDirectory(folder);
                 Directory.SetLastWriteTime(folder, new DateTime(2024, 2, 29, 12, 0, 0));
-                using (var db = new LR2SongDBExtended(values.LR2SongDBPath))
+                using (LR2SongDBExtended db = databaseScope.OpenSongWrite(values.LR2SongDBPath))
                 {
                     db.CreateTable<LR2SongDB.song>(); db.CreateTable<LR2SongDB.folder>();
                     db.Insert(new LR2SongDB.folder { path = folder + Path.DirectorySeparatorChar, type = 1, adddate = 0 });

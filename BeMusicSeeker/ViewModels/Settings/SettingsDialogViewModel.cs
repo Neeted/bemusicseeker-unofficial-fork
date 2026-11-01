@@ -1167,7 +1167,7 @@ public partial class SettingsDialogViewModel : ViewModel
         bool isLr2LinkedProfile)
     {
         LogLr2PlayHistorySchema("install_or_repair_start", scoreDbPath, isLr2LinkedProfile);
-        Lr2PlayHistorySchemaCheckResult result = new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, isLr2LinkedProfile);
+        Lr2PlayHistorySchemaCheckResult result = new Lr2PlayHistorySchemaService(databaseScope).InstallOrRepair(scoreDbPath, isLr2LinkedProfile);
         LogLr2PlayHistorySchema("install_or_repair_done", result, isLr2LinkedProfile);
         return result;
     }
@@ -1183,7 +1183,7 @@ public partial class SettingsDialogViewModel : ViewModel
         Lr2PlayHistorySchemaUninstallMode uninstallMode)
     {
         LogLr2PlayHistorySchema("uninstall_start_" + uninstallMode, scoreDbPath, isLr2LinkedProfile);
-        Lr2PlayHistorySchemaCheckResult result = new Lr2PlayHistorySchemaService().Uninstall(scoreDbPath, isLr2LinkedProfile, uninstallMode);
+        Lr2PlayHistorySchemaCheckResult result = new Lr2PlayHistorySchemaService(databaseScope).Uninstall(scoreDbPath, isLr2LinkedProfile, uninstallMode);
         LogLr2PlayHistorySchema("uninstall_done", result, isLr2LinkedProfile);
         return result;
     }
@@ -1236,7 +1236,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private Lr2PlayHistorySchemaCheckResult CheckLr2PlayHistorySchemaCore(string scoreDbPath, bool isLr2LinkedProfile)
     {
-        Lr2PlayHistorySchemaCheckResult result = new Lr2PlayHistorySchemaService().Check(scoreDbPath, isLr2LinkedProfile);
+        Lr2PlayHistorySchemaCheckResult result = new Lr2PlayHistorySchemaService(databaseScope).Check(scoreDbPath, isLr2LinkedProfile);
         LogLr2PlayHistorySchema("check", result, isLr2LinkedProfile);
         return result;
     }
@@ -3702,9 +3702,14 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    /// <summary>確定値と各セクションの候補を分け、必要な局所操作だけを既存の処理担当へ接続します。</summary>
+    private readonly ApplicationDatabaseScope databaseScope;
+
+    /// <summary>確定値と各セクションの候補を分け、構成のDB所有者と必要な局所処理へ接続します。</summary>
+    /// <param name="databaseScope">schema操作と終了処理が共有する構成寿命のDB所有者。</param>
+    /// <param name="applicationDataUninstallWorkflow">同じDB所有者で構成した撤去処理。</param>
     /// <param name="operationAdmission">構成で推定・変更と共有する論理受付。</param>
     internal SettingsDialogViewModel(
+        ApplicationDatabaseScope databaseScope,
         ISettingsDialogStatePort statePort,
         ISettingsDialogWorkspacePort workspacePort,
         ISettingsDialogCustomFolderOutputPort customFolderOutputPort,
@@ -3714,11 +3719,11 @@ public partial class SettingsDialogViewModel : ViewModel
         ISettingsDialogPlaybackRuntimePort playbackRuntimePort,
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow,
         ISettingsEditSession settingsEditSession,
+        ApplicationDataUninstallWorkflowOwner applicationDataUninstallWorkflow,
         IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore = null,
         Action<Exception> reportApplyFailure = null,
         IUiDialogService schemaDialogs = null,
         ILr2PlayHistorySchemaUninstallDialogPort schemaWindowDialogs = null,
-        ApplicationDataUninstallWorkflowOwner applicationDataUninstallWorkflow = null,
         AudioDeviceTestWorkflowOwner audioDeviceTestWorkflow = null,
         IApplicationLifetimePort applicationLifetime = null,
         ICultureCatalog cultureCatalog = null,
@@ -3730,6 +3735,7 @@ public partial class SettingsDialogViewModel : ViewModel
         ChartFileOperationSynchronizer operationAdmission = null,
         Action<CustomFolderOutputSettingsSnapshot> publishOutputPlacement = null, Lr2ConfigSession lr2ConfigSession = null, BmsRootRegistrationStore bmsRootRegistrations = null)
     {
+        this.databaseScope = databaseScope ?? throw new ArgumentNullException(nameof(databaseScope));
         SettingsDialogViewModel settingDialogViewModel = this;
         this.lr2ConfigSession = lr2ConfigSession ?? new Lr2ConfigSession();
         this.operationAdmission = operationAdmission ?? new ChartFileOperationSynchronizer();
@@ -3774,7 +3780,7 @@ public partial class SettingsDialogViewModel : ViewModel
         this.schemaDialogs = schemaDialogs ?? new UiDialogCoordinator();
         this.schemaWindowDialogs = schemaWindowDialogs;
         this.applicationDataUninstallWorkflow = applicationDataUninstallWorkflow
-            ?? new ApplicationDataUninstallWorkflowOwner(this.schemaDialogs, new Lr2ApplicationDataUninstallStore());
+            ?? throw new ArgumentNullException(nameof(applicationDataUninstallWorkflow));
         this.audioDeviceTestWorkflow = audioDeviceTestWorkflow
             ?? throw new ArgumentNullException(nameof(audioDeviceTestWorkflow));
         this.audioDeviceTestWorkflow.ConfigurePresentation(() => ApplicationSettings, this.audioDeviceCatalog, this.reportApplyFailure);

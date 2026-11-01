@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
@@ -16,6 +17,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ApplicationDataUninstallWorkflowOwnerTests
 {
+    /// <summary>このケースの準備とモデルで共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>workspace 未準備なら確認も削除も始めず NotStarted を返すことを確認します。</summary>
     [TestMethod]
     public async Task WorkspaceNotReady_DoesNotOpenDialogsOrStore()
@@ -151,7 +155,7 @@ public sealed class ApplicationDataUninstallWorkflowOwnerTests
             "BeMusicSeeker_missing_song_db_" + Guid.NewGuid().ToString("N"),
             "song.db");
 
-        new Lr2ApplicationDataUninstallStore().Uninstall(missingPath);
+        new Lr2ApplicationDataUninstallStore(databaseScope).Uninstall(missingPath);
     }
 
     private sealed class RecordingStore : IApplicationDataUninstallStore

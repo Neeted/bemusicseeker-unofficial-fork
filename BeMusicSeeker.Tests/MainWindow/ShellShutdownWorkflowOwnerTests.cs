@@ -349,7 +349,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
             BMSLibrary library = CreateLibrary(root, "song.db", viewModel);
             ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
             BMSPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(
-                Path.Combine(root, "song.db"), composition.SettingsEditSession.Values, library: library);
+                composition.DatabaseScope, Path.Combine(root, "song.db"), composition.SettingsEditSession.Values, library: library);
             owner.AttachLibrary(library);
             owner.AttachPlaylist(playlist);
 
@@ -405,7 +405,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
             BMSLibrary library = CreateLibrary(root, "song.db", viewModel);
             ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
             BMSPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(
-                Path.Combine(root, "song.db"), composition.SettingsEditSession.Values, library: library);
+                composition.DatabaseScope, Path.Combine(root, "song.db"), composition.SettingsEditSession.Values, library: library);
             owner.AttachLibrary(library);
             owner.AttachPlaylist(playlist);
             await owner.CompleteTerminalShutdownAsync();
@@ -1046,12 +1046,14 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         File.WriteAllBytes(songDbPath, []);
         using var installEntered = new ManualResetEventSlim(false);
         using var releaseInstall = new ManualResetEventSlim(false);
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        ApplicationDatabaseScope databaseScope = MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope;
         try
         {
-            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
             {
             }
-            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, string.Empty);
             var packageInstall = new PackageInstallWorkflowOwner(
                 new FileDbReportRecordingDialogs(),
                 new ChartFileOperationSynchronizer(),
@@ -1069,7 +1071,6 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
                     return true;
                 });
             packageInstall.AttachLibrary(library);
-            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
             var warnings = new List<string>();
             ShellShutdownWorkflowOwner owner = CreateDirectOwner(
                 viewModel,
@@ -1110,7 +1111,8 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         Directory.CreateDirectory(root);
         try
         {
-            BMSLibrary library = CreateLibrary(root, "song.db");
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+            BMSLibrary library = CreateLibrary(root, "song.db", viewModel);
             using var maintenanceEntered = new ManualResetEventSlim(false);
             var maintenance = new MaintenanceRescanWorkflowOwner(
                 (current, progress, token, capability) =>
@@ -1126,7 +1128,6 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
                     TaskScheduler.Default),
                 action => action(),
                 dialogs: CreateAcceptedDialogService());
-            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
             ShellShutdownWorkflowOwner owner = CreateDirectOwner(
                 viewModel,
                 maintenanceRescanWorkflow: maintenance);
@@ -1163,7 +1164,8 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         Directory.CreateDirectory(root);
         try
         {
-            BMSLibrary library = CreateLibrary(root, "song.db");
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+            BMSLibrary library = CreateLibrary(root, "song.db", viewModel);
             using var folderEntered = new ManualResetEventSlim(false);
             var folder = new FolderAutoRenameWorkflowOwner(
                 new ChartFileOperationSynchronizer(),
@@ -1177,7 +1179,6 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
                     TaskScheduler.Default).Unwrap(),
                 action => action(),
                 CreateAcceptedDialogService());
-            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
             ShellShutdownWorkflowOwner owner = CreateDirectOwner(
                 viewModel,
                 folderAutoRenameWorkflow: folder);
@@ -1216,10 +1217,12 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         Task<ShellShutdownWorkflowCompletionReceipt>? close = null;
         try
         {
+            viewModel = MainWindowViewModelTestFactory.Create();
+            ApplicationDatabaseScope databaseScope = MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope;
             string db = Path.Combine(root, "song.db");
-            StartupLibraryConstructionTestSupport.CreateSongDatabase(db);
-            PlaylistPersistenceRepository.EnsureSchema(db);
-            var playlist = new TestBmsPlaylist(db, null, null, null,
+            StartupLibraryConstructionTestSupport.CreateSongDatabase(databaseScope, db);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, db);
+            var playlist = new TestBmsPlaylist(databaseScope, db, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () =>
                 {
@@ -1230,7 +1233,6 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
                 },
                 () => new CustomFolderOutputSettingsSnapshot())
             { BMSTables = [] };
-            viewModel = MainWindowViewModelTestFactory.Create();
             ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel, markShutdown: _ => marked.TrySetResult());
             owner.AttachPlaylist(playlist);
             output = Task.Run(() => playlist.BmtOutput.ExportAllAsync("shutdown_output"));
@@ -1459,6 +1461,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
                 action => Task.Run(action),
                 action => action());
         return new ShellShutdownWorkflowOwner(
+            MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope,
             startupUpdate,
             new ElevatedProcessWarningWorkflowOwner(() => false),
             scheduler,
@@ -1510,17 +1513,16 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         field.SetValue(target, value);
     }
 
-    private static BMSLibrary CreateLibrary(string root, string fileName, MainWindowViewModel? owner = null)
+    private static BMSLibrary CreateLibrary(string root, string fileName, MainWindowViewModel owner)
     {
         string path = Path.Combine(root, fileName);
         File.WriteAllBytes(path, []);
-        using (var initialize = new LR2SongDBExtended(path))
+        ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(owner);
+        using (LR2SongDBExtended initialize = composition.DatabaseScope.OpenSongWrite(path))
         {
         }
-        return owner == null
-            ? new TestBmsLibrary(path, null, null, string.Empty)
-            : MainWindowViewModelTestFactory.CreateLibrary(
-                path, MainWindowViewModelTestFactory.GetComposition(owner).SettingsEditSession.Values, owner);
+        return MainWindowViewModelTestFactory.CreateLibrary(
+            composition.DatabaseScope, path, composition.SettingsEditSession.Values, owner);
     }
 
     private static UpdateCheckResult CreateAvailableUpdateResult()

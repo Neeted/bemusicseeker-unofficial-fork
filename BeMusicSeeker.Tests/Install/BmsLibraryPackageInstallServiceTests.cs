@@ -34,6 +34,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [DataRow(true)]
     public void ReevaluatePendingPackages_UsesActualScanRootsAndPreservesSource(bool ancestor)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb((database, root) =>
         {
             string normal = Directory.CreateDirectory(Path.Combine(root, "Songs")).FullName;
@@ -55,10 +56,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 package.path = directory;
                 return package;
             }).ToArray();
-            var library = new TestBmsLibrary(database, null, null, null, null, new TestUiScheduler(() => null), settings: settings)
+            var library = new TestBmsLibrary(databaseScope, database, null, null, null, null, new TestUiScheduler(() => null), settings: settings)
             { BmsCharts = [], BmsonCharts = [], ChartPackagesPending = CreatePackageCollection(packages) };
-            new BmsLibraryDbGateway(database).EnsureLibraryStartupSchema();
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(database, db =>
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), database).EnsureLibraryStartupSchema();
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, database, db =>
             { foreach (ChartPackage package in packages) { db.InsertOrReplace(package, typeof(LR2SongDBExtended.install)); } });
             try
             {
@@ -71,7 +72,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 string[] expected = [additional, rootOutput, unrelated];
                 CollectionAssert.AreEqual(expected, library.ChartPackagesPending.Select(package => package.path).ToArray());
                 foreach (ChartPackage package in packages) { Assert.IsTrue(File.Exists(package.ChartEntries.Single().Chart.Path)); }
-                using LR2SongDBExtended db = new BmsLibraryDbGateway(database).OpenSongDbReadOnly();
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), database).OpenSongDbReadOnly();
                 CollectionAssert.AreEquivalent(expected, db.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
             }
             finally { library.RequestShutdown("pending-root-reevaluation-test"); }
@@ -82,6 +83,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackages_UpdatesAncestorResourcesForNextEstimate()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb((database, root) =>
         {
             string parent = Path.Combine(root, "Parent"), child = Path.Combine(parent, "Child"), sibling = Path.Combine(root, "Sibling");
@@ -96,11 +98,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourceChart)), child));
             package.path = source;
             Settings settings = TestBmsFactory.CreateRootSettings([parent, sibling]);
-            var library = new TestBmsLibrary(database, null, null, new RealFileMutationService(), new RecordingDialogService(),
+            var library = new TestBmsLibrary(databaseScope, database, null, null, new RealFileMutationService(), new RecordingDialogService(),
                 new TestUiScheduler(() => null), settings: settings)
             { BmsCharts = [parentChart, childChart, siblingChart], BmsonCharts = [], ChartPackagesPending = CreatePackageCollection([package]) };
-            new BmsLibraryDbGateway(database).EnsureLibraryStartupSchema();
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(database, db =>
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), database).EnsureLibraryStartupSchema();
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, database, db =>
             {
                 foreach (ChartFile chart in library.BmsCharts) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song)); }
                 db.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
@@ -126,7 +128,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 ChartPackage diff = ChartPackageTestExtensions.CreatePackage([BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(diffPath))]);
                 diff.path = Path.GetDirectoryName(diffPath) ?? throw new InvalidOperationException();
                 library.ChartPackagesPending = CreatePackageCollection([diff]);
-                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(database, db => db.InsertOrReplace(diff, typeof(LR2SongDBExtended.install)));
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, database, db => db.InsertOrReplace(diff, typeof(LR2SongDBExtended.install)));
                 library.SearchEstimatedInstallationDirectory(diff);
                 CollectionAssert.Contains(diff.ChartEntries.Single().Chart.InstallDestinationSuggestions.ToArray(), parent);
             }
@@ -172,6 +174,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackages_MissingDestinationPreservesPendingAndDatabase()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb((database, root) =>
         {
             string source = CreateBmsFile(Path.Combine(root, "Source"), "chart.bms", "#TITLE Pending");
@@ -180,10 +183,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(source)), destination));
             package.path = source;
             byte[] bytes = File.ReadAllBytes(source);
-            var library = new TestBmsLibrary(database, null, null, new RealFileMutationService(), new RecordingDialogService(), new TestUiScheduler(() => null))
+            var library = new TestBmsLibrary(databaseScope, database, null, null, new RealFileMutationService(), new RecordingDialogService(), new TestUiScheduler(() => null))
             { BmsCharts = [], BmsonCharts = [], ChartPackagesPending = CreatePackageCollection([package]) };
-            new BmsLibraryDbGateway(database).EnsureLibraryStartupSchema();
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(database, db => db.InsertOrReplace(package, typeof(LR2SongDBExtended.install)));
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), database).EnsureLibraryStartupSchema();
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, database, db => db.InsertOrReplace(package, typeof(LR2SongDBExtended.install)));
             Directory.Move(destination, destination + "-renamed");
             try
             {
@@ -191,12 +194,12 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Assert.IsFalse(refused.SessionReceipt.DurableCommit);
                 Assert.AreEqual(1, library.ChartPackagesPending.Count); Assert.AreEqual(0, library.BmsCharts.Count);
                 Assert.IsFalse(Directory.Exists(destination)); CollectionAssert.AreEqual(bytes, File.ReadAllBytes(source));
-                using (LR2SongDBExtended db = new BmsLibraryDbGateway(database).OpenSongDbReadOnly())
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), database).OpenSongDbReadOnly())
                 { Assert.AreEqual(1, db.Table<LR2SongDBExtended.install>().Count()); Assert.AreEqual(0, db.Table<LR2SongDB.song>().Count()); }
                 // 再選択は既存の譜面所有directory条件を使います。新位置の明示再読込み後の所持入力を準備します。
                 ChartFile known = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(CreateBmsFile(destination + "-renamed", "known.bms", "#TITLE Known")));
                 library.BmsCharts = [known];
-                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(database, db => db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(known), typeof(LR2SongDB.song)));
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, database, db => db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(known), typeof(LR2SongDB.song)));
                 Assert.IsTrue(library.SetPendingInstallDestination(package.ChartEntries.Single(), destination + "-renamed", false));
                 PendingInstallBatchResult accepted = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package]);
                 Assert.IsTrue(accepted.SessionReceipt.DurableCommit, accepted.SessionReceipt.PrimaryFailure?.ToString());
@@ -263,6 +266,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [DataRow(true, true)]
     public void InstallChartPackagesAuto_OverlappingDirectoryAndChartInputsInstallOnceWithoutStalePending(bool nested, bool chartFirst)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb((songDbPath, root) =>
         {
             string installRoot = Path.Combine(root, "Library");
@@ -282,7 +286,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 childBytes = File.ReadAllBytes(selectedChart);
                 File.WriteAllBytes(Path.Combine(childDirectory, "child.wav"), audioBytes);
             }
-            var library = new TestBmsLibrary(songDbPath, null, null, new RealFileMutationService(),
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new RealFileMutationService(),
                 new RecordingDialogService(), new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -308,7 +312,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Assert.AreEqual(nested ? 0 : 1, result.RegisteredPackages.Count);
                 Assert.AreEqual(nested ? 0 : 1, library.ChartPackagesInstalled.Count);
                 string destination = Path.Combine(installRoot, "Song");
-                using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 if (nested)
                 {
                     CollectionAssert.AreEqual(chartBytes, File.ReadAllBytes(sourceChart));
@@ -352,6 +356,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     public void EstimatedInstall_TextFlagMatchesFinalPlacementWithoutImmediateFileDiffReparse(
         int inputTxt, bool existingDirectText, bool laterPackageText, int expectedTxt)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb((songDbPath, root) =>
         {
             string destination = Path.Combine(root, "installed");
@@ -398,7 +403,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 EnableSmartComponentOverwrite = false,
                 KeepSmartOverwriteProtectedFilesByRenaming = false
             };
-            var library = new TestBmsLibrary(songDbPath, null, null,
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null,
                 new RealFileMutationService(), new RecordingDialogService(), new TestUiScheduler(() => null),
                 () => options)
             {
@@ -418,7 +423,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(packages.Count, library.ChartPackagesInstalled.SelectMany(package => package.ChartEntries).Count());
             Assert.AreEqual(existingDirectText || laterPackageText,
                 Directory.EnumerateFiles(destination, "*.txt", System.IO.SearchOption.TopDirectoryOnly).Any());
-            using (LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
             {
                 foreach (string path in installedPaths)
                 {
@@ -439,7 +444,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                         .Select(path => Path.GetRelativePath(destination, path)).ToArray()
                 });
             SongTableFileCheckResult diff = new BmsLibraryInitializationService().ApplyFileScanDiff(
-                new BmsLibraryDbGateway(songDbPath), new EverythingNative(ApplicationPathPolicy.Current),
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath), new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true }, library.BmsCharts,
                 new ChartScanExecutionResult { Success = true, Result = scan }, 0,
                 () => throw new AssertFailedException("固定走査があるため追加走査は不要です。"),
@@ -749,6 +754,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [DataRow(true)]
     public void PendingResourcePackages_InstallThroughLibraryAndPreserveEarlierResourceSnapshot(bool force)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb((songDbPath, root) =>
         {
@@ -797,12 +803,12 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             }
             File.WriteAllBytes(Path.Combine(existingDirectory, "shared.wav"), [1, 2, 3]);
             ChartFile existing = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(existingPath));
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existing), typeof(LR2SongDB.song));
             }
             var fileMutations = new RealFileMutationService();
-            var library = new TestBmsLibrary(songDbPath, null, null, fileMutations,
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, fileMutations,
                 new RecordingDialogService(), new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
                 {
@@ -915,7 +921,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             CollectionAssert.AreEqual(new[] { existingDirectory }, before.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(shared).ToArray());
             Assert.AreEqual(0, before.DirectoryLookupCache.GetDirectoriesByImageRelativeHash(image).Count);
             Assert.AreEqual(0, before.DirectoryLookupCache.GetDirectoriesByMovieRelativeHash(movie).Count);
-            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(4, readback.Table<LR2SongDB.song>().Count());
             Assert.AreEqual(1, readback.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", existingPath));
             foreach (string installedPath in installedPaths)
@@ -933,6 +939,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void AutoInstall_ManagedIntersectionBusyPreservesNonIntersectingCommittedPackage()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb((songDbPath, root) =>
         {
@@ -951,7 +958,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 FolderNameFormat = "%TITLE%",
                 KeepInstallablePackagesPending = false
             };
-            var library = new TestBmsLibrary(songDbPath, null, null, new RealFileMutationService(), new RecordingDialogService(),
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new RealFileMutationService(), new RecordingDialogService(),
                 new TestUiScheduler(() => null!), () => options, settings: TestBmsFactory.CreateRootSettings([installRoot], lr2: true))
             {
                 BmsCharts = [],
@@ -975,7 +982,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Assert.IsTrue(File.Exists(crossingPath));
                 Assert.IsFalse(Directory.Exists(Path.Combine(installRoot, "Crossing")));
                 Assert.IsTrue(string.Equals(crossingSource, library.ChartPackagesPending.Single().path, StringComparison.OrdinalIgnoreCase));
-                using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
                 {
                     Assert.IsNotNull(db.Find<LR2SongDB.song>(Path.Combine(installRoot, "First", "first.bms")));
                     Assert.IsNull(db.Find<LR2SongDB.song>(Path.Combine(installRoot, "Crossing", "cross.bms")));
@@ -998,6 +1005,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [DoNotParallelize]
     public async Task RemovePendingPackages_DeletesManagedTemporaryPackageSource()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         await WithTemporarySongDbAsync(async (songDbPath, tempRootPath) =>
         {
@@ -1008,7 +1016,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 path = packageDirectoryPath
             };
             var dialogService = new RecordingDialogService();
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -1039,6 +1047,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [DoNotParallelize]
     public async Task RemovePendingPackagesAll_UnconvergedCatalogStillClearsPendingWithoutWarning()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         await WithTemporarySongDbAsync(async (songDbPath, tempRootPath) =>
         {
@@ -1049,7 +1058,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             File.WriteAllText(borrowed, "#TITLE borrowed");
             File.WriteAllText(installed, "#TITLE installed");
             var dialogService = new RecordingDialogService();
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -1082,6 +1091,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public async Task RemovePendingPackages_DoesNotDeleteUserOwnedPackageSource()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         await WithTemporarySongDbAsync(async (songDbPath, tempRootPath) =>
         {
@@ -1094,7 +1104,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 {
                     path = packageDirectoryPath
                 };
-                var library = new TestBmsLibrary(songDbPath)
+                var library = new TestBmsLibrary(databaseScope, songDbPath)
                 {
                     ChartPackagesPending = CreatePackageCollection([pendingPackage])
                 };
@@ -1121,6 +1131,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void RenamePendingBmsFormatChartFileExtensions_PublishesAfterLeaseReleaseAndIsolatesSubscriberFailure()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -1131,7 +1142,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([sourceChart]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -1176,6 +1187,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void RenamePendingBmsFormatChartFileExtensions_FlushesEarlierEffectWhenPackageApplyFails()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -1199,7 +1211,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             thirdPackage.path = thirdDirectoryPath;
             thirdPackage.delete_parent = false;
             var dialogService = new ThrowOnFirstPendingRenameDialogService();
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -1207,7 +1219,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 dialogService);
             library.ChartPackagesPending = CreatePackageCollection([firstPackage, secondPackage, thirdPackage]);
 
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.Execute("DROP TABLE install");
             }
@@ -1237,6 +1249,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void RenameBMSFilesExtensions_FlushesEarlierFailureAfterCatalogApplyFailure()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -1247,7 +1260,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             ChartFile firstChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(firstChartPath));
             ChartFile secondChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(secondChartPath));
             var dialogService = new BmsLibraryInitializationTestSupport.RecordingDialogService();
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -1255,7 +1268,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 dialogService);
             OwnedChartCollectionTestSupport.SetLibraryFilesWithoutNotification(library, [firstChart, secondChart]);
 
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.Execute("DROP TABLE song");
             }
@@ -1293,6 +1306,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void RenameBMSFilesExtensions_PropagatesDurableAfterCommitFailure()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -1303,7 +1317,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             ChartFile chart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourceChartPath));
             LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, sourceDirectoryPath);
             var lr2ConfigOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(lr2Config);
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 lr2ConfigOwner,
                 null,
@@ -1317,7 +1331,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             library.FixtureSettings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([sourceDirectoryPath]);
             OwnedChartCollectionTestSupport.SetLibraryFilesWithoutNotification(library, [chart]);
 
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.Execute("DROP TABLE folder");
                 songDb.Execute("CREATE TABLE folder (x TEXT)");
@@ -1335,7 +1349,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(destinationChartPath));
             Assert.AreEqual(0, library.BmsCharts.Count(file => string.Equals(file.Path, sourceChartPath, StringComparison.OrdinalIgnoreCase)));
             Assert.AreEqual(1, library.BmsCharts.Count(file => string.Equals(file.Path, destinationChartPath, StringComparison.OrdinalIgnoreCase)));
-            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", sourceChartPath));
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", destinationChartPath));
         });
@@ -1348,6 +1362,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void RenameBMSFilesExtensions_UnregistersOnlySuccessfulChartsAndPreservesHashOwner()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -1376,7 +1391,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             ChartFile lastOwner = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(lastOwnerSourcePath));
             Assert.AreEqual(selectedShared.Md5, survivingShared.Md5);
 
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, seedSongDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, seedSongDb =>
             {
                 foreach (ChartFile file in new[] { failed, selectedShared, survivingShared, lastOwner })
                 {
@@ -1385,7 +1400,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             });
 
             var dialogService = new BmsLibraryInitializationTestSupport.RecordingDialogService();
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -1455,7 +1470,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsFalse(library.BmsCharts.Any(file =>
                 string.Equals(file.Path, lastOwnerSourcePath, StringComparison.OrdinalIgnoreCase)));
 
-            using (LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", failedSourcePath));
                 Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", survivingSharedSourcePath));
@@ -1553,6 +1568,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void GetPendingPackagesContainingOnlyInstalledCharts_MatchesInstalledBmsonByChartEntryHash()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -1565,7 +1581,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             {
                 path = packageDirectoryPath
             };
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsonCharts = [installedBmson],
                 ChartPackagesPending = CreatePackageCollection([pendingPackage])
@@ -1589,6 +1605,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         bool deletePendingPackageSourceAfterInstall,
         bool expectSourceCleanup)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -1601,7 +1618,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             ChartFile sourceOwnedChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourceOwnedChartPath));
             ChartFile sourceNewChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourceNewChartPath));
             Assert.AreEqual(installedChart.Md5, sourceOwnedChart.Md5);
-            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended seedSongDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 seedSongDb.InsertOrReplace(
                     ChartSongStorageMapping.ToBmsRow(installedChart),
@@ -1614,7 +1631,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             package.path = sourceDirectoryPath;
             package.delete_parent = false;
 
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -1645,7 +1662,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "new.bms")));
             Assert.AreEqual(expectSourceCleanup, !File.Exists(sourceOwnedChartPath));
             Assert.AreEqual(expectSourceCleanup, !Directory.Exists(sourceDirectoryPath));
-            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM song WHERE path = ?;",
                 installedChartPath));
@@ -1667,6 +1684,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [DataRow(true, true)]
     public void EstimatedCleanupKeepsNormalAdviceButDefersMixedAbnormalAdviceToTerminal(bool reportAtTerminal, bool cleanupFails)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb((dbPath, root) =>
         {
@@ -1690,7 +1708,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             var dialogs = new FileDbReportRecordingDialogs();
             IFileMutationService files = cleanupFails ? new FailingDestinationDeleteFileMutationService(secondSource)
                 : new RealFileMutationService();
-            var library = new TestBmsLibrary(dbPath, null, null, files, dialogs,
+            var library = new TestBmsLibrary(databaseScope, dbPath, null, null, files, dialogs,
                 new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
                 {
@@ -1723,6 +1741,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_EmptyDestinationPackageDoesNotReserveHashForLaterPackage()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -1752,7 +1771,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             secondPackage.path = secondSourceDirectoryPath;
             secondPackage.delete_parent = false;
 
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -1792,7 +1811,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             string installedUniquePath = Path.Combine(destinationDirectoryPath, "unique.bms");
             Assert.IsTrue(library.BmsCharts.Any(file => string.Equals(file.Path, installedSharedPath, StringComparison.OrdinalIgnoreCase)));
             Assert.IsTrue(library.BmsCharts.Any(file => string.Equals(file.Path, installedUniquePath, StringComparison.OrdinalIgnoreCase)));
-            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", installedSharedPath));
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", installedUniquePath));
             Assert.IsTrue(result.SessionReceipt.DurableCommit);
@@ -1806,6 +1825,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_CanonicalApplyFailureKeepsPreparedTargetsWithoutPartialPublication()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -1826,7 +1846,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 thirdSourceDirectoryPath, "third.bms", "#TITLE Estimated Prefix Third", "third-resource");
             string secondDestinationChartPath = Path.Combine(secondDestinationDirectoryPath, "second.bms");
 
-            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended seedSongDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 string escapedSecondDestinationChartPath = secondDestinationChartPath.Replace("'", "''");
                 seedSongDb.Execute(
@@ -1852,7 +1872,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             thirdPackage.path = thirdSourceDirectoryPath;
             firstPackage.delete_parent = secondPackage.delete_parent = thirdPackage.delete_parent = false;
 
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -1920,7 +1940,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(Path.Combine(firstDestinationDirectoryPath, "first-resource.mp4")));
             Assert.IsTrue(File.Exists(thirdChartPath));
 
-            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(
                 0,
                 verifySongDb.ExecuteScalar<int>(
@@ -1948,6 +1968,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_UsesPhysicalSuccessOverlayBeforeCanonicalApplyFailure()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -1963,7 +1984,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             string firstDestinationChartPath = Path.Combine(destinationDirectoryPath, "first.bms");
             string secondDestinationChartPath = Path.Combine(destinationDirectoryPath, "second.bms");
 
-            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended seedSongDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 string escapedFirstDestinationChartPath = firstDestinationChartPath.Replace("'", "''");
                 seedSongDb.Execute(
@@ -1980,7 +2001,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             secondPackage.path = secondSourceDirectoryPath;
             firstPackage.delete_parent = secondPackage.delete_parent = false;
 
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -2019,7 +2040,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(secondChartPath));
             CollectionAssert.Contains(result.SessionReceipt.CandidatePaths.ToArray(), firstDestinationChartPath);
 
-            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", firstDestinationChartPath));
             Assert.AreEqual(0, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", secondDestinationChartPath));
         });
@@ -2032,6 +2053,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_ResourceOnlyBmsonWorksWithoutBmsFiles()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -2061,7 +2083,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Md5 = installedBmson.Md5,
                 Sha256 = installedBmson.Sha256
             };
-            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended seedSongDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 seedSongDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(installedBmson), typeof(LR2SongDBExtended.bmson_song));
             }
@@ -2069,7 +2091,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             pendingEntry.ApplyInstallDestinationMetadata(destinationDirectoryPath, "Installed", "Artist");
             var pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
             pendingPackage.path = pendingDirectoryPath;
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = null,
                 BmsonCharts = [installedBmson],
@@ -2127,6 +2149,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     public void InstallPendingPackagesToEstimatedDestinations_ReevaluatesResourceOnlyAfterEarlierPhysicalSuccess(
         bool includeUniqueChart)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -2211,7 +2234,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             secondPackage.path = secondPendingDirectoryPath;
             secondPackage.delete_parent = false;
 
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -2267,7 +2290,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsFalse(result.SessionReceipt.HasRequiredFailure);
             Assert.IsFalse(result.SessionReceipt.HasDurableFinalizationFailure);
             Assert.IsNotNull(result.SessionReceipt.CleanupFailure);
-            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM bmson_song WHERE path = ?;",
                 installedBmsonPath));
@@ -2284,6 +2307,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void OverwritePendingInstalledOnlyPackagesResources_PreservesChartsAndUpdatesChildResourceAtPackageRoot()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb((songDbPath, root) =>
         {
             string songRoot = Path.Combine(root, "Song");
@@ -2307,14 +2331,14 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(inputChildPath))]);
             package.path = inputRoot;
             package.delete_parent = false;
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, seedSongDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, seedSongDb =>
             {
                 seedSongDb.CreateTable<LR2SongDBExtended.install>();
                 seedSongDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(installedRoot), typeof(LR2SongDB.song));
                 seedSongDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(installedChild), typeof(LR2SongDB.song));
                 seedSongDb.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
             });
-            var library = new TestBmsLibrary(songDbPath, null, null, new RealFileMutationService(),
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new RealFileMutationService(),
                 new RecordingDialogService(), new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -2342,7 +2366,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(2, library.BmsCharts.Count);
             Assert.AreEqual(installedRoot.Md5, library.BmsCharts.Single(chart => chart.Path == installedRootPath).Md5);
             Assert.AreEqual(installedChild.Md5, library.BmsCharts.Single(chart => chart.Path == installedChildPath).Md5);
-            using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());
             Assert.AreEqual(2, db.Table<LR2SongDB.song>().Count());
             Assert.AreEqual(installedRoot.Md5, db.Find<LR2SongDB.song>(installedRootPath).hash);
@@ -2361,6 +2385,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     public void OverwritePendingInstalledOnlyPackagesResources_CanonicalFailureDoesNotPublishSuccessCounts(
         bool cleanupOnly)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb((songDbPath, root) =>
         {
@@ -2380,7 +2405,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             {
                 File.WriteAllBytes(pendingResourcePath, [1, 2, 3]);
             }
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, seedSongDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, seedSongDb =>
             {
                 seedSongDb.CreateTable<LR2SongDBExtended.install>();
                 seedSongDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(installedChart), typeof(LR2SongDB.song));
@@ -2389,7 +2414,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     "CREATE TRIGGER fail_resource_overwrite_install_delete BEFORE DELETE ON install "
                     + "BEGIN SELECT RAISE(ABORT, 'resource-overwrite-canonical-marker'); END;");
             });
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -2428,7 +2453,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Assert.IsTrue(File.Exists(installedResourcePath));
                 CollectionAssert.Contains(result.RecoveryPaths.ToArray(), installedResourcePath);
             }
-            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM install WHERE path = ?;", pendingDirectory));
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
@@ -2446,6 +2471,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     public void OverwritePendingInstalledOnlyPackagesResources_ReleasesOuterWritersBeforeEstimatedInstallPublication(
         bool subscriberThrows)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -2475,7 +2501,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Md5 = installedBmson.Md5,
                 Sha256 = installedBmson.Sha256
             };
-            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended seedSongDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 seedSongDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(installedBmson), typeof(LR2SongDBExtended.bmson_song));
             }
@@ -2483,7 +2509,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 (pendingBmson));
             var pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
             pendingPackage.path = pendingDirectoryPath;
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = null,
                 BmsonCharts = [installedBmson],
@@ -2506,7 +2532,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     Assert.AreEqual(0, library.ChartPackagesPending.Count);
                     Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
                     Assert.AreSame(installedBmson.Token, library.BmsonCharts.Single().Token);
-                    using LR2SongDBExtended notifiedSongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                    using LR2SongDBExtended notifiedSongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                     Assert.AreEqual(
                         1,
                         notifiedSongDb.ExecuteScalar<int>(
@@ -2543,7 +2569,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "sound.wav")));
             Assert.AreSame(installedBmson.Token, library.BmsonCharts.Single().Token);
             Assert.AreEqual(installedBmsonPath, library.BmsonCharts.Single().Path);
-            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(
                 1,
                 verifySongDb.ExecuteScalar<int>(
@@ -2565,6 +2591,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [DataRow(16)]
     public void OverwritePendingInstalledOnlyPackagesResources_UsesWarmCatalogWithoutChartDelta(int backgroundCount)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -2658,7 +2685,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     Sha256 = (index + 1).ToString("x8") + new string('f', 56)
                 });
             }
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, seedSongDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, seedSongDb =>
             {
                 seedSongDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(firstStep.FirstInstalled), typeof(LR2SongDBExtended.bmson_song));
                 seedSongDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(firstStep.SecondInstalled), typeof(LR2SongDBExtended.bmson_song));
@@ -2670,7 +2697,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 }
             });
 
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = null,
                 BmsonCharts = [
@@ -2751,7 +2778,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     try
                     {
                         Assert.IsFalse(library.IsWriteLockHeldPendingInstallCharts);
-                        using LR2SongDBExtended notifiedSongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                        using LR2SongDBExtended notifiedSongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                         Assert.AreEqual(
                             1,
                             notifiedSongDb.ExecuteScalar<int>(
@@ -2816,7 +2843,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Assert.IsFalse(installedFirstEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
                 Assert.IsTrue(installedSecondEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
 
-                using (LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                using (LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
                 {
                     Assert.AreEqual(backgroundCount + 4, verifySongDb.Table<LR2SongDBExtended.bmson_song>().Count());
                     Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM bmson_song WHERE path = ?;", step.FirstInstalledPath));
@@ -2892,6 +2919,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void OverwritePendingInstalledOnlyPackagesResources_CleanupOnlyUsesOuterLeaseAndExcludesReentry()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -2929,7 +2957,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 path = Path.Combine(tempRootPath, "reentry-cleanup-only")
             };
             var fileMutationService = new ReentrantCleanupFileMutationService();
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -2980,6 +3008,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_SubscriberFailureDoesNotReclassifyCommittedInstall()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -3014,7 +3043,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             pendingEntry.ApplyInstallDestinationMetadata(destinationDirectoryPath, "Installed", "Artist");
             var pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
             pendingPackage.path = pendingDirectoryPath;
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -3100,6 +3129,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_LeavesPackageUnchangedWhenItIsNotPending()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -3112,7 +3142,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             requestedPackage.path = pendingDirectoryPath;
             requestedPackage.delete_parent = false;
 
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 ChartPackagesPending = CreatePackageCollection([])
             };
@@ -3133,10 +3163,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_NullStillThrowsWhenLr2SyncIsRunning()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             library.Lr2Synchronization.Running = true;
             try
             {
@@ -3163,6 +3194,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         bool useLr2,
         string sourceKind)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -3171,7 +3203,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             string nestedDirectory = Path.Combine(registeredRoot, "Song");
             string nestedChartPath = CreateBmsFile(nestedDirectory, "chart.bms", "#TITLE Nested");
             File.WriteAllText(Path.Combine(nestedDirectory, "readme.txt"), "Keep the single-file drop separate.");
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.install>();
             }
@@ -3188,7 +3220,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 config = new LR2Config(configPath);
             }
             Lr2ConfigOwner? configOwner = config == null ? null : new Lr2ConfigOwner(config);
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 configOwner,
                 null!,
@@ -3214,7 +3246,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, installed.RegisteredPackages.Count);
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
             Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
-            Assert.AreEqual(0, new BmsLibraryDbGateway(songDbPath).LoadInstallPackages().Count);
+            Assert.AreEqual(0, new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).LoadInstallPackages().Count);
             Assert.IsTrue(File.Exists(rootChartPath));
             Assert.IsTrue(File.Exists(nestedChartPath));
         });
@@ -3226,6 +3258,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void ForceInstallPendingPackages_UpdatesPrimaryLookupThroughLibraryInstall()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb((songDbPath, tempRootPath) =>
         {
@@ -3236,7 +3269,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             string sourcePath = CreateBmsFile(sourceDirectoryPath, "added.bms", "#TITLE Primary Only Added");
             ChartFile existing = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(existingPath));
             ChartFile source = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourcePath));
-            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended seedSongDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 seedSongDb.InsertOrReplace(
                     ChartSongStorageMapping.ToBmsRow(existing),
@@ -3246,7 +3279,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             ChartPackage package = ChartPackageTestExtensions.CreatePackage([source]);
             package.path = sourceDirectoryPath;
             package.delete_parent = false;
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -3306,7 +3339,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(currentPrimary.ContainsPrimaryHash(source.Md5));
             Assert.IsTrue(oldPrimary.ContainsPrimaryHash(existing.Md5));
             Assert.IsFalse(oldPrimary.ContainsPrimaryHash(source.Md5));
-            using (LR2SongDBExtended verifySongDbBeforeFull = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended verifySongDbBeforeFull = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(1, verifySongDbBeforeFull.ExecuteScalar<int>(
                     "SELECT COUNT(1) FROM song WHERE path = ?;",
@@ -3320,7 +3353,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 OwnedChartCollectionTestSupport.InvokeCreateInstalledChartLookupSnapshot(library);
             Assert.IsTrue(installedLookup.ContainsPrimaryHash(existing.Md5));
             Assert.IsTrue(installedLookup.ContainsPrimaryHash(source.Md5));
-            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM song WHERE path = ?;",
                 installed.Path));
@@ -3336,6 +3369,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_AddsExactTargetThroughLibraryInstall()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb((songDbPath, tempRootPath) =>
         {
@@ -3349,7 +3383,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             ChartFile oldChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(oldPath));
             ChartFile addedChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(addedPath));
             Assert.AreNotEqual(oldChart.Md5, addedChart.Md5);
-            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended seedSongDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 seedSongDb.InsertOrReplace(
                     ChartSongStorageMapping.ToBmsRow(oldChart),
@@ -3362,7 +3396,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     destinationDirectoryPath));
             package.path = sourceDirectoryPath;
             package.delete_parent = false;
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -3421,7 +3455,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(currentPrimary.ContainsPrimaryHash(addedChart.Md5));
             Assert.IsTrue(oldPrimary.ContainsPrimaryHash(oldChart.Md5));
             Assert.IsFalse(oldPrimary.ContainsPrimaryHash(addedChart.Md5));
-            using (LR2SongDBExtended verifySongDbBeforeFull = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended verifySongDbBeforeFull = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(1, verifySongDbBeforeFull.ExecuteScalar<int>(
                     "SELECT COUNT(1) FROM song WHERE path = ?;",
@@ -3434,7 +3468,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 OwnedChartCollectionTestSupport.InvokeCreateInstalledChartLookupSnapshot(library);
             Assert.IsTrue(installedLookup.ContainsPrimaryHash(oldChart.Md5));
             Assert.IsTrue(installedLookup.ContainsPrimaryHash(addedChart.Md5));
-            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM song WHERE path = ?;",
                 expectedInstalledPath));
@@ -3450,6 +3484,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackages_ProtectedNamesPreserveWholeBatchAndStoredPendingRemoval()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb((songDbPath, root) =>
         {
             string installedRoot = Path.Combine(root, "Installed");
@@ -3474,13 +3509,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             ];
             packages[0].path = firstSource;
             packages[1].path = protectedSource;
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, db =>
             {
                 db.CreateTable<LR2SongDBExtended.install>();
                 db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(charts[0]), typeof(LR2SongDB.song));
                 foreach (ChartPackage package in packages) { db.InsertOrReplace(package, typeof(LR2SongDBExtended.install)); }
             });
-            var library = new TestBmsLibrary(songDbPath, null, null, new RealFileMutationService(), new RecordingDialogService(),
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new RealFileMutationService(), new RecordingDialogService(),
                 new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -3509,7 +3544,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Assert.AreEqual(2, library.ChartPackagesInstalled.Count);
                 string[] finalCharts = [oldPath, Path.Combine(firstDestination, "first.bms"), Path.Combine(protectedDestination, "protected.bms")];
                 CollectionAssert.AreEquivalent(finalCharts, library.BmsCharts.Select(chart => chart.Path).ToArray());
-                using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
                 {
                     CollectionAssert.AreEquivalent(finalCharts, db.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
                     Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());
@@ -3545,6 +3580,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void ForceInstallPendingPackages_SameDigestAdditionKeepsHashVersionAndPlaylistSummaryCache()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb((songDbPath, tempRootPath) =>
         {
@@ -3559,7 +3595,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             ChartFile sourceChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourcePath));
             Assert.AreEqual(initialChart.Md5, sourceChart.Md5);
             Assert.AreEqual(initialChart.Sha256, sourceChart.Sha256);
-            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended seedSongDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 seedSongDb.InsertOrReplace(
                     ChartSongStorageMapping.ToBmsRow(initialChart),
@@ -3569,7 +3605,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             ChartPackage package = ChartPackageTestExtensions.CreatePackage([sourceChart]);
             package.path = sourceDirectoryPath;
             package.delete_parent = false;
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -3648,7 +3684,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             IPrimaryHashLookup currentPrimary =
                 OwnedChartCollectionTestSupport.InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
             Assert.IsTrue(currentPrimary.ContainsPrimaryHash(initialChart.Md5));
-            using (LR2SongDBExtended verifySongDbBeforeFull = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended verifySongDbBeforeFull = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(2, verifySongDbBeforeFull.Table<LR2SongDB.song>().Count());
                 Assert.AreEqual(1, verifySongDbBeforeFull.ExecuteScalar<int>(
@@ -3719,6 +3755,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [DataRow(true)]
     public void ForceInstallPendingPackages_SingleChartsAndDirectoryUseReservedNewFolders(bool hasConfiguredDestination)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb((songDbPath, root) =>
         {
             string installRoot = Path.Combine(root, "Library");
@@ -3759,7 +3796,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 DeletePendingPackageSourceAfterInstall = true,
                 EnableSmartComponentOverwrite = false
             };
-            var library = new TestBmsLibrary(songDbPath, null, null, new RealFileMutationService(),
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new RealFileMutationService(),
                 new RecordingDialogService(), new TestUiScheduler(() => null), () => options, settings: TestBmsFactory.CreateRootSettings([installRoot]))
             {
                 BmsCharts = [],
@@ -3786,7 +3823,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     packages[0].ChartEntries.Single().SetInstallDestinationPathOnly(configuredDestination);
                     packages[1].ChartEntries.Single().SetInstallDestinationPathOnly(configuredDestination);
                 }
-                using (LR2SongDBExtended pendingDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                using (LR2SongDBExtended pendingDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
                 {
                     CollectionAssert.AreEquivalent(packagePaths, pendingDb.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
                 }
@@ -3808,7 +3845,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 string[] expectedPaths = sourcePaths.Select((path, index) => Path.Combine(destinations[index], Path.GetFileName(path))).ToArray();
                 CollectionAssert.AreEquivalent(expectedPaths, library.BmsCharts.Concat(library.BmsonCharts).Select(chart => chart.Path).ToArray());
                 CollectionAssert.AreEquivalent(expectedPaths, library.ChartPackagesInstalled.SelectMany(package => package.ChartEntries).Select(entry => entry.Chart.Path).ToArray());
-                using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 CollectionAssert.AreEquivalent(new[] { expectedPaths[0], expectedPaths[2] }, db.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
                 Assert.AreEqual(expectedPaths[1], db.Table<LR2SongDBExtended.bmson_song>().Single().path);
                 Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());
@@ -3862,6 +3899,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         bool resourceAlreadyExistsAtDestination,
         bool resourceHealthIndexStartsWarm)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb((songDbPath, tempRootPath) =>
         {
@@ -3911,7 +3949,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             package.path = pendingDirectoryPath;
             package.delete_parent = false;
 
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -4011,7 +4049,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 ChartPackage installedPackage = library.ChartPackagesInstalled.Single();
                 Assert.AreEqual(installedDirectoryPath, installedPackage.path);
                 Assert.IsTrue(installedPackage.ChartEntries.Count > 0);
-                using (LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                using (LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
                 {
                     LR2SongDBExtended.maintenance maintenance = verifySongDb.Table<LR2SongDBExtended.maintenance>()
                         .Single(info => string.Equals(info.path, installed.Path, StringComparison.OrdinalIgnoreCase));
@@ -4155,6 +4193,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         string route,
         int backgroundCount)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -4221,7 +4260,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     "#TITLE Background " + index);
                 backgroundFiles.Add(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(backgroundPath)));
             }
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, seedSongDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, seedSongDb =>
             {
                 foreach (ChartFile backgroundFile in backgroundFiles)
                 {
@@ -4231,7 +4270,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 }
             });
 
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -4304,7 +4343,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             library.InstalledChartLookupStoreWorkObserver = installedWork.Add;
             string? expectedSourcePath = null;
             string? expectedSourceHash = null;
-            var readOnlySongDbGateway = new BmsLibraryDbGateway(songDbPath);
+            var readOnlySongDbGateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             int notificationCount = 0;
             Exception? notificationInspectionFailure = null;
             System.ComponentModel.PropertyChangedEventHandler inspectNotification = (_, args) =>
@@ -4573,6 +4612,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallChartPackagesAuto_UnconvergedCatalogKeepsDiscoveredPackagePendingInsteadOfInstalling()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -4581,7 +4621,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Directory.CreateDirectory(installRoot);
             string sourceChartPath = CreateBmsFile(sourceDirectory, "chart.bms", "#TITLE Pending until file diff");
             var dialogService = new RecordingDialogService();
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -4622,12 +4662,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallChartPackagesAutoWithProgress_WhenAnotherFileMutationOwnsAdmission_FailsInsteadOfPublishingEmptySuccess()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string sourceDirectory = Path.Combine(tempRootPath, "busy-auto-install-source");
             Directory.CreateDirectory(sourceDirectory);
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             using LibraryFileMutationLease incumbent = library.TryBeginLibraryFileMutation(
                 "test_busy_auto_install");
             Assert.IsNotNull(incumbent);
@@ -4682,6 +4723,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [DataRow("different_md5_same_sha256")]
     public void InstallPendingPackagesToEstimatedDestinations_ClassifiesEntriesBeforeOneCanonicalApply(string scenario)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb((songDbPath, root) =>
         {
@@ -4716,10 +4758,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             package.delete_parent = false;
             if (hasBaseline)
             {
-                using var seed = new LR2SongDBExtended(songDbPath);
+                using LR2SongDBExtended seed = databaseScope.OpenSongWrite(songDbPath);
                 seed.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(first), typeof(LR2SongDB.song));
             }
-            var library = new TestBmsLibrary(songDbPath, null, null,
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null,
                 new RealFileMutationService(), new RecordingDialogService(), new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
                 {
@@ -4742,7 +4784,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.SessionReceipt.ApplyCounts.CatalogApplyCount);
             Assert.AreEqual(rejected ? 0 : 1, result.SessionReceipt.ApplyCounts.RequiredPublicationCount);
             Assert.AreEqual(rejected ? 1 : 0, library.ChartPackagesPending.Count);
-            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual((hasBaseline ? 1 : 0) + (rejected ? 0 : 1), readback.Table<LR2SongDB.song>().Count());
             if (rejected)
             {
@@ -4776,6 +4818,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_InstallsBmsonWithoutCompatibilityAdapter()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb((songDbPath, root) =>
         {
@@ -4791,7 +4834,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             var package = ChartPackage.FromChartEntries([entry]);
             package.path = source;
             package.delete_parent = false;
-            var library = new TestBmsLibrary(songDbPath, null, null,
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null,
                 new RealFileMutationService(), new RecordingDialogService(), new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, BMSInstallDir = target })
             {
@@ -4813,7 +4856,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             string installedPath = Path.Combine(target, "chart.bmson");
             Assert.AreEqual(installedPath, library.BmsonCharts.Single().Path);
             Assert.IsTrue(File.Exists(installedPath));
-            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
             Assert.AreEqual(installedPath, readback.Table<LR2SongDBExtended.bmson_song>().Single().path);
         });
@@ -4825,6 +4868,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallChartPackagesAuto_OnlyPhysicalSuccessReservesHashesForLaterCandidates()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb((songDbPath, root) =>
         {
@@ -4842,7 +4886,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 File.WriteAllBytes(Path.Combine(directory, "sound.wav"), [1, 2, 3]);
             }
             Directory.CreateDirectory(installed);
-            var library = new TestBmsLibrary(songDbPath, null, null,
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null,
                 new RealFileMutationService(), new RecordingDialogService(), new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
                 {
@@ -4894,7 +4938,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(unmatched.Chart.Path));
             Assert.IsTrue(File.Exists(Path.Combine(installed, "First", "first.bms")));
             Assert.IsTrue(File.Exists(Path.Combine(installed, "Third", "third.bms")));
-            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(2, readback.Table<LR2SongDB.song>().Count());
         });
     }
@@ -4910,6 +4954,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [DataRow(false, false)]
     public void ForceInstallPendingPackages_RejectsUnapprovedPackageWithoutMaterializingBmson(bool hasDestination, bool showNewConfirmation)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb((songDbPath, root) =>
         {
@@ -4925,7 +4970,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             }
             var package = ChartPackage.FromChartEntries([entry]);
             package.path = source;
-            var library = new TestBmsLibrary(songDbPath, null, null,
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null,
                 new RealFileMutationService(), new RecordingDialogService(), new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, BMSInstallDir = target, ShowNewPackageInstallConfirmMsg = showNewConfirmation })
             {
@@ -4951,7 +4996,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             }
             Assert.IsTrue(File.Exists(sourcePath));
             Assert.IsFalse(Directory.Exists(target));
-            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, readback.Table<LR2SongDBExtended.bmson_song>().Count());
         });
     }
@@ -4971,6 +5016,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     public void ForceInstallPendingPackages_PublicEntryUsesConfirmationSettingAndPreservesRejectedInput(
         bool hasDestination, bool showNewConfirmation, int responseValue)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         var response = (MessageBoxResult)responseValue;
 
         WithTemporarySongDb((songDbPath, root) =>
@@ -4991,13 +5037,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             package.delete_parent = false;
             string existingPath = CreateBmsFile(explicitDestination, "existing.bms", "#TITLE Existing");
             ChartFile existingChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(existingPath));
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, db =>
                 db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existingChart), typeof(LR2SongDB.song)));
             Dictionary<string, byte[]> sourceBytes = Directory.GetFiles(source)
                 .ToDictionary(path => path, File.ReadAllBytes, StringComparer.OrdinalIgnoreCase);
             byte[] existingBytes = File.ReadAllBytes(existingPath);
             var dialogs = new PendingInstallConfirmationDialogService(response);
-            var library = new TestBmsLibrary(songDbPath, null, null,
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null,
                 new RealFileMutationService(), dialogs, new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
                 {
@@ -5031,7 +5077,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             CollectionAssert.AreEqual(existingBytes, File.ReadAllBytes(existingPath));
             CollectionAssert.AreEqual(new[] { existingPath }, Directory.GetFiles(explicitDestination));
             bool accepted = !confirmationRequired || response == MessageBoxResult.Yes;
-            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1, readback.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ? AND hash = ?;", existingPath, existingChart.Md5));
             Assert.AreEqual(0, readback.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", sourcePath));
             if (!accepted)
@@ -5748,6 +5794,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [DataRow("versionless", true)]
     public async Task InstallChartPackagesAuto_BmsonFolderPreservesLegacyResourceAndStorageContracts(string format, bool soundExists)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         await WithTemporarySongDbAsync(async (songDbPath, root) =>
         {
             string source = Path.Combine(root, "Source");
@@ -5774,7 +5821,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             if (soundExists) { File.WriteAllBytes(Path.Combine(source, "sound.wav"), audioBytes); }
             string md5 = Convert.ToHexStringLower(System.Security.Cryptography.MD5.HashData(chartBytes));
             string sha256 = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(chartBytes));
-            var library = new TestBmsLibrary(songDbPath, null, null, new RealFileMutationService(),
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new RealFileMutationService(),
                 new RecordingDialogService(), new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -5801,7 +5848,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Assert.AreEqual(soundExists ? 0 : 1, library.ChartPackagesPending.Count);
                 Assert.AreEqual(soundExists, library.GetOwnedChartHashIndexSnapshot().ContainsMd5(md5));
                 string destination = Path.Combine(installRoot, "Bmson");
-                using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
                 if (soundExists)
                 {
@@ -6725,6 +6772,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_RejectsConflictingPackageAndContinuesIndependentPackages()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -6767,7 +6815,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
 
             BmsLibraryPackageInstallService.InitializePendingResourceHealth(conflictPackage.ChartEntries.Single());
 
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -6821,7 +6869,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             library.RemoveInstallDestination(conflictPackage.ChartEntries, conflictPackage);
             Assert.AreEqual(0, conflictPackage.ChartEntries.Single().Chart.WAVHealth);
             Assert.AreEqual(2, library.ChartPackagesInstalled.Count);
-            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(
                 1,
                 verifySongDb.ExecuteScalar<int>(
@@ -6849,6 +6897,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [DataRow(true)]
     public void InstallPendingPackages_RejectsMissingSourceAndContinuesIndependentPackages(bool force)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb((songDbPath, root) =>
         {
@@ -6868,7 +6917,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 package.delete_parent = false;
                 packages.Add(package);
             }
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, seedSongDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, seedSongDb =>
             {
                 seedSongDb.CreateTable<LR2SongDBExtended.install>();
                 foreach (ChartPackage package in packages)
@@ -6876,7 +6925,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     seedSongDb.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
                 }
             });
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -6936,7 +6985,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(Path.Combine(installationRoot, "Shared", "chart.bms")));
             Assert.IsFalse(Directory.Exists(sources[1]));
 
-            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             CollectionAssert.AreEquivalent(
                 new[]
                 {
@@ -7154,6 +7203,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void ForceInstallPendingPackages_PublishesEntryNotificationsAfterLeaseAndBestEffort()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -7173,7 +7223,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             package.path = sourceDirectoryPath;
             package.delete_parent = false;
 
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -7263,7 +7313,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Assert.IsTrue(File.Exists(entry.Chart.Path));
             }
 
-            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             List<LR2SongDB.song> installedRows = [.. verifySongDb.Table<LR2SongDB.song>()];
             Assert.IsTrue(package.ChartEntries.All(entry =>
                 installedRows.Any(row => string.Equals(row.path, entry.Chart.Path, StringComparison.OrdinalIgnoreCase))));
@@ -7276,6 +7326,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallChartPackagesAutoWithProgress_CanonicalApplyFailurePublishesNoPartialPackageState()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -7293,7 +7344,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             string secondDestinationDirectoryPath = Path.GetDirectoryName(secondDestinationChartPath)!;
             string thirdDestinationDirectoryPath = Path.GetDirectoryName(thirdDestinationChartPath)!;
 
-            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended seedSongDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 string escapedSecondDestinationChartPath = secondDestinationChartPath.Replace("'", "''");
                 seedSongDb.Execute(
@@ -7302,7 +7353,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     + "' BEGIN SELECT RAISE(ABORT, 'forced second auto-install target failure'); END;");
             }
 
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -7347,7 +7398,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(commandResult.RecoveryPaths.Contains(secondDestinationDirectoryPath, StringComparer.OrdinalIgnoreCase));
             Assert.IsTrue(commandResult.RecoveryPaths.Contains(thirdDestinationDirectoryPath, StringComparer.OrdinalIgnoreCase));
 
-            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             List<LR2SongDB.song> installedRows = [.. verifySongDb.Table<LR2SongDB.song>()];
             Assert.IsFalse(installedRows.Any(row => string.Equals(
                 row.path,
@@ -7378,6 +7429,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         bool reportAtTerminal,
         bool sourceFileMissingDuringCopy)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
@@ -7426,7 +7478,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             };
 
             var dialogs = new FileDbReportRecordingDialogs();
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -7534,7 +7586,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(Path.Combine(firstDestinationDirectoryPath, "first-resource.mp4")));
             Assert.IsTrue(File.Exists(thirdChartPath));
 
-            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             List<LR2SongDB.song> installedRows = [.. verifySongDb.Table<LR2SongDB.song>()];
             Assert.IsTrue(installedRows.Any(row => string.Equals(
                 row.path,
@@ -9007,13 +9059,14 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
 
     private static void WithTemporarySongDb(Action<string, string> testAction)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PackageInstallSongDbTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDB.folder>();
@@ -9033,12 +9086,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
 
     private static async Task WithTemporarySongDbAsync(Func<string, string, Task> action)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PendingRemoval_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         string songDbPath = Path.Combine(root, "song.db");
         try
         {
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDB.folder>();

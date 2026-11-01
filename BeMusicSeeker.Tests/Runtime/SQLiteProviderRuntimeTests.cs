@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SQLitePCL;
@@ -12,6 +13,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class SQLiteProviderRuntimeTests
 {
+    /// <summary>このケースのモデルと接続で共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>SQLite初期化を繰り返しても実メモリDBで問合せが成立し、二重初期化によるprovider破損を防ぎます。</summary>
     [TestMethod]
     public void RuntimeBootstrap_InitializesProviderIdempotently()
@@ -20,7 +24,7 @@ public sealed class SQLiteProviderRuntimeTests
         RuntimeBootstrap.Initialize();
 
         Assert.IsTrue(raw.sqlite3_libversion_number() > 0);
-        using var connection = new SQLiteConnectionEx(":memory:");
+        using SQLiteConnectionEx connection = databaseScope.OpenProviderConnection(":memory:");
         Assert.AreEqual(1L, connection.ExecuteScalar<long>("SELECT 1;"));
     }
 
@@ -36,7 +40,7 @@ public sealed class SQLiteProviderRuntimeTests
         File.WriteAllBytes(databasePath, []);
         try
         {
-            using var connection = new LR2SongDBExtended(databasePath);
+            using LR2SongDBExtended connection = databaseScope.OpenSongWrite(databasePath);
             connection.Execute("CREATE TABLE raw_probe (text_value TEXT, null_value TEXT, integer_value INTEGER, real_value REAL, numeric_text TEXT);");
             double precise = Math.BitIncrement(1.5);
             const long ticks = 639029198450000001;
@@ -86,7 +90,7 @@ public sealed class SQLiteProviderRuntimeTests
         try
         {
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
-            using var connection = new LR2SongDBExtended(path);
+            using LR2SongDBExtended connection = databaseScope.OpenSongWrite(path);
             var cases = new (string Sql, string Type, long? Integer, double? Double, bool Boolean, long? Ticks)[]
             {
                 ("NULL", "null", null, null, false, null),
@@ -140,7 +144,7 @@ public sealed class SQLiteProviderRuntimeTests
         string path = CreateTemporaryDatabasePath("TypedCallback");
         try
         {
-            using var connection = new LR2SongDBExtended(path);
+            using LR2SongDBExtended connection = databaseScope.OpenSongWrite(path);
             var failure = new InvalidOperationException("callback failure");
             var command = (LR2SongDBExtended.SQLiteCommandExtended)connection.CreateCommand("SELECT 1;");
             Exception actual = Assert.ThrowsExactly<InvalidOperationException>(() => command.ForEachRawRow(_ => throw failure));
@@ -159,7 +163,7 @@ public sealed class SQLiteProviderRuntimeTests
         string databasePath = CreateTemporaryDatabasePath("RawStep");
         try
         {
-            using var connection = new LR2SongDBExtended(databasePath);
+            using LR2SongDBExtended connection = databaseScope.OpenSongWrite(databasePath);
             connection.Execute("CREATE TABLE raw_probe (text_value TEXT NOT NULL);");
             connection.Execute("CREATE TRIGGER raw_probe_abort BEFORE INSERT ON raw_probe BEGIN SELECT RAISE(ABORT, 'deterministic step failure'); END;");
 
@@ -199,7 +203,7 @@ public sealed class SQLiteProviderRuntimeTests
         string databasePath = CreateTemporaryDatabasePath("RawStep");
         try
         {
-            using var connection = new LR2SongDBExtended(databasePath);
+            using LR2SongDBExtended connection = databaseScope.OpenSongWrite(databasePath);
             connection.Execute("CREATE TABLE raw_probe (text_value TEXT NOT NULL);");
             connection.Execute("CREATE TRIGGER raw_probe_abort BEFORE INSERT ON raw_probe BEGIN SELECT RAISE(ABORT, 'deterministic step failure'); END;");
 
@@ -235,12 +239,12 @@ public sealed class SQLiteProviderRuntimeTests
         string databasePath = CreateTemporaryDatabasePath("CommitBusy");
         try
         {
-            using var writer = new SQLiteConnectionEx(databasePath);
+            using SQLiteConnectionEx writer = databaseScope.OpenProviderConnection(databasePath);
             Assert.AreEqual("delete", writer.ExecuteScalar<string>("PRAGMA journal_mode=DELETE;"));
             writer.BusyTimeout = TimeSpan.Zero;
             writer.Execute("CREATE TABLE commit_probe (id INTEGER PRIMARY KEY, value TEXT);");
             writer.Execute("INSERT INTO commit_probe VALUES (1, 'prefix');");
-            using (var reader = new SQLiteConnectionEx(databasePath, SQLite.SQLiteOpenFlags.ReadOnly))
+            using (SQLiteConnectionEx reader = databaseScope.OpenProviderConnection(databasePath, SQLite.SQLiteOpenFlags.ReadOnly))
             {
                 reader.BeginTransaction();
                 try
@@ -273,10 +277,10 @@ public sealed class SQLiteProviderRuntimeTests
         string databasePath = CreateTemporaryDatabasePath("WriteBusy");
         try
         {
-            using var holder = new SQLiteConnectionEx(databasePath);
+            using SQLiteConnectionEx holder = databaseScope.OpenProviderConnection(databasePath);
             holder.CreateTable<ContentionRow>();
             holder.Insert(new ContentionRow { Id = 1, Value = "original" });
-            using var contender = new SQLiteConnectionEx(databasePath);
+            using SQLiteConnectionEx contender = databaseScope.OpenProviderConnection(databasePath);
             contender.BusyTimeout = TimeSpan.Zero;
             // mapping準備を競合前に済ませ、要求SQLの実行だけを既存providerのtraceで数えます。
             contender.GetMapping<ContentionRow>();
@@ -308,11 +312,11 @@ public sealed class SQLiteProviderRuntimeTests
         string databasePath = CreateTemporaryDatabasePath("BusyTimeout");
         try
         {
-            using (var song = new LR2SongDBExtended(databasePath)) { Assert.AreEqual(60000, song.ExecuteScalar<int>("PRAGMA busy_timeout;")); }
-            using (var score = new LR2ScoreDBExtended(databasePath)) { Assert.AreEqual(60000, score.ExecuteScalar<int>("PRAGMA busy_timeout;")); }
-            using (var song = new LR2SongDBExtended(databasePath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            using (LR2SongDBExtended song = databaseScope.OpenSongWrite(databasePath)) { Assert.AreEqual(60000, song.ExecuteScalar<int>("PRAGMA busy_timeout;")); }
+            using (LR2ScoreDBExtended score = databaseScope.OpenScoreWrite(databasePath)) { Assert.AreEqual(60000, score.ExecuteScalar<int>("PRAGMA busy_timeout;")); }
+            using (LR2SongDBExtended song = databaseScope.OpenSongReadOnly(databasePath))
             { Assert.AreEqual(60000, song.ExecuteScalar<int>("PRAGMA busy_timeout;")); }
-            using (var score = new LR2ScoreDBExtended(databasePath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            using (LR2ScoreDBExtended score = databaseScope.OpenScoreReadOnly(databasePath))
             { Assert.AreEqual(60000, score.ExecuteScalar<int>("PRAGMA busy_timeout;")); }
         }
         finally { DeleteTemporaryDatabase(databasePath); }

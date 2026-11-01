@@ -14,13 +14,15 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistSummaryMutationAndWarmTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>ライブラリ集合を別ハッシュへ差替えると索引世代が進み、旧ハッシュを除いて新ハッシュを含める。集合差替後の索引再利用を検出する。</summary>
     [TestMethod]
     public void GetOwnedChartHashIndexSnapshot_RebuildsAfterLibraryOwnershipChanges()
     {
-        WithTemporarySongDb(delegate (string songDbPath)
+        WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BmsCharts =
                 [
@@ -45,7 +47,7 @@ public sealed class PlaylistSummaryMutationAndWarmTests
     [TestMethod]
     public void GetOwnedChartHashIndexSnapshot_AppliesRemovalAfterLibraryMutation()
     {
-        WithTemporarySongDb(delegate (string songDbPath)
+        WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
             string rootPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Songs");
             Directory.CreateDirectory(rootPath);
@@ -55,7 +57,7 @@ public sealed class PlaylistSummaryMutationAndWarmTests
             File.WriteAllText(keptPath, "#PLAYER 1");
             ChartFile removedFile = CreateLibraryFile(removedPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             ChartFile keptFile = CreateLibraryFile(keptPath, "cccccccccccccccccccccccccccccccc", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BmsCharts = [removedFile, keptFile]
             };
@@ -77,9 +79,9 @@ public sealed class PlaylistSummaryMutationAndWarmTests
     [TestMethod]
     public void WarmOwnedChartHashIndexSnapshot_BuildsReusesAndRebuildsAfterOwnershipChange()
     {
-        WithTemporarySongDb(delegate (string songDbPath)
+        WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BmsCharts =
                 [
@@ -123,9 +125,9 @@ public sealed class PlaylistSummaryMutationAndWarmTests
     [TestMethod]
     public void GetOwnedChartHashIndexSnapshot_TracksBmsAndBmsonOwnerCountsAndKeepsOldSnapshot()
     {
-        WithTemporarySongDb(delegate (string songDbPath)
+        WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            new BmsLibraryDbGateway(songDbPath).EnsureBmsonSchema();
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).EnsureBmsonSchema();
             const string sharedMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             const string sharedSha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
             string rootPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Songs");
@@ -141,7 +143,7 @@ public sealed class PlaylistSummaryMutationAndWarmTests
                 Md5 = sharedMd5,
                 Sha256 = sharedSha256
             };
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BmsCharts = [bmsFile],
                 BmsonCharts = [bmsonSong]
@@ -190,7 +192,7 @@ public sealed class PlaylistSummaryMutationAndWarmTests
     [TestMethod]
     public void GetOwnedChartHashIndexSnapshot_ColdBuildEnumeratesSourceThenKnownDeltaAvoidsFullBuilder()
     {
-        WithTemporarySongDb(delegate (string songDbPath)
+        WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
             string rootPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Songs");
             Directory.CreateDirectory(rootPath);
@@ -206,7 +208,7 @@ public sealed class PlaylistSummaryMutationAndWarmTests
                 keptPath,
                 "cccccccccccccccccccccccccccccccc",
                 "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BmsCharts = [removedFile, keptFile]
             };

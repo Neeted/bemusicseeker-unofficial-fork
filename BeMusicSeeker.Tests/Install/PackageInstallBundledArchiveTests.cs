@@ -63,12 +63,13 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     /// <summary>独立したZIP一覧を期待値として、通常の保留登録・導入先編集owner・実storeの手動導入を通します。所持先は異なるmetadataと独立音源だけで作り、自動推定の成立前提を使いません。</summary>
     internal static async Task VerifySupplementOnlyArchiveManuallyAsync(byte[] archiveBytes, IReadOnlyDictionary<string, byte[]> expected)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string[] sourceCharts = expected.Keys.Where(ChartFileKindResolver.IsSupportedChartFilePath).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
         Assert.AreEqual(4, sourceCharts.Length);
         Assert.AreEqual(10, expected.Count - sourceCharts.Length);
         string ownedBody = CreateValidBmsText("Independent owned destination").Replace("#ARTIST Artist", "#ARTIST Manual owner")
             .Replace("sound.wav", "owned-only.wav");
-        await using var fixture = new AutomaticContinuationFixture(false, false,
+        await using var fixture = new AutomaticContinuationFixture(databaseScope, false, false,
             destinationSounds: ["owned-only.wav"], installedChartBodies: [ownedBody]);
         string archive = Path.Combine(fixture.Root, "input.zip");
         File.WriteAllBytes(archive, archiveBytes);
@@ -100,7 +101,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Dictionary<string, byte[]> destinationBefore = CaptureArchiveTree(fixture.Destination);
         Dictionary<string, string> songsBefore;
         string[] installBefore;
-        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly())
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly())
         {
             songsBefore = db.Table<LR2SongDB.song>().ToDictionary(row => row.path, row => JsonSerializer.Serialize(row), StringComparer.OrdinalIgnoreCase);
             installBefore = db.Table<LR2SongDBExtended.install>().Select(row => row.path + "|" + row.delete_parent).ToArray();
@@ -121,7 +122,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Assert.IsTrue(package.ChartEntries.All(entry => ownedBefore.All(owned => owned.RawTitle != entry.Chart.RawTitle && owned.RawArtist != entry.Chart.RawArtist)),
             "所持先に元譜面のmetadataや演奏音源を合成して、自動推定の成功条件へ寄せません。");
         AssertArchiveTree(expected, package.path);
-        using (LR2SongDBExtended beforeManual = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly())
+        using (LR2SongDBExtended beforeManual = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly())
         {
             CollectionAssert.AreEquivalent(new[] { unrelatedBefore.PackagePath, package.path },
                 beforeManual.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
@@ -170,7 +171,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Assert.AreEqual(unrelatedDestination.Artist, remainingDestination.Artist);
         CollectionAssert.AreEqual(unrelatedDestination.Suggestions.ToArray(), remainingDestination.Suggestions.ToArray());
         AssertArchiveTree(unrelatedBytes, unrelated);
-        using LR2SongDBExtended after = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly();
+        using LR2SongDBExtended after = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly();
         CollectionAssert.AreEquivalent(installBefore, after.Table<LR2SongDBExtended.install>().Select(row => row.path + "|" + row.delete_parent).ToArray());
         Assert.AreEqual(songsBefore.Count + 4, after.Table<LR2SongDB.song>().Count());
         foreach ((string path, string row) in songsBefore) { Assert.AreEqual(row, JsonSerializer.Serialize(after.Find<LR2SongDB.song>(path))); }
@@ -203,6 +204,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     /// <summary>私有コピーのZIPを本番入口へ通す局所検証の共通本体です。外部の固定path・利用者DBへ依存しません。</summary>
     internal static async Task VerifySupplementOnlyArchiveAsync(byte[] archiveBytes, IReadOnlyDictionary<string, byte[]> expected)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string[] sourceCharts = expected.Keys.Where(ChartFileKindResolver.IsSupportedChartFilePath).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
         Assert.AreEqual(4, sourceCharts.Length);
         Assert.AreEqual(10, expected.Count - sourceCharts.Length);
@@ -214,7 +216,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             .Select(reference => Path.Combine(Path.GetDirectoryName(sourceCharts[index]) ?? string.Empty, reference.LookupKey + ".wav"))).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         // 同数の異なるremixペアでも、sourceと所持側のパス順が同じ実在ペアを代表するよう準備します。
         string[] ownedBodies = sourceCharts.Select((path, index) => Encoding.GetEncoding("shift_jis").GetString(expected[path]) + "\n* synthetic-owned-" + index + "\n").ToArray();
-        await using var fixture = new AutomaticContinuationFixture(true, false, destinationSounds: sounds, installedChartBodies: ownedBodies);
+        await using var fixture = new AutomaticContinuationFixture(databaseScope, true, false, destinationSounds: sounds, installedChartBodies: ownedBodies);
         string archive = Path.Combine(fixture.Root, "input.zip");
         File.WriteAllBytes(archive, archiveBytes);
         await fixture.InitializeAsync();
@@ -239,7 +241,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Assert.AreEqual(1, fixture.Library.ChartPackagesInstalled.Count);
         CollectionAssert.AreEquivalent(sourceCharts.Select(path => Path.Combine(fixture.Destination, path)).ToArray(),
             fixture.Library.ChartPackagesInstalled.Single().ChartEntries.Select(entry => entry.Chart.Path).ToArray());
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly();
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly();
         foreach ((string relative, byte[] bytes) in expected)
         { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(Path.Combine(fixture.Destination, relative)), relative); }
         foreach (string relative in sourceCharts)

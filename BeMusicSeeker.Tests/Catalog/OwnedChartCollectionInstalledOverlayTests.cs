@@ -17,6 +17,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
     [TestMethod]
     public void AutoRenameAllChartFolders_RootOnlyChartsAreNotActionableTargets()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -25,7 +26,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             string chartPath = Path.Combine(rootPath, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1");
             ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
-            var library = new TestBmsLibrary(songDbPath, settings: TestBmsFactory.CreateRootSettings([rootPath]))
+            var library = new TestBmsLibrary(databaseScope, songDbPath, settings: TestBmsFactory.CreateRootSettings([rootPath]))
             {
 
             };
@@ -46,12 +47,13 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
     [TestMethod]
     public void CreateInstalledChartKeySnapshotExcludingCharts_BuildsPrimaryLookupWithoutFullDirectoryLookup()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
             ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
             ChartFile bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = [bmsFile],
                 BmsonCharts = [bmsonSong]
@@ -73,13 +75,14 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
     [TestMethod]
     public void CreateInstalledChartKeySnapshotExcludingCharts_ExcludesOnlyPrimaryHashCounts()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
             ChartFile firstBmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "First", "chart.bms"));
             ChartFile secondBmsFile = CreateFile(firstBmsFile.Md5, Path.Combine("C:\\Installed", "Second", "chart.bms"));
             ChartFile otherBmsFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Other", "chart.bms"));
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = [firstBmsFile, secondBmsFile, otherBmsFile],
                 BmsonCharts = []
@@ -111,6 +114,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
     [TestMethod]
     public void RemoveLibraryCharts_UpdatesPrimaryLookupWithoutFullDirectoryLookup()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -125,7 +129,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             File.WriteAllText(keptPath, "#PLAYER 1");
             ChartFile removedBmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", removedPath);
             ChartFile keptBmsFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", keptPath);
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), null)
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), null)
             {
                 BmsCharts = [removedBmsFile, keptBmsFile],
                 BmsonCharts = []
@@ -154,6 +158,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
     [TestMethod]
     public void RemoveLibraryCharts_DoesNotPromoteSkippedDuplicateBmsExactPath()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -163,7 +168,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             File.WriteAllText(sharedPath, "#PLAYER 1");
             ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sharedPath, new string('b', 64));
             ChartFile duplicateOwner = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sharedPath, new string('c', 64));
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), null)
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), null)
             {
                 BmsCharts = [bmsFile, duplicateOwner],
                 BmsonCharts = []
@@ -186,6 +191,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
     [TestMethod]
     public void RemoveLibraryCharts_DoesNotPromoteSkippedDuplicateBmsonExactPath()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -195,7 +201,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             File.WriteAllText(sharedPath, "{}");
             ChartFile bmsonSong = CreateBmsonSong(sharedPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             ChartFile duplicateOwner = CreateBmsonSong(sharedPath, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), null)
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), null)
             {
                 BmsCharts = [],
                 BmsonCharts = [bmsonSong, duplicateOwner]
@@ -218,13 +224,14 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
     [TestMethod]
     public void WarmOwnedRealPathDirectoryView_BuildsAndReusesOwnedRefIndex()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string root = Path.Combine("C:\\Installed", "Warmup");
             ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(root, "Bms", "chart.bms"));
             ChartFile bmsonSong = CreateBmsonSong(Path.Combine(root, "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = [bmsFile],
                 BmsonCharts = [bmsonSong]
@@ -249,12 +256,13 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
     [TestMethod]
     public void WarmInstalledPrimaryHashLookup_BuildsWithoutFullDirectoryLookup()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
             ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "PrimaryWarmup", "Bms", "chart.bms"));
             ChartFile bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "PrimaryWarmup", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = [bmsFile],
                 BmsonCharts = [bmsonSong]

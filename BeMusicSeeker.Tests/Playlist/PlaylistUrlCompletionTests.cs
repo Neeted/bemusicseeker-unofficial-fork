@@ -22,6 +22,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistUrlCompletionTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     private string isolatedSettingsDirectory = string.Empty;
     private BeMusicSeeker.Properties.Settings testSettings = null!;
 
@@ -316,7 +318,7 @@ public sealed class PlaylistUrlCompletionTests
     [TestCategory("Playlist")]
     public async Task BMSPlaylist_UrlCompletionFetchesSourcesOnceAndRefetchesTsvWhenUriChanges()
     {
-        string tempDbPath = CreateEmptySongDbPath();
+        string tempDbPath = CreateEmptySongDbPath(databaseScope);
         TestBmsPlaylist? playlist = null;
         try
         {
@@ -345,7 +347,7 @@ public sealed class PlaylistUrlCompletionTests
                     "{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"url\":\"https://example.com/main-stella-b\",\"url_diff\":\"https://example.com/diff-stella-b\"}" +
                     "]");
             };
-            playlist = new TestBmsPlaylist(
+            playlist = new TestBmsPlaylist(databaseScope,
                 tempDbPath,
                 null,
                 null,
@@ -401,7 +403,7 @@ public sealed class PlaylistUrlCompletionTests
     [DataRow("resource")]
     public async Task BMSPlaylist_UrlCompletionDistinguishesUnavailableSourceFromInternalFailure(string kind)
     {
-        string databasePath = CreateEmptySongDbPath();
+        string databasePath = CreateEmptySongDbPath(databaseScope);
         TestBmsPlaylist? playlist = null;
         try
         {
@@ -421,7 +423,7 @@ public sealed class PlaylistUrlCompletionTests
                 PlaylistMd5UrlMappingTsvUri = "https://example.invalid/first.tsv",
                 OverwritePlaylistUrlsWithCompletion = true
             };
-            playlist = new TestBmsPlaylist(databasePath, null, null, null, () => options,
+            playlist = new TestBmsPlaylist(databaseScope, databasePath, null, null, null, () => options,
                 () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot(), null,
                 (uri, _) =>
                 {
@@ -469,7 +471,7 @@ public sealed class PlaylistUrlCompletionTests
     [TestCategory("Playlist")]
     public async Task BMSPlaylist_StellaFullSettingDisablesFetchAndClearsStellaRuntimeCompletion()
     {
-        string tempDbPath = CreateEmptySongDbPath();
+        string tempDbPath = CreateEmptySongDbPath(databaseScope);
         try
         {
             int stellaFetchCount = 0;
@@ -483,7 +485,7 @@ public sealed class PlaylistUrlCompletionTests
                 stellaFetchCount++;
                 return Task.FromResult("[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"url\":\"https://example.com/main-stella\",\"url_diff\":\"https://example.com/diff-stella\"}]");
             };
-            var playlist = new TestBmsPlaylist(
+            var playlist = new TestBmsPlaylist(databaseScope,
                 tempDbPath,
                 null,
                 null,
@@ -495,7 +497,7 @@ public sealed class PlaylistUrlCompletionTests
                 tsvFetcher,
                 stellaFetcher);
             BMSTable table = CreateTable(5002, "StellaToggleTable");
-            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, tempDbPath);
             BMSTableEntry stellaEntry = CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "StellaSong");
             table.entries = [stellaEntry];
             playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { table });
@@ -530,7 +532,7 @@ public sealed class PlaylistUrlCompletionTests
             Assert.IsNull(cleared.Changes.Single().After.EffectiveUrl);
             Assert.AreEqual(new Uri("https://example.com/main-stella"), completed.Changes.Single().After.EffectiveUrl,
                 "過去の補完結果は解除後も不変です。");
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), tempDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(string.Empty, db.ExecuteScalar<string>("SELECT url FROM playlist_entry WHERE playlist_id = 5002;"));
                 Assert.AreEqual(initialLastUpdate, db.Table<BMSTable>().Single(row => row.playlist_id == 5002).last_update);
@@ -553,7 +555,7 @@ public sealed class PlaylistUrlCompletionTests
     [TestCategory("Playlist")]
     public async Task BMSPlaylist_UrlCompletionUsesInjectedOptionsAndRetiredResultDoesNotApply(bool retire)
     {
-        string tempDbPath = CreateEmptySongDbPath();
+        string tempDbPath = CreateEmptySongDbPath(databaseScope);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Task refresh = Task.CompletedTask;
@@ -575,7 +577,7 @@ public sealed class PlaylistUrlCompletionTests
                 await release.Task;
                 return "md5\turl_diff\turl\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\t\thttps://example.com/injected";
             };
-            var playlist = new TestBmsPlaylist(
+            var playlist = new TestBmsPlaylist(databaseScope,
                 tempDbPath,
                 null,
                 null,
@@ -646,13 +648,13 @@ public sealed class PlaylistUrlCompletionTests
     [TestCategory("Playlist")]
     public async Task PlaylistDetailVirtualView_CandidateCaseChangesFlowThroughReceiptAndUpdateSameRow()
     {
-        string songDbPath = CreateEmptySongDbPath();
+        string songDbPath = CreateEmptySongDbPath(databaseScope);
         TestBmsPlaylist? playlist = null;
         TestBmsLibrary? library = null;
         PlaylistWorkspaceViewModel? workspace = null;
         try
         {
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             testSettings.OperationModeLR2DB = false;
             testSettings.EnablePlaylistUrlCompletion = true;
             testSettings.EnableStellaFullPlaylistUrlCompletion = false;
@@ -675,8 +677,8 @@ public sealed class PlaylistUrlCompletionTests
                 };
                 return Task.FromResult($"md5\turl_diff\turl\r\neeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\t{diff}\t{main}");
             };
-            library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, testSettings);
-            playlist = new TestBmsPlaylist(songDbPath, null, null, null,
+            library = MainWindowViewModelTestFactory.CreateLibrary(databaseScope, songDbPath, testSettings);
+            playlist = new TestBmsPlaylist(databaseScope, songDbPath, null, null, null,
                 () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(testSettings),
                 () => BeatorajaBmtOptionsSnapshot.CreateCurrent(testSettings),
                 () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings), null,
@@ -781,13 +783,13 @@ public sealed class PlaylistUrlCompletionTests
     [TestCategory("Playlist")]
     public async Task DetailEdit_LocalPlaylistMaterializesEffectiveUrlsIntoDatabase()
     {
-        string tempDbPath = CreateEmptySongDbPath();
+        string tempDbPath = CreateEmptySongDbPath(databaseScope);
         PlaylistWorkspaceViewModel? workspace = null;
         TestBmsPlaylist? playlist = null;
         TestBmsLibrary? library = null;
         try
         {
-            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, tempDbPath);
             BMSTable table = CreateTable(4001, "LocalTable");
             DateTime oldLastUpdate = DateTime.Now.AddDays(1);
             table.last_update = oldLastUpdate;
@@ -798,7 +800,7 @@ public sealed class PlaylistUrlCompletionTests
 
             await SaveDetailMemoAsync(workspace, entry, "saved memo");
 
-            using LR2SongDBExtended db = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), tempDbPath).OpenSongDbReadOnly();
             BMSTableEntry storedEntry = db.Table<BMSTableEntry>().Single(row => row.playlist_id == table.playlist_id && row.md5 == entry.md5);
             Assert.AreEqual("saved memo", storedEntry.memo);
             Assert.AreEqual(new Uri("https://example.com/runtime"), entry.Url);
@@ -842,13 +844,13 @@ public sealed class PlaylistUrlCompletionTests
     [TestCategory("Playlist")]
     public async Task DetailEdit_LocalUrlClearOrReplacePreservesOtherUrl(string propertyName, string text, bool completeOther)
     {
-        string path = CreateEmptySongDbPath();
+        string path = CreateEmptySongDbPath(databaseScope);
         PlaylistWorkspaceViewModel? workspace = null;
         TestBmsPlaylist? playlist = null;
         TestBmsLibrary? library = null;
         try
         {
-            PlaylistPersistenceRepository.EnsureSchema(path);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, path);
             BMSTable table = CreateTable(4103, "URL edit");
             BMSTableEntry entry = CreateEntry(new string('e', 32), "URL edit song");
             entry.Url = new Uri("https://example.com/saved-main");
@@ -889,7 +891,7 @@ public sealed class PlaylistUrlCompletionTests
                 PlaylistDetailRow current = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow();
                 Assert.AreEqual(expectedMain, current.Url);
                 Assert.AreEqual(expectedDiff, current.Url_diff);
-                using LR2SongDBExtended db = new BmsLibraryDbGateway(path).OpenSongDbReadOnly();
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), path).OpenSongDbReadOnly();
                 BMSTableEntry saved = db.Table<BMSTableEntry>().Single();
                 Assert.AreEqual(expectedMain, saved.Url);
                 Assert.AreEqual(expectedDiff, saved.Url_diff);
@@ -912,13 +914,13 @@ public sealed class PlaylistUrlCompletionTests
     [TestCategory("Playlist")]
     public async Task DetailEdit_ExternalSyncPlaylistDoesNotMaterializeEffectiveUrls()
     {
-        string tempDbPath = CreateEmptySongDbPath();
+        string tempDbPath = CreateEmptySongDbPath(databaseScope);
         PlaylistWorkspaceViewModel? workspace = null;
         TestBmsPlaylist? playlist = null;
         TestBmsLibrary? library = null;
         try
         {
-            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, tempDbPath);
             BMSTable table = CreateTable(4002, "ExternalTable");
             table.Page_url = new Uri("https://example.com/page.html");
             table.Header_url = new Uri("https://example.com/header.json");
@@ -931,7 +933,7 @@ public sealed class PlaylistUrlCompletionTests
 
             await SaveDetailMemoAsync(workspace, entry, "saved memo");
 
-            using LR2SongDBExtended db = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), tempDbPath).OpenSongDbReadOnly();
             BMSTableEntry storedEntry = db.Table<BMSTableEntry>().Single(row => row.playlist_id == table.playlist_id && row.md5 == entry.md5);
             Assert.AreEqual("saved memo", storedEntry.memo);
             Assert.IsNull(entry.Url);
@@ -959,13 +961,13 @@ public sealed class PlaylistUrlCompletionTests
     [TestCategory("Playlist")]
     public async Task DetailEdit_Sha256Identity_ReplacesExistingRowWithoutDuplicates()
     {
-        string tempDbPath = CreateEmptySongDbPath();
+        string tempDbPath = CreateEmptySongDbPath(databaseScope);
         PlaylistWorkspaceViewModel? workspace = null;
         TestBmsPlaylist? playlist = null;
         TestBmsLibrary? library = null;
         try
         {
-            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, tempDbPath);
             BMSTable table = CreateTable(4003, "ShaTable");
             TestablePlaylistEntry entry = CreateShaOnlyEntry("3434343434343434343434343434343434343434343434343434343434343434", "ShaSong", "before");
             table.entries = [entry];
@@ -974,7 +976,7 @@ public sealed class PlaylistUrlCompletionTests
             await SaveDetailMemoAsync(workspace, entry, "memo-1");
             await SaveDetailMemoAsync(workspace, entry, "memo-2");
 
-            using LR2SongDBExtended db = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), tempDbPath).OpenSongDbReadOnly();
             List<BMSTableEntry> rows = [.. db.Table<BMSTableEntry>().Where(row => row.playlist_id == table.playlist_id)];
             Assert.AreEqual(1, rows.Count);
             Assert.AreEqual("memo-2", rows[0].memo);
@@ -998,13 +1000,13 @@ public sealed class PlaylistUrlCompletionTests
     [TestCategory("Playlist")]
     public async Task DetailEdit_AddedMd5ReplacesExistingSha256CompatibilityRow()
     {
-        string tempDbPath = CreateEmptySongDbPath();
+        string tempDbPath = CreateEmptySongDbPath(databaseScope);
         PlaylistWorkspaceViewModel? workspace = null;
         TestBmsPlaylist? playlist = null;
         TestBmsLibrary? library = null;
         try
         {
-            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, tempDbPath);
             BMSTable table = CreateTable(4005, "ShaToBothTable");
             string sha256 = "4545454545454545454545454545454545454545454545454545454545454545";
             TestablePlaylistEntry entry = CreateShaOnlyEntry(sha256, "BmsonSong", "old");
@@ -1019,7 +1021,7 @@ public sealed class PlaylistUrlCompletionTests
 
             await SaveDetailMemoAsync(workspace, entry, "new", chart);
 
-            using LR2SongDBExtended db = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), tempDbPath).OpenSongDbReadOnly();
             List<BMSTableEntry> rows = [.. db.Table<BMSTableEntry>().Where(row => row.playlist_id == table.playlist_id)];
             Assert.AreEqual(1, rows.Count);
             Assert.AreEqual(chart.Md5, rows[0].md5);
@@ -1086,13 +1088,13 @@ public sealed class PlaylistUrlCompletionTests
     [TestCategory("Playlist")]
     public async Task DetailEdit_BmsonPlaylistEntry_PersistsBothHashesAndOrgMd5()
     {
-        string tempDbPath = CreateEmptySongDbPath();
+        string tempDbPath = CreateEmptySongDbPath(databaseScope);
         PlaylistWorkspaceViewModel? workspace = null;
         TestBmsPlaylist? playlist = null;
         TestBmsLibrary? library = null;
         try
         {
-            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, tempDbPath);
             BMSTable table = CreateTable(4004, "BmsonTable");
             ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
@@ -1115,7 +1117,7 @@ public sealed class PlaylistUrlCompletionTests
             workspace = CreateSavedDetailWorkspace(tempDbPath, table, out playlist, out library);
             await SaveDetailMemoAsync(workspace, entry, "saved memo");
 
-            using LR2SongDBExtended db = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), tempDbPath).OpenSongDbReadOnly();
             BMSTableEntry storedEntry = db.Table<BMSTableEntry>().Single(row => row.playlist_id == table.playlist_id && row.sha256 == entry.sha256);
             Assert.AreEqual("saved memo", storedEntry.memo);
             Assert.AreEqual("99999999999999999999999999999999", storedEntry.md5);
@@ -1149,14 +1151,14 @@ public sealed class PlaylistUrlCompletionTests
     [DataRow(nameof(PlaylistDetailRow.memo), "edited memo", 2d)]
     public async Task DetailEdit_LocalAttributesPersistThroughFreshPlaylistAndPresentation(string propertyName, string text, double? expectedLevel)
     {
-        string songDbPath = CreateEmptySongDbPath();
+        string songDbPath = CreateEmptySongDbPath(databaseScope);
         TestBmsPlaylist? playlist = null;
         TestBmsPlaylist? reloaded = null;
         TestBmsLibrary? library = null;
         PlaylistWorkspaceViewModel? workspace = null;
         try
         {
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             BMSTable table = CreateTable(4101, "LocalAttributes");
             BMSTableEntry entryA = CreateEntry(new string('a', 32), "A");
             BMSTableEntry entryB = CreateEntry(new string('b', 32), "B");
@@ -1236,17 +1238,17 @@ public sealed class PlaylistUrlCompletionTests
             Assert.AreEqual("a memo", sourceA.memo, "旧不変入力を確定表示へ書き換えません。");
             Assert.AreEqual(2d, sourceA.EntryValue.Level);
             AssertRow(sourceB.CreateViewRow(), isA: false);
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
             {
                 BMSTableEntry[] stored = [.. db.Table<BMSTableEntry>().Where(entry => entry.playlist_id == table.playlist_id)];
                 Assert.AreEqual(2, stored.Length);
                 CollectionAssert.AreEquivalent(new[] { new string('a', 32), new string('b', 32) }, stored.Select(entry => entry.md5).ToArray());
                 foreach (BMSTableEntry entry in stored) { AssertEntry(entry, entry.md5 == entryA.md5); }
             }
-            reloaded = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings, library: library);
+            reloaded = MainWindowViewModelTestFactory.CreatePlaylist(databaseScope, songDbPath, testSettings, library: library);
             // 保存読戻しの保証に不要な起動時の出力・全表同期を通さず、実repositoryと新playlistのhydration ownerで読む。
             // 期待値はreaderへ渡さず、同期読込の終端後に新しいentry・表示rowを照合する。
-            reloaded.BMSTables = new ObservableCollection<BMSTable>(new PlaylistPersistenceRepository(songDbPath).LoadPlaylistHeaders());
+            reloaded.BMSTables = new ObservableCollection<BMSTable>(new PlaylistPersistenceRepository(databaseScope, songDbPath).LoadPlaylistHeaders());
             BMSTable freshTable = reloaded.BMSTables.Single(item => item.playlist_id == table.playlist_id);
             Assert.AreNotSame(table, freshTable);
             Assert.IsFalse(freshTable.ArePlaylistEntriesLoaded);
@@ -1286,13 +1288,13 @@ public sealed class PlaylistUrlCompletionTests
         const int playlistId = 4102;
         const string originalUrl = "https://example.com/original-main";
         const string originalDiffUrl = "https://example.com/original-diff";
-        string songDbPath = CreateEmptySongDbPath();
+        string songDbPath = CreateEmptySongDbPath(databaseScope);
         TestBmsPlaylist? playlist = null;
         TestBmsLibrary? library = null;
         PlaylistWorkspaceViewModel? workspace = null;
         try
         {
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             BMSTable table = CreateTable(playlistId, "InvalidUri");
             table.is_external_sync = false;
             BMSTableEntry entry = CreateEntry(new string('c', 32), "Original");
@@ -1360,7 +1362,7 @@ public sealed class PlaylistUrlCompletionTests
             BMSTableEntry currentEntry = currentTable.entries.Single();
             Assert.AreSame(entry, currentEntry);
             AssertEntry(currentEntry);
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
             {
                 // 操作後の正本を期待値に使わず、専用DBの全件数と保存入力を独立に照合します。
                 BMSTable[] storedTables = [.. db.Table<BMSTable>()];
@@ -1390,8 +1392,8 @@ public sealed class PlaylistUrlCompletionTests
     [DataRow(true)]
     public async Task DetailDraft_NormalUrlCompletionThenMemoCommitUsesLatestInput(bool external)
     {
-        string path = CreateEmptySongDbPath();
-        PlaylistPersistenceRepository.EnsureSchema(path);
+        string path = CreateEmptySongDbPath(databaseScope);
+        PlaylistPersistenceRepository.EnsureSchema(databaseScope, path);
         PlaylistWorkspaceViewModel? workspace = null;
         TestBmsPlaylist? playlist = null;
         TestBmsLibrary? library = null;
@@ -1404,8 +1406,8 @@ public sealed class PlaylistUrlCompletionTests
             testSettings.PlaylistMd5UrlMappingTsvUri = "https://example.com/playlist-draft.tsv";
             string candidateMain = "https://example.com/completed";
             string candidateDiff = "https://example.com/completed-diff";
-            library = MainWindowViewModelTestFactory.CreateLibrary(path, testSettings);
-            playlist = new TestBmsPlaylist(path, null, null, null,
+            library = MainWindowViewModelTestFactory.CreateLibrary(databaseScope, path, testSettings);
+            playlist = new TestBmsPlaylist(databaseScope, path, null, null, null,
                 () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(testSettings),
                 () => BeatorajaBmtOptionsSnapshot.CreateCurrent(testSettings),
                 () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings), null,
@@ -1442,7 +1444,7 @@ public sealed class PlaylistUrlCompletionTests
             Assert.AreSame(oldRow, rows[0]);
             Assert.AreEqual("memo draft", oldRow.memo);
             Assert.AreEqual(new Uri("https://example.com/completed"), oldRow.Url);
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(path).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), path).OpenSongDbReadOnly())
             {
                 Assert.AreEqual("memo draft", db.ExecuteScalar<string>("SELECT memo FROM playlist_entry;"));
                 string? savedUrl = db.ExecuteScalar<string?>("SELECT url FROM playlist_entry;");
@@ -1469,7 +1471,7 @@ public sealed class PlaylistUrlCompletionTests
                     Assert.IsNull(property == nameof(PlaylistDetailRow.Url) ? oldRow.Url : oldRow.Url_diff);
                     await SaveCurrentMemoAsync("memo after clear " + property);
                     Assert.IsNull(property == nameof(PlaylistDetailRow.Url) ? oldRow.Url : oldRow.Url_diff);
-                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(path).OpenSongDbReadOnly())
+                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), path).OpenSongDbReadOnly())
                     {
                         string? saved = db.ExecuteScalar<string?>(property == nameof(PlaylistDetailRow.Url)
                             ? "SELECT url FROM playlist_entry;" : "SELECT url_diff FROM playlist_entry;");
@@ -1483,7 +1485,7 @@ public sealed class PlaylistUrlCompletionTests
                     Assert.AreEqual(expected, property == nameof(PlaylistDetailRow.Url) ? oldRow.Url : oldRow.Url_diff);
                     Assert.AreEqual(expected, property == nameof(PlaylistDetailRow.Url) ? oldRow.Entry.EffectiveUrl : oldRow.Entry.EffectiveUrlDiff);
                     await SaveCurrentMemoAsync("memo draft");
-                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(path).OpenSongDbReadOnly())
+                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), path).OpenSongDbReadOnly())
                     {
                         string? saved = db.ExecuteScalar<string?>(property == nameof(PlaylistDetailRow.Url)
                             ? "SELECT url FROM playlist_entry;" : "SELECT url_diff FROM playlist_entry;");
@@ -1562,7 +1564,7 @@ public sealed class PlaylistUrlCompletionTests
     [TestMethod]
     public async Task DetailEdit_WaitingWriterKeepsDraftOutsideLiveEntry()
     {
-        string songDbPath = CreateEmptySongDbPath();
+        string songDbPath = CreateEmptySongDbPath(databaseScope);
         TestBmsPlaylist? playlist = null;
         TestBmsLibrary? library = null;
         PlaylistWorkspaceViewModel? workspace = null;
@@ -1572,7 +1574,7 @@ public sealed class PlaylistUrlCompletionTests
         var editFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             BMSTable table = CreateTable(4199, "DraftIsolation");
             BMSTableEntry entry = CreateEntry(new string('d', 32), "draft");
             entry.memo = "before";
@@ -1629,9 +1631,9 @@ public sealed class PlaylistUrlCompletionTests
         out TestBmsPlaylist playlist, out TestBmsLibrary library)
     {
         testSettings.OperationModeLR2DB = false;
-        library = new TestBmsLibrary(songDbPath, null, null, null,
+        library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null,
             () => BmsLibraryOptionsSnapshot.CreateCurrent(testSettings));
-        playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings, library: library);
+        playlist = MainWindowViewModelTestFactory.CreatePlaylist(databaseScope, songDbPath, testSettings, library: library);
         playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
         playlist.CommitBMSTableWithEntriesToDB(table);
         TestBmsPlaylist acceptedPlaylist = playlist;
@@ -1656,12 +1658,14 @@ public sealed class PlaylistUrlCompletionTests
         Assert.AreEqual(memo, entry.memo);
     }
 
-    private static string CreateEmptySongDbPath()
+    /// <summary>呼出し元と同じDB所有者でテスト対象と保存入力を準備します。</summary>
+    /// <param name="databaseScope">呼出し元と接続・書込み排他を共有するfixtureのDB所有者。</param>
+    private static string CreateEmptySongDbPath(ApplicationDatabaseScope databaseScope)
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "PlaylistUrlCompletionTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         string tempDbPath = Path.Combine(tempDirectory, "song.db");
-        using (var _ = new LR2SongDBExtended(tempDbPath))
+        using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(tempDbPath))
         {
         }
         return tempDbPath;

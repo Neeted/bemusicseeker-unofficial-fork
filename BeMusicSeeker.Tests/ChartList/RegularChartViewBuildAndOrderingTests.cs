@@ -257,6 +257,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
     [TestMethod]
     public void ApplyMainLibraryView_PreparesColdResourceHealthBeforeVirtualRows()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -266,7 +267,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
                 "#PLAYER 1\r\n#TITLE Resource health warning\r\n#WAV01 missing.wav\r\n#00111:01\r\n");
             ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
             file = ChartFileProjection.WithMaintenance(file, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = file.Path, hash = file.Md5, wav_files_defined = 1, wav_files_existing = 0 }));
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -306,6 +307,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
     [TestMethod]
     public void ApplyMainLibraryView_PreparesResourceHealthBeforeWarningSortAndReusesRows()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -323,7 +325,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
             missing = ChartFileProjection.WithMaintenance(missing, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = missing.Path, hash = missing.Md5, wav_files_defined = 1, wav_files_existing = 0 }));
             ChartFile healthy = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(healthyPath));
             healthy = ChartFileProjection.WithMaintenance(healthy, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = healthy.Path, hash = healthy.Md5, wav_files_defined = 1, wav_files_existing = 1 }));
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -559,9 +561,10 @@ public sealed class RegularChartViewBuildAndOrderingTests
     [TestMethod]
     public void CatalogInput_ExplicitRefreshUsesSameCountReplacementAndCurrentFilters()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(path =>
         {
-            var library = new TestBmsLibrary(path);
+            var library = new TestBmsLibrary(databaseScope, path);
             CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
             ChartFile a = CreateSourceRow("Old", "A", 7).Chart;
             ChartFile b = CreateSourceRow("Old", "B", 14).Chart;
@@ -583,7 +586,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
             request.Library = library;
             Assert.IsTrue(owner.ApplyRegularView(request).WasCommitted);
             CollectionAssert.AreEqual(new[] { "A", "C" }, table.Rows.Cast<LibraryChartRow>().Select(row => row.Title).ToArray());
-            var otherLibrary = new TestBmsLibrary(path);
+            var otherLibrary = new TestBmsLibrary(databaseScope, path);
             CatalogOwnedCollectionOwner otherCatalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(otherLibrary);
             otherCatalog.ReplaceCharts([CreateSourceRow("Other", "Other").Chart, CreateSourceRow("Other", "ZOther").Chart], []);
             request.Library = otherLibrary;
@@ -600,9 +603,10 @@ public sealed class RegularChartViewBuildAndOrderingTests
     [TestMethod]
     public void CatalogInput_BmsonTiesKeepCapturedOrderAndStaleCandidateCannotOverwriteRows()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(path =>
         {
-            var library = new TestBmsLibrary(path);
+            var library = new TestBmsLibrary(databaseScope, path);
             CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
             ChartFile z = ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = @"C:\z.bmson", Md5 = "z", Title = "Same", Token = new OwnedChartToken() };
             ChartFile a = z with { Path = @"C:\a.bmson", Md5 = "a", Token = new OwnedChartToken() };
@@ -684,9 +688,10 @@ public sealed class RegularChartViewBuildAndOrderingTests
     [TestMethod]
     public void VirtualOrderPrewarm_BuildsOwnedOrderAndCompletesLease()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             void SeedCatalog(IEnumerable<ChartListSourceRow> rows)
             {
                 CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
@@ -735,9 +740,10 @@ public sealed class RegularChartViewBuildAndOrderingTests
     [DataRow(3, "level")]
     public void VirtualOrderPrewarm_UnpreparedColumnsRemainDemandSortedAndInvalidated(int priority, string column)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
             ChartFile MakeChart(string title, int value) => new(ChartFileKind.Bms, @"C:\Charts\" + title + ".bms", title, null,
                 title, title, "", "", "Folder", "", value.ToString(), value, value,
@@ -795,9 +801,10 @@ public sealed class RegularChartViewBuildAndOrderingTests
     [TestMethod]
     public void VirtualNormalLibraryApply_OwnsSourceOrderFilterAndTerminalReuse()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             void SeedCatalog(IEnumerable<ChartListSourceRow> rows)
             {
                 CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
@@ -916,6 +923,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
 
     private static async Task VerifyPackageViewAsync(string songDbPath, bool installed, bool singlePackage, int backgroundCount)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string root = Path.GetDirectoryName(songDbPath)!;
         string missingPath = Path.Combine(root, "warning.bms");
         File.WriteAllText(missingPath, "#PLAYER 1\r\n#TITLE Keep Warning\r\n#WAV01 missing.wav\r\n#00111:01\r\n");
@@ -934,7 +942,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
         ChartFile other = CreateSourceRow("Other", "Keep Other", 7).Chart;
         ChartPackage selected = ChartPackageTestExtensions.CreatePackage(warning, clean, keywordExcluded, modeExcluded);
         ChartPackage second = ChartPackageTestExtensions.CreatePackage(other);
-        var library = new TestBmsLibrary(songDbPath);
+        var library = new TestBmsLibrary(databaseScope, songDbPath);
         OwnedChartCollectionTestSupport.SetLibraryFilesWithoutNotification(library,
             new[] { warning }.Concat(Enumerable.Range(0, backgroundCount).Select(index => CreateSourceRow("Background", "Background " + index).Chart)).ToArray());
         if (installed) { library.ChartPackagesInstalled = [selected, second]; }
@@ -1153,9 +1161,10 @@ public sealed class RegularChartViewBuildAndOrderingTests
     [TestMethod]
     public void RegularEntry_SelectsDefaultVirtualAndResetsUnsupportedSort()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             void SeedCatalog(IEnumerable<ChartListSourceRow> rows)
             {
                 CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
@@ -1199,9 +1208,10 @@ public sealed class RegularChartViewBuildAndOrderingTests
     [TestMethod]
     public void RegularEntry_AppliesOwnerFilterState()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             void SeedCatalog(IEnumerable<ChartListSourceRow> rows)
             {
                 CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
@@ -1241,9 +1251,10 @@ public sealed class RegularChartViewBuildAndOrderingTests
     [TestMethod]
     public void RegularEntry_AppliesOwnerModeFilterState()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             void SeedCatalog(IEnumerable<ChartListSourceRow> rows)
             {
                 CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
@@ -1271,6 +1282,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
     [DataRow("")]
     public void RegularEntry_SelectsDuplicateSubsetFromLibraryOwner(string header)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
             var table = new MainChartListViewModel();
@@ -1279,7 +1291,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
             ChartFile second = CreateSourceRow("Second", "second.bms").Chart;
             ChartFile sibling = CreateSourceRow("Second", "unique.bms").Chart;
             ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = @"C:\Charts\Second\duplicate.bmson", Md5 = "bmson", Title = "bmson" };
-            var library = new TestBmsLibrary(songDbPath) { BmsCharts = [first, second, sibling], BmsonCharts = [bmson] };
+            var library = new TestBmsLibrary(databaseScope, songDbPath) { BmsCharts = [first, second, sibling], BmsonCharts = [bmson] };
             // 検索結果の所属は所持tokenを持つ値です。登録前の入力値をcurrent投影の対象にしません。
             first = library.BmsCharts.Single(chart => chart.Path == first.Path);
             second = library.BmsCharts.Single(chart => chart.Path == second.Path);

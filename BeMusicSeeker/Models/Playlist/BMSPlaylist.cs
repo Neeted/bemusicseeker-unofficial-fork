@@ -107,6 +107,8 @@ public partial class BMSPlaylist : ObservableObject
     /// </summary>
     private readonly string lr2SongDBPath;
 
+    private readonly ApplicationDatabaseScope databaseScope;
+
     private readonly PlaylistPersistenceRepository playlistPersistenceRepository;
 
     private readonly PlaylistAggregatePersistenceOwner playlistAggregatePersistenceOwner;
@@ -667,7 +669,7 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="playlistUrlCompletionTsvContentFetcher">任意のTSV補完取得能力。</param>
     /// <param name="playlistUrlCompletionStellaContentFetcher">任意のStella補完取得能力。</param>
     /// <param name="recommendationScoreReader">推薦用の原観測を読み取る既存依存。省略時は所有ライブラリへ接続し、L/Pの所有関係は変えません。</param>
-    /// <param name="openEntryWriteConnection">entry保存に使うDB接続の構成依存。省略時は通常の曲DB接続を作ります。</param>
+    /// <param name="initializeEntryWriteConnection">ownerが取得したentry保存接続へ、寿命内の観測・設定を取り付けます。</param>
     /// <param name="lr2PlaylistFolderSynchronization">独立構成で明示する出力境界。省略時は所有ライブラリの同期能力を使います。</param>
     internal BMSPlaylist(
         BmsPlaylistLibraryBindings libraryBindings,
@@ -682,9 +684,10 @@ public partial class BMSPlaylist : ObservableObject
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionTsvContentFetcher = null,
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher = null,
         Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null,
-        Func<string, LR2SongDBExtended> openEntryWriteConnection = null,
+        Action<LR2SongDBExtended> initializeEntryWriteConnection = null,
         ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization = null)
         : this(
+            RequireLibraryBindings(libraryBindings).SourceLibrary.DatabaseScope,
             _lr2SongDB,
             getLR2Config,
             _lr2ScoreDB,
@@ -699,7 +702,7 @@ public partial class BMSPlaylist : ObservableObject
             playlistUrlCompletionTsvContentFetcher,
             playlistUrlCompletionStellaContentFetcher,
             recommendationScoreReader,
-            openEntryWriteConnection)
+            initializeEntryWriteConnection)
     {
         this.libraryBindings = RequireLibraryBindings(libraryBindings);
         playlistMutationAdmission = libraryBindings.SourceLibrary.Lr2Synchronization.PlaylistOperationAdmission;
@@ -724,8 +727,10 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="playlistUrlCompletionTsvContentFetcher">任意のTSV補完取得能力。</param>
     /// <param name="playlistUrlCompletionStellaContentFetcher">任意のStella補完取得能力。</param>
     /// <param name="recommendationScoreReader">テスト等の独立構成で使う選択スコアの読取り能力。通常構成では所有ライブラリへ接続します。</param>
-    /// <param name="openEntryWriteConnection">entry保存に使うDB接続の構成依存。省略時は通常の曲DB接続を作ります。</param>
+    /// <param name="initializeEntryWriteConnection">ownerが取得したentry保存接続へ、寿命内の観測・設定を取り付けます。</param>
+    /// <param name="databaseScope">保存・復元と終了処理が共有する構成寿命のDB所有者。</param>
     internal BMSPlaylist(
+        ApplicationDatabaseScope databaseScope,
         string _lr2SongDB,
         Lr2ConfigOwner getLR2Config,
         string _lr2ScoreDB,
@@ -740,7 +745,7 @@ public partial class BMSPlaylist : ObservableObject
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionTsvContentFetcher = null,
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher = null,
         Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null,
-        Func<string, LR2SongDBExtended> openEntryWriteConnection = null)
+        Action<LR2SongDBExtended> initializeEntryWriteConnection = null)
     {
         if (_lr2SongDB == null)
         {
@@ -757,7 +762,8 @@ public partial class BMSPlaylist : ObservableObject
         this.uiScheduler = uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler));
         _BMSTables = new ObservableCollection<BMSTable>();
         lr2SongDBPath = _lr2SongDB;
-        playlistPersistenceRepository = new PlaylistPersistenceRepository(_lr2SongDB, openEntryWriteConnection);
+        this.databaseScope = databaseScope ?? throw new ArgumentNullException(nameof(databaseScope));
+        playlistPersistenceRepository = new PlaylistPersistenceRepository(databaseScope, _lr2SongDB, initializeEntryWriteConnection);
         playlistAggregatePersistenceOwner = new PlaylistAggregatePersistenceOwner(playlistPersistenceRepository, rwlockBMSTables, this.uiScheduler);
         playlistAggregatePersistenceOwner.SetActiveCollection([], _BMSTables);
         lr2config = getLR2Config;
@@ -1221,23 +1227,11 @@ public partial class BMSPlaylist : ObservableObject
                     customFolderOutputMaintenanceOwner.CapturePreviousOutputLocations(previous.Tables, outputSettings);
                 List<BMSTable> headers;
                 long persistenceGeneration;
-                bool lockAcquired = false;
-                try
+                using (IDisposable songLease = databaseScope.TryEnterSong(new TimeSpan(0, 1, 0))
+                    ?? throw new TimeoutException(Resources.Msg_error_timeout_dblock_restore))
                 {
-                    if (!LR2SongDBExtended.Lock(new TimeSpan(0, 1, 0)))
-                    {
-                        throw new TimeoutException(Resources.Msg_error_timeout_dblock_restore);
-                    }
-                    lockAcquired = true;
                     persistenceGeneration = playlistAggregatePersistenceOwner.LoadPlaylistDump(sql);
                     headers = playlistEntriesHydrationOwner.LoadPlaylistHeaders(out _);
-                }
-                finally
-                {
-                    if (lockAcquired)
-                    {
-                        LR2SongDBExtended.Unlock();
-                    }
                 }
 
                 // Monitor と connection の寿命は上の同一 worker scope に閉じ、UI 完了待ちへ持ち越さない。

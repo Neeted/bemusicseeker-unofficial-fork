@@ -44,7 +44,7 @@ public sealed partial class MainWindowViewHostTests
                 finally { fixture.Settings.LR2SongDBPath = database; }
             }
 
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(database,
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(fixture.Composition.DatabaseScope, database,
                 db => db.Execute("UPDATE app_schema_version SET version = 0 WHERE name = 'app_schema'"));
             var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var choice = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -77,7 +77,7 @@ public sealed partial class MainWindowViewHostTests
                 Assert.AreEqual(1, lifetime.RequestShutdownCount);
                 Assert.AreEqual(1, fixture.Dialogs.ConfirmationCount);
                 Assert.IsFalse(fixture.Owner.IsInitializationCompleted);
-                using LR2SongDBExtended db = new BmsLibraryDbGateway(database).OpenSongDbReadOnly();
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), database).OpenSongDbReadOnly();
                 Assert.AreEqual(0, db.ExecuteScalar<int>("SELECT version FROM app_schema_version WHERE name = 'app_schema'"));
             }
             catch (Exception failure) { primary = failure; throw; }

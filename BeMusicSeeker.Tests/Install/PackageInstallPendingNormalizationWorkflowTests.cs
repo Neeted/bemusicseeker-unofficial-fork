@@ -26,7 +26,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataRow("together", true)]
     public async Task ProductionImport_ParentAndChildOrdersConvergeToCurrentPhysicalUnits(string order, bool managed)
     {
-        await using var fixture = new AutomaticContinuationFixture(false, false, temporaryIngress: managed);
+        var databaseScope = new ApplicationDatabaseScope();
+        await using var fixture = new AutomaticContinuationFixture(databaseScope, false, false, temporaryIngress: managed);
         string sourceName = managed ? Path.Combine("ExternalTemp", "Collection") : "Collection";
         string parent = Path.Combine(fixture.Root, sourceName);
         string child = Path.Combine(parent, "Child");
@@ -63,7 +64,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         string materialized = managed ? Path.Combine(fixture.Root, "Ingress", "Collection") : parent;
         string[] expected = [Path.Combine(materialized, "a.bms"), Path.Combine(materialized, "b.bms"), Path.Combine(materialized, "Child")];
         CollectionAssert.AreEquivalent(expected, fixture.Library.ChartPackagesPending.Select(package => package.path).ToArray());
-        CollectionAssert.AreEquivalent(expected, new BmsLibraryDbGateway(fixture.Database).LoadInstallPackages().Select(package => package.path).ToArray());
+        CollectionAssert.AreEquivalent(expected, new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).LoadInstallPackages().Select(package => package.path).ToArray());
         foreach ((string path, byte[] bytes) in before)
         {
             CollectionAssert.AreEqual(bytes, File.ReadAllBytes(Path.Combine(parent, path)));
@@ -77,8 +78,9 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task ProductionImport_OverlappingPendingCanBeRepairedBySameRootAfterReadFailure()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         var port = new ObservingInstallMutationPort();
-        await using var fixture = new AutomaticContinuationFixture(false, false, mutationPort: port);
+        await using var fixture = new AutomaticContinuationFixture(databaseScope, false, false, mutationPort: port);
         int completions = 0;
         fixture.Owner.CompletionPublished += _ => completions++;
         string parent = fixture.WriteInput("Collection", "a.bms", "a");
@@ -92,7 +94,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Assert.IsTrue(fixture.Owner.Enqueue([parent]));
             await fixture.Owner.WaitForIdleAsync();
             CollectionAssert.AreEquivalent(originals, fixture.Library.ChartPackagesPending.ToArray());
-            CollectionAssert.AreEquivalent(new[] { parent, child }, new BmsLibraryDbGateway(fixture.Database).LoadInstallPackages().Select(package => package.path).ToArray());
+            CollectionAssert.AreEquivalent(new[] { parent, child }, new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).LoadInstallPackages().Select(package => package.path).ToArray());
             Assert.IsNotNull(port.LatestResult);
             Assert.IsTrue(port.LatestResult.HasRequiredFailure);
         }
@@ -106,7 +108,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Assert.IsTrue(port.LatestResult.HasDurableCommit);
         Assert.AreEqual(0, completions, "保留登録だけの正常終端からUI完了通知を追加しません。");
         CollectionAssert.AreEquivalent(new[] { a, child }, fixture.Library.ChartPackagesPending.Select(package => package.path).ToArray());
-        CollectionAssert.AreEquivalent(new[] { a, child }, new BmsLibraryDbGateway(fixture.Database).LoadInstallPackages().Select(package => package.path).ToArray());
+        CollectionAssert.AreEquivalent(new[] { a, child }, new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).LoadInstallPackages().Select(package => package.path).ToArray());
         Assert.IsTrue(File.Exists(a) && File.Exists(Path.Combine(child, "c.bms")));
     }
 
@@ -116,8 +118,9 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataRow("sound.wav")]
     public async Task ProductionIngress_NonChartFileDoesNotGrantPendingParentAutomaticEligibility(string selectedName)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         var port = new ObservingInstallMutationPort();
-        await using var fixture = new AutomaticContinuationFixture(false, false, temporaryIngress: true, mutationPort: port);
+        await using var fixture = new AutomaticContinuationFixture(databaseScope, false, false, temporaryIngress: true, mutationPort: port);
         string source = fixture.WriteInput("Pending", "new.bms", "unowned-non-chart-drop");
         string newChart = Path.Combine(source, "new.bms");
         string ownedSource = Path.Combine(source, "owned-copy.bms");
@@ -143,7 +146,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Assert.IsTrue(fixture.Observer.PreparedPaths.Contains(source));
         Assert.AreEqual(0, fixture.Library.ChartPackagesInstalled.Count);
         Assert.IsFalse(File.Exists(Path.Combine(fixture.Destination, "new.bms")));
-        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly())
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly())
         {
             Assert.IsNotNull(db.Find<LR2SongDB.song>(installed));
             Assert.IsNull(db.Find<LR2SongDB.song>(Path.Combine(fixture.Destination, "new.bms")));
@@ -195,7 +198,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         }
         Assert.AreEqual(0, fixture.Library.ChartPackagesInstalled.Count);
         Assert.IsFalse(fixture.Library.BmsCharts.Any(chart => chart.Md5 == newHash));
-        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly())
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly())
         {
             LR2SongDBExtended.install row = db.Table<LR2SongDBExtended.install>().Single();
             Assert.AreEqual(source, row.path);
@@ -218,7 +221,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         string target = Path.Combine(fixture.Destination, "new.bms");
         CollectionAssert.AreEqual(sourceBytes[newChart], File.ReadAllBytes(target));
         Assert.IsTrue(fixture.Library.BmsCharts.Any(chart => chart.Path == target && chart.Md5 == newHash));
-        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly())
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly())
         {
             Assert.IsNotNull(db.Find<LR2SongDB.song>(target));
             Assert.IsNotNull(db.Find<LR2SongDB.song>(installed));
@@ -236,7 +239,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task ProductionImport_UnrelatedOverlapDoesNotGainAutomaticEligibility()
     {
-        await using var fixture = new AutomaticContinuationFixture(true, false);
+        var databaseScope = new ApplicationDatabaseScope();
+        await using var fixture = new AutomaticContinuationFixture(databaseScope, true, false);
         string unrelated = fixture.WriteInput("Unrelated", "unrelated.bms", "unrelated");
         string oldFile = Path.Combine(unrelated, "unrelated.bms");
         File.WriteAllBytes(Path.Combine(unrelated, "sound.wav"), [2]);
@@ -253,7 +257,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Assert.IsFalse(fixture.Observer.PreparedPaths.Any(path => path.StartsWith(unrelated, StringComparison.OrdinalIgnoreCase)));
         Assert.IsFalse(fixture.Library.ChartPackagesInstalled.Any(package => package.ChartEntries.Any(entry => entry.Chart.Path.EndsWith("unrelated.bms", StringComparison.OrdinalIgnoreCase))));
         CollectionAssert.AreEqual(before, File.ReadAllBytes(oldFile));
-        Assert.IsTrue(new BmsLibraryDbGateway(fixture.Database).LoadInstallPackages().Any(package => package.path == unrelated));
+        Assert.IsTrue(new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).LoadInstallPackages().Any(package => package.path == unrelated));
     }
 
     /// <summary>旧子fileから、直接fileの親昇格と明示子directoryを同時に要求します。親readlockで群が不完全なら子別探索の成功を導入へ漏らさず、旧行・指定・元bytesを保って独立正常入力だけを導入します。解放後の同じ要求で親一式へ修復できます。</summary>
@@ -262,8 +266,9 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataRow(true)]
     public async Task ProductionImport_IncompletePromotedParentKeepsExplicitChildAndAllowsIndependentInput(bool childFirst)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         var port = new ObservingInstallMutationPort();
-        await using var fixture = new AutomaticContinuationFixture(false, false, mutationPort: port);
+        await using var fixture = new AutomaticContinuationFixture(databaseScope, false, false, mutationPort: port);
         string parent = fixture.WriteInput("Overlap", "promote.bms", "promote");
         fixture.WriteInput("Overlap", "locked.bms", "locked");
         string child = fixture.WriteInput(Path.Combine("Overlap", "Child"), "c.bms", "child");
@@ -303,7 +308,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Assert.AreEqual(destination.Title, original.ChartEntries.Single().Chart.InstallDestinationTitle);
             Assert.AreEqual(destination.Artist, original.ChartEntries.Single().Chart.InstallDestinationArtist);
             CollectionAssert.AreEqual(destination.Suggestions.ToArray(), original.ChartEntries.Single().Chart.InstallDestinationSuggestions.ToArray());
-            ChartPackage row = new BmsLibraryDbGateway(fixture.Database).LoadInstallPackages().Single();
+            ChartPackage row = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).LoadInstallPackages().Single();
             Assert.AreEqual(c, row.path);
             Assert.AreEqual(deleteParent, row.delete_parent);
             Assert.IsFalse(Directory.GetFiles(fixture.LibraryRoot, "c.bms", SearchOption.AllDirectories).Any());
@@ -314,7 +319,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         string normalDestination = installed.ChartEntries.Single().Chart.Path;
         Assert.AreEqual("normal.bms", Path.GetFileName(normalDestination));
         CollectionAssert.AreEqual(independentBytes, File.ReadAllBytes(normalDestination));
-        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly())
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly())
         {
             Assert.IsNotNull(db.Find<LR2SongDB.song>(normalDestination));
         }
@@ -332,7 +337,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         CollectionAssert.AreEquivalent(new[] { promote, Path.Combine(parent, "locked.bms"), c }, repaired.ChartEntries.Select(entry => entry.Chart.Path).ToArray());
         Assert.IsTrue(repaired.HasResourceBearingNestedCharts, "完全読取後も通常の入れ子判定で親一式を保留します。");
         Assert.IsFalse(fixture.Library.ChartPackagesPending.Contains(original));
-        Assert.AreEqual(parent, new BmsLibraryDbGateway(fixture.Database).LoadInstallPackages().Single().path);
+        Assert.AreEqual(parent, new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).LoadInstallPackages().Single().path);
         Assert.AreEqual(1, fixture.Library.ChartPackagesInstalled.Count);
         foreach ((string path, byte[] bytes) in preserved) { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path)); }
         Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
@@ -344,7 +349,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataRow(true)]
     public async Task ProductionImport_ConnectedGroupKeepsEarlierSlotForHashAndCancellation(bool cancel)
     {
-        await using var fixture = new AutomaticContinuationFixture(false, false);
+        var databaseScope = new ApplicationDatabaseScope();
+        await using var fixture = new AutomaticContinuationFixture(databaseScope, false, false);
         string b = fixture.WriteInput("B", "b.bms", "shared");
         string bChart = Path.Combine(b, "b.bms");
         File.WriteAllBytes(Path.Combine(b, "sound.wav"), [2]);
@@ -385,14 +391,14 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         ChartPackage pending = fixture.Library.ChartPackagesPending.Single();
         Assert.AreEqual(c, pending.path);
         Assert.IsFalse(originals.Any(fixture.Library.ChartPackagesPending.Contains));
-        CollectionAssert.AreEqual(new[] { c }, new BmsLibraryDbGateway(fixture.Database).LoadInstallPackages().Select(package => package.path).ToArray());
+        CollectionAssert.AreEqual(new[] { c }, new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).LoadInstallPackages().Select(package => package.path).ToArray());
         PackageChartEntry same = pending.ChartEntries.Single(entry => Path.GetFileName(entry.Chart.Path) == "same.bms");
         PackageChartEntry unique = pending.ChartEntries.Single(entry => Path.GetFileName(entry.Chart.Path) == "unique.bms");
         Assert.AreEqual(!cancel, same.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
         Assert.IsFalse(unique.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
         foreach ((string path, byte[] bytes) in cBytes) { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path)); }
         Assert.IsFalse(Directory.GetFiles(fixture.LibraryRoot, "unique.bms", SearchOption.AllDirectories).Any());
-        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly())
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly())
         {
             Assert.IsNotNull(db.Find<LR2SongDB.song>(destination));
             Assert.IsNull(db.Find<LR2SongDB.song>(Path.Combine(Path.GetDirectoryName(destination) ?? throw new InvalidOperationException(), "unique.bms")));
@@ -406,7 +412,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataRow(true)]
     public async Task ProductionImport_SplitOverlapCommitsPhysicalPrefixAndRemainingUnitsOnCancellation(bool databaseFailure)
     {
-        await using var fixture = new AutomaticContinuationFixture(false, false);
+        var databaseScope = new ApplicationDatabaseScope();
+        await using var fixture = new AutomaticContinuationFixture(databaseScope, false, false);
         string parent = fixture.WriteInput("Collection", "a.bms", "a");
         string child = fixture.WriteInput(Path.Combine("Collection", "First"), "first.bms", "first");
         string second = fixture.WriteInput(Path.Combine("Collection", "Second"), "second.bms", "second");
@@ -425,7 +432,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         fixture.Options = fixture.CreateOptions(false, false, keepNewPending: false);
         if (databaseFailure)
         {
-            ExecuteSongDbFixtureTransaction(fixture.Database, db => db.Execute("CREATE TRIGGER fail_split_pending AFTER INSERT ON install BEGIN SELECT RAISE(ABORT, 'split-pending'); END;"));
+            ExecuteSongDbFixtureTransaction(fixture.Library.DatabaseScope, fixture.Database, db => db.Execute("CREATE TRIGGER fail_split_pending AFTER INSERT ON install BEGIN SELECT RAISE(ABORT, 'split-pending'); END;"));
         }
         string? successfulSource = null;
         fixture.Files.BeforeCopy = path =>
@@ -456,7 +463,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             StringAssert.Contains(fixture.Result.SessionReceipt.ApplyFailure.ToString(), "split-pending");
             Assert.AreEqual(0, fixture.Result.RegisteredPackages.Count);
             CollectionAssert.AreEquivalent(originals, fixture.Library.ChartPackagesPending.ToArray());
-            CollectionAssert.AreEquivalent(originals.Select(package => package.path).ToArray(), new BmsLibraryDbGateway(fixture.Database).LoadInstallPackages().Select(package => package.path).ToArray());
+            CollectionAssert.AreEquivalent(originals.Select(package => package.path).ToArray(), new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).LoadInstallPackages().Select(package => package.path).ToArray());
             Assert.IsTrue(fixture.Result.RecoveryPaths.Any(path => path.StartsWith(fixture.LibraryRoot, StringComparison.OrdinalIgnoreCase)));
         }
         else
@@ -465,11 +472,11 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Assert.AreEqual(1, fixture.Result.RegisteredPackages.Count);
             string[] expected = [Path.Combine(parent, "a.bms"), remaining, registrationOnly, registrationOnlyFile];
             CollectionAssert.AreEquivalent(expected, fixture.Library.ChartPackagesPending.Select(package => package.path).ToArray());
-            CollectionAssert.AreEquivalent(expected, new BmsLibraryDbGateway(fixture.Database).LoadInstallPackages().Select(package => package.path).ToArray());
+            CollectionAssert.AreEquivalent(expected, new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).LoadInstallPackages().Select(package => package.path).ToArray());
             Assert.IsFalse(fixture.Library.ChartPackagesPending.Any(package => package.path == parent));
             Assert.AreEqual(1, fixture.Library.ChartPackagesInstalled.Count);
         }
-        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly())
+        using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly())
         {
             Assert.AreEqual(!databaseFailure, db.Find<LR2SongDB.song>(installedPath) != null);
             Assert.IsNull(db.Find<LR2SongDB.song>(Path.Combine(Path.GetDirectoryName(installedPath) ?? throw new InvalidOperationException(), remainingName)));
@@ -503,9 +510,10 @@ public sealed partial class PackageInstallWorkflowOwnerTests
 
     private static async Task VerifyAttributeDeniedScopeAsync(string parentName, bool childInput)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         if (!OperatingSystem.IsWindows()) { Assert.Fail("Windows ACLによる実属性拒否を確認するケースです。"); }
         var port = new ObservingInstallMutationPort();
-        await using var fixture = new AutomaticContinuationFixture(false, false, mutationPort: port);
+        await using var fixture = new AutomaticContinuationFixture(databaseScope, false, false, mutationPort: port);
         string container = Path.Combine(fixture.Root, "Private");
         string parent = fixture.WriteInput(Path.Combine("Private", parentName), "a.bms", "attribute-denied");
         string chart = Path.Combine(parent, "a.bms");
@@ -528,7 +536,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         ChartPackage[] originals = [oldParent, oldFile];
         SeedLegacyPending(fixture, originals);
         Dictionary<ChartPackage, PackageChartInstallDestinationState> destinations = originals.ToDictionary(package => package, package => package.ChartEntries.Single().CaptureInstallDestinationState());
-        var gateway = new BmsLibraryDbGateway(fixture.Database);
+        var gateway = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database);
         var beforeRows = gateway.LoadInstallPackages().ToDictionary(row => row.path, row => row.delete_parent, StringComparer.Ordinal);
         Dictionary<string, byte[]> preserved = Directory.GetFiles(parent, "*", SearchOption.AllDirectories).ToDictionary(path => path, File.ReadAllBytes);
         byte[] independentBytes = File.ReadAllBytes(Path.Combine(independent, "normal.bms"));
@@ -673,8 +681,9 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataRow("Missing.bms")]
     public async Task ProductionImport_NotFoundOverlapIsPrunedAndIndependentInputContinues(string missingName)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         var port = new ObservingInstallMutationPort();
-        await using var fixture = new AutomaticContinuationFixture(false, false, mutationPort: port);
+        await using var fixture = new AutomaticContinuationFixture(databaseScope, false, false, mutationPort: port);
         string independent = fixture.WriteInput("Independent", "normal.bms", "independent-not-found");
         byte[] bytes = File.ReadAllBytes(Path.Combine(independent, "normal.bms"));
         await fixture.InitializeAsync();
@@ -693,7 +702,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Assert.IsTrue(port.LatestResult.HasDurableCommit);
         Assert.IsTrue(fixture.Library.ChartPackagesPending.All(package => !originals.Contains(package)));
         CollectionAssert.AreEquivalent(new[] { independent }, fixture.Library.ChartPackagesPending.Select(package => package.path).ToArray());
-        CollectionAssert.AreEquivalent(new[] { independent }, new BmsLibraryDbGateway(fixture.Database).LoadInstallPackages().Select(package => package.path).ToArray());
+        CollectionAssert.AreEquivalent(new[] { independent }, new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).LoadInstallPackages().Select(package => package.path).ToArray());
         CollectionAssert.AreEqual(bytes, File.ReadAllBytes(Path.Combine(independent, "normal.bms")));
         Assert.AreEqual(0, fixture.Library.ChartPackagesInstalled.Count);
     }
@@ -701,7 +710,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     /// <summary>旧版で登録された重複行だけを同じfixtureのDBと公開集合へ用意し、その後は通常の取込み入口で修復します。</summary>
     private static void SeedLegacyPending(AutomaticContinuationFixture fixture, IReadOnlyList<ChartPackage> packages)
     {
-        ExecuteSongDbFixtureTransaction(fixture.Database, db =>
+        ExecuteSongDbFixtureTransaction(fixture.Library.DatabaseScope, fixture.Database, db =>
         {
             db.CreateTable<LR2SongDBExtended.install>();
             foreach (ChartPackage package in packages) { db.Insert(package, typeof(LR2SongDBExtended.install)); }

@@ -17,6 +17,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>
     /// 空値を除きMD5をtrim・小文字化して重複をまとめ、対象有無を判断することで同一ハッシュの二重削除や空対象の受理を検出する。
     /// </summary>
@@ -253,7 +255,7 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
         {
             library = CreateLibrary(root);
             string db = Path.Combine(root, "song.db");
-            var gateway = new BmsLibraryDbGateway(db);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), db);
             gateway.EnsureChartInfoSchema();
             string selected = new string('a', 32);
             string keeper = new string('b', 32);
@@ -287,11 +289,11 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
         return root;
     }
 
-    private static BMSLibrary CreateLibrary(string root)
+    private BMSLibrary CreateLibrary(string root)
     {
         string songDbPath = Path.Combine(root, "song.db");
         File.WriteAllBytes(songDbPath, []);
-        return new TestBmsLibrary(songDbPath);
+        return new TestBmsLibrary(databaseScope, songDbPath);
     }
 
     private static void DeleteRoot(string root)

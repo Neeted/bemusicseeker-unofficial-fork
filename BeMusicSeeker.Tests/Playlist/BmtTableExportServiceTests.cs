@@ -23,6 +23,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmtTableExportServiceTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>実metadataが本文hash・日時・同期元だけでURI差を落とさず、HTTP path/queryのcaseと予約文字の別参照を投影指紋へ反映します。</summary>
     [TestMethod]
     [DataRow("https://data.test/old/rows.json", "https://data.test/new/rows.json")]
@@ -442,11 +444,11 @@ public sealed class BmtTableExportServiceTests
         WithTemporaryDirectory(tempDirectory =>
         {
             ParentMd5FixtureRow[] fixtures = CreateParentMd5Fixtures();
-            string songDbPath = CreateParentMd5Database(tempDirectory, fixtures);
-            string[] savedRows = ReadRawParentMd5Rows(songDbPath);
+            string songDbPath = CreateParentMd5Database(databaseScope, tempDirectory, fixtures);
+            string[] savedRows = ReadRawParentMd5Rows(databaseScope, songDbPath);
             foreach (string firstRead in new[] { "list", "string", "duplicate", "reload", "json" })
             {
-                BMSTable table = LoadStartupParentMd5Table(songDbPath);
+                BMSTable table = LoadStartupParentMd5Table(databaseScope, songDbPath);
                 Assert.AreEqual(fixtures.Length, table.entries.Count);
                 foreach (ParentMd5FixtureRow fixture in fixtures)
                 {
@@ -474,7 +476,7 @@ public sealed class BmtTableExportServiceTests
                             break;
                     }
                 }
-                CollectionAssert.AreEqual(savedRows, ReadRawParentMd5Rows(songDbPath), firstRead + "で保存行を変更しません。");
+                CollectionAssert.AreEqual(savedRows, ReadRawParentMd5Rows(databaseScope, songDbPath), firstRead + "で保存行を変更しません。");
             }
         });
     }
@@ -491,9 +493,9 @@ public sealed class BmtTableExportServiceTests
         {
             ParentMd5FixtureRow[] allFixtures = CreateParentMd5Fixtures();
             ParentMd5FixtureRow[] fixtures = [allFixtures[1], allFixtures[5], allFixtures[0]];
-            string songDbPath = CreateParentMd5Database(tempDirectory, fixtures);
-            string[] savedRows = ReadRawParentMd5Rows(songDbPath);
-            BMSTable table = LoadStartupParentMd5Table(songDbPath);
+            string songDbPath = CreateParentMd5Database(databaseScope, tempDirectory, fixtures);
+            string[] savedRows = ReadRawParentMd5Rows(databaseScope, songDbPath);
+            BMSTable table = LoadStartupParentMd5Table(databaseScope, songDbPath);
             if (readDetails)
             {
                 _ = table.CaptureEntriesReadSnapshot();
@@ -519,7 +521,7 @@ public sealed class BmtTableExportServiceTests
                     CollectionAssert.AreEqual(fixture.Parents, parents.Values<string>().ToArray(), fixture.Title);
                 }
             }
-            CollectionAssert.AreEqual(savedRows, ReadRawParentMd5Rows(songDbPath), "読取りと出力で対象・無関係の保存行を変更しません。");
+            CollectionAssert.AreEqual(savedRows, ReadRawParentMd5Rows(databaseScope, songDbPath), "読取りと出力で対象・無関係の保存行を変更しません。");
         });
     }
 
@@ -1754,16 +1756,16 @@ public sealed class BmtTableExportServiceTests
             table.playlist_id = 99;
             string songDbPath = Path.Combine(tempDirectory, "song.db");
             File.WriteAllBytes(songDbPath, []);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            new PlaylistPersistenceRepository(songDbPath).ReplaceTablesWithEntries([table]);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            new PlaylistPersistenceRepository(databaseScope, songDbPath).ReplaceTablesWithEntries([table]);
             string[] savedCourses;
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 savedCourses = db.Table<LR2SongDBExtended.playlist_course>().OrderBy(course => course.course_order).Select(course => course.course_json).ToArray();
             }
             CollectionAssert.AreEqual(table.Courses.Select(course => course.course_json).ToArray(), savedCourses);
 
-            var repository = new PlaylistPersistenceRepository(songDbPath);
+            var repository = new PlaylistPersistenceRepository(databaseScope, songDbPath);
             BMSTable persisted = repository.LoadPlaylistHeaders().Single();
             persisted.entries = repository.LoadPersistedPlaylistEntries(persisted.playlist_id, activeOnly: false);
             Assert.AreEqual(configTableUrl, persisted.page_url);
@@ -1802,7 +1804,7 @@ public sealed class BmtTableExportServiceTests
             Assert.IsTrue(exportedCourses[1]!.Value<bool>("release"));
             Assert.IsNull(exportedCourses[2]!["release"]);
             Assert.AreEqual(BMSTable.ComputeSha256Hex(configTableUrl) + ".bmt", fileName);
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 CollectionAssert.AreEqual(savedCourses, db.Table<LR2SongDBExtended.playlist_course>().OrderBy(course => course.course_order).Select(course => course.course_json).ToArray(), "出力用の制約変換を保存済みcourseへ書き戻しません。");
             }
@@ -1877,11 +1879,12 @@ public sealed class BmtTableExportServiceTests
     ];
 
     /// <summary>対象行と別表の無関係行を通常schema・writerで保存し、起動読取り前に全DB接続を解放します。</summary>
-    private static string CreateParentMd5Database(string tempDirectory, ParentMd5FixtureRow[] fixtures)
+    /// <param name="databaseScope">呼出し元と接続・書込み排他を共有するfixtureのDB所有者。</param>
+    private static string CreateParentMd5Database(ApplicationDatabaseScope databaseScope, string tempDirectory, ParentMd5FixtureRow[] fixtures)
     {
         string songDbPath = Path.Combine(tempDirectory, "song.db");
         File.WriteAllBytes(songDbPath, []);
-        PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+        PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
         var table = new BMSTable
         {
             playlist_id = 9101,
@@ -1908,14 +1911,15 @@ public sealed class BmtTableExportServiceTests
                 adddate = new DateTime(2026, 1, 1)
             }]
         };
-        new PlaylistPersistenceRepository(songDbPath).ReplaceTablesWithEntries([table, unrelated]);
+        new PlaylistPersistenceRepository(databaseScope, songDbPath).ReplaceTablesWithEntries([table, unrelated]);
         return songDbPath;
     }
 
     /// <summary>新しいreadonly接続でヘッダーと起動用raw行を読み、親getter・clone・JSON・保存正規化を呼ばず通常attachします。</summary>
-    private static BMSTable LoadStartupParentMd5Table(string songDbPath)
+    /// <param name="databaseScope">呼出し元と接続・書込み排他を共有するfixtureのDB所有者。</param>
+    private static BMSTable LoadStartupParentMd5Table(ApplicationDatabaseScope databaseScope, string songDbPath)
     {
-        var repository = new PlaylistPersistenceRepository(songDbPath);
+        var repository = new PlaylistPersistenceRepository(databaseScope, songDbPath);
         BMSTable table = repository.LoadPlaylistHeaders().Single(candidate => candidate.playlist_id == 9101);
         PlaylistEntriesHydrationLoadResult hydrated = repository.LoadStartupPlaylistEntries();
         Assert.IsTrue(hydrated.ReadOnly);
@@ -1929,9 +1933,10 @@ public sealed class BmtTableExportServiceTests
     }
 
     /// <summary>製品getterを通さず、別readonly接続のSQLで対象・無関係行の保存値を比較可能な列へ捕捉します。</summary>
-    private static string[] ReadRawParentMd5Rows(string songDbPath)
+    /// <param name="databaseScope">呼出し元と接続・書込み排他を共有するfixtureのDB所有者。</param>
+    private static string[] ReadRawParentMd5Rows(ApplicationDatabaseScope databaseScope, string songDbPath)
     {
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
         return [.. db.Query<RawParentMd5Row>("SELECT quote(playlist_id) || '|' || quote(md5) || '|' || quote(sha256) || '|' || quote(level) || '|' || quote(title) || '|' || quote(artist) || '|' || quote(folder) || '|' || quote(lr2_bmsid) || '|' || quote(url) || '|' || quote(url_diff) || '|' || quote(name_diff) || '|' || quote(org_md5) || '|' || quote(adddate) || '|' || quote(comment) || '|' || quote(memo) || '|' || quote(is_removed) AS Value FROM playlist_entry ORDER BY rowid;")
             .Select(row => row.Value)];
     }

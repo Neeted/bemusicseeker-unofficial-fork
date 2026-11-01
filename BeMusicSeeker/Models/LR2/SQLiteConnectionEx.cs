@@ -1,25 +1,23 @@
+#nullable enable
+
 using System;
 using System.Collections.Generic;
 using SQLite;
 
 namespace BeMusicSeeker.Models.LR2;
 
-/// <summary>SQLite接続の終了追跡と読取り設定を提供します。SQL・Commitの失敗は外側で再試行せず呼出し元へ返します。</summary>
+/// <summary>ownerに属するSQLite接続の終了と読取り設定を提供します。SQL・Commitの失敗は外側で再試行せず呼出し元へ返します。</summary>
 /// <remarks>Commit失敗後はproviderが内部transaction状態を解放するため、再呼出しで失敗を成功へ変換しません。</remarks>
 public class SQLiteConnectionEx : SQLiteConnection
 {
-    private readonly IDisposable shutdownOperationLease;
+    private readonly ApplicationDatabaseScope.ConnectionLease? connectionLease;
 
-    public SQLiteConnectionEx(string databasePath, bool storeDateTimeAsTicks = true)
-        : base(databasePath, storeDateTimeAsTicks)
-    {
-        shutdownOperationLease = BeMusicSeeker.Models.ShutdownOperationTracker.TrackSqliteConnection();
-    }
-
-    public SQLiteConnectionEx(string databasePath, SQLiteOpenFlags openFlags, bool storeDateTimeAsTicks = true)
+    /// <summary>ownerがnative open前に取得した必須leaseを接続へ引き継ぎます。通常の生成はownerのfactoryを使います。</summary>
+    internal SQLiteConnectionEx(string databasePath, SQLiteOpenFlags openFlags,
+        ApplicationDatabaseScope.ConnectionLease lease, bool storeDateTimeAsTicks = true)
         : base(databasePath, openFlags, storeDateTimeAsTicks)
     {
-        shutdownOperationLease = BeMusicSeeker.Models.ShutdownOperationTracker.TrackSqliteConnection();
+        connectionLease = lease;
     }
 
     public List<string> TryApplyReadOptimizedPragmas(bool enabled, int cacheSizeKb = 262144, long mmapSizeBytes = 2147483648L)
@@ -60,20 +58,16 @@ public class SQLiteConnectionEx : SQLiteConnection
         }
     }
 
+    /// <summary>native closeの結果をownerへ返し、close後に接続leaseとwrite gateを解放します。</summary>
     protected override void Dispose(bool disposing)
     {
-        try
+        // providerのbase constructorが失敗した部分生成オブジェクトにもfinalizerが走る。
+        // leaseはfactoryが回収済みなので、ここではprovider自身の後始末だけを行う。
+        if (connectionLease is null)
         {
             base.Dispose(disposing);
+            return;
         }
-        catch
-        {
-            BeMusicSeeker.Models.ShutdownOperationTracker.RecordSqliteCloseFailure();
-            throw;
-        }
-        finally
-        {
-            shutdownOperationLease?.Dispose();
-        }
+        connectionLease.Close(() => base.Dispose(disposing));
     }
 }

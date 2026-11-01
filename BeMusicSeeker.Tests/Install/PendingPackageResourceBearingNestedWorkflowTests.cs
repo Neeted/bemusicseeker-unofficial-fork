@@ -26,7 +26,8 @@ public sealed partial class PendingPackageWorkflowOwnerTests
     [DataRow(true, true, true)]
     public async Task InstallPendingAsync_ResourceBearingNestedChartsCannotBeBypassedBySelectedParentOrChild(bool manual, bool childRow, bool failNormal)
     {
-        await using var fixture = new PackageInstallWorkflowOwnerTests.AutomaticContinuationFixture(false, false);
+        var databaseScope = new ApplicationDatabaseScope();
+        await using var fixture = new PackageInstallWorkflowOwnerTests.AutomaticContinuationFixture(databaseScope, false, false);
         string source = fixture.WriteInput("Nested", "parent.bms", "nested-parent");
         string child = fixture.WriteInput(Path.Combine("Nested", "child"), "child.bms", "nested-child");
         File.WriteAllBytes(Path.Combine(source, "sound.wav"), [3, 4]);
@@ -77,7 +78,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreEqual(!failNormal, fixture.Library.BmsCharts.Any(chart => Path.GetFileName(chart.Path) == "normal.bms"));
         Assert.IsFalse(fixture.Library.BmsCharts.Any(chart => Path.GetFileName(chart.Path) is "parent.bms" or "child.bms"));
         foreach ((string path, byte[] before) in bytes) { CollectionAssert.AreEqual(before, File.ReadAllBytes(path)); }
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly();
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly();
         CollectionAssert.AreEquivalent(failNormal ? new[] { source, normal } : new[] { source }, db.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
         Assert.AreEqual(!failNormal, db.Table<LR2SongDB.song>().Any(row => Path.GetFileName(row.path) == "normal.bms"));
         Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
@@ -89,7 +90,8 @@ public sealed partial class PendingPackageWorkflowOwnerTests
     [DataRow(true)]
     public async Task InstallPendingAsync_AllResourceBearingNestedChartsReportNonExceptionalRefusalAfterRelease(bool manual)
     {
-        await using var fixture = new PackageInstallWorkflowOwnerTests.AutomaticContinuationFixture(false, false);
+        var databaseScope = new ApplicationDatabaseScope();
+        await using var fixture = new PackageInstallWorkflowOwnerTests.AutomaticContinuationFixture(databaseScope, false, false);
         string source = fixture.WriteInput("Nested", "parent.bms", "nested-parent");
         string child = fixture.WriteInput(Path.Combine("Nested", "child"), "child.bms", "nested-child");
         File.WriteAllBytes(Path.Combine(source, "sound.wav"), [3, 4]);
@@ -121,7 +123,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning_ResourceBearingNestedCharts, dialogs.Messages.Single().MessageBoxText);
         CollectionAssert.AreEquivalent(packages, fixture.Library.ChartPackagesPending.ToArray());
         foreach ((string path, byte[] before) in preserved) { CollectionAssert.AreEqual(before, File.ReadAllBytes(path)); }
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly();
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly();
         CollectionAssert.AreEquivalent(new[] { source, second }, db.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
         Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
     }
@@ -156,9 +158,10 @@ public sealed partial class PendingPackageWorkflowOwnerTests
     [DataRow("manual-cleanup")]
     public async Task InstalledOnlyAndCleanup_ResourceBearingNestedChartsPreserveOriginalInput(string operation)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string[] identities = ["nested-parent", "nested-child", "independent-normal"];
         string[] bodies = identities.Select(identity => CreateValidBmsText("Song") + "#GENRE " + identity + "\n").ToArray();
-        await using var fixture = new PackageInstallWorkflowOwnerTests.AutomaticContinuationFixture(false, true, installedChartBodies: bodies);
+        await using var fixture = new PackageInstallWorkflowOwnerTests.AutomaticContinuationFixture(databaseScope, false, true, installedChartBodies: bodies);
         string source = fixture.WriteInput("Nested", "parent.bms", identities[0]);
         string child = fixture.WriteInput(Path.Combine("Nested", "child"), "child.bms", identities[1]);
         string normal = fixture.WriteInput("Normal", "normal.bms", identities[2]);
@@ -197,7 +200,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.IsFalse(File.Exists(Path.Combine(fixture.Destination, "child", "sound.wav")));
         if (operation == "overwrite") { CollectionAssert.AreEqual(new byte[] { 8 }, File.ReadAllBytes(Path.Combine(fixture.Destination, "sound.wav"))); }
         else { Assert.IsFalse(Directory.Exists(normal), "正常別packageの清掃だけの分岐を実行します。"); }
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly();
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly();
         Assert.AreEqual(source, db.Table<LR2SongDBExtended.install>().Single().path);
         Assert.AreEqual(owned.Count, fixture.Library.BmsCharts.Count);
         Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
@@ -208,6 +211,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
     [DataRow(true)]
     public async Task ResourceBearingNestedCharts_AllowExplicitSourceDeletionAndInvalidExtensionRename(bool rename)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string root = Path.Combine(Path.GetTempPath(), "nested-resolution-" + Guid.NewGuid().ToString("N"));
         string source = Path.Combine(root, "Input");
         string child = Path.Combine(source, "child");
@@ -237,8 +241,8 @@ public sealed partial class PendingPackageWorkflowOwnerTests
                 File.Copy(entry.Chart.Path, path);
                 return PackageChartEntry.FromPath(path).Chart;
             }).ToArray();
-            library = CreateNormalPendingLibrary(root, [package], owned);
-            new BmsLibraryDbGateway(Path.Combine(root, "song.db")).UpsertSongs(owned);
+            library = CreateNormalPendingLibrary(databaseScope, root, [package], owned);
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(root, "song.db")).UpsertSongs(owned);
             PendingPackageWorkflowOwner owner = CreateOwner(() => library, [], new BmsLibraryPendingPackageStore(), AcceptedDialogs(),
                 chartFileOperations: library.OperationAdmission, playback: new NoOpChartMutationPlaybackPort());
 

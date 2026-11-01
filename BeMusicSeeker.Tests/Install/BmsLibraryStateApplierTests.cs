@@ -27,6 +27,7 @@ public sealed class BmsLibraryStateApplierTests
     [DataRow(nameof(ChartWarningKind.InstalledDestinationResolveFailed))] // 所持先の解決失敗も、候補失効と区別して保持します。
     public void ApplyPackageReferenceFacts_ConfirmedDestinationPreservesSourceDiagnostics(string diagnosticName)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         ChartWarningKind diagnosticKind = Enum.Parse<ChartWarningKind>(diagnosticName);
         WithTemporarySongDb(songDbPath =>
         {
@@ -71,7 +72,7 @@ public sealed class BmsLibraryStateApplierTests
                 package.path = Path.GetDirectoryName(entry.Chart.Path);
                 return package;
             })];
-            var library = new TestBmsLibrary(songDbPath, null, null, new ResilientFileMutationService(), new UnexpectedDialogService(),
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new ResilientFileMutationService(), new UnexpectedDialogService(),
                 new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false },
                 settings: TestBmsFactory.CreateRootSettings([libraryRoot]))
             { BmsCharts = owned, BmsonCharts = [], ChartPackagesPending = packages, ChartPackagesInstalled = [] };
@@ -300,10 +301,11 @@ public sealed class BmsLibraryStateApplierTests
     [TestMethod]
     public void LibraryInitializationProgress_CoalescesPendingReportsIntoOneTypedUiCommit()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var scheduler = new QueuedProgressUiScheduler();
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 getLR2Config: null!,
                 _lr2ScoreDB: null,
@@ -481,6 +483,7 @@ public sealed class BmsLibraryStateApplierTests
     public void ApplyPackageReferenceFacts_ExactRemovalKeepsOtherRowsAndPackages(
         string removedName, bool relocate, bool removeBoth, bool ownerReference)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -515,7 +518,7 @@ public sealed class BmsLibraryStateApplierTests
             File.WriteAllText(keptBmsonPath, "{}");
             string missingPath = Path.Combine(root, "missing.bms");
             string keptMissingPath = Path.Combine(root, removedName == "other" ? "other-missing.bms" : "MISSING.bms");
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.CreateTable<LR2SongDB.song>();
                 db.CreateTable<LR2SongDBExtended.bmson_song>();
@@ -546,7 +549,7 @@ public sealed class BmsLibraryStateApplierTests
             ]);
             ObservableCollection<ChartPackage> installed = CreatePackageCollection([keptPackage, removedPackage]);
             PackageChartEntry[] stableEntries = [.. keptPackage.ChartEntries];
-            var lifecycle = new PackageLifecycleOwner(new BmsLibraryDbGateway(songDbPath),
+            var lifecycle = new PackageLifecycleOwner(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), _ => { },
                 packages => new ObservableCollection<ChartPackage>(packages ?? []), () => { }, _ => { });
             lifecycle.SetInstalledPackages(installed);
@@ -583,7 +586,7 @@ public sealed class BmsLibraryStateApplierTests
                 }
                 LibraryCatalogMutationFacts catalogFacts = new(removeRequests, pathChanges, []);
 
-                CatalogMutationReceipt receipt = new CatalogMutationOwner(storage, new BmsLibraryDbGateway(songDbPath))
+                CatalogMutationReceipt receipt = new CatalogMutationOwner(storage, new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath))
                     .ApplyCatalogMutation(catalogFacts);
                 lifecycle.ApplyPackageReferenceFacts(
                     LibraryPackageReferenceFacts.Empty,
@@ -599,7 +602,7 @@ public sealed class BmsLibraryStateApplierTests
                 CollectionAssert.AreEquivalent(expectedBms.Concat(expectedBmson).ToArray(), owned.Collection.CreatePathSnapshot());
                 CollectionAssert.AreEquivalent(expectedBms.Concat(expectedBmson).ToArray(),
                     installed.SelectMany(package => package.ChartEntries).Select(entry => entry.Chart.Path).ToArray());
-                using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 CollectionAssert.AreEquivalent(expectedBms, readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
                 CollectionAssert.AreEquivalent(expectedBmson, readback.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path).ToArray());
                 CollectionAssert.AreEquivalent(expectedBms.Concat(expectedBmson).Append(keptMissingPath).ToArray(),
@@ -836,6 +839,7 @@ public sealed class BmsLibraryStateApplierTests
     [TestMethod]
     public void ApplyPackageReferenceFacts_MoveAndRemoveSameOwnerPrunesRelocatedBmsAndBmsonPackages()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_StateApplierMoveRemove_" + Guid.NewGuid().ToString("N"));
@@ -859,7 +863,7 @@ public sealed class BmsLibraryStateApplierTests
                     Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                     Sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 };
-                using (var songDb = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
                 {
                     songDb.CreateTable<LR2SongDB.song>();
                     songDb.CreateTable<LR2SongDBExtended.bmson_song>();
@@ -906,7 +910,7 @@ public sealed class BmsLibraryStateApplierTests
 
                 var currentOwner = new CatalogOwnedCollectionOwner();
                 currentOwner.ReplaceCharts([bmsFile], [bmsonSong]);
-                var catalogOwner = new CatalogMutationOwner(currentOwner, new BmsLibraryDbGateway(songDbPath));
+                var catalogOwner = new CatalogMutationOwner(currentOwner, new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath));
                 CatalogMutationReceipt receipt = catalogOwner.ApplyCatalogMutation(
                     catalogFacts);
 
@@ -947,8 +951,9 @@ internal static class BmsLibraryStateApplierTestSupport
         Func<ObservableCollection<ChartPackage>> getInstalledPackages,
         Action<ObservableCollection<ChartPackage>> setInstalledPackages)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         return new PackageStateMutationApplier(
-            new BmsLibraryDbGateway(songDbPath),
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
             getPendingPackages,
             delegate (ObservableCollection<ChartPackage> packages)
             {
@@ -986,6 +991,7 @@ internal static class BmsLibraryStateApplierTestSupport
         TrackingCallbacks callbacks,
         out CatalogOwnedCollectionOwner currentOwner)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         currentOwner = new CatalogOwnedCollectionOwner();
         // 本番の形式別初期入力と同じく旧値を振り分け、BMSONをBMS入力へ混ぜて未所持にしません。
         ChartFile[] previousValues = [.. catalogFacts.ChartPathChanges.Select(change => change.Chart with
@@ -1001,7 +1007,7 @@ internal static class BmsLibraryStateApplierTestSupport
             { Chart = current, OldPath = change.OldPath, NewPath = change.NewPath });
         }
         var normalizedFacts = new LibraryCatalogMutationFacts(catalogFacts.ChartRemoveRequests, normalizedChanges, catalogFacts.FolderPathChanges);
-        var owner = new CatalogMutationOwner(currentOwner, new BmsLibraryDbGateway(songDbPath));
+        var owner = new CatalogMutationOwner(currentOwner, new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath));
         owner.CatalogWriteFailurePublished += delegate (object? sender, CatalogWriteFailureFact fact)
         {
             callbacks.SongDbWriteFailureCount++;

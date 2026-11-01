@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -11,6 +12,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2FolderFileProjectionTests
 {
+    /// <summary>このケースのモデルと接続で共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>
     /// 空白付き指示行とTAG後のCOMMANDを読み、各表示・検索・件数・画像指定を投影して後勝ち規則や項目対応の誤りを検出します。
     /// </summary>
@@ -474,7 +478,7 @@ public sealed class Lr2FolderFileProjectionTests
         string songDbPath = Path.Combine(tempDirectory, "song.db");
         try
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string customFolderPath = Path.GetFullPath(@"D:\BMS\#BeMusicSeeker\0000.lr2folder");
             songDb.InsertOrReplace(new LR2SongDB.folder

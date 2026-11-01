@@ -12,6 +12,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Media;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
@@ -65,10 +66,10 @@ public sealed class SettingsWindowCompiledBehaviorTests
             settingsValues.Save();
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settingsValues);
             owner.SettingDialog.Dispose();
-            using var dialog = new SettingsDialogViewModel(
+            using var dialog = new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
                 owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace, owner.PlayHistory, owner.LibraryFolderTree,
                 new TestSettingsDialogPlayerFactoryPort(), new TestSettingsDialogPlaybackRuntimePort(),
-                owner.Lr2SongDbSyncWorkflow, new SettingsEditSession(settingsValues),
+                owner.Lr2SongDbSyncWorkflow, new SettingsEditSession(settingsValues), new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 audioDeviceTestWorkflow: new AudioDeviceTestWorkflowOwner(
@@ -540,10 +541,10 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
             var gateway = new SettingsAudioGateway(() => settings);
-            using var dialog = new SettingsDialogViewModel(
+            using var dialog = new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
                 owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace, owner.PlayHistory, owner.LibraryFolderTree,
                 new TestSettingsDialogPlayerFactoryPort(), new TestSettingsDialogPlaybackRuntimePort(),
-                owner.Lr2SongDbSyncWorkflow, new SettingsEditSession(settings),
+                owner.Lr2SongDbSyncWorkflow, new SettingsEditSession(settings), new ApplicationDataUninstallWorkflowOwner(dialogs, new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(), schemaDialogs: dialogs,
                 audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create(),
@@ -652,7 +653,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
             {
                 OutputSelection = new AudioOutputSelection(AudioDriver.WasapiExclusive, null, null)
             };
-            var dialog = new SettingsDialogViewModel(
+            var dialog = new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
                 owner,
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
@@ -661,7 +662,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 new TestSettingsDialogPlayerFactoryPort(),
                 new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
-                new NoOpSettingsEditSession(settings),
+                new NoOpSettingsEditSession(settings), new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
                 schemaDialogs: new UiDialogCoordinator(),
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
@@ -765,7 +766,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 new NoOpAudioDeviceTestPlaybackPort(),
                 new SuccessfulAudioDeviceTestRuntime(),
                 capabilityRuntime);
-            var dialog = new SettingsDialogViewModel(
+            var dialog = new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
                 owner,
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
@@ -774,7 +775,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 new TestSettingsDialogPlayerFactoryPort(),
                 new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
-                new NoOpSettingsEditSession(settings),
+                new NoOpSettingsEditSession(settings), new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
                 schemaDialogs: new UiDialogCoordinator(),
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),

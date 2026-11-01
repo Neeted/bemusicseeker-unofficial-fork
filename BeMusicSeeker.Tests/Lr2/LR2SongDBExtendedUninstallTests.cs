@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -11,6 +12,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class LR2SongDBExtendedUninstallTests
 {
+    /// <summary>このケースのモデルと接続で共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>実起動・アプリスキーマ・IR保存・フォルダ索引の生成差分を実撤去し、LR2と未知の利用者スキーマ、行、sequence、譜面ファイルを新規接続で保全確認します。削除リストから期待対象を作りません。</summary>
     /// <remarks>実起動用スキーマと撤去storeを使い、独立した新規読取り接続で利用者DB・譜面の保全を観測します。</remarks>
     [TestMethod]
@@ -24,7 +28,7 @@ public sealed class LR2SongDBExtendedUninstallTests
         File.WriteAllText(chartPath, chartText);
         try
         {
-            using (var setup = new LR2SongDBExtended(path))
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(path))
             {
                 setup.RunInTransaction(() =>
                 {
@@ -41,7 +45,7 @@ public sealed class LR2SongDBExtendedUninstallTests
                     setup.Execute("INSERT INTO user_data(value) VALUES ('利用者の値');");
                 });
             }
-            var gateway = new BmsLibraryDbGateway(path);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), path);
             string[] baseline;
             using (LR2SongDBExtended read = gateway.OpenSongDbReadOnly())
             {
@@ -50,7 +54,7 @@ public sealed class LR2SongDBExtendedUninstallTests
             gateway.EnsureLibraryStartupSchema();
             gateway.EnsureAppOwnedSchema();
             gateway.UpsertIrScoreRefreshMetadata(1234, "digest");
-            using (var setup = new LR2SongDBExtended(path))
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(path))
             {
                 BmsLibraryDbGateway.EnsureFolderLookupIndexes(setup);
                 setup.Insert(new LR2SongDBExtended.playlist { name = "generated sequence" });
@@ -68,7 +72,7 @@ public sealed class LR2SongDBExtendedUninstallTests
                 Assert.AreEqual(1L, read.ExecuteScalar<long>("SELECT COUNT(*) FROM sqlite_sequence WHERE name='playlist';"));
             }
 
-            new Lr2ApplicationDataUninstallStore().Uninstall(path);
+            new Lr2ApplicationDataUninstallStore(databaseScope).Uninstall(path);
 
             using (LR2SongDBExtended read = gateway.OpenSongDbReadOnly())
             {

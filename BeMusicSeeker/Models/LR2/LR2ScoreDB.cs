@@ -280,7 +280,6 @@ public class LR2ScoreDB : SQLiteConnectionEx
             {
                 if (!File.Exists(value) || !(string.Equals(Path.GetExtension(value), ".db", System.StringComparison.OrdinalIgnoreCase)))
                 {
-                    Close();
                     throw new FileNotFoundException(BeMusicSeeker.Properties.Resources.Error_InvalidLR2ScoreDbFile, value);
                 }
                 _dbPath = value;
@@ -288,15 +287,12 @@ public class LR2ScoreDB : SQLiteConnectionEx
         }
     }
 
-    public LR2ScoreDB(string dbPath)
-        : base(dbPath)
+    /// <summary>ownerのfactoryから必須leaseとopen flagsを受け取り、native接続だけを生成します。</summary>
+    internal LR2ScoreDB(string dbPath, SQLiteOpenFlags openFlags, ApplicationDatabaseScope.ConnectionLease lease)
+        : base(dbPath, openFlags, lease)
     {
-        DBPath = dbPath;
     }
 
-    internal LR2ScoreDB(string dbPath, SQLiteOpenFlags openFlags)
-        : base(dbPath, openFlags)
-    {
-        DBPath = dbPath;
-    }
+    /// <summary>factoryが接続参照を保持してから既存のパス受理条件を検査し、失敗時も接続を回収可能にします。</summary>
+    internal void InitializePath(string dbPath) => DBPath = dbPath;
 }

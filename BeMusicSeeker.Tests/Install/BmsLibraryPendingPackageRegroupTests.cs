@@ -2620,9 +2620,10 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
     private static void SeedInitializedPendingPackages(BMSLibrary library, string songDbPath, params ChartPackage[] packages)
     {
+        ApplicationDatabaseScope databaseScope = library.DatabaseScope;
         library.ChartPackagesPending = CreatePackageCollection(packages);
         // pending packageのschemaとseedだけを一つのtransactionへまとめ、本番の保存契約は変更せずfixtureのautocommit反復を減らす。
-        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
+        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, songDb =>
         {
             songDb.CreateTable<LR2SongDBExtended.install>();
             foreach (ChartPackage package in packages)
@@ -2657,8 +2658,9 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
     private static string[] LoadInstallPaths(string songDbPath)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         // 全呼出し元はSeedPendingPackagesでinstall表を準備済みなので、SELECT専用read-only接続で観測する。
-        using LR2SongDBExtended songDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+        using LR2SongDBExtended songDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
         return [.. songDb.Query<InstallRowRecord>("SELECT path FROM install")
             .Select(row => row.path)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
@@ -2749,6 +2751,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         Action<string, string, BMSLibrary> testAction,
         IInstallEstimationExecutionObserver? installEstimationExecutionObserver = null)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PendingRegroupTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
@@ -2756,8 +2759,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         try
         {
             TestBmsLibrary library = installEstimationExecutionObserver == null
-                ? new TestBmsLibrary(songDbPath, null!, null, null!, new RecordingDialogService(), settings: testSettings)
-                : new TestBmsLibrary(songDbPath, null!, null, null!, new RecordingDialogService(), installEstimationExecutionObserver, settings: testSettings);
+                ? new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, new RecordingDialogService(), settings: testSettings)
+                : new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, new RecordingDialogService(), installEstimationExecutionObserver, settings: testSettings);
             testAction(tempRootPath, songDbPath, library);
         }
         finally

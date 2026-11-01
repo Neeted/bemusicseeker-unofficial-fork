@@ -36,6 +36,7 @@ public sealed class InstallEstimationPerformanceTests
     [TestMethod]
     public void CatalogProfiles_MeasureColdSharingAcrossTwentyRequests()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string root = Path.Combine(Path.GetTempPath(), "BmsEstimationProfiles-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         try
@@ -48,7 +49,7 @@ public sealed class InstallEstimationPerformanceTests
                 Directory.CreateDirectory(databaseDirectory);
                 string database = Path.Combine(databaseDirectory, "song.db");
                 File.WriteAllBytes(database, []);
-                var library = new TestBmsLibrary(database);
+                var library = new TestBmsLibrary(databaseScope, database);
                 string[] directories = [.. Enumerable.Range(0, count).Select(index => $@"C:\Library\Profile{index:D5}")];
                 library.BmsCharts = [.. directories.SelectMany((path, index) => Enumerable.Range(0, index == count - 1 ? maxPairs : 1)
                     .Select(pair => ChartTestValues.Empty() with

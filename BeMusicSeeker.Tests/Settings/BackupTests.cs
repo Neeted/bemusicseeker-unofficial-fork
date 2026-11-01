@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -15,6 +16,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BackupTests
 {
+    /// <summary>このケースの準備とモデルで共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>実song・score SQLiteのVACUUMとREINDEX後に表・索引定義と値、対象外ファイルを保持し、本番DB窓口からの次保存を新readonly接続で確認します。DBの物理bytesや容量は固定しません。</summary>
     [TestMethod]
     public void RebuildDatabase_PreservesRealSongAndScoreSchemaValuesAndAllowsNextSave()
@@ -28,7 +32,7 @@ public sealed class BackupTests
         try
         {
             File.WriteAllBytes(unrelated, [2, 4, 9]);
-            using (var song = new LR2SongDBExtended(songPath))
+            using (LR2SongDBExtended song = databaseScope.OpenSongWrite(songPath))
             {
                 song.RunInTransaction(() =>
                 {
@@ -40,7 +44,7 @@ public sealed class BackupTests
                     song.Execute("INSERT INTO song(path, hash, title, artist) VALUES (?, ?, 'before', 'artist');", Path.Combine(root, "chart.bms"), hash);
                 });
             }
-            using (var score = new LR2ScoreDBExtended(scorePath))
+            using (LR2ScoreDBExtended score = databaseScope.OpenScoreWrite(scorePath))
             {
                 score.RunInTransaction(() =>
                 {
@@ -55,19 +59,19 @@ public sealed class BackupTests
                 "SELECT group_concat(type || ':' || name || ':' || coalesce(sql, ''), char(10)) FROM (SELECT type, name, sql FROM sqlite_schema WHERE type IN ('table', 'index') ORDER BY type, name);");
             string songSchema;
             string scoreSchema;
-            using (var song = new LR2SongDBExtended(songPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false)) { songSchema = ReadSchema(song); }
-            using (var score = new LR2ScoreDBExtended(scorePath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false)) { scoreSchema = ReadSchema(score); }
+            using (LR2SongDBExtended song = databaseScope.OpenSongReadOnly(songPath)) { songSchema = ReadSchema(song); }
+            using (LR2ScoreDBExtended score = databaseScope.OpenScoreReadOnly(scorePath)) { scoreSchema = ReadSchema(score); }
 
-            Assert.IsTrue(Backup.RebuildDatabase(songPath, [scorePath]));
+            Assert.IsTrue(Backup.RebuildDatabase(databaseScope, songPath, [scorePath]));
 
-            using (var song = new LR2SongDBExtended(songPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            using (LR2SongDBExtended song = databaseScope.OpenSongReadOnly(songPath))
             {
                 Assert.AreEqual(songSchema, ReadSchema(song));
                 Assert.AreEqual("before", song.ExecuteScalar<string>("SELECT title FROM song WHERE hash = ?;", hash));
                 Assert.AreEqual("artist", song.ExecuteScalar<string>("SELECT artist FROM song WHERE hash = ?;", hash));
                 Assert.AreEqual("kept", song.ExecuteScalar<string>("SELECT value FROM user_data WHERE key = 'custom';"));
             }
-            using (var score = new LR2ScoreDBExtended(scorePath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            using (LR2ScoreDBExtended score = databaseScope.OpenScoreReadOnly(scorePath))
             {
                 Assert.AreEqual(scoreSchema, ReadSchema(score));
                 LR2ScoreDB.score row = score.Table<LR2ScoreDB.score>().Single();
@@ -78,14 +82,14 @@ public sealed class BackupTests
                 Assert.AreEqual(7, row.playcount);
                 Assert.AreEqual("score-kept", score.ExecuteScalar<string>("SELECT value FROM user_data WHERE key = 'custom';"));
             }
-            using (var song = new LR2SongDBExtended(songPath)) { song.Execute("UPDATE song SET title = 'after' WHERE hash = ?;", hash); }
-            using (var score = new LR2ScoreDBExtended(scorePath)) { score.Execute("UPDATE score SET playcount = 8 WHERE hash = ?;", hash); }
-            using (var song = new LR2SongDBExtended(songPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            using (LR2SongDBExtended song = databaseScope.OpenSongWrite(songPath)) { song.Execute("UPDATE song SET title = 'after' WHERE hash = ?;", hash); }
+            using (LR2ScoreDBExtended score = databaseScope.OpenScoreWrite(scorePath)) { score.Execute("UPDATE score SET playcount = 8 WHERE hash = ?;", hash); }
+            using (LR2SongDBExtended song = databaseScope.OpenSongReadOnly(songPath))
             {
                 Assert.AreEqual("after", song.ExecuteScalar<string>("SELECT title FROM song WHERE hash = ?;", hash));
                 Assert.AreEqual(songSchema, ReadSchema(song));
             }
-            using (var score = new LR2ScoreDBExtended(scorePath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            using (LR2ScoreDBExtended score = databaseScope.OpenScoreReadOnly(scorePath))
             {
                 Assert.AreEqual(8, score.Table<LR2ScoreDB.score>().Single().playcount);
                 Assert.AreEqual(scoreSchema, ReadSchema(score));

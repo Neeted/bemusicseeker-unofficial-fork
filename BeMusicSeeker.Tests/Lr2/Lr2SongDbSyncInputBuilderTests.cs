@@ -54,8 +54,8 @@ public sealed class Lr2SongDbSyncInputBuilderTests
         File.WriteAllText(managedFolderInfoPath, "#TITLE Managed");
         File.WriteAllText(externalFolderInfoPath, "#TITLE External");
 
-        PlaylistPersistenceRepository.EnsureSchema(scope.SongDbPath);
-        using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+        PlaylistPersistenceRepository.EnsureSchema(scope.DatabaseScope, scope.SongDbPath);
+        using (LR2SongDBExtended setup = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath))
         {
             setup.InsertOrReplace(new BMSTable
             {
@@ -75,7 +75,7 @@ public sealed class Lr2SongDbSyncInputBuilderTests
             LR2CustomFolderAdditionalOutputBaseDirs = [],
             LR2CustomFolderOutputBaseDirRootType = string.Empty
         };
-        var library = new TestBmsLibrary(
+        var library = new TestBmsLibrary(scope.DatabaseScope,
             scope.SongDbPath,
             null,
             null,
@@ -261,7 +261,7 @@ public sealed class Lr2SongDbSyncInputBuilderTests
             Assert.AreEqual(preparedCustomTime, input.Lr2FolderFileEntries[builtinCustom].LastWriteTimeUtc);
             Assert.AreSame(builtinSettings, input.Lr2BuiltinCustomFolderSettings);
         }
-        using var db = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended db = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         // builderが返した候補・設定・metadataをそのまま渡し、失われた祖先や組込みを要求側で補いません。
         Lr2FolderTableReconciliationService.Reconcile(db, new Lr2SongDbSyncRequest
         {

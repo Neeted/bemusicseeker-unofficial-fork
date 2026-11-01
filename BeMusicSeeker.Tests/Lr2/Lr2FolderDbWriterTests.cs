@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -9,6 +10,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2FolderDbWriterTests
 {
+    /// <summary>このケースのモデルと接続で共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>
     /// 実DBへ同期計画を適用すると生成行を一件に揃え、末尾区切りのずれた旧行と不要行だけを除いてカスタム行を保持することを確認します。
     /// </summary>
@@ -21,7 +25,7 @@ public sealed class Lr2FolderDbWriterTests
         string songDbPath = Path.Combine(tempDirectory, "song.db");
         try
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string rootPath = FolderPath(@"D:\BMS");
             string generatedPath = FolderPath(@"D:\BMS\Pack");
@@ -75,7 +79,7 @@ public sealed class Lr2FolderDbWriterTests
 
             Lr2FolderGenerationWriteResult result = Lr2FolderDbWriter.ApplySyncPlan(songDb, plan);
 
-            using var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
             Assert.IsTrue(result.HasChanges);
             Assert.AreEqual(1, verify.Table<LR2SongDB.folder>().Count(row => row.path == generatedPath));
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count(row => row.path == driftPath));
@@ -103,7 +107,7 @@ public sealed class Lr2FolderDbWriterTests
         string songDbPath = Path.Combine(tempDirectory, "song.db");
         try
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
 
             Lr2FolderGenerationWriteResult result = Lr2FolderDbWriter.ApplySyncPlan(

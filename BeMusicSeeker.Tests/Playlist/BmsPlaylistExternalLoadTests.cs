@@ -32,8 +32,8 @@ public sealed partial class BmsPlaylistExternalLoadTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings)
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
@@ -68,8 +68,8 @@ public sealed partial class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"DefaultMaskImport\",\"symbol\":\"D\",\"data_url\":\"./score.json\"}"));
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, settings: testSettings);
 
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
 
@@ -102,8 +102,8 @@ public sealed partial class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"PreserveMaskImport\",\"symbol\":\"P\",\"data_url\":\"./score.json\"}"));
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, settings: testSettings);
             var baseTable = new BMSTable
             {
                 ignore_folder_output = expectedMask
@@ -136,8 +136,8 @@ public sealed partial class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"Samalite難易度表\",\r\n\"symbol\":\"夏\",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1,2]\r\n}"));
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Test Song\",\"artist\":\"Test Artist\",\"level\":\"1\"}]"));
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, settings: testSettings);
 
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
 
@@ -322,8 +322,8 @@ public sealed partial class BmsPlaylistExternalLoadTests
         try
         {
             testSettings.EnablePlaylistUrlCompletion = false;
-            string songPath = CreateTempSongDbPath(directory);
-            playlist = new TestBmsPlaylist(songPath, null, null, null,
+            string songPath = CreateTempSongDbPath(databaseScope, directory);
+            playlist = new TestBmsPlaylist(databaseScope, songPath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, settings: testSettings)
             { BMSTables = new ObservableCollection<BMSTable>() };
@@ -342,7 +342,7 @@ public sealed partial class BmsPlaylistExternalLoadTests
             Assert.IsNull(registered.Page_url);
             Assert.AreEqual(originalHeader, registered.Header_url);
             AssertRedirectedEntries(registered, finalData, expectedUrl, expectedDiff);
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath).OpenSongDbReadOnly())
             {
                 BMSTable persisted = db.Table<BMSTable>().Single();
                 Assert.AreEqual(originalHeader, persisted.Header_url);
@@ -351,7 +351,7 @@ public sealed partial class BmsPlaylistExternalLoadTests
                 Assert.AreEqual(expectedUrl, new Uri(entry.url));
                 Assert.AreEqual(expectedDiff, new Uri(entry.url_diff));
             }
-            reader = new TestBmsPlaylist(songPath, null, null, null,
+            reader = new TestBmsPlaylist(databaseScope, songPath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, settings: testSettings);
             OwnStartupWork(reader, nameof(reader));
@@ -533,8 +533,8 @@ public sealed partial class BmsPlaylistExternalLoadTests
             string htmlPath = Path.Combine(tempDirectory, "table.html");
             File.WriteAllText(htmlPath, "<html><head><title>No header</title></head><body>moved</body></html>", Encoding.UTF8);
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, settings: testSettings);
 
             Assert.ThrowsExactly<PlaylistHeaderUriNotFoundException>(() => playlist.ExternalSyncOwner.LoadExternalTable(new Uri(htmlPath)));
         }
@@ -568,8 +568,8 @@ public sealed partial class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes(
                 "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, settings: testSettings);
 
             BMSTable table = playlist.ExternalSyncOwner.LoadExternalTable(new Uri(htmlPath));
 
@@ -601,8 +601,8 @@ public sealed partial class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"ShaOnly\",\"symbol\":\"S\",\"data_url\":\"./score.json\"}"));
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"sha256\":\"" + sha256 + "\",\"title\":\"Sha Song\",\"artist\":\"Sha Artist\",\"level\":\"1\"}]"));
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, settings: testSettings);
 
             BMSTable table = playlist.ExternalSyncOwner.LoadExternalTable(new Uri(headerJsonPath));
 
@@ -634,8 +634,8 @@ public sealed partial class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"DualHash\",\"symbol\":\"D\",\"data_url\":\"./score.json\"}"));
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Dual Song\",\"artist\":\"Dual Artist\",\"level\":\"1\"}]"));
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, settings: testSettings);
 
             BMSTable table = playlist.ExternalSyncOwner.LoadExternalTable(new Uri(headerJsonPath));
 
@@ -666,8 +666,8 @@ public sealed partial class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"InvalidSha\",\"symbol\":\"I\",\"data_url\":\"./score.json\"}"));
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sha256\":\"invalid\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, settings: testSettings);
 
             BMSTable table = playlist.ExternalSyncOwner.LoadExternalTable(new Uri(headerJsonPath));
 
@@ -698,8 +698,8 @@ public sealed partial class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"EmptyRow\",\"symbol\":\"E\",\"data_url\":\"./score.json\"}"));
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"title\":\"Title Only\"},{\"title\":\"\",\"artist\":\"\",\"folder\":\"\"}]"));
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, settings: testSettings);
 
             BMSTable table = playlist.ExternalSyncOwner.LoadExternalTable(new Uri(headerJsonPath));
 
@@ -732,8 +732,8 @@ public sealed partial class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"Reloaded\",\"symbol\":\"st\",\"data_url\":\"./score.json\",\"level_order\":[1]}"));
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, settings: testSettings);
             var baseTable = new BMSTable
             {
                 name = "Existing",
@@ -771,8 +771,8 @@ public sealed partial class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"Reloaded\",\"symbol\":\"st\",\"compat_prefix\":\"EXTERNAL \",\"data_url\":\"./score.json\",\"level_order\":[1]}"));
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, settings: testSettings);
             var baseTable = new BMSTable
             {
                 name = "Existing",
@@ -808,8 +808,8 @@ public sealed partial class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"Reloaded\",\"symbol\":\"st\",\"compat_prefix\":\"EXTERNAL \",\"data_url\":\"./score.json\",\"folder_order\":[\"EXTERNAL 2\",\"EXTERNAL 1\"]}"));
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song 1\",\"artist\":\"Artist\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Song 2\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, settings: testSettings);
             var baseTable = new BMSTable
             {
                 name = "Existing",
@@ -844,8 +844,8 @@ public sealed partial class BmsPlaylistExternalLoadTests
             string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, settings: testSettings);
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"Reloaded\",\"symbol\":\"st\",\"compat_prefix\":\"EXTERNAL \",\"data_url\":\"./score.json\",\"folder_order\":[\"EXTERNAL 1\"]}"));
             BMSTable first = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
 
@@ -878,8 +878,8 @@ public sealed partial class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"Stella\",\"symbol\":\"st\",\"data_url\":\"./score.json\"}"));
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"0\"}]"));
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, settings: testSettings);
 
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
 
@@ -911,8 +911,8 @@ public sealed partial class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"UnicodeImport\",\"symbol\":\"st\",\"tag\":\"😀\",\"data_url\":\"./score.json\",\"level_order\":[1]}"));
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            playlist = new TestBmsPlaylist(songDbPath, settings: testSettings)
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            playlist = new TestBmsPlaylist(databaseScope, songDbPath, settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
@@ -924,13 +924,13 @@ public sealed partial class BmsPlaylistExternalLoadTests
             Assert.AreEqual("LEVEL 1", table.entries.Single().folder);
             Assert.AreSame(table, table.entries.Single().parent);
             Assert.AreEqual(table.playlist_id, table.entries.Single().playlist_id);
-            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
             {
                 LR2SongDBExtended.playlist persisted = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == table.playlist_id);
                 Assert.AreEqual("LEVEL ", persisted.compat_prefix);
                 Assert.AreEqual("LEVEL 1", verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ?;", table.playlist_id));
             }
-            reader = new TestBmsPlaylist(songDbPath, null, null, null,
+            reader = new TestBmsPlaylist(databaseScope, songDbPath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, settings: testSettings);
             await reader.ReloadTablesAsync(exportBeatorajaBmt: false);
@@ -973,8 +973,8 @@ public sealed partial class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"DuplicateImport\",\"symbol\":\"D\",\"data_url\":\"./score.json\"}"));
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings)
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { new BMSTable { name = "DuplicateImport" } })
             };
@@ -1002,13 +1002,15 @@ public sealed partial class BmsPlaylistExternalLoadTests
         return [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(text)];
     }
 
-    private static string CreateTempSongDbPath(string tempDirectory)
+    /// <summary>呼出し元と同じDB所有者でテスト対象と保存入力を準備します。</summary>
+    /// <param name="databaseScope">呼出し元と接続・書込み排他を共有するfixtureのDB所有者。</param>
+    private static string CreateTempSongDbPath(ApplicationDatabaseScope databaseScope, string tempDirectory)
     {
         string tempSongDbPath = Path.Combine(tempDirectory, "song.db");
-        using (var _ = new LR2SongDBExtended(tempSongDbPath))
+        using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(tempSongDbPath))
         {
         }
-        PlaylistPersistenceRepository.EnsureSchema(tempSongDbPath);
+        PlaylistPersistenceRepository.EnsureSchema(databaseScope, tempSongDbPath);
         return tempSongDbPath;
     }
 

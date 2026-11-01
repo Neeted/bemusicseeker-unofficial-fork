@@ -770,7 +770,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             string folder = Path.Combine(fixture.Settings.BMSInstallDir, "Leap");
             Directory.CreateDirectory(folder);
             Directory.SetLastWriteTime(folder, new DateTime(2024, 2, 29, 12, 0, 0));
-            using (var db = new LR2SongDBExtended(fixture.Library.InitializationSongDbPath))
+            using (LR2SongDBExtended db = fixture.Composition.DatabaseScope.OpenSongWrite(fixture.Library.InitializationSongDbPath))
             {
                 db.InsertOrReplace(new LR2SongDB.folder { path = folder + Path.DirectorySeparatorChar, title = "Leap", parent = "e2977170", type = 1, date = null, adddate = 0 });
             }
@@ -824,7 +824,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             fixture.Settings.SkipInitPlaylistLoad = false;
             var queued = new TaskCompletionSource<PlaylistExternalSyncRequestEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
             fixture.Owner.PlaylistWorkspace.PlaylistExternalSyncQueued += (_, args) => queued.TrySetResult(args);
-            using (var db = new LR2SongDBExtended(fixture.Library.InitializationSongDbPath))
+            using (LR2SongDBExtended db = fixture.Composition.DatabaseScope.OpenSongWrite(fixture.Library.InitializationSongDbPath))
             {
                 db.Insert(new LR2SongDBExtended.playlist
                 {
@@ -881,7 +881,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             try
             {
                 fixture.Settings.SkipInitPlaylistLoad = false;
-                using (var db = new LR2SongDBExtended(fixture.Library.InitializationSongDbPath))
+                using (LR2SongDBExtended db = fixture.Composition.DatabaseScope.OpenSongWrite(fixture.Library.InitializationSongDbPath))
                 {
                     db.Insert(new LR2SongDBExtended.playlist
                     {
@@ -1321,19 +1321,20 @@ public sealed class MainWindowViewModelStartupProgressTests
         MainWindowViewModel? owner = null;
         try
         {
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            owner = MainWindowViewModelTestFactory.Create(settings);
+            ApplicationDatabaseScope databaseScope = MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope;
             string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDB.folder>();
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDBExtended.bmson_song>();
             }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
-            owner = MainWindowViewModelTestFactory.Create(settings);
-            TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, settings, owner);
-            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings, library: library);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope, songDbPath, settings, owner);
+            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(library.DatabaseScope, songDbPath, settings, library: library);
             var profile = new LibraryProfile(
                 operationModeLR2DB: false,
                 songDbPath,
@@ -1379,13 +1380,14 @@ public sealed class MainWindowViewModelStartupProgressTests
     [DoNotParallelize]
     public async Task StartupRequiredResult_ActualMainWindowConsumerProjectsLr2FailureWithoutAnotherSnapshotStore()
     {
-        using var scope = Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
-        new BmsLibraryDbGateway(scope.SongDbPath).EnsureAppOwnedSchema();
-        PlaylistPersistenceRepository.EnsureSchema(scope.SongDbPath);
         Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
-        TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(scope.SongDbPath, settings, owner);
-        TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(scope.SongDbPath, settings, library: library);
+        ApplicationDatabaseScope databaseScope = MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope;
+        using var scope = Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
+        new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).EnsureAppOwnedSchema();
+        PlaylistPersistenceRepository.EnsureSchema(databaseScope, scope.SongDbPath);
+        TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope, scope.SongDbPath, settings, owner);
+        TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(library.DatabaseScope, scope.SongDbPath, settings, library: library);
         try
         {
             var profile = new LibraryProfile(false, scope.SongDbPath, [scope.DirectoryPath], null, null, false, false, false, false);
@@ -1405,7 +1407,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             Assert.IsFalse(row.HasGauge);
             StringAssert.Contains(row.ToolTip, failure.Message);
             Assert.IsFalse(owner.IsInitializationCompleted, "結果の表示だけで初期化成功を確定しない。");
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
             Assert.AreEqual("Failed", verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName).status);
         }
         finally
@@ -1508,7 +1510,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             File.WriteAllText(Path.Combine(beatoraja, "beatoraja.jar"), string.Empty);
             File.WriteAllText(Path.Combine(beatoraja, BeatorajaConfigService.ConfigFileName), "{\"playername\":\"saved-score-player\"}");
             string scorePath = Path.Combine(playerDirectory, "score.db");
-            using (var scoreDb = new SQLite.SQLiteConnection(scorePath))
+            using (SQLiteConnectionEx scoreDb = fixture.Composition.DatabaseScope.OpenProviderConnection(scorePath))
             {
                 scoreDb.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
             }
@@ -1671,6 +1673,7 @@ public sealed class MainWindowViewModelStartupProgressTests
 
     private static void AssertStartupScanFailureStartsWithSavedCatalog(bool deleteRootAfterDatabaseRead)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         TestUiDispatcherHost.Invoke(() =>
         {
             string directory = Path.Combine(Path.GetTempPath(), "StartupScan-" + Guid.NewGuid().ToString("N"));
@@ -1689,7 +1692,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 {
                     File.WriteAllText(savedPath, "#PLAYER 1\n#TITLE Saved\n#BPM 120\n#00111:01\n");
                     File.WriteAllText(scanner.CandidatePath, "#PLAYER 1\n#TITLE Candidate\n#BPM 120\n#00111:01\n");
-                    using var db = new LR2SongDBExtended(path.StandaloneSongDbPath);
+                    using LR2SongDBExtended db = databaseScope.OpenSongWrite(path.StandaloneSongDbPath);
                     db.RunInTransaction(() =>
                     {
                         db.CreateTable<LR2SongDB.song>();
@@ -1763,7 +1766,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 Assert.AreEqual(1, messages.Count(message => message.MessageBoxText.StartsWith(warningParts[0], StringComparison.Ordinal)
                     && message.MessageBoxText.EndsWith(warningParts[1], StringComparison.Ordinal)
                     && message.MessageBoxText.Contains(expectedReason, StringComparison.Ordinal)));
-                using (var db = new LR2SongDBExtended(path.StandaloneSongDbPath))
+                using (LR2SongDBExtended db = composition.DatabaseScope.OpenSongWrite(path.StandaloneSongDbPath))
                 {
                     string[] saved = db.Table<LR2SongDB.song>().Select(row => row.path).ToArray();
                     CollectionAssert.AreEqual(deleteRootAfterDatabaseRead ? new[] { savedPath } : Array.Empty<string>(), saved);
@@ -2006,19 +2009,19 @@ public sealed class MainWindowViewModelStartupProgressTests
             var path = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory, "BeMusicSeeker.exe"));
             Directory.CreateDirectory(path.DataDirectoryPath);
             string songDb = lr2Mode ? lr2SongDb : path.StandaloneSongDbPath;
-            StartupLibraryConstructionTestSupport.CreateSongDatabase(songDb);
-            new BmsLibraryDbGateway(songDb).EnsureAppOwnedSchema();
-            PlaylistPersistenceRepository.EnsureSchema(songDb);
             Composition = new ApplicationComposition(settingsEditSession: settingsSessionFactory?.Invoke(Settings) ?? new NoOpSettingsEditSession(Settings), reportSettingsApplyFailure: settingsFailureReporter,
                 uiScheduler: Ui, applicationLifetime: Lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(path), fileDbMutationDialogService: Dialogs, settingsDialogService: Dialogs,
                 defaultBmsPlayerFactory: defaultPlayer);
-            Library = new TestBmsLibrary(songDb, lr2Mode ? Composition.ResolveLr2Config(lr2Config) : null, null, null, null,
+            StartupLibraryConstructionTestSupport.CreateSongDatabase(Composition.DatabaseScope, songDb);
+            new BmsLibraryDbGateway(Composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).EnsureAppOwnedSchema();
+            PlaylistPersistenceRepository.EnsureSchema(Composition.DatabaseScope, songDb);
+            Library = new TestBmsLibrary(Composition.DatabaseScope, songDb, lr2Mode ? Composition.ResolveLr2Config(lr2Config) : null, null, null, null,
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), CaptureOptions,
                 chartFileScanner: CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(), []),
                 rootFileEnumerator: rootFileEnumerator,
                 operationAdmission: Composition.OperationAdmission, playlistOperationAdmission: Composition.PlaylistOperationAdmission);
-            Playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDb, Settings,
+            Playlist = MainWindowViewModelTestFactory.CreatePlaylist(Composition.DatabaseScope, songDb, Settings,
                 getLr2Config: lr2Mode ? Composition.ResolveLr2Config(lr2Config) : null, library: Library);
             Owner = new MainWindowViewModel(Composition, new CompletionLibraryFactory(Library, Playlist),
                 startupLibraryInitializationFailurePresenter: failurePresenter ?? new CallbackFailurePresenter(_ => { }));

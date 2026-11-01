@@ -935,6 +935,10 @@ public sealed class PlaylistLampViewerWindowManagerTests
 
     private sealed class ManagerTestFixture : IDisposable
     {
+        private readonly ApplicationDatabaseScope databaseScope = new();
+        /// <summary>このfixtureの接続とモデルが共有するDB所有者です。</summary>
+        internal ApplicationDatabaseScope DatabaseScope => databaseScope;
+
         private readonly string root;
 
         private readonly PlaylistWorkspaceViewModel workspace;
@@ -954,15 +958,15 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             string songDbPath = Path.Combine(root, "song.db");
-            StartupLibraryConstructionTestSupport.CreateSongDatabase(songDbPath);
+            StartupLibraryConstructionTestSupport.CreateSongDatabase(databaseScope, songDbPath);
 
-            Library = new TestBmsLibrary(
+            Library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
                 new TestFileMutationService());
             Library.BmsCharts = [];
-            Playlist = BmsPlaylistTestSupport.CreatePlaylist(songDbPath);
+            Playlist = BmsPlaylistTestSupport.CreatePlaylist(databaseScope, songDbPath);
             Table = CreateTable(1, "Manager fixture");
             Playlist.BMSTables = new ObservableCollection<BMSTable> { Table };
             workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(Playlist, Library);

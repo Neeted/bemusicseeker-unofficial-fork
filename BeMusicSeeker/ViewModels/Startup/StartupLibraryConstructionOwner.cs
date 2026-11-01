@@ -144,7 +144,9 @@ internal sealed class StartupLibraryConstructionOwner
     /// 検証済みの起動設定から、ライブラリが利用するモード別のプロファイルを構成します。
     /// LR2設定は構成の寿命で採用した同じ全文所有者を使用します。
     /// </summary>
+    /// <param name="databaseScope">standalone準備と再構築前後で共有するDB所有者。</param>
     internal static LibraryProfile CreateProfile(
+        ApplicationDatabaseScope databaseScope,
         StartupSettingsSnapshot startupSettings,
         Lr2ConfigOwner startupLr2Config, ApplicationPathSnapshot paths)
     {
@@ -166,7 +168,7 @@ internal sealed class StartupLibraryConstructionOwner
         }
 
         StandaloneLibraryDatabaseEnsureResult standaloneSongDb = StandaloneLibraryDatabase.EnsurePortableSongDb(
-            paths);
+            databaseScope, paths);
         return new LibraryProfile(
             operationModeLR2DB: false,
             songDbPath: standaloneSongDb.SongDbPath,
@@ -206,7 +208,8 @@ internal sealed class StartupLibraryConstructionOwner
     /// </summary>
     /// <param name="startupSettings">今回の起動で捕捉した設定。</param>
     /// <returns>公開前の保存失敗、世代削除警告、または保存後の最適化未完了を伝える通知。</returns>
-    internal static async Task<IReadOnlyList<UiMessageRequest>> PrepareBackupAsync(StartupSettingsSnapshot startupSettings)
+    /// <param name="databaseScope">全playerのscore最適化を同じ構成の排他と寿命で所有します。</param>
+    internal static async Task<IReadOnlyList<UiMessageRequest>> PrepareBackupAsync(ApplicationDatabaseScope databaseScope, StartupSettingsSnapshot startupSettings)
     {
         List<UiMessageRequest> notifications = [];
         if (startupSettings.OperationModeLR2DB && startupSettings.IsLR2BackupEnabled)
@@ -239,7 +242,7 @@ internal sealed class StartupLibraryConstructionOwner
                         List<string> scoreDBPaths = lR2BackupTarget.HasFlag(Backup.Target.ScoreDB)
                             && LongPathFileSystem.DirectoryExists(scoreDirectoryPath)
                             ? [.. LongPathFileSystem.EnumerateFiles(scoreDirectoryPath, "*.db", SearchOption.AllDirectories)] : [];
-                        return (result, !Backup.RebuildDatabase(songDBPath, scoreDBPaths));
+                        return (result, !Backup.RebuildDatabase(databaseScope, songDBPath, scoreDBPaths));
                     }
                     catch (Exception exception)
                     {

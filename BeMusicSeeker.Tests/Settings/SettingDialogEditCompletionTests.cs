@@ -26,7 +26,6 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
-using SQLite;
 
 namespace BeMusicSeeker.Tests;
 
@@ -36,6 +35,9 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed partial class SettingDialogEditCompletionTests
 {
+    /// <summary>このケースの準備とモデルで共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     private static SettingsDialogViewModel CreateOperationModeDialog(
         CountingSettingsEditSession settingsSession,
         RecordingRootDialogService dialogs,
@@ -44,7 +46,7 @@ public sealed partial class SettingDialogEditCompletionTests
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
         owner.SettingDialog.Dispose();
         SetActiveLibraryProfile(owner, true);
-        return new SettingsDialogViewModel(
+        return new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
             new TestSettingsDialogStatePort(owner, () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded))),
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
@@ -53,7 +55,7 @@ public sealed partial class SettingDialogEditCompletionTests
             new TestSettingsDialogPlayerFactoryPort(),
             new TestSettingsDialogPlaybackRuntimePort(),
             owner.Lr2SongDbSyncWorkflow,
-            settingsSession,
+            settingsSession, new ApplicationDataUninstallWorkflowOwner(dialogs, new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
             requestOperationModeRestart: request =>
             {
                 request.BeforeSave?.Invoke();
@@ -301,9 +303,9 @@ public sealed partial class SettingDialogEditCompletionTests
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
                 owner = composition.CreateMainWindowViewModelForTest();
                 owner.SettingDialog.Dispose();
-                dialog = new SettingsDialogViewModel(owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace,
+                dialog = new SettingsDialogViewModel(composition.DatabaseScope, owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace,
                     owner.PlayHistory, owner.LibraryFolderTree, composition, owner.PlaybackPanel, owner.Lr2SongDbSyncWorkflow,
-                    new SettingsEditSession(values), reportApplyFailure: failures.Add,
+                    new SettingsEditSession(values), new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(composition.DatabaseScope)), reportApplyFailure: failures.Add,
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     externalShellGateway: ExternalShellGatewayPolicy.Current, applicationPathSnapshot: ApplicationPathPolicy.Current,
                     audioDeviceCatalog: new TestAudioDeviceCatalog(), audioSettingsGateway: new SettingsAudioGateway(() => values),
@@ -683,8 +685,8 @@ public sealed partial class SettingDialogEditCompletionTests
                 dialogs: new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) }));
             Assert.IsNotNull(owner);
             SetActiveLibraryProfile(owner, true);
-            string db = BmsPlaylistTestSupport.CreateTempSongDbPath(root);
-            PlaylistPersistenceRepository.EnsureSchema(db);
+            string db = BmsPlaylistTestSupport.CreateTempSongDbPath(MainWindowViewModelTestFactory.GetComposition(owner ?? throw new AssertFailedException()).DatabaseScope, root);
+            PlaylistPersistenceRepository.EnsureSchema(MainWindowViewModelTestFactory.GetComposition(owner ?? throw new AssertFailedException()).DatabaseScope, db);
             playlist = AttachPlaylistTables(owner, root, existingDatabasePath: db);
             BMSTable[] tables = Enumerable.Range(1, 2).Select(id => new BMSTable
             {
@@ -852,7 +854,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 await dialog.CommitBmtSettingsAsync();
                 AssertProjection(output, "PreferSha256Only");
             }
-            var repository = new PlaylistPersistenceRepository(db);
+            var repository = new PlaylistPersistenceRepository(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope, db);
             foreach (BMSTable table in tables)
             {
                 BMSTableEntry stored = repository.LoadPersistedPlaylistEntries(table.playlist_id, activeOnly: true).Single();
@@ -1880,7 +1882,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     unrelated.path = Path.GetDirectoryName(unrelatedPath) ?? throw new InvalidOperationException();
                     library.ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([becameOwned, unrelated]);
                     string pendingDatabase = lr2 ? values.LR2SongDBPath : composition.ApplicationPathSnapshot.StandaloneSongDbPath;
-                    BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(pendingDatabase, db =>
+                    BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(composition.DatabaseScope, pendingDatabase, db =>
                     { db.InsertOrReplace(becameOwned, typeof(LR2SongDBExtended.install)); db.InsertOrReplace(unrelated, typeof(LR2SongDBExtended.install)); });
                     byte[] chartBefore = File.ReadAllBytes(chartB);
                     byte[] unrelatedBefore = File.ReadAllBytes(unrelatedPath);
@@ -1899,7 +1901,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         try
                         {
                             bool guardsReleased = modelGuards.All(guard => guard.LockingReadCount == 0 && guard.LockingWriteCount == 0 && !guard.IsUpgradeableReadLockHeld);
-                            using LR2SongDBExtended pendingDb = new BmsLibraryDbGateway(pendingDatabase).OpenSongDbReadOnly();
+                            using LR2SongDBExtended pendingDb = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), pendingDatabase).OpenSongDbReadOnly();
                             notifications.Add((kind, TestUiDispatcherHost.Dispatcher.CheckAccess(),
                                 !composition.OperationAdmission.IsActive && !composition.PlaylistOperationAdmission.IsActive, guardsReleased,
                                 library.ChartPackagesPending.Select(package => package.path).ToArray(),
@@ -1991,10 +1993,10 @@ public sealed partial class SettingDialogEditCompletionTests
                     CollectionAssert.AreEqual(new[] { unrelated.path }, owner.InstallTree.ChartPackagesPending.Select(package => package.path).ToArray());
                     CollectionAssert.AreEqual(chartBefore, File.ReadAllBytes(chartB));
                     CollectionAssert.AreEqual(unrelatedBefore, File.ReadAllBytes(unrelatedPath));
-                    using (LR2SongDBExtended pendingDb = new BmsLibraryDbGateway(pendingDatabase).OpenSongDbReadOnly())
+                    using (LR2SongDBExtended pendingDb = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), pendingDatabase).OpenSongDbReadOnly())
                     { CollectionAssert.AreEqual(new[] { unrelated.path }, pendingDb.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray()); }
 
-                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(lr2 ? values.LR2SongDBPath : composition.ApplicationPathSnapshot.StandaloneSongDbPath).OpenSongDbReadOnly())
+                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), lr2 ? values.LR2SongDBPath : composition.ApplicationPathSnapshot.StandaloneSongDbPath).OpenSongDbReadOnly())
                     {
                         if (failScan) { Assert.IsFalse(db.Table<LR2SongDB.song>().Any(row => row.path == chartB)); }
                         else { Assert.AreEqual("Folder B", db.Table<LR2SongDB.song>().Single(row => row.path == chartB).title); }
@@ -2109,7 +2111,7 @@ public sealed partial class SettingDialogEditCompletionTests
             Settings settings = CreateValidCustomFolderSettings(Path.Combine(root, "lr2"), []);
             string configPath = settings.LR2ConfigXmlPath;
             string songDbPath = settings.LR2SongDBPath;
-            StartupLibraryConstructionTestSupport.CreateSongDatabase(songDbPath);
+            StartupLibraryConstructionTestSupport.CreateSongDatabase(databaseScope, songDbPath);
             byte[] songDbBefore = File.ReadAllBytes(songDbPath);
             byte[] invalidConfigBefore = [];
             void InvalidateConfig()
@@ -2221,13 +2223,13 @@ public sealed partial class SettingDialogEditCompletionTests
                 settings.LR2RootPath = string.Empty;
             }
             string songDbPath = settings.LR2SongDBPath;
-            using (var db = new SQLiteConnection(songDbPath, storeDateTimeAsTicks: true))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(songDbPath))
             {
                 db.CreateTable<LR2SongDB.song>();
                 db.CreateTable<LR2SongDB.folder>();
             }
-            new BmsLibraryDbGateway(songDbPath).EnsureAppOwnedSchema();
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).EnsureAppOwnedSchema();
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             var settingsSession = new CountingSettingsEditSession(settings);
             var dialogs = new RecordingRootDialogService();
             var applicationPath = ApplicationPathSnapshot.FromExecutablePath(
@@ -2245,7 +2247,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     rootFileEnumerator: new FastRootFileEnumerator(),
                     fileDbMutationDialogService: dialogs);
                 Lr2ConfigOwner configOwner = composition.ResolveLr2Config(settings.LR2ConfigXmlPath);
-                var library = new TestBmsLibrary(
+                var library = new TestBmsLibrary(composition.DatabaseScope,
                     songDbPath,
                     configOwner,
                     _lr2ScoreDB: null,
@@ -2258,7 +2260,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     rootFileEnumerator: new FastRootFileEnumerator(),
                     operationAdmission: composition.OperationAdmission,
                     playlistOperationAdmission: composition.PlaylistOperationAdmission);
-                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings, configOwner, library: library);
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, songDbPath, settings, configOwner, library: library);
                 MainWindowViewModel viewModel = new(
                     composition,
                     new LateFailureStartupLibraryFactory(library, playlist));
@@ -2478,8 +2480,8 @@ public sealed partial class SettingDialogEditCompletionTests
             var applicationPath = ApplicationPathSnapshot.FromExecutablePath(
                 Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
             StandaloneLibraryDatabaseEnsureResult database =
-                StandaloneLibraryDatabase.EnsurePortableSongDb(applicationPath);
-            PlaylistPersistenceRepository.EnsureSchema(database.SongDbPath);
+                StandaloneLibraryDatabase.EnsurePortableSongDb(databaseScope, applicationPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, database.SongDbPath);
             IChartFileScanner scanner = CapturedChartFileScanner.FromFixture(
                 [],
                 new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
@@ -2501,7 +2503,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
                     fileDbMutationDialogService: dialogs);
                 admission = composition.OperationAdmission;
-                var library = new TestBmsLibrary(
+                var library = new TestBmsLibrary(composition.DatabaseScope,
                     database.SongDbPath,
                     getLR2Config: null,
                     _lr2ScoreDB: null,
@@ -2512,7 +2514,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     chartFileScanner: scanner,
                     operationAdmission: composition.OperationAdmission,
                     playlistOperationAdmission: composition.PlaylistOperationAdmission);
-                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(database.SongDbPath, settings, library: library);
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, database.SongDbPath, settings, library: library);
                 viewModel = new MainWindowViewModel(
                     composition,
                     new LateFailureStartupLibraryFactory(library, playlist));
@@ -2638,8 +2640,8 @@ public sealed partial class SettingDialogEditCompletionTests
         {
             Settings settings = CreateValidStandaloneSettings(songsRoot);
             var applicationPath = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
-            StandaloneLibraryDatabaseEnsureResult database = StandaloneLibraryDatabase.EnsurePortableSongDb(applicationPath);
-            PlaylistPersistenceRepository.EnsureSchema(database.SongDbPath);
+            StandaloneLibraryDatabaseEnsureResult database = StandaloneLibraryDatabase.EnsurePortableSongDb(databaseScope, applicationPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, database.SongDbPath);
             var dialogs = new RecordingRootDialogService();
             var sequence = new List<string>();
             var failure = new InvalidOperationException("controlled startup construction failure");
@@ -2657,11 +2659,11 @@ public sealed partial class SettingDialogEditCompletionTests
                     uiScheduler: scheduler, applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(), runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
                     fileDbMutationDialogService: dialogs);
-                library = new TestBmsLibrary(database.SongDbPath, null, null, null,
+                library = new TestBmsLibrary(composition.DatabaseScope, database.SongDbPath, null, null, null,
                     () => BmsLibraryOptionsSnapshot.CreateCurrent(settings), TestBmsFactory.MissingEverythingBridge,
                     operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission,
                     uiScheduler: scheduler, settings: settings);
-                playlist = MainWindowViewModelTestFactory.CreatePlaylist(database.SongDbPath, settings, library: library);
+                playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, database.SongDbPath, settings, library: library);
                 var owner = new MainWindowViewModel(composition, new LateFailureStartupLibraryFactory(library, playlist, () => throw failure));
                 viewModel = owner;
                 owner.SettingDialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
@@ -2767,8 +2769,8 @@ public sealed partial class SettingDialogEditCompletionTests
         {
             Settings settings = CreateValidStandaloneSettings(songsRoot);
             var applicationPath = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
-            StandaloneLibraryDatabaseEnsureResult database = StandaloneLibraryDatabase.EnsurePortableSongDb(applicationPath);
-            PlaylistPersistenceRepository.EnsureSchema(database.SongDbPath);
+            StandaloneLibraryDatabaseEnsureResult database = StandaloneLibraryDatabase.EnsurePortableSongDb(databaseScope, applicationPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, database.SongDbPath);
             var dialogs = new RecordingRootDialogService();
             var lifetime = new TestApplicationLifetime(firstStartup: true);
             var sequence = new List<string>();
@@ -2778,11 +2780,11 @@ public sealed partial class SettingDialogEditCompletionTests
                 var composition = new ApplicationComposition(settingsEditSession: new CountingSettingsEditSession(settings),
                     uiScheduler: scheduler, applicationLifetime: lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath), fileDbMutationDialogService: dialogs, defaultBmsPlayerFactory: () => new RecordingPlaybackPlayer());
-                library = new TestBmsLibrary(database.SongDbPath, null, null, null,
+                library = new TestBmsLibrary(composition.DatabaseScope, database.SongDbPath, null, null, null,
                     () => BmsLibraryOptionsSnapshot.CreateCurrent(settings), TestBmsFactory.MissingEverythingBridge,
                     operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission,
                     uiScheduler: scheduler, settings: settings);
-                playlist = MainWindowViewModelTestFactory.CreatePlaylist(database.SongDbPath, settings, library: library);
+                playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, database.SongDbPath, settings, library: library);
                 var factory = new LateFailureStartupLibraryFactory(library, playlist, () =>
                 {
                     MainWindowViewModel activeOwner = viewModel ?? throw new InvalidOperationException("startup owner not composed");
@@ -2794,7 +2796,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 if (fromSettings)
                 {
                     using var semaphore = new SemaphoreSlim(1, 1);
-                    var requiredOwner = new StartupLibraryInitializationWorkflowOwner(semaphore);
+                    var requiredOwner = new StartupLibraryInitializationWorkflowOwner(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), semaphore);
                     using (StartupRequiredOperationLease accepted = requiredOwner.AcquireRequiredOperation(composition.OperationAdmission, composition.PlaylistOperationAdmission))
                     {
                         Task<StartupInitializationResult> operation = ((ISettingsDialogStatePort)owner).InitializeLibraryAsync(accepted.Capability, new(database.SongDbPath), _ => { });
@@ -2862,8 +2864,8 @@ public sealed partial class SettingDialogEditCompletionTests
             var applicationPath = ApplicationPathSnapshot.FromExecutablePath(
                 Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
             StandaloneLibraryDatabaseEnsureResult database =
-                StandaloneLibraryDatabase.EnsurePortableSongDb(applicationPath);
-            PlaylistPersistenceRepository.EnsureSchema(database.SongDbPath);
+                StandaloneLibraryDatabase.EnsurePortableSongDb(databaseScope, applicationPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, database.SongDbPath);
             IChartFileScanner scanner = CapturedChartFileScanner.FromFixture(
                 [],
                 new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
@@ -2923,7 +2925,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
                     fileDbMutationDialogService: dialogs);
-                var library = new TestBmsLibrary(
+                var library = new TestBmsLibrary(composition.DatabaseScope,
                     database.SongDbPath,
                     getLR2Config: null,
                     _lr2ScoreDB: null,
@@ -2934,7 +2936,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     chartFileScanner: scanner,
                     operationAdmission: composition.OperationAdmission,
                     playlistOperationAdmission: composition.PlaylistOperationAdmission);
-                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(database.SongDbPath, settings, library: library);
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, database.SongDbPath, settings, library: library);
                 viewModel = new MainWindowViewModel(
                     composition,
                     new LateFailureStartupLibraryFactory(
@@ -3221,7 +3223,7 @@ public sealed partial class SettingDialogEditCompletionTests
         {
             string playerDirectory = Path.Combine(playerRoot, "player", player);
             Directory.CreateDirectory(playerDirectory);
-            using var db = new SQLite.SQLiteConnection(Path.Combine(playerDirectory, "score.db"));
+            using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(Path.Combine(playerDirectory, "score.db"));
             db.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
             db.Execute("INSERT INTO score VALUES (?, 0, 4, ?, 0, 0, 0, 100, 50, 5, 1, 1)", hash, score);
         }
@@ -3389,7 +3391,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 File.WriteAllText(Path.Combine(playerRoot, "beatoraja.jar"), string.Empty);
                 File.WriteAllText(Path.Combine(playerRoot, BeatorajaConfigService.ConfigFileName), "{\"playername\":\"player\",\"tablepath\":\"table\",\"tableURL\":[\"https://example.invalid/user\"]}");
                 string profile = Directory.CreateDirectory(Path.Combine(playerRoot, "player", "player")).FullName;
-                using var db = new SQLiteConnection(Path.Combine(profile, "score.db"));
+                using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(Path.Combine(profile, "score.db"));
                 db.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
                 db.Execute("INSERT INTO score VALUES (?, 0, 4, ?, 0, 0, 0, 100, 50, 5, 1, 1)", hash, perfect);
             }
@@ -3415,7 +3417,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 var scoreDialogs = new BmsLibraryInitializationTestSupport.RecordingDialogService();
                 var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
                 {
-                    LibraryCreator = profile => new BMSLibrary(profile.SongDbPath, profile.Lr2ConfigOwner, profile.Lr2ScoreDbPath,
+                    LibraryCreator = profile => new BMSLibrary(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), profile.SongDbPath, profile.Lr2ConfigOwner, profile.Lr2ScoreDbPath,
                         null, scoreDialogs, profile.StartupRequiredFileScanReason, composition.BmsLibraryOptionsProvider, composition.UiScheduler,
                         composition.ApplicationPathSnapshot, composition.BmsRootRegistrations, rootFileEnumerator: new FastRootFileEnumerator(),
                         operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission)
@@ -3511,7 +3513,7 @@ public sealed partial class SettingDialogEditCompletionTests
             foreach ((string player, int perfect) in new[] { ("A", 10), ("B", 0), ("C", 40) })
             {
                 string path = Path.Combine(Directory.CreateDirectory(Path.Combine(beatoraja, "profiles", player)).FullName, "score.db");
-                using var db = new SQLiteConnection(path);
+                using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(path);
                 if (player == "B") { db.Execute("CREATE TABLE unrelated (id INTEGER)"); }
                 else
                 {
@@ -3543,7 +3545,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
                 {
                     // score読取り・投影は実モデルで行い、Windowの不要な警告終端だけを既存記録窓口へ接続します。
-                    LibraryCreator = profile => new BMSLibrary(profile.SongDbPath, profile.Lr2ConfigOwner, profile.Lr2ScoreDbPath,
+                    LibraryCreator = profile => new BMSLibrary(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), profile.SongDbPath, profile.Lr2ConfigOwner, profile.Lr2ScoreDbPath,
                         null, scoreDialogs, profile.StartupRequiredFileScanReason, composition.BmsLibraryOptionsProvider,
                         composition.UiScheduler, composition.ApplicationPathSnapshot, composition.BmsRootRegistrations, rootFileEnumerator: new FastRootFileEnumerator(),
                         operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission)
@@ -3739,7 +3741,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(composition.PlaylistOperationAdmission.WaitForIdleAsync(), "initial-lr2-settings-playlist-terminal");
                     Assert.IsFalse(composition.OperationAdmission.IsActive);
                     Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
-                    using LR2SongDBExtended db = new BmsLibraryDbGateway(values.LR2SongDBPath).OpenSongDbReadOnly();
+                    using LR2SongDBExtended db = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).OpenSongDbReadOnly();
                     Assert.IsTrue(db.Table<LR2SongDB.song>().Any() || !values.ScanBmsFilesOnStartup,
                         "同権限の実初期化と背景の実終端を確認し、登録だけからwhole Completedを強制しません。");
 
@@ -4193,7 +4195,7 @@ public sealed partial class SettingDialogEditCompletionTests
             Directory.CreateDirectory(folder);
             DateTime sentinel = new(2024, 2, 29, 12, 0, 0);
             Directory.SetLastWriteTime(folder, sentinel);
-            using (var db = new LR2SongDBExtended(settings.LR2SongDBPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(settings.LR2SongDBPath))
             {
                 db.CreateTable<LR2SongDB.folder>();
                 db.Insert(new LR2SongDB.folder { path = folder + Path.DirectorySeparatorChar, type = 1, date = null, adddate = 0 });
@@ -4216,7 +4218,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 }
             };
             using var gate = new SemaphoreSlim(1, 1);
-            var owner = new StartupLibraryInitializationWorkflowOwner(gate);
+            var owner = new StartupLibraryInitializationWorkflowOwner(databaseScope, new BmsDatabaseLoadOptions(true, true, true), gate);
             Task<LeapYearFolderRepairApproval> operation = owner.PrepareLeapYearFolderRepairAsync(settings.LR2SongDBPath, dialogs, () => shutdown);
             if (resultKind is 0 or 1) { await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => operation); }
             else if (resultKind == 4) { Assert.AreSame(original, await Assert.ThrowsExactlyAsync<IOException>(() => operation)); }
@@ -4229,7 +4231,7 @@ public sealed partial class SettingDialogEditCompletionTests
             Assert.AreEqual(1, dialogs.ConfirmationCount);
             Assert.AreEqual(0, dialogs.MessageCount);
             Assert.AreEqual(sentinel, Directory.GetLastWriteTime(folder));
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(settings.LR2SongDBPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), settings.LR2SongDBPath).OpenSongDbReadOnly();
             LR2SongDB.folder row = verify.Table<LR2SongDB.folder>().Single();
             Assert.AreEqual(0, row.adddate);
             Assert.IsNull(row.date);
@@ -4273,7 +4275,7 @@ public sealed partial class SettingDialogEditCompletionTests
             }
         };
         using var gate = new SemaphoreSlim(1, 1);
-        var owner = new StartupLibraryInitializationWorkflowOwner(gate);
+        var owner = new StartupLibraryInitializationWorkflowOwner(databaseScope, new BmsDatabaseLoadOptions(true, true, true), gate);
         var notification = new LeapYearFolderRepairNotification(warning, warning ? [] : [("original folder", new IOException("timestamp repair failed"))]);
         Task operation = owner.PresentLeapYearFolderRepairAsync(notification, dialogs, () => shutdown);
         if (shutdownAfterDisplay) { await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => operation); }
@@ -4309,8 +4311,8 @@ public sealed partial class SettingDialogEditCompletionTests
             Directory.CreateDirectory(folder);
             DateTime sentinel = new(2024, 2, 29, 12, 0, 0);
             Directory.SetLastWriteTime(folder, sentinel);
-            new BmsLibraryDbGateway(targetDb).EnsureAppOwnedSchema();
-            using (var db = new LR2SongDBExtended(targetDb))
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), targetDb).EnsureAppOwnedSchema();
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(targetDb))
             {
                 db.CreateTable<LR2SongDB.song>();
                 db.CreateTable<LR2SongDB.folder>();
@@ -4334,13 +4336,13 @@ public sealed partial class SettingDialogEditCompletionTests
                     settingsDialogService: dialogs, fileDbMutationDialogService: dialogs, defaultBmsPlayerFactory: () => new RecordingPlaybackPlayer());
                 var config = new LR2Config(values.LR2ConfigXmlPath);
                 Lr2ConfigOwner configOwner = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
-                var actualLibrary = new TestBmsLibrary(targetDb, configOwner, null, mutation, null, scheduler,
+                var actualLibrary = new TestBmsLibrary(composition.DatabaseScope, targetDb, configOwner, null, mutation, null, scheduler,
                     () => BmsLibraryOptionsSnapshot.CreateCurrent(values), chartFileScanner: CapturedChartFileScanner.FromFixture([],
                     new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { [Path.Combine(root, "Songs")] = [] }, [Path.Combine(root, "Songs")]),
                     operationAdmission: composition.OperationAdmission,
                     playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: values, rootFileEnumerator: new FastRootFileEnumerator());
                 library = actualLibrary;
-                playlist = MainWindowViewModelTestFactory.CreatePlaylist(targetDb, values, configOwner, library: actualLibrary);
+                playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, targetDb, values, configOwner, library: actualLibrary);
                 var activeOwner = new MainWindowViewModel(composition, new LateFailureStartupLibraryFactory(actualLibrary, playlist));
                 owner = activeOwner;
                 var presentation = new RecordingSettingsDialogPresentationPort();
@@ -4543,7 +4545,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Assert.IsFalse(composition.OperationAdmission.IsActive);
                 Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
             });
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(targetDb).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(MainWindowViewModelTestFactory.GetComposition(owner ?? throw new AssertFailedException()).DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), targetDb).OpenSongDbReadOnly();
             LR2SongDB.folder row = verify.Table<LR2SongDB.folder>().Single(value => value.path == folder + Path.DirectorySeparatorChar);
             if (shutdownDuringConfirmation) { Assert.AreEqual(0, row.adddate); Assert.AreEqual(sentinel, Directory.GetLastWriteTime(folder)); }
             else { Assert.IsNull(row.adddate); }
@@ -4641,7 +4643,7 @@ public sealed partial class SettingDialogEditCompletionTests
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
         if (initializeOwner != null || reloadScoresOnly != null || reloadFileDiff != null || reloadScoresOnlyUnderAdmission != null)
         {
-            SettingsDialogViewModel testDialog = new(
+            SettingsDialogViewModel testDialog = new(composition.DatabaseScope,
                 new TestSettingsDialogStatePort(
                     viewModel,
                     initializeOwner == null
@@ -4670,7 +4672,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 new TestSettingsDialogPlayerFactoryPort(),
                 new TestSettingsDialogPlaybackRuntimePort(),
                 viewModel.Lr2SongDbSyncWorkflow,
-                settingsSession,
+                settingsSession, new ApplicationDataUninstallWorkflowOwner(dialogs ?? new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(composition.DatabaseScope)),
                 applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 schemaDialogs: dialogs,
@@ -4700,7 +4702,7 @@ public sealed partial class SettingDialogEditCompletionTests
         ISettingsDialogPlayHistoryPort playHistoryPort,
         AudioDeviceTestWorkflowOwner workflow)
     {
-        return new SettingsDialogViewModel(
+        return new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
             (ISettingsDialogStatePort)owner,
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
@@ -4709,7 +4711,7 @@ public sealed partial class SettingDialogEditCompletionTests
             new TestSettingsDialogPlayerFactoryPort(),
             new TestSettingsDialogPlaybackRuntimePort(),
             owner.Lr2SongDbSyncWorkflow,
-            new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
+            new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()), new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             externalShellGateway: ExternalShellGatewayPolicy.Current,
@@ -4753,7 +4755,7 @@ public sealed partial class SettingDialogEditCompletionTests
         IAudioDeviceCatalog? audioDeviceCatalog = null)
     {
         viewModel.SettingDialog.Dispose();
-        var dialog = new SettingsDialogViewModel(
+        var dialog = new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope,
             viewModel,
             viewModel.PlaylistWorkspace,
             viewModel.PlaylistWorkspace,
@@ -4762,7 +4764,7 @@ public sealed partial class SettingDialogEditCompletionTests
             new TestSettingsDialogPlayerFactoryPort(),
             new TestSettingsDialogPlaybackRuntimePort(),
             viewModel.Lr2SongDbSyncWorkflow,
-            settingsSession,
+            settingsSession, new ApplicationDataUninstallWorkflowOwner(dialogs ?? new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope)),
             schemaDialogs: dialogs,
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
@@ -4816,7 +4818,7 @@ public sealed partial class SettingDialogEditCompletionTests
         var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
         config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
         config.Save(configPath);
-        var dialog = new SettingsDialogViewModel(
+        var dialog = new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
             new TestSettingsDialogStatePort(
                 owner,
                 () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded)),
@@ -4828,7 +4830,7 @@ public sealed partial class SettingDialogEditCompletionTests
             new TestSettingsDialogPlayerFactoryPort(),
             new TestSettingsDialogPlaybackRuntimePort(),
             owner.Lr2SongDbSyncWorkflow,
-                settingsSession,
+                settingsSession, new ApplicationDataUninstallWorkflowOwner(dialogs, new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 schemaDialogs: dialogs,
@@ -4953,7 +4955,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
         ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
         Settings values = composition.SettingsEditSession.Values;
-        var tables = new TestBmsPlaylist(databasePath, null, null, null,
+        var tables = new TestBmsPlaylist(composition.DatabaseScope, databasePath, null, null, null,
             () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(values),
             () => BeatorajaBmtOptionsSnapshot.CreateCurrent(values),
             composition.CustomFolderOutputSettingsProvider,

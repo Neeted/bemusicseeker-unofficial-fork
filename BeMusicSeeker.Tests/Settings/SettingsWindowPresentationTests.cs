@@ -44,6 +44,9 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class SettingsWindowPresentationTests
 {
+    /// <summary>このケースの準備とモデルで共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     private static void AssertPlaylistUriValidationClearedOnReopen(PlaylistUriCompletionRoute completionRoute)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -451,7 +454,7 @@ public sealed class SettingsWindowPresentationTests
             DangerDialogContext? context = null;
             try
             {
-                Lr2PlayHistorySchemaCheckResult resetResult = new Lr2PlayHistorySchemaService().Uninstall(
+                Lr2PlayHistorySchemaCheckResult resetResult = new Lr2PlayHistorySchemaService(databaseScope).Uninstall(
                     scoreDbPath,
                     isLr2LinkedProfile: true,
                     Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers);
@@ -563,7 +566,7 @@ public sealed class SettingsWindowPresentationTests
                 var runtime = new RecordingManualResyncRuntime { Admitted = outcome == "accepted", AdmissionWait = releaseAdmission.Task, TerminalWait = releaseTerminal.Task };
                 using SettingsDialogViewModel settings = CreateManualResyncSettingsDialog(owner, runtime, values);
                 string draft = Path.Combine(Directory.CreateDirectory(Path.Combine(root, "candidate")).FullName, "song.db");
-                StartupLibraryConstructionTestSupport.CreateSongDatabase(draft);
+                StartupLibraryConstructionTestSupport.CreateSongDatabase(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope, draft);
                 var dialogs = new DangerDialogService { HoldConfirmation = true };
                 var ownerWindow = new Window { Width = 320, Height = 200, ShowInTaskbar = false };
                 var window = new SettingsWindow(dialogs) { DataContext = settings };
@@ -1092,9 +1095,9 @@ public sealed class SettingsWindowPresentationTests
                 LogManager.Configuration = configuration;
                 fileLoggerProvider.SetValue(null, (Func<Logger>)(() => logger));
                 string dbPath = Path.Combine(directory, "song.db");
-                StartupLibraryConstructionTestSupport.CreateSongDatabase(dbPath);
+                StartupLibraryConstructionTestSupport.CreateSongDatabase(databaseScope, dbPath);
                 owner = MainWindowViewModelTestFactory.Create();
-                PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateBackupWorkspace(
+                PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateBackupWorkspace(MainWindowViewModelTestFactory.GetComposition(owner ?? throw new AssertFailedException()).DatabaseScope,
                     dbPath,
                     [new BMSTable { playlist_id = 1, name = "Saved backup", symbol = "B" }],
                     out BMSPlaylist playlist, out List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications,
@@ -1224,10 +1227,12 @@ public sealed class SettingsWindowPresentationTests
             try
             {
                 string dbPath = Path.Combine(directory, "song.db");
-                StartupLibraryConstructionTestSupport.CreateSongDatabase(dbPath);
-                TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(dbPath,
+                owner = MainWindowViewModelTestFactory.Create();
+                ApplicationDatabaseScope ownerDatabaseScope = MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope;
+                StartupLibraryConstructionTestSupport.CreateSongDatabase(ownerDatabaseScope, dbPath);
+                TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(ownerDatabaseScope, dbPath,
                     MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false));
-                PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateBackupWorkspace(
+                PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateBackupWorkspace(library.DatabaseScope,
                     dbPath, [new BMSTable { playlist_id = 1, name = "Old live", symbol = "O" }],
                     out BMSPlaylist playlist, out List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications,
                     restoreUiApplyScheduler: condition == "required-ui-failure"
@@ -1265,7 +1270,6 @@ public sealed class SettingsWindowPresentationTests
                     FileResult = condition == "picker-cancel" ? new UiFilePickerResult(UiDialogStatus.CancelledByUser) : new UiFilePickerResult(UiDialogStatus.Accepted, [dump])
                 };
                 int exitRequests = 0;
-                owner = MainWindowViewModelTestFactory.Create();
                 window = new SettingsWindow(dialogs, _ => exitRequests++)
                 { DataContext = owner.SettingDialog, PlaylistWorkspace = workspace };
                 dialogs.ExpectedOwner = window;
@@ -1291,7 +1295,7 @@ public sealed class SettingsWindowPresentationTests
                 else { Assert.AreSame(oldTable, playlist.BMSTables.Single()); }
                 Assert.AreEqual(committedFailure || condition == "picker-cancel" ? 0 : 1, rejected);
                 Assert.AreEqual(committedFailure ? 1 : 0, notifications.Count);
-                using (LR2SongDBExtended db = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly())
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly())
                 {
                     Assert.AreEqual(committedFailure ? 2 : 1, db.Table<BMSTable>().Single().playlist_id);
                 }
@@ -1351,10 +1355,12 @@ public sealed class SettingsWindowPresentationTests
             try
             {
                 string dbPath = Path.Combine(directory, "song.db");
-                StartupLibraryConstructionTestSupport.CreateSongDatabase(dbPath);
-                TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(dbPath,
+                owner = MainWindowViewModelTestFactory.Create();
+                ApplicationDatabaseScope ownerDatabaseScope = MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope;
+                StartupLibraryConstructionTestSupport.CreateSongDatabase(ownerDatabaseScope, dbPath);
+                TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(ownerDatabaseScope, dbPath,
                     MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false));
-                PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateBackupWorkspace(
+                PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateBackupWorkspace(library.DatabaseScope,
                     dbPath, [new BMSTable { playlist_id = 1, name = "Old live", symbol = "O" }],
                     out BMSPlaylist playlist, out List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications,
                     restoreUiApplyScheduler: action =>
@@ -1384,7 +1390,6 @@ public sealed class SettingsWindowPresentationTests
                     MessageResult = UiDialogResult.Failed(new IOException("exit notice failed"))
                 };
                 int exits = 0;
-                owner = MainWindowViewModelTestFactory.Create();
                 window = new SettingsWindow(dialogs, source =>
                 {
                     exits++;
@@ -1430,7 +1435,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.IsFalse(window.IsVisible);
                 Assert.IsNull(window.DataContext);
                 Assert.AreEqual(2, playlist.BMSTables.Single().playlist_id);
-                using LR2SongDBExtended db = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly();
                 Assert.AreEqual(2, db.Table<BMSTable>().Single().playlist_id);
             }
             finally
@@ -1492,7 +1497,7 @@ public sealed class SettingsWindowPresentationTests
             string backupPath = Path.Combine(scope, "restore.sql");
             File.WriteAllText(backupPath,
                 PlaylistWorkspaceTestDataSupport.CreatePlaylistRestoreDump(2, "Committed restore", "R"));
-            using (var _ = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
             {
             }
 
@@ -1509,7 +1514,7 @@ public sealed class SettingsWindowPresentationTests
                 values.ScanBmsFilesOnStartup = false;
                 values.SkipInitPlaylistLoad = true;
             }));
-                PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateBackupWorkspace(
+                PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateBackupWorkspace(MainWindowViewModelTestFactory.GetComposition(owner ?? throw new AssertFailedException()).DatabaseScope,
                     songDbPath,
                     [new BMSTable { playlist_id = 1, name = "Existing", symbol = "E" }],
                     out _,
@@ -1537,7 +1542,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(0, dialogs.MessageRequests.Count, "下位の失敗receiptを再通知せず、終了案内も出さない。");
                 Assert.IsTrue(window.IsVisible);
                 Assert.AreEqual(SettingsWindowCloseReason.None, window.CloseReason);
-                using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                using (LR2SongDBExtended verify = new BmsLibraryDbGateway(MainWindowViewModelTestFactory.GetComposition(owner ?? throw new AssertFailedException()).DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
                 {
                     Assert.AreEqual(2, verify.Table<BMSTable>().Single().playlist_id);
                 }
@@ -2433,7 +2438,7 @@ public sealed class SettingsWindowPresentationTests
                 new NoOpAudioDeviceTestPlaybackPort(),
                 runtime);
             workflow.OperationReleased += () => testReleased.TrySetResult();
-            var dialog = new SettingsDialogViewModel(
+            var dialog = new SettingsDialogViewModel(composition.DatabaseScope,
                 viewModel,
                 viewModel.PlaylistWorkspace,
                 viewModel.PlaylistWorkspace,
@@ -2442,7 +2447,7 @@ public sealed class SettingsWindowPresentationTests
                 new TestSettingsDialogPlayerFactoryPort(),
                 new TestSettingsDialogPlaybackRuntimePort(),
                 viewModel.Lr2SongDbSyncWorkflow,
-                settingsSession,
+                settingsSession, new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(composition.DatabaseScope)),
                 schemaDialogs: new UiDialogCoordinator(),
                 applicationLifetime: lifetime,
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
@@ -3893,7 +3898,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    private static string CreateDangerSchemaScope(out Settings values, out string scoreDbPath)
+    private string CreateDangerSchemaScope(out Settings values, out string scoreDbPath)
     {
         string scope = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingsDanger_" + Guid.NewGuid().ToString("N"));
         string configPath = Path.Combine(scope, "LR2files", "Config", "config.xml");
@@ -3901,12 +3906,12 @@ public sealed class SettingsWindowPresentationTests
         Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
         Directory.CreateDirectory(Path.GetDirectoryName(scoreDbPath)!);
         File.WriteAllText(configPath, "<config><system/><jukebox/><player><id>player1</id></player></config>");
-        using (var database = new SQLiteConnection(scoreDbPath))
+        using (SQLiteConnectionEx database = databaseScope.OpenProviderConnection(scoreDbPath))
         {
             database.CreateTable<LR2ScoreDB.score>();
             database.CreateTable<LR2ScoreDB.player>();
         }
-        new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
+        new Lr2PlayHistorySchemaService(databaseScope).InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
         values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = true;
@@ -3960,7 +3965,7 @@ public sealed class SettingsWindowPresentationTests
             });
         workspace ??= new DangerWorkspacePort();
         var playHistory = new DangerPlayHistoryPort();
-        var settings = new SettingsDialogViewModel(
+        var settings = new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
             statePort,
             workspace,
             owner.PlaylistWorkspace,
@@ -4046,7 +4051,7 @@ public sealed class SettingsWindowPresentationTests
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         var statePort = new SchemaPresentationStatePort();
-        var settings = new SettingsDialogViewModel(
+        var settings = new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
             statePort,
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
@@ -4055,7 +4060,7 @@ public sealed class SettingsWindowPresentationTests
             composition,
             owner.PlaybackPanel,
             owner.Lr2SongDbSyncWorkflow,
-            settingsSession,
+            settingsSession, new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             externalShellGateway: ExternalShellGatewayPolicy.Current,
@@ -4117,9 +4122,9 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.AwaitTaskOnDispatcher(settings.SettingsOperationCompletionTask, "settings-view-operation-terminal");
     }
 
-    private static void AssertInstalledSchema(string scoreDbPath, bool expectedInstalled)
+    private void AssertInstalledSchema(string scoreDbPath, bool expectedInstalled)
     {
-        using var database = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex);
+        using SQLiteConnectionEx database = databaseScope.OpenProviderConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex);
         int objectCount = database.ExecuteScalar<int>(
             "SELECT COUNT(1) FROM sqlite_master WHERE name LIKE 'bms_lr2_%' OR name LIKE 'idx_bms_lr2_%';");
         Assert.AreEqual(expectedInstalled, objectCount > 0);
@@ -5349,7 +5354,7 @@ public sealed class SettingsWindowPresentationTests
                 request.DeviceName,
                 AudioDeviceCapabilityStatus.Available,
                 [SampleRate.SAMPLE_RATE_44100Hz])));
-        var dialog = new SettingsDialogViewModel(
+        var dialog = new SettingsDialogViewModel(composition.DatabaseScope,
             owner,
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
@@ -5358,7 +5363,7 @@ public sealed class SettingsWindowPresentationTests
             composition,
             owner.PlaybackPanel,
             owner.Lr2SongDbSyncWorkflow,
-            new NoOpSettingsEditSession(values),
+            new NoOpSettingsEditSession(values), new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(composition.DatabaseScope)),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             externalShellGateway: ExternalShellGatewayPolicy.Current,
@@ -5388,7 +5393,7 @@ public sealed class SettingsWindowPresentationTests
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         var workflow = new Lr2SongDbSyncWorkflowOwner(runtime);
-        return new SettingsDialogViewModel(
+        return new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
             new ManualResyncStatePort(),
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
@@ -5397,7 +5402,7 @@ public sealed class SettingsWindowPresentationTests
             composition,
             owner.PlaybackPanel,
             workflow,
-            settingsSession,
+            settingsSession, new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             externalShellGateway: ExternalShellGatewayPolicy.Current,

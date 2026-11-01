@@ -23,6 +23,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistWorkspaceDetailRefreshTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     public TestContext TestContext { get; set; } = null!;
 
     /// <summary>指定folderだけを対象に未削除の行をsourceへ作り、別folder・削除行を除外しながら必要な行読込を一回行うことを確認します。</summary>
@@ -1393,14 +1395,14 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         {
             string songDbPath = Path.Combine(tempDirectory, "song.db");
             File.WriteAllBytes(songDbPath, []);
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.CreateTable<LR2SongDB.song>();
                 db.CreateTable<LR2SongDB.folder>();
                 db.CreateTable<LR2SongDBExtended.maintenance>();
                 db.CreateTable<LR2SongDBExtended.bmson_song>();
             }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
 
             string firstDirectory = Path.Combine(tempDirectory, "RemoveFirst");
             string secondDirectory = Path.Combine(tempDirectory, "RemoveSecond");
@@ -1420,7 +1422,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                 Path = secondPath,
                 Md5 = new string('b', 32)
             };
-            var library = new TestBmsLibrary(
+            var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
@@ -1430,7 +1432,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                 BmsCharts = [first, second],
                 BmsonCharts = []
             };
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(first), typeof(LR2SongDB.song));
                 db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(second), typeof(LR2SongDB.song));
@@ -1439,7 +1441,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             library.GetOwnedChartHashIndexSnapshot();
             library.WarmInstalledPrimaryHashLookup("playlist_prewarm_two_removals");
             library.CreateInstalledChartLookupSnapshotForDiagnostics();
-            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
@@ -1518,11 +1520,11 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         try
         {
             string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
             {
             }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
@@ -1599,12 +1601,12 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             Directory.CreateDirectory(secondDirectory);
             string firstSongDbPath = Path.Combine(firstDirectory, "song.db");
             string secondSongDbPath = Path.Combine(secondDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(firstSongDbPath))
-            using (var __ = new LR2SongDBExtended(secondSongDbPath))
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(firstSongDbPath))
+            using (LR2SongDBExtended __ = databaseScope.OpenSongWrite(secondSongDbPath))
             {
             }
-            PlaylistPersistenceRepository.EnsureSchema(firstSongDbPath);
-            PlaylistPersistenceRepository.EnsureSchema(secondSongDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, firstSongDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, secondSongDbPath);
 
             string firstHeaderPath = Path.Combine(firstDirectory, "table.json");
             string secondHeaderPath = Path.Combine(secondDirectory, "table.json");
@@ -1615,19 +1617,19 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             File.WriteAllText(firstHeaderPath, "{\"name\":\"first\",\"symbol\":\"F\",\"data_url\":\"./score.json\",\"level_order\":[1]}", Encoding.UTF8);
             File.WriteAllText(secondHeaderPath, "{\"name\":\"second\",\"symbol\":\"S\",\"data_url\":\"./score.json\",\"level_order\":[1]}", Encoding.UTF8);
 
-            var firstPlaylist = new TestBmsPlaylist(firstSongDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
+            var firstPlaylist = new TestBmsPlaylist(databaseScope, firstSongDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
             BMSTable firstTable = await firstPlaylist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(firstHeaderPath));
             firstTable.playlist_id = 8101;
             firstPlaylist.BMSTables = new ObservableCollection<BMSTable>([firstTable]);
-            PersistPlaylistAggregate(firstSongDbPath, firstTable);
+            PersistPlaylistAggregate(databaseScope, firstSongDbPath, firstTable);
 
-            var secondPlaylist = new TestBmsPlaylist(secondSongDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
+            var secondPlaylist = new TestBmsPlaylist(databaseScope, secondSongDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
             BMSTable secondTable = await secondPlaylist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(secondHeaderPath));
             secondTable.playlist_id = 8102;
             secondPlaylist.BMSTables = new ObservableCollection<BMSTable>([secondTable]);
-            PersistPlaylistAggregate(secondSongDbPath, secondTable);
+            PersistPlaylistAggregate(databaseScope, secondSongDbPath, secondTable);
 
-            BMSLibrary currentLibrary = new TestBmsLibrary(firstSongDbPath);
+            BMSLibrary currentLibrary = new TestBmsLibrary(databaseScope, firstSongDbPath);
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
                 playlistStoreProvider: () => firstPlaylist,
@@ -1638,7 +1640,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             File.WriteAllText(firstHeaderPath, "{\"name\":\"first-updated\",\"symbol\":\"F2\",\"data_url\":\"./score.json\",\"level_order\":[1]}", Encoding.UTF8);
             firstTable.header_sha256 = null;
 
-            currentLibrary = new TestBmsLibrary(secondSongDbPath);
+            currentLibrary = new TestBmsLibrary(databaseScope, secondSongDbPath);
             workspace.RefreshPlaylistTreeTables(secondPlaylist, currentLibrary);
 
             PlaylistExternalSyncOwner.PlaylistReloadOperationResult oldResults =
@@ -1701,18 +1703,18 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             Directory.CreateDirectory(secondDirectory);
             string firstSongDbPath = Path.Combine(firstDirectory, "song.db");
             string secondSongDbPath = Path.Combine(secondDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(firstSongDbPath))
-            using (var __ = new LR2SongDBExtended(secondSongDbPath))
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(firstSongDbPath))
+            using (LR2SongDBExtended __ = databaseScope.OpenSongWrite(secondSongDbPath))
             {
             }
-            PlaylistPersistenceRepository.EnsureSchema(firstSongDbPath);
-            PlaylistPersistenceRepository.EnsureSchema(secondSongDbPath);
-            var firstPlaylist = new TestBmsPlaylist(firstSongDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, firstSongDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, secondSongDbPath);
+            var firstPlaylist = new TestBmsPlaylist(databaseScope, firstSongDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
             {
                 BMSTables = new ObservableCollection<BMSTable>([
                     new BMSTable { playlist_id = 8301, name = "first" }])
             };
-            var secondPlaylist = new TestBmsPlaylist(secondSongDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
+            var secondPlaylist = new TestBmsPlaylist(databaseScope, secondSongDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
             {
                 BMSTables = new ObservableCollection<BMSTable>([
                     new BMSTable { playlist_id = 8302, name = "second" }])
@@ -1726,8 +1728,8 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             ObservableCollection<BMSTable>? requestTables = null;
             long requestGeneration = 0L;
             int requestedVersion = 0;
-            var firstLibrary = new TestBmsLibrary(firstSongDbPath);
-            var secondLibrary = new TestBmsLibrary(secondSongDbPath);
+            var firstLibrary = new TestBmsLibrary(databaseScope, firstSongDbPath);
+            var secondLibrary = new TestBmsLibrary(databaseScope, secondSongDbPath);
             BMSLibrary currentLibrary = firstLibrary;
             int replacementRouteExpected = 0;
             var replacementCallStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1925,9 +1927,9 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         try
         {
             string songDbPath = Path.Combine(directory, "song.db");
-            using (var db = new LR2SongDBExtended(songDbPath)) { }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }) { BMSTables = [] };
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath)) { }
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }) { BMSTables = [] };
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist);
             var completed = new List<PlaylistExternalSyncCompletionEventArgs>();
             var execution = new List<(OperationProgressRequest Request, bool Running)>();
@@ -1978,11 +1980,11 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         try
         {
             string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
             {
             }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
@@ -1995,7 +1997,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                 return true;
             };
             playlist.InitializeAsync(reloadExtPlaylist: false, exportBeatorajaBmt: false).GetAwaiter().GetResult();
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             int schedulerCalls = 0;
             Func<Task>? scheduledWork = null;
             var queued = new List<PlaylistReferenceApplyQueuedEventArgs>();
@@ -2069,10 +2071,10 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         try
         {
             string songDbPath = Path.Combine(directory, "song.db");
-            using (var db = new LR2SongDBExtended(songDbPath)) { }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }) { BMSTables = [] };
-            var library = new TestBmsLibrary(songDbPath);
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath)) { }
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }) { BMSTables = [] };
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             Func<Task>? scheduled = null;
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
                 playlistLibraryProvider: () => library, referenceApplyScheduler: (_, work) => { scheduled = work; return true; });
@@ -2112,11 +2114,11 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         try
         {
             string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
             {
             }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[]
                     {
@@ -2128,7 +2130,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                     })
             };
             playlist.BMSTables[0].MarkEntriesNotLoaded();
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             Func<Task>? referenceApplyWork = null;
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
@@ -2179,17 +2181,17 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         try
         {
             string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
             {
             }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             var table = new BMSTable
             {
                 playlist_id = 7054,
                 name = "StaleReceipt"
             };
             table.MarkEntriesNotLoaded();
-            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
@@ -2201,7 +2203,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                 }
             };
             int referenceApplyScheduleCount = 0;
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
                 playlistStoreProvider: () => playlist,
@@ -2246,11 +2248,11 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         try
         {
             string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
             {
             }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };

@@ -17,7 +17,7 @@ using Newtonsoft.Json.Linq;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
-/// Provides the narrow stateless factories and synchronization port shared by the split playlist fixtures.
+/// プレイリストfixtureが共有する、状態を持たない準備処理と同期境界です。
 /// </summary>
 internal static class BmsPlaylistTestSupport
 {
@@ -37,7 +37,10 @@ internal static class BmsPlaylistTestSupport
         return [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(text)];
     }
 
+    /// <summary>同じfixtureのDB所有者へ、独立したプレイリストと同期境界を接続します。</summary>
+    /// <param name="databaseScope">接続と書込み排他を共有するfixtureのDB所有者。</param>
     internal static BMSPlaylist CreatePlaylist(
+        ApplicationDatabaseScope databaseScope,
         string songDbPath,
         ILr2PlaylistFolderSynchronizationPort synchronization = null!,
         Lr2ConfigOwner getLr2Config = null!,
@@ -45,6 +48,7 @@ internal static class BmsPlaylistTestSupport
     {
         settings ??= MainWindowViewModelTestFactory.CreateIsolatedSettings();
         return new TestBmsPlaylist(
+            databaseScope,
             songDbPath,
             getLr2Config,
             null,
@@ -52,18 +56,20 @@ internal static class BmsPlaylistTestSupport
             () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(settings),
             () => BeatorajaBmtOptionsSnapshot.CreateCurrent(settings),
             () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings),
-            synchronization ?? new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
+            synchronization ?? new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath));
     }
 
     /// <summary>
-    /// Creates a synchronization port with the supplied immutable physical output snapshot.
+    /// 指定した変更不能な物理出力snapshotを使い、同じDB所有者の同期境界を作ります。
     /// </summary>
+    /// <param name="databaseScope">接続と書込み排他を共有するfixtureのDB所有者。</param>
     internal static TestLr2PlaylistFolderSynchronizationPort CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+        ApplicationDatabaseScope databaseScope,
         string songDbPath,
         CustomFolderOutputPhysicalSurface physicalSurface)
     {
         ArgumentNullException.ThrowIfNull(physicalSurface);
-        return new TestLr2PlaylistFolderSynchronizationPort(songDbPath)
+        return new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath)
         {
             PhysicalSurfaceFactory = () => physicalSurface
         };
@@ -135,10 +141,12 @@ internal static class BmsPlaylistTestSupport
         return workspace;
     }
 
-    internal static string CreateTempSongDbPath(string tempDirectory)
+    /// <summary>同じfixtureのDB所有者で、songとfolderの実schemaを準備します。</summary>
+    /// <param name="databaseScope">準備中の接続を所有するfixtureのDB所有者。</param>
+    internal static string CreateTempSongDbPath(ApplicationDatabaseScope databaseScope, string tempDirectory)
     {
         string tempSongDbPath = Path.Combine(tempDirectory, "song.db");
-        using (var db = new LR2SongDBExtended(tempSongDbPath))
+        using (LR2SongDBExtended db = databaseScope.OpenSongWrite(tempSongDbPath))
         {
             db.CreateTable<LR2SongDB.song>();
             db.CreateTable<LR2SongDB.folder>();
@@ -188,10 +196,13 @@ internal static class BmsPlaylistTestSupport
 
 internal sealed class TestLr2PlaylistFolderSynchronizationPort : ILr2PlaylistFolderSynchronizationPort
 {
+    private readonly ApplicationDatabaseScope databaseScope;
     private readonly string songDbPath;
 
-    internal TestLr2PlaylistFolderSynchronizationPort(string songDbPath)
+    /// <summary>同じfixtureが使う接続所有者と曲DBへ、実LR2行同期を接続します。</summary>
+    internal TestLr2PlaylistFolderSynchronizationPort(ApplicationDatabaseScope databaseScope, string songDbPath)
     {
+        this.databaseScope = databaseScope;
         this.songDbPath = songDbPath;
     }
 
@@ -227,7 +238,7 @@ internal sealed class TestLr2PlaylistFolderSynchronizationPort : ILr2PlaylistFol
             throw Failure;
         }
 
-        using var songDb = new LR2SongDBExtended(songDbPath);
+        using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
         string savepoint = songDb.SaveTransactionPoint();
         try
         {

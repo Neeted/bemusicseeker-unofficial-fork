@@ -4,9 +4,11 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
@@ -260,10 +262,10 @@ public sealed class AudioDeviceListRefreshTests
             new SuccessfulAudioDeviceTestRuntime(), capability ?? new DelegateAudioDeviceCapabilityRuntime(request =>
                 new AudioDeviceCapabilityResult(request.Backend, request.DeviceIdentity, request.DeviceName,
                     AudioDeviceCapabilityStatus.Unsupported, [])));
-        return new SettingsDialogViewModel(owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace,
+        return new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope, owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace,
             owner.PlayHistory, owner.LibraryFolderTree, new TestSettingsDialogPlayerFactoryPort(),
             new TestSettingsDialogPlaybackRuntimePort(), owner.Lr2SongDbSyncWorkflow,
-            session ?? new NoOpSettingsEditSession(settings),
+            session ?? new NoOpSettingsEditSession(settings), new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(), audioDeviceTestWorkflow: workflow,
             externalShellGateway: ExternalShellGatewayPolicy.Current,

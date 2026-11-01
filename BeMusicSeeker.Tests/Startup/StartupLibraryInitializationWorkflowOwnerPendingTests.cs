@@ -31,18 +31,19 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
     public async Task PendingRestore_ExplicitChoicePreservesStageContract(string scenario)
     {
         using var scope = Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
+        ApplicationDatabaseScope databaseScope = scope.DatabaseScope;
         using var input = new PendingRestoreInput();
-        input.Register(scope.SongDbPath);
+        input.Register(databaseScope, scope.SongDbPath);
         Settings settings = TestBmsFactory.CreateRootSettings([]);
         var options = BmsLibraryOptionsSnapshot.CreateCurrent(settings);
-        var library = new TestBmsLibrary(scope.SongDbPath, null, null, null, null,
+        var library = new TestBmsLibrary(databaseScope, scope.SongDbPath, null, null, null, null,
             new TestUiScheduler(() => null), () => options, settings: settings);
         using var gate = new SemaphoreSlim(1, 1);
-        var owner = new StartupLibraryInitializationWorkflowOwner(gate);
+        var owner = new StartupLibraryInitializationWorkflowOwner(databaseScope, new BmsDatabaseLoadOptions(true, true, true), gate);
         using StartupRequiredOperationLease accepted = owner.AcquireRequiredOperation(library.OperationAdmission,
             library.Lr2Synchronization.PlaylistOperationAdmission);
-        var gateway = new BmsLibraryDbGateway(scope.SongDbPath);
-        if (scenario == "reset-failure") { input.BlockReset(scope.SongDbPath); }
+        var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath);
+        if (scenario == "reset-failure") { input.BlockReset(databaseScope, scope.SongDbPath); }
         string originalHash = ChartFileContentReader.ReadSnapshot(input.A).Sha256;
         FileStream? held = input.LockB();
         var dialogs = new MainWindowViewModelStartupProgressTests.CompletionDialogs();
@@ -56,7 +57,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
                 held?.Dispose(); held = null;
             }
             if (scenario == "reset-failure" && dialogs.PendingRestoreCount == 2)
-            { ExecuteSongDbFixtureTransaction(scope.SongDbPath, db => db.Execute("DROP TRIGGER pending_reset_fail")); }
+            { ExecuteSongDbFixtureTransaction(databaseScope, scope.SongDbPath, db => db.Execute("DROP TRIGGER pending_reset_fail")); }
             PendingPackageRestoreChoice choice = scenario switch
             {
                 "retry" => PendingPackageRestoreChoice.Retry,
@@ -97,14 +98,15 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
     public async Task PendingRestore_PostCommitNotificationFailureDoesNotOfferRecoveryOrPublishReady()
     {
         using var scope = Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
+        ApplicationDatabaseScope databaseScope = scope.DatabaseScope;
         using var input = new PendingRestoreInput();
-        input.Register(scope.SongDbPath);
+        input.Register(databaseScope, scope.SongDbPath);
         Settings settings = TestBmsFactory.CreateRootSettings([]);
         var options = BmsLibraryOptionsSnapshot.CreateCurrent(settings);
-        var library = new TestBmsLibrary(scope.SongDbPath, null, null, null, null,
+        var library = new TestBmsLibrary(databaseScope, scope.SongDbPath, null, null, null, null,
             new TestUiScheduler(() => null), () => options, settings: settings);
         using var gate = new SemaphoreSlim(1, 1);
-        var owner = new StartupLibraryInitializationWorkflowOwner(gate);
+        var owner = new StartupLibraryInitializationWorkflowOwner(databaseScope, new BmsDatabaseLoadOptions(true, true, true), gate);
         StartupRequiredOperationLease accepted = owner.AcquireRequiredOperation(library.OperationAdmission,
             library.Lr2Synchronization.PlaylistOperationAdmission);
         Action? scoreNotification = null;
@@ -136,7 +138,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
             Assert.AreEqual(0, dialogs.PendingRestoreCount);
             Assert.IsFalse(readiness.PendingPackagesRestored);
             Assert.IsFalse(readiness.InstallReady);
-            Assert.AreEqual(2, new BmsLibraryDbGateway(scope.SongDbPath).LoadInstallPackages().Count);
+            Assert.AreEqual(2, new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).LoadInstallPackages().Count);
         }
         finally
         {
@@ -159,14 +161,15 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
     public async Task PendingRestore_DialogAndShutdownFailuresDoNotAuthorizeMutation(string scenario)
     {
         using var scope = Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
+        ApplicationDatabaseScope databaseScope = scope.DatabaseScope;
         using var input = new PendingRestoreInput();
-        input.Register(scope.SongDbPath);
+        input.Register(databaseScope, scope.SongDbPath);
         Settings settings = TestBmsFactory.CreateRootSettings([]);
         var options = BmsLibraryOptionsSnapshot.CreateCurrent(settings);
-        var library = new TestBmsLibrary(scope.SongDbPath, null, null, null, null,
+        var library = new TestBmsLibrary(databaseScope, scope.SongDbPath, null, null, null, null,
             new TestUiScheduler(() => null), () => options, settings: settings);
         using var gate = new SemaphoreSlim(1, 1);
-        var owner = new StartupLibraryInitializationWorkflowOwner(gate);
+        var owner = new StartupLibraryInitializationWorkflowOwner(databaseScope, new BmsDatabaseLoadOptions(true, true, true), gate);
         using StartupRequiredOperationLease accepted = owner.AcquireRequiredOperation(library.OperationAdmission,
             library.Lr2Synchronization.PlaylistOperationAdmission);
         using FileStream held = input.LockB();
@@ -199,7 +202,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
                 Assert.AreSame(expected, failure.InnerException);
             }
             Assert.AreEqual(scenario == "already-closing" ? 0 : 1, dialogs.PendingRestoreCount);
-            Assert.AreEqual(3, new BmsLibraryDbGateway(scope.SongDbPath).LoadInstallPackages().Count);
+            Assert.AreEqual(3, new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).LoadInstallPackages().Count);
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
         }
         finally { library.RequestShutdown("pending-dialog-failure-test"); }
@@ -221,14 +224,14 @@ internal sealed class PendingRestoreInput : IDisposable
     }
     internal static string Chart(string title) => "#TITLE " + title + "\n#BPM 120\n#00111:01\n";
     internal FileStream LockB() => new(B, FileMode.Open, FileAccess.Read, FileShare.None);
-    internal void Register(string database) => ExecuteSongDbFixtureTransaction(database, db =>
+    internal void Register(ApplicationDatabaseScope databaseScope, string database) => ExecuteSongDbFixtureTransaction(databaseScope, database, db =>
     {
         db.CreateTable<LR2SongDBExtended.install>();
         db.InsertOrReplace(new LR2SongDBExtended.install { path = Path.GetDirectoryName(A) ?? throw new InvalidOperationException(), delete_parent = false });
         db.InsertOrReplace(new LR2SongDBExtended.install { path = Path.GetDirectoryName(B) ?? throw new InvalidOperationException(), delete_parent = true });
         db.InsertOrReplace(new LR2SongDBExtended.install { path = Missing, delete_parent = false });
     });
-    internal void BlockReset(string database) => ExecuteSongDbFixtureTransaction(database, db =>
+    internal void BlockReset(ApplicationDatabaseScope databaseScope, string database) => ExecuteSongDbFixtureTransaction(databaseScope, database, db =>
         db.Execute("CREATE TRIGGER pending_reset_fail AFTER DELETE ON install WHEN (SELECT COUNT(*) FROM install) = 0 BEGIN SELECT RAISE(ABORT, 'pending-reset-failure'); END"));
     public void Dispose() => Directory.Delete(root, recursive: true);
 }

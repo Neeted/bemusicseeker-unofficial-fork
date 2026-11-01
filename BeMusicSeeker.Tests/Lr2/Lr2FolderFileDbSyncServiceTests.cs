@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -14,6 +15,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2FolderFileDbSyncServiceTests
 {
+    /// <summary>このケースのモデルと接続で共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>登録実ルートと停止境界を分け、通常差分と未変更custom再利用の両方で実ルートを生成し子の親CRCを修復します。字句上のdrive・UNC条件も実SQLiteで保存します。</summary>
     [TestMethod]
     // 物理列挙は不要な保存境界です。未変更再利用でも親生成を省略しないことと、custom既存列の保持を確認します。
@@ -27,7 +31,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(songPath =>
         {
-            using var db = new LR2SongDBExtended(songPath);
+            using LR2SongDBExtended db = databaseScope.OpenSongWrite(songPath);
             db.CreateTable<LR2SongDB.folder>();
             string child = Path.Combine(root, "Child"), file = Path.Combine(child, "external.lr2folder");
             DateTime timestamp = new(2026, 6, 10, 0, 0, 0, DateTimeKind.Utc);
@@ -68,7 +72,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string outputDirectory = Path.GetFullPath(@"D:\BMS\#BeMusicSeeker");
             string currentPath = Path.Combine(outputDirectory, "0000.lr2folder");
@@ -148,7 +152,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string protectedPath = @"LR2files\CustomFolder\ManagedRoot\0000.lr2folder";
             string stalePath = @"LR2files\CustomFolder\ManagedRoot\stale.lr2folder";
@@ -189,7 +193,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string root = Path.Combine(Path.GetDirectoryName(songDbPath)!, "ROOT");
             string externalDirectory = Path.Combine(root, "External");
@@ -229,7 +233,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string outputBase = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Output");
             string managedDirectory = Path.Combine(outputBase, "ManagedTable");
@@ -281,7 +285,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string outputBase = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Output");
             string managedJapaneseDirectory = Path.Combine(outputBase, "管理表");
@@ -344,7 +348,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             BmsLibraryDbGateway.EnsureFolderLookupIndexes(songDb);
             string outputDirectory = Path.GetFullPath(@"D:\BMS\#BeMusicSeeker");
@@ -406,7 +410,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             BmsLibraryDbGateway.EnsureFolderLookupIndexes(songDb);
             string outputDirectory = Path.GetFullPath(@"D:\BMS\#BeMusicSeeker");
@@ -468,7 +472,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             BmsLibraryDbGateway.EnsureFolderLookupIndexes(songDb);
             string outputDirectory = Path.GetFullPath(@"D:\BMS\#BeMusicSeeker");
@@ -521,7 +525,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             BmsLibraryDbGateway.EnsureFolderLookupIndexes(songDb);
             string rootDirectory = Path.GetFullPath(@"D:\BMS");
@@ -576,7 +580,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string outputDirectory = Path.GetFullPath(@"D:\BMS\#BeMusicSeeker");
             songDb.InsertOrReplace(new LR2SongDB.folder
@@ -610,7 +614,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string outputDirectory = Path.GetFullPath(@"D:\BMS\#BeMusicSeeker");
             string currentPath = Path.Combine(outputDirectory, "0000.lr2folder");
@@ -670,7 +674,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string outputDirectory = Path.GetFullPath(@"D:\BMS\#BeMusicSeeker");
             string stalePath = Path.Combine(outputDirectory, "0001.lr2folder");
@@ -702,7 +706,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string outputDirectory = Path.Combine(@"D:\BMS", currentName);
             string currentPath = Path.Combine(outputDirectory, "0000.lr2folder");
@@ -751,7 +755,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
 
             Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
@@ -794,7 +798,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string path = Path.GetFullPath(@"D:\LR2beta3\LR2files\CustomFolder\special.lr2folder");
 
@@ -828,7 +832,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string outputDirectory = Path.GetFullPath(@"D:\BMS\#BeMusicSeeker");
             string missingPath = Path.Combine(outputDirectory, "0000.lr2folder");
@@ -882,7 +886,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string outputDirectory = Path.GetFullPath(@"D:\BMS\#BeMusicSeeker");
             string path = Path.Combine(outputDirectory, "0000.lr2folder");
@@ -928,7 +932,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string filePath = Path.GetFullPath(@"D:\LR2beta3\LR2files\CustomFolder\favorite.lr2folder");
             string databasePath = @"LR2files\CustomFolder\favorite.lr2folder";
@@ -977,7 +981,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string filePath = Path.GetFullPath(@"D:\LR2beta3\LR2files\CustomFolder\favorite.lr2folder");
             string databasePath = @"LR2files\CustomFolder\favorite.lr2folder";
@@ -1029,7 +1033,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string customFolderRoot = Path.Combine(Path.GetDirectoryName(songDbPath)!, "LR2files", "CustomFolder");
             string randomDirectory = Path.Combine(customFolderRoot, "RANDOM");
@@ -1076,7 +1080,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string customFolderRoot = Path.Combine(Path.GetDirectoryName(songDbPath)!, "LR2files", "CustomFolder");
             string randomDirectory = Path.Combine(customFolderRoot, "RANDOM");
@@ -1260,7 +1264,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string rootDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "BMS");
             Directory.CreateDirectory(rootDirectory);
@@ -1317,7 +1321,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string baseDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "ROOT");
             string tableDirectory = Path.Combine(baseDirectory, "Table");
@@ -1375,7 +1379,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string bmsRoot = @"D:\";
             string outputBase = bmsRoot;
@@ -1426,7 +1430,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string baseDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "ROOT");
             string tableDirectory = Path.Combine(baseDirectory, "Table");
@@ -1479,7 +1483,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string baseDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "ROOT");
             string tableDirectory = Path.Combine(baseDirectory, "Table");
@@ -1531,7 +1535,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
             string baseDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "ROOT");
             string tableDirectory = Path.Combine(baseDirectory, "Table");

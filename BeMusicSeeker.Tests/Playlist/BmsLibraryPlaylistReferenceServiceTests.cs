@@ -14,6 +14,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryPlaylistReferenceServiceTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>同key多重度0→1→2→1→0で無/有/有/有/無となり、表示同値の区間も版位置を配送する。URLだけのentry確定はno-op。</summary>
     [TestMethod]
     public void ReferenceCommits_TrackMultiplicityAndRetainEveryCommitBoundary()
@@ -267,7 +269,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
                 Md5 = null,
                 Sha256 = new string('e', 64)
             };
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = [source, included, otherDirectory],
                 BmsonCharts = [bmson, md5lessBmson]

@@ -25,10 +25,11 @@ public sealed class BmsLibraryPackageLifecycleTests
     [DataRow(true)]
     public void PackageLifecycleOwner_CommittedCurrentChartsStayLocalAndReleaseRetiredEntries(bool bmson)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
             int membershipNotifications = 0;
-            var owner = new PackageLifecycleOwner(new BmsLibraryDbGateway(songDbPath),
+            var owner = new PackageLifecycleOwner(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), _ => { },
                 packages => new ObservableCollection<ChartPackage>(packages ?? []), () => membershipNotifications++, _ => { });
             ChartFile before = ChartTestValues.Empty(bmson ? ChartFileKind.Bmson : ChartFileKind.Bms) with
@@ -168,9 +169,10 @@ public sealed class BmsLibraryPackageLifecycleTests
     [TestMethod]
     public void InstallableMaintenance_RealAcceptanceAndReusedWorkerPublishEachFeatureRequestOrigin()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(songDbPath =>
         {
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             long token = 11;
             Func<Task>? scheduledWork = null;
             var execution = new List<(OperationProgressRequest Request, bool Running)>();
@@ -211,9 +213,10 @@ public sealed class BmsLibraryPackageLifecycleTests
     [TestMethod]
     public void ApplyPendingPackageMutationDelta_RejectsCanonicalDuplicateBeforeDurableMutation()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using (var preparationDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended preparationDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 preparationDb.CreateTable<LR2SongDBExtended.install>();
             }
@@ -251,7 +254,7 @@ public sealed class BmsLibraryPackageLifecycleTests
             Assert.AreSame(existingPackage, pendingPackages[0]);
             Assert.AreEqual("C:\\Pending\\Existing", existingPackage.path);
             Assert.AreEqual(0, callbacks.PendingPackagesSetCount);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended verifySongDb = databaseScope.OpenSongReadOnly(songDbPath);
             Assert.AreEqual(0, verifySongDb.Table<ChartPackage>().Count());
         });
     }
@@ -261,9 +264,10 @@ public sealed class BmsLibraryPackageLifecycleTests
     [TestMethod]
     public void ApplyPendingPackageMutationDelta_RejectsRepeatedCandidatePackageReferenceBeforeDurableMutation()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using (var preparationDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended preparationDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 preparationDb.CreateTable<LR2SongDBExtended.install>();
             }
@@ -293,7 +297,7 @@ public sealed class BmsLibraryPackageLifecycleTests
 
             Assert.AreEqual(0, pendingPackages.Count);
             Assert.AreEqual(0, callbacks.PendingPackagesSetCount);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended verifySongDb = databaseScope.OpenSongReadOnly(songDbPath);
             Assert.AreEqual(0, verifySongDb.Table<ChartPackage>().Count());
         });
     }
@@ -346,11 +350,12 @@ public sealed class BmsLibraryPackageLifecycleTests
     [TestMethod]
     public void PackageLifecycleOwner_SetPendingPackagesPublishesAfterCollectionMutationScope()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
             int propertyChangedCount = 0;
             var owner = new PackageLifecycleOwner(
-                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 _ => propertyChangedCount++,
                 packages => new ObservableCollection<ChartPackage>(packages ?? []),
@@ -382,6 +387,7 @@ public sealed class BmsLibraryPackageLifecycleTests
     [DataRow(true)]
     public async Task PackageLifecycleOwner_QueuedScopeReturnsBeforeUiPublicationAndObservesSubscriberFailure(bool diagnosticThrows)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_StateApplierTests_" + Guid.NewGuid().ToString("N"));
         string songDbPath = Path.Combine(root, "song.db");
         var laneEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -408,7 +414,7 @@ public sealed class BmsLibraryPackageLifecycleTests
             await TestUiDispatcherHost.AwaitNotificationAsync(laneEntered.Task, lane.Completion, "package-lifecycle.ui-gate");
             publicationScheduler = new PublicationTrackingUiScheduler(scheduler);
             var owner = new PackageLifecycleOwner(
-                new BmsLibraryDbGateway(songDbPath), publicationScheduler,
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath), publicationScheduler,
                 propertyName =>
                 {
                     if (propertyName == "ChartPackagesPending")
@@ -528,12 +534,13 @@ public sealed class BmsLibraryPackageLifecycleTests
     [TestMethod]
     public void PackageLifecycleOwner_QueuedScopeReportsAcceptedPublicationCancellation()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         int unexpectedNotificationCount = 0;
         WithTemporarySongDb(delegate (string songDbPath)
         {
             Exception? observedFailure = null;
             var owner = new PackageLifecycleOwner(
-                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new CanceledScheduleUiScheduler(),
                 _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount),
                 packages => new ObservableCollection<ChartPackage>(packages ?? []),
@@ -557,6 +564,7 @@ public sealed class BmsLibraryPackageLifecycleTests
     [TestMethod]
     public void ApplyPendingPackageMutationDelta_UpdatesPendingCollectionAndDeletesInstallRows()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var removedPackage = new ChartPackage
@@ -569,7 +577,7 @@ public sealed class BmsLibraryPackageLifecycleTests
                 path = "C:\\Pending\\Remaining",
                 delete_parent = false
             };
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.install>();
                 songDb.InsertOrReplace(removedPackage, typeof(LR2SongDBExtended.install));
@@ -590,7 +598,7 @@ public sealed class BmsLibraryPackageLifecycleTests
             Assert.AreEqual(1, pendingPackages.Count);
             Assert.AreSame(remainingPackage, pendingPackages.Single());
             Assert.AreEqual(1, callbacks.PendingPackagesSetCount);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended verifySongDb = databaseScope.OpenSongReadOnly(songDbPath);
             Assert.AreEqual(0, verifySongDb.Table<ChartPackage>().Count());
         });
     }
@@ -600,6 +608,7 @@ public sealed class BmsLibraryPackageLifecycleTests
     [TestMethod]
     public void ApplyPendingPackageMutationDelta_DeletesCaseVariantInstallRowsWithoutCollapsingKeys()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var packageUpper = new ChartPackage
@@ -612,7 +621,7 @@ public sealed class BmsLibraryPackageLifecycleTests
                 path = "c:\\pending\\casevariant",
                 delete_parent = false
             };
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.install>();
                 songDb.InsertOrReplace(packageUpper, typeof(LR2SongDBExtended.install));
@@ -632,7 +641,7 @@ public sealed class BmsLibraryPackageLifecycleTests
             });
 
             Assert.AreEqual(0, pendingPackages.Count);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            using LR2SongDBExtended verifySongDb = databaseScope.OpenSongReadOnly(songDbPath);
             Assert.AreEqual(0, verifySongDb.Table<ChartPackage>().Count());
         });
     }

@@ -20,6 +20,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2PlayHistorySchemaUiTests
 {
+    /// <summary>このケースのモデルと接続で共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>
     /// 現在のLR2スコアDBに一致する検査通知だけを採用し、別パス/非LR2通知を除外する。resetとDispose後は表示状態を保持しない。
     /// </summary>
@@ -35,7 +38,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         var statePort = new TestSettingsDialogStatePort(
             owner,
             () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded)));
-        using var settingDialog = new SettingsDialogViewModel(
+        using var settingDialog = new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
             statePort,
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
@@ -51,7 +54,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             applicationPathSnapshot: ApplicationPathPolicy.Current,
             audioDeviceCatalog: new TestAudioDeviceCatalog(),
             audioSettingsGateway: new TestAudioSettingsGateway(),
-            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
+            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create(), applicationDataUninstallWorkflow: new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)));
         const string scoreDbPath = "C:\\lr2\\score.db";
         SetPrivateField(settingDialog, "operationModeLR2DB", true);
         SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);
@@ -192,7 +195,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         using SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
         ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(owner);
         var dialogs = new RecordingUiDialogService();
-        using var settingDialog = new SettingsDialogViewModel(
+        using var settingDialog = new SettingsDialogViewModel(composition.DatabaseScope,
             owner,
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
@@ -211,7 +214,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             audioDeviceCatalog: new TestAudioDeviceCatalog(),
             audioSettingsGateway: new TestAudioSettingsGateway(),
             audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create(),
-            operationAdmission: composition.OperationAdmission);
+            operationAdmission: composition.OperationAdmission, applicationDataUninstallWorkflow: new ApplicationDataUninstallWorkflowOwner(dialogs, new Lr2ApplicationDataUninstallStore(composition.DatabaseScope)));
         IDisposable? held = null;
         if (blockedDomain == "initializing") { owner.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true); }
         else { Assert.IsTrue((blockedDomain == "library" ? composition.OperationAdmission : composition.PlaylistOperationAdmission).TryEnter(out held)); }
@@ -255,19 +258,19 @@ public sealed class Lr2PlayHistorySchemaUiTests
                 Settings values = CreateConfirmedSchemaSettings(root);
                 string score = Path.Combine(root, "LR2files", "Database", "Score", "player1.db");
                 if (outcome == "invalid-db") { File.WriteAllText(score, "invalid SQLite"); }
-                else { using var db = new SQLiteConnection(score); db.CreateTable<LR2ScoreDB.score>(); db.CreateTable<LR2ScoreDB.player>(); }
+                else { using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(score); db.CreateTable<LR2ScoreDB.score>(); db.CreateTable<LR2ScoreDB.player>(); }
                 owner = MainWindowViewModelTestFactory.Create();
                 ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(owner);
                 var dialogs = new RecordingUiDialogService { AcceptConfirmation = outcome == "accepted" };
                 var history = new RecordingPlayHistoryPort();
                 var state = new TestSettingsDialogStatePort(owner, () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded)));
-                dialog = new SettingsDialogViewModel(state, owner.PlaylistWorkspace, owner.PlaylistWorkspace, history,
+                dialog = new SettingsDialogViewModel(composition.DatabaseScope, state, owner.PlaylistWorkspace, owner.PlaylistWorkspace, history,
                     owner.LibraryFolderTree, composition, owner.PlaybackPanel, owner.Lr2SongDbSyncWorkflow,
                     settingsEditSession: new SettingsEditSession(values), applicationLifetime: TestApplicationContext.CreateLifetime(),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(), schemaDialogs: dialogs, schemaWindowDialogs: dialogs,
                     externalShellGateway: ExternalShellGatewayPolicy.Current, applicationPathSnapshot: ApplicationPathPolicy.Current,
                     audioDeviceCatalog: new TestAudioDeviceCatalog(), audioSettingsGateway: new TestAudioSettingsGateway(),
-                    audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create(), operationAdmission: composition.OperationAdmission);
+                    audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create(), operationAdmission: composition.OperationAdmission, applicationDataUninstallWorkflow: new ApplicationDataUninstallWorkflowOwner(dialogs, new Lr2ApplicationDataUninstallStore(composition.DatabaseScope)));
                 string draft = StageDifferentSchemaCandidate(dialog, root);
                 byte[] saved = File.ReadAllBytes(Path.Combine(root, "user.config"));
                 byte[] sourceBefore = File.ReadAllBytes(score);
@@ -289,7 +292,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
                 else { Assert.AreEqual(0, dialogs.ConfirmationCount); }
                 if (outcome == "accepted")
                 {
-                    Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, new Lr2PlayHistorySchemaService().Check(score, true).Status);
+                    Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, new Lr2PlayHistorySchemaService(composition.DatabaseScope).Check(score, true).Status);
                 }
                 else { CollectionAssert.AreEqual(sourceBefore, File.ReadAllBytes(score)); }
                 held?.Dispose(); held = null;
@@ -320,10 +323,10 @@ public sealed class Lr2PlayHistorySchemaUiTests
             string scoreDbPath = Path.Combine(directoryPath, "LR2files", "Database", "Score", "player1.db");
             CreateInstalledScoreDb(scoreDbPath);
             bool installing = operation is "install" or "repair";
-            if (operation == "install") { new Lr2PlayHistorySchemaService().Uninstall(scoreDbPath, true, Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers); }
+            if (operation == "install") { new Lr2PlayHistorySchemaService(databaseScope).Uninstall(scoreDbPath, true, Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers); }
             if (operation == "repair")
             {
-                using var db = new SQLiteConnection(scoreDbPath);
+                using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath);
                 db.Execute("DROP TRIGGER " + Lr2PlayHistorySchemaService.ScoreInsertTriggerName);
             }
             Lr2PlayHistorySchemaStatus expectedStatus = installing ? Lr2PlayHistorySchemaStatus.Installed
@@ -350,10 +353,10 @@ public sealed class Lr2PlayHistorySchemaUiTests
                     entered.TrySetResult();
                     await release.Task;
                     acquired = new BmsLibraryInitializationService().LoadScoreTable(
-                        new BmsLibraryDbGateway(values.LR2SongDBPath, scoreDbPath), new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true }).PlayHistorySnapshot;
+                        new BmsLibraryDbGateway(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath, scoreDbPath), new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true }).PlayHistorySnapshot;
                 });
             var playHistory = new RecordingPlayHistoryPort();
-            using var settingDialog = new SettingsDialogViewModel(
+            using var settingDialog = new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
             statePort,
                 owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
@@ -371,7 +374,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             applicationPathSnapshot: ApplicationPathPolicy.Current,
             audioDeviceCatalog: new TestAudioDeviceCatalog(),
             audioSettingsGateway: new TestAudioSettingsGateway(),
-            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
+            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create(), applicationDataUninstallWorkflow: new ApplicationDataUninstallWorkflowOwner(dialogs, new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)));
 
 
             string candidate = StageDifferentSchemaCandidate(settingDialog, directoryPath);
@@ -399,7 +402,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             Assert.AreEqual(installing ? Resources.Msg_success_lr2_play_history_schema_install_or_repair : Resources.Msg_success_lr2_play_history_schema_uninstall, dialogs.LastMessage);
             Assert.AreEqual(1, reloadCount);
             Assert.AreEqual(expectedStatus, settingDialog.Lr2PlayHistorySchemaStatusSnapshot.Status);
-            using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
+            using SQLiteConnectionEx verify = MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope.OpenProviderConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(operation == "tables" ? 0 : 1, verify.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = ?;",
                 Lr2PlayHistorySchemaService.PlayHistoryTableName));
@@ -448,7 +451,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
                     return Task.CompletedTask;
                 });
             var playHistory = new RecordingPlayHistoryPort();
-            using var settingDialog = new SettingsDialogViewModel(
+            using var settingDialog = new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
             statePort,
                 owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
@@ -466,7 +469,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             applicationPathSnapshot: ApplicationPathPolicy.Current,
             audioDeviceCatalog: new TestAudioDeviceCatalog(),
             audioSettingsGateway: new TestAudioSettingsGateway(),
-            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
+            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create(), applicationDataUninstallWorkflow: new ApplicationDataUninstallWorkflowOwner(dialogs, new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)));
 
 
             string candidate = StageDifferentSchemaCandidate(settingDialog, directoryPath);
@@ -485,7 +488,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             Assert.AreEqual(Resources.Msg_success_lr2_play_history_schema_uninstall, dialogs.LastMessage);
             Assert.AreEqual(0, reloadCount);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, settingDialog.Lr2PlayHistorySchemaStatusSnapshot.Status);
-            using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
+            using SQLiteConnectionEx verify = MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope.OpenProviderConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(0, verify.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM sqlite_master WHERE name LIKE 'bms_lr2_%' OR name LIKE 'idx_bms_lr2_%';"));
             Assert.AreEqual(1, verify.ExecuteScalar<int>(
@@ -528,7 +531,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
                     return Task.CompletedTask;
                 });
             var playHistory = new RecordingPlayHistoryPort();
-            using var settingDialog = new SettingsDialogViewModel(
+            using var settingDialog = new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
             statePort,
                 owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
@@ -546,7 +549,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             applicationPathSnapshot: ApplicationPathPolicy.Current,
             audioDeviceCatalog: new TestAudioDeviceCatalog(),
             audioSettingsGateway: new TestAudioSettingsGateway(),
-            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
+            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create(), applicationDataUninstallWorkflow: new ApplicationDataUninstallWorkflowOwner(dialogs, new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)));
 
 
             string candidate = StageDifferentSchemaCandidate(settingDialog, directoryPath);
@@ -564,7 +567,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             Assert.AreEqual(0, dialogs.MessageCount);
             Assert.AreEqual(0, reloadCount);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, settingDialog.Lr2PlayHistorySchemaStatusSnapshot.Status);
-            using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
+            using SQLiteConnectionEx verify = MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope.OpenProviderConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(1, verify.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM sqlite_master WHERE type = 'trigger' AND name = ?;",
                 Lr2PlayHistorySchemaService.ScoreInsertTriggerName));
@@ -588,7 +591,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             }));
     }
 
-    private static string StageDifferentSchemaCandidate(SettingsDialogViewModel dialog, string root)
+    private string StageDifferentSchemaCandidate(SettingsDialogViewModel dialog, string root)
     {
         string draft = Path.Combine(Directory.CreateDirectory(Path.Combine(root, "candidate")).FullName, "config.xml");
         File.WriteAllText(draft, "<config><system/><jukebox/><player><id>player2</id></player></config>");
@@ -614,14 +617,14 @@ public sealed class Lr2PlayHistorySchemaUiTests
         return values;
     }
 
-    private static void CreateInstalledScoreDb(string scoreDbPath)
+    private void CreateInstalledScoreDb(string scoreDbPath)
     {
-        using (var db = new SQLiteConnection(scoreDbPath))
+        using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
         {
             db.CreateTable<LR2ScoreDB.score>();
             db.CreateTable<LR2ScoreDB.player>();
         }
-        new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
+        new Lr2PlayHistorySchemaService(databaseScope).InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
     }
 
     private static void SetPrivateField(object target, string fieldName, object value)

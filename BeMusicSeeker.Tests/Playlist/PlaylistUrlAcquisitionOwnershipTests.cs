@@ -278,7 +278,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
                 responseUri,
                 new MemoryStream([0x41, 0x42, 0x43], writable: false)));
             var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
-            PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope,
                 action => action(),
                 () => new PlaylistUrlAcquisitionOptionsSnapshot
                 {
@@ -543,7 +543,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         var opened = new List<Uri>();
         int installCount = 0, progressCount = 0, expansionCount = 0, dispatchCount = 0;
         bool insideScheduler = false;
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope, action => action(),
             () => new PlaylistUrlAcquisitionOptionsSnapshot { AutoInstall = autoInstall, ScanBmsFilesOnStartup = true },
             acquisitionWorkflow: new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
             installSink: _ => { installCount++; return true; },
@@ -582,7 +582,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         var gateway = new RecordingPlaylistUrlDownloadGateway(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")));
         var dialogs = new RecordingPlaylistUrlDialogService();
         int presentationCount = 0, installCount = 0, progressCount = 0, expansionCount = 0;
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope, action => action(),
             () => new PlaylistUrlAcquisitionOptionsSnapshot { AutoInstall = true, ScanBmsFilesOnStartup = true },
             acquisitionWorkflow: new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
             installSink: _ => { installCount++; return true; },
@@ -613,7 +613,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         var released = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         int browserCount = 0;
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(), browserSink: _ => browserCount++,
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope, action => action(), browserSink: _ => browserCount++,
             presentationScheduler: async action => { entered.SetResult(); await released.Task; action(); });
         Task request = workspace.RunPlaylistUrlActionAsync([CreatePlaylistUrlRow("https://example.invalid/package.zip", null)], false);
         try
@@ -641,7 +641,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             gateway.AddResponse(uri, () => new AppHttpResponse(uri, new MemoryStream([1, 2, 3], writable: false)));
             var dialogs = new RecordingPlaylistUrlDialogService { PendingConfirmation = confirmation };
             int installCount = 0, browserCount = 0;
-            PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope, action => action(),
                 acquisitionWorkflow: new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
                 installSink: paths => { installCount++; Assert.AreEqual(1, paths.Count); Assert.IsTrue(File.Exists(paths[0])); return true; },
                 browserSink: _ => browserCount++, dialogService: dialogs);
@@ -683,7 +683,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
                 return new AppHttpResponse(uri, message, new MemoryStream());
             });
             int browserCount = 0, installCount = 0;
-            PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope, action => action(),
                 () => new PlaylistUrlAcquisitionOptionsSnapshot { AutoInstall = true, ScanBmsFilesOnStartup = true },
                 acquisitionWorkflow: new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
                 installSink: _ => { installCount++; return true; }, browserSink: _ => browserCount++);
@@ -702,7 +702,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     {
         int dispatchCount = 0;
         Uri? openedUri = null;
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(action =>
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope, action =>
         {
             dispatchCount++;
             action();
@@ -735,7 +735,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         {
             var gateway = new RecordingPlaylistUrlDownloadGateway(temporaryDirectory);
             var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
-            PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope,
                 action => action(),
                 () => new PlaylistUrlAcquisitionOptionsSnapshot
                 {
@@ -780,7 +780,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
                 TransportException = new HttpRequestException("transport failure")
             };
             var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
-            PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope,
                 action => action(),
                 () => new PlaylistUrlAcquisitionOptionsSnapshot
                 {
@@ -813,7 +813,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         Exception failure = resourceFailure ? new OutOfMemoryException("resource failure") : new InvalidOperationException("internal failure");
         var gateway = new RecordingPlaylistUrlDownloadGateway(Path.GetTempPath()) { TransportException = failure };
         int browserOpenCount = 0;
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope,
             action => action(),
             () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = true, AutoInstall = true },
             acquisitionWorkflow: new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
@@ -896,7 +896,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     [DataRow(true)]
     public async Task BrowserFallbackSinkExceptionIsNotSuppressed(bool contextMenu)
     {
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope,
             action => action(),
             browserSink: _ => throw new InvalidOperationException("browser sink failure"));
 
@@ -911,7 +911,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     [DataRow(true)]
     public async Task BrowserFallbackPresentationFailureIsPropagatedThroughAwaitableScheduler(bool contextMenu)
     {
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope,
             action => action(),
             presentationScheduler: _ => Task.FromException(
                 new InvalidOperationException("presentation dispatch failure")));
@@ -927,7 +927,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     {
         int dispatchCount = 0;
         var dialogs = new RecordingPlaylistUrlDialogService();
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(action =>
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope, action =>
         {
             dispatchCount++;
             action();
@@ -957,7 +957,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             PendingConfirmation = new TaskCompletionSource<UiDialogResult>(
                 TaskCreationOptions.RunContinuationsAsynchronously)
         };
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope,
             action => action(),
             () => new PlaylistUrlAcquisitionOptionsSnapshot(),
             dialogService: dialogs);
@@ -995,7 +995,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
                 TaskCreationOptions.RunContinuationsAsynchronously)
         };
         int browserOpenCount = 0;
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope,
             action => action(),
             browserSink: _ => browserOpenCount++,
             dialogService: dialogs);
@@ -1028,7 +1028,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         {
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
         };
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope,
             action => action(),
             dialogService: dialogs);
 
@@ -1061,7 +1061,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             MessageResult = UiDialogResult.Failed(
                 new InvalidOperationException("summary unavailable"))
         };
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope,
             action => action(),
             dialogService: dialogs);
 
@@ -1087,7 +1087,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         {
             ConfirmationResult = UiDialogResult.ClosedByUser(MessageBoxResult.Cancel)
         };
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope,
             action => action(),
             dialogService: dialogs);
 
@@ -1116,7 +1116,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             "https://example.invalid/package.zip",
             null);
         PlaylistDetailRow invalid = CreatePlaylistUrlRow(null, null);
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action());
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope, action => action());
 
         PlaylistUrlContextMenuAvailability single = workspace.CapturePlaylistUrlContextMenuAvailability(
             first,
@@ -1152,7 +1152,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         PlaylistDetailRow row = CreatePlaylistUrlRow(
             "https://example.invalid/pending/",
             "https://example.invalid/pending-diff/");
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope,
             action => action(),
             dialogService: dialogs);
 
@@ -1201,7 +1201,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             PlaylistDetailRow row = CreatePlaylistUrlRow(
                 "https://example.invalid/running.zip",
                 "https://example.invalid/running-diff.zip");
-            PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope,
                 action => action(),
                 acquisitionWorkflow: acquisitionWorkflow,
                 browserSink: _ => browserCount++,
@@ -1268,7 +1268,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
-            PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope,
                 action => action(),
                 acquisitionWorkflow: acquisitionWorkflow,
                 dialogService: dialogs);
@@ -1352,7 +1352,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             int handoffs = 0;
             int browserCount = 0;
             IReadOnlyList<string>? capturedPaths = null;
-            workspace = CreateWorkspace(
+            workspace = CreateWorkspace(databaseScope,
                 action => action(),
                 () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = !bulk, AutoInstall = !bulk },
                 new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
@@ -1433,7 +1433,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             byte[]? capturedBytes = null;
             bool inputsReadyAtHandoff = false;
             int browserCount = 0;
-            workspace = CreateWorkspace(
+            workspace = CreateWorkspace(databaseScope,
                 action => action(),
                 () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = true, AutoInstall = true },
                 acquisitionWorkflow,
@@ -1530,7 +1530,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
                     if (failNotifications) { throw new IOException("summary unavailable"); }
                 }
             };
-            workspace = CreateWorkspace(
+            workspace = CreateWorkspace(databaseScope,
                 action => action(),
                 () => new PlaylistUrlAcquisitionOptionsSnapshot(),
                 acquisitionWorkflow,
@@ -1636,7 +1636,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             IReadOnlyList<string>? capturedPaths = null;
             byte[][]? capturedBytes = null;
             bool responsesDisposedAtHandoff = false;
-            PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope,
                 action => action(),
                 () => new PlaylistUrlAcquisitionOptionsSnapshot(),
                 new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
@@ -1720,7 +1720,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         {
             string songDbPath = Path.Combine(root, "song.db");
             File.WriteAllBytes(songDbPath, []);
-            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, string.Empty);
             int installCount = 0;
             installOwner = new PackageInstallWorkflowOwner(
                 new FileDbReportRecordingDialogs(), gate, new ChartMutationActivityOwner(),
@@ -1751,7 +1751,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             int browserCount = 0;
             int expansionCount = 0;
             IReadOnlyList<string>? downloaded = null;
-            PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope,
                 action => action(),
                 () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = true, AutoInstall = true },
                 new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
@@ -1842,7 +1842,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         {
             string db = Path.Combine(root, "song.db");
             File.WriteAllBytes(db, []);
-            var library = new TestBmsLibrary(db, null, null, string.Empty);
+            var library = new TestBmsLibrary(databaseScope, db, null, null, string.Empty);
             installer = new PackageInstallWorkflowOwner(new FileDbReportRecordingDialogs(),
                 library.OperationAdmission, new ChartMutationActivityOwner(),
                 new DelegatePackageInstallMutationPort((_, paths, _, _) =>
@@ -1857,7 +1857,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             installer.AttachLibrary(library);
             installer.FailurePublished += failure => installFailure = failure;
             var gateway = new FakePlaylistUrlDownloadGateway(root, [1, 2, 3]);
-            PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope, action => action(),
                 () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = true, AutoInstall = true },
                 new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
                 ownedInstallSink: request => { handoffs++; capturedPath = request.Paths.Single(); return installer.TryEnqueue(request); },
@@ -1912,7 +1912,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         {
             string db = Path.Combine(root, "song.db");
             File.WriteAllBytes(db, []);
-            var library = new TestBmsLibrary(db, null, null, string.Empty);
+            var library = new TestBmsLibrary(databaseScope, db, null, null, string.Empty);
             int installs = 0;
             owner = new PackageInstallWorkflowOwner(new FileDbReportRecordingDialogs(), library.OperationAdmission,
                 new ChartMutationActivityOwner(), new DelegatePackageInstallMutationPort((_, _, _, _) =>
@@ -1936,13 +1936,13 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
                 BeforeDelete = () => { cleanupEntered.TrySetResult(); releaseCleanup.Task.GetAwaiter().GetResult(); }
             };
             gateway.AddResponse(uri, () => new AppHttpResponse(uri, new MemoryStream([1, 2, 3], writable: false)));
-            PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope, action => action(),
                 () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = true, AutoInstall = true },
                 new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
                 ownedInstallSink: owner.TryEnqueue, installCompletion: owner.WaitForIdleAsync);
             acquisition = Task.Run(() => workspace.RunSinglePlaylistUrlAsync(uri));
             await TestUiDispatcherHost.AwaitNotificationAsync(statusEntered.Task, acquisition, "URL queue insertion");
-            if (retireGeneration) { owner.AttachLibrary(new TestBmsLibrary(db, null, null, string.Empty)); }
+            if (retireGeneration) { owner.AttachLibrary(new TestBmsLibrary(databaseScope, db, null, null, string.Empty)); }
             else { owner.CancelAll(); }
             await TestUiDispatcherHost.AwaitNotificationAsync(cleanupEntered.Task, acquisition, "URL unconsumed cleanup");
             Assert.AreEqual(0, installs);
@@ -1996,7 +1996,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
                 DeleteFailure = failHandoffAndCleanup ? cleanupFailure : null
             };
             gateway.AddResponse(uri, () => new AppHttpResponse(uri, new MemoryStream([1, 2, 3], writable: false)));
-            PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope, action => action(),
                 () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = true, AutoInstall = true },
                 new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
                 ownedInstallSink: _ => failHandoffAndCleanup ? throw handoffFailure : false,
@@ -2043,7 +2043,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
     [DoNotParallelize]
     public async Task DownloadedChart_RealEstimationRetainsPendingBytesForLaterManualInstall(string ingress)
     {
-        await using var fixture = new PackageInstallWorkflowOwnerTests.AutomaticContinuationFixture(true, false);
+        await using var fixture = new PackageInstallWorkflowOwnerTests.AutomaticContinuationFixture(databaseScope, true, false);
         await fixture.InitializeAsync();
         int estimationApplied = 0;
         fixture.Observer.Applied = () => Interlocked.Increment(ref estimationApplied);
@@ -2060,7 +2060,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
                 gateway.AddResponse(uris[index], () => new AppHttpResponse(uris[captured], new MemoryStream(contents[captured], writable: false)));
             }
             string[] md5s = ["11111111111111111111111111111111", "22222222222222222222222222222222"];
-            PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope, action => action(),
                 () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = true, AutoInstall = true },
                 new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
                 ownedInstallSink: fixture.Owner.TryEnqueue,
@@ -2079,7 +2079,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             Assert.AreEqual(expectedCount, pending.Sum(package => package.ChartEntries.Count));
             Assert.IsTrue(estimationApplied > 0, "実推定の結果適用を通過して保留へ残ることを必須とします。");
             Assert.AreEqual(0, fixture.Library.ChartPackagesInstalled.Count);
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(1, db.Table<LR2SongDBExtended.install>().Count());
                 Assert.IsTrue(string.Equals(pending.Single().path, db.Table<LR2SongDBExtended.install>().Single().path, StringComparison.OrdinalIgnoreCase));
@@ -2097,7 +2097,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             Assert.IsTrue(result.SessionReceipt.DurableCommit);
             Assert.AreEqual(0, fixture.Library.ChartPackagesPending.Count);
             Assert.AreEqual(1, fixture.Library.ChartPackagesInstalled.Count);
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly())
             {
                 foreach (Uri uri in uris.Take(expectedCount))
                 {
@@ -2157,7 +2157,9 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
-    private PlaylistWorkspaceViewModel CreateWorkspace(
+    /// <summary>呼出し元と同じDB所有者でテスト対象と保存入力を準備します。</summary>
+    /// <param name="databaseScope">同じappが使うプレイリストのDB所有者。</param>
+    private PlaylistWorkspaceViewModel CreateWorkspace(ApplicationDatabaseScope databaseScope,
         Action<Action> dispatch,
         Func<PlaylistUrlAcquisitionOptionsSnapshot>? optionsProvider = null,
         PlaylistUrlAcquisitionWorkflow? acquisitionWorkflow = null,
@@ -2171,7 +2173,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         Func<DroppedInstallBatchRequest, bool>? ownedInstallSink = null)
     {
         PlaylistWorkspaceTestPorts.OwnedPlaylistStore ownedPlaylistStore =
-            PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore();
+            PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore(databaseScope);
         ownedPlaylistStores.Add(ownedPlaylistStore);
         captureStore?.Invoke(ownedPlaylistStore.Store);
         Func<Action, Task> urlPresentationScheduler = presentationScheduler
@@ -2367,7 +2369,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             var provider = new BatchHandoffLookupProvider(md5s.Zip(new[] { failed, same, success }).ToDictionary(pair => pair.First, pair => pair.Second));
             int handoffs = 0;
             IReadOnlyList<string>? capturedPaths = null;
-            PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(), () => new PlaylistUrlAcquisitionOptionsSnapshot(),
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope, action => action(), () => new PlaylistUrlAcquisitionOptionsSnapshot(),
                 new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }), paths =>
                 {
                     handoffs++;

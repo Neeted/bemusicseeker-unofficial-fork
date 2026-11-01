@@ -246,6 +246,7 @@ public sealed class LibraryFolderTreeViewModelTests
     [DoNotParallelize]
     public async Task DeferredRefresh_StaleSourceRequestsShellReadmissionBeforeRetry()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         await OwnedChartCollectionTestSupport.WithTemporarySongDbAsync(async songDbPath =>
         {
             Dispatcher dispatcher = TestUiDispatcherHost.Dispatcher;
@@ -254,7 +255,7 @@ public sealed class LibraryFolderTreeViewModelTests
             var firstWorker = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
             TestUiDispatcherHost.Invoke(() =>
             {
-                var library = new TestBmsLibrary(songDbPath, settings: TestBmsFactory.CreateRootSettings([])) { BmsCharts = [] };
+                var library = new TestBmsLibrary(databaseScope, songDbPath, settings: TestBmsFactory.CreateRootSettings([])) { BmsCharts = [] };
                 owner = CreateTreeOwner(_ => true, _ => new ExplorerOpenResult(), new WpfUiScheduler(() => dispatcher));
                 owner.AttachLibrary(library);
                 owner.ConfigureDeferredRefreshScheduler((_, work) =>
@@ -354,6 +355,7 @@ public sealed class LibraryFolderTreeViewModelTests
     [TestMethod]
     public async Task DeferredRefresh_EmitsAggregateStagesForOneInteraction()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string tempRootPath = Path.Combine(
             Path.GetTempPath(),
             "BeMusicSeeker_LibraryFolderTree_Stages_" + Guid.NewGuid().ToString("N"));
@@ -363,7 +365,7 @@ public sealed class LibraryFolderTreeViewModelTests
 
         try
         {
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDB.folder>();
@@ -372,7 +374,7 @@ public sealed class LibraryFolderTreeViewModelTests
             }
 
             var stages = new ConcurrentQueue<string>();
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = []
             };
@@ -484,6 +486,7 @@ public sealed class LibraryFolderTreeViewModelTests
     [TestMethod]
     public async Task AttachedLibrary_ExposesSortedDistinctFoldersAndInvalidatesAfterSearchRootChange()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_LibraryFolderTree_" + Guid.NewGuid().ToString("N"));
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         string firstRoot = Path.Combine(tempRootPath, "Zeta");
@@ -496,7 +499,7 @@ public sealed class LibraryFolderTreeViewModelTests
         LibraryFolderTreeViewModel? owner = null;
         try
         {
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDB.folder>();
@@ -504,7 +507,7 @@ public sealed class LibraryFolderTreeViewModelTests
                 songDb.CreateTable<LR2SongDBExtended.bmson_song>();
             }
 
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
             library.FixtureSettings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([firstRoot, secondRoot, firstRoot]);
             var firstRefreshApplied = new TaskCompletionSource<object?>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
@@ -596,6 +599,7 @@ public sealed class LibraryFolderTreeViewModelTests
     [TestMethod]
     public void AttachedLibrary_OwnedChartQueryPreservesPathBoundariesForBmsAndBmson()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_LibraryFolderTree_OwnedChart_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
@@ -603,7 +607,7 @@ public sealed class LibraryFolderTreeViewModelTests
 
         try
         {
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDB.folder>();
@@ -616,7 +620,7 @@ public sealed class LibraryFolderTreeViewModelTests
             string[] bmsValues = new string[29];
             bmsValues[0] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             bmsValues[7] = bmsPath;
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(databaseScope, songDbPath)
             {
                 BmsCharts = [ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(bmsValues))],
                 BmsonCharts =

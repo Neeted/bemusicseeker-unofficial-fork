@@ -380,6 +380,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
     [DataRow("all", "cancel")]
     public async Task PendingRemoval_WaitsForStopAndRetainsInputOnFailure(string route, string outcome)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string root = Path.Combine(Path.GetTempPath(), "bms-catalog-removal-" + Guid.NewGuid().ToString("N"));
         string managed = TempDirectoryPublisher.Get("catalog-removal");
         string unrelated = TempDirectoryPublisher.Get("catalog-unrelated");
@@ -400,10 +401,10 @@ public sealed class PackageCatalogWorkflowOwnerTests
         try
         {
             string db = Path.Combine(root, "song.db");
-            var gateway = new BmsLibraryDbGateway(db);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), db);
             gateway.EnsureAppOwnedSchema();
             gateway.EnsureLibraryStartupSchema();
-            library = new TestBmsLibrary(db, null, null, new ResilientFileMutationService(),
+            library = new TestBmsLibrary(databaseScope, db, null, null, new ResilientFileMutationService(),
                 new FileDbReportRecordingDialogs(), new TestUiScheduler(() => null));
             var pending = ChartPackage.FromChartEntries([PackageChartEntry.FromPath(chartPath)]);
             pending.path = managed;
@@ -480,16 +481,17 @@ public sealed class PackageCatalogWorkflowOwnerTests
     [DataRow((int)PackageCatalogSection.Installed)]
     public async Task RecordOnlyRemoval_DoesNotStopPlayback(int sectionValue)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string root = Path.Combine(Path.GetTempPath(), "bms-catalog-record-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         TestBmsLibrary? library = null;
         try
         {
             string db = Path.Combine(root, "song.db");
-            var gateway = new BmsLibraryDbGateway(db);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), db);
             gateway.EnsureAppOwnedSchema();
             gateway.EnsureLibraryStartupSchema();
-            library = new TestBmsLibrary(db, null, null, new ResilientFileMutationService(),
+            library = new TestBmsLibrary(databaseScope, db, null, null, new ResilientFileMutationService(),
                 new FileDbReportRecordingDialogs(), new TestUiScheduler(() => null));
             string source = Path.Combine(root, "source.bms");
             File.WriteAllText(source, "#TITLE borrowed");

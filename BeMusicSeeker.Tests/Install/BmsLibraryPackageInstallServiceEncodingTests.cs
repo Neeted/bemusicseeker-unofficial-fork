@@ -47,6 +47,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [DataRow(true)]
     public void PendingFixedEncoding_InstallPersistsOnlySuccessfulPlacementAndSurvivesRescan(bool estimated)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb((database, root) =>
         {
             string libraryRoot = Path.Combine(root, estimated ? "Library-🎵" : "Library");
@@ -67,7 +68,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(!estimated, (entry.Chart.Warnings ?? []).Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported));
             var package = ChartPackage.FromChartEntries([entry]);
             package.path = source;
-            var library = new TestBmsLibrary(database, null, null, new RealFileMutationService(), new RecordingDialogService(),
+            var library = new TestBmsLibrary(databaseScope, database, null, null, new RealFileMutationService(), new RecordingDialogService(),
                 new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -125,7 +126,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 library.RescanResourceHealthCharts([installed]);
                 InstallEncodingTestInput.AssertFixed(library.BmsCharts.Single(), installedPath);
                 InstallEncodingTestInput.AssertFixed(entry.Chart, installedPath);
-                using LR2SongDBExtended readback = new BmsLibraryDbGateway(database).OpenSongDbReadOnly();
+                using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), database).OpenSongDbReadOnly();
                 LR2SongDB.song song = readback.Find<LR2SongDB.song>(installedPath);
                 LR2SongDBExtended.maintenance maintenance = readback.Find<LR2SongDBExtended.maintenance>(installedPath);
                 Assert.IsNotNull(song);
@@ -154,6 +155,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void PendingFixedEncoding_ResourceOnlyInstallDoesNotOverwriteOwnedSameHashPlacements()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb((database, root) =>
         {
             string source = Path.Combine(root, "Pending");
@@ -172,7 +174,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     EncodingFixed = index == 0,
                     Origin = MaintenanceInfoOrigin.DbHydrated
                 })).ToArray();
-            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(database, db =>
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, database, db =>
             {
                 foreach (ChartFile chart in owned)
                 {
@@ -184,7 +186,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             var package = ChartPackage.FromChartEntries([entry]);
             package.path = source;
             entry.SetInstallDestinationPathOnly(destination);
-            var library = new TestBmsLibrary(database, null, null, new RealFileMutationService(), new RecordingDialogService(),
+            var library = new TestBmsLibrary(databaseScope, database, null, null, new RealFileMutationService(), new RecordingDialogService(),
                 new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -207,7 +209,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Assert.IsFalse(result.SessionReceipt.HasRequiredFailure, result.SessionReceipt.PrimaryFailure?.ToString());
                 CollectionAssert.AreEqual(new byte[] { 2 }, File.ReadAllBytes(Path.Combine(destination, "tone.wav")));
                 Assert.IsFalse(File.Exists(Path.Combine(otherDirectory, "tone.wav")));
-                using LR2SongDBExtended db = new BmsLibraryDbGateway(database).OpenSongDbReadOnly();
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), database).OpenSongDbReadOnly();
                 Assert.AreEqual(2, db.Table<LR2SongDB.song>().Count());
                 for (int index = 0; index < owned.Length; index++)
                 {

@@ -18,6 +18,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class FolderAutoRenameWorkflowOwnerTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>
     /// 実移動だけで管理出力との交差を判定し、診断だけなら再生を止めず、実交差のBusyではFS・DBを変更せず、解放後の新規要求で確定することで予約や交差誤判定を検出する。
     /// </summary>
@@ -54,10 +56,10 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             string songDb = Path.Combine(root, "song.db");
             File.WriteAllBytes(songDb, []);
             var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2CustomFolderOutputBaseDir = managed, FolderNameFormat = "%TITLE%" };
-            var library = new TestBmsLibrary(songDb, new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(root)), null, null, new FileDbReportRecordingDialogs(),
+            var library = new TestBmsLibrary(databaseScope, songDb, new Lr2ConfigOwner(BmsPlaylistTestSupport.CreateLr2Config(root)), null, null, new FileDbReportRecordingDialogs(),
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => options)
             { BmsCharts = charts };
-            new BmsLibraryDbGateway(songDb).UpsertSongs(charts);
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).UpsertSongs(charts);
             ChartFile[] selected = scenario == "diagnostics" ? [charts[2], charts[3]] : charts.Take(4).ToArray();
             var planningFailure = new IOException("failed rename plan");
             var service = new BmsLibraryLibraryFileOperationsService();
@@ -107,7 +109,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.AreEqual(expected == 0 ? 0 : 1, playback.StopCount);
             Assert.AreEqual(expected, completion.SessionReceipt.ConfirmedChangeCount);
             Assert.AreEqual(expected == 0 ? 0 : 1, refreshCount);
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDb).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).OpenSongDbReadOnly())
             {
                 for (int index = 0; index < charts.Count; index++)
                 {
@@ -130,7 +132,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             string thirdDestination = Path.Combine(root, "ThirdMoved", "chart.bms");
             Assert.IsTrue(File.Exists(thirdDestination));
             Assert.IsFalse(File.Exists(charts[4].Path));
-            using LR2SongDBExtended finalDb = new BmsLibraryDbGateway(songDb).OpenSongDbReadOnly();
+            using LR2SongDBExtended finalDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).OpenSongDbReadOnly();
             Assert.IsNotNull(finalDb.Find<LR2SongDB.song>(thirdDestination));
             Assert.IsFalse(library.OperationAdmission.IsActive);
         }
@@ -1648,11 +1650,11 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         return root;
     }
 
-    private static BMSLibrary CreateLibrary(string root, string fileName)
+    private BMSLibrary CreateLibrary(string root, string fileName)
     {
         string path = Path.Combine(root, fileName);
         File.WriteAllBytes(path, []);
-        return new TestBmsLibrary(path, null, null, string.Empty);
+        return new TestBmsLibrary(databaseScope, path, null, null, string.Empty);
     }
 
     private static IReadOnlyList<ChartOperationTarget> CreateSelectedTargets()

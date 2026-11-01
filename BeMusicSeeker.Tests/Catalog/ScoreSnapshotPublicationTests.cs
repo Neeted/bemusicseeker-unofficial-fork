@@ -194,25 +194,25 @@ public sealed class ScoreSnapshotPublicationTests
             Directory.CreateDirectory(beatorajaDirectory);
             beatorajaPath = Path.Combine(beatorajaDirectory, "score.db");
             ReplaceLr2Keys(Enumerable.Range(1, count));
-            using (var db = new SQLite.SQLiteConnection(beatorajaPath))
+            using (SQLiteConnectionEx db = database.DatabaseScope.OpenProviderConnection(beatorajaPath))
             {
                 db.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
                 db.Execute("INSERT INTO score VALUES (?, 0, 4, 10, 0, 0, 0, 100, 10, 1, 1, 1)", Sha256);
             }
-            Library = new TestBmsLibrary(database.SongDbPath, null, scorePath,
+            Library = new TestBmsLibrary(database.DatabaseScope, database.SongDbPath, null, scorePath,
                 fileMutationService: null, dialogService: null, uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 optionsSnapshotProvider: () => options);
         }
         internal void ReplaceLr2Keys(IEnumerable<int> indices)
         {
-            using var db = new LR2ScoreDBExtended(scorePath);
+            using LR2ScoreDBExtended db = database.DatabaseScope.OpenScoreWrite(scorePath);
             db.CreateTable<LR2ScoreDB.player>();
             db.CreateTable<LR2ScoreDB.score>();
             db.DeleteAll<LR2ScoreDB.score>();
             foreach (int index in indices) { db.Insert(new LR2ScoreDB.score { hash = Hash(index), perfect = 10, totalnotes = 100 }); }
         }
         internal void UseBeatoraja() => options = new BmsLibraryOptionsSnapshot { UseBeatorajaScoreDb = true, BeatorajaScoreDbPath = beatorajaPath };
-        internal void ClearBeatoraja() { using var db = new SQLite.SQLiteConnection(beatorajaPath); db.Execute("DELETE FROM score"); }
+        internal void ClearBeatoraja() { using SQLiteConnectionEx db = database.DatabaseScope.OpenProviderConnection(beatorajaPath); db.Execute("DELETE FROM score"); }
         public void Dispose()
         {
             try { Library.RequestShutdown("score-publication-fixture"); }

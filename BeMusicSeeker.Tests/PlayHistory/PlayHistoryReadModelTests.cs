@@ -24,6 +24,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlayHistoryReadModelTests
 {
+    /// <summary>このケースのモデルと接続で共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>
     /// 検査結果の保存後に元の状態・パス・文言を変えても捕捉値を維持し、可変結果の共有による表示の書換えを防ぐ。
     /// </summary>
@@ -281,7 +284,7 @@ public sealed class PlayHistoryReadModelTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateInstalledScoreDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertHistory(db, historyId: 4, hash: HashA, playedAt: 999, finalized: true, newExscore: 180);
                 InsertHistory(db, historyId: 1, hash: HashA, playedAt: 1000, finalized: true, newExscore: 200);
@@ -290,7 +293,7 @@ public sealed class PlayHistoryReadModelTests
                 InsertHistory(db, historyId: 5, hash: HashB, playedAt: 3000, finalized: true, newExscore: 400);
             }
 
-            var reader = new Lr2PlayHistoryReader();
+            var reader = new Lr2PlayHistoryReader(databaseScope);
             Lr2PlayHistoryReadResult result = reader.Read(new Lr2PlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath,
@@ -331,14 +334,14 @@ public sealed class PlayHistoryReadModelTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateInstalledScoreDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertHistory(db, historyId: 1, hash: HashA, playedAt: 1000, finalized: true, newExscore: 200);
                 InsertHistory(db, historyId: 2, hash: HashB, playedAt: 2000, finalized: false, newExscore: 250);
                 InsertHistory(db, historyId: 3, hash: HashC, playedAt: 3000, finalized: false, newExscore: 300);
             }
 
-            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader().Read(new Lr2PlayHistoryReadRequest
+            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader(databaseScope).Read(new Lr2PlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath,
                 IsLr2LinkedProfile = true,
@@ -360,7 +363,7 @@ public sealed class PlayHistoryReadModelTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateInstalledScoreDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertHistory(db, historyId: 1, hash: HashA, playedAt: 999, finalized: true, newExscore: 100);
                 InsertHistory(db, historyId: 2, hash: HashA, playedAt: 1000, finalized: true, newExscore: 110);
@@ -368,7 +371,7 @@ public sealed class PlayHistoryReadModelTests
                 InsertHistory(db, historyId: 4, hash: HashA, playedAt: 2000, finalized: true, newExscore: 130);
             }
 
-            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader().Read(new Lr2PlayHistoryReadRequest
+            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader(databaseScope).Read(new Lr2PlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath,
                 IsLr2LinkedProfile = true,
@@ -391,7 +394,7 @@ public sealed class PlayHistoryReadModelTests
         {
             CreateBaseScoreDb(scoreDbPath);
 
-            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader().Read(new Lr2PlayHistoryReadRequest
+            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader(databaseScope).Read(new Lr2PlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath,
                 IsLr2LinkedProfile = true
@@ -400,7 +403,7 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, result.SchemaStatus);
             Assert.IsTrue(result.HasErrors);
             AssertSingleDiagnostic(result, PlayHistoryDiagnosticSeverity.Error, "play_history_lr2_schema_not_installed", scoreDbPath);
-            using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
+            using SQLiteConnectionEx verify = databaseScope.OpenProviderConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM sqlite_master WHERE name LIKE 'bms_lr2_%';"));
         });
     }
@@ -415,13 +418,13 @@ public sealed class PlayHistoryReadModelTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateInstalledScoreDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertHistory(db, historyId: 1, hash: HashA, playedAt: 1000, finalized: true, newExscore: 200);
                 db.Execute("DROP INDEX " + Lr2PlayHistorySchemaService.TimeIndexName + ";");
             }
 
-            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader().Read(new Lr2PlayHistoryReadRequest
+            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader(databaseScope).Read(new Lr2PlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath,
                 IsLr2LinkedProfile = true
@@ -446,7 +449,7 @@ public sealed class PlayHistoryReadModelTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateInstalledScoreDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertHistory(db, historyId: 1, hash: HashA, playedAt: 1000, finalized: true, newExscore: 200);
                 db.Execute("DROP TRIGGER " + Lr2PlayHistorySchemaService.ScoreInsertTriggerName + ";");
@@ -459,7 +462,7 @@ public sealed class PlayHistoryReadModelTests
             }
             byte[] before = File.ReadAllBytes(scoreDbPath);
 
-            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader().Read(new Lr2PlayHistoryReadRequest
+            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader(databaseScope).Read(new Lr2PlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath,
                 IsLr2LinkedProfile = true,
@@ -498,7 +501,7 @@ public sealed class PlayHistoryReadModelTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateInstalledScoreDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertHistory(db, historyId: 1, hash: HashA, playedAt: 1000, finalized: true, newExscore: 200);
                 db.Execute("DROP TRIGGER " + Lr2PlayHistorySchemaService.ScoreInsertTriggerName + ";");
@@ -511,7 +514,7 @@ public sealed class PlayHistoryReadModelTests
             }
             byte[] before = File.ReadAllBytes(scoreDbPath);
 
-            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader().Read(new Lr2PlayHistoryReadRequest
+            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader(databaseScope).Read(new Lr2PlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath,
                 IsLr2LinkedProfile = true,
@@ -568,7 +571,7 @@ public sealed class PlayHistoryReadModelTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateInstalledScoreDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 db.Execute("DROP TRIGGER " + Lr2PlayHistorySchemaService.ScoreInsertTriggerName + ";");
                 if (string.Equals(defect, "mismatched", StringComparison.Ordinal))
@@ -597,7 +600,7 @@ public sealed class PlayHistoryReadModelTests
             }
             byte[] before = File.ReadAllBytes(scoreDbPath);
 
-            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader().Read(new Lr2PlayHistoryReadRequest
+            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader(databaseScope).Read(new Lr2PlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath,
                 IsLr2LinkedProfile = true,
@@ -636,14 +639,14 @@ public sealed class PlayHistoryReadModelTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateInstalledScoreDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertHistory(db, historyId: 1, hash: HashA, playedAt: 1000, finalized: true, newExscore: 200);
                 db.Execute("DROP INDEX " + Lr2PlayHistorySchemaService.TimeIndexName + ";");
             }
             byte[] before = File.ReadAllBytes(scoreDbPath);
 
-            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader().Read(new Lr2PlayHistoryReadRequest
+            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader(databaseScope).Read(new Lr2PlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath,
                 IsLr2LinkedProfile = true,
@@ -672,7 +675,7 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void Lr2Reader_MapsSchemaStatusesToDiagnostics()
     {
-        var reader = new Lr2PlayHistoryReader();
+        var reader = new Lr2PlayHistoryReader(databaseScope);
 
         Lr2PlayHistoryReadResult skipped = reader.Read(new Lr2PlayHistoryReadRequest
         {
@@ -698,7 +701,7 @@ public sealed class PlayHistoryReadModelTests
 
         WithScoreDb(delegate (string scoreDbPath)
         {
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 db.Execute("CREATE TABLE unrelated (id INTEGER);");
             }
@@ -718,7 +721,7 @@ public sealed class PlayHistoryReadModelTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateInstalledScoreDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertHistory(db, historyId: 1, hash: HashA, playedAt: 1000, finalized: true, newExscore: 200);
                 db.Execute("DROP TRIGGER " + Lr2PlayHistorySchemaService.ScoreInsertTriggerName + ";");
@@ -753,7 +756,7 @@ public sealed class PlayHistoryReadModelTests
             long day = UtcEpoch(2026, 1, 1);
             // 長さ以外を厳格化しない。hexでない同長の未所持単曲も取得対象。
             string[] hashes = [hash, new string('z', hash.Length), hash[..^1], hash + "a", hash + hash, hash];
-            using (var db = new SQLiteConnection(source))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(source))
             {
                 for (int index = 0; index < hashes.Length; index++)
                 {
@@ -763,7 +766,7 @@ public sealed class PlayHistoryReadModelTests
             }
             string sql = beatoraja ? "SELECT rowid || ':' || sha256 || ':' || score || ':' || mode AS value FROM scorelog ORDER BY rowid" : "SELECT history_id || ':' || hash || ':' || new_exscore AS value FROM bms_lr2_play_history ORDER BY history_id";
             string[] before;
-            using (var db = new SQLiteConnection(source)) { before = db.Query<HistorySourceValue>(sql).Select(row => row.value).ToArray(); }
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(source)) { before = db.Query<HistorySourceValue>(sql).Select(row => row.value).ToArray(); }
             ScorePlayHistorySnapshot captured = AcquireHistorySnapshot(scoreDbPath, beatoraja).PlayHistorySnapshot;
             var cache = new PlayHistoryReadCache();
             if (beatoraja)
@@ -776,7 +779,7 @@ public sealed class PlayHistoryReadModelTests
                 CollectionAssert.AreEqual(new long[] { 6, 2, 1 }, captured.Lr2.Rows.Select(row => row.history_id).ToArray());
                 CollectionAssert.AreEqual(new[] { day + 5 * 86400, day + 86400, day }, cache.ReadLr2PeriodIndex(captured, new(), CancellationToken.None, out _).PlayedAtUnixSeconds.ToArray());
             }
-            using (var db = new SQLiteConnection(source)) { CollectionAssert.AreEqual(before, db.Query<HistorySourceValue>(sql).Select(row => row.value).ToArray()); }
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(source)) { CollectionAssert.AreEqual(before, db.Query<HistorySourceValue>(sql).Select(row => row.value).ToArray()); }
         });
     }
 
@@ -797,7 +800,7 @@ public sealed class PlayHistoryReadModelTests
             else { CreateInstalledScoreDb(scoreDbPath); }
             long day = UtcEpoch(2020, 1, 1);
             string oldestHash = beatoraja ? new string('f', 64) : HashB;
-            using (var db = new SQLiteConnection(beatoraja ? logPath : scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(beatoraja ? logPath : scoreDbPath))
             {
                 db.RunInTransaction(() =>
                 {
@@ -810,7 +813,7 @@ public sealed class PlayHistoryReadModelTests
                 });
             }
             TestBmsLibrary library = CreateHistoryLibrary(scoreDbPath);
-            var playlist = new TestBmsPlaylist(Path.Combine(Path.GetDirectoryName(scoreDbPath) ?? string.Empty, "song.db"));
+            var playlist = new TestBmsPlaylist(databaseScope, Path.Combine(Path.GetDirectoryName(scoreDbPath) ?? string.Empty, "song.db"));
             BMSLibrary.ScoreSnapshot acquired = AcquireHistorySnapshot(scoreDbPath, beatoraja);
             Assert.AreEqual(count, beatoraja ? acquired.PlayHistorySnapshot.Beatoraja.Rows.Count : acquired.PlayHistorySnapshot.Lr2.Rows.Count);
             var source = PlayHistoryReadSourceContext.FromSnapshot(acquired);
@@ -849,7 +852,7 @@ public sealed class PlayHistoryReadModelTests
             long day1 = UtcEpoch(2026, 1, 1);
             long day2 = UtcEpoch(2026, 1, 2);
             long day3 = UtcEpoch(2026, 1, 3);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertHistory(db, historyId: 1, hash: HashA, playedAt: day1, finalized: true, newExscore: 100);
                 InsertHistory(db, historyId: 2, hash: HashA, playedAt: day2, finalized: true, newExscore: 200);
@@ -956,13 +959,13 @@ public sealed class PlayHistoryReadModelTests
             long day1 = UtcEpoch(2026, 1, 1);
             long day2 = UtcEpoch(2026, 1, 2);
             long day3 = UtcEpoch(2026, 1, 3);
-            using (var db = new SQLiteConnection(scoreLogDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreLogDbPath))
             {
                 InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: day1, oldClear: 4, clear: 5, oldScore: 80, score: 120, oldCombo: 10, combo: 12, oldMinBp: 4, minBp: 3);
                 InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: day2, oldClear: 5, clear: 6, oldScore: 100, score: 180, oldCombo: 12, combo: 24, oldMinBp: 3, minBp: 2);
                 InsertBeatorajaScoreLog(db, ShaA, mode: 10000, date: day3, oldClear: 5, clear: 9, oldScore: 10, score: 99, oldCombo: 1, combo: 2, oldMinBp: 1, minBp: 0);
             }
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertBeatorajaPlayerAggregate(db, day1 - 1, playCount: 1, judgeCount: 100, playtime: 100);
                 InsertBeatorajaPlayerAggregate(db, day2 - 1, playCount: 2, judgeCount: 160, playtime: 160);
@@ -1074,7 +1077,7 @@ public sealed class PlayHistoryReadModelTests
         {
             CreateBeatorajaScoreLogDb(scoreLogDbPath);
             CreateBeatorajaPlayerDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreLogDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreLogDbPath))
             {
                 InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: 1000, oldClear: 4, clear: 5, oldScore: 100, score: 133, oldCombo: 70, combo: 80, oldMinBp: 20, minBp: 10);
             }
@@ -1130,7 +1133,7 @@ public sealed class PlayHistoryReadModelTests
         {
             CreateInstalledScoreDb(scoreDbPath);
             long playedAt = UtcEpoch(2026, 1, 2);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertHistory(db, historyId: 1, hash: HashA, playedAt: playedAt, finalized: true, newExscore: 200);
                 InsertHistory(db, historyId: 2, hash: HashA, playedAt: playedAt + 86400, finalized: true, newExscore: 250);
@@ -1138,14 +1141,14 @@ public sealed class PlayHistoryReadModelTests
             }
 
             string songDbPath = Path.Combine(Path.GetDirectoryName(scoreDbPath)!, "song.db");
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                 BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
             }
-            var library = new TestBmsLibrary(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath);
+            var playlist = new TestBmsPlaylist(library.DatabaseScope, songDbPath);
             var historySource = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(scoreDbPath));
             var owner = new PlayHistoryWorkflowOwner();
             var progressStages = new List<PlayHistoryReadWorkflowProgressStage>();
@@ -1212,7 +1215,7 @@ public sealed class PlayHistoryReadModelTests
             CollectionAssert.AreEqual(new long[] { 3, 2 }, second.Presentation.SortedRows.Select(row => row.HistoryId).ToArray());
 
             CreateInstalledScoreDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = library.DatabaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertHistory(db, historyId: 1, hash: HashA, playedAt: playedAt, finalized: true, newExscore: 200);
                 InsertHistory(db, historyId: 2, hash: HashA, playedAt: playedAt + 86400, finalized: true, newExscore: 250);
@@ -2853,18 +2856,18 @@ public sealed class PlayHistoryReadModelTests
         {
             CreateBeatorajaScoreLogDb(scoreLogDbPath);
             CreateBeatorajaPlayerDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreLogDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreLogDbPath))
             {
                 InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: 1000, oldClear: 4, clear: 5, oldScore: 100, score: 133, oldCombo: 70, combo: 80, oldMinBp: 20, minBp: 10);
                 InsertBeatorajaScoreLog(db, new string('b', 64), mode: 10000, date: 1050, oldClear: 4, clear: 9, oldScore: 1, score: 99, oldCombo: 1, combo: 10, oldMinBp: 2, minBp: 0);
             }
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertBeatorajaPlayerAggregate(db, 900, playCount: 6, judgeCount: 800, playtime: 300);
                 InsertBeatorajaPlayerAggregate(db, 1099, playCount: 7, judgeCount: 893, playtime: 390);
             }
 
-            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader(databaseScope).Read(new BeatorajaPlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath,
                 ScoresBySha256 = CreateBeatorajaScoreSnapshot((ShaA, 100)),
@@ -2936,7 +2939,7 @@ public sealed class PlayHistoryReadModelTests
                 (5000, 10, 10, 101), // MAXのままSCOREだけ更新した行をFCへ加えない。
                 (6000, 8, 10, 100) // FCからMAXも同じ内訳へ含める。
             ];
-            using (var db = new SQLiteConnection(scoreLogDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreLogDbPath))
             {
                 foreach ((long Date, int OldClear, int NewClear, int Score) input in inputs)
                 {
@@ -2946,7 +2949,7 @@ public sealed class PlayHistoryReadModelTests
                 }
             }
 
-            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader(databaseScope).Read(new BeatorajaPlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath,
                 ScoresBySha256 = CreateBeatorajaScoreSnapshot((ShaA, 100))
@@ -3000,18 +3003,18 @@ public sealed class PlayHistoryReadModelTests
             long day1 = UtcEpoch(2026, 1, 1);
             long day2 = UtcEpoch(2026, 1, 2);
             long day3 = UtcEpoch(2026, 1, 3);
-            using (var db = new SQLiteConnection(scoreLogDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreLogDbPath))
             {
                 InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: day2 + 3600, oldClear: 4, clear: 5, oldScore: 10, score: 25, oldCombo: 8, combo: 12, oldMinBp: 5, minBp: 3);
             }
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertBeatorajaPlayerAggregate(db, day1, playCount: 10, judgeCount: 1000, playtime: 100);
                 InsertBeatorajaPlayerAggregate(db, day2, playCount: 12, judgeCount: 1160, playtime: 160);
                 InsertBeatorajaPlayerAggregate(db, day3, playCount: 13, judgeCount: 1220, playtime: 220);
             }
 
-            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader(databaseScope).Read(new BeatorajaPlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath
             });
@@ -3056,16 +3059,16 @@ public sealed class PlayHistoryReadModelTests
         WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreLogDbPath)
         {
             CreateBeatorajaScoreLogDb(scoreLogDbPath);
-            using (var db = new SQLiteConnection(scoreLogDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreLogDbPath))
             {
                 InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: UtcEpoch(2026, 1, 2), oldClear: 4, clear: 5, oldScore: 10, score: 25, oldCombo: 8, combo: 12, oldMinBp: 5, minBp: 3);
             }
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 db.Execute("CREATE TABLE unrelated_to_player (id INTEGER);");
             }
 
-            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader(databaseScope).Read(new BeatorajaPlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath
             });
@@ -3106,7 +3109,7 @@ public sealed class PlayHistoryReadModelTests
             }
 
             CreateBeatorajaPlayerDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertBeatorajaPlayerAggregate(db, UtcEpoch(2026, 1, 2), playCount: 12, judgeCount: 120, playtime: 90);
             }
@@ -3299,11 +3302,11 @@ public sealed class PlayHistoryReadModelTests
             CreateBeatorajaPlayerDb(scoreDbPath);
             long day1 = UtcEpoch(2026, 1, 1);
             long day2 = UtcEpoch(2026, 1, 2);
-            using (var db = new SQLiteConnection(scoreLogDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreLogDbPath))
             {
                 InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: day2 + 3600, oldClear: 4, clear: 5, oldScore: 10, score: 25, oldCombo: 8, combo: 12, oldMinBp: 5, minBp: 3);
             }
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertBeatorajaPlayerAggregate(db, day1, playCount: 10, judgeCount: 1000, playtime: 100);
                 db.Execute(
@@ -3315,7 +3318,7 @@ public sealed class PlayHistoryReadModelTests
                     160);
             }
 
-            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader(databaseScope).Read(new BeatorajaPlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath
             });
@@ -3341,7 +3344,7 @@ public sealed class PlayHistoryReadModelTests
         {
             CreateBeatorajaPlayerDb(scoreDbPath);
 
-            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader(databaseScope).Read(new BeatorajaPlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath
             });
@@ -3365,12 +3368,12 @@ public sealed class PlayHistoryReadModelTests
             CreateBeatorajaPlayerDb(scoreDbPath);
             string scoreDataLogDbPath = Path.Combine(Path.GetDirectoryName(scoreDbPath)!, "scoredatalog.db");
             CreateBeatorajaScoreDataLogLatestDb(scoreDataLogDbPath);
-            using (var db = new SQLiteConnection(scoreDataLogDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDataLogDbPath))
             {
                 InsertBeatorajaScoreDataLogLatest(db, ShaA, mode: 0, date: 1000);
             }
 
-            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader(databaseScope).Read(new BeatorajaPlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath
             });
@@ -3394,12 +3397,12 @@ public sealed class PlayHistoryReadModelTests
         {
             CreateBeatorajaScoreLogDb(scoreLogDbPath);
             CreateBeatorajaPlayerDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreLogDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreLogDbPath))
             {
                 InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: 1000, oldClear: 4, clear: 5, oldScore: 10, score: 25, oldCombo: 8, combo: 12, oldMinBp: 5, minBp: 3);
             }
 
-            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader(databaseScope).Read(new BeatorajaPlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath,
                 FinalizationFilter = Lr2PlayHistoryFinalizationFilter.UnfinalizedOnly
@@ -3423,7 +3426,7 @@ public sealed class PlayHistoryReadModelTests
             CreateBeatorajaPlayerDb(scoreDbPath);
             File.WriteAllText(scoreLogDbPath, "not a sqlite database");
 
-            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader(databaseScope).Read(new BeatorajaPlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath
             });
@@ -3446,7 +3449,7 @@ public sealed class PlayHistoryReadModelTests
         {
             CreateBeatorajaScoreLogDb(scoreLogDbPath);
             CreateBeatorajaPlayerDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreLogDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreLogDbPath))
             {
                 db.RunInTransaction(() =>
                 {
@@ -3455,7 +3458,7 @@ public sealed class PlayHistoryReadModelTests
                 });
             }
 
-            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest { ScoreDbPath = scoreDbPath });
+            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader(databaseScope).Read(new BeatorajaPlayHistoryReadRequest { ScoreDbPath = scoreDbPath });
             Assert.AreEqual(2, read.Rows.Count);
             BeatorajaPlayHistoryRecord firstBp = read.Rows.Single(record => record.played_at == 1000);
             Assert.IsNull(firstBp.old_minbp);
@@ -3493,7 +3496,7 @@ public sealed class PlayHistoryReadModelTests
         {
             CreateBeatorajaScoreLogDb(scoreLogDbPath);
             CreateBeatorajaPlayerDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreLogDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreLogDbPath))
             {
                 InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: 999, oldClear: 4, clear: 5, oldScore: 10, score: 25, oldCombo: 8, combo: 12, oldMinBp: 5, minBp: 3);
                 InsertBeatorajaScoreLog(db, ShaA, mode: 10000, date: 1000, oldClear: 4, clear: 9, oldScore: 10, score: 99, oldCombo: 8, combo: 20, oldMinBp: 5, minBp: 0);
@@ -3501,7 +3504,7 @@ public sealed class PlayHistoryReadModelTests
             }
 
             PlayHistoryRow row = PlayHistoryRow.ProjectBeatorajaRows(
-                new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+                new BeatorajaPlayHistoryReader(databaseScope).Read(new BeatorajaPlayHistoryReadRequest
                 {
                     ScoreDbPath = scoreDbPath,
                     PlayedAtToExclusive = 1000
@@ -3528,7 +3531,7 @@ public sealed class PlayHistoryReadModelTests
         WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreLogDbPath)
         {
             CreateBeatorajaScoreLogDb(scoreLogDbPath);
-            using (var db = new SQLiteConnection(scoreLogDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreLogDbPath))
             {
                 InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: UtcEpoch(2026, 1, 1, 1), oldClear: 4, clear: 5, oldScore: 10, score: 20, oldCombo: 5, combo: 10, oldMinBp: 8, minBp: 7);
                 InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: UtcEpoch(2026, 1, 1, 12), oldClear: 5, clear: 5, oldScore: 20, score: 30, oldCombo: 10, combo: 11, oldMinBp: 7, minBp: 6);
@@ -3640,7 +3643,7 @@ public sealed class PlayHistoryReadModelTests
         }
     }
 
-    private static void WithBeatorajaPlayerDb(Action<string, string> action)
+    private void WithBeatorajaPlayerDb(Action<string, string> action)
     {
         string directoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_BeatorajaPlayHistory_" + Guid.NewGuid().ToString("N"));
         string playerDirectoryPath = Path.Combine(directoryPath, "player", "player1");
@@ -3648,7 +3651,7 @@ public sealed class PlayHistoryReadModelTests
         try
         {
             string scoreDbPath = Path.Combine(playerDirectoryPath, "score.db");
-            using (new SQLiteConnection(scoreDbPath))
+            using (databaseScope.OpenProviderConnection(scoreDbPath))
             {
             }
             action(
@@ -3664,23 +3667,23 @@ public sealed class PlayHistoryReadModelTests
         }
     }
 
-    private static void CreateBeatorajaScoreLogDb(string scoreLogDbPath)
+    private void CreateBeatorajaScoreLogDb(string scoreLogDbPath)
     {
-        using var db = new SQLiteConnection(scoreLogDbPath);
+        using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreLogDbPath);
         db.Execute(
             "CREATE TABLE scorelog (sha256 TEXT NOT NULL, mode INTEGER, clear INTEGER, oldclear INTEGER, score INTEGER, oldscore INTEGER, combo INTEGER, oldcombo INTEGER, minbp INTEGER, oldminbp INTEGER, date INTEGER);");
     }
 
-    private static void CreateBeatorajaScoreDataLogLatestDb(string scoreDataLogDbPath)
+    private void CreateBeatorajaScoreDataLogLatestDb(string scoreDataLogDbPath)
     {
-        using var db = new SQLiteConnection(scoreDataLogDbPath);
+        using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDataLogDbPath);
         db.Execute(
             "CREATE TABLE scoredatalog (sha256 TEXT NOT NULL, mode INTEGER, clear INTEGER, date INTEGER, scorehash TEXT, PRIMARY KEY(sha256, mode));");
     }
 
-    private static void CreateBeatorajaPlayerDb(string scoreDbPath)
+    private void CreateBeatorajaPlayerDb(string scoreDbPath)
     {
-        using var db = new SQLiteConnection(scoreDbPath);
+        using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath);
         db.Execute("CREATE TABLE player (date INTEGER PRIMARY KEY, playcount INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, egd INTEGER, lgd INTEGER, ebd INTEGER, lbd INTEGER, epr INTEGER, lpr INTEGER, ems INTEGER, lms INTEGER, playtime INTEGER);");
     }
 
@@ -3795,16 +3798,16 @@ public sealed class PlayHistoryReadModelTests
             date);
     }
 
-    private static void CreateInstalledScoreDb(string scoreDbPath)
+    private void CreateInstalledScoreDb(string scoreDbPath)
     {
         CreateBaseScoreDb(scoreDbPath);
-        Lr2PlayHistorySchemaCheckResult result = new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
+        Lr2PlayHistorySchemaCheckResult result = new Lr2PlayHistorySchemaService(databaseScope).InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
         Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, result.Status);
     }
 
-    private static void CreateBaseScoreDb(string scoreDbPath)
+    private void CreateBaseScoreDb(string scoreDbPath)
     {
-        using var db = new SQLiteConnection(scoreDbPath);
+        using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath);
         db.CreateTable<LR2ScoreDB.score>();
         db.CreateTable<LR2ScoreDB.player>();
     }
@@ -3973,7 +3976,7 @@ public sealed class PlayHistoryReadModelTests
         WithScoreDb(path =>
         {
             CreateInstalledScoreDb(path);
-            using (var db = new SQLiteConnection(path))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(path))
             {
                 InsertHistory(db, 1, HashA, UtcEpoch(2026, 1, 2), true, 200);
                 InsertHistory(db, 2, HashA, UtcEpoch(2026, 1, 2) + 1, true, 250);
@@ -3981,7 +3984,7 @@ public sealed class PlayHistoryReadModelTests
             var source = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(path));
             TestBmsLibrary library = CreateHistoryLibrary(path);
             string directory = Path.GetDirectoryName(path) ?? throw new InvalidOperationException("履歴fixtureの親ディレクトリがありません。");
-            var gateway = new BmsLibraryDbGateway(Path.Combine(directory, "song.db"));
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(directory, "song.db"));
             gateway.EnsureAppOwnedSchema();
             ChartFile chart = ChartTestValues.Empty() with
             { Token = new OwnedChartToken(), Path = Path.Combine(directory, "warning.bms"), Md5 = HashA, Title = "warning chart" };
@@ -4066,7 +4069,7 @@ public sealed class PlayHistoryReadModelTests
             WithScoreDb(path =>
             {
                 CreateInstalledScoreDb(path);
-                using (var db = new SQLiteConnection(path))
+                using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(path))
                 { InsertHistory(db, 1, HashA, UtcEpoch(2026, 1, 2), true, 200); }
                 var source = PlayHistoryReadSourceContext.FromSnapshot(AcquireHistorySnapshot(path));
                 var owner = new PlayHistoryWorkflowOwner();
@@ -4885,7 +4888,7 @@ public sealed class PlayHistoryReadModelTests
         WithScoreDb(scoreDbPath =>
         {
             CreateInstalledScoreDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertHistory(db, 1, HashA, UtcEpoch(2026, 1, 2), true, 200);
             }
@@ -4898,7 +4901,7 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(1, dependencies.MainChartList.Rows.Count);
             Assert.AreEqual("1", owner.SummaryCards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
             dependencies.MainChartList.SelectedIndex = 0;
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 // schemaはInstalledのまま、実SELECTだけが失敗するDBへ変える。
                 db.Execute("PRAGMA writable_schema = ON;");
@@ -4986,7 +4989,7 @@ public sealed class PlayHistoryReadModelTests
                             {
                                 Assert.AreEqual(requestId, back.RequestId);
                                 CreateInstalledScoreDb(scoreDbPath);
-                                using (var db = new SQLiteConnection(scoreDbPath))
+                                using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
                                 {
                                     InsertHistory(db, 2, HashA, UtcEpoch(2026, 1, 2), true, 250);
                                 }
@@ -5035,7 +5038,7 @@ public sealed class PlayHistoryReadModelTests
         {
             CreateInstalledScoreDb(scoreDbPath);
             long playedAt = UtcEpoch(2026, 1, 2);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertHistory(db, 1, HashA, playedAt, true, 200);
             }
@@ -5047,7 +5050,7 @@ public sealed class PlayHistoryReadModelTests
             var period = PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, TimeZoneInfo.Utc);
             Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, ExecuteHistoryRead(owner, dependencies, period).Status);
             Assert.AreNotEqual(0, owner.ArchivePeriodTree.Count);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertHistory(db, 2, HashA, playedAt + 1, true, 250);
                 InsertHistory(db, 3, HashA, long.MaxValue, true, 300);
@@ -5120,7 +5123,7 @@ public sealed class PlayHistoryReadModelTests
         WithScoreDb(scoreDbPath =>
         {
             CreateInstalledScoreDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertHistory(db, 1, HashA, UtcEpoch(2026, 1, 2), true, 200);
             }
@@ -5167,10 +5170,10 @@ public sealed class PlayHistoryReadModelTests
     }
 
     /// <summary>表示consumerの入力を実モデルの許可取得で準備します。BeginRequestはこの入力の表示要求であり、製品の取得通知接続を補完しません。</summary>
-    private static BMSLibrary.ScoreSnapshot AcquireHistorySnapshot(string scoreDbPath, bool beatoraja = false, bool isLr2LinkedProfile = true)
+    private BMSLibrary.ScoreSnapshot AcquireHistorySnapshot(string scoreDbPath, bool beatoraja = false, bool isLr2LinkedProfile = true)
     {
         ScoreTableLoadResult acquired = new BmsLibraryInitializationService().LoadScoreTable(
-            new BmsLibraryDbGateway(Path.Combine(Path.GetDirectoryName(scoreDbPath) ?? string.Empty, "song.db"), scoreDbPath), new BmsLibraryOptionsSnapshot
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(Path.GetDirectoryName(scoreDbPath) ?? string.Empty, "song.db"), scoreDbPath), new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = isLr2LinkedProfile,
                 UseBeatorajaScoreDb = beatoraja,
@@ -5189,24 +5192,24 @@ public sealed class PlayHistoryReadModelTests
     }
 
     /// <summary>成績・履歴の一括取得が使う実scoreテーブルへ、ノーツの固定入力を保存します。</summary>
-    private static void SetBeatorajaScoreNotes(string scoreDbPath, int notes)
+    private void SetBeatorajaScoreNotes(string scoreDbPath, int notes)
     {
-        using var db = new SQLiteConnection(scoreDbPath);
+        using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath);
         db.Execute("CREATE TABLE IF NOT EXISTS score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
         db.Execute("DELETE FROM score");
         db.Execute("INSERT INTO score VALUES (?, 0, 4, 10, 0, 0, 0, ?, 0, 0, 1, 1)", ShaA, notes);
     }
 
-    private static TestBmsLibrary CreateHistoryLibrary(string scoreDbPath)
+    private TestBmsLibrary CreateHistoryLibrary(string scoreDbPath)
     {
         string songDbPath = Path.Combine(Path.GetDirectoryName(scoreDbPath)!, "song.db");
-        using (var songDb = new LR2SongDBExtended(songDbPath))
+        using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
         {
             songDb.CreateTable<LR2SongDB.song>();
             BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
             BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
         }
-        return new TestBmsLibrary(songDbPath);
+        return new TestBmsLibrary(databaseScope, songDbPath);
     }
 
     /// <summary>失敗・正常空の採用済み終端を翻訳し、要求と行を変更しないことを確認して購読・文化圏を必ず復元します。</summary>
@@ -5249,7 +5252,7 @@ public sealed class PlayHistoryReadModelTests
             MainViewUpdateMode.PlayHistorySelected, null, Stopwatch.StartNew(), request, string.Empty, displayTarget));
     }
 
-    private static PlayHistoryViewExecutionDependencies CreateViewExecutionDependencies(
+    private PlayHistoryViewExecutionDependencies CreateViewExecutionDependencies(
         Func<PlayHistoryReadSourceContext>? sourceResolver = null,
         Func<Action, bool>? invokePresentation = null,
         BMSLibrary? library = null)

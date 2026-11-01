@@ -15,6 +15,10 @@ namespace BeMusicSeeker.Tests;
 /// <summary>prefixの実property/bulk入口と実SQLite・詳細source/viewだけを接続する、独立したfixtureです。</summary>
 internal sealed class PlaylistPrefixCommitTestFixture : IAsyncDisposable
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+    /// <summary>このfixtureの接続とモデルが共有するDB所有者です。</summary>
+    internal ApplicationDatabaseScope DatabaseScope => databaseScope;
+
     private readonly string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistPrefixCommitTestFixture), Guid.NewGuid().ToString("N"));
     internal string SongDb { get; }
     internal TestBmsPlaylist Playlist { get; }
@@ -32,8 +36,8 @@ internal sealed class PlaylistPrefixCommitTestFixture : IAsyncDisposable
     internal PlaylistPrefixCommitTestFixture(bool enableBmtOutput = false)
     {
         Directory.CreateDirectory(directory);
-        SongDb = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
-        PlaylistPersistenceRepository.EnsureSchema(SongDb);
+        SongDb = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+        PlaylistPersistenceRepository.EnsureSchema(databaseScope, SongDb);
         string header = Path.Combine(directory, "header.json"), data = Path.Combine(directory, "data.json");
         HeaderPath = header;
         string bmtDirectory = Path.Combine(directory, "bmt");
@@ -52,8 +56,8 @@ internal sealed class PlaylistPrefixCommitTestFixture : IAsyncDisposable
             values.EnableBeatorajaBmtOutput = enableBmtOutput;
             values.BeatorajaBmtTablePath = bmtDirectory;
         });
-        Library = new TestBmsLibrary(SongDb, settings: settings);
-        Playlist = MainWindowViewModelTestFactory.CreatePlaylist(SongDb, settings, library: Library);
+        Library = new TestBmsLibrary(databaseScope, SongDb, settings: settings);
+        Playlist = MainWindowViewModelTestFactory.CreatePlaylist(databaseScope, SongDb, settings, library: Library);
         Table = new BMSTable
         {
             playlist_id = 7492,
@@ -89,7 +93,7 @@ internal sealed class PlaylistPrefixCommitTestFixture : IAsyncDisposable
 
     internal Task Refresh() => Workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
         MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected, false, default);
-    internal void Execute(string sql) { using var db = new LR2SongDBExtended(SongDb); db.Execute(sql); }
+    internal void Execute(string sql) { using LR2SongDBExtended db = databaseScope.OpenSongWrite(SongDb); db.Execute(sql); }
     public async ValueTask DisposeAsync()
     {
         Workspace.CancelDetailBuilds();

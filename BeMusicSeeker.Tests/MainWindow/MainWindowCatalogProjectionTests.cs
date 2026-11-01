@@ -13,7 +13,6 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using SQLite;
 
 namespace BeMusicSeeker.Tests;
 
@@ -27,6 +26,7 @@ public sealed class MainWindowCatalogProjectionTests
     [TestMethod]
     public void ManualReload_StandardCompositionConvergesNormalDetailAndSummary()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         TestUiDispatcherHost.Invoke(() =>
         {
             string root = Path.Combine(Path.GetTempPath(), "CatalogProjection-" + Guid.NewGuid().ToString("N"));
@@ -47,13 +47,13 @@ public sealed class MainWindowCatalogProjectionTests
             string player = Directory.CreateDirectory(Path.Combine(beatoraja, "player", "fixture")).FullName;
             string scorePath = Path.Combine(player, "score.db");
             string historyHash = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(first)));
-            using (var score = new SQLiteConnection(scorePath))
+            using (SQLiteConnectionEx score = databaseScope.OpenProviderConnection(scorePath))
             {
                 score.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
                 score.Execute("CREATE TABLE player (date INTEGER PRIMARY KEY, playcount INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, egd INTEGER, lgd INTEGER, ebd INTEGER, lbd INTEGER, epr INTEGER, lpr INTEGER, ems INTEGER, lms INTEGER, playtime INTEGER)");
                 score.Execute("INSERT INTO player VALUES (1000, 1, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 60)");
             }
-            using (var log = new SQLiteConnection(Path.Combine(player, "scorelog.db")))
+            using (SQLiteConnectionEx log = databaseScope.OpenProviderConnection(Path.Combine(player, "scorelog.db")))
             {
                 log.Execute("CREATE TABLE scorelog (sha256 TEXT, mode INTEGER, clear INTEGER, oldclear INTEGER, score INTEGER, oldscore INTEGER, combo INTEGER, oldcombo INTEGER, minbp INTEGER, oldminbp INTEGER, date INTEGER)");
                 log.Execute("INSERT INTO scorelog VALUES (?, 0, 4, 0, 100, 0, 50, 0, 10, 20, 1000)", historyHash);
@@ -80,7 +80,6 @@ public sealed class MainWindowCatalogProjectionTests
             });
             var paths = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe"));
             Directory.CreateDirectory(paths.DataDirectoryPath);
-            StartupLibraryConstructionTestSupport.CreateSongDatabase(paths.StandaloneSongDbPath);
             string hash = Convert.ToHexStringLower(MD5.HashData(File.ReadAllBytes(first)));
             var entry = new BMSTableEntry { playlist_id = 1, md5 = hash, title = "Saved entry", artist = "Saved artist", level = 12, folder = "Local", memo = "Saved memo" };
             var savedTable = new BMSTable
@@ -92,8 +91,6 @@ public sealed class MainWindowCatalogProjectionTests
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders,
                 entries = [entry]
             };
-            PlaylistPersistenceRepository.EnsureSchema(paths.StandaloneSongDbPath);
-            new PlaylistPersistenceRepository(paths.StandaloneSongDbPath).ReplaceTablesWithEntries([savedTable]);
             var dialogs = new MainWindowViewModelStartupProgressTests.CompletionDialogs();
             var delayedUi = new DelayedDrainUiScheduler(new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
             var composition = new ApplicationComposition(settingsEditSession: new NoOpSettingsEditSession(settings),
@@ -102,6 +99,9 @@ public sealed class MainWindowCatalogProjectionTests
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(), runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(paths),
                 chartFileScanner: scanner, rootFileEnumerator: new FastRootFileEnumerator(),
                 fileDbMutationDialogService: dialogs, settingsDialogService: dialogs, playlistWorkspaceDialogService: dialogs);
+            StartupLibraryConstructionTestSupport.CreateSongDatabase(composition.DatabaseScope, paths.StandaloneSongDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(composition.DatabaseScope, paths.StandaloneSongDbPath);
+            new PlaylistPersistenceRepository(composition.DatabaseScope, paths.StandaloneSongDbPath).ReplaceTablesWithEntries([savedTable]);
             var owner = new MainWindowViewModel(composition, composition);
             try
             {
@@ -305,12 +305,12 @@ public sealed class MainWindowCatalogProjectionTests
                 void AssertNormal(params string[] expected)
                 {
                     CollectionAssert.AreEquivalent(expected, owner.MainChartList.Rows.Cast<LibraryChartRow>().Select(row => row.path).ToArray());
-                    using var read = new LR2SongDBExtended(paths.StandaloneSongDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+                    using LR2SongDBExtended read = composition.DatabaseScope.OpenSongReadOnly(paths.StandaloneSongDbPath);
                     CollectionAssert.AreEquivalent(expected, read.Table<LR2SongDB.song>().Select(song => song.path).ToArray());
                 }
                 string[] ReadSavedEntries()
                 {
-                    using var read = new LR2SongDBExtended(paths.StandaloneSongDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+                    using LR2SongDBExtended read = composition.DatabaseScope.OpenSongReadOnly(paths.StandaloneSongDbPath);
                     return read.Table<LR2SongDBExtended.playlist_entry>().Select(item => $"{item.playlist_id}|{item.md5}|{item.title}|{item.artist}|{item.level}|{item.folder}|{item.memo}").ToArray();
                 }
             }

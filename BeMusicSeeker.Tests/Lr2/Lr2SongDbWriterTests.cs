@@ -11,6 +11,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2SongDbWriterTests
 {
+    /// <summary>このケースのモデルと接続で共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>
     /// 同じ生成行の再反映を変更なしとして一行だけ保存し、重複挿入や無変更更新を検出する。
     /// </summary>
@@ -20,7 +23,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.song>();
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
@@ -40,7 +43,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.song>();
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Old");
@@ -67,7 +70,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.song>();
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile existing = CreateSong(@"D:\BMS\Pack\existing.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Old");
@@ -98,7 +101,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.song>();
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -213,7 +216,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             var projection = Lr2ChartInfoSongProjection.Create(
                 @"D:\BMS\Pack\missing.bms",
@@ -243,7 +246,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.song>();
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             songDb.CreateTable<LR2SongDBExtended.maintenance>();
@@ -280,7 +283,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.song>();
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             string oldHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -310,7 +313,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.song>();
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             songDb.CreateTable<LR2SongDBExtended.bmson_song>();
@@ -349,7 +352,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             PrepareLr2SongDbSyncSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile existing = CreateSong(@"D:\BMS\Pack\existing.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Old");
@@ -382,7 +385,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             PrepareLr2SongDbSyncSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             songDb.CreateTable<LR2SongDBExtended.maintenance>();
@@ -420,7 +423,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             PrepareLr2SongDbSyncSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile lower = CreateSong(@"D:\BMS\Pack\chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Old Lower");
@@ -450,7 +453,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             PrepareLr2SongDbSyncSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\unchanged.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
@@ -477,7 +480,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             PrepareLr2SongDbSyncSongWriterSchema(songDb);
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\unchanged-digest-write.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
             file.SetSha256(Sha('1'));
@@ -505,7 +508,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             PrepareLr2SongDbSyncSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\unchanged-digest.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
@@ -532,7 +535,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             PrepareLr2SongDbSyncSongWriterSchema(songDb);
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\changed-digest-only.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
             file.SetSha256(Sha('1'));
@@ -564,7 +567,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             PrepareLr2SongDbSyncSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\uppercase.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
@@ -590,7 +593,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             PrepareLr2SongDbSyncSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             string oldHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -620,7 +623,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             PrepareLr2SongDbSyncSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             songDb.CreateTable<LR2SongDBExtended.bmson_song>();
@@ -659,7 +662,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             PrepareLr2SongDbSyncSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
@@ -685,7 +688,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             PrepareLr2SongDbSyncSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Old");
@@ -712,7 +715,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.song>();
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
@@ -736,7 +739,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.song>();
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
@@ -761,7 +764,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.song>();
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Missing\chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
@@ -787,7 +790,7 @@ public sealed class Lr2SongDbWriterTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
             songDb.CreateTable<LR2SongDB.song>();
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Missing\chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Old");

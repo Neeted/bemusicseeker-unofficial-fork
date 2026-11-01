@@ -112,6 +112,9 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     /// <summary>再構築前後のplaylistへ接続するP受付だけを構成の寿命で所有します。L・DB・同期処理・終了状態とは分離します。</summary>
     internal ChartFileOperationSynchronizer PlaylistOperationAdmission { get; } = new();
 
+    /// <summary>新旧モデル・読取り・バックアップ・終了処理が共有する構成寿命のDB所有者です。</summary>
+    internal ApplicationDatabaseScope DatabaseScope { get; } = new();
+
     private readonly IPackageInstallMutationPort packageInstallMutationPort;
 
     /// <summary>同じ共通受付と明示されたプロセス・音声・入力列挙境界で本番の機能を構成します。</summary>
@@ -393,6 +396,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         IUiDialogService schemaDialogs = SettingsDialogService;
         ILr2PlayHistorySchemaUninstallDialogPort schemaWindowDialogs = new Lr2PlayHistorySchemaUninstallDialogPort(schemaDialogs);
         return new SettingsDialogViewModel(
+            DatabaseScope,
             statePort,
             workspacePort,
             customFolderOutputPort,
@@ -402,6 +406,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             playbackRuntimePort,
             lr2SongDbSyncWorkflow,
             settingsEditSession,
+            new ApplicationDataUninstallWorkflowOwner(schemaDialogs, new Lr2ApplicationDataUninstallStore(DatabaseScope)),
             playHistoryDisplaySettingsStore,
             reportSettingsApplyFailure,
             requestOperationModeRestart: requestOperationModeRestart,
@@ -411,9 +416,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             applicationPathSnapshot: applicationPathSnapshot,
             schemaDialogs: schemaDialogs,
             schemaWindowDialogs: schemaWindowDialogs,
-            applicationDataUninstallWorkflow: new ApplicationDataUninstallWorkflowOwner(
-                schemaDialogs,
-                new Lr2ApplicationDataUninstallStore()),
             audioDeviceTestWorkflow: new AudioDeviceTestWorkflowOwner(
                 playbackRuntimePort,
                 new BassAudioDeviceTestRuntime(applicationPathSnapshot)),
@@ -476,6 +478,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     {
         externalShellGateway ??= this.externalShellGateway;
         return new MainWindowChildComposition(
+            RuntimeOptions.UpdateManifestUrl,
             selectedChartAudioConversionExecutor ?? new BassSelectedChartAudioConversionExecutor(),
             mainChartList,
             playlistWorkspace,
@@ -636,6 +639,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             throw new ArgumentNullException(nameof(libraryProfile));
         }
         return new BMSLibrary(
+            DatabaseScope,
+            RuntimeOptions.DatabaseLoadOptions,
             libraryProfile.SongDbPath,
             libraryProfile.Lr2ConfigOwner,
             libraryProfile.Lr2ScoreDbPath,
@@ -702,7 +707,9 @@ internal sealed class MainWindowChildComposition
     /// <param name="keywordSearchFavoritesSettingsStore">通常一覧・概要で共有するお気に入り設定の保存境界。</param>
     /// <param name="exitForUnrestoredDestination">操作終端後に通常Closeを通さず最終終了する境界。</param>
     /// <param name="playlistOperationAdmission">構成寿命で共有するPの新規受付を閉じるための既存owner。</param>
+    /// <param name="updateManifestUrl">起動時に捕捉済みの更新URL。妥当性の検査は更新確認処理へ委ねます。</param>
     internal MainWindowChildComposition(
+        string updateManifestUrl,
         ISelectedChartAudioConversionExecutor selectedChartAudioConversionExecutor,
         MainChartListViewModel mainChartList,
         PlaylistWorkspaceViewModel playlistWorkspace,
@@ -862,7 +869,7 @@ internal sealed class MainWindowChildComposition
             updaterProcessGateway ?? throw new ArgumentNullException(nameof(updaterProcessGateway)));
         UpdateCheckService updateCheckService = new(AppHttpClient.Create(5000));
         StartupUpdateWorkflow = new StartupUpdateWorkflowOwner(
-            () => updateCheckService.CheckAsync(CommandLineSwitches.UpdateManifestUrl),
+            () => updateCheckService.CheckAsync(updateManifestUrl),
             updateDownloadService.DownloadAndVerifyAsync,
             updateDownloadService.PrepareUpdaterLaunch,
             updateDownloadService.CleanupPreviousWorkDirectory,

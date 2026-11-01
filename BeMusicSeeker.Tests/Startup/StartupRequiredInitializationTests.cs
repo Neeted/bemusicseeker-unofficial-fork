@@ -28,7 +28,7 @@ public sealed class StartupRequiredInitializationTests
     {
         using var fixture = new Fixture(withSavedScore: true);
         using var semaphore = new SemaphoreSlim(1, 1);
-        var owner = new StartupLibraryInitializationWorkflowOwner(semaphore);
+        var owner = new StartupLibraryInitializationWorkflowOwner(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), semaphore);
         var runtime = new GatedRuntime(fixture.Library, fixture.Playlist);
         StartupRequiredOperationLease accepted = owner.AcquireRequiredOperation(fixture.Library.OperationAdmission,
             fixture.Library.Lr2Synchronization.PlaylistOperationAdmission);
@@ -134,7 +134,7 @@ public sealed class StartupRequiredInitializationTests
             }
             Assert.IsTrue(fixture.Library.OperationAdmission.IsActive);
             Assert.IsTrue(fixture.Library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
-            using LR2SongDBExtended readback = new BmsLibraryDbGateway(fixture.SongDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDbPath).OpenSongDbReadOnly();
             LR2SongDBExtended.lr2_song_db_sync_status durable = readback.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.AreEqual("Completed", durable.status);
             Assert.IsNotNull(durable.completed_at);
@@ -167,7 +167,7 @@ public sealed class StartupRequiredInitializationTests
     {
         using var fixture = new Fixture(withSavedScore: true);
         using var semaphore = new SemaphoreSlim(1, 1);
-        var owner = new StartupLibraryInitializationWorkflowOwner(semaphore);
+        var owner = new StartupLibraryInitializationWorkflowOwner(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), semaphore);
         var runtime = new GatedRuntime(fixture.Library, fixture.Playlist);
         var progress = new ConcurrentQueue<(OperationProgressRequest Request, bool Running)>();
         fixture.Library.StartupRequestProgressReporter = (request, running) =>
@@ -201,7 +201,7 @@ public sealed class StartupRequiredInitializationTests
     {
         using var fixture = new Fixture(blockBmtOutput: true);
         using var semaphore = new SemaphoreSlim(1, 1);
-        var owner = new StartupLibraryInitializationWorkflowOwner(semaphore);
+        var owner = new StartupLibraryInitializationWorkflowOwner(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), semaphore);
         var runtime = new GatedRuntime(fixture.Library, fixture.Playlist);
         var outputProgress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
         fixture.Playlist.CustomFolderOutputRepairProgressReporter = outputProgress.Enqueue;
@@ -227,7 +227,7 @@ public sealed class StartupRequiredInitializationTests
             Assert.AreEqual(origin.OperationToken, request.OperationToken);
             Assert.IsTrue(snapshots.All(snapshot => snapshot.Request == request));
         }
-        using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.SongDbPath).OpenSongDbReadOnly();
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDbPath).OpenSongDbReadOnly();
         Assert.IsNotNull(verify.Find<LR2SongDB.song>(fixture.ChartPath));
         Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
     }
@@ -239,7 +239,7 @@ public sealed class StartupRequiredInitializationTests
     {
         using var fixture = new Fixture(failLr2: true);
         using var semaphore = new SemaphoreSlim(1, 1);
-        var owner = new StartupLibraryInitializationWorkflowOwner(semaphore);
+        var owner = new StartupLibraryInitializationWorkflowOwner(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), semaphore);
         var runtime = new GatedRuntime(fixture.Library, fixture.Playlist);
         runtime.Release.TrySetResult();
         int failurePublications = 0;
@@ -259,7 +259,7 @@ public sealed class StartupRequiredInitializationTests
         Assert.AreEqual(1, failurePublications, "下位で確定したFailedを必須ownerが再公開しない。");
         StringAssert.Contains(result.Lr2Failure.Message, "lr2-only-failure");
         Assert.AreEqual(Lr2SongDbSyncStatusKind.Failed, fixture.Library.GetLr2SongDbSyncStatusSnapshot().Status);
-        using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.SongDbPath).OpenSongDbReadOnly();
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDbPath).OpenSongDbReadOnly();
         Assert.IsNotNull(verify.Find<LR2SongDB.song>(fixture.ChartPath));
         Assert.AreEqual("Failed", verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName).status);
         Assert.AreEqual(1, verify.Table<LR2SongDBExtended.playlist>().Count());
@@ -273,7 +273,7 @@ public sealed class StartupRequiredInitializationTests
     {
         using var fixture = new Fixture();
         using var semaphore = new SemaphoreSlim(1, 1);
-        var owner = new StartupLibraryInitializationWorkflowOwner(semaphore);
+        var owner = new StartupLibraryInitializationWorkflowOwner(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), semaphore);
         var failure = new IOException("controlled LR2 acceptance failure");
         var runtime = new GatedRuntime(fixture.Library, fixture.Playlist) { BeforeQueueFailure = failure };
         runtime.Release.TrySetResult();
@@ -293,7 +293,7 @@ public sealed class StartupRequiredInitializationTests
         Assert.AreSame(failure, result.Lr2Failure);
         Assert.AreEqual(1, failurePublications);
         Assert.AreEqual(Lr2SongDbSyncStatusKind.Failed, fixture.Library.GetLr2SongDbSyncStatusSnapshot().Status);
-        using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.SongDbPath).OpenSongDbReadOnly();
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDbPath).OpenSongDbReadOnly();
         LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Failed", row.status);
         Assert.AreEqual(failure.Message, row.last_error);
@@ -313,7 +313,7 @@ public sealed class StartupRequiredInitializationTests
         using var semaphore = new SemaphoreSlim(1, 1);
         using var releaseInput = new ManualResetEventSlim();
         var inputEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var owner = new StartupLibraryInitializationWorkflowOwner(semaphore);
+        var owner = new StartupLibraryInitializationWorkflowOwner(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), semaphore);
         var runtime = new GatedRuntime(fixture.Library, fixture.Playlist);
         runtime.Release.TrySetResult();
         int incompletePublications = 0;
@@ -351,7 +351,7 @@ public sealed class StartupRequiredInitializationTests
         }
         Assert.AreEqual(1, incompletePublications);
         Assert.AreEqual(Lr2SongDbSyncStatusKind.Incomplete, fixture.Library.GetLr2SongDbSyncStatusSnapshot().Status);
-        using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.SongDbPath).OpenSongDbReadOnly();
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDbPath).OpenSongDbReadOnly();
         LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Incomplete", row.status);
         Assert.AreEqual("shutdown_interrupted", row.last_error);
@@ -367,7 +367,7 @@ public sealed class StartupRequiredInitializationTests
     {
         using var fixture = new Fixture();
         using var semaphore = new SemaphoreSlim(1, 1);
-        var owner = new StartupLibraryInitializationWorkflowOwner(semaphore);
+        var owner = new StartupLibraryInitializationWorkflowOwner(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), semaphore);
         var runtime = new GatedRuntime(fixture.Library, fixture.Playlist);
         runtime.Release.TrySetResult();
         LibraryFileInitializationResult first;
@@ -409,7 +409,7 @@ public sealed class StartupRequiredInitializationTests
         var headerFailure = new IOException("header read failed");
         fixture.Scanner.ScanObserved = () => { filesEntered.TrySetResult(); releaseFiles.Wait(); };
         fixture.PlaylistScheduler.BeforeInvoke = () => { headersEntered.TrySetResult(); throw headerFailure; };
-        var owner = new StartupLibraryInitializationWorkflowOwner(semaphore);
+        var owner = new StartupLibraryInitializationWorkflowOwner(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), semaphore);
         var runtime = new GatedRuntime(fixture.Library, fixture.Playlist);
         StartupRequiredOperationLease accepted = owner.AcquireRequiredOperation(fixture.Library.OperationAdmission,
             fixture.Library.Lr2Synchronization.PlaylistOperationAdmission);
@@ -446,7 +446,7 @@ public sealed class StartupRequiredInitializationTests
     {
         using var fixture = new Fixture(lr2Enabled: false);
         using var semaphore = new SemaphoreSlim(1, 1);
-        var owner = new StartupLibraryInitializationWorkflowOwner(semaphore);
+        var owner = new StartupLibraryInitializationWorkflowOwner(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), semaphore);
         var runtime = new GatedRuntime(fixture.Library, fixture.Playlist);
         runtime.Release.TrySetResult();
         using StartupRequiredOperationLease accepted = owner.AcquireRequiredOperation(fixture.Library.OperationAdmission,
@@ -466,7 +466,7 @@ public sealed class StartupRequiredInitializationTests
     {
         using var fixture = new Fixture(outputOutsideScanRoot: true);
         using var semaphore = new SemaphoreSlim(1, 1);
-        var owner = new StartupLibraryInitializationWorkflowOwner(semaphore);
+        var owner = new StartupLibraryInitializationWorkflowOwner(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), semaphore);
         var runtime = new GatedRuntime(fixture.Library, fixture.Playlist);
         runtime.Release.TrySetResult();
         var lr2 = new Lr2SongDbSyncWorkflowOwner(runtime);
@@ -688,6 +688,7 @@ public sealed class StartupRequiredInitializationTests
     private sealed class Fixture : IDisposable
     {
         private readonly TestDatabaseScope scope = TestDatabaseScope.Create();
+        internal ApplicationDatabaseScope DatabaseScope => scope.DatabaseScope;
         internal Fixture(bool blockBmtOutput = false, bool failLr2 = false, bool lr2Enabled = true, bool outputOutsideScanRoot = false, bool withSavedScore = false)
         {
             string root = Path.Combine(scope.DirectoryPath, "Songs");
@@ -703,8 +704,8 @@ public sealed class StartupRequiredInitializationTests
             Directory.CreateDirectory(normalOutputBase);
             Directory.CreateDirectory(rootOutputBase);
             BmtPath = Path.Combine(scope.DirectoryPath, "Bmt", "tables");
-            new BmsLibraryDbGateway(SongDbPath).EnsureAppOwnedSchema();
-            PlaylistPersistenceRepository.EnsureSchema(SongDbPath);
+            new BmsLibraryDbGateway(DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), SongDbPath).EnsureAppOwnedSchema();
+            PlaylistPersistenceRepository.EnsureSchema(DatabaseScope, SongDbPath);
             var table = new BMSTable { playlist_id = 9901, name = "Saved", symbol = "S", Output_dir = "Saved", is_root_folder = !outputOutsideScanRoot, Folder_order = ["Folder"] };
             if (blockBmtOutput)
             {
@@ -713,7 +714,7 @@ public sealed class StartupRequiredInitializationTests
             }
             BMSTableEntry entry = BmsPlaylistTestSupport.CreateEntry(content.Md5, "Folder");
             entry.playlist_id = table.playlist_id;
-            using (var setup = new LR2SongDBExtended(SongDbPath))
+            using (LR2SongDBExtended setup = DatabaseScope.OpenSongWrite(SongDbPath))
             {
                 setup.RunInTransaction(() =>
                 {
@@ -739,7 +740,7 @@ public sealed class StartupRequiredInitializationTests
             if (withSavedScore)
             {
                 scorePath = Path.Combine(scope.DirectoryPath, "score.db");
-                using var scoreDb = new LR2ScoreDBExtended(scorePath);
+                using LR2ScoreDBExtended scoreDb = DatabaseScope.OpenScoreWrite(scorePath);
                 scoreDb.RunInTransaction(() =>
                 {
                     scoreDb.CreateTable<LR2ScoreDB.player>();
@@ -758,7 +759,7 @@ public sealed class StartupRequiredInitializationTests
                 ScanBmsFilesOnStartup = true
             };
             Scanner = new FreshChartFileScanner(ChartPath, scanRoots);
-            Library = new TestBmsLibrary(SongDbPath, configOwner, scorePath, null, () => options, TestBmsFactory.MissingEverythingBridge,
+            Library = new TestBmsLibrary(DatabaseScope, SongDbPath, configOwner, scorePath, null, () => options, TestBmsFactory.MissingEverythingBridge,
                 chartFileScanner: Scanner, rootFileEnumerator: new FixtureRootFileEnumerator(), settings: TestBmsFactory.CreateRootSettings([.. scanRoots], settings), uiScheduler: new TestUiScheduler(() => null))
             { };
             // 後続保守はこのfixtureで開始しない。必須処理がschedulerを待つとテストが完了しない。

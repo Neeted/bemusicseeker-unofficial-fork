@@ -65,7 +65,7 @@ internal sealed class RootPendingPublicationObservation : IDisposable
         ChartPackage removed = Package(pendingPath);
         ChartPackage remaining = Package(unrelatedPath);
         library.ChartPackagesPending = new ObservableCollection<ChartPackage>([removed, remaining]);
-        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(database, db =>
+        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(library.DatabaseScope, database, db =>
         {
             db.CreateTable<LR2SongDBExtended.install>();
             db.InsertOrReplace(removed, typeof(LR2SongDBExtended.install));
@@ -83,7 +83,7 @@ internal sealed class RootPendingPublicationObservation : IDisposable
         try
         {
             bool guardsReleased = guards.All(guard => guard.LockingReadCount == 0 && guard.LockingWriteCount == 0 && !guard.IsUpgradeableReadLockHeld);
-            using LR2SongDBExtended db = new BmsLibraryDbGateway(database).OpenSongDbReadOnly();
+            using LR2SongDBExtended db = library.DatabaseScope.OpenSongReadOnly(database);
             snapshots.Add(new(TestUiDispatcherHost.Dispatcher.CheckAccess(), !library.OperationAdmission.IsActive,
                 playlistAdmission?.IsActive != true, guardsReleased,
                 library.ChartPackagesPending.Select(package => package.path).ToArray(),

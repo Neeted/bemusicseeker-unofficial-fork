@@ -22,6 +22,7 @@ public sealed class BmsLibraryCatalogRelocationTests
     [TestMethod]
     public void ApplyCatalogRelocation_UpdatesStorageRowsAndInstalledPackages()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -53,7 +54,7 @@ public sealed class BmsLibraryCatalogRelocationTests
                 ChartPackage installedPackage = ChartPackageTestExtensions.CreatePackage([movedFile]);
                 installedPackage.path = oldDirectoryPath;
                 installedPackage.delete_parent = false;
-                using (var songDb = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
                 {
                     songDb.RunInTransaction(() =>
                     {
@@ -172,7 +173,7 @@ public sealed class BmsLibraryCatalogRelocationTests
                 Assert.AreEqual(0, callbacks.InstalledPackagesChangedCount);
                 Assert.AreEqual(oldBmsonPath, bmsonSongs[0].Path);
                 Assert.AreEqual(newBmsonPath, currentOwner.BmsonRows.Single().Path);
-                using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 Assert.IsTrue(verifySongDb.Table<LR2SongDB.song>().Any(file => file.path == newChartPath));
                 Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT txt FROM song WHERE path = ?;", newChartPath));
                 Assert.IsFalse(verifySongDb.Table<LR2SongDB.song>().Any(file => file.path == oldChartPath));
@@ -199,6 +200,7 @@ public sealed class BmsLibraryCatalogRelocationTests
     [TestMethod]
     public void ApplyCatalogRelocation_BatchPathReplacePreservesUserColumnsMaintenanceDigestAndFolderMetadata()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -243,7 +245,7 @@ public sealed class BmsLibraryCatalogRelocationTests
                     Sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
                     ResourceHealthMaintenanceSnapshot = MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = oldBmsonPath, hash = "cccccccccccccccccccccccccccccccc", wav_files_existing = 3 })
                 };
-                using (var songDb = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
                 {
                     songDb.RunInTransaction(() =>
                     {
@@ -321,7 +323,7 @@ public sealed class BmsLibraryCatalogRelocationTests
                 Assert.IsTrue(currentOwner.BmsRows.Any(chart => chart.Path == newFirstPath));
                 Assert.IsTrue(currentOwner.BmsRows.Any(chart => chart.Path == newSecondPath));
                 Assert.AreEqual(newBmsonPath, currentOwner.BmsonRows.Single().Path);
-                using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 Assert.IsFalse(verifySongDb.Table<LR2SongDB.song>().Any(file => file.path == oldFirstPath || file.path == oldSecondPath));
                 Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT favorite FROM song WHERE path = ?;", newFirstPath));
                 Assert.AreEqual(123, verifySongDb.ExecuteScalar<int>("SELECT adddate FROM song WHERE path = ?;", newFirstPath));
@@ -362,6 +364,7 @@ public sealed class BmsLibraryCatalogRelocationTests
     [TestMethod]
     public void ApplyCatalogRelocation_WhenBatchDbFails_DoesNotMutateLivePath()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_StateApplierRollback_" + Guid.NewGuid().ToString("N"));
@@ -379,7 +382,7 @@ public sealed class BmsLibraryCatalogRelocationTests
                     Path = oldChartPath
                 };
                 movedFile = movedFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
-                using (var songDb = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
                 {
                     songDb.RunInTransaction(() =>
                     {
@@ -406,7 +409,7 @@ public sealed class BmsLibraryCatalogRelocationTests
                 Assert.AreEqual(oldChartPath, movedFile.Path);
                 Assert.AreEqual(1, callbacks.SongDbWriteFailureCount);
                 Assert.AreEqual("lr2_song_db_library_mutation_path_replace_failed", callbacks.LastSongDbWriteFailureStage);
-                using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", oldChartPath));
                 Assert.AreEqual(0, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", newChartPath));
             }
@@ -427,6 +430,7 @@ public sealed class BmsLibraryCatalogRelocationTests
     [TestMethod]
     public void ApplyCatalogRelocation_PathReplaceUsesSharedLr2CompatibilityNormalizer()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -446,7 +450,7 @@ public sealed class BmsLibraryCatalogRelocationTests
                     Path = newChartPath
                 };
                 movedFile = movedFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
-                using (var songDb = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
                 {
                     songDb.RunInTransaction(() =>
                     {
@@ -478,7 +482,7 @@ public sealed class BmsLibraryCatalogRelocationTests
                 Assert.IsTrue(string.IsNullOrWhiteSpace(movedFile.Folder));
                 Assert.IsTrue(string.IsNullOrWhiteSpace(ChartSongStorageMapping.ToBmsRow(movedFile).parent));
                 Assert.IsTrue(currentOwner.BmsRows.Single().Warnings.Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported));
-                using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 Assert.IsFalse(verifySongDb.Table<LR2SongDB.song>().Any(file => file.path == oldChartPath));
                 Assert.AreEqual(1L, verifySongDb.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", newChartPath));
                 Assert.IsTrue(string.IsNullOrWhiteSpace(verifySongDb.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", newChartPath)));
@@ -501,6 +505,7 @@ public sealed class BmsLibraryCatalogRelocationTests
     [TestMethod]
     public void ApplyCatalogRelocation_ReevaluatesLr2CompatibilityFactsWithoutParentTraversal()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_StateApplier_" + Guid.NewGuid().ToString("N"));
@@ -516,7 +521,7 @@ public sealed class BmsLibraryCatalogRelocationTests
                 ChartFile movedFile = (ChartTestValues.Empty() with { Path = newChartPath });
                 movedFile = movedFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
                 movedFile = ChartFileProjection.WithMaintenance(movedFile, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { hash = movedFile.Md5, path = oldChartPath, lr2_warning_flags = (int)Lr2CompatibilityWarningFlags.None, lr2_resource_max_relative_cp932_bytes = 240, lr2_resource_has_parent_traversal = false }));
-                using (var songDb = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
                 {
                     songDb.RunInTransaction(() =>
                     {
@@ -544,7 +549,7 @@ public sealed class BmsLibraryCatalogRelocationTests
                 int flags = currentOwner.BmsRows.Single().ResourceHealthMaintenanceSnapshot.Lr2WarningFlags.GetValueOrDefault();
                 Assert.IsTrue((flags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
                 Assert.IsFalse(movedFile.ResourceHealthMaintenanceSnapshot.Lr2ResourceHasParentTraversal.GetValueOrDefault());
-                using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 int persistedFlags = verifySongDb.ExecuteScalar<int>("SELECT lr2_warning_flags FROM maintenance WHERE path = ?;", newChartPath);
                 Assert.IsTrue((persistedFlags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
             }
@@ -565,6 +570,7 @@ public sealed class BmsLibraryCatalogRelocationTests
     [TestMethod]
     public void ApplyCatalogRelocation_ReparsesLr2CompatibilityFactsWithParentTraversal()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_StateApplier_" + Guid.NewGuid().ToString("N"));
@@ -581,7 +587,7 @@ public sealed class BmsLibraryCatalogRelocationTests
                 ChartFile movedFile = (ChartTestValues.Empty() with { Path = newChartPath });
                 movedFile = movedFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
                 movedFile = ChartFileProjection.WithMaintenance(movedFile, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { hash = movedFile.Md5, path = oldChartPath, lr2_warning_flags = (int)Lr2CompatibilityWarningFlags.None, lr2_resource_max_relative_cp932_bytes = 1, lr2_resource_has_parent_traversal = true }));
-                using (var songDb = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
                 {
                     songDb.RunInTransaction(() =>
                     {
@@ -610,7 +616,7 @@ public sealed class BmsLibraryCatalogRelocationTests
                 Assert.IsTrue((flags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
                 Assert.IsTrue(movedFile.ResourceHealthMaintenanceSnapshot.Lr2ResourceHasParentTraversal.GetValueOrDefault());
                 Assert.IsTrue(currentOwner.BmsRows.Single().ResourceHealthMaintenanceSnapshot.Lr2ResourceMaxRelativeCp932Bytes > 1);
-                using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 int persistedFlags = verifySongDb.ExecuteScalar<int>("SELECT lr2_warning_flags FROM maintenance WHERE path = ?;", newChartPath);
                 Assert.IsTrue((persistedFlags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
             }

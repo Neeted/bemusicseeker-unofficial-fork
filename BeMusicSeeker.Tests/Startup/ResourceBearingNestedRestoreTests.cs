@@ -15,6 +15,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ResourceBearingNestedRestoreTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>実DBの親子重複を新libraryで一式へ揃え、健康度の未使用解放前に禁止と親行警告を再捕捉します。強制導入でも元bytes・存続保存行・所持を保ちます。</summary>
     [TestMethod]
     public async Task Initialize_ResourceBearingNestedChartsAreRestoredBeforePhysicalInstall()
@@ -31,7 +33,7 @@ public sealed class ResourceBearingNestedRestoreTests
         File.WriteAllBytes(Path.Combine(child, "child.png"), [3, 4]);
         Dictionary<string, byte[]> preserved = Directory.GetFiles(source, "*", SearchOption.AllDirectories).ToDictionary(path => path, File.ReadAllBytes);
         string songDb = Path.Combine(root, "song.db");
-        ExecuteSongDbFixtureTransaction(songDb, db =>
+        ExecuteSongDbFixtureTransaction(databaseScope, songDb, db =>
         {
             db.CreateTable<LR2SongDBExtended.install>();
             db.Insert(new LR2SongDBExtended.install { path = source, delete_parent = false });
@@ -41,7 +43,7 @@ public sealed class ResourceBearingNestedRestoreTests
         TestBmsLibrary? library = null;
         try
         {
-            library = new TestBmsLibrary(songDb, null, null, null, new RecordingDialogService(), new TestUiScheduler(() => null),
+            library = new TestBmsLibrary(databaseScope, songDb, null, null, null, new RecordingDialogService(), new TestUiScheduler(() => null),
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, ScanBmsFilesOnStartup = true, BMSInstallDir = libraryRoot },
                 CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(), [libraryRoot]),
                 settings: TestBmsFactory.CreateRootSettings([libraryRoot]))
@@ -60,7 +62,7 @@ public sealed class ResourceBearingNestedRestoreTests
             Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
             Assert.AreEqual(0, library.BmsCharts.Count);
             foreach ((string path, byte[] before) in preserved) { CollectionAssert.AreEqual(before, File.ReadAllBytes(path)); }
-            using LR2SongDBExtended db = new BmsLibraryDbGateway(songDb).OpenSongDbReadOnly();
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).OpenSongDbReadOnly();
             Assert.AreEqual(source, db.Table<LR2SongDBExtended.install>().Single().path);
             Assert.IsFalse(library.OperationAdmission.IsActive);
         }

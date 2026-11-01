@@ -681,7 +681,7 @@ internal sealed class BmsLibraryInitializationService
 
         var stopwatchSongMaterialize = Stopwatch.StartNew();
         List<LR2SongDB.song> loadedSongs;
-        if (UseRawSongCatalogLoader())
+        if (dbGateway.LoadOptions.UseRawSongCatalog)
         {
             loadedSongs = LoadSongCatalogRaw(songDb, result);
         }
@@ -816,12 +816,6 @@ internal sealed class BmsLibraryInitializationService
         return result;
     }
 
-    private static bool UseRawSongCatalogLoader()
-    {
-        string mode = Environment.GetEnvironmentVariable("BMS_SONG_TABLE_LOAD_MODE");
-        return !string.Equals(mode, "sqlite_net", StringComparison.OrdinalIgnoreCase);
-    }
-
     private static List<LR2SongDB.song> LoadSongCatalogRaw(LR2SongDBExtended songDb, SongTableLoadResult result)
     {
         List<LR2SongDB.song> loadedSongs = (result.SongTableCount > 0L && result.SongTableCount <= int.MaxValue)
@@ -887,7 +881,7 @@ internal sealed class BmsLibraryInitializationService
         var stopwatchMaintenanceMaterialize = Stopwatch.StartNew();
         if (result.MaintenanceTableCount > 0L)
         {
-            if (UseRawMaintenanceTableLoader())
+            if (dbGateway.LoadOptions.UseRawMaintenanceTable)
             {
                 LoadMaintenanceTableRaw(songDb, maintenanceInfos, result);
             }
@@ -918,12 +912,6 @@ internal sealed class BmsLibraryInitializationService
         totalStopwatch.Stop();
         result.TotalMs = totalStopwatch.ElapsedMilliseconds;
         return result;
-    }
-
-    private static bool UseRawMaintenanceTableLoader()
-    {
-        string mode = Environment.GetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE");
-        return !string.Equals(mode, "sqlite_net", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void LoadMaintenanceTableRaw(
@@ -1836,10 +1824,14 @@ internal sealed class BmsLibraryInitializationService
     public ScoreTableLoadResult LoadScoreTable(BmsLibraryDbGateway dbGateway, BmsLibraryOptionsSnapshot options = null)
     {
         ScoreTableLoadResult result = LoadCurrentScoreTable(dbGateway, options);
+        if (dbGateway == null)
+        {
+            return result;
+        }
         if (result.ActiveScoreSource == ActiveScoreSource.Beatoraja)
         {
             result.Lr2PlayHistorySchemaCheckResult = CheckLr2PlayHistorySchemaForScoreLoad(dbGateway, options);
-            BeatorajaPlayHistoryReadResult history = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+            BeatorajaPlayHistoryReadResult history = new BeatorajaPlayHistoryReader(dbGateway.DatabaseScope).Read(new BeatorajaPlayHistoryReadRequest
             {
                 ScoreDbPath = result.ScoreDbPath,
                 ScoresBySha256 = result.BeatorajaScoresBySha256,
@@ -1849,7 +1841,7 @@ internal sealed class BmsLibraryInitializationService
         }
         else
         {
-            Lr2PlayHistoryReadResult history = new Lr2PlayHistoryReader().Read(new Lr2PlayHistoryReadRequest
+            Lr2PlayHistoryReadResult history = new Lr2PlayHistoryReader(dbGateway.DatabaseScope).Read(new Lr2PlayHistoryReadRequest
             {
                 ScoreDbPath = result.ScoreDbPath,
                 IsLr2LinkedProfile = options?.OperationModeLR2DB ?? true,
@@ -1902,7 +1894,7 @@ internal sealed class BmsLibraryInitializationService
             }
             try
             {
-                var loader = new BeatorajaScoreDbLoader();
+                var loader = new BeatorajaScoreDbLoader(dbGateway.DatabaseScope);
                 foreach (KeyValuePair<string, BMSScore> score in loader.LoadModeZeroScores(options.BeatorajaScoreDbPath))
                 {
                     result.BeatorajaScoresBySha256[score.Key] = score.Value;

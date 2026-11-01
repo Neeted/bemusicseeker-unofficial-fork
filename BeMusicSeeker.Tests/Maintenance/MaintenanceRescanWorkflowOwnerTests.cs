@@ -15,6 +15,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class MaintenanceRescanWorkflowOwnerTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>
     /// 確認のCancelは拒否で終え、再走査executorを始めず、未承認の全件処理を検出する。
     /// </summary>
@@ -1083,11 +1085,11 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
         return root;
     }
 
-    private static BMSLibrary CreateLibrary(string root, string fileName)
+    private BMSLibrary CreateLibrary(string root, string fileName)
     {
         string path = Path.Combine(root, fileName);
         File.WriteAllBytes(path, []);
-        return new TestBmsLibrary(path, null, null, string.Empty);
+        return new TestBmsLibrary(databaseScope, path, null, null, string.Empty);
     }
 
     private static void DeleteRoot(string root)

@@ -19,6 +19,7 @@ internal sealed class MaintenanceMetadataSongFixture : IDisposable
     internal const string Artist = "作曲者 artist";
     internal const string Subartist = "編曲者 subartist";
     internal const string Genre = "ジャンル genre";
+    private readonly ApplicationDatabaseScope databaseScope;
     private readonly BmsLibraryDbGateway gateway;
     private readonly string songDbPath;
     private readonly Dictionary<string, string> before;
@@ -32,8 +33,14 @@ internal sealed class MaintenanceMetadataSongFixture : IDisposable
     private readonly string sha256;
 
     /// <summary>実ファイルの識別・固定mtimeと、全保存列の非既定値、UTF-8の確定状態を準備し、本番読込み・詳細hydrateを通します。ASCIIでもUTF-8保存値を使います。</summary>
-    internal MaintenanceMetadataSongFixture(string songDbPath, bool matchingMetadata = false, bool fixedEncoding = false, bool asciiMetadata = false)
+    /// <param name="databaseScope">対象ライブラリと共有する接続所有者。</param>
+    /// <param name="songDbPath">専用入力を保存するsong.db。</param>
+    /// <param name="matchingMetadata">現在値と保存値の生メタデータを揃えるか。</param>
+    /// <param name="fixedEncoding">保存済み文字コードを確定済みにするか。</param>
+    /// <param name="asciiMetadata">生メタデータをASCIIだけで構成するか。</param>
+    internal MaintenanceMetadataSongFixture(ApplicationDatabaseScope databaseScope, string songDbPath, bool matchingMetadata = false, bool fixedEncoding = false, bool asciiMetadata = false)
     {
+        this.databaseScope = databaseScope;
         this.songDbPath = songDbPath;
         title = asciiMetadata ? "ASCII title" : Title;
         subtitle = asciiMetadata ? "[subtitle]" : Subtitle;
@@ -47,10 +54,10 @@ internal sealed class MaintenanceMetadataSongFixture : IDisposable
         File.SetLastWriteTimeUtc(Path, new DateTime(2024, 2, 3, 4, 5, 6, DateTimeKind.Utc));
         File.WriteAllText(backgroundPath, "#TITLE background\n");
         ChartFile parsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(Path));
-        gateway = new BmsLibraryDbGateway(songDbPath);
+        gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
         gateway.EnsureChartInfoBackfillSchema();
         gateway.UpsertChartInfos([ChartInfoMetadataTestSupport.CreateChartInfoRow(parsed.Sha256, parsed.Md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
-        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, db =>
         {
             LR2SongDB.song row = CreateRow(Path, parsed.Md5);
             if (matchingMetadata)
@@ -66,7 +73,7 @@ internal sealed class MaintenanceMetadataSongFixture : IDisposable
             new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false }, null, new TestFileMutationService(), null, exception => exception.Message);
         MaintenanceTableHydrationResult maintenance = new BmsLibraryInitializationService().LoadMaintenanceTable(gateway,
             new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false });
-        Library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(),
+        Library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(),
             new FileDbReportRecordingDialogs(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
         {
@@ -143,7 +150,7 @@ internal sealed class MaintenanceMetadataSongFixture : IDisposable
 
     /// <summary>後続の資源だけの変更でsongを再保存すると、同値UPDATEでも実DBが失敗するようにします。</summary>
     internal void RejectSongUpdates()
-        => BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, db =>
+        => BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, db =>
             db.Execute("CREATE TRIGGER reject_metadata_song_update BEFORE UPDATE ON song BEGIN SELECT RAISE(ABORT, 'unexpected song update'); END;"));
 
     private static string Quote(string value) => "'" + value.Replace("'", "''") + "'";

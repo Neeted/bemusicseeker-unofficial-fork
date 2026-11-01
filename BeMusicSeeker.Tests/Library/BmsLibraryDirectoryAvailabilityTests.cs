@@ -35,7 +35,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
 
         const string hashA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         const string hashB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-        using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+        using (LR2SongDBExtended setup = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath))
         {
             SeedCatalogSentinels(setup, rootDirectoryB, chartPathA, chartPathB, hashA, hashB);
         }
@@ -51,7 +51,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
                 [rootDirectoryA] = []
             },
             [rootDirectoryA]);
-        var library = new TestBmsLibrary(
+        var library = new TestBmsLibrary(scope.DatabaseScope,
             scope.SongDbPath,
             getLR2Config: null,
             _lr2ScoreDB: null,
@@ -84,7 +84,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
             }
         }
 
-        using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
         LR2SongDB.song? preserved = verify.Table<LR2SongDB.song>().SingleOrDefault(row =>
             string.Equals(row?.path, chartPathB, StringComparison.OrdinalIgnoreCase));
         Assert.IsNotNull(preserved);
@@ -130,7 +130,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
 
         const string hashA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         const string hashB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(
+        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(scope.DatabaseScope,
             scope.SongDbPath,
             setup => SeedCatalogSentinels(setup, rootDirectoryB, chartPathA, chartPathB, hashA, hashB));
 
@@ -157,7 +157,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
             () => Directory.Move(rootDirectoryB, temporarilyUnavailableRoot),
             capturedScan);
         var dialogs = new BmsLibraryInitializationTestSupport.RecordingDialogService();
-        var library = new TestBmsLibrary(
+        var library = new TestBmsLibrary(scope.DatabaseScope,
             scope.SongDbPath,
             getLR2Config: null,
             _lr2ScoreDB: null,
@@ -199,7 +199,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
             }
         }
 
-        using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
         LR2SongDB.song? preserved = verify.Table<LR2SongDB.song>().SingleOrDefault(row =>
             string.Equals(row?.path, chartPathB, StringComparison.OrdinalIgnoreCase));
         Assert.IsNotNull(preserved);
@@ -246,7 +246,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
 
         const string hashA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         const string hashB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-        using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+        using (LR2SongDBExtended setup = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath))
         {
             SeedCatalogSentinels(setup, rootDirectoryB, chartPathA, chartPathB, hashA, hashB);
         }
@@ -262,7 +262,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
                 [rootDirectoryA] = []
             },
             [rootDirectoryA]);
-        var library = new TestBmsLibrary(
+        var library = new TestBmsLibrary(scope.DatabaseScope,
             scope.SongDbPath,
             getLR2Config: null,
             _lr2ScoreDB: null,
@@ -295,7 +295,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
             }
         }
 
-        using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
         Assert.IsNotNull(verify.Table<LR2SongDB.song>().SingleOrDefault(row =>
             string.Equals(row?.path, chartPathB, StringComparison.OrdinalIgnoreCase)));
         Assert.IsNotNull(verify.Table<LR2SongDBExtended.bmson_song>().SingleOrDefault(row =>
@@ -330,7 +330,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
 
         const string hashA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         const string hashB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-        using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+        using (LR2SongDBExtended setup = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath))
         {
             setup.CreateTable<LR2SongDB.song>();
             setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(((ChartTestValues.Empty() with { Path = chartPathA, AddDate = 1, Tag = "keep-a" })) with { Md5 = hashA, Favorite = 1 }), typeof(LR2SongDB.song));
@@ -349,7 +349,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
                 [rootDirectoryB] = []
             },
             [rootDirectoryA, rootDirectoryB]);
-        var library = new TestBmsLibrary(
+        var library = new TestBmsLibrary(scope.DatabaseScope,
             scope.SongDbPath,
             getLR2Config: null,
             _lr2ScoreDB: null,
@@ -382,7 +382,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
 
         library.ReloadFileDiff();
 
-        using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
         LR2SongDB.song? preserved = verify.Table<LR2SongDB.song>().SingleOrDefault(row =>
             string.Equals(row?.path, chartPathB, StringComparison.OrdinalIgnoreCase));
         Assert.IsNotNull(preserved);

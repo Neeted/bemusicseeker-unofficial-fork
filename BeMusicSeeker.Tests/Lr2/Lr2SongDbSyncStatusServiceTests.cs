@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -17,7 +18,7 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     public void Evaluate_ReturnsNotNeededWhenFeatureIsDisabled()
     {
         using var scope = TestDatabaseScope.Create();
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         DateTime now = new(2026, 6, 4, 1, 2, 3, DateTimeKind.Utc);
 
         Lr2SongDbSyncStatusSnapshot snapshot = Lr2SongDbSyncStatusService.Evaluate(
@@ -37,7 +38,7 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     public void Evaluate_ReturnsNeededWhenStatusRowIsMissing()
     {
         using var scope = TestDatabaseScope.Create();
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         DateTime now = new(2026, 6, 4, 1, 2, 3, DateTimeKind.Utc);
 
         Lr2SongDbSyncStatusSnapshot snapshot = Lr2SongDbSyncStatusService.Evaluate(
@@ -56,7 +57,7 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     public void Evaluate_ReusesLegacyCompletedWithoutChangingStoredRow()
     {
         using var scope = TestDatabaseScope.Create();
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         BmsLibraryDbGateway.EnsureAppOwnedSchema(songDb);
         DateTime now = new(2026, 6, 4, 1, 2, 3, DateTimeKind.Utc);
         const string legacySignature = "lr2_song_db_sync_v2|appSchema=1|chartInfoSchema=1|chartInfoParser=21|operationModeLR2DB=1";
@@ -99,7 +100,7 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     public void Evaluate_ReturnsNeededForRestartableTerminalStates()
     {
         using var scope = TestDatabaseScope.Create();
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         DateTime now = new(2026, 6, 4, 1, 2, 3, DateTimeKind.Utc);
 
         Lr2SongDbSyncStatusService.MarkFailed(songDb, "run1", processedCursor: 3, totalCount: 10, stage: "song", error: "failed", nowUtc: now);
@@ -135,7 +136,7 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     public void NonCompletedStatusAndRunningMarkAlwaysStartAtZero()
     {
         using var scope = TestDatabaseScope.Create();
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         DateTime now = new(2026, 6, 4, 1, 2, 3, DateTimeKind.Utc);
 
         Lr2SongDbSyncStatusService.MarkIncomplete(
@@ -177,7 +178,7 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     public void UpdateCursor_PersistsProgress()
     {
         using var scope = TestDatabaseScope.Create();
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         DateTime now = new(2026, 6, 4, 1, 2, 3, DateTimeKind.Utc);
 
         Lr2SongDbSyncStatusService.MarkRunning(songDb, "run1", totalCount: 100, stage: "song", nowUtc: now);
@@ -201,7 +202,7 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     public void MarkFailed_PreservesSameRunCursorWhenNoCursorIsProvided()
     {
         using var scope = TestDatabaseScope.Create();
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
         DateTime now = new(2026, 6, 4, 1, 2, 3, DateTimeKind.Utc);
 
         Lr2SongDbSyncStatusService.MarkRunning(songDb, "run1", totalCount: 100, stage: "song", nowUtc: now);
@@ -229,7 +230,7 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     public void EnsureAppOwnedSchema_CreatesStatusTable()
     {
         using var scope = TestDatabaseScope.Create();
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended songDb = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
 
         BmsLibraryDbGateway.EnsureAppOwnedSchema(songDb);
 
@@ -257,6 +258,9 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     private sealed class TestDatabaseScope : IDisposable
     {
         private readonly string directoryPath;
+
+        /// <summary>このfixtureの接続で共有するDBの所有者です。</summary>
+        internal ApplicationDatabaseScope DatabaseScope { get; } = new();
 
         public string SongDbPath { get; }
 

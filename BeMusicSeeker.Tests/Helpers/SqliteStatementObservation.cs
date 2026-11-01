@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Tests.Helpers;
@@ -33,41 +34,28 @@ internal sealed class SqliteStatementObservation : IDisposable
         traceCallback = Trace;
     }
 
-    /// <summary>
-    /// trace_v2を登録した実 song.db 接続を生成します。
-    /// </summary>
-    /// <param name="databasePath">観測対象の song.db パス。</param>
-    /// <returns>呼出し側がdisposeを所有する実接続。</returns>
-    internal LR2SongDBExtended OpenSongDb(string databasePath)
+    /// <summary>factoryが所有する実接続へtrace_v2を登録し、初期化失敗時のcloseをfactoryへ委ねます。</summary>
+    /// <param name="connection">同じfixtureのDB所有者が生成した観測対象接続。</param>
+    internal void Attach(LR2SongDBExtended connection)
     {
         if (disposed)
         {
             throw new ObjectDisposedException(nameof(SqliteStatementObservation));
         }
 
-        LR2SongDBExtended connection = new(databasePath);
         SQLitePCL.sqlite3 handle = connection.Handle;
-        try
+        int result = sqlite3_trace_v2(
+            handle.DangerousGetHandle(),
+            SqliteTraceStatement | SqliteTraceProfile | SqliteTraceRow,
+            traceCallback,
+            IntPtr.Zero);
+        if (result != 0)
         {
-            int result = sqlite3_trace_v2(
-                handle.DangerousGetHandle(),
-                SqliteTraceStatement | SqliteTraceProfile | SqliteTraceRow,
-                traceCallback,
-                IntPtr.Zero);
-            if (result != 0)
-            {
-                throw new InvalidOperationException("sqlite3_trace_v2 の登録に失敗しました: " + result);
-            }
-            lock (syncRoot)
-            {
-                handles.Add(handle);
-            }
-            return connection;
+            throw new InvalidOperationException("sqlite3_trace_v2 の登録に失敗しました: " + result);
         }
-        catch
+        lock (syncRoot)
         {
-            connection.Dispose();
-            throw;
+            handles.Add(handle);
         }
     }
 
@@ -127,11 +115,11 @@ internal sealed class SqliteStatementObservation : IDisposable
     /// <summary>
     /// 観測した対象表SQLを同じDBの実接続でquery planへ通し、背景表のscanを確認できるようにします。
     /// </summary>
-    internal IReadOnlyList<string> ExplainCatalogQueryPlans(string databasePath)
+    internal IReadOnlyList<string> ExplainCatalogQueryPlans(ApplicationDatabaseScope databaseScope, string databasePath)
     {
         ThrowIfCallbackFailed();
         IReadOnlyList<SqliteObservedStatement> observed = Statements;
-        using var connection = new LR2SongDBExtended(databasePath);
+        using LR2SongDBExtended connection = databaseScope.OpenSongWrite(databasePath);
         foreach (SqliteObservedStatement statement in observed.Where(statement => IsTempTableCreate(statement.Sql)))
         {
             connection.Execute(statement.Sql);

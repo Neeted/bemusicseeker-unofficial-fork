@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -11,13 +12,16 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2PlayHistorySchemaServiceTests
 {
+    /// <summary>このケースのモデルと接続で共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>
     /// 非LR2連携ではnullパスでも検査対象外を返し、DBを開こうとして読取り失敗へ変えない。
     /// </summary>
     [TestMethod]
     public void Check_WhenProfileIsNotLr2Linked_SkipsWithoutOpeningDb()
     {
-        var service = new Lr2PlayHistorySchemaService();
+        var service = new Lr2PlayHistorySchemaService(databaseScope);
 
         Lr2PlayHistorySchemaCheckResult result = service.Check(null, isLr2LinkedProfile: false);
 
@@ -34,12 +38,12 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateBaseScoreDb(scoreDbPath);
-            var service = new Lr2PlayHistorySchemaService();
+            var service = new Lr2PlayHistorySchemaService(databaseScope);
 
             Lr2PlayHistorySchemaCheckResult result = service.Check(scoreDbPath, isLr2LinkedProfile: true);
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, result.Status);
-            using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
+            using SQLiteConnectionEx verify = databaseScope.OpenProviderConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(0, CountPlayHistoryObjects(verify));
         });
     }
@@ -54,14 +58,14 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateBaseScoreDb(scoreDbPath);
-            var service = new Lr2PlayHistorySchemaService();
+            var service = new Lr2PlayHistorySchemaService(databaseScope);
 
             Lr2PlayHistorySchemaCheckResult first = service.InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
             Lr2PlayHistorySchemaCheckResult second = service.InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, first.Status);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, second.Status);
-            using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
+            using SQLiteConnectionEx verify = databaseScope.OpenProviderConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             AssertObjectExists(verify, "table", Lr2PlayHistorySchemaService.LastPlayTableName);
             AssertObjectExists(verify, "table", Lr2PlayHistorySchemaService.PlayHistoryTableName);
             AssertObjectExists(verify, "table", Lr2PlayHistorySchemaService.PlayPendingTableName);
@@ -84,10 +88,10 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateBaseScoreDb(scoreDbPath);
-            var service = new Lr2PlayHistorySchemaService();
+            var service = new Lr2PlayHistorySchemaService(databaseScope);
             service.InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
 
-            using var db = new SQLiteConnection(scoreDbPath);
+            using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath);
             InsertPlayer(db);
             InsertScore(db, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", playcount: 1, clear: 3, perfect: 100, great: 50);
             db.Execute(
@@ -119,16 +123,16 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateBaseScoreDb(scoreDbPath);
-            using (var seed = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx seed = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertPlayer(seed, playcount: 1, perfect: 100, great: 50, good: 10, bad: 5, poor: 2, playtime: 90, maxcombo: 120);
                 InsertScore(seed, "cccccccccccccccccccccccccccccccc", playcount: 1, clear: 3, perfect: 100, great: 50);
             }
 
-            var service = new Lr2PlayHistorySchemaService();
+            var service = new Lr2PlayHistorySchemaService(databaseScope);
             service.InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
 
-            using var db = new SQLiteConnection(scoreDbPath);
+            using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath);
             db.Execute(
                 "UPDATE score SET playcount = ?, clear = ?, perfect = ?, great = ?, good = ?, bad = ?, poor = ?, maxcombo = ?, minbp = ?, clearcount = ?, failcount = ?, scorehash = ? WHERE hash = ?;",
                 2, 5, 120, 60, 12, 4, 1, 140, 4, 2, 0, "scorehash2", "cccccccccccccccccccccccccccccccc");
@@ -159,10 +163,10 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateBaseScoreDb(scoreDbPath);
-            var service = new Lr2PlayHistorySchemaService();
+            var service = new Lr2PlayHistorySchemaService(databaseScope);
             service.InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
 
-            using var db = new SQLiteConnection(scoreDbPath);
+            using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath);
             InsertPlayer(db);
             InsertScore(db, "dddddddddddddddddddddddddddddddd", playcount: 1, clear: 3, perfect: 100, great: 50);
             db.Execute("UPDATE bms_lr2_play_pending SET created_at = created_at - 11;");
@@ -186,15 +190,15 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateBaseScoreDb(scoreDbPath);
-            using (var seed = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx seed = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 InsertScore(seed, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", playcount: 1, clear: 3, perfect: 100, great: 50);
             }
 
-            var service = new Lr2PlayHistorySchemaService();
+            var service = new Lr2PlayHistorySchemaService(databaseScope);
             service.InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
 
-            using var db = new SQLiteConnection(scoreDbPath);
+            using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath);
             db.Execute("UPDATE score SET ghost = ? WHERE hash = ?;", new byte[] { 1, 2, 3 }, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
 
             Assert.AreEqual(0, db.ExecuteScalar<int>("SELECT COUNT(1) FROM bms_lr2_play_history;"));
@@ -211,11 +215,11 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateBaseScoreDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 db.Execute("CREATE TABLE bms_lr2_last_play (hash TEXT PRIMARY KEY);");
             }
-            var service = new Lr2PlayHistorySchemaService();
+            var service = new Lr2PlayHistorySchemaService(databaseScope);
 
             Lr2PlayHistorySchemaCheckResult result = service.Check(scoreDbPath, isLr2LinkedProfile: true);
 
@@ -234,11 +238,11 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateBaseScoreDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 db.Execute("CREATE TABLE bms_lr2_last_play (hash TEXT, last_play_at INTEGER NOT NULL);");
             }
-            var service = new Lr2PlayHistorySchemaService();
+            var service = new Lr2PlayHistorySchemaService(databaseScope);
 
             Lr2PlayHistorySchemaCheckResult result = service.Check(scoreDbPath, isLr2LinkedProfile: true);
 
@@ -256,12 +260,12 @@ public sealed class Lr2PlayHistorySchemaServiceTests
     {
         WithScoreDb(delegate (string scoreDbPath)
         {
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 db.Execute("CREATE TABLE score (hash TEXT PRIMARY KEY);");
                 db.CreateTable<LR2ScoreDB.player>();
             }
-            var service = new Lr2PlayHistorySchemaService();
+            var service = new Lr2PlayHistorySchemaService(databaseScope);
 
             Lr2PlayHistorySchemaCheckResult result = service.Check(scoreDbPath, isLr2LinkedProfile: true);
 
@@ -279,11 +283,11 @@ public sealed class Lr2PlayHistorySchemaServiceTests
     {
         WithScoreDb(delegate (string scoreDbPath)
         {
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 db.CreateTable<LR2ScoreDB.player>();
             }
-            var service = new Lr2PlayHistorySchemaService();
+            var service = new Lr2PlayHistorySchemaService(databaseScope);
 
             Lr2PlayHistorySchemaCheckResult check = service.Check(scoreDbPath, isLr2LinkedProfile: true);
             Lr2PlayHistorySchemaCheckResult install = service.InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
@@ -291,7 +295,7 @@ public sealed class Lr2PlayHistorySchemaServiceTests
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.ManualRepairRequired, check.Status);
             CollectionAssert.Contains(check.MissingBaseTables, "score");
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.ManualRepairRequired, install.Status);
-            using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
+            using SQLiteConnectionEx verify = databaseScope.OpenProviderConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(0, CountPlayHistoryObjects(verify));
         });
     }
@@ -306,11 +310,11 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateBaseScoreDb(scoreDbPath);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 db.Execute("CREATE VIEW bms_lr2_last_play AS SELECT '' AS hash, 0 AS last_play_at;");
             }
-            var service = new Lr2PlayHistorySchemaService();
+            var service = new Lr2PlayHistorySchemaService(databaseScope);
 
             Lr2PlayHistorySchemaCheckResult result = service.Check(scoreDbPath, isLr2LinkedProfile: true);
 
@@ -327,7 +331,7 @@ public sealed class Lr2PlayHistorySchemaServiceTests
     {
         WithScoreDb(delegate (string scoreDbPath)
         {
-            var service = new Lr2PlayHistorySchemaService();
+            var service = new Lr2PlayHistorySchemaService(databaseScope);
 
             Lr2PlayHistorySchemaCheckResult result = service.Check(scoreDbPath, isLr2LinkedProfile: true);
 
@@ -341,7 +345,7 @@ public sealed class Lr2PlayHistorySchemaServiceTests
     [TestMethod]
     public void InstallOrRepair_WhenProfileIsNotLr2Linked_SkipsWithoutOpeningDb()
     {
-        var service = new Lr2PlayHistorySchemaService();
+        var service = new Lr2PlayHistorySchemaService(databaseScope);
 
         Lr2PlayHistorySchemaCheckResult result = service.InstallOrRepair(null, isLr2LinkedProfile: false);
 
@@ -358,9 +362,9 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateBaseScoreDb(scoreDbPath);
-            var service = new Lr2PlayHistorySchemaService();
+            var service = new Lr2PlayHistorySchemaService(databaseScope);
             service.InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 db.Execute("DROP INDEX " + Lr2PlayHistorySchemaService.TimeIndexName + ";");
                 db.Execute("DROP TRIGGER " + Lr2PlayHistorySchemaService.ScoreInsertTriggerName + ";");
@@ -386,9 +390,9 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateBaseScoreDb(scoreDbPath);
-            var service = new Lr2PlayHistorySchemaService();
+            var service = new Lr2PlayHistorySchemaService(databaseScope);
             service.InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 db.Execute("INSERT INTO bms_lr2_play_history (hash, played_at, score_write_type, new_playcount, playcount_delta) VALUES (?, ?, ?, ?, ?);",
                     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 100, "insert", 1, 1);
@@ -405,7 +409,7 @@ public sealed class Lr2PlayHistorySchemaServiceTests
             CollectionAssert.Contains(before.MismatchedIndexes, Lr2PlayHistorySchemaService.TimeIndexName);
             CollectionAssert.Contains(before.MismatchedTriggers, Lr2PlayHistorySchemaService.ScoreInsertTriggerName);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, after.Status);
-            using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
+            using SQLiteConnectionEx verify = databaseScope.OpenProviderConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM bms_lr2_play_history WHERE hash = ?;", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
         });
     }
@@ -420,9 +424,9 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateBaseScoreDb(scoreDbPath);
-            var service = new Lr2PlayHistorySchemaService();
+            var service = new Lr2PlayHistorySchemaService(databaseScope);
             service.InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
-            using (var db = new SQLiteConnection(scoreDbPath))
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath))
             {
                 db.Execute("INSERT INTO bms_lr2_play_history (hash, played_at, score_write_type, new_playcount, playcount_delta) VALUES (?, ?, ?, ?, ?);",
                     "ffffffffffffffffffffffffffffffff", 100, "insert", 1, 1);
@@ -438,7 +442,7 @@ public sealed class Lr2PlayHistorySchemaServiceTests
             CollectionAssert.Contains(result.MissingTriggers, Lr2PlayHistorySchemaService.ScoreUpdateTriggerName);
             CollectionAssert.Contains(result.MissingTriggers, Lr2PlayHistorySchemaService.PlayerUpdateTriggerName);
             CollectionAssert.Contains(result.MissingTriggers, Lr2PlayHistorySchemaService.PlayerCleanupTriggerName);
-            using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
+            using SQLiteConnectionEx verify = databaseScope.OpenProviderConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             AssertObjectExists(verify, "table", Lr2PlayHistorySchemaService.LastPlayTableName);
             AssertObjectExists(verify, "table", Lr2PlayHistorySchemaService.PlayHistoryTableName);
             AssertObjectExists(verify, "table", Lr2PlayHistorySchemaService.PlayPendingTableName);
@@ -459,7 +463,7 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         WithScoreDb(delegate (string scoreDbPath)
         {
             CreateBaseScoreDb(scoreDbPath);
-            var service = new Lr2PlayHistorySchemaService();
+            var service = new Lr2PlayHistorySchemaService(databaseScope);
             service.InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
 
             Lr2PlayHistorySchemaCheckResult result = service.Uninstall(
@@ -468,7 +472,7 @@ public sealed class Lr2PlayHistorySchemaServiceTests
                 Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers);
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, result.Status);
-            using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
+            using SQLiteConnectionEx verify = databaseScope.OpenProviderConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(0, CountPlayHistoryObjects(verify));
             AssertObjectExists(verify, "table", "score");
             AssertObjectExists(verify, "table", "player");
@@ -507,9 +511,9 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         }
     }
 
-    private static void CreateBaseScoreDb(string scoreDbPath)
+    private void CreateBaseScoreDb(string scoreDbPath)
     {
-        using var db = new SQLiteConnection(scoreDbPath);
+        using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(scoreDbPath);
         db.RunInTransaction(() =>
         {
             db.CreateTable<LR2ScoreDB.score>();

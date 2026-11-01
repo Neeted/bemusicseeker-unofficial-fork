@@ -16,11 +16,14 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistLampHistoricalScoreSnapshotTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>復元consumerへ渡す取得済み入力を、通常成績と同じ実モデル取得で準備します。UI接続の代替ではありません。</summary>
-    private static PlaylistLampHistoricalScoreSourceContext AcquireLr2HistoryContext(string scoreDbPath)
+    /// <param name="databaseScope">呼出し元と接続・書込み排他を共有するfixtureのDB所有者。</param>
+    private static PlaylistLampHistoricalScoreSourceContext AcquireLr2HistoryContext(ApplicationDatabaseScope databaseScope, string scoreDbPath)
     {
         ScoreTableLoadResult acquired = new BmsLibraryInitializationService().LoadScoreTable(
-            new BmsLibraryDbGateway(Path.Combine(Path.GetDirectoryName(scoreDbPath) ?? string.Empty, "song.db"), scoreDbPath), new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true });
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(Path.GetDirectoryName(scoreDbPath) ?? string.Empty, "song.db"), scoreDbPath), new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true });
         return PlaylistLampHistoricalScoreSourceContext.FromSnapshot(new BMSLibrary.ScoreSnapshot
         {
             ActiveScoreSource = acquired.ActiveScoreSource,
@@ -72,7 +75,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         {
             CreateLr2ScoreDb(scoreDbPath);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed,
-                new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true).Status);
+                new Lr2PlayHistorySchemaService(databaseScope).InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true).Status);
             const string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             long boundary = DateTimeOffset.Parse("2024-06-01T12:00:00Z", CultureInfo.InvariantCulture).ToUnixTimeSeconds();
             using (SQLiteConnection db = new(scoreDbPath))
@@ -89,7 +92,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             TimeZoneInfo zone = LocalDateBoundaryTestTimeZones.Create(4);
             var reader = new PlaylistLampHistoricalScoreSnapshotReader();
             PlaylistLampScoreSnapshot current = CurrentLr2(hash, ClearType.CLEAR, 180, 100);
-            PlaylistLampHistoricalScoreSourceContext context = AcquireLr2HistoryContext(scoreDbPath);
+            PlaylistLampHistoricalScoreSourceContext context = AcquireLr2HistoryContext(databaseScope, scoreDbPath);
 
             // 5/31の翌日6/1は丸日欠落し、6/1の翌日6/2と同じ境界になる。
             foreach (DateTime selected in new[] { new DateTime(2024, 5, 31), new DateTime(2024, 6, 1) })
@@ -343,7 +346,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             CreateLr2ScoreDb(scoreDbPath);
             Assert.AreEqual(
                 Lr2PlayHistorySchemaStatus.Installed,
-                new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true).Status);
+                new Lr2PlayHistorySchemaService(databaseScope).InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true).Status);
             using (SQLiteConnection db = new(scoreDbPath))
             {
                 db.Execute(
@@ -365,7 +368,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             }
             byte[] before = File.ReadAllBytes(scoreDbPath);
 
-            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader().Read(new Lr2PlayHistoryReadRequest
+            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader(databaseScope).Read(new Lr2PlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath,
                 IsLr2LinkedProfile = true,
@@ -424,7 +427,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             byte[] scoreBefore = File.ReadAllBytes(scoreDbPath);
             byte[]? scoreLogBefore = File.Exists(scoreLogDbPath) ? File.ReadAllBytes(scoreLogDbPath) : null;
             ScoreTableLoadResult acquired = new BmsLibraryInitializationService().LoadScoreTable(
-                new BmsLibraryDbGateway(Path.Combine(directory, "song.db"), scoreDbPath),
+                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(directory, "song.db"), scoreDbPath),
                 new BmsLibraryOptionsSnapshot { UseBeatorajaScoreDb = true, BeatorajaScoreDbPath = scoreDbPath });
             Assert.AreEqual(ScoreTableLoadStatus.Loaded, acquired.Status);
             Assert.AreEqual(2, acquired.BeatorajaScoresBySha256.Count);
@@ -613,7 +616,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             CreateLr2ScoreDb(scoreDbPath);
             Assert.AreEqual(
                 Lr2PlayHistorySchemaStatus.Installed,
-                new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true).Status);
+                new Lr2PlayHistorySchemaService(databaseScope).InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true).Status);
             DateTime selectedDate = new(2026, 8, 28);
             long playedAt = Change(
                 ActiveScoreSource.Lr2,
@@ -637,7 +640,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             }
             byte[] before = File.ReadAllBytes(scoreDbPath);
 
-            PlaylistLampHistoricalScoreSourceContext captured = AcquireLr2HistoryContext(scoreDbPath);
+            PlaylistLampHistoricalScoreSourceContext captured = AcquireLr2HistoryContext(databaseScope, scoreDbPath);
             Lr2PlayHistoryReadResult ordinary = Lr2PlayHistoryReader.ForPurpose(captured.PlayHistorySnapshot.Lr2, false, false);
             Assert.IsFalse(ordinary.HasErrors, "通常履歴はトリガー不備を警告として保持します。");
             Assert.AreEqual(1, ordinary.Rows.Count);
@@ -668,7 +671,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             CreateLr2ScoreDb(scoreDbPath);
             Assert.AreEqual(
                 Lr2PlayHistorySchemaStatus.Installed,
-                new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true).Status);
+                new Lr2PlayHistorySchemaService(databaseScope).InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true).Status);
             DateTime selectedDate = new(2026, 8, 28);
             long firstPlayedAt = Change(
                 ActiveScoreSource.Lr2,
@@ -696,7 +699,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             }
             byte[] before = File.ReadAllBytes(scoreDbPath);
 
-            PlaylistLampHistoricalScoreSourceContext captured = AcquireLr2HistoryContext(scoreDbPath);
+            PlaylistLampHistoricalScoreSourceContext captured = AcquireLr2HistoryContext(databaseScope, scoreDbPath);
             Lr2PlayHistoryReadResult ordinary = Lr2PlayHistoryReader.ForPurpose(captured.PlayHistorySnapshot.Lr2, false, false);
             Assert.IsTrue(ordinary.HasErrors, "通常履歴は索引不備で停止し、ランプだけが同じrawを利用します。");
             Assert.AreEqual(0, ordinary.Rows.Count);

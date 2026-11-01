@@ -59,7 +59,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
             Assert.IsTrue(target.Resources.Any(reference => reference.IsUsed && reference.Kind == ChartResourceKind.Audio));
             Assert.IsTrue(bmson.Resources.Any(reference => reference.IsUsed && reference.Kind == ChartResourceKind.Audio));
             ChartFile background = ReadBms(root, "background", "#TITLE Background\n");
-            new BmsLibraryDbGateway(path).UpsertSongs([target, sameHash, .. siblings, background, bmson, bmsonSibling]);
+            new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), path).UpsertSongs([target, sameHash, .. siblings, background, bmson, bmsonSibling]);
             fixture.Library.BmsCharts = [target, sameHash, .. siblings, background];
             fixture.Library.BmsonCharts = [bmson, bmsonSibling];
             fixture.Library.SearchDuplicateChartGroups();
@@ -129,7 +129,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
             Assert.AreEqual("Zulu old", oldSnapshot.Rows.Single(row => row.Path == target.Path).Chart.Title);
             Assert.AreSame(group, fixture.Library.DuplicateChartGroups.Single(), "共通値だけの変更で重複全解析を起動しません。");
             Assert.AreEqual(header, group.Header);
-            using (LR2SongDBExtended saved = new BmsLibraryDbGateway(path).OpenSongDbReadOnly())
+            using (LR2SongDBExtended saved = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), path).OpenSongDbReadOnly())
             {
                 Assert.AreEqual("Alpha 日本語 title", saved.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", target.Path));
                 Assert.AreEqual("新作者 artist", saved.ExecuteScalar<string>("SELECT artist FROM song WHERE path = ?;", target.Path));

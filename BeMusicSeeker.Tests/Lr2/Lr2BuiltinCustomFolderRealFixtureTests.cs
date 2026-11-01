@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -14,6 +15,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2BuiltinCustomFolderRealFixtureTests
 {
+    /// <summary>このケースのモデルと接続で共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     private static readonly DateTime GeneratedAtUtc = new(2026, 6, 12, 0, 0, 0, DateTimeKind.Utc);
 
     /// <summary>
@@ -96,7 +100,7 @@ public sealed class Lr2BuiltinCustomFolderRealFixtureTests
                 scope.CreateRequest(folderInfoFiles, directories));
 
         string songDbPath = Path.Combine(scope.TempDirectory, "song.db");
-        using var songDb = new LR2SongDBExtended(songDbPath);
+        using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
         songDb.CreateTable<LR2SongDB.folder>();
 
         Lr2FolderFileDbSyncResult syncResult = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest

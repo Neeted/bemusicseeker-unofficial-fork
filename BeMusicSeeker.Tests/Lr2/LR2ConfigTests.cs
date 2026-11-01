@@ -20,6 +20,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class LR2ConfigTests
 {
+    /// <summary>このケースのモデルと接続で共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>実在に依存しない登録計画で、root-relative・drive-relative・通常相対をLR2 root基準で解決し、要求・保存本文・raw読取りの基準を揃えます。</summary>
     [TestMethod]
     [DataRow(@"\Songs", @"D:\Songs")]
@@ -800,7 +803,7 @@ public sealed class LR2ConfigTests
             ChartFile parsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chart));
             string songDbPath = Path.Combine(root, "LR2files", "Database", "song.db");
             Directory.CreateDirectory(Path.GetDirectoryName(songDbPath) ?? throw new AssertFailedException());
-            using (var db = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
             {
                 db.RunInTransaction(() =>
                 {
@@ -821,7 +824,7 @@ public sealed class LR2ConfigTests
             var owner = new Lr2ConfigOwner(new LR2Config(configPath));
             StartupLibraryConstructionOwner.RepairCustomFolderSearchRoots(StartupSettingsSnapshot.CreateCurrent(settings), owner);
             var service = new BmsLibraryInitializationService();
-            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             BmsLibraryOptionsSnapshot options = BmsLibraryOptionsSnapshot.CreateCurrent(settings).WithLr2Input(owner.Capture());
             SongTableLoadResult loaded = service.LoadSongTable(gateway, options, null, new TestFileMutationService(), null, failure => failure.Message);
             IReadOnlyList<ChartFile> current = loaded.LoadedFiles;
@@ -834,7 +837,7 @@ public sealed class LR2ConfigTests
                     includeTextSurface: true, includeDirectorySurface: true);
                 SongTableFileCheckResult diff = service.ApplyFileScanDiff(gateway, new EverythingNative(ApplicationPathPolicy.Current), options,
                     current, scan, 0, null, null, currentBmsonSongs: [], lr2NormalFolderSyncRootDirectories: [songs],
-                    folderTableSnapshot: CaptureNormalFolderSnapshot(songDbPath));
+                    folderTableSnapshot: CaptureNormalFolderSnapshot(databaseScope, songDbPath));
                 current = diff.NextFiles;
                 Assert.IsFalse(diff.Lr2NormalFolderSyncFailed);
                 if (cycle == 1) { Assert.AreEqual(0, diff.Lr2NormalFolderUpsertedCount + diff.Lr2NormalFolderDeletedCount); }

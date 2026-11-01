@@ -16,8 +16,9 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [TestMethod]
     public async Task AutomaticContinuation_ReimportedPendingFixedEncodingReachesInstalledDatabase()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         const string known = "#TITLE 中文\r\n#ARTIST artist\r\n#BPM 120\r\n#WAV01 tone.wav\r\n#00111:01\r\n";
-        await using var fixture = new AutomaticContinuationFixture(false, false,
+        await using var fixture = new AutomaticContinuationFixture(databaseScope, false, false,
             destinationSounds: ["tone.wav"], installedChartBodies: [known]);
         File.WriteAllText(Path.Combine(fixture.Destination, "owned-0000.bms"), known, new UTF8Encoding(true));
         string source = Path.Combine(fixture.Root, "Incoming");
@@ -37,7 +38,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Assert.IsFalse(fixture.Library.BmsCharts.Any(chart => chart.Path == companionPath));
         Assert.IsFalse(fixture.Library.ChartPackagesInstalled.SelectMany(package => package.ChartEntries)
             .Any(entry => entry.Chart.Path == companionPath));
-        using (LR2SongDBExtended firstReadback = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly())
+        using (LR2SongDBExtended firstReadback = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly())
         {
             Assert.AreEqual(path, firstReadback.Table<LR2SongDBExtended.install>().Single().path);
             Assert.IsNull(firstReadback.Find<LR2SongDB.song>(companionPath));
@@ -64,7 +65,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         InstallEncodingTestInput.AssertFixed(fixture.Library.BmsCharts.Single(chart => chart.Path == installedPath), installedPath);
         CollectionAssert.AreEqual(InstallEncodingTestInput.Bytes, File.ReadAllBytes(installedPath));
         Assert.AreEqual(100, installed.Chart.WAVHealth);
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly();
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly();
         Assert.AreEqual("中文", db.Find<LR2SongDB.song>(installedPath).title);
         Assert.AreEqual(InstallEncodingTestInput.Md5, db.Find<LR2SongDB.song>(installedPath).hash);
         LR2SongDBExtended.maintenance saved = db.Find<LR2SongDBExtended.maintenance>(installedPath);

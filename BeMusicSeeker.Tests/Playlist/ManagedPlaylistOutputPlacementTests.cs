@@ -17,6 +17,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ManagedPlaylistOutputPlacementTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>同一・包含は方向や表記差によらず拒否し、接頭辞が似る兄弟・別基点は許可します。条件網羅は副作用を持たない共通判定へ集約します。</summary>
     [TestMethod]
     [DataRow(@"C:\Output\Parent", @"C:\Output\Parent\Child", false)]
@@ -61,9 +63,9 @@ public sealed class ManagedPlaylistOutputPlacementTests
                 Output_dir = edit is "base" or "root" ? "Parent" : "Other",
                 custom_folder_output_base_name = edit == "base" ? "Extra" : null
             };
-            string songDb = CreateTempSongDbPath(root);
-            PlaylistPersistenceRepository.EnsureSchema(songDb);
-            var playlist = new TestBmsPlaylist(songDb, settings: settings)
+            string songDb = CreateTempSongDbPath(databaseScope, root);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDb);
+            var playlist = new TestBmsPlaylist(databaseScope, songDb, settings: settings)
             { BMSTables = new ObservableCollection<BMSTable>(edit == "draft" ? [first] : [first, edited]) };
             playlist.CommitBMSTableHeadersToDB(playlist.BMSTables);
             var service = new PlaylistPropertySaveService(() => playlist, () => null!, () => null!,
@@ -84,7 +86,7 @@ public sealed class ManagedPlaylistOutputPlacementTests
             Assert.AreEqual("Other", edited.name);
             Assert.AreEqual(edit == "base" ? "Extra" : null, edited.custom_folder_output_base_name);
             Assert.IsFalse(edited.is_root_folder);
-            using LR2SongDBExtended reader = new BmsLibraryDbGateway(songDb).OpenSongDbReadOnly();
+            using LR2SongDBExtended reader = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).OpenSongDbReadOnly();
             Assert.AreEqual(edit == "draft" ? 1 : 2, reader.Table<BMSTable>().Count());
             if (edit != "draft") { Assert.AreEqual(edited.name, reader.Table<BMSTable>().Single(table => table.playlist_id == 802).name); }
             Assert.IsFalse(Directory.Exists(settings.LR2CustomFolderOutputBaseDir));
@@ -111,14 +113,14 @@ public sealed class ManagedPlaylistOutputPlacementTests
                 values.LR2CustomFolderOutputBaseDirRootType = Path.Combine(root, "Root");
                 values.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([Path.Combine(root, "Extra")]);
             });
-            string songDb = CreateTempSongDbPath(root);
-            PlaylistPersistenceRepository.EnsureSchema(songDb);
+            string songDb = CreateTempSongDbPath(databaseScope, root);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDb);
             var first = new BMSTable { playlist_id = 811, name = "Parent" };
             var second = new BMSTable { playlist_id = 812, name = "Child", Output_dir = "Parent", custom_folder_output_base_name = "Extra" };
-            var playlist = new TestBmsPlaylist(songDb, settings: settings)
+            var playlist = new TestBmsPlaylist(databaseScope, songDb, settings: settings)
             { BMSTables = new ObservableCollection<BMSTable>([first, second]) };
             playlist.CommitBMSTableHeadersToDB(playlist.BMSTables);
-            var library = new TestBmsLibrary(songDb, settings: settings);
+            var library = new TestBmsLibrary(databaseScope, songDb, settings: settings);
             using PlaylistWorkspaceViewModel workspace = CreatePlaylistWorkspace(playlist, library, () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings));
             int notices = 0;
             first.PropertyChanged += (_, _) => notices++;
@@ -130,7 +132,7 @@ public sealed class ManagedPlaylistOutputPlacementTests
             Assert.IsFalse(first.is_root_folder);
             Assert.IsFalse(second.is_root_folder);
             Assert.AreEqual("Extra", second.custom_folder_output_base_name);
-            using LR2SongDBExtended reader = new BmsLibraryDbGateway(songDb).OpenSongDbReadOnly();
+            using LR2SongDBExtended reader = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).OpenSongDbReadOnly();
             Assert.AreEqual("Extra", reader.Table<BMSTable>().Single(table => table.playlist_id == 812).custom_folder_output_base_name);
             Assert.IsFalse(Directory.Exists(settings.LR2CustomFolderOutputBaseDirRootType));
         }

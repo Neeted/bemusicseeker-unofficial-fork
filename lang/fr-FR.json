@@ -1389,5 +1389,6 @@
   "ChartPropertiesCountedUnfulfilled": "Compté comme une ressource requise non satisfaite",
   "ChartPropertiesNotCounted": "Exclu des ressources requises",
   "ChartPropertiesCp932AlternativeInterpretation": "Autre interprétation pour LR2 (CP932 ; peut figurer avec l’interprétation normale)",
-  "Validation_Lr2BuiltinCustomFolderReservedFormat": "{0} ne peut pas utiliser un emplacement réservé aux dossiers personnalisés intégrés de LR2.\nEmplacement choisi : {1}\nDossier intégré : {2}"
+  "Validation_Lr2BuiltinCustomFolderReservedFormat": "{0} ne peut pas utiliser un emplacement réservé aux dossiers personnalisés intégrés de LR2.\nEmplacement choisi : {1}\nDossier intégré : {2}",
+  "DatabaseConnectionCloseFailed": "Une erreur est survenue lors de la fermeture des connexions à la base de données."
 }

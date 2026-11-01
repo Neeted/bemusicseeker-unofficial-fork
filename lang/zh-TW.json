@@ -1389,5 +1389,6 @@
   "ChartPropertiesCountedUnfulfilled": "個別計為未滿足的資源需求",
   "ChartPropertiesNotCounted": "不計入資源需求數",
   "ChartPropertiesCp932AlternativeInterpretation": "LR2 的另一種解讀（CP932，可能與一般解讀同時顯示）",
-  "Validation_Lr2BuiltinCustomFolderReservedFormat": "{0}不能使用 LR2 內建自訂資料夾的保留區域。\n指定位置: {1}\n內建資料夾: {2}"
+  "Validation_Lr2BuiltinCustomFolderReservedFormat": "{0}不能使用 LR2 內建自訂資料夾的保留區域。\n指定位置: {1}\n內建資料夾: {2}",
+  "DatabaseConnectionCloseFailed": "關閉資料庫連線時發生錯誤。"
 }

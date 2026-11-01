@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
@@ -17,12 +18,13 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
     [DataRow(true)]
     public async Task Uninstall_WaitsForActualIrAndAdmissionBeforeDroppingSchema(bool waitingForAdmission)
     {
-        await using var fixture = new BmsLibraryIrStartupTests.StartupFixture(waitForCancellation: false, failFirstRequest: false);
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        ApplicationDatabaseScope databaseScope = MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope;
+        await using var fixture = new BmsLibraryIrStartupTests.StartupFixture(databaseScope, waitForCancellation: false, failFirstRequest: false);
         await fixture.InitializeAsync();
         await fixture.Client.Started.Task;
-        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         var dialogs = new FileDbReportRecordingDialogs();
-        var store = new ActualUninstallStore();
+        var store = new ActualUninstallStore(databaseScope);
         var uninstall = new ApplicationDataUninstallWorkflowOwner(dialogs, store);
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel, restartFailureDialogs: dialogs);
         owner.AttachLibrary(fixture.Library);
@@ -53,7 +55,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
             await owner.CompleteTerminalShutdownAsync();
             await fixture.WaitForWorkersAsync();
             Assert.AreEqual(1, store.CallCount);
-            using var read = new LR2SongDBExtended(fixture.SongDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: true);
+            using LR2SongDBExtended read = databaseScope.OpenSongReadOnly(fixture.SongDbPath);
             Assert.AreEqual(0, read.ExecuteScalar<int>("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('ir_score','ir_score_refresh_metadata','playlist');"));
         }
         finally
@@ -100,10 +102,10 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         async Task FinishAsync() { await owner.CompleteTerminalShutdownAsync(); owner.RequestTerminalApplicationShutdown(); }
     }
 
-    private sealed class ActualUninstallStore : IApplicationDataUninstallStore
+    private sealed class ActualUninstallStore(ApplicationDatabaseScope databaseScope) : IApplicationDataUninstallStore
     {
         internal int CallCount { get; private set; }
-        public void Uninstall(string songDbPath) { CallCount++; new Lr2ApplicationDataUninstallStore().Uninstall(songDbPath); }
+        public void Uninstall(string songDbPath) { CallCount++; new Lr2ApplicationDataUninstallStore(databaseScope).Uninstall(songDbPath); }
     }
     private sealed class FailingUninstallStore : IApplicationDataUninstallStore
     {

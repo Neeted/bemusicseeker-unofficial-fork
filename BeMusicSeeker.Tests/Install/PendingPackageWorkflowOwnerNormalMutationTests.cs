@@ -19,6 +19,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_RealStoreDeletesOnlyAllOwnedSources()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string root = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         TestBmsLibrary? library = null;
@@ -80,7 +81,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             File.WriteAllBytes(Path.Combine(hiddenUnownedRoot, "sound.wav"), [2, 4, 6]);
             ChartPackage[] retained = [mixed, unowned, discoveredPartial, restoredPartial, hiddenUnowned];
             ChartPackage[] packages = [all, discoveredPartial, single, mixed, unowned, restoredPartial, hiddenUnowned];
-            library = CreateNormalPendingLibrary(root, packages, [ownedA, ownedB, ownedC]);
+            library = CreateNormalPendingLibrary(databaseScope, root, packages, [ownedA, ownedB, ownedC]);
             AddInvalidChild(discoveredDirectory);
             var preserved = new[] { ownedA.Path, ownedB.Path, ownedC.Path, sibling }
                 .Concat(retained.SelectMany(package => Directory.GetFiles(package.path, "*", SearchOption.AllDirectories)))
@@ -93,7 +94,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             Assert.IsFalse(Directory.Exists(allRoot));
             Assert.IsFalse(File.Exists(singleChart.Path));
             CollectionAssert.AreEquivalent(retained.Select(package => package.path).ToArray(), library.ChartPackagesPending.Select(package => package.path).ToArray());
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(Path.Combine(root, "song.db")).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(root, "song.db")).OpenSongDbReadOnly();
             CollectionAssert.AreEquivalent(retained.Select(package => package.path).ToArray(), verify.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
             foreach ((string path, byte[] bytes) in preserved) { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path)); }
             CollectionAssert.AreEquivalent(new[] { ownedA.Path, ownedB.Path, ownedC.Path }, library.BmsCharts.Select(chart => chart.Path).ToArray());
@@ -107,6 +108,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task RenamePendingZeroNoteChartsAsync_RealStoreInvalidatesOnlyZeroNoteBmsAndPms()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string root = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         TestBmsLibrary? library = null;
@@ -138,7 +140,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             package.delete_parent = false;
             string[] unchanged = [nonzero.Path, disabled.Path, bmsonPath, collision, directoryMarker];
             var bytes = unchanged.Concat(new[] { zeroBms.Path, zeroPms.Path }).ToDictionary(path => path, File.ReadAllBytes);
-            library = CreateNormalPendingLibrary(root, [package], []);
+            library = CreateNormalPendingLibrary(databaseScope, root, [package], []);
             PendingPackageWorkflowOwner owner = CreateOwner(() => library, [], new BmsLibraryPendingPackageStore(), AcceptedDialogs(),
                 chartFileOperations: library.OperationAdmission, playback: new NoOpChartMutationPlaybackPort());
 
@@ -152,7 +154,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             Assert.IsTrue(Directory.Exists(directoryCollision));
             string[] expected = [nonzero.Path, disabled.Path, bmsonPath];
             CollectionAssert.AreEquivalent(expected, library.ChartPackagesPending.SelectMany(item => item.ChartEntries).Select(entry => entry.Chart.Path).ToArray());
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(Path.Combine(root, "song.db")).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(root, "song.db")).OpenSongDbReadOnly();
             Assert.AreEqual(package.path, verify.Table<LR2SongDBExtended.install>().Single().path);
             Assert.AreEqual(0, library.BmsCharts.Count);
             Assert.AreEqual(0, library.BmsonCharts.Count);
@@ -162,10 +164,10 @@ public sealed partial class PendingPackageWorkflowOwnerTests
     }
 
     /// <summary>高度操作の正常代表が所有する実song・install DBと保留集合、独立した所持入力を準備します。</summary>
-    private static TestBmsLibrary CreateNormalPendingLibrary(string root, ChartPackage[] packages, ChartFile[] owned)
+    private static TestBmsLibrary CreateNormalPendingLibrary(ApplicationDatabaseScope databaseScope, string root, ChartPackage[] packages, ChartFile[] owned)
     {
         string songDb = Path.Combine(root, "song.db");
-        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDb, db =>
+        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDb, db =>
         {
             db.CreateTable<LR2SongDB.song>();
             db.CreateTable<LR2SongDB.folder>();
@@ -175,7 +177,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             foreach (ChartPackage package in packages)
             { db.Insert(new LR2SongDBExtended.install { path = package.path, delete_parent = false }); }
         });
-        return new TestBmsLibrary(songDb, null, null, new ResilientFileMutationService(), new RecordingLibraryDialogService(),
+        return new TestBmsLibrary(databaseScope, songDb, null, null, new ResilientFileMutationService(), new RecordingLibraryDialogService(),
             new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, ScanBmsFilesOnStartup = true })
         {

@@ -282,7 +282,7 @@ public sealed partial class ApplicationCompositionTests
             Assert.IsTrue(File.Exists(outputPath));
             string text = File.ReadAllText(outputPath, System.Text.Encoding.GetEncoding("shift_jis"));
             StringAssert.Contains(text, "#TITLE Folder A");
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
             BeMusicSeeker.Models.LR2.LR2SongDB.folder folder = verify.Table<BeMusicSeeker.Models.LR2.LR2SongDB.folder>().Single(row => row.path == outputPath);
             Assert.AreEqual("Folder A", folder.title);
             Assert.AreEqual(2, folder.type);
@@ -371,7 +371,7 @@ public sealed partial class ApplicationCompositionTests
                 string[] files = Directory.GetFiles(Path.Combine(outputA, "CapturedTable"), "*.lr2folder", SearchOption.AllDirectories);
                 Assert.IsTrue(files.Any(path => File.ReadAllText(path, System.Text.Encoding.GetEncoding("shift_jis")).Contains("#TITLE UNSENT SONGS", StringComparison.Ordinal)),
                     "捕捉したA=trueの未送信定義を実ファイルへ生成します。");
-                using LR2SongDBExtended firstDb = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended firstDb = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
                 Assert.IsTrue(firstDb.Table<BeMusicSeeker.Models.LR2.LR2SongDB.folder>().Any(row => row.title == "UNSENT SONGS"));
                 Assert.AreEqual("Completed", firstDb.Find<BeMusicSeeker.Models.LR2.LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName).status);
             }
@@ -381,7 +381,7 @@ public sealed partial class ApplicationCompositionTests
             string outputPath = Path.Combine(outputA, "CapturedTable", "0001.lr2folder");
             Assert.IsTrue(File.Exists(outputPath));
             Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, library.GetLr2SongDbSyncStatusSnapshot().Status);
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
             Assert.AreEqual("Folder A", verify.Table<BeMusicSeeker.Models.LR2.LR2SongDB.folder>().Single(row => row.path == outputPath).title);
             {
                 string[] files = Directory.GetFiles(Path.Combine(outputA, "CapturedTable"), "*.lr2folder", SearchOption.AllDirectories);
@@ -416,7 +416,6 @@ public sealed partial class ApplicationCompositionTests
         string output = Path.Combine(scope.DirectoryPath, "Output");
         Directory.CreateDirectory(music);
         if (lr2Mode) { Directory.CreateDirectory(output); Directory.CreateDirectory(Path.Combine(scope.DirectoryPath, "RootOutput")); }
-        PlaylistPersistenceRepository.EnsureSchema(scope.SongDbPath);
         string chart = Path.Combine(music, "chart.bms");
         File.WriteAllText(chart, "#PLAYER 1\n#TITLE Actual Diff\n#ARTIST Fixture\n#BPM 120\n#00111:01\n");
         BeMusicSeeker.Properties.Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
@@ -438,12 +437,13 @@ public sealed partial class ApplicationCompositionTests
             runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.AvailableEverythingBridge), rootFileEnumerator: new FastRootFileEnumerator(),
             uiScheduler: new TestUiScheduler(() => null),
             applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+        PlaylistPersistenceRepository.EnsureSchema(composition.DatabaseScope, scope.SongDbPath);
         var scanner = CapturedChartFileScanner.FromFixture([chart], new Dictionary<string, IEnumerable<string>>(), [music]);
         var scanned = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseScan = new System.Threading.ManualResetEventSlim();
         scanner.ScanObserved = () => { scanned.TrySetResult(); releaseScan.Wait(); };
         Lr2ConfigOwner? configOwner = lr2Mode ? composition.ResolveLr2Config(values.LR2ConfigXmlPath) : null;
-        var library = new TestBmsLibrary(scope.SongDbPath, configOwner, null, null, composition.BmsLibraryOptionsProvider,
+        var library = new TestBmsLibrary(composition.DatabaseScope, scope.SongDbPath, configOwner, null, null, composition.BmsLibraryOptionsProvider,
             TestBmsFactory.AvailableEverythingBridge, scanner, new TestUiScheduler(() => null), new FastRootFileEnumerator(),
             operationAdmission: composition.OperationAdmission, settings: values)
         { BmsCharts = [], BmsonCharts = [] };
@@ -478,7 +478,7 @@ public sealed partial class ApplicationCompositionTests
             registration = playlist.ExternalSyncOwner.RegistrateExternalTableAsync(table, false, "parallel-daily-registration");
             await registration;
             Assert.IsFalse(reload.IsCompleted, "非交差PはLのscan終端を待ちません。");
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(1, db.Table<LR2SongDBExtended.playlist>().Count(row => row.name == "Independent"));
                 Assert.AreEqual(1, db.Table<LR2SongDBExtended.playlist_entry>().Count(row => row.folder == "Daily Folder"));
@@ -501,7 +501,7 @@ public sealed partial class ApplicationCompositionTests
                 Assert.AreEqual(0, library.Lr2SongDbSyncCompletedVersion);
                 Assert.IsFalse(library.Lr2SongDbSyncRunning);
             }
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(chart, db.Table<LR2SongDB.song>().Single().path);
                 if (lr2Mode) { Assert.IsTrue(db.Table<LR2SongDB.folder>().Any(row => row.type == 1 && row.path.Contains("Music", StringComparison.Ordinal))); }

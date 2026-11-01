@@ -25,6 +25,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistRecommendedTableOwnerTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>通信不能でも4推定・3推薦を生成し、共通登録と別主体のSQLite再読込みで名称・所属・非空行・レベルを保持する。推定の再同期では手動名・出力設定を保持し、通信依存・採番後の所属欠落・保存経路の漏れを検出する。</summary>
     [TestMethod]
     public async Task LocalTables_CompleteWithUnavailableNetworkWithoutSendingRequests()
@@ -35,10 +37,10 @@ public sealed class PlaylistRecommendedTableOwnerTests
         TestBmsPlaylist? writer = null, reader = null;
         try
         {
-            string songPath = CreateTempSongDbPath(directory);
-            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            string songPath = CreateTempSongDbPath(databaseScope, directory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songPath);
             int scoreReads = 0;
-            writer = new TestBmsPlaylist(songPath, null, null, null,
+            writer = new TestBmsPlaylist(databaseScope, songPath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, recommendationScoreReader: _ =>
                 {
@@ -69,7 +71,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
             await writer.ExternalSyncOwner.RegistrateExternalTablesAsync(generated, false, "local-table-registration-test");
             Assert.AreEqual(7, writer.BMSTables.Count);
             Assert.IsTrue(generated.All(table => table.playlist_id > 0 && table.entries.All(entry => entry.playlist_id == table.playlist_id)));
-            reader = new TestBmsPlaylist(songPath, null, null, null,
+            reader = new TestBmsPlaylist(databaseScope, songPath, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },
                 settings: MainWindowViewModelTestFactory.CreateIsolatedSettings());
@@ -289,11 +291,11 @@ public sealed class PlaylistRecommendedTableOwnerTests
 
         try
         {
-            string songPath = CreateTempSongDbPath(directory);
-            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            string songPath = CreateTempSongDbPath(databaseScope, directory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songPath);
             string scoreA = Path.Combine(directory, "player-a", "score.db"), scoreB = Path.Combine(directory, "player-b", "score.db");
             WalkureScoreInput inputA = ReadWalkureInput("mixed"), inputB = ReadWalkureInput("standard");
-            using (var db = new LR2SongDBExtended(songPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songPath))
             {
                 db.RunInTransaction(() =>
                 {
@@ -329,7 +331,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
                 });
             }
             BmsLibraryOptionsSnapshot options = new() { UseBeatorajaScoreDb = true, BeatorajaScoreDbPath = scoreA };
-            library = NewLibrary(songPath, null, () => options);
+            library = NewLibrary(databaseScope, songPath, null, () => options);
             library.StartupBackgroundTaskScheduler = (name, _, _, work) => ScheduleOwned("library", name, work);
             string bmtDirectory = Path.Combine(directory, "bmt");
             Directory.CreateDirectory(bmtDirectory);
@@ -363,7 +365,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
             string[] expectedOrder = ["KEEP EASY", "KEEP NORMAL", "KEEP HARD", "KEEP FC"];
             CollectionAssert.AreEqual(expectedOrder, original.Folder_order.ToArray());
             Assert.IsTrue(original.entries.All(entry => entry.is_removed || expectedOrder.Contains(entry.folder)));
-            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual("KEEP ", db.Table<BMSTable>().Single().compat_prefix);
                 CollectionAssert.AreEqual(expectedOrder, db.Table<BMSTable>().Single().Folder_order.ToArray());
@@ -426,7 +428,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
                 .Select(entry => Membership(entry.md5, entry.folder, entry.level)).ToArray());
             void AssertDatabase(DateTime lastUpdate)
             {
-                using LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath).OpenSongDbReadOnly();
                 BMSTable persisted = db.Table<BMSTable>().Single();
                 AssertHeader(persisted);
                 Assert.AreEqual(lastUpdate, persisted.last_update);
@@ -592,7 +594,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
         BMSLibrary? library = null;
         try
         {
-            string songPath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
+            string songPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
             string scorePath = Path.Combine(directory, "score.db");
             WalkureRecommendationModel model = WalkureRecommendationModel.Bundled;
             string course = model.Entries.First(row => row.IsCourse).Md5;
@@ -608,7 +610,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
                 });
             }
 
-            library = NewLibrary(songPath, scorePath, () => new BmsLibraryOptionsSnapshot());
+            library = NewLibrary(databaseScope, songPath, scorePath, () => new BmsLibraryOptionsSnapshot());
             var binding = new BmsPlaylistLibraryBindings(library);
             WalkureScoreInput first = await binding.ReadRecommendationScoresAsync(CancellationToken.None);
             Assert.AreEqual(ScoreTableLoadStatus.Loaded, first.Status);
@@ -639,10 +641,10 @@ public sealed class PlaylistRecommendedTableOwnerTests
         BMSLibrary? library = null;
         try
         {
-            string songPath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
+            string songPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
             string scorePath = Path.Combine(directory, "score.db");
             ImmutableArray<WalkureModelEntry> entries = WalkureRecommendationModel.Bundled.Entries;
-            using (var db = new LR2SongDBExtended(songPath))
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songPath))
             {
                 db.RunInTransaction(() =>
                 {
@@ -665,7 +667,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
             }
 
             BmsLibraryOptionsSnapshot options = new() { UseBeatorajaScoreDb = true, BeatorajaScoreDbPath = scorePath };
-            library = NewLibrary(songPath, null, () => options);
+            library = NewLibrary(databaseScope, songPath, null, () => options);
             WalkureScoreInput input = await library.ReadRecommendationScoresAsync(CancellationToken.None);
             Assert.AreEqual(ScoreTableLoadStatus.Loaded, input.Status, input.FailureMessage);
             Assert.AreEqual(2, input.Scores.Count);
@@ -714,9 +716,9 @@ public sealed class PlaylistRecommendedTableOwnerTests
         Exception? primaryFailure = null;
         try
         {
-            string songPath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
-            PlaylistPersistenceRepository.EnsureSchema(songPath);
-            var repository = new PlaylistPersistenceRepository(songPath);
+            string songPath = BmsPlaylistTestSupport.CreateTempSongDbPath(databaseScope, directory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songPath);
+            var repository = new PlaylistPersistenceRepository(databaseScope, songPath);
             var aggregate = new PlaylistAggregatePersistenceOwner(repository, new ReaderWriterLockSlimWrapper(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
             var table = new BMSTable { name = "Original", org_name = "旧方針 ★3.87", Page_url = new Uri("bmseeker:table.recommended"), entries = [new BMSTableEntry { md5 = new string('a', 32), title = "Original song", memo = "keep" }] };
             aggregate.MarkActiveTables([table]); aggregate.ReplaceTablesWithEntries([table]);
@@ -826,8 +828,10 @@ public sealed class PlaylistRecommendedTableOwnerTests
         PlaylistOperationNotificationOwner? notifications = null, bool showSkillUpdates = false)
         => new(read ?? (_ => Task.FromResult(ReadWalkureInput())), notifications ?? new PlaylistOperationNotificationOwner(),
             () => new CustomFolderOutputSettingsSnapshot { ShowRecommUpdatedMsg = showSkillUpdates });
-    private static BMSLibrary NewLibrary(string songPath, string? scorePath, Func<BmsLibraryOptionsSnapshot> options)
-        => new(songPath, null, scorePath, null, options, new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), TestBmsFactory.MissingEverythingBridge,
+    /// <summary>呼出し元と同じDB所有者でテスト対象と保存入力を準備します。</summary>
+    /// <param name="databaseScope">ライブラリの読取りと接続寿命を共有するDB所有者。</param>
+    private static BMSLibrary NewLibrary(ApplicationDatabaseScope databaseScope, string songPath, string? scorePath, Func<BmsLibraryOptionsSnapshot> options)
+        => new(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath, null, scorePath, null, options, new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), TestBmsFactory.MissingEverythingBridge,
             new BmsRootRegistrationStore(MainWindowViewModelTestFactory.CreateIsolatedSettings(settings => settings.OperationModeLR2DB = false), () => null));
     private static string NewDirectory()
     {

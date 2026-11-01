@@ -3267,4 +3267,6 @@ public class Resources
     public static string Validation_Lr2BuiltinCustomFolderReservedFormat => ResourceManager.GetString("Validation_Lr2BuiltinCustomFolderReservedFormat", resourceCulture);
     /// <summary>消失した明示導入先の再選択を案内します。</summary>
     public static string Error_InstallDestinationMissing => ResourceManager.GetString("Error_InstallDestinationMissing", resourceCulture);
+    /// <summary>同じアプリでDB接続の終了失敗が発生し、正常終了を確認できないことを通知します。</summary>
+    public static string DatabaseConnectionCloseFailed => ResourceManager.GetString("DatabaseConnectionCloseFailed", resourceCulture);
 }

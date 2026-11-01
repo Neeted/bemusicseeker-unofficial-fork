@@ -2,12 +2,21 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
-using SQLite;
+using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>beatorajaの履歴とplayer累計を、構成が所有する読取り専用接続で取得します。</summary>
 internal sealed class BeatorajaPlayHistoryReader
 {
+    private readonly ApplicationDatabaseScope databaseScope;
+
+    /// <summary>接続とその寿命を所有するスコープを受け取ります。</summary>
+    internal BeatorajaPlayHistoryReader(ApplicationDatabaseScope databaseScope)
+    {
+        this.databaseScope = databaseScope ?? throw new ArgumentNullException(nameof(databaseScope));
+    }
+
     private const int NormalScoreMode = 0;
 
     /// <summary>beatorajaの通常モード・SHA-256長64の単曲更新履歴を一覧・日付索引用に読み取り専用で全件取得します。件数上限は設けません。</summary>
@@ -48,7 +57,7 @@ internal sealed class BeatorajaPlayHistoryReader
                     playerSnapshotsAvailable);
             }
 
-            using var connection = new SQLiteConnection(request.ScoreLogDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex);
+            using SQLiteConnectionEx connection = databaseScope.OpenReadOnly(request.ScoreLogDbPath);
             List<object> args = [];
             string sql = BuildScoreLogReadSql(request, args);
             cancellationToken.ThrowIfCancellationRequested();
@@ -137,7 +146,7 @@ internal sealed class BeatorajaPlayHistoryReader
         return sql + ";";
     }
 
-    private static IReadOnlyList<BeatorajaPlayerAggregateSnapshot> LoadPlayerAggregateSnapshots(
+    private IReadOnlyList<BeatorajaPlayerAggregateSnapshot> LoadPlayerAggregateSnapshots(
         BeatorajaPlayHistoryReadRequest request,
         List<PlayHistoryDiagnostic> diagnostics,
         CancellationToken cancellationToken,
@@ -156,7 +165,7 @@ internal sealed class BeatorajaPlayHistoryReader
 
         try
         {
-            using var connection = new SQLiteConnection(request.ScoreDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex);
+            using SQLiteConnectionEx connection = databaseScope.OpenReadOnly(request.ScoreDbPath);
             cancellationToken.ThrowIfCancellationRequested();
             List<PlayerAggregateRow> rows = connection.Query<PlayerAggregateRow>(
                 "SELECT date, playcount, epg, lpg, egr, lgr, egd, lgd, ebd, lbd, epr, lpr, ems, lms, playtime FROM player WHERE date > 0 ORDER BY date ASC;");

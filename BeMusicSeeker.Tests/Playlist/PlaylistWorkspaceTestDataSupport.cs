@@ -20,10 +20,12 @@ internal static class PlaylistWorkspaceTestDataSupport
         return string.Join("\v" + Environment.NewLine, [playlistSql, string.Empty, string.Empty]);
     }
 
-    internal static BMSLibrary CreateLibraryWithLr2Id(string songDbPath, int lr2Id = 123)
+    /// <summary>同じfixtureのDB所有者でLR2 IDと実scoreを準備し、ライブラリへ読み込みます。</summary>
+    /// <param name="databaseScope">準備と読取りの接続を共有するDB所有者。</param>
+    internal static BMSLibrary CreateLibraryWithLr2Id(ApplicationDatabaseScope databaseScope, string songDbPath, int lr2Id = 123)
     {
         string scoreDbPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "score.db");
-        using (var db = new LR2ScoreDBExtended(scoreDbPath))
+        using (LR2ScoreDBExtended db = databaseScope.OpenScoreWrite(scoreDbPath))
         {
             db.CreateTable<LR2ScoreDB.score>();
             db.CreateTable<LR2ScoreDB.player>();
@@ -31,15 +33,17 @@ internal static class PlaylistWorkspaceTestDataSupport
             db.Insert(new LR2ScoreDB.score { hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
         }
 
-        var library = new TestBmsLibrary(songDbPath, null, scoreDbPath);
+        var library = new TestBmsLibrary(databaseScope, songDbPath, null, scoreDbPath);
         library.InitializeScoresOnly(null);
         Assert.AreEqual(lr2Id, library.LR2ID);
         return library;
     }
 
-    internal static void PersistPlaylistAggregate(string songDbPath, BMSTable table)
+    /// <summary>同じfixtureのDB所有者を使い、独立した保存入力のheaderとentriesを準備します。</summary>
+    /// <param name="databaseScope">保存準備の接続を所有するDB所有者。</param>
+    internal static void PersistPlaylistAggregate(ApplicationDatabaseScope databaseScope, string songDbPath, BMSTable table)
     {
-        using var db = new LR2SongDBExtended(songDbPath);
+        using LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath);
         db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
         foreach (BMSTableEntry entry in table.entries ?? [])
         {

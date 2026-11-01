@@ -17,7 +17,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     [DataRow(true)]
     public async Task ProductionImport_ResourceBearingNestedChartsRemainPendingWhileIndependentInputInstalls(bool keepNewPending)
     {
-        await using var fixture = new AutomaticContinuationFixture(true, true);
+        var databaseScope = new ApplicationDatabaseScope();
+        await using var fixture = new AutomaticContinuationFixture(databaseScope, true, true);
         fixture.Options = fixture.CreateOptions(true, true, keepNewPending);
         string source = fixture.WriteInput("Nested", "parent.bms", "nested-parent");
         string child = fixture.WriteInput(Path.Combine("Nested", "child"), "child.bms", "nested-child");
@@ -42,7 +43,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Assert.IsTrue(fixture.Library.BmsCharts.Any(chart => Path.GetFileName(chart.Path) == "normal.bms"));
         foreach ((string path, byte[] bytes) in preserved) { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path)); }
         CollectionAssert.AreEqual(owned, File.ReadAllBytes(Path.Combine(fixture.Destination, "owned.bms")));
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Database).OpenSongDbReadOnly();
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly();
         Assert.AreEqual(source, db.Table<LR2SongDBExtended.install>().Single().path);
         Assert.IsTrue(db.Table<LR2SongDB.song>().Any(row => Path.GetFileName(row.path) == "normal.bms"));
         Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);

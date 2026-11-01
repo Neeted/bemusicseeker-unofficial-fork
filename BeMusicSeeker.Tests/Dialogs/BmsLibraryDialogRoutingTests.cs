@@ -19,6 +19,7 @@ public sealed class BmsLibraryDialogRoutingTests
     [TestMethod]
     public void ForceInstallPendingPackages_UsesDialogServiceForOverrideConfirmation()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -26,7 +27,7 @@ public sealed class BmsLibraryDialogRoutingTests
             {
                 ResultToReturn = MessageBoxResult.No
             };
-            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
             ChartFile pendingFile = ChartTestValues.Empty() with
             {
                 Path = "C:\\Pending\\Pkg\\chart.bms"
@@ -50,11 +51,12 @@ public sealed class BmsLibraryDialogRoutingTests
     [TestMethod]
     public void RenameChartFolder_UsesDialogServiceForMissingFolderWarning()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var dialogService = new RecordingDialogService();
-            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
             string missingDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_Missing_" + Guid.NewGuid().ToString("N"));
 
             library.RenameChartFolder(missingDirectoryPath, "RenamedFolder");
@@ -69,12 +71,13 @@ public sealed class BmsLibraryDialogRoutingTests
     [TestMethod]
     public void ShowEverythingFallbackWarning_UsesDialogService()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
             const string fallbackReason = "empty_results_with_roots";
             var dialogService = new RecordingDialogService();
-            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
 
             library.ShowEverythingFallbackWarning(fallbackReason);
 
@@ -92,12 +95,13 @@ public sealed class BmsLibraryDialogRoutingTests
     [TestMethod]
     public void ShowFileScanSkippedIncompleteWarning_UsesDialogService()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
             const string failureReason = "directory_enumeration_failed:C:\\BMS";
             var dialogService = new RecordingDialogService();
-            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
 
             library.ShowFileScanSkippedIncompleteWarning(failureReason);
 
@@ -115,12 +119,13 @@ public sealed class BmsLibraryDialogRoutingTests
     [TestMethod]
     public void ShowEmptyScanWithExistingDbWarning_UsesDialogService()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
             const string failureReason = "empty_scan_with_existing_db";
             var dialogService = new RecordingDialogService();
-            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
 
             library.ShowEmptyScanWithExistingDbWarning(failureReason);
 
@@ -140,12 +145,13 @@ public sealed class BmsLibraryDialogRoutingTests
     [TestMethod]
     public void QueueEverythingFallbackWarning_CoalescesDuplicateRequests()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
             const string fallbackReason = "bridge_scan_failed:4";
             var dialogService = new RecordingDialogService();
-            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
 
             Assert.IsTrue(library.QueueEverythingFallbackWarning(fallbackReason));
             Assert.IsFalse(library.QueueEverythingFallbackWarning("second_reason"));
@@ -162,12 +168,13 @@ public sealed class BmsLibraryDialogRoutingTests
     [TestMethod]
     public void QueueFileScanSkippedIncompleteWarning_CoalescesDuplicateRequests()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
             const string failureReason = "root_not_found:C:\\BMS";
             var dialogService = new RecordingDialogService();
-            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
 
             Assert.IsTrue(library.QueueFileScanSkippedIncompleteWarning(failureReason));
             Assert.IsFalse(library.QueueFileScanSkippedIncompleteWarning("second_reason"));
@@ -185,12 +192,13 @@ public sealed class BmsLibraryDialogRoutingTests
     [TestMethod]
     public void QueueEmptyScanWithExistingDbWarning_CoalescesDuplicateRequests()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
             const string failureReason = "empty_scan_with_existing_db";
             var dialogService = new RecordingDialogService();
-            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
 
             Assert.IsTrue(library.QueueEmptyScanWithExistingDbWarning(failureReason));
             Assert.IsFalse(library.QueueEmptyScanWithExistingDbWarning("second_reason"));

@@ -27,13 +27,14 @@ public sealed class InstallableMaintenanceAdmissionTests
     {
 
         using var scope = TestDatabaseScope.Create();
+        ApplicationDatabaseScope databaseScope = scope.DatabaseScope;
         string root = Path.Combine(scope.DirectoryPath, "BMS");
         Directory.CreateDirectory(root);
         string chart = Path.Combine(root, "chart.bms");
         WriteBasicBms(chart, "Song");
         File.WriteAllBytes(Path.Combine(root, "sound.wav"), [1]);
         ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chart);
-        using (var db = new LR2SongDBExtended(scope.SongDbPath))
+        using (LR2SongDBExtended db = databaseScope.OpenSongWrite(scope.SongDbPath))
         {
             db.CreateTable<LR2SongDB.song>();
             db.CreateTable<LR2SongDB.folder>();
@@ -54,7 +55,7 @@ public sealed class InstallableMaintenanceAdmissionTests
         var fullyIdle = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var tasks = new ConcurrentBag<Task>();
         var publicationOrder = new ConcurrentQueue<string>();
-        var library = new TestBmsLibrary(scope.SongDbPath, null, null, null, () => options,
+        var library = new TestBmsLibrary(databaseScope, scope.SongDbPath, null, null, null, () => options,
             TestBmsFactory.MissingEverythingBridge,
             CapturedChartFileScanner.FromFixture([chart], new Dictionary<string, IEnumerable<string>>
             {
@@ -112,7 +113,7 @@ public sealed class InstallableMaintenanceAdmissionTests
             Assert.IsFalse(library.OperationAdmission.TryEnter(out IDisposable rejected));
             rejected?.Dispose();
             Assert.AreEqual(0, library.InstallableMaintenanceDeferredCompletedVersion);
-            using (LR2SongDBExtended before = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended before = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly())
             { Assert.IsNull(before.Find<LR2SongDB.folder>(generatedFolderPath)); }
 
             releasePreparation.Set();
@@ -126,7 +127,7 @@ public sealed class InstallableMaintenanceAdmissionTests
             Assert.IsFalse(library.OperationAdmission.IsActive);
             Assert.IsFalse(library.InstallableMaintenanceDeferredRunning);
             CollectionAssert.AreEqual(new[] { "lr2", "maintenance" }, publicationOrder.ToArray());
-            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly())
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual("Completed", verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName).status);
                 Assert.AreEqual("Manual actual sync", verify.Find<LR2SongDB.folder>(generatedFolderPath).title,

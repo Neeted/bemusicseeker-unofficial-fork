@@ -70,8 +70,17 @@ internal sealed class Lr2PlayHistorySchemaCheckResult
     public bool CanRepair => Status == Lr2PlayHistorySchemaStatus.Repairable;
 }
 
+/// <summary>構成が所有する接続でLR2履歴schemaを検査し、明示操作でのみ設置・修復・削除します。</summary>
 internal sealed class Lr2PlayHistorySchemaService
 {
+    private readonly ApplicationDatabaseScope databaseScope;
+
+    /// <summary>接続とその寿命を所有するスコープを受け取ります。</summary>
+    internal Lr2PlayHistorySchemaService(ApplicationDatabaseScope databaseScope)
+    {
+        this.databaseScope = databaseScope ?? throw new ArgumentNullException(nameof(databaseScope));
+    }
+
     internal const string LastPlayTableName = "bms_lr2_last_play";
     internal const string PlayHistoryTableName = "bms_lr2_play_history";
     internal const string PlayPendingTableName = "bms_lr2_play_pending";
@@ -287,7 +296,7 @@ internal sealed class Lr2PlayHistorySchemaService
 
         try
         {
-            using LR2ScoreDBExtended db = new(scoreDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, acquireProcessLock: false);
+            using LR2ScoreDBExtended db = databaseScope.OpenScoreReadOnly(scoreDbPath);
             return CheckOpenConnection(db, scoreDbPath);
         }
         catch (Exception ex)
@@ -310,7 +319,7 @@ internal sealed class Lr2PlayHistorySchemaService
 
         try
         {
-            using LR2ScoreDBExtended db = new(scoreDbPath);
+            using LR2ScoreDBExtended db = databaseScope.OpenScoreWrite(scoreDbPath);
             ExecuteInTransaction(db, delegate
             {
                 if (before.Status == Lr2PlayHistorySchemaStatus.NotInstalled)
@@ -370,7 +379,7 @@ internal sealed class Lr2PlayHistorySchemaService
 
         try
         {
-            using LR2ScoreDBExtended db = new(scoreDbPath);
+            using LR2ScoreDBExtended db = databaseScope.OpenScoreWrite(scoreDbPath);
             ExecuteInTransaction(db, delegate
             {
                 DropExpectedTriggers(db);

@@ -23,11 +23,12 @@ public sealed class BmsLibraryMutationBoundaryTests
     [TestMethod]
     public void OperationDialogScope_QueuesOkMessagesUntilFlush()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var dialogService = new RecordingDialogService();
-            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService);
             string missingDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_MutationBoundary_" + Guid.NewGuid().ToString("N"));
 
             using BMSLibrary.OperationDialogScope scope = library.BeginOperationDialogScope();
@@ -49,6 +50,7 @@ public sealed class BmsLibraryMutationBoundaryTests
     [TestMethod]
     public void OperationDialogScope_RejectsInteractivePromptWhenPreflightDecisionIsMissing()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -56,7 +58,7 @@ public sealed class BmsLibraryMutationBoundaryTests
             {
                 ResultToReturn = MessageBoxResult.Yes
             };
-            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService);
             ChartFile pendingFile = ChartTestValues.Empty() with
             {
                 Path = "C:\\Pending\\Pkg\\chart.bms"
@@ -82,11 +84,12 @@ public sealed class BmsLibraryMutationBoundaryTests
     [TestMethod]
     public void ForceInstallPendingPackages_WithExplicitOverrideDecisionDoesNotPromptInsideMutationScope()
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var dialogService = new RecordingDialogService();
-            var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService);
             ChartFile pendingFile = ChartTestValues.Empty() with
             {
                 Path = "C:\\Pending\\Pkg\\chart.bms"
@@ -124,6 +127,7 @@ public sealed class BmsLibraryMutationBoundaryTests
     [DataRow("additional", "source")]
     public void FolderMutation_UsesPlaylistAdmissionOnlyForActualManagedIntersection(string role, string intersection)
     {
+        var databaseScope = new ApplicationDatabaseScope();
 
         OwnedChartCollectionTestSupport.WithTemporarySongDb(songDbPath =>
         {
@@ -149,11 +153,11 @@ public sealed class BmsLibraryMutationBoundaryTests
                 LR2CustomFolderAdditionalOutputBaseDirs = role == "additional" ? [baseDirectory] : []
             };
             var dialogs = new RecordingDialogService();
-            var library = new TestBmsLibrary(songDbPath, null, null, null, dialogs,
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, dialogs,
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => options,
                 settings: TestBmsFactory.CreateRootSettings([], lr2: true))
             { BmsCharts = [OwnedChartCollectionTestSupport.CreateFile(new string('a', 32), path)], BmsonCharts = [] };
-            new BmsLibraryDbGateway(songDbPath).UpsertSongs(library.BmsCharts);
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs(library.BmsCharts);
             Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out IDisposable playlistLease));
             try
             {
@@ -170,7 +174,7 @@ public sealed class BmsLibraryMutationBoundaryTests
                     Assert.IsTrue(File.Exists(path));
                     Assert.IsFalse(Directory.Exists(destinationDirectory));
                     Assert.IsTrue(dialogs.CallCount > 0);
-                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
                     { Assert.AreEqual(path, db.Table<LR2SongDB.song>().Single().path); }
                     playlistLease.Dispose();
                     receipt = library.RenameChartFolderWithReceipt(sourceDirectory, newName);
@@ -178,7 +182,7 @@ public sealed class BmsLibraryMutationBoundaryTests
                     Assert.IsFalse(File.Exists(path));
                     Assert.IsTrue(File.Exists(Path.Combine(destinationDirectory, "chart.bms")));
                 }
-                using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
                 { Assert.AreEqual(Path.Combine(destinationDirectory, "chart.bms"), db.Table<LR2SongDB.song>().Single().path); }
             }
             finally { playlistLease.Dispose(); library.RequestShutdown("managed-intersection-test"); }

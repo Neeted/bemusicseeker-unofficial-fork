@@ -37,7 +37,7 @@ public sealed class ResourceBearingNestedReinitializeTests
             {
                 using var fixture = new MainWindowViewModelStartupProgressTests.CompletionFixture();
                 fixture.OptionalRelease.TrySetResult();
-                ExecuteSongDbFixtureTransaction(fixture.Library.InitializationSongDbPath, db =>
+                ExecuteSongDbFixtureTransaction(fixture.Composition.DatabaseScope, fixture.Library.InitializationSongDbPath, db =>
                 {
                     db.InsertOrReplace(new LR2SongDBExtended.install { path = source, delete_parent = false });
                 });
@@ -65,7 +65,7 @@ public sealed class ResourceBearingNestedReinitializeTests
                 CollectionAssert.AreEquivalent(corrected.Keys.ToArray(), Directory.GetFiles(source, "*", SearchOption.AllDirectories));
                 foreach ((string path, byte[] bytes) in corrected) { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path)); }
                 CollectionAssert.AreEquivalent(ownedBefore, fixture.Library.BmsCharts.Select(chart => chart.Path).ToArray());
-                using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.InitializationSongDbPath).OpenSongDbReadOnly();
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Library.InitializationSongDbPath).OpenSongDbReadOnly();
                 Assert.AreEqual(source, db.Table<LR2SongDBExtended.install>().Single().path);
                 Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
             }

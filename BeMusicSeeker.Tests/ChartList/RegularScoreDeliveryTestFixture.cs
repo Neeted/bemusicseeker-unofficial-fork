@@ -21,10 +21,11 @@ internal sealed class RegularScoreDeliveryTestFixture : IDisposable
 {
     internal RegularScoreDeliveryTestFixture(string songPath, int count = 3)
     {
+        var databaseScope = new ApplicationDatabaseScope();
         string root = Path.GetDirectoryName(songPath) ?? throw new InvalidOperationException();
         string scorePath = Path.Combine(root, "score.db");
         string[] hashes = Enumerable.Range(0, count).Select(i => (i + 1).ToString("x32")).ToArray();
-        using (var db = new LR2ScoreDBExtended(scorePath))
+        using (LR2ScoreDBExtended db = databaseScope.OpenScoreWrite(scorePath))
         {
             db.CreateTable<LR2ScoreDB.player>();
             db.CreateTable<LR2ScoreDB.score>();
@@ -35,7 +36,7 @@ internal sealed class RegularScoreDeliveryTestFixture : IDisposable
             }
         }
         var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2RootPath = root };
-        Library = new TestBmsLibrary(songPath, null, scorePath, null, () => options, TestBmsFactory.MissingEverythingBridge);
+        Library = new TestBmsLibrary(databaseScope, songPath, null, scorePath, null, () => options, TestBmsFactory.MissingEverythingBridge);
         Library.InitializeScoresOnly(null);
         Scores = hashes.Select(hash => Library.GetBMSScores().Single(score => score.hash == hash)).ToArray();
         for (int i = 0; i < count; i++) { Scores[i].stddevVal = i switch { 0 => 10, 1 => 30, 2 => 20, _ => 100 + i }; }

@@ -18,6 +18,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryZeroNoteRefreshTests
 {
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
     /// <summary>
     /// resolver未解決の所持譜面から古いゼロノート警告を解除し、警告表示の更新を一回通知して、解除の未公開を検出する。
     /// </summary>
@@ -28,7 +30,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
 
         await WithTemporarySongDb(songDbPath =>
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new RecordingDialogService());
             ChartFile file = (ChartTestValues.Empty() with { Md5 = new string('a', 32), Token = new OwnedChartToken() }) with
             {
                 Path = "C:\\charts\\normal.bms"
@@ -69,7 +71,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "chart.bms");
             File.WriteAllText(chartPath, "#00111:01\r\n");
-            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new RecordingDialogService());
             ChartFile file = (ChartTestValues.Empty() with { Md5 = new string('a', 32), Token = new OwnedChartToken() }) with
             {
                 Path = chartPath
@@ -108,7 +110,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "chart.bms");
             File.WriteAllText(chartPath, "#00111:01\r\n");
-            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new RecordingDialogService());
             ChartFile file = (ChartTestValues.Empty() with { Md5 = new string('a', 32), Token = new OwnedChartToken() }) with
             {
                 Path = chartPath
@@ -138,7 +140,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
 
         await WithTemporarySongDb(async songDbPath =>
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new RecordingDialogService());
             ChartFile zeroNoteFile = (ChartTestValues.Empty() with { Md5 = new string('a', 32), Token = new OwnedChartToken() }) with
             {
                 Path = "C:\\charts\\zero.bms"
@@ -203,9 +205,9 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         };
     }
 
-    private static async Task SeedChartInfoIndexAsync(string songDbPath, BMSLibrary library, params BeMusicSeeker.Models.ChartDetails[] chartInfos)
+    private async Task SeedChartInfoIndexAsync(string songDbPath, BMSLibrary library, params BeMusicSeeker.Models.ChartDetails[] chartInfos)
     {
-        new BmsLibraryDbGateway(songDbPath).UpsertChartInfos(chartInfos);
+        new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertChartInfos(chartInfos);
         await AwaitChartInfoHydrationAsync(
             library,
             () => InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: false));

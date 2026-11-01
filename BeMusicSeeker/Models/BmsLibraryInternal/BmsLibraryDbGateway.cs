@@ -48,14 +48,21 @@ internal sealed class Lr2SongUserColumns
 /// </summary>
 /// <param name="songDbPath">song.dbのパス。</param>
 /// <param name="scoreDbPath">score.dbのパス。</param>
-/// <param name="songDbFactory">既定接続を置き換える内部検証用の生成処理。</param>
+/// <param name="databaseScope">接続と書込み排他を所有するアプリケーションスコープ。</param>
+/// <param name="loadOptions">構成時に捕捉した読取り方式。</param>
+/// <param name="initializeSongConnection">所有済みの書込み接続に適用する初期化処理。</param>
 internal sealed class BmsLibraryDbGateway(
+    ApplicationDatabaseScope databaseScope,
+    BmsDatabaseLoadOptions loadOptions,
     string songDbPath,
     string scoreDbPath = null,
-    Func<string, LR2SongDBExtended> songDbFactory = null)
+    Action<LR2SongDBExtended> initializeSongConnection = null)
 {
-    private readonly Func<string, LR2SongDBExtended> _songDbFactory =
-        songDbFactory ?? (path => new LR2SongDBExtended(path));
+    /// <summary>この窓口と派生する読取り処理が共有する接続所有者です。</summary>
+    internal ApplicationDatabaseScope DatabaseScope { get; } = databaseScope ?? throw new ArgumentNullException(nameof(databaseScope));
+
+    /// <summary>この構成で固定したDB読取り方式です。</summary>
+    internal BmsDatabaseLoadOptions LoadOptions { get; } = loadOptions ?? throw new ArgumentNullException(nameof(loadOptions));
 
     internal const string SongPathNocaseIndexName = "song_idx_path_nocase";
 
@@ -128,40 +135,48 @@ internal sealed class BmsLibraryDbGateway(
     /// <returns>呼出し側が dispose を所有する書込み接続。</returns>
     public LR2SongDBExtended OpenSongDb()
     {
-        return _songDbFactory(SongDbPath);
+        return DatabaseScope.OpenSongWrite(SongDbPath, initializeSongConnection);
     }
 
+    /// <summary>書込み排他を取得せず、同じ所有者の読取り専用song接続を生成します。</summary>
+    /// <returns>呼出し側がdisposeする読取り専用接続。</returns>
     public LR2SongDBExtended OpenSongDbReadOnly()
     {
-        return new LR2SongDBExtended(SongDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, acquireProcessLock: false);
+        return DatabaseScope.OpenSongReadOnly(SongDbPath);
     }
 
+    /// <summary>同じ所有者のscore書込み排他と接続を取得します。</summary>
+    /// <returns>呼出し側がdisposeする書込み接続。</returns>
     public LR2ScoreDBExtended OpenScoreDb()
     {
         if (string.IsNullOrWhiteSpace(ScoreDbPath))
         {
             throw new InvalidOperationException("Score DB path is not configured.");
         }
-        return new LR2ScoreDBExtended(ScoreDbPath);
+        return DatabaseScope.OpenScoreWrite(ScoreDbPath);
     }
 
+    /// <summary>書込み排他を取得せず、同じ所有者の読取り専用score接続を生成します。</summary>
+    /// <returns>呼出し側がdisposeする読取り専用接続。</returns>
     public LR2ScoreDBExtended OpenScoreDbReadOnly()
     {
         if (string.IsNullOrWhiteSpace(ScoreDbPath))
         {
             throw new InvalidOperationException("Score DB path is not configured.");
         }
-        return new LR2ScoreDBExtended(ScoreDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, acquireProcessLock: false);
+        return DatabaseScope.OpenScoreReadOnly(ScoreDbPath);
     }
 
+    /// <summary>同じ所有者の読取り専用接続で履歴schemaを検査し、修復は行いません。</summary>
     public Lr2PlayHistorySchemaCheckResult CheckLr2PlayHistorySchema(bool isLr2LinkedProfile)
     {
-        return new Lr2PlayHistorySchemaService().Check(ScoreDbPath, isLr2LinkedProfile);
+        return new Lr2PlayHistorySchemaService(DatabaseScope).Check(ScoreDbPath, isLr2LinkedProfile);
     }
 
+    /// <summary>明示操作として、同じ所有者の書込み接続で履歴schemaを設置・修復します。</summary>
     public Lr2PlayHistorySchemaCheckResult InstallOrRepairLr2PlayHistorySchema(bool isLr2LinkedProfile)
     {
-        return new Lr2PlayHistorySchemaService().InstallOrRepair(ScoreDbPath, isLr2LinkedProfile);
+        return new Lr2PlayHistorySchemaService(DatabaseScope).InstallOrRepair(ScoreDbPath, isLr2LinkedProfile);
     }
 
     /// <summary>
@@ -1014,7 +1029,7 @@ internal sealed class BmsLibraryDbGateway(
         using LR2SongDBExtended songDb = OpenSongDbReadOnly();
         result.ReadOnly = songDb.IsReadOnlyConnection;
         result.DbLockWaitMs = songDb.ProcessLockWaitMs;
-        if (UseRawChartInfoHydrationLoader())
+        if (LoadOptions.UseRawChartInfoHydration)
         {
             LoadChartInfoHydrationDataRaw(songDb, parseTimeout, result);
             return result;
@@ -1046,12 +1061,6 @@ internal sealed class BmsLibraryDbGateway(
         result.DbReadMs = stopwatch.ElapsedMilliseconds;
         result.MaterializeMs = stopwatch.ElapsedMilliseconds;
         return result;
-    }
-
-    private static bool UseRawChartInfoHydrationLoader()
-    {
-        string mode = Environment.GetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE");
-        return !string.Equals(mode, "sqlite_net", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void LoadChartInfoHydrationDataRaw(

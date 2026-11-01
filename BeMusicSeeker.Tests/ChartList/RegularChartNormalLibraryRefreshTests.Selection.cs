@@ -131,7 +131,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
         {
             using var fixture = new RegularScoreDeliveryTestFixture(path);
             ChartFile[] charts = fixture.Library.CaptureNormalLibraryChartSnapshot().BmsRows.ToArray();
-            var gateway = new BmsLibraryDbGateway(path);
+            var gateway = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), path);
             gateway.UpsertSongs(charts);
             Assert.IsTrue(BuildSelectionView(fixture, subset, nameof(LibraryChartRow.path), ChartListSourceProjectionMode.DuplicateCurrent));
             var table = new CustomTableView { ItemsSource = fixture.View, SelectedIndex = 1 };
@@ -170,7 +170,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 ChartFile parsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chart.Path));
                 return chart with { Sha256 = parsed.Sha256 };
             }).ToArray();
-            new BmsLibraryDbGateway(path).UpsertSongs(charts);
+            new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), path).UpsertSongs(charts);
             fixture.Library.BmsCharts = charts;
             DeliverSelectionChanges(fixture);
             charts = fixture.Library.CaptureNormalLibraryChartSnapshot().BmsRows.ToArray();

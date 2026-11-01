@@ -73,11 +73,13 @@ internal static class MainWindowViewModelTestFactory
     }
 
     /// <summary>独立fixture、または既存実画面と同じcompositionのL/Pでライブラリを作成します。</summary>
+    /// <param name="databaseScope">実Attach先のcomposition、または独立fixtureが共有するDB所有者。</param>
     /// <param name="owner">実Attach先の画面。省略時は独立fixtureです。</param>
-    internal static TestBmsLibrary CreateLibrary(string songDbPath, Settings settings, MainWindowViewModel? owner = null)
+    internal static TestBmsLibrary CreateLibrary(ApplicationDatabaseScope databaseScope, string songDbPath, Settings settings, MainWindowViewModel? owner = null)
     {
         ApplicationComposition? composition = owner == null ? null : GetComposition(owner);
         return new TestBmsLibrary(
+            databaseScope,
             songDbPath,
             getLR2Config: settings.OperationModeLR2DB && !string.IsNullOrWhiteSpace(settings.LR2ConfigXmlPath)
                 ? composition?.ResolveLr2Config(settings.LR2ConfigXmlPath) ?? new Lr2ConfigOwner(new LR2Config(settings.LR2ConfigXmlPath)) : null,
@@ -97,8 +99,10 @@ internal static class MainWindowViewModelTestFactory
             ?.GetValue(owner) ?? throw new InvalidOperationException("Actual main-window composition is unavailable."));
 
     /// <summary>専用設定と任意のスコア読取りを接続し、実起動では同libraryの型付き能力とPを共有します。</summary>
+    /// <param name="databaseScope">独立fixtureが共有するDB所有者。library指定時はlibrary自身の所有者を使います。</param>
     /// <param name="library">実起動factoryの所有ライブラリ。純粋な独立port fixtureでは省略します。</param>
     internal static TestBmsPlaylist CreatePlaylist(
+        ApplicationDatabaseScope databaseScope,
         string songDbPath,
         Settings settings,
         Lr2ConfigOwner? getLr2Config = null,
@@ -117,6 +121,7 @@ internal static class MainWindowViewModelTestFactory
                 recommendationScoreReader);
         }
         return new TestBmsPlaylist(
+            databaseScope,
             songDbPath,
             getLr2Config: getLr2Config,
             scoreDbPath: null,

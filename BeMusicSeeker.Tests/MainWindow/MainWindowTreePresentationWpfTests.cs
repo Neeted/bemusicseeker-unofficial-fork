@@ -30,11 +30,12 @@ public sealed class MainWindowTreePresentationWpfTests
     [TestMethod]
     public void InstalledPackageCompiledHeaderPublishesTitleOnlyAfterOwnerRelease()
     {
+        var databaseScope = new ApplicationDatabaseScope();
         BmsLibraryStateApplierTestSupport.WithTemporarySongDb(songDbPath =>
         {
             MainWindowPresentationTestHarness.RunConstructorOnly(MainWindowViewModelTestFactory.CreateIsolatedSettings(), (_, window) =>
             {
-                var owner = new PackageLifecycleOwner(new BmsLibraryDbGateway(songDbPath),
+                var owner = new PackageLifecycleOwner(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                     new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), _ => { },
                     packages => new System.Collections.ObjectModel.ObservableCollection<ChartPackage>(packages ?? []), () => { }, _ => { });
                 ChartFile before = ChartTestValues.Empty(ChartFileKind.Bms) with
