@@ -1835,7 +1835,7 @@ internal sealed class PlaylistSummaryPresentationIdentity : IEquatable<PlaylistS
 }
 
 /// <summary>採用済み行・表参照/位置索引・件数を同じ寿命で保持し、一括採用と局所編集を接続します。</summary>
-internal sealed class PlaylistSummaryVersionedCollection : ObservableCollection<PlaylistSummaryRow>, ICustomTableSelectionIdentitySource
+internal sealed class PlaylistSummaryVersionedCollection : ObservableCollection<PlaylistSummaryRow>, ICustomTableAutomationSource
 {
     private readonly Dictionary<BMSTable, (PlaylistSummaryRow Row, int Index)> rowsByTable = new(ReferenceEqualityComparer.Instance);
 
@@ -1862,6 +1862,24 @@ internal sealed class PlaylistSummaryVersionedCollection : ObservableCollection<
 
     /// <summary>同じsummary表示の更新だけを同一文脈とします。</summary>
     public bool SharesSelectionIdentityScope(ICustomTableSelectionIdentitySource other) => ReferenceEquals(this, other);
+
+    /// <inheritdoc/>
+    public CustomTableAutomationItem? GetAutomationItem(int index)
+        => index >= 0 && index < Count && Items[index]?.TableRef is BMSTable table
+            ? new(table, "playlist:" + CustomTableAutomationId.Part(Items[index].PlaylistId?.ToString(System.Globalization.CultureInfo.InvariantCulture))) : null;
+
+    /// <inheritdoc/>
+    public int IndexOfAutomationIdentity(object identity)
+        => identity is BMSTable table && rowsByTable.TryGetValue(table, out (PlaylistSummaryRow Row, int Index) entry) ? entry.Index : -1;
+
+    /// <inheritdoc/>
+    public int FindAutomationItem(string automationId, int startAfterIndex)
+    {
+        if (startAfterIndex >= Count - 1) { return -1; }
+        for (int index = Math.Max(-1, startAfterIndex) + 1; index < Count; index++)
+        { if (string.Equals(GetAutomationItem(index)?.AutomationId, automationId, StringComparison.Ordinal)) { return index; } }
+        return -1;
+    }
 
     internal long Version { get; private set; }
 

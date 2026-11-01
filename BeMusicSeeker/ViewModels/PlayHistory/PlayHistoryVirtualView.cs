@@ -7,7 +7,7 @@ using BeMusicSeeker.Views;
 
 namespace BeMusicSeeker.ViewModels;
 
-internal sealed class PlayHistoryVirtualView : IList, IChartListViewMetadata, ICustomTableSelectionIdentitySource
+internal sealed class PlayHistoryVirtualView : IList, IChartListViewMetadata, ICustomTableAutomationSource
 {
     private IReadOnlyList<PlayHistoryRow> rows;
 
@@ -57,6 +57,28 @@ internal sealed class PlayHistoryVirtualView : IList, IChartListViewMetadata, IC
             && ReferenceEquals(sourceSnapshot, after.sourceSnapshot)
             && PlayHistoryWorkflowOwner.IsSamePeriod(period, after.period)
             && string.Equals(displayTargetIdentity, after.displayTargetIdentity, StringComparison.Ordinal);
+
+    /// <inheritdoc/>
+    public CustomTableAutomationItem? GetAutomationItem(int index)
+    {
+        if (index < 0 || index >= Count) { return null; }
+        PlayHistoryRow row = rows[index];
+        object identity = GetSelectionIdentity(index);
+        return identity == null ? null : new(identity, "history:" + row.Provider + ":"
+            + CustomTableAutomationId.Part(row.SourcePath) + ":" + row.SourceKey);
+    }
+
+    /// <inheritdoc/>
+    public int IndexOfAutomationIdentity(object identity) => IndexOfSelectionIdentity(identity);
+
+    /// <inheritdoc/>
+    public int FindAutomationItem(string automationId, int startAfterIndex)
+    {
+        if (startAfterIndex >= Count - 1) { return -1; }
+        for (int index = Math.Max(-1, startAfterIndex) + 1; index < Count; index++)
+        { if (string.Equals(GetAutomationItem(index)?.AutomationId, automationId, StringComparison.Ordinal)) { return index; } }
+        return -1;
+    }
 
     public int Count => rows.Count;
 

@@ -345,6 +345,7 @@ public sealed class MainChartListViewModel : ViewModel
     /// </summary>
     internal event EventHandler<MainChartListSortRequestedEventArgs> SortRequested;
 
+    /// <summary>現在文脈の編集能力をpureに評価します。照会でも使うため、購読側は編集開始・受付保存を行いません。</summary>
     internal event EventHandler<MainChartListCellEditBeginningEventArgs> CellEditBeginningRequested;
 
     internal event EventHandler<MainChartListCellEditContext> CellEditStarted;
@@ -524,17 +525,36 @@ public sealed class MainChartListViewModel : ViewModel
         SortRequested?.Invoke(this, new MainChartListSortRequestedEventArgs(columnName, direction, sortTarget));
     }
 
+    /// <summary>現在文脈の編集可否だけを照会し、受付中・編集中のセルを変更しません。</summary>
+    internal bool CanBeginCellEdit(object row, string propertyName)
+    {
+        return EvaluateCellEdit(CreateCellEditContext(row, propertyName));
+    }
+
+    /// <summary>照会と同じ判断を実開始時に再評価し、受理したセルだけを開始通知へ引き渡します。</summary>
     internal bool TryBeginCellEdit(object row, string propertyName)
     {
+        return TryBeginCellEditCore(CreateCellEditContext(row, propertyName));
+    }
+
+    private MainChartListCellEditContext CreateCellEditContext(object row, string propertyName)
+    {
         MainChartListOperationContext context = CurrentOperationContext;
-        return TryBeginCellEditCore(new MainChartListCellEditContext(
+        return new MainChartListCellEditContext(
             row,
             propertyName,
             context.SourceScope,
-            context.OperationSection));
+            context.OperationSection);
     }
 
     private bool TryBeginCellEditCore(MainChartListCellEditContext context)
+    {
+        bool accepted = EvaluateCellEdit(context);
+        pendingCellEditContext = accepted ? context : null;
+        return accepted;
+    }
+
+    private bool EvaluateCellEdit(MainChartListCellEditContext context)
     {
         if (context == null)
         {
@@ -542,7 +562,6 @@ public sealed class MainChartListViewModel : ViewModel
         }
         var request = new MainChartListCellEditBeginningEventArgs(context);
         CellEditBeginningRequested?.Invoke(this, request);
-        pendingCellEditContext = request.Accepted ? context : null;
         return request.Accepted;
     }
 

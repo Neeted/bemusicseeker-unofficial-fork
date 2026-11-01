@@ -148,6 +148,14 @@ internal sealed class OwnedChartCollectionView
     internal int OwnerPathCount => paths.Values.Sum(index => index.Count);
     internal int Count => BmsCharts.Count + BmsonCharts.Count;
 
+    /// <summary>捕捉時の既存exact path索引でtokenを読み取り、ownerの後続状態へ接続しません。</summary>
+    internal bool TryGetToken(ChartFileKind kind, string path, out OwnedChartToken token)
+    {
+        token = null;
+        return path != null && paths.TryGetValue(kind, out ImmutableDictionary<string, OwnedChartToken> index)
+            && index.TryGetValue(path, out token);
+    }
+
     /// <summary>DBの識別に使う、未加工のexact pathだけを照合します。</summary>
     internal bool ContainsOwnerPath(string path) => !string.IsNullOrWhiteSpace(path) && paths.Values.Any(index => index.ContainsKey(path));
 

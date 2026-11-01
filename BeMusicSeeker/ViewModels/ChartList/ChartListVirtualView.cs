@@ -10,7 +10,7 @@ using BeMusicSeeker.Views;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>通常一覧はtokenと局所更新可能な順序、専用一覧は捕捉添字を使い、訪問行だけを実体化します。</summary>
-internal sealed class ChartListVirtualView : IList, IChartListViewMetadata, INotifyCollectionChanged, ICustomTableSelectionIdentitySource
+internal sealed class ChartListVirtualView : IList, IChartListViewMetadata, INotifyCollectionChanged, ICustomTableAutomationSource
 {
     private readonly IReadOnlyList<ChartListSourceRow> sourceRows;
     private readonly IReadOnlyList<int> orderedIndexes;
@@ -25,6 +25,7 @@ internal sealed class ChartListVirtualView : IList, IChartListViewMetadata, INot
     private int scorePosition;
     private readonly int distinctFolderCount;
     private readonly object selectionScope;
+    private readonly string automationScope;
 
     /// <summary>初回の整列結果を採用し、以後は同じ元集合の実差分だけを反映します。専用一覧の参照入力も捕捉位置とともに受け取ります。selectionScopeは元集合を表す変更不能なキーで、未指定時は別viewへの選択復元を許可しません。</summary>
     internal ChartListVirtualView(IReadOnlyList<ChartListSourceRow> sourceRows, ChartListOrder order,
@@ -34,6 +35,8 @@ internal sealed class ChartListVirtualView : IList, IChartListViewMetadata, INot
         ChartListReferenceInput referenceInput = null, int catalogRevision = 0, object selectionScope = null)
     {
         this.selectionScope = selectionScope;
+        string scopeKey = CustomTableAutomationId.Scope(selectionScope);
+        automationScope = scopeKey == null ? null : CustomTableAutomationId.Part(scopeKey);
         if (referenceInput != null && sourceRows is not NormalLibrarySourceRows)
         { subsetReferences = new(sourceRows ?? [], referenceInput, catalogRevision, observeWork); }
         this.sourceRows = subsetReferences ?? sourceRows ?? [];
@@ -78,6 +81,63 @@ internal sealed class ChartListVirtualView : IList, IChartListViewMetadata, INot
     /// <inheritdoc/>
     public bool SharesSelectionIdentityScope(ICustomTableSelectionIdentitySource other)
         => other is ChartListVirtualView view && selectionScope != null && Equals(selectionScope, view.selectionScope);
+
+    /// <inheritdoc/>
+    public CustomTableAutomationItem? GetAutomationItem(int index)
+    {
+        if (automationScope == null || index < 0 || index >= Count) { return null; }
+        if (normalOrder != null)
+        {
+            OwnedChartToken token = GetNormalTokenAt(index);
+            return NormalInput.Snapshot.TryGetChart(token, out ChartFile chart, out _)
+                ? new(token, AutomationId(chart.Kind, chart.Path)) : null;
+        }
+        ChartListSourceRow source = sourceRows[subsetOrder?.SourceIndexAt(index) ?? orderedIndexes[index]];
+        object identity = (object)source.PackageEntry ?? (object)source.Token ?? source;
+        return new(identity, AutomationId(source.Kind, source.Path));
+    }
+
+    /// <inheritdoc/>
+    public int IndexOfAutomationIdentity(object identity)
+    {
+        if (normalOrder != null) { return identity is OwnedChartToken token ? IndexOfNormalToken(token) : -1; }
+        object selection = identity is ChartListSourceRow source ? source.SelectionIdentity : identity;
+        int index = subsetOrder?.IndexOfIdentity(selection) ?? -1;
+        if (subsetOrder == null)
+        {
+            for (int position = 0; position < Count; position++)
+            {
+                if (ReferenceEquals(GetAutomationItem(position)?.Identity, identity)) { return position; }
+            }
+            return -1;
+        }
+        return index >= 0 && ReferenceEquals(GetAutomationItem(index)?.Identity, identity) ? index : -1;
+    }
+
+    /// <inheritdoc/>
+    public int FindAutomationItem(string automationId, int startAfterIndex)
+    {
+        if (automationScope == null || startAfterIndex >= Count - 1) { return -1; }
+        if (normalOrder == null)
+        {
+            for (int index = Math.Max(-1, startAfterIndex) + 1; index < Count; index++)
+            { if (string.Equals(GetAutomationItem(index)?.AutomationId, automationId, StringComparison.Ordinal)) { return index; } }
+            return -1;
+        }
+        string prefix = "chart:" + automationScope + ":";
+        if (automationId == null || !automationId.StartsWith(prefix, StringComparison.Ordinal)) { return -1; }
+        string[] parts = automationId[prefix.Length..].Split(':');
+        if (parts.Length != 2 || !Enum.TryParse(parts[0], out ChartFileKind kind)) { return -1; }
+        string path;
+        try { path = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(parts[1])); }
+        catch (FormatException) { return -1; }
+        if (!NormalInput.Snapshot.TryGetToken(kind, path, out OwnedChartToken token)) { return -1; }
+        int position = IndexOfNormalToken(token);
+        return position > startAfterIndex ? position : -1;
+    }
+
+    private string AutomationId(ChartFileKind kind, string path)
+        => "chart:" + automationScope + ":" + kind + ":" + CustomTableAutomationId.Part(path);
 
     /// <summary>例外や早期returnでも、変更済みの最終順序に対して選択復元を終えます。</summary>
     private sealed class SelectionUpdateScope(ChartListVirtualView view) : IDisposable

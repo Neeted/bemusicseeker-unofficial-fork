@@ -9,7 +9,7 @@ using BeMusicSeeker.Views;
 
 namespace BeMusicSeeker.ViewModels;
 
-internal sealed class PlaylistDetailVirtualView : IList, IChartListViewMetadata, INotifyCollectionChanged, ICustomTableSelectionIdentitySource
+internal sealed class PlaylistDetailVirtualView : IList, IChartListViewMetadata, INotifyCollectionChanged, ICustomTableAutomationSource
 {
     private ImmutableList<PlaylistDetailSourceRow> sourceRows;
     // 順序木は捕捉した比較キーを保ち、編集中の最新表示投影だけをこちらで置換します。
@@ -46,6 +46,30 @@ internal sealed class PlaylistDetailVirtualView : IList, IChartListViewMetadata,
             && currentIdentity is PlaylistRequestIdentity before && view.currentIdentity is PlaylistRequestIdentity after
             && ReferenceEquals(before.Table, after.Table) && before.SelectionScope == after.SelectionScope
             && string.Equals(before.FolderName, after.FolderName, StringComparison.Ordinal) && before.FilterType == after.FilterType;
+
+    /// <inheritdoc/>
+    public CustomTableAutomationItem? GetAutomationItem(int index)
+    {
+        if (index < 0 || index >= Count) { return null; }
+        PlaylistDetailSourceRow row = sourceRows[index];
+        return new(row.Entry, "playlist-entry:" + CustomTableAutomationId.Part(
+            (currentIdentity?.Table ?? row.Entry.parent)?.playlist_id?.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            + ":" + row.EntryOrder.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    /// <inheritdoc/>
+    public int IndexOfAutomationIdentity(object identity)
+        => identity is BMSTableEntry entry && entries.TryGetValue(entry, out PlaylistDetailSourceRow row)
+            ? currentIdentity.HasValue ? Find(row, currentIdentity.Value) : sourceRows.IndexOf(row) : -1;
+
+    /// <inheritdoc/>
+    public int FindAutomationItem(string automationId, int startAfterIndex)
+    {
+        if (startAfterIndex >= Count - 1) { return -1; }
+        for (int index = Math.Max(-1, startAfterIndex) + 1; index < Count; index++)
+        { if (string.Equals(GetAutomationItem(index)?.AutomationId, automationId, StringComparison.Ordinal)) { return index; } }
+        return -1;
+    }
 
     private readonly int distinctFolderCount;
     private readonly Dictionary<string, int> folderCounts = new(StringComparer.OrdinalIgnoreCase);

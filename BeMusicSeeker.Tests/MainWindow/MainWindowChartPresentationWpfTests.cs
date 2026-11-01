@@ -7,6 +7,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
@@ -29,6 +31,84 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class MainWindowChartPresentationWpfTests
 {
+    /// <summary>compiled表の安定ID・表示種別/言語に応じた既存表示名・patternと編集可否を既存ownerへ接続し、readonly照会が編集開始・確定を発行しないことを確認します。</summary>
+    [TestMethod]
+    public void CompiledTables_ExposeAutomationPatternsAndPureOwnerEditAvailability()
+    {
+        WithSimpleTextBoxStyles(() => MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(), (scope, viewModel, window) =>
+            {
+                window.Width = 1000d; window.Height = 700d;
+                MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+                var table = (CustomTableView)window.FindName("customTableView");
+                var summary = (CustomTableView)window.FindName("customTablePlaylistSummary");
+                AutomationPeer root = UIElementAutomationPeer.CreatePeerForElement(table) ?? throw new AssertFailedException("譜面一覧peerがありません。");
+                AutomationPeer summaryPeer = UIElementAutomationPeer.CreatePeerForElement(summary) ?? throw new AssertFailedException("概要一覧peerがありません。");
+                Assert.AreEqual("MainChartTable", root.GetAutomationId());
+                Assert.AreEqual(Resources.Library, root.GetName());
+                Assert.AreEqual("PlaylistSummaryTable", summaryPeer.GetAutomationId());
+                Assert.AreEqual(Resources.Playlist, summaryPeer.GetName());
+                foreach (AutomationPeer peer in new[] { root, summaryPeer })
+                {
+                    Assert.IsInstanceOfType<ISelectionProvider>(peer.GetPattern(PatternInterface.Selection));
+                    Assert.IsInstanceOfType<IScrollProvider>(peer.GetPattern(PatternInterface.Scroll));
+                    Assert.IsInstanceOfType<IItemContainerProvider>(peer.GetPattern(PatternInterface.ItemContainer));
+                    Assert.IsNull(peer.GetPattern(PatternInterface.Grid));
+                    Assert.IsNull(peer.GetPattern(PatternInterface.Table));
+                }
+                CultureInfo? previousCulture = Resources.Culture;
+                bool previousDetailActive = viewModel.PlaylistWorkspace.IsPlaylistDetailViewActive;
+                try
+                {
+                    ResourceService.Current.ChangeCulture("ja-JP");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(Resources.Library, root.GetName());
+                    viewModel.PlaylistWorkspace.IsPlaylistDetailViewActive = true;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(Resources.Playlist, root.GetName());
+                    viewModel.PlaylistWorkspace.IsPlaylistDetailViewActive = false;
+                    viewModel.PlayHistory.BeginRequest(PlayHistoryPeriodRequest.All(), string.Empty,
+                        viewModel.PlayHistory.SelectedDisplayTargetIdentity, viewModel.PlayHistory.DisplayTargetRevision);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(Resources.Play_history_tree_root, root.GetName());
+                    ResourceService.Current.ChangeCulture("en-US");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(Resources.Play_history_tree_root, root.GetName());
+                    Assert.AreEqual(Resources.Playlist, summaryPeer.GetName());
+                    viewModel.PlayHistory.Deactivate();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(Resources.Library, root.GetName());
+                    Assert.AreEqual("MainChartTable", root.GetAutomationId());
+                }
+                finally
+                {
+                    viewModel.PlayHistory.Deactivate();
+                    viewModel.PlaylistWorkspace.IsPlaylistDetailViewActive = previousDetailActive;
+                    ResourceService.Current.ChangeCulture(previousCulture?.Name ?? "en-US");
+                    Resources.Culture = previousCulture;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                }
+                var entry = PackageChartEntry.FromChart(ChartTestValues.Empty() with { Path = @"C:\uia-compiled\chart.bms" });
+                var row = LibraryChartRow.FromPackageChartEntry(entry);
+                ChartListSourceRow[] sources = [.. ChartListSourceRow.BuildPackageRows([entry])];
+                table.ItemsSource = new ChartListVirtualView(sources, ChartListOrder.CreateTitleAscending(sources), _ => row, selectionScope: "compiled-uia");
+                var settings = new CustomTableColumnSettings(); settings.InstallDst.Visibility = Visibility.Visible;
+                table.Columns = [.. CustomTableColumnFactory.CreateMainColumns(settings).Where(column => column.Id == "InstallDst")];
+                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
+                MaterializeTable(table, 900d, 220d);
+                int started = 0, completed = 0;
+                viewModel.MainChartList.CellEditStarted += (_, _) => started++;
+                viewModel.MainChartList.CellEditEndedRequested += (_, _) => completed++;
+                AutomationPeer cell = root.GetChildren().Single(child => child.GetAutomationControlType() == AutomationControlType.ListItem).GetChildren().Single();
+                var value = (IValueProvider)cell.GetPattern(PatternInterface.Value);
+                Assert.IsFalse(value.IsReadOnly);
+                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PlayHistorySelected);
+                Assert.IsTrue(value.IsReadOnly);
+                Assert.AreEqual(0, started); Assert.AreEqual(0, completed);
+                table.ItemsSource = null;
+            }));
+    }
+
     /// <summary>譜面一覧の並びに非依存の実score変更ではResetを送らず、同じ実editorと未確定文字列を保ち、選択復元が編集確定を引き起こす誤りを検出します。</summary>
     [TestMethod]
     public void ChartScoreValueChange_KeepsActiveEditorAndUncommittedText()

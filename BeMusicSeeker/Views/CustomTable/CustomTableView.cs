@@ -61,7 +61,7 @@ internal enum CustomTableKeyboardCommand
     CopySelectedRowsTsv
 }
 
-public sealed class CustomTableView : Grid
+public sealed partial class CustomTableView : Grid
 {
     internal const double CellTextHorizontalPadding = 2d;
     private const double ColumnResizeHitTestMargin = 4d;
@@ -1189,6 +1189,7 @@ public sealed class CustomTableView : Grid
     {
         pendingRedrawReason = NormalizeRedrawReason(reason);
         surface.InvalidateVisual();
+        NotifyAutomationChanged(reason);
     }
 
     internal string ConsumeRedrawReason()
@@ -2308,6 +2309,7 @@ public sealed class CustomTableView : Grid
         textBox.TextChanged += ActiveEditorTextChanged;
         editorLayer.Children.Add(textBox);
         CellEditStarted?.Invoke(this, new CustomTableCellEditStartedEventArgs(hit, hit.Column.EditPropertyName));
+        NotifyAutomationChanged("editor_started");
         UpdateEditSuggestions();
         textBox.Focus();
         if (replacementText == null)
@@ -2345,6 +2347,8 @@ public sealed class CustomTableView : Grid
             DataContext = hit.Row
         };
         ApplyCellEditorTheme(textBox);
+        System.Windows.Automation.AutomationProperties.SetAutomationId(textBox, "CellEditor");
+        System.Windows.Automation.AutomationProperties.SetName(textBox, hit.Column.Header ?? string.Empty);
         return textBox;
     }
 

@@ -329,6 +329,26 @@ DPIは変更コールバックと描画開始時の環境確認で追従しま�
 
 差替え待ちと空一覧では本文を描かず、旧行のセル群を表示へ戻しません。行単位のスクロール、tooltip・編集・ドラッグなどの入力契約は維持します。横スクロールでは可視行のセル群を作り直し、全列の先行描画や専用のアイコン・Geometryキャッシュは追加しません。
 
+### UI Automation による操作
+
+`CustomTableView` は表の `Selection`、`Scroll`、`ItemContainer` を公開します。表と列には表示言語に依存しない `AutomationId` を付け、`Name` は画面上の名称・表示値に対応させます。`Grid`・`Table` pattern は提供しません。行は `SelectionItem`、`ScrollItem` と、画面外の項目を利用可能にする `VirtualizedItem` を公開します。
+
+行の識別は表示添字や表示名から独立させます。通常譜面は元集合の文脈と形式・exact path、プレイリスト詳細は表と生存 entry、履歴は provider・取得元と raw record、プレイリスト一覧は生存する表を使います。プレイリストに永続的な entry ID は追加せず、既存の entry 参照と基準順序で画面内の寿命を区別します。再起動時は保存済みの対象情報から探し直し、同値の entry は値と件数を照合します。`RuntimeId` のプロセス間一致は要求しません。
+
+通常譜面の検索は、表示が捕捉した snapshot の既存 exact-path 索引から token を解決し、その表示の索引で位置を照合します。新しい owner の現在値や同位置の行へ読み替えません。同じ表示文脈での並べ替え・投影交換では生存する同じ対象へ接続し、別文脈への遷移・削除・対象消失では旧 row／cell provider を無効にします。同じ path や添字に新しい行が現れても、旧 provider の操作は失敗し、新しい行を変更しません。
+
+`ItemContainer` の識別検索だけでは選択とスクロールを変えません。検索結果の `Realize` と `ScrollIntoView` は対象および新しい可視範囲だけを実体化し、中間行の実体化や全行 control の生成を行いません。`GetSelection` は画面外を含む選択集合全体を返しますが、選択識別から provider を取得し、行の投影を生成しません。明示的な全選択問い合わせに必要な返却配列は選択件数相応になります。問い合わせ前の全行 peer 生成や恒久的な全行 UIA 索引は持ちません。
+
+表の行 peer の子集合は、可視行と `ItemContainer`／`GetSelection` から明示要求された未実体化 placeholder です。返却する placeholder 自身を標準の親子構造へ接続し、構造変更を通知します。要求された provider を client が保持している間は、次の検索・viewport 更新だけでは生存対象を失効させません。不要になった placeholder は、表の検索・選択取得の入口または viewport・source 更新時に剪定します。無操作中の GC 直後や WPF の raw navigation だけによる即時回収は保証しません。過去の全要求を恒久的な子集合として蓄積せず、実保持中の要求件数に応じて保持します。
+
+削除等で失効した row／cell は、自作のプロパティ取得と pattern 操作で利用不可を返します。WPF が管理する `Parent` や `RuntimeId` まで、すべての raw fragment 呼出しが失敗する保証には広げません。
+
+セルの `Value` は表示値と読取り専用状態を公開します。編集可否の問い合わせは編集を開始・予約せず、既存の編集許可判定を使います。セルの `SetValue` は既存の開始判定、実際の TextBox、確定処理を一回通し、モデルへ直接代入しません。TAG 等の読取り専用列、通常譜面に MEMO 編集を持たないこと、外部同期中のプレイリスト詳細で MEMO だけを編集できる条件を維持します。`SetValue` の復帰は非同期保存の成功を意味せず、確定値・保存終端を別に観測します。
+
+通常入力で開いた子 TextBox の `Value` 変更は編集中の候補です。Enter による確定、Escape による取消し、候補一覧がある場合に最初の Escape で候補だけを閉じる動作は既存の編集仕様に従います。選択・値・構造の変更は UIA 通知へ反映します。通知の細かな順序や件数を操作結果の代わりにしません。
+
+局所 WPF 検証は識別情報の生産、実 control／editor への接続、仮想化と旧 provider の失効を担当します。外部 UIA client による通知受信、本番構成の保存・正常終了・再起動は別の受入境界で確認し、局所 provider 呼出しの成功だけで確認済みにはしません。
+
 ### 外観の更新
 
 コード描画には `CustomTablePalette` がテーマのリソースを描画用の色と線へ変換します。テーマ変更時は描画色とキャッシュを更新します。内蔵スクロールバーも共通の `ScrollBar.*` リソースへ従います。
@@ -336,6 +356,13 @@ DPIは変更コールバックと描画開始時の環境確認で追従しま�
 一覧ヘッダーの上端には `Table.HeaderGridLineBrush` による1 DIPの線を表示幅全体へ描画します。線の中心は上端から0.5 DIPに置き、端で半分が欠けることを避けます。通常一覧・プレイリスト概要とも、保留・プレイログの追加ツールバーや表示列・データ行の有無によらず上枠を表示し、追加ツールバー側には下枠を重ねません。データ行の罫線・行高・スクロール計算は維持します。
 
 ## 実装とテストの対応
+
+| UI Automation の条件 | 実装 | 検証の分担 |
+| --- | --- | --- |
+| 元集合の識別、同 path の別対象、表・entry・履歴の区別 | `ICustomTableAutomationSource`、各 virtual view、捕捉済み `CatalogChartCollectionSnapshot` | `CustomTableAutomationIdentityTests` は実 source で scope・対象の識別、旧 snapshot の独立性、生存参照、非実体化を確認する。 |
+| 画面外検索・選択取得、placeholder の親接続、Realize、両軸スクロール、削除後の失効 | `CustomTableView.Automation.cs` | `CustomTableAutomationPeerTests` は所有 Window の標準 automation root と実 provider を使い、行集合・選択・offset・実体化数・旧 provider の拒否を確認する。内部 GC 時機や cache 個数は固定しない。 |
+| 編集可否照会、実 editor、確定・取消、読取り専用 | 同 peer と `MainChartListViewModel.CanBeginCellEdit`、既存編集イベント | 同テストの編集ケースは実 TextBox と開始・確定イベント、draft の取消、TAG・同期中 MEMO の許可を確認する。validation と保存終端の条件差は既存 Editing／Playlist 系列へ分担する。 |
+| compiled 画面の ID・Name・pattern と編集受付接続 | `MainWindow.xaml`、既存 main chart 編集端末 | `MainWindowChartPresentationWpfTests.CompiledTables_ExposeAutomationPatternsAndPureOwnerEditAvailability` は実 compiled 表から確認する。外部 client の通知受信・本番保存・再起動は別の受入境界とする。 |
 
 | ツリードロップ・ホバーの条件 | 実装 | 検証の分担 |
 | --- | --- | --- |

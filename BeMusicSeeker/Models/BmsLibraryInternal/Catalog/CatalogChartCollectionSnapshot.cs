@@ -72,6 +72,12 @@ internal sealed class CatalogChartCollectionSnapshot
 
     /// <summary>捕捉済みの既存exact path索引で表示行cacheの所属を検査します。行getterの現在値解決には使いません。</summary>
     internal bool ContainsChart(ChartFile chart) => collectionView?.ContainsChart(chart) == true;
+    /// <summary>捕捉済みの既存exact path辞書からtokenを読み取ります。新しい索引や全件コピーは作りません。</summary>
+    internal bool TryGetToken(ChartFileKind kind, string path, out OwnedChartToken token)
+    {
+        token = null;
+        return collectionView?.TryGetToken(kind, path, out token) == true;
+    }
     /// <summary>捕捉した同じ不変rootから、tokenの現在値とBMS/BMSON連結順の位置を対数時間で取得します。</summary>
     internal bool TryGetChart(OwnedChartToken token, out ChartFile chart, out int canonicalPosition)
     {
