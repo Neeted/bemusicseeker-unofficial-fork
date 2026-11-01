@@ -160,6 +160,7 @@ public partial class App : System.Windows.Application
                 var composition = new ApplicationComposition(
                     runtimeOptions: applicationRuntimeOptions,
                     settingsDialogService: scenarioControl?.Dialogs,
+                    fileDbMutationDialogService: scenarioControl?.Dialogs,
                     playlistWorkspaceDialogService: scenarioControl?.Dialogs,
                     rootFileEnumerator: applicationRuntimeOptions.TestSession == null ? null : new FastRootFileEnumerator(),
                     chartFileScanner: applicationRuntimeOptions.TestSession == null ? null : new FastDirectoryFileScanner(),

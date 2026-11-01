@@ -17,7 +17,7 @@ using BeMusicSeeker.Views.Dialogs;
 namespace BeMusicSeeker.Runtime;
 
 /// <summary>明示sessionでarmした既知の一入力だけを消費します。その他のdialogは通常の所有者付き表示へ委譲します。</summary>
-internal sealed class ApplicationScenarioDialogs : IUiDialogService
+internal sealed partial class ApplicationScenarioDialogs : IUiDialogService
 {
     private readonly IUiDialogService inner = new UiDialogCoordinator();
     private object? pending;
@@ -56,7 +56,7 @@ internal sealed class ApplicationScenarioDialogs : IUiDialogService
             return new(UiDialogStatus.Accepted, (TResult)(object)paths, true);
         }
         object? input = (typeof(TWindow) == typeof(PlaylistPropertyDialog) && pending is PropertyInput)
-            || (typeof(TWindow) == typeof(SettingsWindow) && pending is SettingsInput) ? pending : null;
+            || (typeof(TWindow) == typeof(SettingsWindow) && pending is SettingsInput or SqlInput) ? pending : null;
         if (input is null) { return await inner.ShowWindowAsync(request, cancellationToken); }
         pending = null;
         Exception? inputFailure = null;
@@ -79,20 +79,41 @@ internal sealed class ApplicationScenarioDialogs : IUiDialogService
                 }
             }
         }, request.CreateResult, request.Owner), cancellationToken);
-        await inputTask;
+        // SQLの実handlerはmodalを閉じた後にもUI継続を持ちます。同期のShowSettingsWindowへ先に帰還し、
+        // 同じhandlerの終端・入力消費・元例外はExecuteAsyncが保持するSqlInput.Completionだけで回収します。
+        if (input is SqlInput) { return result; }
+        // modal帰還後の呼出元は同期境界なので、入力の実終端回収だけをUIへ再配送しません。
+        await inputTask.ConfigureAwait(false);
         if (inputFailure is not null) { throw new InvalidOperationException("The declared dialog input failed.", inputFailure); }
         return result;
     }
 
-    private static async Task ApplyAfterPresentationAsync(Window window, object input)
+    private async Task ApplyAfterPresentationAsync(Window window, object input)
     {
         // SettingsWindowはbaseのContentRendered通知後にpresentationを有効化するため、そのoverrideの帰還後に入力します。
         await window.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Background);
-        await ApplyInputAsync(window, input);
+        // 入力はUI上で開始し、閉鎖後の空の継続はmodal帰還先の同期待ちへ依存させません。
+        await ApplyInputAsync(window, input).ConfigureAwait(false);
     }
 
-    private static async Task ApplyInputAsync(Window window, object input)
+    private async Task ApplyInputAsync(Window window, object input)
     {
+        if (window is SettingsWindow sqlWindow && input is SqlInput sql)
+        {
+            try
+            {
+                activeSql = sql;
+                if (sql.Restore) { await sqlWindow.HandlePlaylistRestoreAsync(); }
+                else { await sqlWindow.HandlePlaylistBackupAsync(); }
+                if (!sql.PathConsumed || (sql.Restore && (!sql.ConfirmationConsumed || !sql.RestoreSuccessConsumed || !sql.ExitNoticeConsumed)))
+                { throw new InvalidOperationException("The declared SQL dialog sequence did not complete."); }
+                if (!sql.Restore) { sqlWindow.Close(); }
+                sql.Completion.SetResult();
+            }
+            catch (Exception failure) { sql.Completion.TrySetException(failure); throw; }
+            finally { activeSql = null; }
+            return;
+        }
         if (window is PlaylistPropertyDialog property && input is PropertyInput values
             && property.DataContext is PlaylistPropertyDialogViewModel model)
         {
@@ -154,15 +175,27 @@ internal sealed class ApplicationScenarioDialogs : IUiDialogService
         internal TaskCompletionSource<ScenarioSettingsEditObservation> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
     /// <inheritdoc />
-    public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default) => inner.ShowMessageAsync(request, cancellationToken);
+    public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
+        => ShowRecoveryMessageAsync(request, cancellationToken);
     /// <inheritdoc />
-    public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default) => inner.ConfirmAsync(request, cancellationToken);
+    public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
+        => ConfirmRecoveryAsync(request, cancellationToken);
     /// <inheritdoc />
-    public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default) => inner.PickFileAsync(request, cancellationToken);
+    public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default)
+    {
+        if (activeSql is { Restore: true, ConfirmationConsumed: true, PathConsumed: false } sql && request.Title == Resources.Open_PlaylistBackup)
+        { sql.PathConsumed = true; return Task.FromResult(new UiFilePickerResult(UiDialogStatus.Accepted, [sql.Path])); }
+        return inner.PickFileAsync(request, cancellationToken);
+    }
     /// <inheritdoc />
     public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default) => inner.PickFolderAsync(request, cancellationToken);
     /// <inheritdoc />
-    public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default) => inner.PickSaveFileAsync(request, cancellationToken);
+    public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default)
+    {
+        if (activeSql is { Restore: false, PathConsumed: false } sql && request.Title == Resources.Save_PlaylistBackup)
+        { sql.PathConsumed = true; return Task.FromResult(new UiSaveFilePickerResult(UiDialogStatus.Accepted, sql.Path)); }
+        return inner.PickSaveFileAsync(request, cancellationToken);
+    }
     /// <inheritdoc />
     public Task<UiProgressResult> RunWithProgressAsync(UiProgressRequest request, Func<UiProgressContext, Task> operation, CancellationToken cancellationToken = default)
         => inner.RunWithProgressAsync(request, operation, cancellationToken);

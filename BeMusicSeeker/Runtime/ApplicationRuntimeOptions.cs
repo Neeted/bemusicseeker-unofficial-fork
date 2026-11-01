@@ -59,12 +59,13 @@ internal sealed class ApplicationRuntimeOptions
 internal sealed class ApplicationTestSession
 {
     /// <summary>起動入口で検証済みのmanifestと実行・通信の識別子を保持します。</summary>
-    internal ApplicationTestSession(string manifestPath, string runId, string caseId, string controlPipeName)
+    internal ApplicationTestSession(string manifestPath, string runId, string caseId, string controlPipeName, bool pendingSchemaConfirmation = false)
     {
         ManifestPath = manifestPath ?? throw new ArgumentNullException(nameof(manifestPath));
         RunId = runId ?? throw new ArgumentNullException(nameof(runId));
         CaseId = caseId ?? throw new ArgumentNullException(nameof(caseId));
         ControlPipeName = controlPipeName ?? throw new ArgumentNullException(nameof(controlPipeName));
+        PendingSchemaConfirmation = pendingSchemaConfirmation;
     }
 
     /// <summary>再起動後も読むmanifestの絶対パスを取得します。</summary>
@@ -78,4 +79,7 @@ internal sealed class ApplicationTestSession
 
     /// <summary>同じ検証実行で使う制御pipeの名前を取得します。</summary>
     internal string ControlPipeName { get; }
+
+    /// <summary>実schema確認を起動前から保留し、driverの明示回答を待つ固定入力です。</summary>
+    internal bool PendingSchemaConfirmation { get; }
 }

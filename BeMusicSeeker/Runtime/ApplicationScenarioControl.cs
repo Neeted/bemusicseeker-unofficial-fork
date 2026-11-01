@@ -54,6 +54,7 @@ internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
             await pipe.ConnectAsync().ConfigureAwait(false);
             // AutoFlushは設定時にもFlushするため、接続済みstreamにだけwriterを構成します。
             control = new ApplicationScenarioControl(pipe, dispatcher);
+            if (session.PendingSchemaConfirmation) { control.Dialogs.ArmSchemaConfirmation(); }
             await control.SendAsync(new ScenarioConnected(Environment.ProcessId)).ConfigureAwait(false);
             control.reading = control.ReadAsync();
             return control;
@@ -140,22 +141,38 @@ internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
         try
         {
             ScenarioMessage response;
+            Action? afterAcknowledged = null;
             try
             {
-                response = await dispatcher.InvokeAsync(() => ExecuteAsync(request), DispatcherPriority.Normal, stopping.Token)
-                    .Task.Unwrap().ConfigureAwait(false);
+                if (request is ScenarioSchemaAnswerCommand answer)
+                {
+                    afterAcknowledged = await dispatcher.InvokeAsync(() => Dialogs.PrepareSchemaAnswer(answer.Approve)).Task.ConfigureAwait(false);
+                    response = new ScenarioRecoveryAcknowledged(request.RequestId);
+                }
+                else
+                {
+                    response = await dispatcher.InvokeAsync(() => ExecuteAsync(request), DispatcherPriority.Normal, stopping.Token)
+                        .Task.Unwrap().ConfigureAwait(false);
+                }
             }
-            catch (Exception failure) when (!stopping.IsCancellationRequested)
+            catch (Exception failure) when (!stopping.IsCancellationRequested || request is ScenarioPlaylistSqlCommand)
             { response = new ScenarioCommandFailed(request.RequestId, ScenarioFailure.FromException(failure)); }
-            await SendAsync(response).ConfigureAwait(false);
+            // 復元の実handlerが通常終了を要求しても、その実Task終端の応答をDisposeが待つ同じcommandから返します。
+            await SendAsync(response, drainSqlTerminal: request is ScenarioPlaylistSqlCommand).ConfigureAwait(false);
+            afterAcknowledged?.Invoke();
         }
-        catch (OperationCanceledException) when (stopping.IsCancellationRequested) { }
-        catch (IOException) when (stopping.IsCancellationRequested) { }
-        catch (ObjectDisposedException) when (stopping.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (stopping.IsCancellationRequested && request is not ScenarioPlaylistSqlCommand) { }
+        catch (IOException) when (stopping.IsCancellationRequested && request is not ScenarioPlaylistSqlCommand) { }
+        catch (ObjectDisposedException) when (stopping.IsCancellationRequested && request is not ScenarioPlaylistSqlCommand) { }
     }
 
     private async Task<ScenarioMessage> ExecuteAsync(ScenarioCommand request)
     {
+        if (request is ScenarioSchemaConfirmationCommand)
+        {
+            await Dialogs.WaitForSchemaConfirmationAsync(stopping.Token);
+            return new ScenarioRecoveryAcknowledged(request.RequestId);
+        }
         MainWindowViewModel model = viewModel ?? throw new InvalidOperationException("The scenario shell is not attached.");
         if (request is ScenarioRegisterObservationCommand register) { return RegisterObservation(model, register); }
         if (request is ScenarioAwaitObservationCommand observe) { return await AwaitObservationAsync(observe); }
@@ -173,9 +190,17 @@ internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
         { return new ScenarioSnapshotCompleted(request.RequestId, CaptureSnapshot(model)); }
         if (!model.IsInitializationCompleted)
         { throw new InvalidOperationException("The library is not ready for this command."); }
+        if (request is ScenarioPlaylistSqlCommand sql)
+        {
+            Task operation = Dialogs.ArmPlaylistSql(sql.Path, sql.Restore);
+            model.SettingDialog.RequestOpen();
+            Dialogs.AssertConsumed();
+            await operation;
+            return new ScenarioRecoveryAcknowledged(request.RequestId);
+        }
         if (request is ScenarioPlaylistImportCommand or ScenarioPlaylistCreateCommand or ScenarioPlaylistSelectCommand
             or ScenarioPlaylistEditCommand or ScenarioPlaylistAddCommand or ScenarioPlaylistFolderCommand
-            or ScenarioPlaylistOrderCommand or ScenarioPlaylistExportCommand or ScenarioSettingsEditCommand)
+            or ScenarioPlaylistOrderCommand or ScenarioPlaylistExportCommand or ScenarioSettingsEditCommand or ScenarioPlaylistRemoveCommand)
         { return await ExecutePlaylistAsync(model, request); }
         if (request is ScenarioDropCommand drop) { return await DropAsync(model, drop); }
         if (request is ScenarioPackageViewCommand view) { return await NavigatePackagesAsync(model, view.RequestId, view.Pending); }
@@ -231,10 +256,11 @@ internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
     private static ScenarioChart CaptureChart(ChartFile chart)
         => new(chart.Path, chart.Md5, chart.Sha256, chart.Title, chart.Kind.ToString(), chart.Tag, chart.Favorite, chart.AddDate);
 
-    private async Task SendAsync(ScenarioMessage message)
+    private async Task SendAsync(ScenarioMessage message, bool drainSqlTerminal = false)
     {
-        await writeGate.WaitAsync(stopping.Token).ConfigureAwait(false);
-        try { await writer.WriteLineAsync(JsonSerializer.Serialize<ScenarioMessage>(message).AsMemory(), stopping.Token).ConfigureAwait(false); }
+        CancellationToken cancellation = drainSqlTerminal ? CancellationToken.None : stopping.Token;
+        await writeGate.WaitAsync(cancellation).ConfigureAwait(false);
+        try { await writer.WriteLineAsync(JsonSerializer.Serialize<ScenarioMessage>(message).AsMemory(), cancellation).ConfigureAwait(false); }
         finally { writeGate.Release(); }
     }
 

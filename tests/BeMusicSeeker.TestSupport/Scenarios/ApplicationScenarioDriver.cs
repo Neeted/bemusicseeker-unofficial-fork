@@ -48,7 +48,7 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
 
     /// <summary>初期化前から用意したpipeへ、指定された実製品exeだけを起動します。別buildの探索は行いません。</summary>
     internal static async Task<ApplicationScenarioDriver> StartAsync(string executablePath, string profileDirectory,
-        string manifestPath, string caseId, string updateManifestUrl, ProcessDeadline deadline)
+        string manifestPath, string caseId, string updateManifestUrl, ProcessDeadline deadline, bool pendingSchemaConfirmation = false)
     {
         string executable = Path.GetFullPath(executablePath);
         string profile = Path.GetFullPath(profileDirectory);
@@ -68,7 +68,8 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
             controlPipeName = pipeName,
             languageDirectory = Path.Combine(assets, "lang"),
             providers = new { fileEnumeration = "file-system" },
-            updateManifestUrl
+            updateManifestUrl,
+            pendingSchemaConfirmation
         }), new UTF8Encoding(false));
         var server = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
             PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
@@ -113,6 +114,22 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
     /// <summary>ContentRendered起点の実初期化結果を待ちます。正常Task完了だけでは成功にしません。</summary>
     internal Task<ScenarioInitializationResult> WaitForStartupAsync(ProcessDeadline deadline)
         => AwaitOrExitAsync(startup.Task, deadline);
+
+    /// <summary>起動前に宣言した実schema確認への到達を待ちます。</summary>
+    internal Task<ScenarioRecoveryAcknowledged> WaitForSchemaConfirmationAsync(ProcessDeadline deadline)
+        => RequestAsync<ScenarioRecoveryAcknowledged>(id => new ScenarioSchemaConfirmationCommand(id), deadline);
+
+    /// <summary>必要な自然終了の期待登録後に呼びます。回答は製品側ACK送信後だけ解放されます。</summary>
+    internal Task<ScenarioRecoveryAcknowledged> AnswerSchemaAsync(bool approve, ProcessDeadline deadline)
+        => RequestAsync<ScenarioRecoveryAcknowledged>(id => new ScenarioSchemaAnswerCommand(id, approve), deadline);
+
+    /// <summary>実設定画面のSQL操作Task終端を待ちます。復元時の退出は別に期待登録・検査します。</summary>
+    internal Task<ScenarioRecoveryAcknowledged> PlaylistSqlAsync(string path, bool restore, ProcessDeadline deadline)
+        => RequestAsync<ScenarioRecoveryAcknowledged>(id => new ScenarioPlaylistSqlCommand(id, path, restore), deadline);
+
+    /// <summary>実サマリー削除の確認・保存・必要出力を通します。</summary>
+    internal Task<ScenarioPlaylistCompleted> RemovePlaylistAsync(int tableId, ProcessDeadline deadline)
+        => RequestAsync<ScenarioPlaylistCompleted>(id => new ScenarioPlaylistRemoveCommand(id, tableId), deadline);
 
     /// <summary>現在の実catalog・表示を読取り専用で取得します。</summary>
     internal Task<ScenarioSnapshotCompleted> SnapshotAsync(ProcessDeadline deadline)

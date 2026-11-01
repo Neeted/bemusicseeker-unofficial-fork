@@ -59,7 +59,7 @@ internal static class ApplicationRuntimeOptionsParser
             using var document = JsonDocument.Parse(File.ReadAllText(manifestPath));
             JsonElement root = document.RootElement;
             ValidateObject(root, ["schemaVersion", "profileDirectory", "assetsDirectory", "languageDirectory",
-                "tempDirectory", "legacySettingsDirectory", "runId", "caseId", "controlPipeName", "providers", "updateManifestUrl"]);
+                "tempDirectory", "legacySettingsDirectory", "runId", "caseId", "controlPipeName", "providers", "updateManifestUrl", "pendingSchemaConfirmation"]);
             if (!root.TryGetProperty("schemaVersion", out JsonElement schema)
                 || schema.ValueKind != JsonValueKind.Number || !schema.TryGetInt32(out int version) || version != 1)
             {
@@ -71,8 +71,15 @@ internal static class ApplicationRuntimeOptionsParser
                 ReadOptionalPath(root, "languageDirectory", Path.Combine(profile, "lang")),
                 ReadOptionalPath(root, "tempDirectory", Path.Combine(profile, "temp")),
                 ReadOptionalPath(root, "legacySettingsDirectory", Path.Combine(profile, "legacy")));
+            bool pendingSchemaConfirmation = false;
+            if (root.TryGetProperty("pendingSchemaConfirmation", out JsonElement pending))
+            {
+                if (pending.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                { throw new FormatException("The test-session pendingSchemaConfirmation must be boolean."); }
+                pendingSchemaConfirmation = pending.GetBoolean();
+            }
             session = new ApplicationTestSession(manifestPath, ReadRequiredString(root, "runId"),
-                ReadRequiredString(root, "caseId"), ReadRequiredString(root, "controlPipeName"));
+                ReadRequiredString(root, "caseId"), ReadRequiredString(root, "controlPipeName"), pendingSchemaConfirmation);
             if (root.TryGetProperty("providers", out JsonElement providers))
             {
                 ValidateObject(providers, ["fileEnumeration"]);

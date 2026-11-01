@@ -50,6 +50,8 @@ LR2連携の起動処理は、設定フラグと元パスを `Backup.SaveSelecte
 
 ## 実装とテストの対応
 
+[`RecoveryScenarioTests.StartupBackup_PublishesAllScoreBeforeVacuum_AndKeepsTwoGenerations`](../../../tests/BeMusicSeeker.Scenarios.Tests/Recovery/RecoveryScenarioTests.cs)はFullの起動代表です。実起動の保存終端後にConfig・SongDB・全Score subtreeの公開、新世代と最新旧世代だけの保持を独立に読みます。別player・深い子孫DB・非DBファイルを含むScore bytesを起動前manifestへ照合し、未使用pageのある子孫DBでVACUUM前コピーを識別します。最適化後sourceのschema・論理値を確認し、物理容量やbytesを固定しません。ConfigとSongDBは先行するschema準備・モデル構築を考慮し、全起動前bytes一致を要求しません。
+
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | DB整理の実VACUUM・REINDEX、schema・値と次保存の保全 | [`Backup.RebuildDatabase`](../../../BeMusicSeeker/Models/LR2/Backup.cs) | [`BackupTests.RebuildDatabase_PreservesRealSongAndScoreSchemaValuesAndAllowsNextSave`](../../../tests/BeMusicSeeker.Core.Tests/Settings/BackupTests.cs) は小さい実song・score DBの表・索引・値と対象外ファイルを保持し、整理後の次書込み・新readonly読戻しを確認する。DBの物理bytes・容量は固定しない。 |

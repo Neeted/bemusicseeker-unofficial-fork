@@ -24,6 +24,10 @@
 
 ### 実行範囲の選択
 
+復旧の実製品process代表は[`RecoveryScenarioTests`](../../../tests/BeMusicSeeker.Scenarios.Tests/Recovery/RecoveryScenarioTests.cs)のSC13一件とSC14二件をFullで実行します。Dailyには追加しません。専有`TestWorkspace`、`OwnedProcess`、UI moduleのsession排他を共有し、各ケースの同じ期限で確認到達・操作Task・応答・実退出を待ちます。自然退出は入力前に期待登録し、未知切断や未応答を成功として許可しません。SQL復元だけは実handlerが開始する通常終了と応答が重なるため、その実Task終端の応答を制御窓口の破棄より先に回収します。
+
+SQLの固定入力では、実modalの帰還と実handlerの終端を分けます。dialog decoratorはmodalが閉じた時点で既存の同期呼出元へ帰還し、SQL commandだけが同じ実handlerの終端・入力消費・元例外を待ちます。固定入力はhandlerのfinallyまで保持します。modal帰還を復元成功とは数えず、handler終端後のcommand応答、制御窓口の回収、実退出の順を維持します。非SQLの入力と通常Viewsの待機契約は変更しません。
+
 検証区分は作業段階で選びます。反復中は変更に関係する契約と接続に絞った `Quick`、通常開発の最終検証は `Functional` を使います。必要な検証が成功すれば、通常開発のコミット・`dev` への統合を行えます。文書のみの変更は[文書と検証](../../../AGENTS.md#文書と検証)に従います。
 
 `Full` は正式リリース前の公開候補に対して必須とします。コード・依存関係・配布設定を確定して実行し、成功後にこれらを変更した場合は、新しい候補で再実行します。文書だけを修正した場合は、その影響に応じた文書・生成物の検証を行います。公開までの順序は[リリース手順](release.md#正式リリースの準備)に従います。

@@ -20,6 +20,12 @@ internal sealed partial class ApplicationScenarioControl
         ScenarioSettingsEditObservation? savedSettings = null;
         switch (command)
         {
+            case ScenarioPlaylistRemoveCommand input:
+                await SelectSummaryAsync(workspace);
+                Dialogs.ArmTableRemoval();
+                await workspace.PlaylistRemovalWorkflow.RemoveSummaryRowsAsync(
+                    workspace.PlaylistSummaryView.Where(row => row.TableRef.playlist_id == input.TableId).ToArray());
+                break;
             case ScenarioPlaylistImportCommand input:
                 imported = await ImportPlaylistAsync(workspace, input.Url);
                 break;

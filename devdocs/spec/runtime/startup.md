@@ -35,6 +35,7 @@ manifestはJSON objectで、未知のfieldと重複propertyを拒否します。
 | `languageDirectory`、`tempDirectory`、`legacySettingsDirectory` | 省略時はprofile配下の`lang`、`temp`、`legacy` |
 | `providers` | 省略またはobject。既知fieldは`fileEnumeration`だけで、省略または厳密な文字列`file-system`を受理 |
 | `updateManifestUrl` | 省略時だけ既存CLI、次に通常既定値を使用。明示値は空白でない絶対HTTP(S) URL |
+| `pendingSchemaConfirmation` | 省略時はfalse。boolだけを受理し、trueでは実schema確認を起動前から保留する固定入力を用意 |
 
 任意のパスも、指定した場合は絶対パスを要求し、null・空値・相対パス・別型を拒否します。設定・DB・ログはprofileから派生し、通常ユーザー領域へ戻りません。更新作業とダウンロードは既存の実行ファイル側の配置に従います。snapshotが供給する未使用の更新用パスは、更新処理との配置契約の整理が未完了です。旧設定の移行も明示された移行元で通常と同じ処理を通します。言語配置は素材と独立し、言語fixtureのためにnative資産を複製する必要はありません。`file-system`はグループ列挙を既存の`FastRootFileEnumerator`、初期・差分の譜面走査を既存の`FastDirectoryFileScanner`へ接続し、各要求で実ファイルシステムを読みます。
 
@@ -60,7 +61,9 @@ test制御の接続自体が失敗した場合は元例外をstderrへ出し、�
 
 専有sessionのプレイリスト・設定代表では、通常のimport受付が開始した同じTaskを観測します。集計通知はfinally内で資源解放より先に届くため、それだけを完了とせず、実Task終端後に対象別結果と実DBを照合します。詳細選択は同じ表示Task・要求版と実採用を、サマリー選択は同じ集計Task・世代と採用済みdata世代を照合します。global idleや件数一致だけを要求成功としません。
 
-固定dialog入力は操作ごとに一つだけarmし、既知の型付き境界で一回消費します。propertyと設定は通常coordinatorによる実所有Windowの生成・表示を維持し、propertyの実OK・上下ボタンと設定の通常setter・CloseCommandを通します。JSON出力だけは既存typed dialog境界で宣言済み二pathを返し、実書込みと通知receiptの終端を別に確認します。未知のdialogへ承認を補いません。通常起動の配置・mutex・終了方針は変えません。
+固定dialog入力は操作ごとに一つだけarmし、既知の型付き境界で一回消費します。propertyと設定は通常coordinatorによる実所有Windowの生成・表示を維持し、propertyの実OK・上下ボタンと設定の通常setter・CloseCommandを通します。JSON出力は既存typed dialog境界で宣言済み二pathを返し、実書込みと通知receiptの終端を別に確認します。SQL保存・復元は実設定画面の既存ハンドラーへ接続し、操作固有の確認・path選択・成功通知・終了案内だけに固定入力を渡します。未知のdialogへ承認を補いません。通常起動の配置・mutex・終了方針は変えません。
+
+旧schemaの固定入力は実`PrepareSchemaAsync`の確認到達を観測し、driverの自然終了期待を登録してからCancelを解放します。解放要求のACK送信後に回答Taskを完了し、未応答の切断を正常終了へ読み替えません。承認も同じ実確認へ回答し、先行修復や成功結果の注入は行いません。[`RecoveryScenarioTests`](../../../tests/BeMusicSeeker.Scenarios.Tests/Recovery/RecoveryScenarioTests.cs)のSC13は取消前後のDB bytes・schema・版・利用者行と自然退出、その後の別processによる承認・通常検索を確認します。L/P解放とClose接続、modal入力の条件表は既存のCore・Windows・Desktopの保証へ分担します。
 
 ### 起動の流れと完了境界
 
