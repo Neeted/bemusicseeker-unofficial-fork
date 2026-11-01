@@ -3444,6 +3444,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     }
 
     /// <summary>実所有モーダルの再表示・一括適用を通し、Busy・DB失敗・出力失敗・通知失敗でdraftと確定済み変更を区別し、終端後に親有効化とDataContext解除を完了します。</summary>
+    /// <remarks>propertyの初回表示・再表示と解放はsuccess行を代表とし、一括適用の終端と解放は成功・Busy・DB失敗・出力失敗・通知失敗・確認失敗の全6条件で確認します。</remarks>
     [TestMethod]
     [DataRow("success")] // 必要な出力が成功してdraftをreset。
     [DataRow("busy")] // 先行受付中なのでDBとdraftを変えない。
@@ -3501,56 +3502,59 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 summary.SelectRowsByPredicate(_ => true);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
-                ModalObservation<PlaylistPropertyDialog> first = OpenPropertyDialog(
-                    fixture.Window,
-                    summary,
-                    row,
-                    "MainWindowPlaylistWorkspaceWpfTests.property-open",
-                    (dialog, _) =>
-                    {
-                        FrameworkElement navigation = (FrameworkElement)dialog.FindName("propertyNavigation")
-                            ?? throw new AssertFailedException("Playlist property navigation was not materialized.");
-                        FrameworkElement contentHost = (FrameworkElement)dialog.FindName("propertyContent")
-                            ?? throw new AssertFailedException("Playlist property content host was not materialized.");
-                        PropertyNavigationObservation navigationState = ObservePropertyNavigation(navigation, contentHost);
-                        navigationState.ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
-                        TestUiDispatcherHost.ProcessQueuedPresentation();
-                        AssertSelectedPropertyCategory(navigationState, PropertyNavigationCategory.Folder);
-                        Assert.AreEqual(PropertyNavigationCategory.Folder, IdentifyVisiblePropertyCategory(contentHost));
-                        RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyCancel"));
-                    });
-                Assert.AreSame(fixture.Window, first.Owner);
-                Assert.IsFalse(first.OwnerEnabled);
-                Assert.IsInstanceOfType(first.DataContext, typeof(PlaylistPropertyDialogViewModel));
-                Assert.AreEqual(1, first.DataContextDetachCount);
-                Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
-                Assert.AreSame(fixture.Table, row.TableRef);
-                fixture.ModalPreparation.AssertLatest(first.Window, expectedCount: 1);
+                if (bulkOutcome == "success")
+                {
+                    ModalObservation<PlaylistPropertyDialog> first = OpenPropertyDialog(
+                        fixture.Window,
+                        summary,
+                        row,
+                        "MainWindowPlaylistWorkspaceWpfTests.property-open",
+                        (dialog, _) =>
+                        {
+                            FrameworkElement navigation = (FrameworkElement)dialog.FindName("propertyNavigation")
+                                ?? throw new AssertFailedException("Playlist property navigation was not materialized.");
+                            FrameworkElement contentHost = (FrameworkElement)dialog.FindName("propertyContent")
+                                ?? throw new AssertFailedException("Playlist property content host was not materialized.");
+                            PropertyNavigationObservation navigationState = ObservePropertyNavigation(navigation, contentHost);
+                            navigationState.ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                            AssertSelectedPropertyCategory(navigationState, PropertyNavigationCategory.Folder);
+                            Assert.AreEqual(PropertyNavigationCategory.Folder, IdentifyVisiblePropertyCategory(contentHost));
+                            RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyCancel"));
+                        });
+                    Assert.AreSame(fixture.Window, first.Owner);
+                    Assert.IsFalse(first.OwnerEnabled);
+                    Assert.IsInstanceOfType(first.DataContext, typeof(PlaylistPropertyDialogViewModel));
+                    Assert.AreEqual(1, first.DataContextDetachCount);
+                    Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                    Assert.AreSame(fixture.Table, row.TableRef);
+                    fixture.ModalPreparation.AssertLatest(first.Window, expectedCount: 1);
 
-                ModalObservation<PlaylistPropertyDialog> reopened = OpenPropertyDialog(
-                    fixture.Window,
-                    summary,
-                    row,
-                    "MainWindowPlaylistWorkspaceWpfTests.property-reopen",
-                    (dialog, _) =>
-                    {
-                        FrameworkElement reopenedNavigation = (FrameworkElement)dialog.FindName("propertyNavigation")
-                            ?? throw new AssertFailedException("Reopened playlist property navigation was not materialized.");
-                        FrameworkElement reopenedContent = (FrameworkElement)dialog.FindName("propertyContent")
-                            ?? throw new AssertFailedException("Reopened playlist property content host was not materialized.");
-                        PropertyNavigationObservation reopenedNavigationState = ObservePropertyNavigation(reopenedNavigation, reopenedContent);
-                        reopenedNavigationState.ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
-                        TestUiDispatcherHost.ProcessQueuedPresentation();
-                        AssertSelectedPropertyCategory(reopenedNavigationState, PropertyNavigationCategory.Folder);
-                        Assert.AreEqual(PropertyNavigationCategory.Folder, IdentifyVisiblePropertyCategory(reopenedContent));
-                        RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyCancel"));
-                    });
-                Assert.AreSame(fixture.Window, reopened.Owner);
-                Assert.IsFalse(reopened.OwnerEnabled);
-                Assert.AreNotSame(first.DataContext, reopened.DataContext);
-                Assert.AreEqual(1, reopened.DataContextDetachCount);
-                Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
-                fixture.ModalPreparation.AssertLatest(reopened.Window, expectedCount: 2);
+                    ModalObservation<PlaylistPropertyDialog> reopened = OpenPropertyDialog(
+                        fixture.Window,
+                        summary,
+                        row,
+                        "MainWindowPlaylistWorkspaceWpfTests.property-reopen",
+                        (dialog, _) =>
+                        {
+                            FrameworkElement reopenedNavigation = (FrameworkElement)dialog.FindName("propertyNavigation")
+                                ?? throw new AssertFailedException("Reopened playlist property navigation was not materialized.");
+                            FrameworkElement reopenedContent = (FrameworkElement)dialog.FindName("propertyContent")
+                                ?? throw new AssertFailedException("Reopened playlist property content host was not materialized.");
+                            PropertyNavigationObservation reopenedNavigationState = ObservePropertyNavigation(reopenedNavigation, reopenedContent);
+                            reopenedNavigationState.ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                            AssertSelectedPropertyCategory(reopenedNavigationState, PropertyNavigationCategory.Folder);
+                            Assert.AreEqual(PropertyNavigationCategory.Folder, IdentifyVisiblePropertyCategory(reopenedContent));
+                            RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyCancel"));
+                        });
+                    Assert.AreSame(fixture.Window, reopened.Owner);
+                    Assert.IsFalse(reopened.OwnerEnabled);
+                    Assert.AreNotSame(first.DataContext, reopened.DataContext);
+                    Assert.AreEqual(1, reopened.DataContextDetachCount);
+                    Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                    fixture.ModalPreparation.AssertLatest(reopened.Window, expectedCount: 2);
+                }
 
                 outputDirectory = Path.Combine(fixture.Root, "bulk-table");
                 Directory.CreateDirectory(outputDirectory);
@@ -3658,7 +3662,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 }
                 Assert.AreEqual(1, bulk.DataContextDetachCount);
                 Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActiveSummaryBulkEditDialog);
-                fixture.ModalPreparation.AssertLatest(bulk.Window, expectedCount: 3);
+                fixture.ModalPreparation.AssertLatest(bulk.Window, expectedCount: bulkOutcome == "success" ? 3 : 1);
             }
             finally
             {
