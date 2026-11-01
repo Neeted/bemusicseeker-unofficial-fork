@@ -15,6 +15,11 @@ namespace BeMusicSeeker.Runtime;
 [JsonDerivedType(typeof(ScenarioDropCommand), "drop")]
 [JsonDerivedType(typeof(ScenarioPackageViewCommand), "package-view")]
 [JsonDerivedType(typeof(ScenarioPendingCommand), "pending")]
+[JsonDerivedType(typeof(ScenarioRegisterObservationCommand), "observe-register")]
+[JsonDerivedType(typeof(ScenarioAwaitObservationCommand), "observe-await")]
+[JsonDerivedType(typeof(ScenarioCancelObservationCommand), "observe-cancel")]
+[JsonDerivedType(typeof(ScenarioTableStateCommand), "table-state")]
+[JsonDerivedType(typeof(ScenarioInitialPlaylistSyncCommand), "initial-playlist-sync")]
 internal abstract record ScenarioCommand(long RequestId);
 
 /// <summary>現在の実catalogと表示を読取り、変更不能な値として返します。</summary>
@@ -38,6 +43,11 @@ internal sealed record ScenarioCloseCommand(long RequestId) : ScenarioCommand(Re
 [JsonDerivedType(typeof(ScenarioDropCompleted), "drop")]
 [JsonDerivedType(typeof(ScenarioPackageViewCompleted), "package-view")]
 [JsonDerivedType(typeof(ScenarioPendingCompleted), "pending")]
+[JsonDerivedType(typeof(ScenarioObservationRegistered), "observe-registered")]
+[JsonDerivedType(typeof(ScenarioObservationCanceled), "observe-canceled")]
+[JsonDerivedType(typeof(ScenarioObservationCompleted), "observe-completed")]
+[JsonDerivedType(typeof(ScenarioTableStateCompleted), "table-state")]
+[JsonDerivedType(typeof(ScenarioInitialPlaylistSyncCompleted), "initial-playlist-sync")]
 internal abstract record ScenarioMessage(long RequestId);
 
 /// <summary>pipe接続だけの通知です。初期化・操作可能の通知ではありません。</summary>

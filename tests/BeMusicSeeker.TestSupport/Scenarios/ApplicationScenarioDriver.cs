@@ -25,6 +25,10 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
     private long nextRequestId;
     private bool closeRequested;
     private Exception? readFailure;
+    private Exception? unansweredRequestFailure;
+    private readonly object exitExpectationGate = new();
+    private bool naturalExitExpected;
+    private bool readerTerminated;
 
     private ApplicationScenarioDriver(NamedPipeServerStream pipe, OwnedProcess process, string diagnosticsDirectory)
     {
@@ -144,6 +148,52 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
         { throw new InvalidOperationException($"製品の終了コード: {completion.ExitCode}\n{completion.StandardError}"); }
     }
 
+    /// <summary>実UI入力より先に自然終了の期待期間を同期登録します。既知の終了・通信失敗を追認しません。</summary>
+    internal void ExpectNaturalExit()
+    {
+        lock (exitExpectationGate)
+        {
+            if (naturalExitExpected || closeRequested || readerTerminated || readFailure is not null || unansweredRequestFailure is not null || process.RootExit.IsCompleted)
+            { throw new InvalidOperationException("自然終了の期待を登録できません。"); }
+            naturalExitExpected = true;
+        }
+    }
+
+    /// <summary>Closeを送らず、root・子孫・両出力・readerの実終端を同一期限で待ちます。</summary>
+    internal async Task WaitForExpectedExitAsync(ProcessDeadline deadline)
+    {
+        lock (exitExpectationGate)
+        {
+            if (!naturalExitExpected) { throw new InvalidOperationException("自然終了の期待がありません。"); }
+        }
+        ProcessCompletion completion = await process.WaitForExitAsync(deadline).ConfigureAwait(false);
+        await reading.WaitAsync(deadline.Remaining).ConfigureAwait(false);
+        if (readFailure is not null) { throw new IOException("自然終了中の制御通信が失敗しました。", readFailure); }
+        if (unansweredRequestFailure is not null) { throw new IOException("未応答の要求が失敗しました。", unansweredRequestFailure); }
+        if (completion.ExitCode != 0)
+        { throw new InvalidOperationException($"製品の終了コード: {completion.ExitCode}\n{completion.StandardError}"); }
+    }
+
+    /// <summary>実UI入力前に対象と購読を登録し、ACKの通信番号を待機に使います。</summary>
+    internal Task<ScenarioObservationRegistered> RegisterObservationAsync(ScenarioObservationTarget target, ProcessDeadline deadline)
+        => RequestAsync<ScenarioObservationRegistered>(id => new ScenarioRegisterObservationCommand(id, target), deadline);
+
+    /// <summary>元の登録を別通信番号で一回だけ消費します。</summary>
+    internal Task<ScenarioObservationCompleted> AwaitObservationAsync(long registrationRequestId, ProcessDeadline deadline)
+        => RequestAsync<ScenarioObservationCompleted>(id => new ScenarioAwaitObservationCommand(id, registrationRequestId), deadline);
+
+    /// <summary>入力前・待機前の登録を破棄します。開始後の失敗回収には使いません。</summary>
+    internal Task<ScenarioObservationCanceled> CancelObservationAsync(long registrationRequestId, ProcessDeadline deadline)
+        => RequestAsync<ScenarioObservationCanceled>(id => new ScenarioCancelObservationCommand(id, registrationRequestId), deadline);
+
+    /// <summary>行・選択の投影を発生させずに現在の表示状態を読みます。</summary>
+    internal Task<ScenarioTableStateCompleted> TableStateAsync(ProcessDeadline deadline)
+        => RequestAsync<ScenarioTableStateCompleted>(id => new ScenarioTableStateCommand(id), deadline);
+
+    /// <summary>Attachから捕捉した初回同期の実Taskとreceiptだけを一回消費します。</summary>
+    internal Task<ScenarioInitialPlaylistSyncCompleted> WaitForInitialPlaylistSyncAsync(ProcessDeadline deadline)
+        => RequestAsync<ScenarioInitialPlaylistSyncCompleted>(id => new ScenarioInitialPlaylistSyncCommand(id), deadline);
+
     private async Task RequestCloseAsync(ProcessDeadline deadline)
     {
         closeRequested = true;
@@ -162,6 +212,12 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
             ScenarioMessage response = await AwaitOrExitAsync(completion.Task, deadline).ConfigureAwait(false);
             if (response is ScenarioCommandFailed failed) { throw DescribeFailure(failed.Failure); }
             return response as T ?? throw new InvalidDataException("要求と異なる型の応答を受け取りました。");
+        }
+        catch (Exception failure)
+        {
+            // root退出がEOFより先でも、辞書からの回収によって未応答の失敗を消しません。
+            if (!completion.Task.IsCompletedSuccessfully) { Interlocked.CompareExchange(ref unansweredRequestFailure, failure, null); }
+            throw;
         }
         finally { requests.TryRemove(id, out _); }
     }
@@ -214,13 +270,20 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
                         break;
                 }
             }
-            if (!closeRequested) { failure = new EndOfStreamException("製品の制御pipeが要求外に切断されました。"); }
+            lock (exitExpectationGate)
+            {
+                if (!closeRequested && !naturalExitExpected) { failure = new EndOfStreamException("製品の制御pipeが要求外に切断されました。"); }
+                // 応答後の呼出元による辞書回収はreaderと並行するため、実応答Taskの状態で区別します。
+                if (naturalExitExpected && requests.Values.Any(request => !request.Task.IsCompleted)) { failure = new EndOfStreamException("未応答の要求を残して製品が終了しました。"); }
+                readerTerminated = true;
+                readFailure = failure;
+            }
         }
         catch (OperationCanceledException) when (stopping.IsCancellationRequested) { }
         catch (Exception exception) { failure = exception; }
         finally
         {
-            readFailure = failure;
+            lock (exitExpectationGate) { readFailure = failure; readerTerminated = true; }
             Exception terminal = failure ?? new EndOfStreamException("製品の制御pipeが終了しました。");
             connected.TrySetException(terminal);
             startup.TrySetException(terminal);
@@ -258,7 +321,7 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         var cleanup = ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(10));
-        ProcessStopResult stopped = await process.StopAsync(_ => RequestCloseAsync(cleanup), cleanup).ConfigureAwait(false);
+        ProcessStopResult stopped = await process.StopAsync(_ => naturalExitExpected ? Task.CompletedTask : RequestCloseAsync(cleanup), cleanup).ConfigureAwait(false);
         stopping.Cancel();
         var failures = new List<Exception>();
         try
@@ -282,6 +345,7 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
         catch (Exception failure) { failures.Add(failure); }
         if (stopped.CleanupFailure is not null) { failures.Add(stopped.CleanupFailure); }
         if (readFailure is not null) { failures.Add(new InvalidOperationException("制御通信が失敗しました。", readFailure)); }
+        if (naturalExitExpected && unansweredRequestFailure is not null) { failures.Add(new IOException("未応答の要求が失敗しました。", unansweredRequestFailure)); }
         if (failures.Count > 0) { throw new AggregateException("製品processの回収に失敗しました。", failures); }
     }
 }

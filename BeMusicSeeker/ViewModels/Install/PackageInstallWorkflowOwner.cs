@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Runtime;
 using BeMusicSeeker.Views.Dialogs;
 using Ribbit.Logging;
 
@@ -222,6 +223,9 @@ internal sealed class PackageInstallWorkflowOwner
     /// <summary>利用者向け通知の有無と別に、実処理と入力回収後の同一batch結果を読取り専用で通知します。</summary>
     internal event Action<PackageInstallBatchTerminal> BatchTerminated;
 
+    /// <summary>実受付済み入力を、同期的な終端も発生し得るqueue公開より先に通知します。</summary>
+    internal event Action<ScenarioInstallStarted> BatchStarted;
+
     /// <summary>
     /// Reports that the package-install owner received a cancellation request.
     /// </summary>
@@ -417,6 +421,15 @@ internal sealed class PackageInstallWorkflowOwner
             }
             if (transition?.Accepted == true)
             {
+                if (BatchStarted != null)
+                {
+                    var started = new ScenarioInstallStarted(acquisition.Request.BatchId, [.. acquisition.Request.OriginalPaths]);
+                    foreach (Action<ScenarioInstallStarted> observer in BatchStarted.GetInvocationList())
+                    {
+                        try { observer(started); }
+                        catch (Exception failure) { Task.FromException(failure).ObserveFault("installBatchObserver"); }
+                    }
+                }
                 queue.Processor.PublishEnqueueTransition(transition);
                 return acquisition;
             }

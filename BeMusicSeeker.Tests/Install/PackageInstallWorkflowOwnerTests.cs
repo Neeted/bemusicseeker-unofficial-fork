@@ -37,6 +37,9 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         var admission = new ChartFileOperationSynchronizer();
         var expected = new IOException("再生停止に失敗しました。");
         Exception? reported = null;
+        Guid observedBatch = Guid.Empty;
+        Guid terminatedBatch = Guid.Empty;
+        bool startedBeforeTerminal = false;
         var owner = new PackageInstallWorkflowOwner(
             new FileDbReportRecordingDialogs(), admission, new ChartMutationActivityOwner(),
             new DelegatePackageInstallMutationPort((_, _, _, _) =>
@@ -44,6 +47,19 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 File.WriteAllText(written, "installed");
                 return new PackageInstallCommandResult([], null);
             }), new AwaitablePlaybackStop(entered, stop.Task), action => { action(); return true; });
+        // 任意開始observerが故障しても次の購読先と実処理を保ち、実受付のBatchIdを終端まで維持する。
+        owner.BatchStarted += _ => throw new InvalidOperationException("開始observerの故障");
+        owner.BatchStarted += input =>
+        {
+            Assert.AreEqual(Guid.Empty, terminatedBatch);
+            Assert.AreEqual(Path.Combine(root, "source.zip"), input.OriginalPaths.Single());
+            observedBatch = input.BatchId;
+        };
+        owner.BatchTerminated += terminal =>
+        {
+            startedBeforeTerminal = observedBatch != Guid.Empty;
+            terminatedBatch = terminal.BatchId;
+        };
         owner.FailurePublished += failure => reported = failure.Exception;
         owner.AttachLibrary(new TestBmsLibrary(databaseScope, database, null, null, string.Empty));
         try
@@ -58,6 +74,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             await owner.WaitForIdleAsync();
             Assert.AreEqual(!failStop, File.Exists(written));
             Assert.AreSame(failStop ? expected : null, reported);
+            Assert.IsTrue(startedBeforeTerminal);
+            Assert.AreEqual(observedBatch, terminatedBatch);
             Assert.IsFalse(admission.IsActive);
         }
         finally

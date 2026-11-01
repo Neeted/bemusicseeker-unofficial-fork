@@ -13,6 +13,7 @@ internal static class SharedPlaylistWorkspaceFixture
 {
 
     /// <summary>専用workspaceへ既存の配送/適用Taskと集約診断を接続し、各ケースが実終端と局所仕事量を観測できるようにします。</summary>
+    /// <param name="playlistStoreProvider">未接続時に null を返す通常の store 取得契約も受け入れます。</param>
     internal static PlaylistWorkspaceViewModel CreateDetailWorkspace(
         out FakePlaylistDetailDataSource dataSource,
         Func<string, Func<Task>, bool>? prewarmScheduler = null,
@@ -23,7 +24,7 @@ internal static class SharedPlaylistWorkspaceFixture
         Action? reloadCleanupGarbageCollector = null,
         Action<string>? reloadCleanupLog = null,
         Action<Exception, string>? reloadFailureLog = null,
-        Func<BMSPlaylist>? playlistStoreProvider = null,
+        Func<BMSPlaylist?>? playlistStoreProvider = null,
         Func<PlaylistPresentationRefreshRequestedEventArgs, bool>? presentationRefreshDeferredProvider = null,
         Func<string, Func<Task>, bool>? externalSyncScheduler = null,
         Func<string, Func<Task>, bool>? referenceApplyScheduler = null,

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -30,6 +31,9 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private BMSLibrary subscribedPlaylistExternalSyncLibrary;
 
+    /// <summary>schedulerが開始した同じ同期Taskを通知します。同期完了receiptはこの通知より先に発生する場合があります。</summary>
+    internal event Action<string, Task> ExternalPlaylistSyncStarted;
+
     internal event EventHandler<PlaylistExternalSyncRequestEventArgs> PlaylistExternalSyncQueued;
 
     internal event EventHandler<PlaylistExternalSyncCompletionEventArgs> PlaylistExternalSyncCompleted;
@@ -39,7 +43,20 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// <summary>起動の任意同期を既存schedulerへ登録します。実開始時にPを非待機取得し、Busyでは再予約せず見送ります。</summary>
     internal void QueueExternalPlaylistSync(string reason, bool fromReloadTables, bool publishReferenceReceipt, long operationToken)
     {
-        if (!playlistExternalSyncScheduler(reason, () => RunExternalPlaylistSyncAsync(reason, fromReloadTables, publishReferenceReceipt, operationToken)))
+        if (!playlistExternalSyncScheduler(reason, () =>
+        {
+            Task operation = RunExternalPlaylistSyncAsync(reason, fromReloadTables, publishReferenceReceipt, operationToken);
+            Action<string, Task> observers = ExternalPlaylistSyncStarted;
+            if (observers != null)
+            {
+                foreach (Action<string, Task> observer in observers.GetInvocationList())
+                {
+                    try { observer(reason, operation); }
+                    catch (Exception failure) { Task.FromException(failure).ObserveFault("playlistSyncObserver"); }
+                }
+            }
+            return operation;
+        }))
         {
             PublishPlaylistProgressEvent(PlaylistExternalSyncCompleted, new PlaylistExternalSyncCompletionEventArgs(
                 reason, 0, fromReloadTables, publishReferenceReceipt, operationToken, succeeded: false, wasSkipped: true));

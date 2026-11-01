@@ -26,6 +26,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Runtime;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using NLog;
@@ -5532,8 +5533,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         try
         {
-            await viewModel.PlaylistWorkspace.PlaylistRemovalWorkflow
-                .RemoveFolderAsync(bmsTable, folderNode);
+            var input = ScenarioUiOperationInput.Capture(viewModel, "playlist-folder-delete", [], bmsTable, folderNode);
+            Task operation = viewModel.PlaylistWorkspace.PlaylistRemovalWorkflow.RemoveFolderAsync(bmsTable, folderNode);
+            viewModel.PublishScenarioOperation(input, operation);
+            await operation;
         }
         catch (OperationCanceledException)
         {
@@ -7761,8 +7764,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         e.Handled = true;
         try
         {
-            await playlistWorkspaceTerminals.EntryRemoval
-                .DeleteSelectedEntriesAsync(GetSelectedGridRowsSnapshot());
+            List<object> selectedRows = GetSelectedGridRowsSnapshot();
+            var input = ScenarioUiOperationInput.Capture(viewModel, "playlist-entry-delete", [.. selectedRows]);
+            Task operation = playlistWorkspaceTerminals.EntryRemoval.DeleteSelectedEntriesAsync(selectedRows);
+            viewModel.PublishScenarioOperation(input, operation);
+            await operation;
         }
         catch (OperationCanceledException)
         {
@@ -8506,8 +8512,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         e.Effects = DragDropEffects.Copy;
         try
         {
-            await viewModel.PlaylistWorkspace
-                .AddRowsToFolderAsync(selectedRows, table, targetFolder);
+            var input = ScenarioUiOperationInput.Capture(viewModel, "playlist-drop", [.. selectedRows], table, targetFolder);
+            Task operation = viewModel.PlaylistWorkspace.AddRowsToFolderAsync(selectedRows, table, targetFolder);
+            viewModel.PublishScenarioOperation(input, operation);
+            await operation;
         }
         catch (OperationCanceledException)
         {

@@ -1529,15 +1529,22 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                 BMSTables = new ObservableCollection<BMSTable>()
             };
             int schedulerCalls = 0;
+            bool acceptScheduling = false;
+            bool hasStore = true;
+            Task? scheduledTask = null;
+            Task? observedTask = null;
+            string? observedReason = null;
             var queued = new List<PlaylistExternalSyncRequestEventArgs>();
             var completed = new List<PlaylistExternalSyncCompletionEventArgs>();
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
-                playlistStoreProvider: () => playlist,
-                externalSyncScheduler: (_, _) =>
+                playlistStoreProvider: () => hasStore ? playlist : null,
+                externalSyncScheduler: (_, work) =>
                 {
                     schedulerCalls++;
-                    return false;
+                    if (!acceptScheduling) { return false; }
+                    scheduledTask = work();
+                    return true;
                 });
             workspace.PlaylistExternalSyncQueued += (_, request) => queued.Add(request);
             workspace.PlaylistExternalSyncCompleted += (_, request) => completed.Add(request);
@@ -1574,6 +1581,27 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             Assert.AreEqual(13L, completed[2].OperationToken);
             Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable next));
             next.Dispose();
+            // 同期完了が開始hookより先でも、schedulerへ返す元Taskとreceiptのversionを失わない。
+            workspace.ExternalPlaylistSyncStarted += (_, _) => throw new IOException("任意observerの失敗");
+            workspace.ExternalPlaylistSyncStarted += (reason, task) => { observedReason = reason; observedTask = task; };
+            acceptScheduling = true;
+            workspace.QueueExternalPlaylistSync("Initialize", false, false, 14L);
+            Assert.IsNotNull(scheduledTask);
+            Assert.AreSame(scheduledTask, observedTask);
+            Assert.AreEqual("Initialize", observedReason);
+            await scheduledTask;
+            Assert.AreEqual(queued.Last().Version, completed.Last().Version);
+            Assert.AreEqual("Initialize", completed.Last().Reason);
+            Assert.IsTrue(completed.Last().Succeeded);
+            Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable afterTask));
+            afterTask.Dispose();
+            int receipts = completed.Count;
+            hasStore = false;
+            workspace.QueueExternalPlaylistSync("Initialize", false, false, 15L);
+            Assert.IsNotNull(scheduledTask);
+            Assert.AreSame(scheduledTask, observedTask);
+            await scheduledTask;
+            Assert.AreEqual(receipts, completed.Count, "storeなしの正常Taskへ同期receiptを補完しません。");
         }
         finally
         {

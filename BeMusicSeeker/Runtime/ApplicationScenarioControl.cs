@@ -74,6 +74,7 @@ internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
         if (viewModel is not null) { throw new InvalidOperationException("The scenario shell is already attached."); }
         viewModel = model;
         window = mainWindow;
+        AttachInitialPlaylistSync(model);
         startupObservation = ObserveStartupAsync(model);
     }
 
@@ -123,6 +124,12 @@ internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
         catch (OperationCanceledException) when (stopping.IsCancellationRequested) { }
         catch (IOException) when (stopping.IsCancellationRequested) { }
         catch (ObjectDisposedException) when (stopping.IsCancellationRequested) { }
+        finally
+        {
+            // 通信終端では観測待機だけを解放します。既存業務Taskの取消や結果補完は行いません。
+            stopping.Cancel();
+            await dispatcher.InvokeAsync(() => { ClearObservation(); ClearInitialPlaylistSync(); }).Task.ConfigureAwait(false);
+        }
     }
 
     private async Task HandleAsync(ScenarioCommand request)
@@ -147,6 +154,11 @@ internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
     private async Task<ScenarioMessage> ExecuteAsync(ScenarioCommand request)
     {
         MainWindowViewModel model = viewModel ?? throw new InvalidOperationException("The scenario shell is not attached.");
+        if (request is ScenarioRegisterObservationCommand register) { return RegisterObservation(model, register); }
+        if (request is ScenarioAwaitObservationCommand observe) { return await AwaitObservationAsync(observe); }
+        if (request is ScenarioCancelObservationCommand cancel) { return CancelObservation(cancel); }
+        if (request is ScenarioTableStateCommand) { return new ScenarioTableStateCompleted(request.RequestId, CaptureTableState(model)); }
+        if (request is ScenarioInitialPlaylistSyncCommand) { return await ConsumeInitialSyncAsync(request.RequestId); }
         if (request is ScenarioCloseCommand)
         {
             MainWindow mainWindow = window ?? throw new InvalidOperationException("The main window is unavailable.");
@@ -223,13 +235,14 @@ internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         stopping.Cancel();
+        await dispatcher.InvokeAsync(() => { ClearObservation(); ClearInitialPlaylistSync(); }).Task.ConfigureAwait(false);
         var failures = new List<Exception>();
         try { await (reading ?? Task.CompletedTask).ConfigureAwait(false); }
         catch (Exception failure) { failures.Add(failure); }
         // reader停止後に捕捉し、停止直前に配送された最後の要求も回収します。
         Task[] running;
         lock (commands) { running = [.. commands]; }
-        try { await Task.WhenAll(running.Append(startupObservation ?? Task.CompletedTask)).ConfigureAwait(false); }
+        try { await Task.WhenAll(running.Append(startupObservation ?? Task.CompletedTask).Append(initialSyncObservation ?? Task.CompletedTask)).ConfigureAwait(false); }
         catch (Exception failure) { failures.Add(failure); }
         finally
         {

@@ -13,6 +13,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Runtime;
 using BeMusicSeeker.Views.Dialogs;
 using Livet;
 using Livet.EventListeners;
@@ -1965,7 +1966,14 @@ public partial class MainWindowViewModel : ViewModel,
         {
             Task<RegularChartListEntryResult> refresh = RefreshRegularKeywordAsync();
             refresh.ObserveFault("refreshRegularKeyword");
-            RegularKeywordRefreshStarted?.Invoke(filters.KeywordFilter, refresh);
+            if (RegularKeywordRefreshStarted != null)
+            {
+                foreach (Action<string, Task<RegularChartListEntryResult>> observer in RegularKeywordRefreshStarted.GetInvocationList())
+                {
+                    try { observer(filters.KeywordFilter, refresh); }
+                    catch (Exception failure) { Task.FromException(failure).ObserveFault("keywordObserver"); }
+                }
+            }
         }
     }
 
@@ -2488,15 +2496,38 @@ public partial class MainWindowViewModel : ViewModel,
         }
     }
 
+    /// <summary>UIの既存操作が開始した同じTaskを、再実行権限なしで通知します。</summary>
+    internal event Action<ScenarioUiOperationInput, Task> ScenarioOperationStarted;
+
+    /// <summary>通常動作では観測専用snapshotを生成しません。</summary>
+    internal bool HasScenarioOperationObservers => ScenarioOperationStarted != null;
+
+    /// <summary>任意観測者の失敗を業務Taskへ混入させません。</summary>
+    internal void PublishScenarioOperation(ScenarioUiOperationInput input, Task operation)
+    {
+        if (input == null || ScenarioOperationStarted == null) { return; }
+        foreach (Action<ScenarioUiOperationInput, Task> observer in ScenarioOperationStarted.GetInvocationList())
+        {
+            try { observer(input, operation); }
+            catch (Exception failure) { Task.FromException(failure).ObserveFault("scenarioOperationObserver"); }
+        }
+    }
+
     private void MainChartListCellEditEndedRequested(object sender, MainChartListCellEditEndedEventArgs request)
     {
         MainChartListCellEditContext context = request.Context;
         if (context.Row is PlaylistDetailRow)
         {
-            PlaylistWorkspace.CompleteDetailEdit(request).ObserveFault("playlistDetailCellEditCommit");
+            ScenarioUiOperationInput input = ScenarioOperationStarted == null ? null : ScenarioUiOperationInput.Capture(this, "cell-edit", [context.Row], edit: request);
+            Task operation = PlaylistWorkspace.CompleteDetailEdit(request);
+            PublishScenarioOperation(input, operation);
+            operation.ObserveFault("playlistDetailCellEditCommit");
             return;
         }
-        regularChartListOwner.CompleteCellEdit(request).ObserveFault("regularChartListCellEditCommit");
+        ScenarioUiOperationInput regularInput = ScenarioOperationStarted == null ? null : ScenarioUiOperationInput.Capture(this, "cell-edit", [context.Row], edit: request);
+        Task regularOperation = regularChartListOwner.CompleteCellEdit(request);
+        PublishScenarioOperation(regularInput, regularOperation);
+        regularOperation.ObserveFault("regularChartListCellEditCommit");
     }
 
     /// <summary>一回取得した同じ確定batchを、workspaceと通常一覧の既存接続へ渡します。</summary>

@@ -18,6 +18,8 @@ internal static class Program
         Console.OutputEncoding = new UTF8Encoding(false);
         switch (args[0])
         {
+            case "--test-session":
+                return await ObserveScenarioTransportAsync(args[1]);
             case "exit":
                 return 0;
             case "runner-command":
@@ -95,6 +97,38 @@ internal static class Program
             default:
                 throw new ArgumentException("未知の fixture 操作です。");
         }
+    }
+
+    // 既存process fixtureで通信だけを検査します。製品起動や保存の成功oracleには使いません。
+    private static async Task<int> ObserveScenarioTransportAsync(string manifestPath)
+    {
+        using var manifest = JsonDocument.Parse(await File.ReadAllTextAsync(manifestPath));
+        JsonElement root = manifest.RootElement;
+        string profile = root.GetProperty("profileDirectory").GetString() ?? throw new InvalidDataException();
+        string mode = root.GetProperty("caseId").GetString() ?? throw new InvalidDataException();
+        using var pipe = new NamedPipeClientStream(".", root.GetProperty("controlPipeName").GetString() ?? throw new InvalidDataException(), PipeDirection.InOut, PipeOptions.Asynchronous);
+        await pipe.ConnectAsync();
+        using var writer = new StreamWriter(pipe, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        using var reader = new StreamReader(pipe, new UTF8Encoding(false), leaveOpen: true);
+        await writer.WriteLineAsync(JsonSerializer.Serialize(new { message = "connected", ProcessId = Environment.ProcessId, RequestId = 0 }));
+        if (mode is "unanswered" or "answered")
+        {
+            string command = await reader.ReadLineAsync() ?? throw new EndOfStreamException();
+            if (mode == "answered")
+            {
+                using var request = JsonDocument.Parse(command);
+                await writer.WriteLineAsync(JsonSerializer.Serialize(new
+                {
+                    message = "table-state",
+                    RequestId = request.RootElement.GetProperty("RequestId").GetInt64(),
+                    State = new { OperationSection = "probe", SourceScope = "probe", SourceType = "probe", RowsGeneration = 1, Count = 0, RealizedRowCount = 0 }
+                }));
+            }
+            File.WriteAllText(Path.Combine(profile, "request-received"), "ready");
+        }
+        await WaitForFileAsync(Path.Combine(profile, "release"));
+        if (mode == "malformed") { await writer.WriteLineAsync("{invalid-json"); }
+        return mode == "nonzero" ? 7 : 0;
     }
 
     private static async Task<int> ObserveAssignmentFailureAsync(string readyPath, string releasePath, bool failCleanupCallback)
