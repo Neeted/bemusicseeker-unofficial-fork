@@ -1,4 +1,8 @@
+using System.ComponentModel;
 using System.Diagnostics;
+using System.IO.Pipes;
+using System.Runtime.ExceptionServices;
+using System.Text;
 using System.Text.Json;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Processes;
@@ -104,6 +108,197 @@ public sealed class OwnedProcessTests
         Assert.IsTrue(child.HasExited);
         Assert.AreEqual(7, (await process.Completion).ExitCode);
         Assert.IsNotNull(process.PrimaryFailure);
+    }
+
+    /// <summary>OS上でrootが指定コードで終了しても通知配送を保留し、期限失敗後の破棄と交差させて、事前保持した元RootExitの実値と主失敗が失われないことを保証します。</summary>
+    /// <remarks>正常全終端のCompletion=7は既存のroot/child検査へ分担します。ここでは期限後のCompletion故障を診断し、遅延通知と全pipeの終端後だけ領域を削除します。</remarks>
+    [TestMethod]
+    [DataRow(7)]
+    [DataRow(259)]
+    public async Task RootExitSurvivesDisposalBeforeExitNotificationDelivery(int exitCode)
+    {
+        var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string ready = workspace.GetPath("ready");
+        string release = workspace.GetPath("release");
+        string command = workspace.GetPath("command.json");
+        File.WriteAllText(command, JsonSerializer.Serialize(new { Ready = ready, Release = release, ExitCode = exitCode }));
+        using var job = WindowsProcessJob.Create();
+        using var outputPipe = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
+        using var errorPipe = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
+        var info = new ProcessStartInfo(Fixture) { UseShellExecute = false, WorkingDirectory = AppContext.BaseDirectory };
+        info.ArgumentList.Add("runner-command");
+        info.ArgumentList.Add(command);
+        using Process root = job.Start(info, outputPipe, errorPipe);
+        outputPipe.DisposeLocalCopyOfClientHandle();
+        errorPipe.DisposeLocalCopyOfClientHandle();
+        using var stdout = new StreamReader(outputPipe, new UTF8Encoding(false), false);
+        using var stderr = new StreamReader(errorPipe, new UTF8Encoding(false), false);
+        var delivery = new DeferredExitDelivery();
+        root.SynchronizingObject = delivery;
+        var process = new OwnedProcess(root, job, stdout, stderr);
+        Task<int> originalRootExit = process.RootExit;
+        Task<ProcessCompletion> originalCompletion = process.Completion;
+        var observedRoot = Process.GetProcessById(process.ProcessId);
+        // PID照会だけではhandle取得が遅延するため、生存中に取得して終了後の実コード照会を可能にする。
+        _ = observedRoot.SafeHandle;
+        Exception? bodyFailure = null;
+        var secondaryFailures = new List<Exception>();
+
+        async Task<bool> ObserveAsync(Func<Task> action, string name, bool allowCompletionFailure = false)
+        {
+            Task task;
+            try { task = action(); }
+            catch (Exception failure)
+            {
+                secondaryFailures.Add(new InvalidOperationException(name, failure));
+                return false;
+            }
+            using var stopWatchdog = new CancellationTokenSource();
+            var watchdog = Task.Delay(TimeSpan.FromSeconds(10), stopWatchdog.Token);
+            Task first = await Task.WhenAny(task, watchdog);
+            stopWatchdog.Cancel();
+            if (first == watchdog)
+            {
+                secondaryFailures.Add(new TimeoutException(name + "の終端観測期限を超えています。"));
+            }
+            if (task.IsCompleted)
+            {
+                try { await task; }
+                catch (Exception failure)
+                {
+                    Console.Error.WriteLine($"{name}: status={task.Status}, failure={failure}");
+                    if (!allowCompletionFailure || process.CleanupFailure is null)
+                    {
+                        secondaryFailures.Add(new InvalidOperationException(name, failure));
+                    }
+                }
+            }
+            return first == task;
+        }
+
+        try
+        {
+            ProcessDeadline preparation = Deadline();
+            while (!File.Exists(ready))
+            {
+                if (preparation.Remaining == TimeSpan.Zero) { throw new TimeoutException("rootの準備が完了しません。"); }
+                await Task.Delay(10).WaitAsync(preparation.Remaining);
+            }
+            Assert.IsFalse(originalRootExit.IsCompleted, "生存中のrootを終了扱いしています。");
+            var expired = ProcessDeadline.FromTimeout(TimeSpan.Zero);
+            await Assert.ThrowsAsync<TimeoutException>(() => process.WaitForRootExitAsync(expired));
+            Exception? originalFailure = process.PrimaryFailure;
+            File.WriteAllText(release, "release");
+            await delivery.Captured.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.IsTrue(observedRoot.HasExited);
+            Assert.AreEqual(exitCode, observedRoot.ExitCode);
+            // 破棄との競合はroot通知だけへ限定し、pipeのEOFと内容は解放前に確定する。
+            Assert.AreEqual("stdout", await process.StandardOutput.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.AreEqual("stderr", await process.StandardError.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.IsFalse(originalRootExit.IsCompleted);
+            ProcessStopResult stopped = await process.StopAsync(null, expired).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.IsNotNull(stopped.CleanupFailure);
+            await process.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.AreSame(originalRootExit, process.RootExit);
+            Assert.AreEqual(exitCode, await originalRootExit.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.AreSame(originalFailure, process.PrimaryFailure);
+            Assert.IsInstanceOfType<TimeoutException>(originalFailure);
+            Assert.IsNotNull(process.CleanupFailure);
+            // 購読解除後も、既に捕捉したdelegateを配送する。閉鎖済みProcessへ触れないことを検査する。
+            delivery.DeliverPending();
+            await Task.WhenAll(delivery.Tasks).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.AreEqual(exitCode, await originalRootExit);
+            Assert.AreSame(originalFailure, process.PrimaryFailure);
+        }
+        catch (Exception failure) { bodyFailure = failure; }
+        finally
+        {
+            // 本体の失敗を保持し、一つの回収失敗で残りの観測や診断を省略しない。
+            delivery.DeliverPending();
+            bool resourcesTerminated = await ObserveAsync(() => process.StopAsync(null, Deadline()), "Stop");
+            resourcesTerminated &= await ObserveAsync(() => process.DisposeAsync().AsTask(), "Dispose");
+            delivery.DeliverPending();
+            resourcesTerminated &= await ObserveAsync(() => originalRootExit, "RootExit");
+            resourcesTerminated &= await ObserveAsync(() => process.StandardOutput, "stdout");
+            resourcesTerminated &= await ObserveAsync(() => process.StandardError, "stderr");
+            resourcesTerminated &= await ObserveAsync(() => originalCompletion, "Completion", allowCompletionFailure: true);
+            foreach (Task task in delivery.Tasks)
+            {
+                resourcesTerminated &= await ObserveAsync(() => task, "終了通知の配送");
+            }
+            resourcesTerminated &= await ObserveAsync(() => observedRoot.WaitForExitAsync(), "保持rootの終了");
+            try { resourcesTerminated &= observedRoot.HasExited; }
+            catch (Exception failure)
+            {
+                resourcesTerminated = false;
+                secondaryFailures.Add(failure);
+            }
+            try { observedRoot.Dispose(); }
+            catch (Exception failure) { secondaryFailures.Add(failure); }
+            if (resourcesTerminated)
+            {
+                try { workspace.Dispose(); }
+                catch (Exception failure) { secondaryFailures.Add(failure); }
+            }
+        }
+        foreach (Exception failure in secondaryFailures) { Console.Error.WriteLine("回収失敗: " + failure); }
+        if (secondaryFailures.Count != 0)
+        {
+            if (bodyFailure is not null) { secondaryFailures.Insert(0, bodyFailure); }
+            throw new AggregateException("root観測検査と回収の失敗", secondaryFailures);
+        }
+        if (bodyFailure is not null) { ExceptionDispatchInfo.Capture(bodyFailure).Throw(); }
+        if (originalCompletion.IsCompletedSuccessfully) { Assert.AreEqual(exitCode, (await originalCompletion).ExitCode); }
+        Assert.IsFalse(Directory.Exists(workspace.RootDirectory));
+    }
+
+    /// <summary>Processの既存配送境界でdelegate全体だけを保留し、callback threadやProcess内部のlockを占有しません。</summary>
+    private sealed class DeferredExitDelivery : ISynchronizeInvoke
+    {
+        private readonly object gate = new();
+        private readonly Queue<(Delegate Method, object?[]? Arguments, TaskCompletionSource<object?> Result)> pending = new();
+        private readonly List<Task> tasks = new();
+        private readonly TaskCompletionSource captured = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>ProcessのExited通知を常にBeginInvokeへ接続します。</summary>
+        public bool InvokeRequired => true;
+        /// <summary>最初の実配送要求を捕捉した通知です。</summary>
+        internal Task Captured => captured.Task;
+        /// <summary>例外を含めて全件観測する、捕捉済み配送の元Taskです。</summary>
+        internal Task[] Tasks { get { lock (gate) { return tasks.ToArray(); } } }
+
+        /// <summary>捕捉後すぐに返し、Processが保持する同期領域の外で後から配送します。</summary>
+        public IAsyncResult BeginInvoke(Delegate method, object?[]? args)
+        {
+            var result = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (gate)
+            {
+                pending.Enqueue((method, args, result));
+                tasks.Add(result.Task);
+                captured.TrySetResult();
+            }
+            return result.Task;
+        }
+
+        /// <summary>捕捉済みの全配送をlock外で実行し、元delegateの例外を観測可能なTaskへ保存します。</summary>
+        internal void DeliverPending()
+        {
+            while (true)
+            {
+                (Delegate Method, object?[]? Arguments, TaskCompletionSource<object?> Result) item;
+                lock (gate)
+                {
+                    if (!pending.TryDequeue(out item)) { return; }
+                }
+                try { item.Result.TrySetResult(item.Method.DynamicInvoke(item.Arguments)); }
+                catch (Exception failure) { item.Result.TrySetException(failure); }
+            }
+        }
+
+        /// <summary>ProcessのExited配送が使わない同期呼出しを拒否します。</summary>
+        public object? Invoke(Delegate method, object?[]? args) => throw new NotSupportedException();
+        /// <summary>ProcessはEndInvokeで待たず、テストは配送Taskを有限に観測します。</summary>
+        public object? EndInvoke(IAsyncResult result) => throw new NotSupportedException();
     }
 
     /// <summary>hang の期限失敗と回収失敗を分離し、Job 所属と無関係な同名 process を区別します。未関連・閉鎖 handle の偽成功と無関係な停止を検出します。</summary>

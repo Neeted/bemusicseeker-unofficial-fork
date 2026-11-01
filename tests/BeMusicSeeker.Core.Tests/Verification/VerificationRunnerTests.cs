@@ -278,7 +278,19 @@ public sealed class VerificationRunnerTests
     [TestMethod]
     public async Task PrimaryOutputAndCleanupFailuresAreAllRetained()
     {
-        using var fixture = new RunnerFixture();
+        var fixture = new RunnerFixture();
+        using var canceled = new CancellationTokenSource();
+        var coreStarted = new TaskCompletionSource<OwnedProcess>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var owned = new ConcurrentDictionary<string, OwnedProcess>();
+        var observed = new List<Process>();
+        fixture.AfterStart = (name, process) =>
+        {
+            if (name == "Core")
+            {
+                owned[name] = process;
+                coreStarted.TrySetResult(process);
+            }
+        };
         fixture.Configure = (name, command) => name == "Core" ? command with
         {
             ChildReady = fixture.Path("child-ready"),
@@ -295,21 +307,49 @@ public sealed class VerificationRunnerTests
             TestTimeout = TimeSpan.FromSeconds(5),
             RequestGracefulExit = (_, _) => Task.FromException(new IOException("graceful-failure")),
         };
-        Task<VerificationRunResult> execution = VerificationRunner.ExecuteAsync(VerificationPlan.Parse(["dev"], 1), run);
-        await WaitForFileAsync(fixture.Path("child-ready"));
-        using var child = Process.GetProcessById(int.Parse(File.ReadAllText(fixture.Path("child-ready"))));
-        VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
-        VerificationCommandResult core = result.Commands.Single(command => command.Name == "Core");
-        Assert.AreEqual(1, result.ExitCode);
-        Assert.AreEqual(7, core.Completion?.ExitCode);
-        Assert.IsNotNull(core.PrimaryFailure);
-        StringAssert.Contains(core.PrimaryFailure.ToString(), "7");
-        Assert.IsNotNull(core.OutputFailure);
-        Assert.IsNotNull(core.CleanupFailure);
-        StringAssert.Contains(core.CleanupFailure.ToString(), "graceful-failure");
-        Assert.AreEqual("stderr", File.ReadAllText(fixture.Path("run/Core/process.stderr.log")));
-        Assert.IsTrue(child.HasExited);
-        Assert.IsFalse(fixture.Requests.Any(item => item.Name is "Windows" or "Scenarios"));
+        Task<VerificationRunResult> execution = VerificationRunner.ExecuteAsync(VerificationPlan.Parse(["dev"], 1), run, canceled.Token);
+        Process? child = null;
+        try
+        {
+            OwnedProcess process = await coreStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await WaitForFileAsync(fixture.Path("child-ready"));
+            child = Process.GetProcessById(int.Parse(File.ReadAllText(fixture.Path("child-ready"))));
+            observed.Add(child);
+            Assert.AreEqual(7, await process.RootExit.WaitAsync(TimeSpan.FromSeconds(10)));
+            // ここは三種類の失敗の併存を検査する。timeoutは専用caseへ分担し、主失敗の観測直後に回収を開始する。
+            canceled.Cancel();
+            VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+            VerificationCommandResult core = result.Commands.Single(command => command.Name == "Core");
+            Assert.AreEqual(1, result.ExitCode);
+            Assert.AreEqual(7, core.Completion?.ExitCode);
+            Assert.AreEqual(7, (await process.Completion.WaitAsync(TimeSpan.FromSeconds(10))).ExitCode);
+            Assert.AreEqual("stdout", await process.StandardOutput.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.AreEqual("stderr", await process.StandardError.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.IsNotNull(core.PrimaryFailure);
+            StringAssert.Contains(core.PrimaryFailure.ToString(), "7");
+            Assert.IsNotNull(core.OutputFailure);
+            Assert.IsNotNull(core.CleanupFailure);
+            StringAssert.Contains(core.CleanupFailure.ToString(), "graceful-failure");
+            Assert.AreEqual("stderr", File.ReadAllText(fixture.Path("run/Core/process.stderr.log")));
+            Assert.IsTrue(child.HasExited);
+            Assert.IsFalse(fixture.Requests.Any(item => item.Name is "Windows" or "Scenarios"));
+        }
+        finally
+        {
+            canceled.Cancel();
+            bool resourcesTerminated = false;
+            try
+            {
+                VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+                await ConfirmOwnedTerminationAsync(owned, observed, result);
+                resourcesTerminated = true;
+            }
+            finally
+            {
+                foreach (Process process in observed) { process.Dispose(); }
+                if (resourcesTerminated) { fixture.Dispose(); }
+            }
+        }
     }
 
     /// <summary>起動段階で回収も失敗した場合、起動の主失敗と回収失敗を別々に記録して後段を開始しないことを保証します。</summary>
@@ -409,11 +449,11 @@ public sealed class VerificationRunnerTests
     [DataRow(true)]
     public async Task FatalStageFailureSharesOneCutoffAndTerminatesAllOwnedProcesses(bool timeout)
     {
-        using var fixture = new RunnerFixture();
+        var fixture = new RunnerFixture();
         using var canceled = new CancellationTokenSource();
         var returnWindows = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var firstGraceEnded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        long firstStart = 0, firstEnd = 0, secondStart = 0, secondEnd = 0;
+        var owned = new ConcurrentDictionary<string, OwnedProcess>();
         fixture.Configure = (name, command) => name is "Core" or "Windows" ? command with
         {
             Ready = fixture.Path(name + "-ready"),
@@ -421,8 +461,9 @@ public sealed class VerificationRunnerTests
             ChildReady = fixture.Path(name + "-child-ready"),
             ChildRelease = fixture.Path(name + "-child-release"),
         } : command;
-        fixture.AfterStart = (name, _) =>
+        fixture.AfterStart = (name, process) =>
         {
+            if (name is "Core" or "Windows") { owned[name] = process; }
             // start要求は実processを返す前で止める。先行回収のtoken取消が、後行回収の開始gateになる。
             if (name == "Windows") { returnWindows.Task.WaitAsync(TimeSpan.FromSeconds(15)).GetAwaiter().GetResult(); }
         };
@@ -433,20 +474,18 @@ public sealed class VerificationRunnerTests
             RequestGracefulExit = async (process, token) =>
             {
                 bool first = fixture.Names[process.ProcessId] == "Core";
-                if (first) { firstStart = Stopwatch.GetTimestamp(); } else { secondStart = Stopwatch.GetTimestamp(); }
                 try { await Task.Delay(Timeout.InfiniteTimeSpan, token); }
                 finally
                 {
                     if (first)
                     {
-                        firstEnd = Stopwatch.GetTimestamp();
                         firstGraceEnded.TrySetResult();
                     }
-                    else { secondEnd = Stopwatch.GetTimestamp(); }
                 }
             },
         };
-        Task<VerificationRunResult> execution = VerificationRunner.ExecuteAsync(VerificationPlan.Parse(["dev"], 2), run, canceled.Token);
+        // Start内の同期gateと解除側を分け、runner内のawaitが同期完了しても解除側へ到達する。
+        Task<VerificationRunResult> execution = Task.Run(() => VerificationRunner.ExecuteAsync(VerificationPlan.Parse(["dev"], 2), run, canceled.Token));
         var observed = new List<Process>();
         try
         {
@@ -460,25 +499,209 @@ public sealed class VerificationRunnerTests
             }
             if (!timeout) { canceled.Cancel(); }
             await firstGraceEnded.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            // Abort済みの境界だけを読む。callbackを先に呼んで失敗時刻を作らない。
+            ProcessDeadline cutoff = fixture.FailureCleanup["Core"]();
+            Assert.AreSame(cutoff, fixture.FailureCleanup["Windows"](), "同じ段階に別の回収cutoffがあります。");
             returnWindows.TrySetResult();
             VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
             Assert.AreEqual(1, result.ExitCode);
             Assert.IsTrue(observed.All(process => process.HasExited));
             Assert.IsFalse(fixture.Requests.Any(item => item.Name == "Scenarios"));
             Assert.AreEqual(2, result.Commands.Count(command => command.Name is "Core" or "Windows"));
-            double firstMs = Stopwatch.GetElapsedTime(firstStart, firstEnd).TotalMilliseconds;
-            double secondMs = Stopwatch.GetElapsedTime(secondStart, secondEnd).TotalMilliseconds;
-            Assert.IsTrue(firstStart > 0 && secondStart > firstEnd);
-            Assert.IsTrue(secondMs < firstMs * 0.85 + 100, $"後行回収が新しい猶予を受けています: first={firstMs}, second={secondMs}");
-            Assert.IsTrue(Stopwatch.GetElapsedTime(firstStart).TotalSeconds < 2.8, "段階の共有回収cutoffを超えています。");
+            Assert.AreSame(cutoff, fixture.FailureCleanup["Windows"](), "後行回収がcutoffを更新しています。");
         }
         finally
         {
             canceled.Cancel();
             returnWindows.TrySetResult();
-            await execution.WaitAsync(TimeSpan.FromSeconds(10));
-            foreach (Process process in observed) { process.Dispose(); }
+            bool resourcesTerminated = false;
+            try
+            {
+                VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+                await ConfirmOwnedTerminationAsync(owned, observed, result);
+                resourcesTerminated = true;
+            }
+            finally
+            {
+                foreach (Process process in observed) { process.Dispose(); }
+                if (resourcesTerminated) { fixture.Dispose(); }
+            }
         }
+    }
+
+    /// <summary>返却をcutoff後まで保留したprocessのログは書込み前に拒否し、既存stdoutと未作成stderrを保ち、summaryも非成功にします。</summary>
+    /// <remarks>生存Jobの行では、期限後に全対象が停止しても回収失敗を消さないことを検査します。途中のファイル書込み取消は静的確認へ分担します。</remarks>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ExpiredCleanupRejectsOutputAndRetainsLateProcessFailure(bool keepWindowsAlive)
+    {
+        var fixture = new RunnerFixture();
+        using var canceled = new CancellationTokenSource();
+        var returnWindows = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstStop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var owned = new ConcurrentDictionary<string, OwnedProcess>();
+        var observed = new List<Process>();
+        fixture.Configure = (name, command) => name == "Core" || (name == "Windows" && keepWindowsAlive) ? command with
+        {
+            Ready = fixture.Path(name + "-ready"),
+            Release = fixture.Path(name + "-release"),
+            ChildReady = fixture.Path(name + "-child-ready"),
+            ChildRelease = fixture.Path(name + "-child-release"),
+        } : command;
+        fixture.AfterStart = (name, process) =>
+        {
+            if (name is not ("Core" or "Windows")) { return; }
+            owned[name] = process;
+            if (name == "Windows") { returnWindows.Task.WaitAsync(TimeSpan.FromSeconds(15)).GetAwaiter().GetResult(); }
+        };
+        VerificationRun run = fixture.Run() with
+        {
+            TestTimeout = TimeSpan.FromSeconds(20),
+            CleanupGrace = TimeSpan.FromSeconds(1),
+            RequestGracefulExit = (process, _) =>
+            {
+                if (fixture.Names[process.ProcessId] == "Core") { firstStop.TrySetResult(); }
+                return Task.CompletedTask;
+            },
+        };
+        string rootDirectory = fixture.Path("");
+        // 同期Startの保留中も、test側はcutoffの観測とgate解除を進められる。
+        Task<VerificationRunResult> execution = Task.Run(() => VerificationRunner.ExecuteAsync(VerificationPlan.Parse(["dev"], 2), run, canceled.Token));
+        try
+        {
+            await WaitForFileAsync(fixture.Path("Core-child-ready"));
+            // WindowsのStart callbackに到達したことを、実所有対象で確認する。
+            ProcessDeadline readyDeadline = Deadline();
+            while (!owned.ContainsKey("Windows"))
+            {
+                if (readyDeadline.Remaining == TimeSpan.Zero) { throw new TimeoutException("Windowsが起動しません。"); }
+                await Task.Delay(10);
+            }
+            foreach (string name in keepWindowsAlive ? new[] { "Core", "Windows" } : new[] { "Core" })
+            {
+                foreach (string suffix in new[] { "-ready", "-child-ready" })
+                {
+                    await WaitForFileAsync(fixture.Path(name + suffix));
+                    observed.Add(Process.GetProcessById(int.Parse(File.ReadAllText(fixture.Path(name + suffix)))));
+                }
+            }
+            if (!keepWindowsAlive) { await owned["Windows"].Completion.WaitAsync(TimeSpan.FromSeconds(10)); }
+            string stdout = fixture.Path("run/Windows/process.stdout.log");
+            string stderr = fixture.Path("run/Windows/process.stderr.log");
+            File.WriteAllText(stdout, "sentinel");
+            Assert.IsFalse(File.Exists(stderr));
+            canceled.Cancel();
+            await firstStop.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            ProcessDeadline cutoff = fixture.FailureCleanup["Core"]();
+            // タイマーの配送だけで失効とせず、Windowsの返却を元cutoffの実失効まで保留する。
+            while (cutoff.Remaining > TimeSpan.Zero)
+            {
+                if (readyDeadline.Remaining == TimeSpan.Zero) { throw new TimeoutException("回収cutoffの観測期限を超えています。"); }
+                await Task.Delay(1).WaitAsync(readyDeadline.Remaining);
+            }
+            Assert.AreEqual(TimeSpan.Zero, cutoff.Remaining);
+            Assert.AreEqual(TimeSpan.Zero, fixture.FailureCleanup["Windows"]().Remaining);
+            if (keepWindowsAlive)
+            {
+                Assert.IsFalse(owned["Windows"].Completion.IsCompleted);
+                Assert.IsTrue(observed.Skip(2).All(process => !process.HasExited));
+            }
+            returnWindows.TrySetResult();
+            VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+            VerificationCommandResult windows = result.Commands.Single(command => command.Name == "Windows");
+            Assert.AreEqual(1, result.ExitCode);
+            // 生存Jobの行はpipeが回収期限内に終端する保証がないため、保存拒否は完了済みの行で確認する。
+            if (!keepWindowsAlive) { Assert.IsNotNull(windows.OutputFailure); }
+            Assert.IsNotNull(result.SummaryFailure);
+            if (keepWindowsAlive) { Assert.IsNotNull(windows.CleanupFailure); }
+            Assert.AreEqual("sentinel", File.ReadAllText(stdout));
+            Assert.IsFalse(File.Exists(stderr));
+            Assert.IsFalse(fixture.Requests.Any(item => item.Name == "Scenarios"));
+            Assert.AreEqual(2, result.Commands.Count(command => command.Name is "Core" or "Windows"));
+        }
+        finally
+        {
+            canceled.Cancel();
+            returnWindows.TrySetResult();
+            bool resourcesTerminated = false;
+            try
+            {
+                VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+                await ConfirmOwnedTerminationAsync(owned, observed, result);
+                resourcesTerminated = true;
+            }
+            finally
+            {
+                foreach (Process process in observed) { process.Dispose(); }
+                // 未終端の所有対象がある場合は領域を残し、削除で失敗を覆い隠さない。
+                if (resourcesTerminated) { fixture.Dispose(); }
+            }
+        }
+        Assert.IsFalse(Directory.Exists(rootDirectory));
+    }
+
+    /// <summary>領域削除前に元Taskと保持PIDを独立に観測し、終端時の故障もcommandの失敗と照合します。</summary>
+    private static async Task ConfirmOwnedTerminationAsync(IEnumerable<KeyValuePair<string, OwnedProcess>> owned,
+        IEnumerable<Process> observed, VerificationRunResult result)
+    {
+        var observations = new List<(string Name, string Part, bool Terminated, TaskStatus Status, Exception? Failure, Exception? WatchdogFailure)>();
+        foreach ((string name, OwnedProcess process) in owned)
+        {
+            // 一つのobserverがfaultしても、他の元Taskの終端確認を省略しない。
+            foreach ((string part, Task task) in new[] { ("RootExit", (Task)process.RootExit),
+                ("stdout", process.StandardOutput), ("stderr", process.StandardError), ("Completion", process.Completion) })
+            {
+                (bool Terminated, Exception? Failure, Exception? WatchdogFailure) observation = await ObserveTerminationAsync(task, name + "/" + part);
+                observations.Add((name, part, observation.Terminated, task.Status, observation.Failure, observation.WatchdogFailure));
+            }
+        }
+        // Jobのobserverと別に保持した全root/childの実終了を確認する。
+        var exits = new List<bool>();
+        foreach (Process process in observed)
+        {
+            (bool Terminated, Exception? Failure, Exception? WatchdogFailure) observation = await ObserveTerminationAsync(process.WaitForExitAsync(), "PID " + process.Id);
+            exits.Add(observation.Terminated && observation.Failure is null && observation.WatchdogFailure is null && process.HasExited);
+        }
+        bool resourcesTerminated = observations.All(item => item.Terminated && item.WatchdogFailure is null) && exits.All(exited => exited);
+        Assert.IsTrue(resourcesTerminated, "元Taskまたは保持したroot/childが未終端です。診断を確認してください。");
+        foreach ((string Name, string Part, bool Terminated, TaskStatus Status, Exception? Failure, Exception? WatchdogFailure) observation in observations)
+        {
+            if (observation.Failure is null)
+            {
+                Assert.AreEqual(TaskStatus.RanToCompletion, observation.Status);
+            }
+            else
+            {
+                Assert.IsTrue(observation.Status is TaskStatus.Faulted or TaskStatus.Canceled);
+                VerificationCommandResult command = result.Commands.Single(item => item.Name == observation.Name);
+                Assert.IsFalse(command.Passed, observation.Name + "/" + observation.Part);
+                Assert.IsNotNull(command.CleanupFailure, observation.Failure.ToString());
+            }
+        }
+    }
+
+    /// <summary>負例の元Taskのfault・取消を保持して終端を観測し、watchdogによる未終端とは区別します。</summary>
+    private static async Task<(bool Terminated, Exception? Failure, Exception? WatchdogFailure)> ObserveTerminationAsync(Task task, string name)
+    {
+        using var stopWatchdog = new CancellationTokenSource();
+        var watchdog = Task.Delay(TimeSpan.FromSeconds(10), stopWatchdog.Token);
+        Task first = await Task.WhenAny(task, watchdog);
+        Exception? watchdogFailure = first == watchdog ? new TimeoutException(name + "の終端観測期限を超えています。") : null;
+        stopWatchdog.Cancel();
+        bool terminated = task.IsCompleted;
+        Exception? failure = null;
+        if (terminated)
+        {
+            // 元Task自身のTimeoutExceptionも元故障として扱い、観測用watchdogとは混同しない。
+            try { await task; }
+            catch (Exception originalFailure) { failure = originalFailure; }
+        }
+        if (failure is not null || watchdogFailure is not null)
+        {
+            Console.Error.WriteLine($"{name}: terminated={terminated}, status={task.Status}, failure={failure}, watchdogFailure={watchdogFailure}");
+        }
+        return (terminated, failure, watchdogFailure);
     }
 
     private static ProcessDeadline Deadline() => ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(10));
@@ -504,6 +727,8 @@ public sealed class VerificationRunnerTests
         internal Action<string, OwnedProcess>? AfterStart { get; set; }
         internal ConcurrentQueue<(string Name, ProcessStartRequest Request)> Requests { get; } = new();
         internal ConcurrentDictionary<int, string> Names { get; } = new();
+        /// <summary>失敗確定後に同段階の絶対cutoffを観測する、起動時に受け取った境界です。</summary>
+        internal ConcurrentDictionary<string, Func<ProcessDeadline>> FailureCleanup { get; } = new();
         private string Root => distribution?.Root ?? workspace?.RootDirectory ?? throw new InvalidOperationException();
         internal string Path(string relative) => distribution?.PathFor(relative) ?? workspace?.GetPath(relative) ?? throw new InvalidOperationException();
         internal VerificationRun Run()
@@ -530,6 +755,7 @@ public sealed class VerificationRunnerTests
                 System.IO.Path.GetFileName(request.FileName)["BeMusicSeeker.".Length..^".Tests.exe".Length];
             if (name == "format") { name = request.Arguments[1]; }
             Requests.Enqueue((name, request));
+            FailureCleanup[name] = beginFailureCleanup;
             BeforeStart?.Invoke(name, request);
             var command = new Command();
             if (request.FileName == "git")

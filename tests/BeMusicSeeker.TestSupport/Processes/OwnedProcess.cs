@@ -1,6 +1,9 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO.Pipes;
+using System.Runtime.InteropServices;
 using System.Text;
+using Microsoft.Win32.SafeHandles;
 
 namespace BeMusicSeeker.TestSupport.Processes;
 
@@ -11,13 +14,17 @@ public sealed class OwnedProcess : IAsyncDisposable
     private readonly WindowsProcessJob? job;
     private readonly StreamReader stdout;
     private readonly StreamReader stderr;
+    private readonly object rootGate = new();
+    private readonly TaskCompletionSource<int> rootExit = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    /// <summary>WindowsのProcessが所有する同じhandleを借用します。別途解放せず、rootGate内ではProcessへ再照会しません。</summary>
+    private readonly SafeProcessHandle? rootHandle;
     private long rootExitedTimestamp;
     private long completedTimestamp;
     private Exception? primaryFailure;
     private Task<ProcessStopResult>? stopping;
     private bool disposed;
 
-    /// <summary>起動時の所属を確立済みの root と Job、両 reader の所有を成功時に引き受けます。reader 単独の待機条件もこの境界で検証できます。</summary>
+    /// <summary>Windows上で起動時の所属を確立済みの root と Job、両 reader の所有を成功時に引き受けます。reader 単独の待機条件もこの境界で検証できます。</summary>
     internal OwnedProcess(Process process, WindowsProcessJob? job, StreamReader stdout, StreamReader stderr)
     {
         this.process = process;
@@ -27,7 +34,18 @@ public sealed class OwnedProcess : IAsyncDisposable
         ProcessId = process.Id;
         StandardOutput = stdout.ReadToEndAsync();
         StandardError = stderr.ReadToEndAsync();
-        RootExit = ObserveRootExitAsync();
+        RootExit = rootExit.Task;
+        try
+        {
+            rootHandle = process.SafeHandle;
+            process.Exited += OnRootExited;
+            process.EnableRaisingEvents = true;
+            ObserveRootExit(releasing: false);
+        }
+        catch (Exception failure)
+        {
+            lock (rootGate) { FailRootObservation(failure); }
+        }
         Completion = CollectAsync();
     }
 
@@ -37,7 +55,7 @@ public sealed class OwnedProcess : IAsyncDisposable
     public Task<string> StandardOutput { get; }
     /// <summary>起動直後から非同期に回収する標準エラーです。</summary>
     public Task<string> StandardError { get; }
-    /// <summary>保持した root だけの終了コードです。両 pipe と Job の子孫回収は Completion で別に待ちます。</summary>
+    /// <summary>保持した root だけの終了コードです。破棄前に実値または観測不能の失敗を確定し、同じTaskを維持します。両 pipe と Job の子孫回収は Completion で別に待ちます。</summary>
     public Task<int> RootExit { get; }
     /// <summary>root、両 pipe、Job の全子孫の終端です。</summary>
     public Task<ProcessCompletion> Completion { get; }
@@ -372,25 +390,53 @@ public sealed class OwnedProcess : IAsyncDisposable
         return Stopwatch.GetTimestamp();
     }
 
-    private async Task<int> ObserveRootExitAsync()
+    private void OnRootExited(object? sender, EventArgs args) => ObserveRootExit(releasing: false);
+
+    /// <summary>Windowsの保持handleを非待機で照会し、終了通知・初回確認・解放前確認を直列化します。gate内でProcessの同期通知APIを呼ばず、Process monitorとの逆順取得を防ぎます。</summary>
+    private void ObserveRootExit(bool releasing)
     {
-        try
+        lock (rootGate)
         {
-            await process.WaitForExitAsync().ConfigureAwait(false);
-            int exitCode = process.ExitCode;
-            Volatile.Write(ref rootExitedTimestamp, Stopwatch.GetTimestamp());
-            if (exitCode != 0)
+            if (rootExit.Task.IsCompleted) { return; }
+            try
             {
-                Interlocked.CompareExchange(ref primaryFailure, new InvalidOperationException($"プロセスが終了コード {exitCode} で失敗しました。"), null);
+                SafeProcessHandle handle = rootHandle ?? throw new InvalidOperationException("rootの観測用handleを取得できませんでした。");
+                uint waitResult = WaitForSingleObject(handle, 0);
+                if (waitResult == 258) // WAIT_TIMEOUT
+                {
+                    if (releasing) { FailRootObservation(new InvalidOperationException("rootの終了を確認できないまま所有ハンドルを解放します。")); }
+                    return;
+                }
+                if (waitResult == uint.MaxValue) { throw new Win32Exception(Marshal.GetLastWin32Error()); }
+                if (waitResult != 0) { throw new InvalidOperationException($"rootの終了照会が未知の結果を返しました: {waitResult}"); }
+                if (!GetExitCodeProcess(handle, out uint nativeExitCode)) { throw new Win32Exception(Marshal.GetLastWin32Error()); }
+                // signalを確認済みなので259も実終了コード。Process.ExitCodeと同じ符号付き表現へ変換する。
+                int exitCode = unchecked((int)nativeExitCode);
+                Volatile.Write(ref rootExitedTimestamp, Stopwatch.GetTimestamp());
+                if (exitCode != 0)
+                {
+                    Interlocked.CompareExchange(ref primaryFailure, new InvalidOperationException($"プロセスが終了コード {exitCode} で失敗しました。"), null);
+                }
+                rootExit.TrySetResult(exitCode);
             }
-            return exitCode;
-        }
-        catch (Exception failure)
-        {
-            Interlocked.CompareExchange(ref primaryFailure, failure, null);
-            throw;
+            catch (Exception failure) { FailRootObservation(failure); }
         }
     }
+
+    /// <summary>rootGate内で未確定の観測失敗を保存し、既存の主失敗を置き換えません。</summary>
+    private void FailRootObservation(Exception failure)
+    {
+        if (rootExit.Task.IsCompleted) { return; }
+        Interlocked.CompareExchange(ref primaryFailure, failure, null);
+        rootExit.TrySetException(failure);
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint WaitForSingleObject(SafeProcessHandle handle, uint timeout);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetExitCodeProcess(SafeProcessHandle process, out uint exitCode);
 
     private async Task<ProcessCompletion> CollectAsync()
     {
@@ -414,7 +460,7 @@ public sealed class OwnedProcess : IAsyncDisposable
         }
     }
 
-    /// <summary>未停止なら10秒の回収期限で停止し、既存の停止があればその期限を引き継いでハンドルを解放します。</summary>
+    /// <summary>未停止なら10秒の回収期限で停止し、既存の停止があればその期限を引き継ぎます。元RootExitを実値または観測失敗で確定してからハンドルを解放します。</summary>
     public async ValueTask DisposeAsync()
     {
         if (disposed)
@@ -434,6 +480,8 @@ public sealed class OwnedProcess : IAsyncDisposable
         }
         finally
         {
+            ObserveRootExit(releasing: true);
+            process.Exited -= OnRootExited;
             job?.Dispose();
             stdout.Dispose();
             stderr.Dispose();

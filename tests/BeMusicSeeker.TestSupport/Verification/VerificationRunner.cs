@@ -365,14 +365,12 @@ internal static class VerificationRunner
 
     private static async Task WriteTextAsync(string path, string content, ProcessDeadline deadline)
     {
+        if (deadline.Remaining == TimeSpan.Zero) { throw new TimeoutException("ログ保存の期限を超えています。"); }
         using var canceled = new CancellationTokenSource(deadline.Remaining);
-        Task write = File.WriteAllTextAsync(path, content, canceled.Token);
-        try { await write.WaitAsync(deadline.Remaining); }
-        finally
-        {
-            canceled.Cancel();
-            if (!write.IsCompleted) { _ = write.ContinueWith(task => _ = task.Exception, TaskContinuationOptions.OnlyOnFaulted); }
-        }
+        // 元の書込みを直接待ち、取消後もファイル解放前に呼出元へ戻らない。
+        // タイマーの取消配送が遅れた場合も、期限後の完了を成功にはしない。
+        await File.WriteAllTextAsync(path, content, canceled.Token);
+        if (deadline.Remaining == TimeSpan.Zero) { throw new TimeoutException("ログ保存の期限を超えています。"); }
     }
 
     private static double MeasureIntervalUnion(IEnumerable<(long Start, long End)> intervals)

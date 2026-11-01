@@ -53,6 +53,13 @@ public sealed class OwnedProcessPipeTests
             var waitDeadline = ProcessDeadline.FromTimeout(TimeSpan.FromMilliseconds(100));
             await Assert.ThrowsAsync<TimeoutException>(() => process.WaitForExitAsync(waitDeadline)).WaitAsync(stageDeadline.Remaining);
             Exception? firstFailure = process.PrimaryFailure;
+            // WaitAsyncのタイマー配送は単調時計の実失効より僅かに早い場合がある。
+            // pipeを閉じたまま元の100ms期限を観測し、期限を作り直さない。
+            while (waitDeadline.Remaining > TimeSpan.Zero)
+            {
+                if (stageDeadline.Remaining == TimeSpan.Zero) { throw new TimeoutException("pipe検査の段階期限を超えています。"); }
+                await Task.Delay(1).WaitAsync(stageDeadline.Remaining);
+            }
             Assert.AreEqual(TimeSpan.Zero, waitDeadline.Remaining);
             Assert.IsFalse(pending.IsCompleted);
             await Assert.ThrowsAsync<TimeoutException>(() => process.WaitForExitAsync(waitDeadline));
