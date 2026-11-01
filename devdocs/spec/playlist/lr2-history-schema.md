@@ -96,9 +96,9 @@ LR2が使うSQLite 3.6.7で動くSQLを使います。UPSERT構文、CTE、ウ�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| 列・索引・トリガー・衝突・明示操作 | [`Lr2PlayHistorySchemaService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistorySchemaService.cs) | [`Lr2PlayHistorySchemaServiceTests`](../../../BeMusicSeeker.Tests/PlayHistory/Lr2PlayHistorySchemaServiceTests.cs) |
-| 状態表示・導入と削除の受付 | [`Lr2PlayHistorySchemaService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistorySchemaService.cs) | [`Lr2PlayHistorySchemaUiTests`](../../../BeMusicSeeker.Tests/PlayHistory/Lr2PlayHistorySchemaUiTests.cs) |
-| 記録された値と読取り条件 | [`Lr2PlayHistoryReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistoryReader.cs) | [`PlayHistoryReadModelTests`](../../../BeMusicSeeker.Tests/PlayHistory/PlayHistoryReadModelTests.cs) |
+| 列・索引・トリガー・衝突・明示操作 | [`Lr2PlayHistorySchemaService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistorySchemaService.cs) | [`Lr2PlayHistorySchemaServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/PlayHistory/Lr2PlayHistorySchemaServiceTests.cs) |
+| 状態表示・導入と削除の受付 | [`Lr2PlayHistorySchemaService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistorySchemaService.cs) | [`Lr2PlayHistorySchemaUiTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/PlayHistory/Lr2PlayHistorySchemaUiTests.cs)、[`Lr2PlayHistorySchemaUiTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/PlayHistory/Lr2PlayHistorySchemaUiTests.cs) |
+| 記録された値と読取り条件 | [`Lr2PlayHistoryReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistoryReader.cs) | [`PlayHistoryReadModelTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/PlayHistory/PlayHistoryReadModelTests.cs)、[`PlayHistoryReadModelTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/PlayHistory/PlayHistoryReadModelTests.cs) |
 
 設定からの対象選択・確認・受付は `Lr2PlayHistorySchemaUiTests` の `SettingDialogViewModel_InstallUsesConfirmedPlayerAndPreservesCandidatesUntilAccepted` と既存導入拒否/撤去系列で、別XMLのplayer DBを変更しないことと候補保持・cache失効・再読込みを確認します。実buttonの接続とClose抑止は `SettingsWindowPresentationTests` の導入/撤去代表が分担します。
 

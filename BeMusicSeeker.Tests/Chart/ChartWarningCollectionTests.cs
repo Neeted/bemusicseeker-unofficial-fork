@@ -19,7 +19,7 @@ public sealed class ChartWarningCollectionTests
     [DataRow("unverifiable")]
     public void WarningDigest_AudioReasonFollowsMetadataAndHighlightsPendingRow(string state)
     {
-        using IDisposable culture = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable culture = TestCultureScope.UseJapaneseCulture();
         var audio = ChartWarning.Create(state == "missing" ? ChartWarningKind.InstallEstimationAudioMissing : ChartWarningKind.InstallEstimationAudioUnverifiable, "audio reason");
         ChartWarning[] warnings = [audio, ChartWarning.Create(ChartWarningKind.InstallEstimationMetadataMismatch, "metadata reason"),
             ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "current missing")];

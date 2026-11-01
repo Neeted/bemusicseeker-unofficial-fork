@@ -22,7 +22,7 @@ public sealed class PlaylistSummaryMutationAndWarmTests
     {
         WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new PlaylistSummaryAggregationTestDoubles.RecordingDialogService())
             {
                 BmsCharts =
                 [
@@ -57,7 +57,7 @@ public sealed class PlaylistSummaryMutationAndWarmTests
             File.WriteAllText(keptPath, "#PLAYER 1");
             ChartFile removedFile = CreateLibraryFile(removedPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             ChartFile keptFile = CreateLibraryFile(keptPath, "cccccccccccccccccccccccccccccccc", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new PlaylistSummaryAggregationTestDoubles.RecordingDialogService())
             {
                 BmsCharts = [removedFile, keptFile]
             };
@@ -81,7 +81,7 @@ public sealed class PlaylistSummaryMutationAndWarmTests
     {
         WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new PlaylistSummaryAggregationTestDoubles.RecordingDialogService())
             {
                 BmsCharts =
                 [
@@ -143,7 +143,7 @@ public sealed class PlaylistSummaryMutationAndWarmTests
                 Md5 = sharedMd5,
                 Sha256 = sharedSha256
             };
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new PlaylistSummaryAggregationTestDoubles.RecordingDialogService())
             {
                 BmsCharts = [bmsFile],
                 BmsonCharts = [bmsonSong]
@@ -208,7 +208,7 @@ public sealed class PlaylistSummaryMutationAndWarmTests
                 keptPath,
                 "cccccccccccccccccccccccccccccccc",
                 "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new PlaylistSummaryAggregationTestDoubles.RecordingDialogService())
             {
                 BmsCharts = [removedFile, keptFile]
             };

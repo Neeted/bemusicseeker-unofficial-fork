@@ -283,7 +283,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
             Assert.IsFalse((new ResourceHealthMaintenanceSnapshot { Origin = origin, Encoding = "shift_jis" }).IsInformationChecked);
         }
-        using IDisposable culture = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable culture = TestCultureScope.UseJapaneseCulture();
         ChartWarning warning = BmsLibraryMaintenanceService.BuildResourceHealthWarnings(Complete(4, 1)).Single();
         Assert.AreEqual(string.Format(Resources.Warning_WavFilesNotFound, 25, 1, 4), warning.Message);
     }

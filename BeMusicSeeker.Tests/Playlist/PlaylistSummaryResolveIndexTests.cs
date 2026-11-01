@@ -24,7 +24,7 @@ public sealed class PlaylistSummaryResolveIndexTests
     {
         WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new PlaylistSummaryAggregationTestDoubles.RecordingDialogService())
             {
                 BmsCharts =
                 [
@@ -81,7 +81,7 @@ public sealed class PlaylistSummaryResolveIndexTests
             ChartFile firstFile = CreateLibraryFile(firstPath, sharedMd5, sharedSha256);
             ChartFile middleFile = CreateLibraryFile(middlePath, sharedMd5, sharedSha256);
             ChartFile lastFile = CreateLibraryFile(lastPath, sharedMd5, sharedSha256);
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new PlaylistSummaryAggregationTestDoubles.RecordingDialogService())
             {
                 BmsCharts = [firstFile, middleFile, lastFile]
             };
@@ -182,7 +182,7 @@ public sealed class PlaylistSummaryResolveIndexTests
                 optionsSnapshotProvider: () => options,
                 applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
                 chartFileScanner: chartFileScanner,
-                dialogService: new RecordingDialogService(), settings: TestBmsFactory.CreateRootSettings([chartDirectory]))
+                dialogService: new PlaylistSummaryAggregationTestDoubles.RecordingDialogService(), settings: TestBmsFactory.CreateRootSettings([chartDirectory]))
             {
 
                 BmsCharts = [oldFile]
@@ -242,7 +242,7 @@ public sealed class PlaylistSummaryResolveIndexTests
             File.WriteAllText(movedPath, "#PLAYER 1");
             ChartFile firstFile = CreateLibraryFile(firstPath, sharedMd5, sharedSha256);
             ChartFile movedFile = CreateLibraryFile(movedPath, sharedMd5, sharedSha256);
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new PlaylistSummaryAggregationTestDoubles.RecordingDialogService())
             {
                 BmsCharts = [firstFile, movedFile]
             };
@@ -323,7 +323,7 @@ public sealed class PlaylistSummaryResolveIndexTests
                 optionsSnapshotProvider: () => options,
                 applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
                 chartFileScanner: chartFileScanner,
-                dialogService: new RecordingDialogService(), settings: TestBmsFactory.CreateRootSettings([chartDirectory]))
+                dialogService: new PlaylistSummaryAggregationTestDoubles.RecordingDialogService(), settings: TestBmsFactory.CreateRootSettings([chartDirectory]))
             {
 
             };
@@ -411,7 +411,7 @@ public sealed class PlaylistSummaryResolveIndexTests
                 files.Add(CreateLibraryFile(path, hash, sha256));
             }
 
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new PlaylistSummaryAggregationTestDoubles.RecordingDialogService())
             {
                 BmsCharts = files
             };

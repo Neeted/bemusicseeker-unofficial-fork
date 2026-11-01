@@ -30,7 +30,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [DoNotParallelize]
     public void DuplicateAdmission_RealAnalysisRejectsLibraryMoveUntilRequiredNotificationsComplete()
     {
-        RegularChartNavigationTests.RunColdDuplicateFixture(fixture =>
+        RegularChartNavigationTestFixture.RunColdDuplicateFixture(fixture =>
         {
             MainWindowViewModel vm = fixture.ViewModel;
             fixture.StartDuplicate(); fixture.AwaitGate(); fixture.AwaitGroupsWhileGated();

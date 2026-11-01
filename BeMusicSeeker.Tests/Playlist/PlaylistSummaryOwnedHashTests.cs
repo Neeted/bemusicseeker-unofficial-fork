@@ -19,7 +19,7 @@ public sealed class PlaylistSummaryOwnedHashTests
     {
         WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new PlaylistSummaryAggregationTestDoubles.RecordingDialogService());
             using var cancellation = new CancellationTokenSource();
             cancellation.Cancel();
 
@@ -34,7 +34,7 @@ public sealed class PlaylistSummaryOwnedHashTests
     {
         WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new PlaylistSummaryAggregationTestDoubles.RecordingDialogService());
             SetLibraryFilesWithoutNotification(library,
             [
                 CreateLibraryFile(@"C:\Songs\bms.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")

@@ -150,7 +150,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
             using (LR2ScoreDBExtended db = databaseScope.OpenScoreWrite(scorePath)) { InsertLr2SourceHistory(db, hash, DateTime.Today.AddDays(-1), 10); }
             Settings sourceSettings = TestSettingsFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = true);
             var sourceOwner = new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(Path.GetDirectoryName(songDbPath) ?? throw new AssertFailedException()));
-            var library = new TestBmsLibrary(databaseScope, songDbPath, sourceOwner, scorePath, new TestFileMutationService(), new PlaylistSummaryAggregationTestSupport.RecordingDialogService(), settings: sourceSettings) { BmsCharts = [] };
+            var library = new TestBmsLibrary(databaseScope, songDbPath, sourceOwner, scorePath, new TestFileMutationService(), new PlaylistSummaryAggregationTestDoubles.RecordingDialogService(), settings: sourceSettings) { BmsCharts = [] };
             try
             {
                 library.InitializeScoresOnly(null);

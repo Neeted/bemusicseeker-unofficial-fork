@@ -2366,7 +2366,7 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void RepairInstalledLocationRequest_UsesExistingBmsonInstallDestination()
     {
-        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestCultureScope.UseJapaneseCulture();
         ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
             Path = "C:\\Songs\\Bmson\\repair-existing.bmson",

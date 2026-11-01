@@ -2,13 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualBasic.FileIO;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.Tests;
 
@@ -95,14 +91,6 @@ internal static class PlaylistSummaryAggregationTestSupport
             {
                 Directory.Delete(tempRootPath, recursive: true);
             }
-        }
-    }
-
-    internal sealed class RecordingDialogService : IBmsLibraryDialogService
-    {
-        public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
-        {
-            return defaultResult == MessageBoxResult.None ? MessageBoxResult.OK : defaultResult;
         }
     }
 

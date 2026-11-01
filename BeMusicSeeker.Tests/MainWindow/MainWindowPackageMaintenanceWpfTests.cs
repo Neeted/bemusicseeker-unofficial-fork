@@ -37,7 +37,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     [DataRow(2)]
     public void FullScanDestinationEditing_RealTreePreservesOriginAndFeedsExplicitRepair(int mode)
     {
-        using IDisposable culture = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable culture = TestCultureScope.UseJapaneseCulture();
         string root = Path.Combine(Path.GetTempPath(), "FullScanDestination-" + Guid.NewGuid().ToString("N"));
         string sourceDirectory = Path.Combine(root, "Source"), aDirectory = Path.Combine(root, "A"), bDirectory = Path.Combine(root, "B");
         foreach (string directory in new[] { sourceDirectory, aDirectory, bDirectory }) { Directory.CreateDirectory(directory); }
@@ -326,7 +326,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     [TestMethod]
     public void InstalledMixedFolderRelocationKeepsRowsSelectionAndUncommittedEditor()
     {
-        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestCultureScope.UseJapaneseCulture();
         string root = Path.Combine(Path.GetTempPath(), "installed-current-wpf-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false);
@@ -1080,7 +1080,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     [TestMethod]
     public void CorrectInstallDestinationSearchAndClearPreserveFullScanPresentation()
     {
-        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestCultureScope.UseJapaneseCulture();
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CorrectPresentation_" + Guid.NewGuid().ToString("N"));
         string sourceDirectory = Path.Combine(root, "000Source");
         string candidateADirectory = Path.Combine(root, "InstalledA");
@@ -1263,7 +1263,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     [TestMethod]
     public void PendingEstimationAndCandidateEditingReachRealizedRowsWithRelatedEvidence()
     {
-        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        using IDisposable cultureScope = TestCultureScope.UseJapaneseCulture();
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PendingPresentation_" + Guid.NewGuid().ToString("N"));
         TestBmsLibrary? library = null;
         Exception? primaryFailure = null;
@@ -2178,7 +2178,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 values.OperationModeLR2DB = false;
                 values.StartupSelectInstallPending = false;
             });
-            var presentationTasks = new RegularChartNavigationTests.ProjectionTaskCollector(new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher));
+            var presentationTasks = new RegularChartNavigationTestFixture.ProjectionTaskCollector(new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher));
             DuplicateNavigationTestFixture? fixture = null;
             Task? firstHandler = null;
             var maintenance = new MainWindowMaintenanceTreeTerminal((mode, parameter) =>
