@@ -4007,7 +4007,7 @@ public sealed class SettingsWindowPresentationTests
         return new ShellActivationWorkflowOwner(
             startupUpdate,
             new ElevatedProcessWarningWorkflowOwner(() => false),
-            () => Task.FromResult(true));
+            () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded, CompletionPublished: true)));
     }
 
     private static void ClickAdvancedDangerButton(SettingsWindow window, string content)

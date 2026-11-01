@@ -70,6 +70,9 @@ public sealed class MainChartListViewModel : ViewModel
 
     private long rowsCommitGeneration;
 
+    /// <summary>実際に現在採用されている行世代です。操作の成功は当該Taskの結果と併せて判定します。</summary>
+    internal long RowsGeneration => Interlocked.Read(ref rowsCommitGeneration);
+
     private readonly object presentationMetadataSyncRoot = new();
 
     private MainChartListCompletion lastCompletion;
@@ -1031,7 +1034,8 @@ public sealed class MainChartListViewModel : ViewModel
             columnSettingMs,
             setViewMs,
             columnStageMs,
-            request.ColumnSettingReuse);
+            request.ColumnSettingReuse,
+            commit.Generation);
         if (publishExceptions.Count > 0)
         {
             throw new AggregateException(
@@ -1606,14 +1610,19 @@ internal readonly struct MainChartListRowsApplyResult
         long columnSettingMs,
         long setViewMs,
         long columnStageMs,
-        bool columnSettingReuse)
+        bool columnSettingReuse,
+        long generation = 0)
     {
         PrepareSwapMs = prepareSwapMs;
         ColumnSettingMs = columnSettingMs;
         SetViewMs = setViewMs;
         ColumnStageMs = columnStageMs;
         ColumnSettingReuse = columnSettingReuse;
+        Generation = generation;
     }
+
+    /// <summary>この結果を作った実行の行採用世代です。後発の現在世代を取り直しません。</summary>
+    internal long Generation { get; }
 
     internal long PrepareSwapMs { get; }
 

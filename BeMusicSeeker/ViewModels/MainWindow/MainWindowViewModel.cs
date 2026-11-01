@@ -190,6 +190,10 @@ public partial class MainWindowViewModel : ViewModel,
 
     private BMSLibrary files;
 
+    /// <summary>現在のライブラリ所属と不変譜面値を、表示の独立観測へ捕捉します。未構成時はnullです。</summary>
+    internal CatalogChartCollectionSnapshot CaptureLibraryCatalog()
+        => files?.CaptureNormalLibraryChartSnapshot();
+
     private BMSPlaylist tables;
 
     private event EventHandler libraryOperationAvailabilityChanged;
@@ -1959,8 +1963,20 @@ public partial class MainWindowViewModel : ViewModel,
         }
         else
         {
-            RefreshChartRowsView(MainViewUpdateMode.KeywordFilterUpdated);
+            Task<RegularChartListEntryResult> refresh = RefreshRegularKeywordAsync();
+            refresh.ObserveFault("refreshRegularKeyword");
+            RegularKeywordRefreshStarted?.Invoke(filters.KeywordFilter, refresh);
         }
+    }
+
+    /// <summary>通常一覧の検索setterが開始した実Taskを一度通知します。観測者は操作前に購読し、そのTaskだけを待ちます。</summary>
+    internal event Action<string, Task<RegularChartListEntryResult>> RegularKeywordRefreshStarted;
+
+    private async Task<RegularChartListEntryResult> RefreshRegularKeywordAsync()
+    {
+        RegularChartListEntryResult result = default;
+        await RefreshChartRowsView(MainViewUpdateMode.KeywordFilterUpdated, regularCompletion: value => result = value);
+        return result;
     }
 
     private void SchedulePlayHistoryDisplayTargetCatalogRefresh(Action refresh)
@@ -2238,7 +2254,7 @@ public partial class MainWindowViewModel : ViewModel,
         ShellActivationWorkflow = new ShellActivationWorkflowOwner(
             StartupUpdateWorkflow,
             ElevatedProcessWarningWorkflow,
-            InitializeAsync);
+            InitializeRenderedShellAsync);
         ScoreViewerRegistration = childComposition.ScoreViewerRegistrationWorkflow;
         ZeroNoteMaintenance = childComposition.ZeroNoteMaintenanceWorkflow;
         PackageCatalog = childComposition.PackageCatalogWorkflow;
@@ -2913,25 +2929,25 @@ public partial class MainWindowViewModel : ViewModel,
         finally { EndUiUpdateSuppression(scheduleFlush: false); _semaphore.Release(); }
     }
 
-    /// <summary>差分再読込みの停止・変更・必要参照までL/Pを所有し、受付外で表示と失敗通知を終えます。</summary>
-    internal Task ReloadFileDiffAsync()
+    /// <summary>差分再読込みの停止・変更・必要参照までL/Pを所有し、受付外で表示と失敗通知を終えます。未受理ならnull、受理済みなら実終端結果を返します。</summary>
+    internal Task<StartupInitializationResult> ReloadFileDiffAsync()
         => RunLibraryInputOperationAsync(ReloadFileDiffUnderAdmissionAsync, "ReloadFileDiff", requiresPlaylist: true);
 
     /// <summary>有限の入力変更を非待機で受け付け、局所結果を親解放後の同じ必須UI終端へ渡します。</summary>
-    private async Task RunLibraryInputOperationAsync(Func<LibraryFileMutationCapability, Task<StartupInitializationResult>> operation, string routeName, bool requiresPlaylist = false)
+    private async Task<StartupInitializationResult> RunLibraryInputOperationAsync(Func<LibraryFileMutationCapability, Task<StartupInitializationResult>> operation, string routeName, bool requiresPlaylist = false)
     {
-        if (!initializationStatePort.IsInitializationCompleted || IsRequiredInitializationShutdownRequested) { return; }
+        if (!initializationStatePort.IsInitializationCompleted || IsRequiredInitializationShutdownRequested) { return null; }
         if (!chartFileOperations.TryEnter(out IDisposable lease))
         {
             if (!IsRequiredInitializationShutdownRequested) { await FileDbMutationDialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, BeMusicSeeker.Properties.Resources.Warning)); }
-            return;
+            return null;
         }
         IDisposable playlistLease = null;
         if (requiresPlaylist && !applicationComposition.PlaylistOperationAdmission.TryEnter(out playlistLease))
         {
             lease.Dispose();
             if (!IsRequiredInitializationShutdownRequested) { await FileDbMutationDialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, BeMusicSeeker.Properties.Resources.Warning)); }
-            return;
+            return null;
         }
         StartupInitializationResult result;
         using (lease)
@@ -2942,19 +2958,20 @@ public partial class MainWindowViewModel : ViewModel,
         {
             result = await operation(capability);
         }
-        await CompleteLimitedInitializationAsync(result, routeName);
+        return await CompleteLimitedInitializationAsync(result, routeName);
     }
 
     /// <summary>親解放済みの限定操作を完了し、実失敗を既存警告のあと元例外として返します。</summary>
-    private async Task CompleteLimitedInitializationAsync(StartupInitializationResult result, string routeName = "ReloadTables")
+    private async Task<StartupInitializationResult> CompleteLimitedInitializationAsync(StartupInitializationResult result, string routeName = "ReloadTables")
     {
-        if (result == null) { return; }
+        if (result == null) { return null; }
         result = await CompleteRequiredInitializationAfterAdmissionAsync(result);
         if (result.Failure is LibraryDirectoryPreflightException directoryFailure)
         {
             await PresentLibraryDirectoryWarningAsync(directoryFailure, LibraryDirectoryWarningPhase.Late, routeName + " directory preflight warning");
         }
         if (result.Failure != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(result.Failure).Throw(); }
+        return result;
     }
 
     /// <summary>限定操作の実失敗を設定不備と区別します。終了による取消だけは終了結果へ返し、継続可否は既存の管理状態へ委ねます。</summary>
@@ -3135,9 +3152,13 @@ public partial class MainWindowViewModel : ViewModel,
     /// <returns>必須処理とUIの適用に成功し、この操作の完了を公開した場合だけ true。任意の案内の表示成否は含みません。</returns>
     internal async Task<bool> InitializeAsync()
     {
-        StartupInitializationResult result = await InitializeLibraryAsync(isNormalStartup: true);
+        StartupInitializationResult result = await InitializeRenderedShellAsync();
         return result.Outcome == StartupInitializationOutcome.Succeeded && result.CompletionPublished && result.Failure == null;
     }
+
+    /// <summary>実Windowの初期化と既存bool入口が共用する本番処理です。観測のため別の初期化を実行しません。</summary>
+    private Task<StartupInitializationResult> InitializeRenderedShellAsync()
+        => InitializeLibraryAsync(isNormalStartup: true);
 
     /// <summary>親L/P解放後の必須UIで実hostを接続する画面境界です。成功property通知を接続開始の根拠にしません。</summary>
     internal event Action RequiredStartupUiApplying;
@@ -3896,8 +3917,10 @@ public partial class MainWindowViewModel : ViewModel,
 
     /// <summary>現在表示の入口がUI適用済み参照を一度捕捉します。内部の遅い配送も同じ参照を渡し、nullを後発要求へ取り直しません。</summary>
     private Task RefreshChartRowsView(MainViewUpdateMode mode, object parameter = null,
-        MainChartListSortTarget? expectedSortTarget = null, RegularChartListSubsetSource confirmedUnresolvedDuplicateSource = null)
-        => RefreshChartRowsViewCaptured(mode, parameter, expectedSortTarget, appliedNavigation, confirmedUnresolvedDuplicateSource);
+        MainChartListSortTarget? expectedSortTarget = null, RegularChartListSubsetSource confirmedUnresolvedDuplicateSource = null,
+        Action<RegularChartListEntryResult> regularCompletion = null)
+        => RefreshChartRowsViewCaptured(mode, parameter, expectedSortTarget, appliedNavigation, confirmedUnresolvedDuplicateSource,
+            regularCompletion: regularCompletion);
 
     /// <summary>
     /// 指定された更新モードとパラメータに基づいて、メインの chart row 表示用コレクションを生成・更新します。
@@ -3916,7 +3939,8 @@ public partial class MainWindowViewModel : ViewModel,
         MainChartListSortTarget? expectedSortTarget = null,
         RegularChartNavigationRequest navigation = null,
         RegularChartListSubsetSource confirmedUnresolvedDuplicateSource = null,
-        RegularDuplicateViewInput duplicateInput = null)
+        RegularDuplicateViewInput duplicateInput = null,
+        Action<RegularChartListEntryResult> regularCompletion = null)
     {
         if (!regularChartListOwner.IsCurrentNavigation(navigation)) { return Task.CompletedTask; }
         if (expectedSortTarget.HasValue
@@ -4041,6 +4065,7 @@ public partial class MainWindowViewModel : ViewModel,
                 && MainChartList.CurrentOperationContext.OperationSection != MainViewOperationSection.PlayHistory
                 && !IsPlaylistDetailWorkflowActive)
             { SyncMainChartListSortPresentation(); }
+            regularCompletion?.Invoke(result);
         });
         regularRefresh.ObserveFault("refreshRegularChartRowsView");
         return regularRefresh;

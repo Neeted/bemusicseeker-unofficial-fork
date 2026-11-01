@@ -256,7 +256,7 @@ internal sealed partial class RegularChartListOwner
             RegularChartListEntryResult result = default;
             await normalLibraryRefreshUiScheduler.InvokeAsync(() =>
             {
-                result = prepared.Finish(terminal);
+                result = prepared.Finish(terminal).WithPresentation(lease.RequestId, terminal.RowsApply.Generation);
                 presentationCompleted?.Invoke(result);
                 // 終了処理と表示同期の例外も、一覧採用と同じTaskの失敗として返す。
                 return Task.CompletedTask;

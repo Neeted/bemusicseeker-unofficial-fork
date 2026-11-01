@@ -4838,12 +4838,25 @@ internal enum RegularChartListEntryRoute
 
 internal readonly struct RegularChartListEntryResult
 {
-    internal RegularChartListEntryResult(bool wasCommitted, RegularChartListEntryRoute route, bool sortWasReset)
+    internal RegularChartListEntryResult(bool wasCommitted, RegularChartListEntryRoute route, bool sortWasReset,
+        long requestId = 0, long rowsGeneration = 0)
     {
         WasCommitted = wasCommitted;
         Route = route;
         SortWasReset = sortWasReset;
+        RequestId = requestId;
+        RowsGeneration = rowsGeneration;
     }
+
+    /// <summary>この構築を実行した要求識別です。未開始の結果は0です。</summary>
+    internal long RequestId { get; }
+
+    /// <summary>この要求が採用した実行の行世代です。未採用では0です。</summary>
+    internal long RowsGeneration { get; }
+
+    /// <summary>実要求とそのterminalの行世代を、必須表示を待つ返却結果へ持ち出します。</summary>
+    internal RegularChartListEntryResult WithPresentation(long requestId, long rowsGeneration)
+        => new(WasCommitted, Route, SortWasReset, requestId, WasCommitted ? rowsGeneration : 0);
 
     internal bool WasCommitted { get; }
 

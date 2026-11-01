@@ -46,6 +46,12 @@ public partial class App : System.Windows.Application
 
     private Task restartTask;
 
+    private ApplicationScenarioControl scenarioControl;
+
+    private Task scenarioShutdownTask;
+
+    private int scenarioShutdownExitCode;
+
     public bool firstStartup { get; set; }
 
     public static ReadOnlyDictionary<string, string> AvailableCultures { get; private set; }
@@ -132,12 +138,29 @@ public partial class App : System.Windows.Application
 
     private async void Application_Startup(object sender, StartupEventArgs e)
     {
+        try
+        {
+            if (applicationRuntimeOptions.TestSession is { } session)
+            {
+                // schema確認・更新確認・所有権拒否のmodalより先に、接続事実だけを公開します。
+                scenarioControl = await ApplicationScenarioControl.ConnectAsync(session, base.Dispatcher).ConfigureAwait(true);
+            }
+        }
+        catch (Exception failure)
+        {
+            // test制御の接続失敗は業務modalにせず、所有driverが実退出と元原因を直ちに回収します。
+            try { Console.Error.WriteLine(failure); }
+            catch (Exception) { /* stderr自体の故障でも、未接続のまま通常起動へ進みません。 */ }
+            Shutdown(1);
+            return;
+        }
         await new ApplicationStartupCompositionOwner(
             createViewModel: () =>
             {
                 var composition = new ApplicationComposition(
                     runtimeOptions: applicationRuntimeOptions,
                     rootFileEnumerator: applicationRuntimeOptions.TestSession == null ? null : new FastRootFileEnumerator(),
+                    chartFileScanner: applicationRuntimeOptions.TestSession == null ? null : new FastDirectoryFileScanner(),
                     uiScheduler: new WpfUiScheduler(() => base.Dispatcher),
                     applicationLifetime: new AppApplicationLifetime(this),
                     cultureCatalog: new AppCultureCatalog(this),
@@ -147,7 +170,12 @@ public partial class App : System.Windows.Application
                 return composition.CreateMainWindowViewModel();
             },
             assignViewModelResource: viewModel => Resources["vm"] = viewModel,
-            createMainWindow: viewModel => new MainWindow(viewModel),
+            createMainWindow: viewModel =>
+            {
+                var window = new MainWindow(viewModel);
+                scenarioControl?.Attach(viewModel, window);
+                return window;
+            },
             assignApplicationMainWindow: mainWindow => MainWindow = mainWindow,
             showMainWindow: mainWindow =>
             {
@@ -171,7 +199,7 @@ public partial class App : System.Windows.Application
         if (instanceLease != null) { return true; }
         EmergencyDialog.Show(BeMusicSeeker.Properties.Resources.ApplicationAlreadyStarted,
             BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Error);
-        Shutdown();
+        RequestApplicationShutdown();
         return false;
     }
 
@@ -215,8 +243,19 @@ public partial class App : System.Windows.Application
     private async Task HandleStartupFailureAsync(Exception exception)
     {
         MarkCoordinatedShutdownStarted("startup_composition_failed");
+        if (applicationRuntimeOptions.TestSession != null)
+        {
+            // pipe接続自体の失敗も、所有driverが回収するstderrに元原因を残します。
+            try { Console.Error.WriteLine(exception); }
+            catch (Exception diagnosticFailure) { LogFailureBestEffort(diagnosticFailure, "scenario_startup_stderr_failed"); }
+        }
         try
         {
+            if (scenarioControl != null)
+            {
+                try { await scenarioControl.ReportStartupFailureAsync(exception).ConfigureAwait(true); }
+                catch (Exception failure) { LogFailureBestEffort(failure, "scenario_startup_failure_report_failed"); }
+            }
             try
             {
                 if (exception is PortableSettingsException settingsFailure)
@@ -243,9 +282,56 @@ public partial class App : System.Windows.Application
         finally
         {
             // Shutdownが発火するApplication_Exitで通常終了と同じ一回のフラッシュを行います。
-            try { ReleaseSingleInstanceMutex(); }
-            finally { Shutdown(1); }
+            if (scenarioControl != null)
+            {
+                await BeginScenarioShutdownAsync(1).ConfigureAwait(true);
+            }
+            else
+            {
+                try { ReleaseSingleInstanceMutex(); }
+                finally { Shutdown(1); }
+            }
         }
+    }
+
+    /// <summary>業務の終端後、明示test sessionだけは制御通信を非同期に回収してからWPFを終了します。</summary>
+    internal void RequestApplicationShutdown()
+    {
+        base.Dispatcher.VerifyAccess();
+        if (scenarioControl == null) { Shutdown(); }
+        else { BeginScenarioShutdownAsync(0).ObserveFault(); }
+    }
+
+    private Task BeginScenarioShutdownAsync(int exitCode)
+    {
+        base.Dispatcher.VerifyAccess();
+        if (exitCode != 0) { scenarioShutdownExitCode = exitCode; }
+        if (scenarioShutdownTask != null) { return scenarioShutdownTask; }
+        // 同一Dispatcherからの再入も、cleanup開始前に一つの終端Taskへ結びます。
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        scenarioShutdownTask = completion.Task;
+        _ = CompleteScenarioShutdownAsync(completion);
+        return scenarioShutdownTask;
+    }
+
+    private async Task CompleteScenarioShutdownAsync(TaskCompletionSource completion)
+    {
+        Exception cleanupFailure = null;
+        try { await scenarioControl.DisposeAsync().ConfigureAwait(true); }
+        catch (Exception failure)
+        {
+            cleanupFailure = failure;
+            scenarioShutdownExitCode = 1;
+            LogFailureBestEffort(failure, "scenario_control_cleanup_failed");
+        }
+        try
+        {
+            // 同期ExitでDispatcher依存Taskを待たず、既存のflush・排他解放を最後に通します。
+            Shutdown(scenarioShutdownExitCode);
+            if (cleanupFailure == null) { completion.TrySetResult(); }
+            else { completion.TrySetException(cleanupFailure); }
+        }
+        catch (Exception failure) { completion.TrySetException(failure); }
     }
 
     private void Application_Exit(object sender, ExitEventArgs e)

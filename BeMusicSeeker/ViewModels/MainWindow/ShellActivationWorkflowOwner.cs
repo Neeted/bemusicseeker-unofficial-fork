@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// Owns the one-shot activation sequence for the composed main shell.
+/// 構成済みMainWindowの一回限りの起動と、その実初期化の観測を所有します。
 /// </summary>
 internal sealed class ShellActivationWorkflowOwner
 {
@@ -13,16 +13,19 @@ internal sealed class ShellActivationWorkflowOwner
 
     private readonly ElevatedProcessWarningWorkflowOwner elevatedProcessWarningWorkflow;
 
-    private readonly Func<Task<bool>> initialize;
+    private readonly Func<Task<StartupInitializationResult>> initialize;
+
+    private readonly TaskCompletionSource<StartupInitializationResult> startupCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private int constructedShellActivated;
 
     private int renderedShellActivated;
 
+    /// <summary>通常構成の更新確認・警告・初期化を一つの実Window起動へ接続します。</summary>
     internal ShellActivationWorkflowOwner(
         StartupUpdateWorkflowOwner startupUpdateWorkflow,
         ElevatedProcessWarningWorkflowOwner elevatedProcessWarningWorkflow,
-        Func<Task<bool>> initialize)
+        Func<Task<StartupInitializationResult>> initialize)
     {
         this.startupUpdateWorkflow = startupUpdateWorkflow
             ?? throw new ArgumentNullException(nameof(startupUpdateWorkflow));
@@ -31,8 +34,11 @@ internal sealed class ShellActivationWorkflowOwner
         this.initialize = initialize ?? throw new ArgumentNullException(nameof(initialize));
     }
 
+    /// <summary>ContentRenderedが実際に開始した初期化の結果・例外・取消だけを転送します。表示呼出しだけでは完了しません。</summary>
+    internal Task<StartupInitializationResult> StartupCompletion => startupCompletion.Task;
+
     /// <summary>
-    /// Starts constructor-safe shell work exactly once.
+    /// constructorで開始可能な起動処理を一度だけ開始します。
     /// </summary>
     internal bool ActivateConstructedShell()
     {
@@ -45,8 +51,7 @@ internal sealed class ShellActivationWorkflowOwner
     }
 
     /// <summary>
-    /// Starts content-rendered shell work exactly once and preserves the existing
-    /// initialization, initial-selection, and context-idle warning ordering.
+    /// ContentRenderedから本番初期化を一度だけ開始し、初期選択・ContextIdle警告の順序を保ちます。
     /// </summary>
     internal Task ActivateRenderedShell(
         Action applyInitialSelection,
@@ -70,9 +75,29 @@ internal sealed class ShellActivationWorkflowOwner
             return Task.CompletedTask;
         }
 
-        Task<bool> initializationTask = initialize();
+        Task initializationTask = InitializeAndPublishAsync();
         applyInitialSelection();
         scheduleContextIdle(() => elevatedProcessWarningWorkflow.Start(canPresentElevatedProcessWarning));
         return initializationTask;
+    }
+
+    private async Task<bool> InitializeAndPublishAsync()
+    {
+        try
+        {
+            StartupInitializationResult result = await initialize();
+            startupCompletion.TrySetResult(result);
+            return result.Outcome == StartupInitializationOutcome.Succeeded && result.CompletionPublished && result.Failure == null;
+        }
+        catch (OperationCanceledException failure)
+        {
+            startupCompletion.TrySetCanceled(failure.CancellationToken);
+            throw;
+        }
+        catch (Exception failure)
+        {
+            startupCompletion.TrySetException(failure);
+            throw;
+        }
     }
 }

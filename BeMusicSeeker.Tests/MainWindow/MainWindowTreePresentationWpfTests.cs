@@ -498,7 +498,8 @@ internal static class MainWindowPresentationTestHarness
             ?? throw new InvalidOperationException("constructor-only activation boundary is unavailable.");
         activation.SetValue(viewModel,
             new ShellActivationWorkflowOwner(viewModel.StartupUpdateWorkflow,
-                new ElevatedProcessWarningWorkflowOwner(() => false), () => Task.FromResult(true)));
+                new ElevatedProcessWarningWorkflowOwner(() => false),
+                () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded, CompletionPublished: true))));
     }
 
     /// <summary>実親Windowの終端と設定復元を回収してconstructor-only操作を検証します。</summary>

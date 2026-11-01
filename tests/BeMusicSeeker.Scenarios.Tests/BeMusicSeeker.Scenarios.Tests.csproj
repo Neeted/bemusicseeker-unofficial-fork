@@ -13,4 +13,26 @@
     <Compile Include="../ModuleInitialization/UiModuleLifetime.cs" Link="Infrastructure/ModuleLifetime.cs" />
     <Compile Include="../ModuleInitialization/AssemblySettings.cs" Link="Infrastructure/AssemblySettings.cs" />
   </ItemGroup>
+  <Target Name="CopyApplicationFixture" AfterTargets="Build">
+    <Error Condition="'$(TargetDir)' == '' Or !$([System.IO.Path]::IsPathFullyQualified('$(TargetDir)'))" Text="Test output directory must be absolute and nonempty." />
+    <PropertyGroup>
+      <_ScenarioApplicationDestination>$([System.IO.Path]::GetFullPath($([System.IO.Path]::Combine('$(TargetDir)', 'fixtures/application'))))</_ScenarioApplicationDestination>
+      <_ScenarioApplicationDestinationRoot>$([System.IO.Path]::GetPathRoot('$(_ScenarioApplicationDestination)'))</_ScenarioApplicationDestinationRoot>
+      <_ScenarioApplicationOutputRoot>$([System.IO.Path]::GetFullPath('$(TargetDir)'))</_ScenarioApplicationOutputRoot>
+    </PropertyGroup>
+    <Error Condition="'$(_ScenarioApplicationDestination)' == '$(_ScenarioApplicationDestinationRoot)' Or '$(_ScenarioApplicationDestination)' == '$(_ScenarioApplicationOutputRoot)'" Text="Application fixture must be a dedicated child of the test output directory." />
+    <MSBuild Projects="../../BeMusicSeeker/BeMusicSeeker.csproj" Targets="GetTargetPath" Properties="Configuration=$(Configuration);Platform=$(Platform)">
+      <Output TaskParameter="TargetOutputs" ItemName="_ScenarioApplicationTarget" />
+    </MSBuild>
+    <PropertyGroup>
+      <_ScenarioApplicationSource>@(_ScenarioApplicationTarget->'%(RootDir)%(Directory)')</_ScenarioApplicationSource>
+    </PropertyGroup>
+    <Error Condition="'$(_ScenarioApplicationSource)' == ''" Text="Application output directory is unavailable." />
+    <ItemGroup>
+      <_ScenarioApplicationFiles Include="$(_ScenarioApplicationSource)**/*" />
+    </ItemGroup>
+    <!-- 同じbuildの製品と依存を階層ごと渡し、前回のfixture残骸を残しません。 -->
+    <RemoveDir Directories="$(_ScenarioApplicationDestination)" />
+    <Copy SourceFiles="@(_ScenarioApplicationFiles)" DestinationFiles="@(_ScenarioApplicationFiles->'$(_ScenarioApplicationDestination)/%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
 </Project>

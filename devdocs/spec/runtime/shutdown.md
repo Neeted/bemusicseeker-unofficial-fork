@@ -123,6 +123,12 @@ sequenceDiagram
 
 遅延警告の時間を超えても実処理を置き去りにしません。更新の `Proceed` と親プロセス終了の条件は[更新合意](../integration/portable-update.md#終了前の合意)を参照します。
 
+### 検証起動の制御通信の終了
+
+明示test sessionの終了要求も実`MainWindow.Close`を通し、通常の業務処理・DB・一時領域の終端を先に待ちます。その後に制御通信の未配送要求と観測待機を取り消し、reader・配送Taskを回収してから`Shutdown`します。業務Task自体の取消・結果は通信側で作りません。同sessionの再入は一つの終了Taskへ結び、同期`Application_Exit`からDispatcher依存Taskを待ちません。通信回収の失敗は非zero退出に反映し、通常起動の終了経路と復元不能時の強制退出は維持します。
+
+制御のClose応答は要求を配送した事実だけです。テスト側は`OwnedProcess`でroot・両出力pipe・所有子孫の実退出を確認し、未知のpipe切断を正常終了へ置換しません。case本体の失敗と回収失敗を別々に保持します。
+
 ### SQLiteと失敗の観測
 
 `ApplicationComposition` はアプリの寿命で一つの `ApplicationDatabaseScope` を所有します。同じ構成の再構築前後のlibraryとplaylist、全playerのスコア、履歴、backup、schema操作、撤去と終了処理へ同じownerを明示的に渡します。別の構成とは排他・接続数・close失敗を共有しません。ownerを省略する生成経路やprocess全体の代替ownerは持ちません。
@@ -161,6 +167,7 @@ ownerはsong/score別の再入可能なMonitorと接続寿命を管理します�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 検証起動のCloseと実process終端 | [`AppApplicationLifetime`](../../../BeMusicSeeker/AppApplicationLifetime.cs)、[`ApplicationScenarioDriver`](../../../tests/BeMusicSeeker.TestSupport/Scenarios/ApplicationScenarioDriver.cs) | [`LibraryReloadScenarioTests`](../../../tests/BeMusicSeeker.Scenarios.Tests/Library/LibraryReloadScenarioTests.cs) は終了前の保存照合、正常Close後の所有process完全退出、同profileの新規起動を確認する。pipe取消・配送回収・二重要求の共有と同期Exitで非同期Taskを待たない接続は独立静的レビューで確認する。 |
 | 構成別DB排他、readonly寿命、生成失敗とclose失敗 | [`ApplicationDatabaseScope`](../../../BeMusicSeeker/Models/ApplicationDatabaseScope.cs)、[`SQLiteConnectionEx`](../../../BeMusicSeeker/Models/LR2/SQLiteConnectionEx.cs) | [`ApplicationDatabaseScopeTests`](../../../BeMusicSeeker.Tests/Runtime/ApplicationDatabaseScopeTests.cs) は再入・DB種別とownerの独立、readonlyの非排他、生成失敗後の再取得、idle世代、実接続解放後の故障注入による累積失敗と一回解放を確認する。初期化失敗と二次close失敗の組合せで元例外を保持する制御は静的に確認する。 |
 | 自ownerだけの接続待ちと、過去close失敗の終了・更新への伝播 | [`ShellShutdownWorkflowOwner`](../../../BeMusicSeeker/ViewModels/MainWindow/ShellShutdownWorkflowOwner.cs) | [`ShellShutdownDatabaseScopeTests`](../../../BeMusicSeeker.Tests/MainWindow/ShellShutdownDatabaseScopeTests.cs) は同一processのA/B readonly非干渉、自ownerのDispose前の未終端、active 0でも更新準備と通常終了が失敗することを確認する。更新のAbort・失敗通知・終了は既存の [`StartupUpdateWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Startup/StartupUpdateWorkflowOwnerTests.cs) の準備失敗ケースへ分担する。 |
 | metadata接続とarchiveまでの所有Taskの両終端 | [`ChartInfoMetadataBundleStartupImporter`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoMetadataBundleStartupImporter.cs)、`ShellShutdownWorkflowOwner` | [`ShellShutdownDatabaseScopeTests`](../../../BeMusicSeeker.Tests/MainWindow/ShellShutdownDatabaseScopeTests.cs) の `WindowClose_JoinsMetadataAttachmentAndImporterArchiveTerminal` は実ATTACH後とclose済み・archive前を別々に保持し、schedulerが受理した実importerと終了の未完了、解放後のarchive・再open・移動を確認する。実startupの所有接続は静的配線と [`StartupRequiredInitializationTests`](../../../BeMusicSeeker.Tests/Startup/StartupRequiredInitializationTests.cs) の `RequiredInitialization_HeaderFailureJoinsStartedFileTaskBeforeReleasingAdmissions` へ分担する。 |

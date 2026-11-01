@@ -20,7 +20,7 @@ public sealed class ShellActivationWorkflowOwnerTests
         ShellActivationWorkflowOwner owner = new(
             startupUpdate,
             elevatedWarning,
-            () => Task.FromResult(true));
+            () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded, CompletionPublished: true)));
 
         Assert.IsTrue(owner.ActivateConstructedShell());
         Assert.IsFalse(owner.ActivateConstructedShell());
@@ -34,7 +34,7 @@ public sealed class ShellActivationWorkflowOwnerTests
         StartupUpdateWorkflowOwner startupUpdate = CreateStartupUpdateOwner();
         ElevatedProcessWarningWorkflowOwner elevatedWarning = new(() => true);
         var events = new List<string>();
-        var initialization = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var initialization = new TaskCompletionSource<StartupInitializationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         ShellActivationWorkflowOwner owner = new(
             startupUpdate,
             elevatedWarning,
@@ -59,7 +59,7 @@ public sealed class ShellActivationWorkflowOwnerTests
 
         CollectionAssert.AreEqual(new[] { "initialize", "selection", "schedule", "can-present" }, events);
         Assert.IsFalse(activation.IsCompleted);
-        initialization.SetResult(true);
+        initialization.SetResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded, CompletionPublished: true));
         await activation;
         Assert.IsTrue(activation.IsCompleted);
         Task duplicateActivation = owner.ActivateRenderedShell(

@@ -645,7 +645,7 @@ public sealed class RegularChartNavigationTests
         // この機能テストが管理する反射例外。責務上の安定入口へ統合できた時点で退役し、他のprivate操作へ拡張しない。
         MethodInfo method = typeof(MainWindowViewModel).GetMethod("RefreshChartRowsView", BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new AssertFailedException("履歴refresh入口がありません。");
-        return (Task)(method.Invoke(vm, [MainViewUpdateMode.KeywordFilterUpdated, request, null, null])
+        return (Task)(method.Invoke(vm, [MainViewUpdateMode.KeywordFilterUpdated, request, null, null, null])
             ?? throw new AssertFailedException("履歴refreshのTaskがありません。"));
     }
 

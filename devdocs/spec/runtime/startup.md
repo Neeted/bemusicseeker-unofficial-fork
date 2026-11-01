@@ -36,13 +36,23 @@ manifestはJSON objectで、未知のfieldと重複propertyを拒否します。
 | `providers` | 省略またはobject。既知fieldは`fileEnumeration`だけで、省略または厳密な文字列`file-system`を受理 |
 | `updateManifestUrl` | 省略時だけ既存CLI、次に通常既定値を使用。明示値は空白でない絶対HTTP(S) URL |
 
-任意のパスも、指定した場合は絶対パスを要求し、null・空値・相対パス・別型を拒否します。設定・DB・ログはprofileから派生し、通常ユーザー領域へ戻りません。更新作業とダウンロードは既存の実行ファイル側の配置に従います。snapshotが供給する未使用の更新用パスは、更新処理との配置契約の整理が未完了です。旧設定の移行も明示された移行元で通常と同じ処理を通します。言語配置は素材と独立し、言語fixtureのためにnative資産を複製する必要はありません。`file-system`は既存の`FastRootFileEnumerator`へ接続します。
+任意のパスも、指定した場合は絶対パスを要求し、null・空値・相対パス・別型を拒否します。設定・DB・ログはprofileから派生し、通常ユーザー領域へ戻りません。更新作業とダウンロードは既存の実行ファイル側の配置に従います。snapshotが供給する未使用の更新用パスは、更新処理との配置契約の整理が未完了です。旧設定の移行も明示された移行元で通常と同じ処理を通します。言語配置は素材と独立し、言語fixtureのためにnative資産を複製する必要はありません。`file-system`はグループ列挙を既存の`FastRootFileEnumerator`、初期・差分の譜面走査を既存の`FastDirectoryFileScanner`へ接続し、各要求で実ファイルシステムを読みます。
 
 不正manifest・未知providerは`App`生成より前にstderrへ理由を出して非zero終了し、未検証profileへ書き込みません。通常CLIの空白URLを既定値とする従来規則は保持し、不正な非空URLは必須起動失敗へ格上げしません。
 
 ### 起動の排他
 
 通常起動は従来の固定GUIDによる全体排他を維持し、コピー先や別profileでも一つだけです。通常・検証起動の両方に、絶対パス・末尾区切り・Windowsの大小文字を正規化したprofile identityの排他を適用します。検証起動だけは通常全体排他へ参加せず、異なる専有profileを並行利用できます。run/case IDを排他キーにしません。通常全体、profileの順で取得し、途中失敗も取得済み分だけを同じスレッドで解放します。
+
+### 検証起動の操作と完了観測
+
+明示test sessionでは、設定・schema・更新確認のmodalより先に専有named pipeを接続します。接続通知はprocess identityだけを表し、初期化成功とは別です。通常の`App`、`MainWindow`、`ContentRendered`が開始した一回の実初期化を`ShellActivationWorkflowOwner.StartupCompletion`へ転送し、既存の結果・必須UI公開・操作可能状態を返します。取消・終了要求・失敗を成功へ置換せず、構成前の失敗は例外通知、実退出は所有processの終端として区別します。
+
+test制御の接続自体が失敗した場合は元例外をstderrへ出し、業務の起動へ進まず非zero終了します。実業務のschema・設定・更新に対する既存のmodalと失敗処理は維持します。driverは接続と実退出を競合して待ち、起動前の失敗・生存したままの期限超過・回収失敗を区別し、回収済みの標準出力・標準エラー・終了コードをprocessごとの専有診断へ保存します。
+
+制御要求は固定の型付き入力だけを受けます。通常ライブラリ検索は実setterが開始したTaskと要求identityを捕捉し、その結果の表示世代が実採用snapshotと一致した場合だけ返します。差分リロードは通常受付が返した実初期化結果と必須表示の後まで待ち、受付拒否を成功にしません。snapshotは実catalogと実表示を別々に読み取ります。任意reflection呼出し、操作後のDB補充、queue idleや同じ行数による完了代用は行いません。
+
+シナリオの入力設定・既存DB値は実起動前だけに準備します。ライブラリ起動・外部追加削除・差分保存・次回起動の縦断では、終了前にraw DBと元ファイルbytesを確認し、次起動の修復で保存漏れを隠しません。入力event・Bindingや細かな条件分岐の保証は、既存の画面・機能単位テストに分担します。
 
 ### 起動の流れと完了境界
 
@@ -172,6 +182,7 @@ DB読取り後のBMSルート失敗と、初期の設定検証・出力先の失
 
 | モード | 楽曲DBとルート | 外部連携 |
 | --- | --- | --- |
+| 実製品の起動・検索・差分保存・新processへの復元 | [`ApplicationScenarioControl`](../../../BeMusicSeeker/Runtime/ApplicationScenarioControl.cs)、[`ShellActivationWorkflowOwner`](../../../BeMusicSeeker/ViewModels/MainWindow/ShellActivationWorkflowOwner.cs) | [`LibraryReloadScenarioTests`](../../../tests/BeMusicSeeker.Scenarios.Tests/Library/LibraryReloadScenarioTests.cs) は実Appの結果と採用表示をraw DB・fixture manifest・元bytesへ照合する。Bの既存利用者列は起動前seedの読取り・非干渉・再起動保持を確認し、生成列変更時の保持は既存writer・文字コード変更の機能単位テストに分担する。 |
 | LR2連携 | 保存済みのLR2楽曲DBと設定XMLの検索先を使う | LR2のカスタムフォルダ、バックアップ、IR・順位更新を許可する |
 | 単独動作 | アプリ内の `data/song.db` と複数の登録ルートを使う | LR2の実出力・XML変更・バックアップ・IRは行わない。明示設定がある場合だけbeatorajaのスコアを使う |
 
