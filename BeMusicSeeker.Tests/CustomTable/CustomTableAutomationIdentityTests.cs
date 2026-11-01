@@ -15,8 +15,9 @@ public sealed class CustomTableAutomationIdentityTests
     {
         RegularChartListOwnerTestSupport.WithTemporarySongDb(path =>
         {
-            var library = new TestBmsLibrary(path);
-            var anotherLibrary = new TestBmsLibrary(path);
+            var databaseScope = new ApplicationDatabaseScope();
+            var library = new TestBmsLibrary(databaseScope, path);
+            var anotherLibrary = new TestBmsLibrary(databaseScope, path);
             var owner = new CatalogOwnedCollectionOwner();
             owner.ReplaceCharts([Chart(@"C:\Library\a.bms")], []);
             CatalogChartCollectionSnapshot snapshot = owner.CaptureSnapshot();
