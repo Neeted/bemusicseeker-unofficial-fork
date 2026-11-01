@@ -1,21 +1,10 @@
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
-using System.IO;
-using System.Linq;
-using System.Runtime.ExceptionServices;
 using System.Text;
-using System.Threading.Tasks;
-using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
-using ChartInfoExportTool;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.TestSupport.Components.ChartInfoComponentTestSupport;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.TestSupport.Components;
 
+/// <summary>Coreと互換suiteで同一の参照行と差分判定を共有します。</summary>
 internal static class ChartInfoMetadataTestSupport
 {
 
@@ -44,94 +33,6 @@ internal static class ChartInfoMetadataTestSupport
         }
 
         throw new AssertFailedException("7-Zip CLI is not installed.");
-    }
-
-    /// <summary>同期の抽出portで実7zの退出と両pipe終端を同じ期限内に回収し、失敗を保持します。</summary>
-    internal static string RunSevenZip(string sevenZipPath, string arguments)
-    {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = sevenZipPath,
-            Arguments = arguments,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
-        Process? process = null;
-        Task[] ownedTasks = [];
-        Exception? primaryFailure = null;
-        string output = string.Empty;
-        try
-        {
-            process = Process.Start(startInfo) ?? throw new AssertFailedException("Failed to start 7z.exe.");
-            Task exitTask = process.WaitForExitAsync();
-            Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
-            Task<string> stderrTask = process.StandardError.ReadToEndAsync();
-            ownedTasks = [exitTask, stdoutTask, stderrTask];
-            try
-            {
-                // このportはUIを使わない同期抽出callbackからだけ呼ぶ。
-                Task.WhenAll(ownedTasks).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
-            }
-            catch (TimeoutException)
-            {
-                Assert.Fail("7z.exe timed out before exit and both output streams finished.");
-            }
-            string stdout = stdoutTask.GetAwaiter().GetResult();
-            string stderr = stderrTask.GetAwaiter().GetResult();
-            Assert.AreEqual(0, process.ExitCode, stdout + Environment.NewLine + stderr);
-            output = stdout + Environment.NewLine + stderr;
-        }
-        catch (Exception ex)
-        {
-            primaryFailure = ex;
-        }
-        finally
-        {
-            Exception? cleanupFailure = null;
-            try
-            {
-                if (process is not null && !process.HasExited)
-                {
-                    process.Kill(entireProcessTree: true);
-                }
-            }
-            catch (Exception ex)
-            {
-                cleanupFailure = ex;
-            }
-            try
-            {
-                Task.WhenAll(ownedTasks).WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
-            }
-            catch (Exception ex)
-            {
-                cleanupFailure = cleanupFailure is null ? ex : new AggregateException(cleanupFailure, ex);
-            }
-            process?.Dispose();
-            if (cleanupFailure is not null)
-            {
-                if (primaryFailure is null)
-                {
-                    primaryFailure = cleanupFailure;
-                }
-                else
-                {
-                    primaryFailure.Data["seven-zip.cleanup"] = cleanupFailure;
-                }
-            }
-        }
-        if (primaryFailure is not null)
-        {
-            ExceptionDispatchInfo.Capture(primaryFailure).Throw();
-        }
-        return output;
-    }
-
-    internal static string QuoteProcessArgument(string value)
-    {
-        return "\"" + (value ?? string.Empty).Replace("\"", "\\\"") + "\"";
     }
 
     internal static RealChartInfoExpectedRow CreateExpectedCompatibilityRow(string sha256, string charthash)
@@ -166,46 +67,6 @@ internal static class ChartInfoMetadataTestSupport
             speedchange_count = 0,
             lanenotes = "1,0,0"
         };
-    }
-
-    /// <summary>取込み条件を作る入力行を一括準備し、本番exportの保存形式で局所bundleを生成します。</summary>
-    /// <param name="databaseScope">生成元DBの接続所有者。</param>
-    /// <param name="tempRootPath">生成元DBとbundleを置く一時領域。</param>
-    /// <param name="chartInfos">生成元へ保存する譜面情報。</param>
-    /// <param name="chartDigests">生成元へ保存するdigest対応。</param>
-    internal static string CreateChartInfoMetadataBundle(
-        ApplicationDatabaseScope databaseScope,
-        string tempRootPath,
-        IEnumerable<BeMusicSeeker.Models.ChartDetails> chartInfos,
-        IEnumerable<LR2SongDBExtended.chart_digest_map>? chartDigests = null)
-    {
-        string sourceDirectoryPath = Path.Combine(tempRootPath, Guid.NewGuid().ToString("N") + "-source");
-        Directory.CreateDirectory(sourceDirectoryPath);
-        string sourcePath = Path.Combine(sourceDirectoryPath, "song.db");
-        using (LR2SongDBExtended sourceDb = databaseScope.OpenSongWrite(sourcePath))
-        {
-            BmsLibraryDbGateway.EnsureBmsonSchema(sourceDb);
-            BmsLibraryDbGateway.EnsureChartInfoSchema(sourceDb);
-            sourceDb.RunInTransaction(() =>
-            {
-                foreach (BeMusicSeeker.Models.ChartDetails row in chartInfos ?? [])
-                {
-                    sourceDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(row), typeof(LR2SongDBExtended.chart_info));
-                }
-                foreach (LR2SongDBExtended.chart_digest_map row in chartDigests ?? [])
-                {
-                    sourceDb.InsertOrReplace(row, typeof(LR2SongDBExtended.chart_digest_map));
-                }
-            });
-        }
-
-        string bundlePath = Path.Combine(tempRootPath, Guid.NewGuid().ToString("N") + "-chart-info-metadata.db");
-        ChartInfoExportRunner.Export(new ChartInfoExportOptions
-        {
-            SourceSongDbPath = sourcePath,
-            OutputDbPath = bundlePath
-        });
-        return bundlePath;
     }
 
     internal static int ReadPositiveIntEnvironmentVariable(string name, int defaultValue)
@@ -314,8 +175,14 @@ internal static class ChartInfoMetadataTestSupport
         public int has_beatoraja_song { get; set; }
     }
 
+    /// <summary>参照値との差分を元の許容差で集計し、診断を呼出元の専有領域へ出力します。</summary>
     internal sealed class BmsonCompatibilityDiffCounts
     {
+        private readonly string diagnosticDirectory;
+
+        /// <summary>診断出力先をケース所有の絶対pathで受け取ります。</summary>
+        internal BmsonCompatibilityDiffCounts(string diagnosticDirectory) => this.diagnosticDirectory = diagnosticDirectory;
+
         internal readonly List<string> samples = [];
 
         public int CoreDiffs { get; internal set; }
@@ -427,9 +294,9 @@ internal static class ChartInfoMetadataTestSupport
                     + " chartString=" + artifactPath);
         }
 
-        internal static string WriteChartStringArtifact(RealChartInfoExpectedRow expected, string chartString)
+        internal string WriteChartStringArtifact(RealChartInfoExpectedRow expected, string chartString)
         {
-            string directory = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartInfoBmsonDiffs");
+            string directory = diagnosticDirectory;
             Directory.CreateDirectory(directory);
             string artifactPath = Path.Combine(directory, expected.sha256 + ".csharp.chart.txt");
             File.WriteAllText(artifactPath, chartString ?? string.Empty, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
@@ -474,8 +341,14 @@ internal static class ChartInfoMetadataTestSupport
         }
     }
 
+    /// <summary>参照値との差分を元の許容差で集計し、診断を呼出元の専有領域へ出力します。</summary>
     internal sealed class CompatibilityDiffCounts
     {
+        private readonly string diagnosticDirectory;
+
+        /// <summary>診断出力先をケース所有の絶対pathで受け取ります。</summary>
+        internal CompatibilityDiffCounts(string diagnosticDirectory) => this.diagnosticDirectory = diagnosticDirectory;
+
         internal readonly List<string> samples = [];
 
         internal readonly List<FieldDiffRecord> fieldDiffRecords = [];
@@ -533,16 +406,6 @@ internal static class ChartInfoMetadataTestSupport
         public int BpmIntegerDiffs { get; internal set; }
 
         public int TotalDiffs => fieldDiffRecords.Count;
-
-        public static string GetReportDirectory()
-        {
-            string? configured = Environment.GetEnvironmentVariable("BMS_TEST_PRODUCTION_DIFF_REPORT_DIR");
-            if (!string.IsNullOrWhiteSpace(configured))
-            {
-                return configured;
-            }
-            return Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartInfoProductionDiff");
-        }
 
         public void AddParsed(RealChartInfoExpectedRow expected, BeMusicSeeker.Models.ChartDetails actual, string chartString, long elapsedMilliseconds)
         {
@@ -629,9 +492,10 @@ internal static class ChartInfoMetadataTestSupport
             }
         }
 
-        public string WriteReport(string name)
+        /// <summary>集計結果をケース専有の報告領域へ保存し、生成先を返します。</summary>
+        public string WriteReport(string reportDirectory, string name)
         {
-            string directory = Path.Combine(GetReportDirectory(), name);
+            string directory = Path.Combine(reportDirectory, name);
             Directory.CreateDirectory(directory);
 
             WriteLines(
@@ -805,9 +669,9 @@ internal static class ChartInfoMetadataTestSupport
                         + " sha256=" + record.Sha256);
         }
 
-        internal static string WriteChartStringArtifact(RealChartInfoExpectedRow expected, string chartString)
+        internal string WriteChartStringArtifact(RealChartInfoExpectedRow expected, string chartString)
         {
-            string directory = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartInfoDiffs");
+            string directory = diagnosticDirectory;
             Directory.CreateDirectory(directory);
             string artifactPath = Path.Combine(directory, expected.sha256 + ".csharp.chart.txt");
             File.WriteAllText(artifactPath, chartString ?? string.Empty, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));

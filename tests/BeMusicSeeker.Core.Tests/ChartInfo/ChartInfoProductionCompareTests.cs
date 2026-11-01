@@ -1,9 +1,6 @@
-using System;
-using System.IO;
-using System.Linq;
 using System.Text;
+using BeMusicSeeker.TestSupport.Files;
 using ChartInfoCompareTool;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SQLite;
 
 namespace BeMusicSeeker.Tests;
@@ -106,7 +103,8 @@ public sealed class ChartInfoProductionCompareTests
 
     private static void WithProductionCompareFixture(Action<ProductionCompareFixture> action)
     {
-        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartInfoCompareTests_" + Guid.NewGuid().ToString("N"));
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = workspace.GetPath("compare");
         Directory.CreateDirectory(root);
         try
         {

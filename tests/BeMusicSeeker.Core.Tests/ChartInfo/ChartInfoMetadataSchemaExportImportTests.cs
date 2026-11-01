@@ -1,17 +1,14 @@
-using System;
-using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
-using System.Linq;
 using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.TestSupport.Components;
 using ChartInfoExportTool;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SQLite;
-using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
 using static BeMusicSeeker.TestSupport.Components.ChartInfoComponentTestSupport;
+using static BeMusicSeeker.TestSupport.Components.ChartInfoMetadataTestSupport;
+
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
@@ -231,67 +228,6 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
                 SourceSongDbPath = songDbPath,
                 OutputDbPath = outputPath
             }));
-        });
-    }
-
-    /// <summary>実7zへ出力したrootのmetadata DBを起動入口から取り込み、保存行の復元とarchive移動までを接続して配布形式の不整合を検出する。</summary>
-    /// <remarks>実7zが必要な配布・起動接続。専用環境で実行し、未導入時は失敗とする。他caseの注入抽出ではarchive形式自体を保証しない。</remarks>
-    [TestMethod]
-    [TestCategory("EnvironmentIntegration")]
-    public void ChartInfoExport_CreatesArchiveWithRootMetadataDbAndStartupImporterCanImport()
-    {
-        string sevenZipPath = ResolveInstalledSevenZipPath();
-        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
-        {
-            string md5 = new('a', 32);
-            string sha = new('1', 64);
-            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
-            {
-                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
-                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
-            }
-
-            string outputPath = Path.Combine(tempRootPath, "chart-info-metadata.db");
-            string archivePath = Path.Combine(tempRootPath, "chart-info-metadata.7z");
-            ChartInfoExportResult result = ChartInfoExportRunner.Export(new ChartInfoExportOptions
-            {
-                SourceSongDbPath = songDbPath,
-                OutputDbPath = outputPath,
-                ArchiveOutputPath = archivePath,
-                SevenZipExecutablePath = sevenZipPath
-            });
-
-            Assert.IsTrue(File.Exists(outputPath));
-            Assert.IsTrue(File.Exists(archivePath));
-            Assert.AreEqual(archivePath, result.ArchiveOutputPath);
-            Assert.IsTrue(result.ArchiveSizeBytes > 0L);
-            StringAssert.Contains(result.ToConsoleSummary(), "archive=\"");
-            string listOutput = RunSevenZip(sevenZipPath, "l " + QuoteProcessArgument(archivePath));
-            StringAssert.Contains(listOutput, "chart-info-metadata.db");
-
-            string appBaseDirectory = Path.Combine(tempRootPath, "app");
-            Directory.CreateDirectory(appBaseDirectory);
-            string appArchivePath = Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.MetadataArchiveFileName);
-            File.Copy(archivePath, appArchivePath);
-            string importDbDirectoryPath = Path.Combine(tempRootPath, "import");
-            Directory.CreateDirectory(importDbDirectoryPath);
-            string importDbPath = Path.Combine(importDbDirectoryPath, "song.db");
-            File.Copy(songDbPath, importDbPath);
-            using (LR2SongDBExtended importDb = databaseScope.OpenSongWrite(importDbPath))
-            {
-                importDb.Execute("DELETE FROM chart_info;");
-                importDb.Execute("DELETE FROM chart_digest_map;");
-            }
-            ChartInfoMetadataBundleStartupImporter.TryImportFromBaseDirectory(
-                appBaseDirectory,
-                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), importDbPath),
-                null);
-
-            using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(importDbPath);
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ? AND md5 = ?;", sha, md5));
-            Assert.IsFalse(File.Exists(appArchivePath));
-            Assert.IsTrue(File.Exists(Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.ImportedMetadataDirectoryName, ChartInfoMetadataBundleStartupImporter.MetadataArchiveFileName)));
         });
     }
 
@@ -720,5 +656,4 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = '" + file.Sha256 + "';"));
         });
     }
-
 }

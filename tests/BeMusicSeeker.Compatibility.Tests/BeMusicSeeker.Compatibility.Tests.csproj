@@ -5,6 +5,8 @@
     <EnableMicrosoftTestingExtensionsHangDump>true</EnableMicrosoftTestingExtensionsHangDump>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../tools/chart-info-export/ChartInfoExport.csproj" />
+
     <ProjectReference Include="../BeMusicSeeker.TestSupport/BeMusicSeeker.TestSupport.csproj" />
     <ProjectReference Include="../../BeMusicSeeker/BeMusicSeeker.csproj" />
   </ItemGroup>
@@ -12,4 +14,18 @@
     <Compile Include="../ModuleInitialization/ModuleLifetime.cs" Link="Infrastructure/ModuleLifetime.cs" />
     <Compile Include="../ModuleInitialization/AssemblySettings.cs" Link="Infrastructure/AssemblySettings.cs" />
   </ItemGroup>
+  <!-- 公式projectの正本build出力を実CLIとして配布し、ケース内ではbuildしない。 -->
+  <Target Name="CopyChartInfoExportTool" AfterTargets="Build">
+    <MSBuild Projects="../../tools/chart-info-export/ChartInfoExport.csproj" Targets="GetTargetPath" Properties="Configuration=$(Configuration);Platform=$(Platform)">
+      <Output TaskParameter="TargetOutputs" ItemName="_ChartInfoExportTarget" />
+    </MSBuild>
+    <PropertyGroup>
+      <_ChartInfoExportSource>@(_ChartInfoExportTarget->'%(RootDir)%(Directory)')</_ChartInfoExportSource>
+    </PropertyGroup>
+    <Error Condition="'$(_ChartInfoExportSource)' == ''" Text="Official chart-info-export build output is unavailable." />
+    <ItemGroup>
+      <_ChartInfoExportFiles Include="$(_ChartInfoExportSource)**/*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_ChartInfoExportFiles)" DestinationFiles="@(_ChartInfoExportFiles->'$(TargetDir)tools/chart-info-export/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

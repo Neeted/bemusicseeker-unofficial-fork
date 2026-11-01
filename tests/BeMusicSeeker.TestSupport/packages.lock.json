@@ -77,6 +77,13 @@
           "sqlite-net-pcl": "[1.11.285, )"
         }
       },
+      "chartinfoexport": {
+        "type": "Project",
+        "dependencies": {
+          "SQLitePCLRaw.bundle_e_sqlite3": "[3.0.4, )",
+          "sqlite-net-pcl": "[1.11.285, )"
+        }
+      },
       "LivetCask.Core": {
         "type": "CentralTransitive",
         "requested": "[4.0.2, )",

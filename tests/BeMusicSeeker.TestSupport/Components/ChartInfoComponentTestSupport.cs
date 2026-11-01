@@ -3,6 +3,8 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.TestSupport.Files;
+using ChartInfoExportTool;
+
 namespace BeMusicSeeker.TestSupport.Components;
 
 /// <summary>旧テストとCoreテストで同一の入力・期待値・寿命を共有します。</summary>
@@ -276,5 +278,45 @@ internal static class ChartInfoComponentTestSupport
             directory = directory.Parent;
         }
         throw new DirectoryNotFoundException("Could not find repository root.");
+    }
+
+    /// <summary>取込み条件を作る入力行を一括準備し、本番exportの保存形式で局所bundleを生成します。</summary>
+    /// <param name="databaseScope">生成元DBの接続所有者。</param>
+    /// <param name="tempRootPath">生成元DBとbundleを置く一時領域。</param>
+    /// <param name="chartInfos">生成元へ保存する譜面情報。</param>
+    /// <param name="chartDigests">生成元へ保存するdigest対応。</param>
+    internal static string CreateChartInfoMetadataBundle(
+        ApplicationDatabaseScope databaseScope,
+        string tempRootPath,
+        IEnumerable<BeMusicSeeker.Models.ChartDetails> chartInfos,
+        IEnumerable<LR2SongDBExtended.chart_digest_map>? chartDigests = null)
+    {
+        string sourceDirectoryPath = Path.Combine(tempRootPath, Guid.NewGuid().ToString("N") + "-source");
+        Directory.CreateDirectory(sourceDirectoryPath);
+        string sourcePath = Path.Combine(sourceDirectoryPath, "song.db");
+        using (LR2SongDBExtended sourceDb = databaseScope.OpenSongWrite(sourcePath))
+        {
+            BmsLibraryDbGateway.EnsureBmsonSchema(sourceDb);
+            BmsLibraryDbGateway.EnsureChartInfoSchema(sourceDb);
+            sourceDb.RunInTransaction(() =>
+            {
+                foreach (BeMusicSeeker.Models.ChartDetails row in chartInfos ?? [])
+                {
+                    sourceDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(row), typeof(LR2SongDBExtended.chart_info));
+                }
+                foreach (LR2SongDBExtended.chart_digest_map row in chartDigests ?? [])
+                {
+                    sourceDb.InsertOrReplace(row, typeof(LR2SongDBExtended.chart_digest_map));
+                }
+            });
+        }
+
+        string bundlePath = Path.Combine(tempRootPath, Guid.NewGuid().ToString("N") + "-chart-info-metadata.db");
+        ChartInfoExportRunner.Export(new ChartInfoExportOptions
+        {
+            SourceSongDbPath = sourcePath,
+            OutputDbPath = bundlePath
+        });
+        return bundlePath;
     }
 }

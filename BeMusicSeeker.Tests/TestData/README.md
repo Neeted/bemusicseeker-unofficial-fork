@@ -7,11 +7,11 @@
 | ディレクトリ | 確認する内容 | 実行条件 |
 | --- | --- | --- |
 | `archives` | 小規模な圧縮ファイルの処理。 | 通常検証で使用する。 |
-| `chart_info_real` | BMS実譜面1,000件とbeatoraja / jbms-parserの参照値の比較。 | `BMS_TEST_CHART_INFO_FULL=1` で全件を検証する。 |
-| `chart_info_bmson_real` | BMSON実譜面1,034件と参照値の比較。 | `BMS_TEST_CHART_INFO_FULL=1` で全件を検証する。 |
-| `chart_info_edge_cases` | 巨大な時系列、`RANDOM` の数値範囲超過、初期BPMの境界条件。 | `BMS_TEST_CHART_INFO_FULL=1` で実譜面を検証する。小さい合成入力による同種の確認は通常検証に残す。 |
-| `chart_info_production_diff` | 実データと参照実装の解析結果の差分。 | `BMS_TEST_PRODUCTION_DIFF_FULL=1` で全件を検証する。 |
-| `chart_info_production_latest_diff` | 更新された参照値との差分。対象は少数でも入力が大容量のもの。 | `BMS_TEST_PRODUCTION_DIFF_FULL=1` で検証する。 |
+| `chart_info_real` | BMS実譜面1,000件とbeatoraja / jbms-parserの参照値の比較。 | `Suite.chart-info-bms` で全件を検証する。 |
+| `chart_info_bmson_real` | BMSON実譜面1,034件と参照値の比較。 | `Suite.chart-info-bmson` で全件を検証する。 |
+| `chart_info_edge_cases` | 巨大な時系列、`RANDOM` の数値範囲超過、初期BPMの境界条件。 | `Suite.chart-info-edge` で実譜面を検証する。小さい合成入力による同種の確認は通常検証に残す。 |
+| `chart_info_production_diff` | 実データと参照実装の解析結果の差分。 | `Suite.chart-info-production` と `Suite.chart-info-production-slow` で分けて検証する。 |
+| `chart_info_production_latest_diff` | 更新された参照値との差分。対象は少数でも入力が大容量のもの。 | `Suite.chart-info-production-latest` で検証する。 |
 | `lr2_builtin_custom_folder_real` | LR2組込みカスタムフォルダの実ファイルとの互換性。 | 通常検証で使用する。 |
 | [Windows moduleの`TestData/audio`](../../tests/BeMusicSeeker.Windows.Tests/TestData/audio) | 小さなOgg Vorbis入力と、C# bridge とは別の native libvorbisfile 呼出しで作成した interleaved float32 参照PCM。 | 通常検証で使用する。fixture、参照出力、生成条件とSHA-256は [参照manifest](../../tests/BeMusicSeeker.Windows.Tests/TestData/audio/vorbis-reference-manifest.json) を参照する。 |
 
@@ -19,9 +19,9 @@ Windows moduleの`TestData/audio`にある参照PCMは `native/VorbisBridge/tool
 
 ## 大容量入力の追加と使用
 
-実譜面・実データ差分は `LargeFixture` として扱い、用途に応じて `ParserCompatibilityFull`、`ProductionDiffFull`、`ParserCompatibilitySlow` を指定します。通常実行で全件解析や巨大DBのコピーが始まらないよう、対応する環境変数による明示的な有効化を要求します。
+実譜面・実データ差分は `LargeFixture` として扱い、用途に応じて `ParserCompatibilityFull`、`ProductionDiffFull`、`ParserCompatibilitySlow` を指定します。Compatibility moduleの対応する `Suite.*` 属性を明示して選択します。通常のCore/Windows検証には固定corpus全件を含めません。
 
-`chart_info_real` と `chart_info_edge_cases` は、ビルド開始前に `BMS_TEST_CHART_INFO_FULL=1` が設定されている場合だけテスト出力先へコピーします。環境変数が無効なら対象テストは `Inconclusive`、有効なのに必要な入力がなければ失敗とします。必要な入力の欠落を検証成功として扱いません。
+上記のchart_info corpusはこのリポジトリの正本を読み取り専用で参照し、テスト出力先へコピーしません。固定入力・参照DBが欠けていれば失敗とし、準備不足をskipや成功へ変えません。suite一覧と実行方法は[互換検査](../../tests/BeMusicSeeker.Compatibility.Tests/README.md)を参照します。
 
 回帰テストは、まず最小の合成譜面や小さいDBで再現します。実データが必要な場合も、全件入力に依存させる前に該当する入力だけを切り出せるか確認します。カテゴリの追加や大容量データの保存だけで、期待結果の根拠を代替しません。
 

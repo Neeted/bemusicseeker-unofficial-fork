@@ -29,8 +29,6 @@
   <ItemGroup>
     <ProjectReference Include="..\BeMusicSeeker\BeMusicSeeker.csproj" />
     <ProjectReference Include="..\tests\BeMusicSeeker.TestSupport\BeMusicSeeker.TestSupport.csproj" />
-    <Compile Include="..\tools\chart-info-compare\ChartInfoCompareCore.cs" Link="Tools\ChartInfoCompareCore.cs" />
-    <Compile Include="..\tools\chart-info-export\ChartInfoExportCore.cs" Link="Tools\ChartInfoExportCore.cs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -56,26 +54,6 @@
     </None>
   </ItemGroup>
 
-  <ItemGroup Condition="'$(BMS_TEST_CHART_INFO_FULL)' == '1'">
-    <None Update="TestData\chart_info_real\expected.db">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="TestData\chart_info_real\manifest.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="TestData\chart_info_real\charts\**\*">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="TestData\chart_info_edge_cases\expected.db">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="TestData\chart_info_edge_cases\manifest.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="TestData\chart_info_edge_cases\charts\**\*">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
 
   <Target Name="VerifySevenZipNativeTestAsset" BeforeTargets="Build">
     <Error Condition="!Exists('$(PkgSevenZipExtractor)\build\x64\7z.dll')"

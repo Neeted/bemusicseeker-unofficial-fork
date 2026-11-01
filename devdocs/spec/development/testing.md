@@ -139,18 +139,16 @@ C# の正規形は [`.editorconfig`](../../../.editorconfig) を正本とし、�
 
 ### 通常テストの分割と並列実行
 
-コンパイル済みテストDLLを型のロードなしで一回走査し、実際の実行に使う4プロセス分の計画を同じメタデータから生成・検証して使用します。全領域とrunsettingsを準備してから、同じ計画の4プロセスを一つの起動ループで開始します。最初の起動直前に作る360秒の共通期限で全entryを監視し、失敗時は共通の10秒回収期限を維持します。classとmethodの `TestCategory` の和集合を読み、既知の通常除外カテゴリを分割前に除きます。`DoNotParallelize` は名前空間を含む属性名で判定し、型属性はその型の全テストメソッドへ、メソッド属性はそのメソッドへ適用します。
+コンパイル済みテストDLLを型のロードなしで一回走査し、旧暫定Functionalで実際の実行に使う2プロセス分の計画を同じメタデータから生成・検証して使用します。全領域とrunsettingsを準備してから、同じ計画の2プロセスを一つの起動ループで開始します。最初の起動直前に作る360秒の共通期限で全entryを監視し、失敗時は共通の10秒回収期限を維持します。classとmethodの `TestCategory` の和集合を読み、既知の通常除外カテゴリを分割前に除きます。`DoNotParallelize` は名前空間を含む属性名で判定し、型属性はその型の全テストメソッドへ、メソッド属性はそのメソッドへ適用します。
 
 | プロセス | 並列数・範囲 | 担当 |
 | --- | --- | --- |
-| `shared-state-a` | 1、`MethodLevel` | `DoNotParallelize` の完全修飾名をOrdinal順に並べ、偶数番目を交互割当した集合。 |
-| `shared-state-b` | 1、`MethodLevel` | 同じ集合の奇数番目を交互割当した集合。 |
 | `parallel-a` | `ProcessorCount`、`MethodLevel` | `DoNotParallelize`を除く通常テストの完全修飾名をUTF-8でSHA-256へ通し、先頭バイトが偶数となる集合。 |
 | `parallel-b` | `ProcessorCount`、`MethodLevel` | 同じ通常テストのSHA-256先頭バイトが奇数となる集合。 |
 
-クラス・メソッドの所属は `verify-refactor.ps1` がコンパイル済みDLLのメタデータから作る実行計画を正本とします。全ホストが同じ判定から生成した完全修飾名のinclude条件をrunsettingsへ渡します。通常テストは完全修飾名の固定ハッシュで二つのホストへ割り当て、入力順や無関係な追加・削除で既存メソッドの所属を変えません。ハッシュは所属だけに用い、テストの識別には完全一致の名前を使います。`parallel-a` と `parallel-b` の和が通常テスト全体になることを重複・漏れなく検査します。共有状態と通常テストの集合を一回ずつ実行し、表示名や`DataRow`表示値による分割は行いません。最大同時実行数は `2 + 2 * ProcessorCount` です。通常テストは追跡対象ファイルを変えず、実行順・並列度によらず結果を維持します。負荷を下げるためだけの並列数制限ではなく、共有資源と競合を修正します。
+クラス・メソッドの所属は `verify-refactor.ps1` がコンパイル済みDLLのメタデータから作る実行計画を正本とします。全ホストが同じ判定から生成した完全修飾名のinclude条件をrunsettingsへ渡します。通常テストは完全修飾名の固定ハッシュで二つのホストへ割り当て、入力順や無関係な追加・削除で既存メソッドの所属を変えません。ハッシュは所属だけに用い、テストの識別には完全一致の名前を使います。`parallel-a` と `parallel-b` の和が通常テスト全体になることを重複・漏れなく検査します。通常テストの集合を一回ずつ実行し、表示名や`DataRow`表示値による分割は行いません。最大同時実行数は `2 * ProcessorCount` です。通常テストは追跡対象ファイルを変えず、実行順・並列度によらず結果を維持します。負荷を下げるためだけの並列数制限ではなく、共有資源と競合を修正します。
 
-`LR2SongDBExtended` は全DBで共通のstatic `Monitor`を使います。一つの通常ホストでは互いに無関係な一時DBの処理まで直列化されるため、通常テストを二つのプロセスへ分けます。`parallel-a` / `parallel-b` の固定ハッシュ割当は、メソッド追加に伴う大量の所属反転を避けながら負荷を分散する規則です。特定の名前や実行結果に合わせた例外・調整は設けません。共有資源の安全性はこの割当順には依存させず、fixtureの所有、`DoNotParallelize` の共有状態ホストで保ちます。
+`LR2SongDBExtended` は全DBで共通のstatic `Monitor`を使います。一つの通常ホストでは互いに無関係な一時DBの処理まで直列化されるため、通常テストを二つのプロセスへ分けます。`parallel-a` / `parallel-b` の固定ハッシュ割当は、メソッド追加に伴う大量の所属反転を避けながら負荷を分散する規則です。特定の名前や実行結果に合わせた例外・調整は設けません。共有資源の安全性はこの割当順には依存させず、fixtureの所有で保ちます。旧暫定入口の除外後の通常集合にclass/methodの `DoNotParallelize` が一件でも入った場合は計画を失敗とします。黙って除外したり、別hostへ迂回したりしません。両hostが非空であることを要求し、移管時点の件数や名前を恒久ルールへ固定しません。
 
 テストアセンブリの`AssemblyInitialize`では、既存のIO完了ポート下限を保持したまま、worker下限を `max(既存値, 7 * ProcessorCount + ProcessorCount)` に設定します。7は小規模fixtureで同時に占有される既知のパイプライン主体（テスト本体、reader、parser、post-parse、2つのcollector、writer）の数であり、本番の最大値や厳密な上限ではありません。各通常ホストの最大ProcessorCount並列に継続処理用のProcessorCount分を加え、同期的なテスト待機によるworker補充遅延を避けるテスト環境専用の設定です。設定に失敗した場合は検証を失敗として扱います。この設定はテストアセンブリだけに適用し、本番のスレッドプール設定や上限・監視は変更しません。
 
@@ -321,22 +319,15 @@ C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2
 
 通常の共通計画とFull各phaseでは、選択methodごとに結果一件以上を要求し、返った各DataRowを全件確認します。DataRowの事前全展開は行いません。任意filterのQuickは独自filter解釈をせず、DLL上の既知method集合・非空結果・全Passedを検査し、選択methodの欠落照合は共通計画/Fullへ分担します。
 
-Fullは通常4ホスト、一般 `ProcessIntegration`、専用 `EnvironmentIntegration`、`ReleaseAcceptance` の実TRXを合算し、`release-outcomes.json` を生成します。専用phaseを含む必要なTRXの欠落は失敗です。旧更新受入も実C#テストの完全修飾名と結果を使います。固定配布物rosterの必須項目だけは正確に一件の `Passed` を要求し、欠落・重複を拒否します。通常のDataRowをこの一件制限へ含めません。
+Fullは通常2ホスト、一般 `ProcessIntegration`、専用 `EnvironmentIntegration`、`ReleaseAcceptance` の実TRXを合算し、`release-outcomes.json` を生成します。専用phaseを含む必要なTRXの欠落は失敗です。旧更新受入も実C#テストの完全修飾名と結果を使います。固定配布物rosterの必須項目だけは正確に一件の `Passed` を要求し、欠落・重複を拒否します。通常のDataRowをこの一件制限へ含めません。
 
 ### 解析・大規模データ・外部エンコーダー
 
 通常の解析確認は小さい合成譜面を使います。解析器・復号・譜面情報の保存形式を変える場合は、対象に合う追加検証を明示します。
 
-```powershell
-$env:BMS_TEST_CHART_INFO_FULL = '1'
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'TestCategory=ParserCompatibilityFull'
-$env:BMS_TEST_PRODUCTION_DIFF_FULL = '1'
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'TestCategory=ProductionDiffFull'
-$env:BMS_TEST_CHART_INFO_SLOW = '1'
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'TestCategory=ParserCompatibilitySlow'
-```
+固定corpusと実toolはCompatibility moduleの `Suite.*` 属性で選択します。suiteの明示選択をopt-inとし、旧 `BMS_TEST_CHART_INFO_FULL` / `BMS_TEST_PRODUCTION_DIFF_FULL` / `BMS_TEST_CHART_INFO_SLOW` の事前ガードは使いません。通常のCore/Windows検証へ固定corpus全件を混ぜません。
 
-実譜面・境界例のコピーにはビルド前の `BMS_TEST_CHART_INFO_FULL=1` が必要です。対応フラグがなければテスト自身は `Inconclusive` を返し、標準入口の全Passed判定では不成功になります。有効なのに入力がなければ失敗とします。約20 MiBを解析する実データ差分も、通常検証へ混ぜません。
+固定入力はリポジトリの `BeMusicSeeker.Tests/TestData` を読み取り専用で参照し、build出力へ複製しません。入力・参照DB・外部tool・Java準備JSONの欠如や不正は失敗です。suite一覧、準備、直接module実行は[互換検査の案内](../../../tests/BeMusicSeeker.Compatibility.Tests/README.md)を参照します。正式runnerのCompatibility入口とsuite全体の期限は接続が完了するまで未検証として扱い、直接moduleの成功で代用しません。
 
 性能検査の入口は `benchmark-net10-performance.ps1 -Corpus all -Configuration Release -Scale small,medium,large` です。`contract` は診断出力、`estimation` は候補リソースの評価、`parser` は同位置だけのノートの全位置で次音なしを確認する機能検査で、走査回数・所要時間は測定しません。規模に対応する入力数は各ケースに置き、800万の逆引きキーや実DB・20 ZIPの導入全体の代わりとは扱いません。条件、完了範囲、反復値、結果同等性は[性能仕様](../core/performance-and-scale.md)に従います。
 
@@ -377,7 +368,7 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Tes
 | --- | --- | --- |
 | 通常開発と正式リリース前の検証区分、変更に応じた追加検証 | 本書の[実行範囲の選択](#実行範囲の選択)、[開発指針](../../../AGENTS.md#文書と検証)、[リリース手順](release.md#配布物の生成と検証)、[エージェント運用](agent-workflow.md#統合と予備レビュー) | 作業段階・公開候補の確定と各文書の案内を照合する。運用文言を固定する自動テストは設けない。 |
 | 複数ワークツリーの検証と結果の再利用 | 本書の[複数ワークツリーの検証](#複数ワークツリーの検証)、[並列作業](agent-workflow.md#並列作業)、[通常の統合手順](release.md#通常の作業ブランチの統合) | 全体ルートによる `Functional`・性能測定の開始調整と単位責任者の `Quick` 自主管理、別ワークツリーの必要ビルドとの並行、資源衝突と実測負荷、対象版・共有依存、移管時の結果引継ぎ、検証版と統合版の一致を照合する。運用文言を固定する自動テストは設けない。 |
-| 通常検証の分割、選択、共有期限 | [標準スクリプト](../../../scripts/verify-refactor.ps1) | [`VerificationRunnerContractTests`](../../../BeMusicSeeker.Tests/Verification/VerificationRunnerContractTests.cs)（`ProcessIntegration`）は実PE読取りによるclass/methodカテゴリ和集合、実計画生成とrunsettingsによる専用カテゴリ除外と対象の完全な分割、追加・削除・順序変更・別プロセスに対する所属の不変、非空条件を確認する。typed probeの許可表と合成TRXによる全行Passed・欠落/未知/不正/run-level失敗・Full専用phase欠落の拒否も確認する。実起動の接続と期限は、実際の実行計画、検出されたテスト集合、終了時刻、TRXを照合する。 |
+| 通常検証の分割、選択、共有期限 | [標準スクリプト](../../../scripts/verify-refactor.ps1) | [`VerificationRunnerContractTests`](../../../BeMusicSeeker.Tests/Verification/VerificationRunnerContractTests.cs)（`ProcessIntegration`）は実PE読取りによるclass/methodカテゴリ和集合とDNP適用・別namespaceの区別、実計画生成とrunsettingsによる専用カテゴリ除外後の通常Serial拒否、通常2hostへの一意完全分割を確認する。固定ベクトルによるSHA-256先頭byte偶奇、追加・削除・順序変更・別プロセスに対する所属の不変、両側非空条件も確認する。typed probeの許可表と合成TRXによる全行Passed・欠落/未知/不正/run-level失敗・Full専用phase欠落の拒否も確認する。実起動の接続と期限は、実際の実行計画、検出されたテスト集合、終了時刻、TRXを照合する。 |
 | テスト整理前後の比較 | [標準スクリプト](../../../scripts/verify-refactor.ps1)、本書 | 同条件の全体経過時間、ホスト終了時刻、実行件数・スキップを照合し、保証整理と時間目標を分けて報告する。 |
 | 変更範囲・全体の自動整形、整形後の検証、失敗時の停止 | [共通の整形処理](../../../scripts/format-code.ps1)、[標準スクリプト](../../../scripts/verify-refactor.ps1) の `Invoke-RepositoryFormattingPhase` | [`RepositoryFormattingTests`](../../../BeMusicSeeker.Tests/Verification/RepositoryFormattingTests.cs)（`ProcessIntegration`）は実 Git による対象選択と、外部コマンドを代替した標準経路の実行順・対象ゼロ・失敗伝播・共有期限を確認する。SDK 自体の修正内容はこのテストの対象外。 |
 | 各段階の期限・診断・停止 | [検証スクリプト群](../../../scripts) | 実行に使う期限とプロセス所有情報、失敗時の診断・残留を確認する。 |

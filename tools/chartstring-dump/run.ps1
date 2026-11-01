@@ -47,7 +47,13 @@ if (-not $ChartArgs -or $ChartArgs.Count -eq 0) {
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Resolve-Path (Join-Path $scriptRoot "..\..")
-$buildDir = Join-Path $repoRoot "artifacts\chartstring-dump\classes"
+# Join-Pathは絶対childをそのまま採用しないため、先に出力先を解決する。
+$outputPath = if ([System.IO.Path]::IsPathFullyQualified($OutputDir)) {
+    [System.IO.Path]::GetFullPath($OutputDir)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputDir))
+}
+$buildDir = Join-Path $outputPath "classes"
 $jarPath = Join-Path $SongDataUpdaterRoot "lib\jbms-parser.jar"
 $sourcePath = Join-Path $SongDataUpdaterRoot "src\main\java"
 
@@ -69,14 +75,14 @@ $java = if ($JavaRuntimeHome) {
     Resolve-JavaTool "java"
 }
 New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $repoRoot $OutputDir) | Out-Null
+New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
 
 & $javac -encoding UTF-8 -cp $jarPath -sourcepath $sourcePath -d $buildDir (Join-Path $scriptRoot "ChartStringDump.java")
 if ($LASTEXITCODE -ne 0) {
     throw "javac failed with exit code $LASTEXITCODE"
 }
 
-& $java -cp "$buildDir;$jarPath" ChartStringDump --output-dir (Join-Path $repoRoot $OutputDir) @ChartArgs
+& $java -cp "$buildDir;$jarPath" ChartStringDump --output-dir $outputPath @ChartArgs
 if ($LASTEXITCODE -ne 0) {
     throw "java failed with exit code $LASTEXITCODE"
 }

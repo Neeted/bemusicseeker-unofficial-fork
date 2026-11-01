@@ -1,0 +1,30 @@
+{
+  "purpose": "今後のJava参照tool smokeに使用する新規固定参照。当時のローカル版と同一とは主張しない。",
+  "repository": "https://github.com/Neeted/songdata-updater",
+  "commit": "ec0ef7f085fcab8eddb708bbf229bfba9f530f27",
+  "jar": {
+    "path": "lib/jbms-parser.jar",
+    "sha256": "9be39a1207fc6e7c52a5414662e0c174361b008fd1f58da8eeec38fa75da8db7",
+    "sourceUrl": "https://raw.githubusercontent.com/Neeted/songdata-updater/ec0ef7f085fcab8eddb708bbf229bfba9f530f27/lib/jbms-parser.jar"
+  },
+  "jdks": [
+    {
+      "purpose": "compile",
+      "version": "17.0.16+8",
+      "distribution": "Microsoft OpenJDK Windows x64",
+      "sourceUrl": "https://aka.ms/download-jdk/microsoft-jdk-17.0.16-windows-x64.zip",
+      "resolvedUrl": "https://download.visualstudio.microsoft.com/download/pr/73ca8d57-4705-435a-8d56-ed9624332745/f2eee2dc972b278e355547d50e0e1d8d/microsoft-jdk-17.0.16-windows-x64.zip",
+      "checksumUrl": "https://aka.ms/download-jdk/microsoft-jdk-17.0.16-windows-x64.zip.sha256sum.txt",
+      "sha256": "53f0c9ec64811a9ab968747076653e5500115db7230d244e4ec53577ca5ec8fc"
+    },
+    {
+      "purpose": "runtime",
+      "version": "21.0.8+9",
+      "distribution": "Microsoft OpenJDK Windows x64",
+      "sourceUrl": "https://aka.ms/download-jdk/microsoft-jdk-21.0.8-windows-x64.zip",
+      "resolvedUrl": "https://download.visualstudio.microsoft.com/download/pr/afa7840a-6a51-4fb4-a321-77dd039ba481/5bcb72b529c3a5fb9ff7a84e8270bd60/microsoft-jdk-21.0.8-windows-x64.zip",
+      "checksumUrl": "https://aka.ms/download-jdk/microsoft-jdk-21.0.8-windows-x64.zip.sha256sum.txt",
+      "sha256": "6ecfa864b95a45cde05d92351edf06d33b778669499b485bb8414145704fae0a"
+    }
+  ]
+}

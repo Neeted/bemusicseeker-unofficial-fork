@@ -4,6 +4,8 @@
     <UseWPF>true</UseWPF>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../tools/chart-info-export/ChartInfoExport.csproj" />
+
     <ProjectReference Include="../../BeMusicSeeker/BeMusicSeeker.csproj" />
     <!-- WPF有効化で外れる従来の暗黙usingを共通補助全体で維持します。 -->
     <Using Include="System.IO" />

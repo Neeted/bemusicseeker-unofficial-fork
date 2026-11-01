@@ -100,8 +100,6 @@ $functionalParallelWorkers = [Math]::Max(
     1,
     [Environment]::ProcessorCount)
 $functionalHostNames = @(
-    'shared-state-a'
-    'shared-state-b'
     'parallel-a'
     'parallel-b')
 
@@ -129,8 +127,11 @@ function New-FunctionalShardPlan {
         throw "Compiled test assembly contains no MSTest test methods: $functionalTestAssemblyPath"
     }
 
-    $serialTests = @($metadata | Where-Object { [bool]$_.DoNotParallelize })
-    $parallelTests = @($metadata | Where-Object { -not [bool]$_.DoNotParallelize })
+    # 旧暫定入口には通常Serialを残さない。除外後の混入は黙って落とさず拒否する。
+    if (@($metadata | Where-Object { [bool]$_.DoNotParallelize }).Count -gt 0) {
+        throw 'Functional regular metadata does not accept DoNotParallelize methods.'
+    }
+    $parallelTests = $metadata
     $parallelATests = @()
     $parallelBTests = @()
     foreach ($test in $parallelTests) {
@@ -147,44 +148,7 @@ function New-FunctionalShardPlan {
     if ($parallelATests.Count -eq 0 -or $parallelBTests.Count -eq 0) {
         throw 'Functional non-DoNotParallelize metadata must produce two nonempty parallel queues.'
     }
-    $serialStateA = @()
-    $serialStateB = @()
-    $alternateIndex = 0
-    foreach ($test in $serialTests) {
-        if (($alternateIndex % 2) -eq 0) {
-            $serialStateA += $test
-        }
-        else {
-            $serialStateB += $test
-        }
-        $alternateIndex++
-    }
-
-    if ($serialStateA.Count -eq 0 -or $serialStateB.Count -eq 0) {
-        throw 'Functional DoNotParallelize metadata must produce two nonempty shared-state queues.'
-    }
-    $serialStateANames = [string[]]@($serialStateA | ForEach-Object { $_.FullyQualifiedName })
-    $serialStateBNames = [string[]]@($serialStateB | ForEach-Object { $_.FullyQualifiedName })
-
     $shards = @(
-        [pscustomobject][ordered]@{
-            Name = 'shared-state-a'
-            Workers = 1
-            Scope = 'MethodLevel'
-            TestNames = $serialStateANames
-            Filter = New-FunctionalTestCaseFilter `
-                -BaseFilter $functionalFilter `
-                -IncludeFullyQualifiedNames $serialStateANames
-        }
-        [pscustomobject][ordered]@{
-            Name = 'shared-state-b'
-            Workers = 1
-            Scope = 'MethodLevel'
-            TestNames = $serialStateBNames
-            Filter = New-FunctionalTestCaseFilter `
-                -BaseFilter $functionalFilter `
-                -IncludeFullyQualifiedNames $serialStateBNames
-        }
         [pscustomobject][ordered]@{
             Name = 'parallel-a'
             Workers = $functionalParallelWorkers
@@ -207,12 +171,9 @@ function New-FunctionalShardPlan {
     return [pscustomobject][ordered]@{
         Shards = [object[]]$shards
         Metadata = [object[]]$metadata
-        SerialTests = [object[]]$serialTests
         ParallelTests = [object[]]$parallelTests
         ParallelATests = [object[]]$parallelATests
         ParallelBTests = [object[]]$parallelBTests
-        SharedStateATests = [object[]]$serialStateA
-        SharedStateBTests = [object[]]$serialStateB
     }
 }
 
@@ -229,7 +190,7 @@ function Assert-FunctionalShardConfiguration {
     $names = @($shards | ForEach-Object { [string]$_.Name })
     if (@(Compare-Object -ReferenceObject $functionalHostNames -DifferenceObject $names -CaseSensitive).Count -ne 0 -or
         ($functionalHostNames -join '|') -cne ($names -join '|')) {
-        throw 'Functional launch hosts must be shared-state A/B and parallel A/B in that order.'
+        throw 'Functional launch hosts must be parallel A/B in that order.'
     }
     foreach ($shard in $shards) {
         if (@($shard.TestNames).Count -eq 0 -or $shard.Workers -lt 1 -or $shard.Scope -cne 'MethodLevel' -or
@@ -246,18 +207,11 @@ function Assert-FunctionalShardConfiguration {
     if (($metadataNames | Sort-Object -Unique).Count -ne $metadataNames.Count) {
         throw 'Compiled test metadata contains duplicate fully qualified names.'
     }
-    $serialA = @($shards | Where-Object Name -ceq 'shared-state-a')[0]
-    $serialB = @($shards | Where-Object Name -ceq 'shared-state-b')[0]
+    if (@($metadata | Where-Object { [bool]$_.DoNotParallelize }).Count -gt 0) {
+        throw 'Functional regular metadata does not accept DoNotParallelize methods.'
+    }
     $parallelA = @($shards | Where-Object Name -ceq 'parallel-a')[0]
     $parallelB = @($shards | Where-Object Name -ceq 'parallel-b')[0]
-    $serialMetadata = @($Plan.SerialTests)
-    for ($index = 1; $index -lt $serialMetadata.Count; $index++) {
-        if ([StringComparer]::Ordinal.Compare(
-                [string]$serialMetadata[$index - 1].FullyQualifiedName,
-                [string]$serialMetadata[$index].FullyQualifiedName) -gt 0) {
-            throw 'Functional DoNotParallelize metadata must be ordered by ordinal fully qualified name.'
-        }
-    }
     $parallelMetadata = @($Plan.ParallelTests)
     for ($index = 1; $index -lt $parallelMetadata.Count; $index++) {
         if ([StringComparer]::Ordinal.Compare(
@@ -266,29 +220,16 @@ function Assert-FunctionalShardConfiguration {
             throw 'Functional regular metadata must be ordered by ordinal fully qualified name.'
         }
     }
-    if ($serialA.Workers -ne 1 -or $serialB.Workers -ne 1 -or
-        $parallelA.Workers -ne $functionalParallelWorkers -or
+    if ($parallelA.Workers -ne $functionalParallelWorkers -or
         $parallelB.Workers -ne $functionalParallelWorkers) {
-        throw 'Functional shared-state hosts must use one worker and each parallel host must use ProcessorCount workers.'
+        throw 'Functional parallel hosts must each use ProcessorCount workers.'
     }
 
-    $serialANames = [string[]]@($Plan.SharedStateATests | ForEach-Object { $_.FullyQualifiedName })
-    $serialBNames = [string[]]@($Plan.SharedStateBTests | ForEach-Object { $_.FullyQualifiedName })
-    $serialNames = [string[]]@($Plan.SerialTests | ForEach-Object { $_.FullyQualifiedName })
-    if (@($serialANames | Where-Object { $serialBNames -contains $_ }).Count -ne 0 -or
-        @(Compare-Object -ReferenceObject $serialNames -DifferenceObject ($serialANames + $serialBNames) -CaseSensitive).Count -ne 0) {
-        throw 'Functional DoNotParallelize metadata must be assigned once across shared-state A/B.'
-    }
-    if ($serialA.Filter -cne (New-FunctionalTestCaseFilter -BaseFilter $functionalFilter -IncludeFullyQualifiedNames $serialANames) -or
-        $serialB.Filter -cne (New-FunctionalTestCaseFilter -BaseFilter $functionalFilter -IncludeFullyQualifiedNames $serialBNames)) {
-        throw 'Shared-state filters must be generated from their assigned metadata names.'
-    }
     $expectedParallelNames = [string[]]@($Plan.ParallelTests | ForEach-Object { $_.FullyQualifiedName })
     $expectedParallelANames = [string[]]@($Plan.ParallelATests | ForEach-Object { $_.FullyQualifiedName })
     $expectedParallelBNames = [string[]]@($Plan.ParallelBTests | ForEach-Object { $_.FullyQualifiedName })
     $parallelNames = [string[]]@($parallelA.TestNames + $parallelB.TestNames)
-    if (@($expectedParallelNames | Where-Object { $serialNames -contains $_ }).Count -ne 0 -or
-        @($expectedParallelNames | Where-Object { $metadataNames -notcontains $_ }).Count -ne 0 -or
+    if (@($expectedParallelNames | Where-Object { $metadataNames -notcontains $_ }).Count -ne 0 -or
         @(Compare-Object -ReferenceObject $parallelA.TestNames -DifferenceObject $expectedParallelANames -CaseSensitive).Count -ne 0 -or
         @(Compare-Object -ReferenceObject $parallelB.TestNames -DifferenceObject $expectedParallelBNames -CaseSensitive).Count -ne 0 -or
         @($parallelA.TestNames | Where-Object { $parallelB.TestNames -contains $_ }).Count -ne 0 -or
@@ -304,7 +245,7 @@ function Assert-FunctionalShardConfiguration {
         throw 'Parallel A/B filters must be generated from their assigned metadata names.'
     }
 
-    $partitionNames = @($serialANames + $serialBNames + $parallelNames)
+    $partitionNames = @($parallelNames)
     if (($partitionNames | Sort-Object -Unique).Count -ne $partitionNames.Count -or
         @(Compare-Object -ReferenceObject $metadataNames -DifferenceObject $partitionNames -CaseSensitive).Count -ne 0) {
         throw 'Functional metadata partitions must cover every compiled test method exactly once.'
@@ -970,7 +911,7 @@ function Invoke-ParallelFunctionalTestShards {
     $deadlinePolicy = $null
 
     try {
-        # 全領域と設定の準備後、最初の起動直前から全4ホストが一つの期限を共有する。
+        # 全領域と設定の準備後、最初の起動直前から全2ホストが一つの期限を共有する。
         $testExecutionStartedUtc = [DateTime]::UtcNow
         $deadlinePolicy = New-FunctionalDeadlinePolicy `
             -StartUtc $testExecutionStartedUtc `

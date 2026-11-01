@@ -2,7 +2,11 @@ using System.Globalization;
 using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.TestSupport.Files;
+using SQLite;
 using static BeMusicSeeker.TestSupport.Components.ChartInfoComponentTestSupport;
+using static BeMusicSeeker.TestSupport.Components.ChartInfoMetadataTestSupport;
+
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
@@ -1245,6 +1249,170 @@ public sealed class ChartInfoParserBehaviorTests
             Assert.AreEqual(first.ln, second.ln);
             Assert.AreNotEqual(first.charthash, second.charthash);
         });
+    }
+
+    /// <summary>重複JSONキーを持つ二つの実bmsonを参照DBへ照合し、キー採用順によるハッシュ・音符・長さの互換違反を検出する。</summary>
+    /// <remarks>実配布入力と独立参照DBを使う互換検査。明示実行・規模・解析期限は既存区分のまま保持する。</remarks>
+    [TestMethod]
+    [TestCategory("Compatibility")]
+    public void ParseRealBmsonDuplicateKeyFixtures_MatchBeatorajaHash()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_bmson_real");
+        string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
+        Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_bmson_real expected.db fixture is missing.");
+
+        using var connection = new SQLiteConnection(expectedDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        List<RealChartInfoExpectedRow> rows = connection.Query<RealChartInfoExpectedRow>(
+            "SELECT sc.fixture_id, sc.fixture_path, e.* "
+                + "FROM sample_chart sc "
+                + "JOIN expected_chart_info e ON e.sha256 = sc.sha256 "
+                + "WHERE sc.sha256 IN ('296314aeb18ba9c44eda264784711861df4fd9a91a9f82a133911e1e5b926749','b7e399df46bc7f800c91c4d81002b806f32b6da70314c47bcc3064467d21e6b1') "
+                + "ORDER BY sc.fixture_id;");
+        Assert.AreEqual(2, rows.Count);
+
+        foreach (RealChartInfoExpectedRow expected in rows)
+        {
+            string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
+
+            BeMusicSeeker.Models.ChartDetails actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
+
+            Assert.AreEqual(expected.charthash, actual.charthash, expected.sha256);
+            Assert.AreEqual(expected.notes, actual.notes, expected.sha256);
+            Assert.AreEqual(expected.length, actual.length, expected.sha256);
+        }
+    }
+
+    /// <summary>実STOP overflow入力の長さ・音符・featureを参照DBへ照合し、Java整数wrapの互換を合成入力だけでは見落とす誤りを検出する。</summary>
+    /// <remarks>実配布入力と独立参照DBを使う互換検査。明示実行・規模・解析期限は既存区分のまま保持する。</remarks>
+    [TestMethod]
+    [TestCategory("Compatibility")]
+    public void ParseProductionDiffFixture_JavaIntWrappedStopLengthMatchesBeatoraja()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_production_diff");
+        string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
+        Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_production_diff expected.db fixture is missing.");
+
+        const string sha256 = "2125eeb135073c7d1f20968bef763ac1dc6290fd836fcc29309c5d351b60667e";
+        using var connection = new SQLiteConnection(expectedDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        RealChartInfoExpectedRow expected = connection.Query<RealChartInfoExpectedRow>(
+            "SELECT sc.fixture_id, sc.fixture_path, e.* "
+                + "FROM FixtureSampleChart sc "
+                + "JOIN FixtureExpectedChartInfo e ON e.sha256 = sc.sha256 "
+                + "WHERE sc.sha256 = ?;",
+            sha256).Single();
+        string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
+
+        ChartInfoParser.ChartInfoParseResult result = ChartInfoParser.ParseBytesDetailed(
+            File.ReadAllBytes(chartPath),
+            chartPath,
+            expected.md5,
+            expected.sha256,
+            timeout: TimeSpan.FromSeconds(10));
+
+        Assert.AreEqual(expected.length, result.Row.length);
+        Assert.AreEqual(expected.notes, result.Row.notes);
+        Assert.AreEqual(expected.feature, result.Row.feature);
+    }
+
+    /// <summary>衝突を含む四つの実譜面を参照DBへ照合し、通常・LN・scratch各計数とレーン別保存値の互換違反を検出する。</summary>
+    /// <remarks>実配布入力と独立参照DBを使う互換検査。明示実行・規模・解析期限は既存区分のまま保持する。</remarks>
+    [TestMethod]
+    [TestCategory("Compatibility")]
+    public void ParseProductionDiffFixture_NoteCollisionCountsMatchBeatorajaSamples()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_production_diff");
+        string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
+        Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_production_diff expected.db fixture is missing.");
+
+        // 個々の外部入力はSHA-256と参照DBのfixture_pathで特定する。
+        string[] sha256s =
+        [
+            "4cf26b3ba8d762de8db62eec0b7790a37da600b303aecffa6391018d83680266",
+            "dfc23c232b435b8abcfc9363a15400b4115a7bec0d66b0d405e6e6cdfcf224e2",
+            "418806ce0bcd1eecc2256b022d1aad8c9616f7c21389eab61e280952e0f68558",
+            "0f9297f384c02a4060f31962e768dc6a34d83aa551fbc5a01c19a6b7c6c40b77"
+        ];
+
+        using var connection = new SQLiteConnection(expectedDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        foreach (string sha256 in sha256s)
+        {
+            RealChartInfoExpectedRow expected = connection.Query<RealChartInfoExpectedRow>(
+                "SELECT sc.fixture_id, sc.fixture_path, e.* "
+                    + "FROM FixtureSampleChart sc "
+                    + "JOIN FixtureExpectedChartInfo e ON e.sha256 = sc.sha256 "
+                    + "WHERE sc.sha256 = ?;",
+                sha256).Single();
+            string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
+
+            BeMusicSeeker.Models.ChartDetails actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
+
+            Assert.AreEqual(expected.notes, actual.notes, expected.sha256);
+            Assert.AreEqual(expected.n, actual.n, expected.sha256);
+            Assert.AreEqual(expected.ln, actual.ln, expected.sha256);
+            Assert.AreEqual(expected.s, actual.s, expected.sha256);
+            Assert.AreEqual(expected.ls, actual.ls, expected.sha256);
+            Assert.AreEqual(expected.lanenotes, actual.lanenotes, expected.sha256);
+        }
+    }
+
+    /// <summary>無効な省略RANDOMを含む実譜面で参照hashとfeatureを保ち、地雷は残してrandomを誤設定する分類違反を検出する。</summary>
+    /// <remarks>実配布入力と独立参照DBを使う互換検査。明示実行・規模・解析期限は既存区分のまま保持する。</remarks>
+    [TestMethod]
+    [TestCategory("Compatibility")]
+    public void ParseProductionDiffFixture_InvalidCompactRandomDoesNotSetRandomFeature()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_production_diff");
+        string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
+        Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_production_diff expected.db fixture is missing.");
+
+        const string sha256 = "e570cff02a4a43809229060f3b0d146efc2635060786a0f9a4f9158bf5265b9d";
+        using var connection = new SQLiteConnection(expectedDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        RealChartInfoExpectedRow expected = connection.Query<RealChartInfoExpectedRow>(
+            "SELECT sc.fixture_id, sc.fixture_path, e.* "
+                + "FROM FixtureSampleChart sc "
+                + "JOIN FixtureExpectedChartInfo e ON e.sha256 = sc.sha256 "
+                + "WHERE sc.sha256 = ?;",
+            sha256).Single();
+        string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
+
+        ChartInfoParser.ChartInfoParseResult result = ChartInfoParser.ParseBytesDetailed(File.ReadAllBytes(chartPath), chartPath, expected.md5, expected.sha256);
+
+        Assert.AreEqual(expected.charthash, result.Row.charthash);
+        Assert.AreEqual(expected.feature, result.Row.feature);
+        Assert.AreEqual(0, result.Row.feature & FeatureRandom);
+        Assert.IsTrue((result.Row.feature & FeatureMine) != 0);
+    }
+
+    /// <summary>timeoutと解析失敗を成功差分とは別に数え、後から成功解析した行だけのハッシュ差を集計して失敗行の混入を検出する。</summary>
+    [TestMethod]
+    public void CompatibilityDiffCounts_RecordsSkippedProductionDiffRowsWithoutCountingDiffs()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        RealChartInfoExpectedRow expected = CreateExpectedCompatibilityRow(new string('a', 64), new string('c', 64));
+        BeMusicSeeker.Models.ChartDetails actual = CreateChartInfoRow(expected.sha256, expected.md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+        actual = actual with { charthash = new string('d', 64) };
+
+        workspace.PreserveArtifacts();
+        var diffs = new CompatibilityDiffCounts(workspace.GetPath("diagnostics"));
+        diffs.AddTimeout(expected, 10001, new ChartInfoParser.ChartInfoParseTimeoutException(10000, "test"));
+        diffs.AddParseFailure(expected, 12, new InvalidDataException("synthetic parse failure"));
+
+        Assert.AreEqual(0, diffs.ParsedCount);
+        Assert.AreEqual(1, diffs.TimeoutCount);
+        Assert.AreEqual(1, diffs.ParseFailureCount);
+        Assert.AreEqual(0, diffs.ChartHashDiffs);
+        Assert.AreEqual(0, diffs.CoreDiffs);
+
+        diffs.AddParsed(expected, actual, string.Empty, 30);
+
+        Assert.AreEqual(1, diffs.ParsedCount);
+        Assert.AreEqual(1, diffs.ChartHashDiffs);
+        StringAssert.Contains(diffs.ToString(), "timeout=1");
+        StringAssert.Contains(diffs.ToString(), "parseFailure=1");
     }
 
 }

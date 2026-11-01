@@ -5,6 +5,9 @@
     <EnableMicrosoftTestingExtensionsHangDump>true</EnableMicrosoftTestingExtensionsHangDump>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../tools/chart-info-export/ChartInfoExport.csproj" />
+    <ProjectReference Include="../../tools/chart-info-compare/ChartInfoCompare.csproj" />
+
     <ProjectReference Include="../BeMusicSeeker.TestSupport/BeMusicSeeker.TestSupport.csproj" />
     <ProjectReference Include="../../BeMusicSeeker/BeMusicSeeker.csproj" />
   </ItemGroup>

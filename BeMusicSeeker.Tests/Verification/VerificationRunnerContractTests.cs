@@ -42,12 +42,17 @@ public sealed class VerificationRunnerContractTests
             string[] excludedCategories = ["Net10Performance", "Performance", "LargeFixture", "ParserCompatibilityFull", "ParserCompatibilitySlow", "ProductionDiffFull", "ProcessIntegration", "ReleaseAcceptance", "EnvironmentIntegration"];
             JsonElement[] selectedMetadata = GetProperty(first.RootElement, "Metadata").EnumerateArray()
                 .Where(item => !GetProperty(item, "Categories").EnumerateArray().Select(GetRequiredString).Intersect(excludedCategories).Any()).ToArray();
+            Assert.IsFalse(selectedMetadata.Any(item => GetProperty(item, "DoNotParallelize").GetBoolean()));
             string[] expectedNames = selectedMetadata
-                .Where(item => !GetProperty(item, "DoNotParallelize").GetBoolean())
                 .Select(item => GetRequiredString(GetProperty(item, "FullyQualifiedName")))
                 .ToArray();
             JsonElement plans = GetProperty(first.RootElement, "Plans");
             Dictionary<string, string> baseline = ReadParallelMembership(plans[0], expectedNames);
+            // 独立固定ベクトルのSHA-256先頭byteは148/165。別算法と偶奇逆転を検出する。
+            Dictionary<string, string> fixedVectors = ReadParallelMembership(GetProperty(first.RootElement, "FixedVectorPlan"),
+                ["Synthetic.Normal.First", "Synthetic.Normal.Second"]);
+            Assert.AreEqual("parallel-a", fixedVectors["Synthetic.Normal.First"]);
+            Assert.AreEqual("parallel-b", fixedVectors["Synthetic.Normal.Second"]);
             CollectionAssert.AreEquivalent(selectedMetadata.Select(item => GetRequiredString(GetProperty(item, "FullyQualifiedName"))).ToArray(),
                 GetProperty(plans[0], "Shards").EnumerateArray().SelectMany(shard => GetProperty(shard, "TestNames").EnumerateArray().Select(GetRequiredString)).ToArray());
             foreach (JsonElement plan in plans.EnumerateArray())
@@ -69,7 +74,7 @@ public sealed class VerificationRunnerContractTests
             using JsonDocument secondProcess = ReadFunctionalPlanProbe(root, "baseline");
             AssertSameMembership(baseline, ReadParallelMembership(GetProperty(secondProcess.RootElement, "Plans")[0], expectedNames));
 
-            string[] hostNames = ["shared-state-a", "shared-state-b", "parallel-a", "parallel-b"];
+            string[] hostNames = ["parallel-a", "parallel-b"];
             CollectionAssert.AreEqual(hostNames, GetProperty(plans[0], "Shards").EnumerateArray()
                 .Select(shard => GetRequiredString(GetProperty(shard, "Name"))).ToArray());
             const string categoryFilter = "TestCategory!=Net10Performance&TestCategory!=Performance&TestCategory!=LargeFixture&TestCategory!=ParserCompatibilityFull&TestCategory!=ParserCompatibilitySlow&TestCategory!=ProductionDiffFull&TestCategory!=ProcessIntegration&TestCategory!=ReleaseAcceptance&TestCategory!=EnvironmentIntegration";
@@ -78,7 +83,7 @@ public sealed class VerificationRunnerContractTests
                 string hostName = GetRequiredString(GetProperty(shard, "Name"));
                 var settings = XElement.Load(Path.Combine(root, hostName + ".runsettings"));
                 XElement parallelize = GetRequiredElement(GetRequiredElement(settings, "MSTest"), "Parallelize");
-                Assert.AreEqual(hostName.StartsWith("parallel-", StringComparison.Ordinal) ? Math.Max(1, Environment.ProcessorCount) : 1,
+                Assert.AreEqual(Math.Max(1, Environment.ProcessorCount),
                     (int)GetRequiredElement(parallelize, "Workers"));
                 Assert.AreEqual("MethodLevel", GetRequiredElement(parallelize, "Scope").Value);
                 string filter = GetRequiredElement(GetRequiredElement(settings, "RunConfiguration"), "TestCaseFilter").Value;
@@ -105,7 +110,16 @@ public sealed class VerificationRunnerContractTests
         StringAssert.Contains(GetRequiredString(GetProperty(result.RootElement, "Message")), "two nonempty parallel queues");
     }
 
-    /// <summary>実PEのclass/methodカテゴリを和集合で読み取り、型初期化やテスト実行なしで重複を除去します。</summary>
+    /// <summary>両側非空の通常集合にSerialが一件混入した場合、黙って除外したり別hostへ回さず計画を拒否します。</summary>
+    [TestMethod]
+    public void FunctionalShardPlanRejectsRegularDoNotParallelizeMethod()
+    {
+        using JsonDocument result = ReadFunctionalPlanProbe(Path.GetTempPath(), "serial");
+        Assert.IsTrue(GetProperty(result.RootElement, "Rejected").GetBoolean(), result.RootElement.GetRawText());
+        StringAssert.Contains(GetRequiredString(GetProperty(result.RootElement, "Message")), "does not accept DoNotParallelize");
+    }
+
+    /// <summary>実PEのclass/methodカテゴリを和集合で読み取り、DNPの適用範囲と同名別namespace属性を区別し、型初期化やテスト実行を行いません。</summary>
     [TestMethod]
     public void MetadataReaderUnionsClassAndMethodCategoriesWithoutExecutingAssembly()
     {
@@ -121,10 +135,15 @@ public sealed class VerificationRunnerContractTests
                 namespace Microsoft.VisualStudio.TestTools.UnitTesting {
                     public sealed class TestClassAttribute : Attribute { }
                     public sealed class TestMethodAttribute : Attribute { }
+                    public sealed class DoNotParallelizeAttribute : Attribute { }
                     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true)]
                     public sealed class TestCategoryAttribute : Attribute { public TestCategoryAttribute(string value) { } }
                 }
+                namespace Other {
+                    public sealed class DoNotParallelizeAttribute : Attribute { }
+                }
                 [Microsoft.VisualStudio.TestTools.UnitTesting.TestClass]
+                [Microsoft.VisualStudio.TestTools.UnitTesting.DoNotParallelize]
                 [Microsoft.VisualStudio.TestTools.UnitTesting.TestCategory("ClassOnly")]
                 [Microsoft.VisualStudio.TestTools.UnitTesting.TestCategory("Shared")]
                 public sealed class CategoryFixture {
@@ -134,14 +153,37 @@ public sealed class VerificationRunnerContractTests
                     [Microsoft.VisualStudio.TestTools.UnitTesting.TestCategory("Shared")]
                     public void Example() { throw new Exception("This test must not execute."); }
                 }
+                [Microsoft.VisualStudio.TestTools.UnitTesting.TestClass]
+                public sealed class MethodSerialFixture {
+                    static MethodSerialFixture() { throw new Exception("This assembly must not execute."); }
+                    [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+                    [Microsoft.VisualStudio.TestTools.UnitTesting.DoNotParallelize]
+                    public void Serial() { throw new Exception("This test must not execute."); }
+                    [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+                    public void Ordinary() { throw new Exception("This test must not execute."); }
+                }
+                [Microsoft.VisualStudio.TestTools.UnitTesting.TestClass]
+                [Other.DoNotParallelize]
+                public sealed class OtherAttributeFixture {
+                    static OtherAttributeFixture() { throw new Exception("This assembly must not execute."); }
+                    [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+                    [Other.DoNotParallelize]
+                    public void Example() { throw new Exception("This test must not execute."); }
+                }
                 '@
                 Add-Type -TypeDefinition $source -OutputAssembly {{QuotePowerShellLiteral(Path.Combine(root, "fixture.dll"))}}
                 @(Get-VerificationTestMetadata -AssemblyPath {{QuotePowerShellLiteral(Path.Combine(root, "fixture.dll"))}}) | ConvertTo-Json -Depth 5 -Compress
                 """;
             using JsonDocument result = ReadPowerShellJson(["-Command", command]);
-            Assert.AreEqual("CategoryFixture.Example", GetRequiredString(GetProperty(result.RootElement, "FullyQualifiedName")));
+            var metadata = result.RootElement.EnumerateArray()
+                .ToDictionary(item => GetRequiredString(GetProperty(item, "FullyQualifiedName")), StringComparer.Ordinal);
+            CollectionAssert.AreEquivalent(new[] { "CategoryFixture.Example", "MethodSerialFixture.Serial", "MethodSerialFixture.Ordinary", "OtherAttributeFixture.Example" }, metadata.Keys.ToArray());
             CollectionAssert.AreEquivalent(new[] { "ClassOnly", "MethodOnly", "Shared" },
-                GetProperty(result.RootElement, "Categories").EnumerateArray().Select(GetRequiredString).ToArray());
+                GetProperty(metadata["CategoryFixture.Example"], "Categories").EnumerateArray().Select(GetRequiredString).ToArray());
+            Assert.IsTrue(GetProperty(metadata["CategoryFixture.Example"], "DoNotParallelize").GetBoolean());
+            Assert.IsTrue(GetProperty(metadata["MethodSerialFixture.Serial"], "DoNotParallelize").GetBoolean());
+            Assert.IsFalse(GetProperty(metadata["MethodSerialFixture.Ordinary"], "DoNotParallelize").GetBoolean());
+            Assert.IsFalse(GetProperty(metadata["OtherAttributeFixture.Example"], "DoNotParallelize").GetBoolean());
         }
         finally { Directory.Delete(root, recursive: true); }
     }
@@ -265,7 +307,7 @@ public sealed class VerificationRunnerContractTests
         Directory.CreateDirectory(root);
         try
         {
-            foreach (string host in new[] { "shared-state-a", "shared-state-b", "parallel-a", "parallel-b" })
+            foreach (string host in new[] { "parallel-a", "parallel-b" })
             {
                 string directory = Path.Combine(root, "functional", host);
                 Directory.CreateDirectory(directory);
@@ -379,14 +421,11 @@ public sealed class VerificationRunnerContractTests
                 $guard = [VerificationPostStartFaultGuard]::new($signal)
                 . {{QuotePowerShellLiteral(Path.Combine(repositoryRoot, "scripts", "verify-refactor.ps1"))}} -InternalTestGuard $guard
                 $originalMetadata = @(Get-VerificationTestMetadata -AssemblyPath $functionalTestAssemblyPath)
-                $ordinary = @(Get-FunctionalTestMetadata | Where-Object {
-                    -not $_.DoNotParallelize
-                })
+                $script:probeMetadata = $originalMetadata
+                function Get-VerificationTestMetadata { param($AssemblyPath) $script:probeMetadata }
+                $ordinary = @(Get-FunctionalTestMetadata)
                 if ({{QuotePowerShellLiteral(scenario)}} -eq 'single') {
-                    $script:probeMetadata = @($originalMetadata | Where-Object {
-                        $_.DoNotParallelize
-                    }) + @($ordinary[0])
-                    function Get-VerificationTestMetadata { param($AssemblyPath) $script:probeMetadata }
+                    $script:probeMetadata = @($ordinary[0])
                     $caught = $null
                     try { $null = New-FunctionalShardPlan } catch { $caught = $_.Exception.Message }
                     [pscustomobject]@{ Rejected = $null -ne $caught; Message = $caught } | ConvertTo-Json -Compress
@@ -394,6 +433,13 @@ public sealed class VerificationRunnerContractTests
                 }
                 $baseline = New-FunctionalShardPlan
                 Assert-FunctionalShardConfiguration -Plan $baseline
+                if ({{QuotePowerShellLiteral(scenario)}} -eq 'serial') {
+                    $script:probeMetadata = $originalMetadata + @([pscustomobject]@{ FullyQualifiedName = 'Synthetic.Serial.Method'; ClassName = 'Synthetic.Serial'; DoNotParallelize = $true; Categories = @() })
+                    $caught = $null
+                    try { $null = New-FunctionalShardPlan } catch { $caught = $_.Exception.Message }
+                    [pscustomobject]@{ Rejected = $null -ne $caught; Message = $caught } | ConvertTo-Json -Compress
+                    return
+                }
                 $plans = @($baseline)
                 $addedName = 'A.Unrelated.Method'
                 $removedName = $ordinary[0].FullyQualifiedName
@@ -402,13 +448,12 @@ public sealed class VerificationRunnerContractTests
                         Write-MSTestParallelRunSettings -Path (Join-Path {{QuotePowerShellLiteral(directory)}} ($shard.Name + '.runsettings')) `
                             -Workers $shard.Workers -Scope $shard.Scope -TestCaseFilter $shard.Filter
                     }
-                    function Get-VerificationTestMetadata { param($AssemblyPath) $script:probeMetadata }
                     $script:probeMetadata = $originalMetadata.Clone()
                     [array]::Reverse($script:probeMetadata)
                     $plans += New-FunctionalShardPlan
                     $script:probeMetadata = @([pscustomobject]@{ FullyQualifiedName = $addedName; ClassName = 'A.Unrelated'; DoNotParallelize = $false; Categories = @() }) + $originalMetadata
                     foreach ($category in $functionalExcludedCategories) {
-                        $script:probeMetadata += [pscustomobject]@{ FullyQualifiedName = "Synthetic.Excluded.$category"; ClassName = "Synthetic.Excluded"; DoNotParallelize = $false; Categories = @($category) }
+                        $script:probeMetadata += [pscustomobject]@{ FullyQualifiedName = "Synthetic.Excluded.$category"; ClassName = "Synthetic.Excluded"; DoNotParallelize = $true; Categories = @($category) }
                     }
                     $added = New-FunctionalShardPlan
                     Assert-FunctionalShardConfiguration -Plan $added
@@ -418,7 +463,14 @@ public sealed class VerificationRunnerContractTests
                     Assert-FunctionalShardConfiguration -Plan $deleted
                     $plans += $deleted
                 }
+                $script:probeMetadata = @(
+                    [pscustomobject]@{ FullyQualifiedName = 'Synthetic.Normal.First'; ClassName = 'Synthetic.Normal'; DoNotParallelize = $false; Categories = @() }
+                    [pscustomobject]@{ FullyQualifiedName = 'Synthetic.Normal.Second'; ClassName = 'Synthetic.Normal'; DoNotParallelize = $false; Categories = @() }
+                )
+                $fixedVectorPlan = New-FunctionalShardPlan
+                Assert-FunctionalShardConfiguration -Plan $fixedVectorPlan
                 [pscustomobject]@{
+                    FixedVectorPlan = [pscustomobject]@{ Shards = @($fixedVectorPlan.Shards | Select-Object Name, TestNames) }
                     Metadata = @($originalMetadata | Select-Object FullyQualifiedName, ClassName, DoNotParallelize, Categories)
                     AddedName = $addedName
                     RemovedName = $removedName
