@@ -2312,7 +2312,8 @@ public sealed class Lr2SongDbSyncServiceTests
             var request = new Lr2SongDbSyncRequest
             {
                 RunId = "committed-fault-after-cancel",
-                ExecutionOptions = new Lr2SongSyncExecutionOptions(2, 2, 2, 2, 4),
+                // 確定prefix2件と先読み3枠に故障readerの返却1枠を足しても、7件目は未開始に保ちます。
+                ExecutionOptions = new Lr2SongSyncExecutionOptions(2, 2, 2, 2, 3),
                 SongRows = files,
                 CancellationToken = cancellation.Token,
                 IsShutdownRequested = () => Volatile.Read(ref shutdownRequested) != 0,
