@@ -17,8 +17,8 @@ public sealed class VerificationPlanTests
         Assert.AreEqual(filter, plan.Modules[1].Filter);
         Assert.AreEqual($"(TestCategory=Daily)&({filter})", plan.Modules[2].Filter);
         CollectionAssert.AreEqual(new[] { "SC-01", "SC-02", "SC-09" }, plan.RequiredScenarioIds["Scenarios"].ToArray());
-        Assert.AreEqual($"(TestCategory=Suite.Everything)&({filter})",
-            VerificationPlan.Parse(["compatibility", "--filter", filter, "--suite", "Everything"], 2).Modules.Single().Filter);
+        Assert.AreEqual($"(TestCategory=Suite.chart-info-edge)&({filter})",
+            VerificationPlan.Parse(["compatibility", "--filter", filter, "--suite", "chart-info-edge"], 2).Modules.Single().Filter);
         Assert.Throws<ArgumentException>(() => VerificationPlan.Parse(["dev", "--filter"], 2));
         Assert.Throws<ArgumentException>(() => VerificationPlan.Parse(["dev", "--filter", filter, "--filter", filter], 2));
     }
@@ -53,7 +53,6 @@ public sealed class VerificationPlanTests
         CollectionAssert.AreEqual(new[] { "SC-15a", "SC-15b", "SC-16", "DT-01", "DT-02", "DT-03" }, full.RequiredScenarioIds["Desktop.E2E"].ToArray());
         Assert.IsTrue(VerificationPlan.Create("verify", 8).Format);
         Assert.IsFalse(VerificationPlan.Create("dev", 8).Format);
-        Assert.AreEqual("TestCategory=Suite.Everything", VerificationPlan.Create("compatibility", 8, "Everything").Modules.Single().Filter);
         Assert.AreEqual("Performance", VerificationPlan.Create("performance", 8, "Scan").Modules.Single().Name);
         Assert.Throws<ArgumentException>(() => VerificationPlan.Create("compatibility", 8));
     }
@@ -64,4 +63,44 @@ public sealed class VerificationPlanTests
     [DataRow("")]
     public void FullRejectsFilterBeforeCreatingAnExecutionPlan(string filter)
         => Assert.Throws<ArgumentException>(() => VerificationPlan.Parse(["full", "--filter", filter], 8));
+
+    /// <summary>登録suiteだけをRelease・単一workerの標準MTPへ渡し、起動から回収までの60秒上限を適用します。</summary>
+    [TestMethod]
+    [DataRow("chart-info-bms")]
+    [DataRow("chart-info-bmson")]
+    [DataRow("chart-info-production")]
+    [DataRow("chart-info-production-slow")]
+    [DataRow("chart-info-production-latest")]
+    [DataRow("chart-info-edge")]
+    [DataRow("chart-info-archive")]
+    [DataRow("chartstring-java")]
+    public void RegisteredCompatibilitySuiteSelectsOneReleaseModule(string suite)
+    {
+        var plan = VerificationPlan.Parse(["compatibility", "--suite", suite], 8);
+        VerificationModule module = plan.Modules.Single();
+        Assert.AreEqual(suite, plan.Suite);
+        Assert.AreEqual("Compatibility", module.Name);
+        Assert.AreEqual($"TestCategory=Suite.{suite}", module.Filter);
+        Assert.AreEqual("Release", plan.Configuration);
+        Assert.IsFalse(plan.Format);
+        Assert.IsFalse(module.UsesUi);
+        Assert.AreEqual(1, module.Workers);
+        Assert.AreEqual("MethodLevel", module.CreateRunSettings().Descendants("Scope").Single().Value);
+        Assert.AreEqual(TimeSpan.FromSeconds(60), plan.TestTimeout);
+        Assert.AreEqual("tests/verification-compatibility.slnf", plan.SolutionFilter);
+        Assert.AreEqual(0, plan.RequiredScenarioIds.Count);
+    }
+
+    /// <summary>欠指定・空白・未知・一括名・大小文字違いは実行計画を作らず、準備前に拒否します。</summary>
+    [TestMethod]
+    [DataRow(null)]
+    [DataRow("")]
+    [DataRow(" ")]
+    [DataRow("Everything")]
+    [DataRow("all")]
+    [DataRow("environment")]
+    [DataRow("Chart-info-bms")]
+    public void UnregisteredCompatibilitySuiteCannotCreatePlan(string? suite)
+        => Assert.Throws<ArgumentException>(() => VerificationPlan.Parse(
+            suite is null ? ["compatibility"] : ["compatibility", "--suite", suite], 8));
 }

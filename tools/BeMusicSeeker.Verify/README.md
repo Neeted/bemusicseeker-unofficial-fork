@@ -7,6 +7,7 @@ dotnet run --project tools/BeMusicSeeker.Verify -- dev
 dotnet run --project tools/BeMusicSeeker.Verify -- verify
 dotnet run --project tools/BeMusicSeeker.Verify -- full
 dotnet run --project tools/BeMusicSeeker.Verify -- dev --filter "FullyQualifiedName~対象名"
+dotnet run --project tools/BeMusicSeeker.Verify -- compatibility --suite chart-info-bms
 dotnet run --project tests/BeMusicSeeker.Core.Tests -- --filter "FullyQualifiedName~ResultGateTests" --minimum-expected-tests 1 --report-trx
 ```
 
@@ -24,7 +25,11 @@ Windowsの日常検証には外部プレイヤーの実起動2件、更新Gatewa
 
 Fullは全C# sourceの整形・build後、固定旧ZIP、現行V、次版Vnextを準備してからtest段階を開始します。Vは通常の公開版値、VnextはVの実バイナリの版から末尾をcheckedで1増やした実行限定の版です。通常の公開版値とAssemblyVersionを変えません。版指定はpublishの `-ApplicationVersion` から生成属性へ接続し、各ArtifactRoot内のproject別obj/binへ分離します。実シナリオは引き続き移行対象です。未接続によるpublish失敗や必須ID不足を成功扱いせず、fixtureを使う準備部品の検査だけで実Full成功としません。
 
-`compatibility` と `performance` はsuiteの実体・前提・有限仕事量と期限が確定するまで不成功を返します。未完成suiteを名前だけで有効化しません。
+`compatibility --suite <名前>` は[互換検査の8suite](../../tests/BeMusicSeeker.Compatibility.Tests/README.md)から一つを選び、Release・1worker・MethodLevelで実行します。Compatibilityのsolution filterをlocked restore・buildしてから起動し、整形は行いません。suiteの欠指定・空白・未知名は準備開始前に拒否します。名前は大文字小文字を区別し、aliasや `all` はありません。標準 `--filter` はsuite条件とのANDで渡し、OR条件で他suiteへ広げません。選択ゼロも不成功です。
+
+各suiteの起動・前提検査・本体・通常回収・実exitは一つの60秒期限を共有します。これは初期運用上限であり、corpus全体の完了時間保証ではありません。失敗回収は共通の10秒を一度だけ確定します。Java準備JSONなどの入力は子環境へ継承し、実caseで検査します。必要なtoolや固定入力の取得・展開・権限設定は事前に済ませ、通常runの準備処理へ追加しません。
+
+`performance` と未登録の環境suiteは未実装の非成功を維持します。一つのCompatibility suiteの成功を、全suiteや正式Fullの成功とは扱いません。直接module実行と旧標準入口も引き続き利用できます。
 
 ## 配布物の受渡し
 
@@ -58,7 +63,7 @@ Windows、Scenarios、Desktopは初期化前に同一ユーザー・Windows sess
 
 ## 時間と証跡
 
-各runは `artifacts/verification/mtp-*` に独立した結果領域を作ります。TRX、stdout/stderr、`summary.json` を保存します。summaryにsource SHA、dirty、実SDK、OS、論理CPU数、worker数、configurationを記録し、computer nameや個人profile pathを転載しません。標準TRXの生データはローカル診断として扱います。
+各runは `artifacts/verification/mtp-*` に独立した結果領域を作ります。TRX、stdout/stderr、`summary.json` を保存します。summaryにsource SHA、dirty、実SDK、OS、論理CPU数、worker数、configuration、選択suite、module別filter、適用test期限を記録し、computer nameや準備JSONの内容・個人pathを新たに転載しません。標準TRXの生データはローカル診断として扱います。
 
 `preparationMs` は復元・整形・実行条件取得、`buildMs` はbuild、`distributionMs` はFull配布準備です。`executionMs` は最初のtest起動から、全reportの集約と所有childの終端までのwall timeです。module別の `ElapsedMs` はそのmoduleの起動から出力・所有childの回収までで、未起動ならnullです。`cleanupMs` は重なりを除いた回収区間で、`executionMs` の内数です。`totalMs` は入口全体のwall timeで、cleanupを重複加算しません。ケースdurationや並行moduleの時間の合計をwall timeと比較しません。
 

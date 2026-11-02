@@ -16,11 +16,30 @@ internal sealed record VerificationModule(string Name, string? Filter, int Worke
 /// <summary>profileの集合、configuration、資源に基づく実行順だけを定めます。</summary>
 internal sealed record VerificationPlan(string Profile, string Configuration, bool Format, IReadOnlyList<VerificationModule> Modules, int Budget)
 {
+    private static readonly IReadOnlyDictionary<string, TimeSpan> CompatibilitySuites = new Dictionary<string, TimeSpan>(StringComparer.Ordinal)
+    {
+        ["chart-info-bms"] = TimeSpan.FromSeconds(60),
+        ["chart-info-bmson"] = TimeSpan.FromSeconds(60),
+        ["chart-info-production"] = TimeSpan.FromSeconds(60),
+        ["chart-info-production-slow"] = TimeSpan.FromSeconds(60),
+        ["chart-info-production-latest"] = TimeSpan.FromSeconds(60),
+        ["chart-info-edge"] = TimeSpan.FromSeconds(60),
+        ["chart-info-archive"] = TimeSpan.FromSeconds(60),
+        ["chartstring-java"] = TimeSpan.FromSeconds(60),
+    };
+
+    /// <summary>明示選択されたsuite名です。日常・Fullでは指定しません。</summary>
+    internal string? Suite { get; private init; }
+
     /// <summary>固定profileを解決します。空moduleや環境不足を除外するfallbackは設けません。</summary>
     internal static VerificationPlan Create(string profile, int processors, string? suite = null, string? filter = null)
     {
         int budget = Math.Clamp(processors, 1, 16);
         bool full = profile == "full";
+        if (profile == "compatibility" && (suite is null || !CompatibilitySuites.ContainsKey(suite)))
+        {
+            throw new ArgumentException($"--suite に登録済みのCompatibility suite名を指定してください: {suite}");
+        }
         if (full && filter is not null)
         {
             throw new ArgumentException("正式fullでは --filter を指定できません。局所検証は対象projectを直接実行してください。");
@@ -49,7 +68,8 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
             }).ToArray();
         }
         return new VerificationPlan(profile, profile is "dev" or "verify" ? "Debug" : "Release",
-            profile is "verify" or "full", modules, budget);
+            profile is "verify" or "full", modules, budget)
+        { Suite = suite };
     }
 
     /// <summary>module集合を変えず、suiteと標準MTP filterの文字列を受け取ります。filter自体の文法はMTPへ委譲します。</summary>
@@ -90,8 +110,10 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
         _ => new Dictionary<string, IReadOnlyList<string>>(),
     };
 
-    /// <summary>全test moduleに一度だけ与える上限です。Fullの600秒速度目標や配布準備時間とは区別します。</summary>
-    internal TimeSpan TestTimeout => TimeSpan.FromSeconds(Profile == "full" ? 1380 : 360);
+    /// <summary>全test moduleに一度だけ与える上限です。Compatibilityは選択suiteの起動・前提検査・通常回収を含み、内側の期限では延長しません。</summary>
+    internal TimeSpan TestTimeout => Profile == "compatibility"
+        ? CompatibilitySuites[Suite ?? throw new InvalidOperationException("Compatibility suiteが未指定です。")]
+        : TimeSpan.FromSeconds(Profile == "full" ? 1380 : 360);
 
     /// <summary>標準solution filterの選択先です。実行中のVerify自身は含めません。</summary>
     internal string SolutionFilter => $"tests/verification-{(Profile is "dev" or "verify" ? "dev" : Profile)}.slnf";

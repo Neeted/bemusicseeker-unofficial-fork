@@ -116,7 +116,7 @@ internal static class VerificationRunner
             Console.WriteLine("選択: " + string.Join(", ", plan.Modules.Select(module => module.Name)));
             Console.WriteLine("対象外: " + string.Join(", ", new[] { "Core", "Windows", "Scenarios", "Desktop.E2E", "Compatibility", "Performance" }.Except(plan.Modules.Select(module => module.Name))));
             Console.WriteLine("結果: " + run.RunRoot);
-            if (plan.Profile is "compatibility" or "performance")
+            if (plan.Profile == "performance")
             {
                 throw new InvalidOperationException("このprofileの配布物・環境preflight・期限は後続移行で接続します。未実施を成功として扱いません。");
             }
@@ -214,7 +214,7 @@ internal static class VerificationRunner
                     await RunModule(module);
                 }
             }
-            if (plan.Budget == 1)
+            if (plan.Modules.Count == 1 || plan.Budget == 1)
             {
                 foreach (VerificationModule module in plan.Modules)
                 {
@@ -248,6 +248,8 @@ internal static class VerificationRunner
             var summary = new
             {
                 profile = plan.Profile,
+                suite = plan.Suite,
+                filters = plan.Modules.Select(module => new { module.Name, module.Filter }),
                 configuration = plan.Configuration,
                 source,
                 dirty,

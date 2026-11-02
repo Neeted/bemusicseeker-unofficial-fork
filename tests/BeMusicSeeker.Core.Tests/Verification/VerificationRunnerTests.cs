@@ -12,6 +12,133 @@ namespace BeMusicSeeker.Core.Tests.Verification;
 [TestClass]
 public sealed class VerificationRunnerTests
 {
+    /// <summary>Compatibilityの接続で未実装Performanceまで有効化せず、準備process前に不成功を返します。</summary>
+    [TestMethod]
+    public async Task PerformanceRemainsUnavailableBeforePreparation()
+    {
+        using var fixture = new RunnerFixture();
+        VerificationRunResult result = await VerificationRunner.ExecuteAsync(
+            VerificationPlan.Parse(["performance", "--suite", "Scan"], 8), fixture.Run());
+        Assert.AreEqual(1, result.ExitCode);
+        Assert.IsNotNull(result.PrimaryFailure);
+        Assert.AreEqual(0, fixture.Requests.Count);
+    }
+
+    /// <summary>CPU予算によらず選択suiteを一回だけ起動し、標準filter・設定・reportと同じrunの証跡へ接続します。</summary>
+    /// <remarks>Java入力の継承を妨げる子環境上書きと親環境の変更を検出します。実Javaの入力読取りは正式suiteの受入で確認します。</remarks>
+    [TestMethod]
+    [DataRow(1)]
+    [DataRow(8)]
+    public async Task CompatibilityRunsOnlySelectedModuleAndRecordsAppliedContract(int processors)
+    {
+        const string inputVariable = "BMS_TEST_CHARTSTRING_REFERENCE_JSON";
+        string? originalInput = Environment.GetEnvironmentVariable(inputVariable);
+        const string filter = "FullyQualifiedName~Reference|TestCategory=OtherSuite";
+        using var fixture = new RunnerFixture();
+        var plan = VerificationPlan.Parse(["compatibility", "--suite", "chartstring-java", "--filter", filter], processors);
+        VerificationRunResult result = await VerificationRunner.ExecuteAsync(plan, fixture.Run() with { TestTimeout = null });
+        Assert.AreEqual(0, result.ExitCode, result.PrimaryFailure?.ToString());
+        CollectionAssert.AreEqual(new[] { "rev-parse", "status", "--version", "restore", "build", "Compatibility" },
+            fixture.Requests.Select(item => item.Name).ToArray());
+        ProcessStartRequest restore = fixture.Requests.Single(item => item.Name == "restore").Request;
+        Assert.IsTrue(restore.Arguments.Contains("tests/verification-compatibility.slnf"));
+        Assert.IsTrue(restore.Arguments.Contains("--locked-mode"));
+        ProcessStartRequest build = fixture.Requests.Single(item => item.Name == "build").Request;
+        Assert.IsTrue(build.Arguments.Contains("tests/verification-compatibility.slnf") && build.Arguments.Contains("--no-restore"));
+        Assert.IsTrue(build.Arguments.Contains("Release"));
+        ProcessStartRequest request = fixture.Requests.Single(item => item.Name == "Compatibility").Request;
+        StringAssert.Contains(request.FileName, "Release");
+        string[] arguments = request.Arguments.ToArray();
+        Assert.AreEqual($"(TestCategory=Suite.chartstring-java)&({filter})", arguments[Array.IndexOf(arguments, "--filter") + 1]);
+        Assert.AreEqual("1", arguments[Array.IndexOf(arguments, "--minimum-expected-tests") + 1]);
+        var settings = XDocument.Load(arguments[Array.IndexOf(arguments, "--settings") + 1]);
+        Assert.AreEqual("1", settings.Descendants("Workers").Single().Value);
+        Assert.AreEqual("MethodLevel", settings.Descendants("Scope").Single().Value);
+        Assert.IsFalse(request.Environment.ContainsKey(inputVariable));
+        Assert.AreEqual(originalInput, Environment.GetEnvironmentVariable(inputVariable));
+        Assert.AreEqual(fixture.Path("run/Compatibility/cases"), request.Environment[TestRunDirectory.EnvironmentVariable]);
+        Assert.IsTrue(result.Commands.All(command => command.Passed));
+        Assert.AreEqual("Compatibility", result.Modules.Single().Name);
+        Assert.AreEqual(1, result.Modules.Single().Cases);
+        Assert.IsTrue(File.Exists(fixture.Path("run/Compatibility/results.trx")));
+        Assert.AreEqual("stdout", File.ReadAllText(fixture.Path("run/Compatibility/process.stdout.log")));
+        Assert.AreEqual("stderr", File.ReadAllText(fixture.Path("run/Compatibility/process.stderr.log")));
+        using var summary = JsonDocument.Parse(File.ReadAllText(fixture.Path("run/summary.json")));
+        Assert.AreEqual("chartstring-java", summary.RootElement.GetProperty("suite").GetString());
+        Assert.AreEqual(60d, summary.RootElement.GetProperty("testTimeoutSeconds").GetDouble());
+        JsonElement selection = summary.RootElement.GetProperty("filters").EnumerateArray().Single();
+        Assert.AreEqual("Compatibility", selection.GetProperty("Name").GetString());
+        Assert.AreEqual(plan.Modules.Single().Filter, selection.GetProperty("Filter").GetString());
+    }
+
+    /// <summary>単一suiteの標準reportが空なら、process成功でも選択ゼロを成功へ変えません。</summary>
+    [TestMethod]
+    public async Task CompatibilityRejectsEmptySelectedResults()
+    {
+        using var fixture = new RunnerFixture { CompatibilityNames = [] };
+        VerificationRunResult result = await VerificationRunner.ExecuteAsync(
+            VerificationPlan.Parse(["compatibility", "--suite", "chart-info-edge", "--filter", "FullyQualifiedName~Absent"], 8), fixture.Run());
+        Assert.AreEqual(1, result.ExitCode);
+        Assert.IsTrue(result.Commands.Single(command => command.Name == "Compatibility").Passed);
+        Assert.IsFalse(result.Modules.Single().Passed);
+        Assert.AreEqual(0, result.Modules.Single().Cases);
+    }
+
+    /// <summary>単一suiteの開始後の待機とroot終了後の所有child待機が、同じtest期限で失敗し回収されることを保証します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task CompatibilityDeadlineIncludesRootAndOwnedChild(bool exitBeforeChild)
+    {
+        var fixture = new RunnerFixture();
+        using var canceled = new CancellationTokenSource();
+        var owned = new ConcurrentDictionary<string, OwnedProcess>();
+        var observed = new List<Process>();
+        fixture.Configure = (name, command) => name == "Compatibility" ? command with
+        {
+            Ready = fixture.Path("ready"),
+            Release = fixture.Path("release"),
+            ChildReady = fixture.Path("child-ready"),
+            ChildRelease = fixture.Path("child-release"),
+            ExitBeforeChild = exitBeforeChild,
+        } : command;
+        fixture.AfterStart = (name, process) => { if (name == "Compatibility") { owned[name] = process; } };
+        VerificationRun run = fixture.Run() with { TestTimeout = TimeSpan.FromSeconds(5), CleanupGrace = TimeSpan.FromSeconds(5) };
+        Task<VerificationRunResult> execution = VerificationRunner.ExecuteAsync(
+            VerificationPlan.Parse(["compatibility", "--suite", "chart-info-bms"], 8), run, canceled.Token);
+        try
+        {
+            await WaitForFileAsync(fixture.Path("ready"));
+            // root先行終了ではPIDの再取得を避け、元RootExitを観測する。
+            if (exitBeforeChild) { Assert.AreEqual(0, await owned["Compatibility"].RootExit.WaitAsync(TimeSpan.FromSeconds(10))); }
+            else { observed.Add(Process.GetProcessById(int.Parse(File.ReadAllText(fixture.Path("ready"))))); }
+            observed.Add(Process.GetProcessById(int.Parse(File.ReadAllText(fixture.Path("child-ready")))));
+            Assert.IsFalse(owned["Compatibility"].Completion.IsCompleted);
+            VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.AreEqual(1, result.ExitCode);
+            Assert.IsInstanceOfType<TimeoutException>(result.Commands.Single(command => command.Name == "Compatibility").PrimaryFailure);
+            Assert.IsFalse(result.Modules.Single().Passed);
+            using var summary = JsonDocument.Parse(File.ReadAllText(fixture.Path("run/summary.json")));
+            Assert.AreEqual(5d, summary.RootElement.GetProperty("testTimeoutSeconds").GetDouble());
+        }
+        finally
+        {
+            canceled.Cancel();
+            bool terminated = false;
+            try
+            {
+                VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+                await ConfirmOwnedTerminationAsync(owned, observed, result);
+                terminated = true;
+            }
+            finally
+            {
+                foreach (Process process in observed) { process.Dispose(); }
+                if (terminated) { fixture.Dispose(); }
+            }
+        }
+    }
+
     /// <summary>Fullの実pipelineで配布準備を一度だけ完了し、同じcatalogをReleaseの4moduleへ渡し、短IDと標準reportを集約します。</summary>
     /// <remarks>commandのI/Oだけをfixtureへ向けます。実publishと公開候補のFull成功を代用する検査ではありません。</remarks>
     [TestMethod]
@@ -722,6 +849,7 @@ public sealed class VerificationRunnerTests
         private int commandIndex;
         internal bool FormatInput { get; init; }
         internal string[] ScenarioIds { get; init; } = ["SC-01", "SC-02", "SC-09"];
+        internal string[] CompatibilityNames { get; init; } = ["report fixture"];
         internal Func<string, Command, Command>? Configure { get; set; }
         internal Action<string, ProcessStartRequest>? BeforeStart { get; set; }
         internal Action<string, OwnedProcess>? AfterStart { get; set; }
@@ -769,7 +897,7 @@ public sealed class VerificationRunnerTests
             if (name == "style") { command = command with { WritePath = Path("changed.cs"), WriteContent = "style" }; }
             if (name == "whitespace") { command = command with { RequirePath = Path("changed.cs"), RequireContent = "style", WritePath = Path("changed.cs"), WriteContent = "formatted" }; }
             if (name == "build" && FormatInput) { command = command with { RequirePath = Path("changed.cs"), RequireContent = "formatted" }; }
-            if (name is "Core" or "Windows" or "Scenarios" or "Desktop.E2E")
+            if (name is "Core" or "Windows" or "Scenarios" or "Desktop.E2E" or "Compatibility")
             {
                 string[] arguments = request.Arguments.ToArray();
                 string reportDirectory = arguments[Array.IndexOf(arguments, "--results-directory") + 1];
@@ -777,6 +905,7 @@ public sealed class VerificationRunnerTests
                 IEnumerable<string> names = name switch
                 {
                     "Scenarios" => ScenarioIds.Select(id => $"[{id}] report fixture"),
+                    "Compatibility" => CompatibilityNames,
                     "Desktop.E2E" => new[] { "SC-15a", "SC-15b", "SC-16", "DT-01", "DT-02", "DT-03" }.Select(id => $"[{id}] report fixture"),
                     _ => ["report fixture"],
                 };
