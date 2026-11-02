@@ -834,8 +834,7 @@ public sealed class VerificationRunnerTests
             {
                 foreach (string suffix in new[] { "-ready", "-child-ready" })
                 {
-                    await WaitForFileAsync(fixture.Path(name + suffix), TimeSpan.FromSeconds(30));
-                    int processId = int.Parse(File.ReadAllText(fixture.Path(name + suffix)));
+                    int processId = int.Parse(await WaitForFileAsync(fixture.Path(name + suffix), TimeSpan.FromSeconds(30)));
                     if (suffix == "-ready")
                     {
                         Assert.AreEqual(owned[name].ProcessId, processId);
@@ -1045,7 +1044,7 @@ public sealed class VerificationRunnerTests
     private static async Task<(bool Terminated, Exception? Failure, Exception? WatchdogFailure)> ObserveTerminationAsync(Task task, string name)
     {
         using var stopWatchdog = new CancellationTokenSource();
-        var watchdog = Task.Delay(TimeSpan.FromSeconds(10), stopWatchdog.Token);
+        var watchdog = Task.Delay(TimeSpan.FromSeconds(60), stopWatchdog.Token);
         Task first = await Task.WhenAny(task, watchdog);
         Exception? watchdogFailure = first == watchdog ? new TimeoutException(name + "の終端観測期限を超えています。") : null;
         stopWatchdog.Cancel();
@@ -1064,14 +1063,26 @@ public sealed class VerificationRunnerTests
         return (terminated, failure, watchdogFailure);
     }
 
-    private static ProcessDeadline Deadline() => ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(10));
+    // 実OSの起動・終端観測に使い、検査対象の明示期限とは分けます。
+    private static ProcessDeadline Deadline() => ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(60));
 
-    private static async Task WaitForFileAsync(string path, TimeSpan? timeout = null)
+    private static async Task<string> WaitForFileAsync(string path, TimeSpan? timeout = null)
     {
         ProcessDeadline deadline = timeout is { } budget ? ProcessDeadline.FromTimeout(budget) : Deadline();
-        while (!File.Exists(path) || new FileInfo(path).Length == 0)
+        while (true)
         {
             if (deadline.Remaining == TimeSpan.Zero) { throw new TimeoutException("fixtureのgateが開きません: " + path); }
+            try
+            {
+                if (File.Exists(path) && new FileInfo(path).Length > 0)
+                {
+                    return File.ReadAllText(path);
+                }
+            }
+            catch (IOException error) when ((error.HResult & 0xffff) is 32 or 33)
+            {
+                // readyの公開後も読取りが共有違反になる間は、同じ観測期限内で待ちます。
+            }
             await Task.Delay(10);
         }
     }
@@ -1100,12 +1111,13 @@ public sealed class VerificationRunnerTests
             return new VerificationRun(Root, Path("run"))
             {
                 StartProcess = Start,
-                MetadataTimeout = TimeSpan.FromSeconds(10),
-                PreparationTimeout = TimeSpan.FromSeconds(10),
-                FormatTimeout = TimeSpan.FromSeconds(10),
-                TestTimeout = TimeSpan.FromSeconds(10),
-                DistributionTimeout = TimeSpan.FromSeconds(30),
-                CleanupGrace = TimeSpan.FromSeconds(2),
+                // 非期限保証の検査では、実processの起動・回収に余裕を確保します。
+                MetadataTimeout = TimeSpan.FromSeconds(60),
+                PreparationTimeout = TimeSpan.FromSeconds(60),
+                FormatTimeout = TimeSpan.FromSeconds(60),
+                TestTimeout = TimeSpan.FromSeconds(60),
+                DistributionTimeout = TimeSpan.FromSeconds(60),
+                CleanupGrace = TimeSpan.FromSeconds(10),
             };
         }
         internal Task<VerificationRunResult> ExecuteAsync(string profile = "dev") => VerificationRunner.ExecuteAsync(VerificationPlan.Parse([profile], 1), Run());

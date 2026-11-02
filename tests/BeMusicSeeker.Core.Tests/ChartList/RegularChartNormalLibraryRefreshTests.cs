@@ -536,7 +536,8 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 Directory.CreateDirectory(directory);
                 string next = Path.Combine(directory, name + Path.GetExtension(current.Path));
                 File.Move(current.Path, next);
-                mutations.ApplyCatalogMutation(new(chartPathChanges: [new LibraryChartPathChange { Chart = current, OldPath = current.Path, NewPath = next }]));
+                mutations.ApplyCatalogMutation(new(chartPathChanges: [new LibraryChartPathChange { Chart = current, OldPath = current.Path, NewPath = next }],
+                    relocatedTextFlags: new Dictionary<string, int> { [next] = 0 }));
                 Deliver();
                 return Current(value);
             }

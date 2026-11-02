@@ -897,21 +897,57 @@ public sealed class SettingsDialogBehaviorTests
             using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true);
             harness.Dialog.AddBmsSearchRootPathsAsync([newRoot, transient]).GetAwaiter().GetResult();
             harness.Dialog.RemoveBmsSearchRootPathAsync(transient).GetAwaiter().GetResult();
+            await harness.Dialog.CommitBmsRootsAsync();
+            int initialReloads = harness.State.FileDiffReloadCount;
+            byte[] confirmed = File.ReadAllBytes(Path.Combine(directory.Path, "user.config"));
             harness.Dialog.RemoveBmsSearchRootPathAsync(oldRoot).GetAwaiter().GetResult();
             byte[] before = File.ReadAllBytes(Path.Combine(directory.Path, "user.config"));
             await harness.Dialog.CommitBmsRootsAsync();
             CollectionAssert.AreEqual(before, File.ReadAllBytes(Path.Combine(directory.Path, "user.config")));
-            Assert.AreEqual(0, harness.State.FileDiffReloadCount);
+            Assert.AreEqual(initialReloads, harness.State.FileDiffReloadCount);
+            harness.Dialog.ReplacementBmsInstallDir = newRoot;
+            CollectionAssert.AreEqual(confirmed, File.ReadAllBytes(Path.Combine(directory.Path, "user.config")));
+            Assert.AreEqual(oldRoot, values.BMSInstallDir);
+            Assert.AreEqual(string.Empty, harness.Dialog.ReplacementBmsInstallDirValidationMessage);
+            await harness.Dialog.RemoveBmsSearchRootPathAsync(newRoot);
+            Assert.AreEqual(Resources.Settings_replacement_install_empty, harness.Dialog.ReplacementBmsInstallDirValidationMessage);
+            Assert.IsFalse(harness.Dialog.CanConfirmBmsRoots);
+            harness.Dialog.CancelBmsRoots();
+            CollectionAssert.AreEquivalent(new[] { oldRoot, newRoot }, harness.Dialog.AvailableBMSDirectories.ToArray());
+            Assert.IsFalse(harness.Dialog.RequiresReplacementBmsInstallDir);
+            await harness.Dialog.RemoveBmsSearchRootPathAsync(newRoot);
+            Assert.IsFalse(harness.Dialog.RequiresReplacementBmsInstallDir);
+            harness.Dialog.CancelBmsRoots();
+            await harness.Dialog.RemoveBmsSearchRootPathAsync(oldRoot);
             harness.Dialog.ReplacementBmsInstallDir = newRoot;
             await harness.Dialog.CommitBmsRootsAsync();
             Settings fresh = TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config"));
             Assert.AreEqual(newRoot, fresh.BMSInstallDir);
             CollectionAssert.AreEqual(new[] { newRoot }, StandaloneBmsRootPathSettings.Deserialize(fresh.StandaloneBmsRootPaths).ToArray());
-            Assert.AreEqual(1, harness.State.FileDiffReloadCount);
+            Assert.AreEqual(initialReloads + 1, harness.State.FileDiffReloadCount);
             Assert.IsTrue(harness.Dialog.CanConfirmBmsRoots);
             Assert.IsFalse(harness.Dialog.CanCancelBmsRoots);
             await harness.Dialog.CommitBmsRootsAsync();
-            Assert.AreEqual(2, harness.State.FileDiffReloadCount);
+            Assert.AreEqual(initialReloads + 2, harness.State.FileDiffReloadCount);
+            InstallServiceComponentTestSupport.WithTemporarySongDb((songDbPath, installScope) =>
+            {
+                string source = Directory.CreateDirectory(Path.Combine(installScope, "Package")).FullName;
+                string chartPath = Path.Combine(source, "chart.bms");
+                File.WriteAllText(chartPath, "#TITLE ReplacementDestination\n");
+                var package = ChartPackage.FromChartEntries([PackageChartEntry.FromPath(chartPath)]); package.path = source;
+                var library = new TestBmsLibrary(new ApplicationDatabaseScope(), songDbPath, null, null, new InstallServiceComponentTestSupport.RealFileMutationService(),
+                    new FileDbReportRecordingDialogs(), new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(fresh), settings: fresh)
+                { BmsCharts = [], BmsonCharts = [], ChartPackagesPending = [package], ChartPackagesInstalled = [] };
+                try
+                {
+                    library.ForceInstallPendingPackages([package], approveNormalInstallOverride: true);
+                    ChartFile installed = library.BmsCharts.Single();
+                    Assert.IsTrue(installed.Path.StartsWith(newRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+                    Assert.IsTrue(File.Exists(installed.Path));
+                    Assert.IsFalse(installed.Path.StartsWith(oldRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+                }
+                finally { library.RequestShutdown("settings-replacement-install"); }
+            });
         }, nameof(BmsRootConfirmationUsesFinalListAndExplicitInstallReplacement));
     }
 

@@ -14,7 +14,7 @@ namespace BeMusicSeeker.ViewModels;
 internal sealed class MainChartRowProjectionOwner
 {
     // UIの導入先更新とpackage workerの投影が重なる。値は不変なので、全件複製せず一キーの読書きだけを同期する。
-    private readonly ConcurrentDictionary<string, ChartFileTransientState> transientStatesByKey = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, (ChartFile Identity, ChartFileTransientState State)> transientStatesByKey = new(StringComparer.Ordinal);
     private Func<ChartFile, ChartFileStatus> playbackStatusProvider;
     /// <summary>現在の再生状態の読取り口を、表示行の生成時へ直接渡します。</summary>
     internal void SetPlaybackStatusProvider(Func<ChartFile, ChartFileStatus> provider) => playbackStatusProvider = provider;
@@ -197,8 +197,8 @@ internal sealed class MainChartRowProjectionOwner
     internal ChartFileTransientState GetTransientState(ChartFile chart, bool includeWarningSnapshot)
     {
         string key = ChartFileRuntimeStateKey.Create(chart);
-        ChartFileTransientState state = !string.IsNullOrWhiteSpace(key) && transientStatesByKey.TryGetValue(key, out ChartFileTransientState found) && found != null
-            ? (includeWarningSnapshot ? found : found.WithoutWarnings()) : ChartFileTransientState.Empty;
+        ChartFileTransientState state = !string.IsNullOrWhiteSpace(key) && transientStatesByKey.TryGetValue(key, out (ChartFile Identity, ChartFileTransientState State) found) && found.State != null
+            ? (includeWarningSnapshot ? found.State : found.State.WithoutWarnings()) : ChartFileTransientState.Empty;
         return state;
     }
 
@@ -218,13 +218,34 @@ internal sealed class MainChartRowProjectionOwner
                 forceWarningProjection: forceInstallDestinationProjection);
             if (state.HasState)
             {
-                transientStatesByKey[key] = state;
+                transientStatesByKey[key] = (chart, state);
             }
             else
             {
                 transientStatesByKey.TryRemove(key, out _);
             }
         }
+    }
+
+    /// <summary>既存一時値のある項目だけに成功範囲を順次適用し、依存表示の対象識別を返します。</summary>
+    internal IReadOnlyList<ChartFile> ApplyFolderChanges(IReadOnlyList<LibraryInstallDestinationChange> changes)
+    {
+        if (changes.Count == 0) { return []; }
+        var changedCharts = new List<ChartFile>();
+        foreach (KeyValuePair<string, (ChartFile Identity, ChartFileTransientState State)> pair in transientStatesByKey)
+        {
+            ChartFileTransientState state = pair.Value.State;
+            foreach (LibraryInstallDestinationChange change in changes)
+            {
+                state = state.ApplyFolderChange(change);
+            }
+            if (!ReferenceEquals(state, pair.Value.State))
+            {
+                transientStatesByKey[pair.Key] = (pair.Value.Identity, state);
+                changedCharts.Add(pair.Value.Identity);
+            }
+        }
+        return changedCharts;
     }
 
     internal void PruneTransientStates(IEnumerable<ChartFile> currentCharts)

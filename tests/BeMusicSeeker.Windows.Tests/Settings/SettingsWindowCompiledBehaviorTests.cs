@@ -1290,7 +1290,13 @@ public sealed class SettingsWindowCompiledBehaviorTests
 
     /// <summary>保存済みルートを実一覧へ表示して追加・選択解除を配送し、言語変更で操作文言を更新しながら対象を保持することを確認します。</summary>
     [TestMethod]
-    public void StandaloneBmsRootsUseLocalizedListAddAndRemoveBindings()
+    [DataRow("en-US")]
+    [DataRow("fr-FR")]
+    [DataRow("ja-JP")]
+    [DataRow("ko-KR")]
+    [DataRow("zh-CN")]
+    [DataRow("zh-TW")]
+    public void StandaloneBmsRootsUseLocalizedListAddAndRemoveBindings(string culture)
     {
         TestUiDispatcherHost.Invoke(() =>
         {
@@ -1304,9 +1310,10 @@ public sealed class SettingsWindowCompiledBehaviorTests
             Directory.CreateDirectory(secondRoot);
             Directory.CreateDirectory(addedRoot);
             MainWindowViewModel? owner = null;
+            SettingsWindow? window = null;
             try
             {
-                ResourceService.Current.ChangeCulture("en-US");
+                ResourceService.Current.ChangeCulture(culture);
                 owner = MainWindowViewModelTestFactory.Create(TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
@@ -1316,7 +1323,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 values.ScanBmsFilesOnStartup = false;
                 values.SkipInitPlaylistLoad = true;
             }));
-                var window = new SettingsWindow
+                window = new SettingsWindow
                 {
                     DataContext = owner.SettingDialog,
                     PlaybackPanel = owner.PlaybackPanel
@@ -1331,8 +1338,6 @@ public sealed class SettingsWindowCompiledBehaviorTests
                     roots.GetBindingExpression(ItemsControl.ItemsSourceProperty)?.ParentBinding.Path?.Path);
                 var add = (Button)page.FindName("addBmsSearchRootButton");
                 var remove = (Button)page.FindName("removeBmsSearchRootButton");
-                add.GetBindingExpression(ContentControl.ContentProperty)?.UpdateTarget();
-                remove.GetBindingExpression(ContentControl.ContentProperty)?.UpdateTarget();
                 Assert.AreEqual(Resources.Add_BMSDirectory, add.Content);
                 Assert.AreEqual(Resources.Remove_BMSDirectory, remove.Content);
 
@@ -1343,21 +1348,54 @@ public sealed class SettingsWindowCompiledBehaviorTests
 
                 roots.SelectedItem = secondRoot;
                 Materialize(window);
-                roots.GetBindingExpression(Selector.SelectedItemProperty)?.UpdateSource();
                 remove.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, remove));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "compiled-bms-removal-terminal");
                 Materialize(window);
                 Assert.IsFalse(roots.Items.Cast<string>().Any(path => string.Equals(path, secondRoot, StringComparison.OrdinalIgnoreCase)));
 
+                var field = (SettingsField)page.FindName("replacementInstallField");
+                var replacement = (ComboBox)page.FindName("replacementInstallComboBox");
+                Assert.IsFalse(owner.SettingDialog.RequiresReplacementBmsInstallDir);
+                roots.SelectedItem = firstRoot;
+                remove.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, remove));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "compiled-install-root-removal");
+                Materialize(window);
+                Assert.AreEqual(Visibility.Visible, ((FrameworkElement)field.Parent).Visibility);
+                Assert.AreEqual(Resources.Settings_replacement_install, field.Header);
+                Assert.AreEqual(firstRoot, owner.SettingDialog.RemovedBmsInstallDir);
+                Assert.AreEqual(Resources.Settings_replacement_install_required, field.ValidationMessage);
+                Assert.AreEqual("Error", field.ValidationStatus);
+                Assert.AreEqual("Error", AutomationProperties.GetItemStatus(replacement));
+                Assert.AreEqual(replacement.FindResource("App.ErrorTextBrush"), replacement.BorderBrush);
+                field.ApplyTemplate();
+                var validationText = (TextBlock)field.Template.FindName("ValidationText", field);
+                Assert.AreEqual(field.FindResource("App.ErrorTextBrush"), validationText.Foreground);
+                Assert.AreSame(replacement.FindResource("SettingsValidatedComboBoxStyle"), replacement.Style);
+                replacement.SelectedItem = addedRoot;
+                Materialize(window);
+                Assert.AreEqual(string.Empty, field.ValidationMessage);
+                Assert.AreEqual(firstRoot, owner.SettingDialog.BMSInstallDir);
+                Assert.AreEqual(firstRoot, owner.SettingDialog.RemovedBmsInstallDir);
+                roots.SelectedItem = addedRoot;
+                remove.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, remove));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "compiled-last-root-removal");
+                Materialize(window);
+                Assert.AreEqual(Resources.Settings_replacement_install_empty, field.ValidationMessage);
+                Assert.IsFalse(owner.SettingDialog.CanConfirmBmsRoots);
+                owner.SettingDialog.CancelBmsRoots();
+                Materialize(window);
+                Assert.IsFalse(owner.SettingDialog.RequiresReplacementBmsInstallDir);
+                Assert.AreEqual(Visibility.Collapsed, ((FrameworkElement)field.Parent).Visibility);
+                CollectionAssert.AreEquivalent(new[] { firstRoot, secondRoot }, roots.Items.Cast<string>().ToArray());
+                Assert.AreEqual(firstRoot, owner.SettingDialog.BMSInstallDir);
                 ResourceService.Current.ChangeCulture("ja-JP");
                 Materialize(window);
-                add.GetBindingExpression(ContentControl.ContentProperty)?.UpdateTarget();
-                remove.GetBindingExpression(ContentControl.ContentProperty)?.UpdateTarget();
                 Assert.AreEqual(Resources.Add_BMSDirectory, add.Content);
                 Assert.AreEqual(Resources.Remove_BMSDirectory, remove.Content);
             }
             finally
             {
+                window?.Close();
                 owner?.SettingDialog.Dispose();
                 ResourceService.Current.ChangeCulture(previousCulture);
                 Directory.Delete(scope, recursive: true);

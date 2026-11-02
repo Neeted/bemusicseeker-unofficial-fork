@@ -43,7 +43,7 @@ internal sealed class PendingPackageMutationAppliedEventArgs : PendingPackageWor
 {
     /// <summary>
     /// 導入先操作の完了時に、単独譜面の投影と一覧への影響をまとめて渡します。
-    /// パッケージ項目はそれ自身を正本とするため、投影用の譜面集合には含めません。
+    /// パッケージ項目はそれ自身を正本とし、全変更項目を局所表示用のProjectionChartsだけへ渡します。
     /// </summary>
     internal PendingPackageMutationAppliedEventArgs(
         IEnumerable<ChartFile> changedCharts = null,
@@ -218,7 +218,8 @@ internal interface IPendingPackageStore
         BMSLibrary library,
         RepairInstalledLocationRequest request);
 
-    ChartFile SetPending(
+    /// <summary>検証・適用した全項目の現在値を返します。拒否はnullとし、所属全体への編集を一行へ縮めません。</summary>
+    IReadOnlyList<ChartFile> SetPending(
         BMSLibrary library,
         PendingInstallDestinationEditRequest request,
         string destinationDirectory);
@@ -559,12 +560,13 @@ internal sealed class PendingPackageWorkflowOwner
         }
         return Task.Run(async () =>
         {
+            IReadOnlyList<ChartFile> projection = null;
             await ExecuteInstallDestinationMutation((library, operationStore) =>
             {
-                ChartFile changedChart = operationStore.SetPending(library, request, destinationDirectory);
-                return changedChart == null ? null : request.PackageEntry == null ? [changedChart] : [];
+                projection = operationStore.SetPending(library, request, destinationDirectory);
+                return projection == null ? null : request.PackageEntry == null ? projection : [];
             }, operationGate, refreshRejectedEdit: true,
-                projectionCharts: () => new[] { request.PackageEntry?.Chart ?? request.GetOrCreateChartEntry()?.Chart });
+                projectionCharts: () => projection ?? [request.PackageEntry?.Chart ?? request.GetOrCreateChartEntry()?.Chart]);
         });
     }
 
@@ -1767,15 +1769,15 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
         return [.. remainingEntries.Select(entry => entry.Chart)];
     }
 
-    /// <summary>要求が保持した項目/所持譜面の出自をモデルへ渡します。保留不在を所持として補完せず、所持要求は同pathの保留群から分離します。</summary>
-    public ChartFile SetPending(
+    /// <summary>要求の出自を維持してモデルへ渡し、検証・適用した全項目の現在値を表示へ返します。保留不在は拒否し、所持一譜面の要求を同pathの保留群へ広げません。</summary>
+    public IReadOnlyList<ChartFile> SetPending(
         BMSLibrary library,
         PendingInstallDestinationEditRequest request,
         string destinationDirectory)
     {
         PackageChartEntry entry = request.PackageEntry ?? request.GetOrCreateChartEntry();
-        return entry != null && library.SetPendingInstallDestination(entry, destinationDirectory, request.PackageEntry == null)
-            ? entry.Chart
+        return entry != null && library.SetPendingInstallDestination(entry, destinationDirectory, request.PackageEntry == null, out IReadOnlyList<PackageChartEntry> targets)
+            ? targets.Select(target => target.Chart).ToArray()
             : null;
     }
 

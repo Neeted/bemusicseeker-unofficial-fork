@@ -1947,7 +1947,9 @@ internal sealed partial class BmsLibraryPackageInstallService
                                 destinationMap,
                                 liveInstallEntrySnapshots,
                                 committedCharts),
-                            destinationDirectory));
+                            destinationDirectory,
+                            mutationPaths.Where(path => !path.IsDirectory && string.Equals(Path.GetExtension(path.DestinationPath), ".txt", StringComparison.OrdinalIgnoreCase))
+                                .Select(path => Path.GetDirectoryName(path.DestinationPath)).Distinct(StringComparer.OrdinalIgnoreCase)));
                     return null;
                 }
                 catch (Exception exception)

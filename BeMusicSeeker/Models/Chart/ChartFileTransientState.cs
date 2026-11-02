@@ -64,6 +64,41 @@ internal sealed class ChartFileTransientState
         || BackbmpHealth.HasValue
         || !string.IsNullOrWhiteSpace(EncodingName);
 
+    /// <summary>所持の一時DSTと候補だけを成功した物理範囲へ追従させ、他の表示状態を保持します。</summary>
+    internal ChartFileTransientState ApplyFolderChange(BmsLibraryInternal.LibraryInstallDestinationChange change)
+    {
+        bool destinationAffected = BmsLibraryInternal.LibraryInstallDestinationChange.IsUnderFolder(InstallDestination, change.SourceFolderPath);
+        bool candidatesAffected = InstallDestinationSuggestions.Any(path => BmsLibraryInternal.LibraryInstallDestinationChange.IsUnderFolder(path, change.SourceFolderPath));
+        if (!destinationAffected && !candidatesAffected) { return this; }
+        var next = (ChartFileTransientState)MemberwiseClone();
+        next.HasInstallDestinationProjection = true;
+        if (destinationAffected)
+        {
+            next.InstallDestination = string.IsNullOrWhiteSpace(change.DestinationFolderPath) ? null
+                : BmsLibraryInternal.LibraryInstallDestinationChange.RelocatePath(InstallDestination, change.SourceFolderPath, change.DestinationFolderPath);
+        }
+        if (change.InvalidateCandidates)
+        {
+            next.InstallDestinationSuggestions = [];
+            next.HasInstallEstimationWarningProjection = true;
+            bool retainsDestination = !string.IsNullOrWhiteSpace(next.InstallDestination);
+            next.Warnings = [.. Warnings.Where(warning => warning.Category != ChartWarningCategory.InstallEstimation
+                || (retainsDestination && warning.Kind is ChartWarningKind.UnsupportedResourcePath
+                    or ChartWarningKind.InstalledDestinationResolveFailed or ChartWarningKind.SourceSurfaceScanLimitExceeded))];
+            if (!retainsDestination)
+            {
+                next.InstallDestinationTitle = string.Empty;
+                next.InstallDestinationArtist = string.Empty;
+            }
+        }
+        else
+        {
+            next.InstallDestinationSuggestions = [.. InstallDestinationSuggestions.Select(path =>
+                BmsLibraryInternal.LibraryInstallDestinationChange.RelocatePath(path, change.SourceFolderPath, change.DestinationFolderPath))];
+        }
+        return next;
+    }
+
     internal static ChartFileTransientState FromChartFile(
         ChartFile chart,
         bool includeWarningSnapshot = true,

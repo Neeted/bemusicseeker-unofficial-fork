@@ -43,6 +43,22 @@
 
 通常導入は、成功先と既存の譜面所有祖先をフォルダ変更と同じ一回の資源索引更新へ渡します。最終FSに対して親の集約キー・子の自己所有キーと各逆引きを同じ世代へ揃え、次の差分推定へ直ちに使います。無関係な兄弟は置換しません。必須祖先の不完全走査・例外は必須反映失敗とし、従来の任意走査の扱いを広げません。
 
+### 譜面所有境界とTXTの局所反映
+
+成功した削除・無効拡張子化・移転・導入では、最終FSの有効譜面を `ChartDirectoryScanBuilder` で判定し、譜面の親と影響する既存祖先の資源索引を一世代へ反映します。最後の譜面を失った親は完全一致の項目だけを除去し、存続する子の項目を保持します。子の所有境界が消えた資源は、初回構築と同じ最寄り所有祖先の自己所有範囲へ戻します。登録解除要求を有効実ファイルの有無の代わりには使いません。
+
+導入・資源のみ導入・統合では、最終衝突計画を実行した `Prepare` 成功の非directory TXT宛先親を同じ変更セッションへ集めます。commit直前に追加・移転譜面の最終親とTXT成功親をまとめ、同じ親を一回だけ評価して追加・移転・存続する直下BMSのTXTを確定します。移転先の評価済み値は変更不能な操作factsでDB要求へ渡し、再探索や欠落値の補完は行いません。後続packageがTXTを置く場合も同じ最終配置を使います。子だけのTXT、BMSON、名前が `.txt` で終わるdirectory、失敗・未実行分は存続直下BMSのTXT更新対象にしません。
+
+存続項目は同token・厳密path・hashを検証し、既存song transaction内でtxt列だけを保存し、同じcatalog commitで現在値のTXTだけを更新します。新規導入対象へ混ぜず、実差分がある場合だけカタログ版を進め、候補内容版・順序・利用者列・文字コード・詳細を保ちます。必須保守と表示packageの登録後に確定正本を再捕捉し、同tokenの全所属へ渡します。後続同期による修復、全所持走査、本文再解析、cleanup後の第二修復は行いません。
+
+### 退役所属と確定したパッケージ参照
+
+差分走査のDB・所持置換が確定した場合も、通常内部削除と同じ形式・厳密tokenで導入済み所属を剪定します。検索root解除で元ファイルが残る場合も退役所属を保持しません。同tokenの改名・保守・日時更新は追従し、置換tokenや別tokenの同hashを旧所属へ結び直しません。
+
+部分剪定では、存続する同じpackageの題名をモデル保護の解放後に公開します。代表削除だけでなく、複数件から一件になって完全題名へ変わる場合も対象です。最後の所属を失ったpackageは既存のノード削除へ渡し、全packageの再生成や一覧交換は行いません。
+
+単体packageはprefix参照の変更前に旧package.pathと同token entryの旧pathを照合し、物理成功で確定したAfter pathへ一度だけ追従します。統合の衝突採番と通常の導入先修正を同じ反映へ接続し、Explorerにも確定先を渡します。folder packageのroot移転は従来の範囲を保ち、個別譜面移動から代表rootを推測しません。
+
 ### 保留目録の解除と管理入力の回収
 
 保留の単独・選択解除と全解除は、同じ共通受付の内側で現在の保留から解除差分を確定します。その差分が削除する入力元パスのうち、管理一時入力に属するパスを物理回収の対象とします。モデルの集合・DBのguardをすべて解放し、回収対象がある場合だけ既存の再生変更停止窓口を非同期で待ちます。現在曲のパス一致は停止条件にしません。現在再生と先読みを停止し、開始済みの読込み・復号・後片付けの終端へ合流してから、同じ解除差分を適用し、管理入力を回収します。
@@ -170,7 +186,7 @@ flowchart TB
 
 導入先の採番と型衝突の検査は物理処理の前に行い、決定した実パスを保存結果とパッケージ状態に共通して使います。永続化前の準備では保存用のコピーを作り、liveな `PackageChartEntry` の現在値や所持共通現在値のパスを一時的に差し替えません。DBと所持集合の確定後に、成功対象だけの共通現在値を捕捉して安定した項目へ渡します。新しい所持tokenを共有し、同じ項目の排他境界で現在値・導入状態を反映します。通知は項目の排他を解放し、既存の操作単位の延期境界を終えてから公開します。
 
-導入するBMSの `Txt` は、物理配置に成功した後、保存する譜面の親フォルダ直下に `.txt` があれば1、なければ0とします。入力元の値や子フォルダだけのtxtは判定に使いません。同じ変更セッションの後続パッケージがtxtを初めて配置する場合も、全成功分を保存する時点の配置から先行譜面を含めて決め、DB・所持共通現在値・導入済みパッケージの現在値へ同じ値を渡します。確定後の保守・解析の入力も所持正本から再捕捉し、確定前の値を再保存しません。判定は `Lr2TextGroupResolver` に統一し、同じ保存境界の同一フォルダで共有します。今回の導入分は、配置・更新日時・内容が変わらなければ、直後の差分読込みで `Txt` の相違による再解析を必要としません。既存カタログ全件の修復は行いません。
+導入するBMSと成功したTXT配置の親直下にある存続BMSの `Txt` は、[譜面所有境界とTXTの局所反映](#譜面所有境界とtxtの局所反映)に従い、同じ保存境界の最終配置を `Lr2TextGroupResolver` で評価します。配置・更新日時・内容が不変なら、直後の差分読込みにTXT起因の再解析は不要です。
 
 後続パッケージの分類に使う一時情報へ追加するのは、先行する物理処理の成功だけです。失敗、取消、未処理、推定先の解除は所持成功に加えません。開始前に欠落を確認した入力は失敗として保持し、独立した後続パッケージを処理できます。コピー開始後の入力消失は予期しない物理処理の失敗であり、依存する後続を止めます。
 
@@ -275,10 +291,22 @@ sequenceDiagram
 
 入力前の型衝突は専用の案内として先頭5件と残件数を表示し、全件を診断します。実行中の例外を型名だけで事前拒否へ丸めません。部分成功を表示するのは永続確定した成功がある場合だけです。
 
+### 新規一覧の所属解除
+
+「新規」の行を一覧から削除するときは、行の `PackageEntry` 参照が現在所属するパッケージを解除します。同token・同pathの譜面が別パッケージにも表示されても、それを所属同一性の代わりに使いません。選択したパッケージの全項目を除き、同パッケージの複数行選択は一回にまとめます。退役行は同じ所持譜面を持つ別パッケージへ結び直しません。木の直接操作、通常一所属、確認取消と保留解除は既存の受付・確認・終端を使います。所属解除は所持token、実ファイル、song DBと資源索引を変更しません。
+
+`PackageCatalogWorkflowOwnerTests.RemoveSelectionAsync_ResolvesActualInstalledMembership` はPのa/b実導入とQのa資源のみ導入から実行し、実投影行・行解決・本番storeの選択解除終端で、Qのみ、Pのみ、両所属、同package複数行、退役行を確認します。
+
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 最後の有効譜面の除去と親子所有境界 | `LibraryMutationSession.ApplyFolderResourceChanges` | Windows `BmsLibraryMutationBoundaryTests.ChartOnlyMutation_MatchesIndependentFinalResourceIndex` が固定最終FSから独立構築した索引と六種資源を照合し、Core `LibraryResourceIndexOwnerTests.ApplyFolderChanges_PublishesSubtreeAndAncestorSixCategoriesTogether` が完全一致除去と子保持を確認する。 |
+| 存続BMSのTXTと資源のみ上書き | `LibraryMutationSession.Commit`、`CatalogMutationOwner` | Core `CatalogMutationOwnerTests.TextOnlyCommit_PreservesIdentityAndCandidateContent` と `BmsLibraryPackageInstallServiceTests` の導入・資源上書きが別SQLite接続、共通現在値、新旧全所属を照合する。 |
+| 検索root解除後の新規作品と題名 | `BmsLibraryStateApplier`、`PackageLifecycleOwner` | Windows `MainWindowPackageMaintenanceWpfTests.RemovedSearchRoot_CompiledSettingsPrunesInstalledTreeOnSameLibrary` と `InstalledMixedFolderRelocationKeepsRowsSelectionAndUncommittedEditor` が実Binding、同live scan、一覧再選択と同ノード題名を確認する。 |
+| 単体導入packageの衝突先参照 | `PackageLifecycleOwner.CaptureCommittedPackagePaths` | Core `BmsLibraryDuplicateServiceTests.SingleFileInstall_MergeCollisionPublishesActualPackageAndExplorerPath` が実導入、統合、DB、token、Explorer要求を照合する。 |
+| 所持の一時DSTと成功directory通知 | `NormalLibraryRefreshPublisher`、`MainChartRowProjectionOwner` | Core `RegularChartNavigationTests.FolderSuccess_UpdatesOnlyOwnedTransientReferences` と `FolderSuccess_NotificationBatchDiscardsOnlyBeforeLastReset`、Windows `FullScanDestinationEditing_RealTreePreservesOriginAndFeedsExplicitRepair` が順序、寿命、実編集と修正先を確認する。 |
+
 | 通常導入の成功先・既存所有祖先を一回反映し、次の差分を親候補へ照合 | [`LibraryMutationSession.ApplyFolderResourceChanges`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.Session.cs)、`LibraryResourceIndexOwner` | [`BmsLibraryPackageInstallServiceTests.InstallPendingPackages_UpdatesAncestorResourcesForNextEstimate`](../../../tests/BeMusicSeeker.Core.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) は実導入後の親の集約キー、子の自己所有キーと各逆引き、一世代反映・無関係兄弟不変、続く実再推定の親候補を確認する。改名・移動・統合の祖先保証と不完全走査・例外の終端は既存系列へ分担する。 |
 | 検索root確定後の実走査rootによる保留解除と元FS保持 | [`LibraryMutationOwner.ReevaluatePendingPackagesForSearchRoots`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.cs)、[`LibraryFileOperationSynchronization.EnterPendingPackageMutationScope`](../../../BeMusicSeeker/Models/BmsLibraryInternal/FileOperations/LibraryFileOperationSynchronization.cs)、[`PackageLifecycleOwner.BeginCollectionMutationScope`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/PackageLifecycleOwner.cs) | [`BmsLibraryPackageInstallServiceTests.ReevaluatePendingPackages_UsesActualScanRootsAndPreservesSource`](../../../tests/BeMusicSeeker.Core.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) は自身/祖先の追加と登録済み追加出力・ROOT出力の除外対照を確認する。[`SettingDialogEditCompletionTests.BmsConfirmation_CompletesRealFileDiffBeforeClosing`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingDialogEditCompletionTests.cs)、[`OutputConfirmation_ProtectsInstallDirectoryUntilAnotherConfirmedRootIsSelected`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingDialogOutputConfirmationTests.cs)、[`OwnedChartCollectionLibraryMutationTests.RemoveLibraryCharts_WholeRegisteredRootUnregistersOnlyAfterPhysicalSuccess`](../../../tests/BeMusicSeeker.Windows.Tests/Catalog/OwnedChartCollectionLibraryMutationTests.cs) は検索root設定・通常出力基点確定・所持root削除の三入口で、無関係保留・元ファイル保持、該当install記録解除、代表設定の保留ツリー反映を確認する。設定確定の単独動作/LR2成功とLR2走査失敗を通し、実PresentationChangedとChartPackagesPendingのPropertyChanged受信時にDispatcher・親L/P非活動・モデル保護解放・DB/current/UI一致・同期保留読取りを確認する。走査保留中のroot保存、失敗後もfresh XMLの確定root・保留解除・元bytes、不完全走査の書込み見送りと実警告による元走査原因の伝達を確認する。差分作成からDB/一覧反映までの既存ロック順は静的確認を併用する。 |
 | 所持root削除の実親受付解放後の保留公開とdirect自己公開 | [`LibraryMutationOwner.RemoveLibraryCharts`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.cs)、[`BMSLibrary.RemoveLibraryCharts`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs)、[`SelectedChartMutationWorkflowOwner.DeleteAsync`](../../../BeMusicSeeker/ViewModels/ChartOperations/SelectedChartMutationWorkflowOwner.cs)、[`DuplicateMaintenanceWorkflowOwner.RunHashCleanupCoreAsync`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMaintenanceWorkflowOwner.cs) | [`SelectedChartMutationWorkflowOwnerTests.DeleteAsync_RootPendingPublicationWaitsForActualLibraryAndPlaylistRelease`](../../../tests/BeMusicSeeker.Windows.Tests/ChartOperations/SelectedChartMutationWorkflowOwnerTests.cs) はLR2の独立した削除root・残存root・通常出力基点で、whole削除と出力内file削除の実store接続、停止中の親L/P保持、実InstallTree通知で双方の解放を確認する。[`DuplicateMaintenanceWorkflowOwnerTests.RunHashCleanupAsync_RootPendingPublicationWaitsForActualLibraryRelease`](../../../tests/BeMusicSeeker.Windows.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs) は実在親folderのkeeperと登録子rootの同hash譜面を整理し、cleanup中の親L保持と通知時の解放を確認する。Hash整理はPを取得しないためP保証は通常削除へ分担する。両代表は [`RootPendingPublicationObservation`](../../../tests/BeMusicSeeker.Windows.Tests/Helpers/RootPendingPublicationObservation.cs) でDispatcher・3guard解放・DB/current/UI入力一致・同期snapshot読取りと元bytes保持を記録し、実Task終端後に判定する。direct自己公開の通知受信は `OwnedChartCollectionLibraryMutationTests.RemoveLibraryCharts_WholeRegisteredRootUnregistersOnlyAfterPhysicalSuccess` の単独動作/LR2へ分担する。例外・部分失敗は既存 `RegistrationAndCatalogFinalizeIndependently`、`DeleteAsync_ReportsCatalogFailureAfterReleaseAndRetainsFacts`、`RunHashCleanupAsync_ChoosesShortestNameAndReturnsRemovalCount` と設定走査失敗系列へ分担し、未return例外のpublication受渡しは事前out初期化・同期scope終端・親finally・best-effortを静的に確認する。 |

@@ -122,7 +122,7 @@ internal static class PendingPackageStoreTestFixture
             return ChangedCharts;
         }
 
-        public ChartFile SetPending(
+        public IReadOnlyList<ChartFile>? SetPending(
             BMSLibrary library,
             PendingInstallDestinationEditRequest request,
             string destinationDirectory)
@@ -131,7 +131,7 @@ internal static class PendingPackageStoreTestFixture
             LastPendingRequest = request;
             LastDestinationDirectory = destinationDirectory;
             ThrowIfConfigured();
-            return SetResult!;
+            return SetResult == null ? null : [SetResult];
         }
 
         public IReadOnlyList<ChartPackage> ResolvePendingPackages(

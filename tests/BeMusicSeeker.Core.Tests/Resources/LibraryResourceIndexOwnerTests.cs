@@ -600,6 +600,10 @@ public sealed class LibraryResourceIndexOwnerTests
             CollectionAssert.AreEqual(new[] { common }, lookup(202u).ToArray());
         }
         AssertAllCategoryCandidates(before.DirectoryLookupCache, initialHash, directories);
+        LibraryResourceIndexSnapshot withoutParent = owner.ApplyFolderChanges([], [], [new(newParent, null)]).Receipt.Snapshot;
+        Assert.IsNull(withoutParent.DirectoryLookupCache.GetEntryOrNull(newParent));
+        Assert.AreSame(receipt.Snapshot.DirectoryLookupCache.GetEntryOrNull(destination), withoutParent.DirectoryLookupCache.GetEntryOrNull(destination));
+        Assert.AreSame(receipt.Snapshot.DirectoryLookupCache.GetEntryOrNull(sibling), withoutParent.DirectoryLookupCache.GetEntryOrNull(sibling));
     }
 
     /// <summary>有効な移動・削除・祖先置換の後続入力が例外となっても、部分結果を公開せず旧snapshot・世代・全reverseを維持します。</summary>

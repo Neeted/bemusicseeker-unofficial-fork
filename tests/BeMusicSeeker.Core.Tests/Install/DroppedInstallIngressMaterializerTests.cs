@@ -249,4 +249,22 @@ public sealed class DroppedInstallIngressMaterializerTests
         Assert.AreEqual("user-owned", File.ReadAllText(source));
     }
 
+    /// <summary>ドライブ・共有ルート自身のreparse属性を一度検査して拒否し、相対値「.」による属性検査の省略を検出します。UNCの実接続成功は保証しません。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Acquire_FilesystemRootReparseAttributeIsInspectedBeforeRejection(bool unc)
+    {
+        using var fixture = new MaterializerFixture();
+        string root = unc ? @"\\ingress-invalid-host\share" : Path.GetPathRoot(fixture.SystemTempRoot) ?? throw new AssertFailedException();
+        fixture.ReportedReparsePath = root;
+
+        DroppedInstallIngressAcquisitionResult result = fixture.Materializer.Acquire([root]);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(DroppedInstallIngressFailureKind.UnsafeSource, result.FailureKind, result.Exception?.ToString());
+        CollectionAssert.AreEqual(new[] { root }, fixture.AttributeProbes);
+        Assert.IsNull(fixture.LastIngressRoot);
+    }
+
 }

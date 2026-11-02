@@ -18,9 +18,10 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     /// <summary>実取り込みで親のSTAGEFILEだけを根の資源根拠とした混在packageを発見し、子の所持hashから根を推定して相対位置を一度だけ付け、既存譜面のbytes・MD5を保ちます。構成不一致では入力内容を保って保留し、別資源候補へ救済する誤りを検出します。</summary>
     /// <remarks>本番ownerのEnqueueからidleで得た同じpackageとDSTを明示導入入口へ渡し、実FS・SQLiteまで接続します。自動継続ONは既存系列、変換と票の条件網羅はサービスへ分担し、親の人工的な資源索引は追加しません。</remarks>
     [TestMethod]
-    [DataRow(true)]
-    [DataRow(false)]
-    public async Task ProductionImport_ChildOwnedHashResolvesOnlyMatchingPackageRoot(bool matchingLayout)
+    [DataRow(true, true)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    public async Task ProductionImport_ChildOwnedHashResolvesOnlyMatchingPackageRoot(bool matchingLayout, bool sourceAudio)
     {
         var databaseScope = new ApplicationDatabaseScope();
         using var caseWorkspace1 = TestWorkspace.Create(TestRunDirectory.RootDirectory);
@@ -43,7 +44,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         File.WriteAllText(Path.Combine(inputChild, "new.bms"), childNewBody, Encoding.ASCII);
         File.WriteAllText(Path.Combine(input, "root-new.bms"), rootNewBody, Encoding.ASCII);
         File.WriteAllBytes(Path.Combine(input, "cover.png"), [7, 8]);
-        File.WriteAllBytes(Path.Combine(inputChild, "tone.wav"), [1, 2]);
+        if (sourceAudio) { File.WriteAllBytes(Path.Combine(inputChild, "tone.wav"), [1, 2]); }
         File.WriteAllBytes(Path.Combine(installedChild, "tone.wav"), [1, 2]);
         string outsideChart = Path.Combine(outside, "other.bms");
         File.WriteAllText(outsideChart, "#TITLE Song\n#ARTIST Artist\n#GENRE outside\n#WAV01 sub/tone.wav\n#00111:01\n", Encoding.ASCII);
@@ -87,6 +88,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Assert.IsTrue(package.ChartEntries.All(entry => !entry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING)));
             if (!matchingLayout)
             {
+                Assert.IsFalse(library.SetPendingInstallDestination(package.ChartEntries[0], songRoot, false), "同hashでも相対配置の合わない親を拒否します。");
                 Assert.AreEqual(PendingEstimateDeferredReason.InstalledDestinationResolveFailed, package.DeferredEstimateReason);
                 Assert.IsTrue(package.ChartEntries.All(entry => string.IsNullOrEmpty(entry.Chart.InstallDestination)));
                 Assert.IsTrue(package.ChartEntries.Where(entry => Path.GetFileName(entry.Chart.Path) != "old.bms")
@@ -109,10 +111,25 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 package.ChartEntries.Single(entry => entry.Chart.Path == Path.Combine(inputChild, "new.bms"))];
             foreach (PackageChartEntry entry in missingEntries)
             {
-                Assert.AreEqual(songRoot, entry.Chart.InstallDestination,
+                Assert.AreEqual(sourceAudio ? songRoot : string.Empty, entry.Chart.InstallDestination ?? string.Empty,
                     entry.Chart.Path + " warnings=" + string.Join(",", entry.Chart.Warnings.Select(warning => warning.Kind)));
             }
             Assert.IsTrue(string.IsNullOrEmpty(package.ChartEntries.Single(entry => entry.Chart.Path == Path.Combine(inputChild, "old.bms")).Chart.InstallDestination));
+            Assert.IsTrue(PendingInstallDestinationEditRequest.TryCreate(
+                new ChartOperationTarget(missingEntries[0].Chart, null, ChartOperationSourceScope.PendingPackage, false, true, false, ChartOperationCapabilities.UpdateInstallDestination, missingEntries[0]), out PendingInstallDestinationEditRequest request));
+            var store = new BmsLibraryPendingPackageStore();
+            var validation = new BmsLibraryInstallEstimationService(options);
+            Assert.IsFalse(validation.ValidateInstallDestination(missingEntries[0], [package], [], songRoot,
+                installedDirectoriesByHash: _ => []).Success, "表示候補が残っても現在hashの根拠がなければ拒否します。");
+            Assert.IsNull(store.SetPending(library, request, libraryRoot), "無関係な祖先は受理しません。");
+            IReadOnlyList<ChartFile> edited = store.SetPending(library, request, songRoot);
+            Assert.IsNotNull(edited);
+            Assert.AreEqual(3, edited.Count);
+            Assert.IsTrue(edited.All(chart => chart.InstallDestination == songRoot));
+            if (!sourceAudio)
+            {
+                Assert.IsTrue(missingEntries[1].Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAudioUnverifiable));
+            }
             PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package]);
             Assert.IsTrue(result.HasDurableCommit);
             Assert.AreEqual(0, result.FailedPackages.Count);
@@ -125,6 +142,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 Assert.IsTrue(File.Exists(chartPath));
                 Assert.IsTrue(library.BmsCharts.Any(chart => chart.Path == chartPath));
             }
+            Assert.AreEqual(100, library.BmsCharts.Single(chart => chart.Path == Path.Combine(songRoot, "sub", "new.bms")).WAVHealth);
             Assert.IsFalse(File.Exists(Path.Combine(songRoot, "sub", "sub", "new.bms")));
             Assert.IsFalse(File.Exists(Path.Combine(songRoot, "new.bms")));
             CollectionAssert.AreEqual(originalOldBytes, File.ReadAllBytes(installedOld));

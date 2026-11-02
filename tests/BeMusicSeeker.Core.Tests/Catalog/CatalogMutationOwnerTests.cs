@@ -207,7 +207,9 @@ public sealed class CatalogMutationOwnerTests
     /// 所有tokenのない直接保存要求から旧パスと移転先を準備し、保存する新パスと捕捉した旧現在値を取り違えない。
     /// </summary>
     [TestMethod]
-    public void CreateRelocationRequest_PreparesTokenlessDirectStoragePathChange()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CreateRelocationRequest_PreparesTokenlessDirectStoragePathChange(bool hasFinalTextFlag)
     {
         string tempRootPath = Path.Combine(CaseWorkspace.RootDirectory, "BeMusicSeeker_CatalogRelocationRequest_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
@@ -224,7 +226,8 @@ public sealed class CatalogMutationOwnerTests
                 OldPath = oldPath,
                 NewPath = newPath
             };
-            LibraryCatalogMutationFacts catalogFacts = new([], [pathChange], []);
+            LibraryCatalogMutationFacts catalogFacts = new([], [pathChange], [],
+                relocatedTextFlags: new Dictionary<string, int> { [newPath] = hasFinalTextFlag ? 1 : 0 });
 
             var owner = new CatalogMutationOwner(new CatalogOwnedCollectionOwner(), null);
             CatalogRelocationRequest request = owner.CreateRelocationRequest(catalogFacts);
@@ -233,6 +236,13 @@ public sealed class CatalogMutationOwnerTests
             Assert.AreEqual(oldPath, request.BmsPathReplacements[0].OldPath);
             Assert.AreEqual(newPath, request.BmsPathReplacements[0].Song.Path);
             Assert.AreEqual(oldPath, request.BmsPathReplacements[0].LiveOwner.Path);
+            Assert.AreEqual(hasFinalTextFlag ? 1 : 0, request.BmsPathReplacements[0].Song.Txt);
+            if (hasFinalTextFlag)
+            {
+                Assert.ThrowsExactly<KeyNotFoundException>(() => owner.CreateRelocationRequest(
+                    new LibraryCatalogMutationFacts([], [pathChange], [], relocatedTextFlags: new Dictionary<string, int>())));
+            }
+
         }
         finally
         {
@@ -355,7 +365,7 @@ public sealed class CatalogMutationOwnerTests
             });
 
             CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(
-                new LibraryCatalogMutationFacts([], pathChanges, folderPathChanges));
+                BmsLibraryStateApplierTestSupport.PrepareFinalTextFacts(new LibraryCatalogMutationFacts([], pathChanges, folderPathChanges)));
 
             Assert.IsTrue(receipt.Applied);
             Assert.AreEqual(1, receipt.FolderDbTargetRows);
@@ -460,7 +470,7 @@ public sealed class CatalogMutationOwnerTests
             };
             LibraryCatalogMutationFacts catalogFacts = new(removeRequests, pathChanges, []);
 
-            CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(catalogFacts);
+            CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(BmsLibraryStateApplierTestSupport.PrepareFinalTextFacts(catalogFacts));
 
             Assert.IsTrue(receipt.Applied);
             Assert.AreEqual(CatalogMutationApplyKind.GenericMutation, receipt.Kind);
@@ -600,7 +610,7 @@ public sealed class CatalogMutationOwnerTests
             };
             LibraryCatalogMutationFacts catalogFacts = new(removeRequests, pathChanges, []);
 
-            Assert.ThrowsExactly<SQLite.SQLiteException>(() => owner.ApplyCatalogMutation(catalogFacts));
+            Assert.ThrowsExactly<SQLite.SQLiteException>(() => owner.ApplyCatalogMutation(BmsLibraryStateApplierTestSupport.PrepareFinalTextFacts(catalogFacts)));
 
             Assert.AreEqual(oldPath, movedBms.Path);
             Assert.AreEqual(initialRows.CatalogRevision, storageRowsOwner.CatalogRevision);
@@ -672,7 +682,7 @@ public sealed class CatalogMutationOwnerTests
             };
             LibraryCatalogMutationFacts catalogFacts = new(removeRequests, pathChanges, []);
 
-            owner.ApplyCatalogMutation(catalogFacts);
+            owner.ApplyCatalogMutation(BmsLibraryStateApplierTestSupport.PrepareFinalTextFacts(catalogFacts));
 
             Assert.AreEqual(removedPath, storageRowsOwner.BmsRows.Single().Path);
             Assert.AreEqual(1, storageRowsOwner.BmsRows.Count);
@@ -741,7 +751,7 @@ public sealed class CatalogMutationOwnerTests
             };
             LibraryCatalogMutationFacts catalogFacts = new(removeRequests, pathChanges, []);
 
-            owner.ApplyCatalogMutation(catalogFacts);
+            owner.ApplyCatalogMutation(BmsLibraryStateApplierTestSupport.PrepareFinalTextFacts(catalogFacts));
 
             using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.IsFalse(verifySongDb.Table<LR2SongDB.song>().Any(row => row.path == removedPath));
@@ -801,7 +811,7 @@ public sealed class CatalogMutationOwnerTests
             };
             LibraryCatalogMutationFacts catalogFacts = new(removeRequests, pathChanges, []);
 
-            CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(catalogFacts);
+            CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(BmsLibraryStateApplierTestSupport.PrepareFinalTextFacts(catalogFacts));
 
             Assert.IsTrue(receipt.Applied);
             Assert.AreEqual(1, receipt.PathFacts.Count);
@@ -965,7 +975,7 @@ public sealed class CatalogMutationOwnerTests
             using var observation = new SqliteStatementObservation();
             var owner = new CatalogMutationOwner(storageRowsOwner, new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, initializeSongConnection: observation.Attach));
 
-            CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(catalogFacts);
+            CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(BmsLibraryStateApplierTestSupport.PrepareFinalTextFacts(catalogFacts));
             observation.ThrowIfCallbackFailed();
 
             Assert.IsTrue(receipt.Applied);
@@ -1104,7 +1114,7 @@ public sealed class CatalogMutationOwnerTests
                 []);
 
             new CatalogMutationOwner(storageRowsOwner, new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath))
-                .ApplyCatalogMutation(catalogFacts);
+                .ApplyCatalogMutation(BmsLibraryStateApplierTestSupport.PrepareFinalTextFacts(catalogFacts));
 
             using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.IsFalse(verifySongDb.Table<LR2SongDBExtended.maintenance>().Any(row => row.path == removedPath));
@@ -1356,6 +1366,54 @@ public sealed class CatalogMutationOwnerTests
     /// 導入済みBMS・bmsonの同パス置換を実DBへ保存し、新しい所有tokenと追加factsを同じ受領結果へ反映する。
     /// </summary>
     /// <remarks>実DBの確定・読戻しと所有現在値を接続し、保存の成功前に公開する誤りや一部だけのrollbackを確認する。</remarks>
+    /// <summary>TXTだけの保存を追加0件の導入・一般変更と同じtransactionへ含め、同tokenと利用者列・候補所属順を保持します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void TextOnlyCommit_PreservesIdentityAndCandidateContent(bool install)
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+        string database = Path.Combine(CaseWorkspace.RootDirectory, "song.db");
+        File.WriteAllBytes(database, []);
+        var storage = new CatalogOwnedCollectionOwner();
+        storage.ReplaceCharts([CreateBms("existing.bms", new string('a', 32)) with { Txt = 0, Favorite = 7, Tag = "keep", EncodingName = "shift_jis" }], []);
+        ChartFile before = storage.BmsRows.Single();
+        var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), database);
+        gateway.ExecuteSongDbTransaction(db => { db.CreateTable<LR2SongDB.song>(); db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(before), typeof(LR2SongDB.song)); });
+        var publisher = new NormalLibraryRefreshPublisher();
+        storage.RefreshPublisher = publisher;
+        int revision = storage.CatalogRevision;
+        object order = storage.CaptureSnapshot().MembershipOrderIdentity;
+        var owner = new CatalogMutationOwner(storage, gateway);
+        if (install)
+        {
+            CatalogInstalledTargetUpsertReceipt receipt = owner.ApplyInstalledTargetUpsertWithDeferredFailurePublication(
+                ChartStorageTargetSet.FromCharts([]), out CatalogWriteFailureFact failure, textChanges: [before with { Txt = 1 }]);
+            Assert.IsNull(failure);
+            Assert.AreEqual(0, receipt.AddedCharts.Count);
+        }
+        else { owner.ApplyCatalogMutation(new LibraryCatalogMutationFacts(textChanges: [before with { Txt = 1 }])); }
+        ChartFile current = storage.BmsRows.Single();
+        Assert.AreSame(before.Token, current.Token);
+        Assert.AreEqual(before.Path, current.Path);
+        Assert.AreEqual(before.Md5, current.Md5);
+        Assert.AreEqual(7, current.Favorite);
+        Assert.AreEqual("keep", current.Tag);
+        Assert.AreEqual(before.EncodingName, current.EncodingName);
+        Assert.AreEqual(1, current.Txt);
+        Assert.AreEqual(revision + 1, storage.CatalogRevision);
+        Assert.AreSame(order, storage.CaptureSnapshot().MembershipOrderIdentity);
+        CatalogChartChange change = publisher.GetNotificationsAfter(0).CatalogCommits.Single().Changes.Single();
+        Assert.IsFalse(change.ChangesCandidate);
+        owner.ApplyCatalogMutation(new LibraryCatalogMutationFacts(textChanges: [current]));
+        Assert.AreEqual(revision + 1, storage.CatalogRevision);
+        Assert.AreSame(order, storage.CaptureSnapshot().MembershipOrderIdentity);
+        Assert.AreEqual(1, publisher.GetNotificationsAfter(0).CatalogCommits.Count);
+
+        using LR2SongDBExtended verify = gateway.OpenSongDbReadOnly();
+        Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT txt FROM song WHERE path = ?;", before.Path));
+    }
+
     [TestMethod]
     public void ApplyInstalledTargetUpsert_EmitsReceiptAndReplacesSamePathRows()
     {

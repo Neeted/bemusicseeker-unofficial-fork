@@ -532,7 +532,7 @@ internal sealed class BmsLibraryDbGateway(
     /// </summary>
     internal CatalogRelocationDbReceipt ReplaceAndRemoveLibraryMutationRows(
         CatalogRelocationRequest relocationRequest,
-        CatalogStorageRowsRemovalRequest removalRequest)
+        CatalogStorageRowsRemovalRequest removalRequest, IReadOnlyList<ChartFile> textChanges = null)
     {
         List<CatalogFolderPathReplacement> folderRows = [.. (relocationRequest?.FolderPathChanges ?? [])
             .Where(change => !string.IsNullOrWhiteSpace(change?.OldFolderPath)
@@ -562,7 +562,8 @@ internal sealed class BmsLibraryDbGateway(
             && bmsRows.Count == 0
             && bmsonRows.Count == 0
             && !hasBmsRemoval
-            && !hasBmsonRemoval)
+            && !hasBmsonRemoval
+            && (textChanges?.Count ?? 0) == 0)
         {
             return result;
         }
@@ -612,8 +613,21 @@ internal sealed class BmsLibraryDbGateway(
                 bmsonRows);
             stopwatch.Stop();
             result.BmsonRemovalDbMs = stopwatch.ElapsedMilliseconds;
+            UpdateTextRows(songDb, textChanges);
         });
         return result;
+    }
+
+    /// <summary>呼出元のsong transaction内で存続BMSのtxtだけを更新します。</summary>
+    internal static void UpdateTextRows(LR2SongDBExtended songDb, IReadOnlyList<ChartFile> changes)
+    {
+        foreach (ChartFile chart in changes ?? [])
+        {
+            if (songDb.Execute("UPDATE song SET txt = ? WHERE path = ? AND hash = ? COLLATE NOCASE;", chart.Txt, chart.Path, chart.Md5) != 1)
+            {
+                throw new InvalidOperationException("TXT target changed before database commit.");
+            }
+        }
     }
 
     private static void DeleteBmsMutationRows(
@@ -1675,7 +1689,7 @@ internal sealed class BmsLibraryDbGateway(
         return path?.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
     }
 
-    /// <summary>純移転では旧DB行の全列を引き継ぎ、移転に依存する列だけを更新します。</summary>
+    /// <summary>純移転では旧DB行の全列を引き継ぎ、移転依存列と最終配置で確定したTXTだけを更新します。旧NULLを確定TXTへ戻しません。</summary>
     private static void ReplaceBmsSongPathsWithMaintenance(LR2SongDBExtended songDb, IReadOnlyCollection<BmsSongPathReplacement> rows)
     {
         if (songDb == null || rows == null || rows.Count == 0)
@@ -1685,7 +1699,6 @@ internal sealed class BmsLibraryDbGateway(
 
         var previous = new Dictionary<string, LR2SongDB.song>(StringComparer.Ordinal);
         var userColumns = new Dictionary<string, Lr2SongUserColumns>(StringComparer.Ordinal);
-        var nullTxtPaths = new HashSet<string>(StringComparer.Ordinal);
         // 全旧行の捕捉を先に終え、交換や連鎖移転でも他の対象の元行を失わない。
         foreach (BmsSongPathReplacement replacement in rows)
         {
@@ -1693,10 +1706,6 @@ internal sealed class BmsLibraryDbGateway(
             if (row != null)
             {
                 previous[replacement.OldPath] = row;
-                if (songDb.ExecuteScalar<int>("SELECT count(*) FROM song WHERE path = ? AND txt IS NULL;", replacement.OldPath) > 0)
-                {
-                    nullTxtPaths.Add(replacement.OldPath);
-                }
             }
 
             Lr2SongUserColumns columns = ReadSongUserColumns(songDb, replacement.OldPath);
@@ -1721,10 +1730,6 @@ internal sealed class BmsLibraryDbGateway(
             row.parent = null;
             if (Lr2SongFolderParentNormalizer.TryComputeExpectedHashes(row.path, out string folder, out string parent)) { row.folder = folder; row.parent = parent; }
             songDb.InsertOrReplace(row, typeof(LR2SongDB.song));
-            if (nullTxtPaths.Contains(replacement.OldPath))
-            {
-                songDb.Execute("UPDATE song SET txt = NULL WHERE path = ?;", row.path);
-            }
             if (userColumns.TryGetValue(replacement.OldPath, out Lr2SongUserColumns columns))
             {
                 ApplySongUserColumns(songDb, row.path, columns);

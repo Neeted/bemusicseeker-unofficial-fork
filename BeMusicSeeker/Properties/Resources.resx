@@ -3943,7 +3943,10 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Settings_confirm_environment" xml:space="preserve"><value>環境を確定（稼働中は再起動）</value></data>
   <data name="Settings_start_environment" xml:space="preserve"><value>この環境で開始</value></data>
   <data name="Settings_cancel_changes" xml:space="preserve"><value>この変更を取り消す</value></data>
-  <data name="Settings_replacement_install" xml:space="preserve"><value>一覧から外れる導入先の代替</value></data>
+  <data name="Settings_replacement_install" xml:space="preserve"><value>変更後のインストール先</value></data>
+  <data name="Settings_removed_install" xml:space="preserve"><value>現在のインストール先（削除対象）</value></data>
+  <data name="Settings_replacement_install_required" xml:space="preserve"><value>削除しようとしているディレクトリは現在のインストール先です。削除を続行する場合は残っているBMSディレクトリからインストール先を選び直してください。</value></data>
+  <data name="Settings_replacement_install_empty" xml:space="preserve"><value>BMSディレクトリが残っていません。BMSディレクトリを追加するか、変更を取り消してください。</value></data>
   <data name="Settings_use_on_start" xml:space="preserve"><value>保存済みの設定は「この環境で開始」で使用します。</value></data>
   <data name="Settings_confirm_record" xml:space="preserve"><value>この項目を確定</value></data>
   <data name="Settings_environment" xml:space="preserve"><value>環境</value></data>

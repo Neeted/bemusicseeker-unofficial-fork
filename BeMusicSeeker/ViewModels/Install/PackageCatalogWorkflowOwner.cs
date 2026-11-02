@@ -456,6 +456,7 @@ internal sealed class BmsLibraryPackageCatalogStore : IPackageCatalogStore
         }
     }
 
+    /// <summary>行の項目参照が現在所属するパッケージを返します。同tokenの別所属や退役行を同じ所属として扱いません。</summary>
     public IReadOnlyList<ChartPackage> ResolvePackages(
         BMSLibrary library,
         PackageCatalogSection section,
@@ -484,14 +485,8 @@ internal sealed class BmsLibraryPackageCatalogStore : IPackageCatalogStore
 
     private static bool ContainsChartTarget(ChartPackage package, ChartOperationTarget target)
     {
-        if (package == null || target?.Chart == null)
-        {
-            return false;
-        }
-        if (target.PackageEntry != null)
-        {
-            return (package.ChartEntries ?? []).Any(entry => entry?.IsSameChartTarget(target.PackageEntry) == true);
-        }
-        return (package.ChartEntries ?? []).Any(entry => entry?.IsSameChartTarget(target.Chart) == true);
+        // 同じ所持譜面を共有する別所属へ、退役済みの行や所属のない要求を結び直しません。
+        return package != null && target?.PackageEntry != null
+            && (package.ChartEntries ?? []).Any(entry => ReferenceEquals(entry, target.PackageEntry));
     }
 }

@@ -1055,15 +1055,14 @@ public partial class BMSLibrary
         });
     }
 
-    /// <summary>session durable success 後に install destination を一括 clear します。</summary>
-    private static void ClearInstallDestinationsAfterSessionCommit(IEnumerable<ChartPackage> packages)
+    /// <summary>sessionで成功した項目の導入前状態を解除します。保留用の明示クリアで親参照警告を再生成せず、失敗・未処理の項目は渡しません。</summary>
+    private static void ClearPostInstallStateAfterSessionCommit(IEnumerable<ChartPackage> packages)
     {
         foreach (ChartPackage package in (packages ?? []).Where(package => package != null).Distinct())
         {
             foreach (PackageChartEntry entry in package.ChartEntries ?? [])
             {
-                entry?.ClearInstallDestination();
-                entry?.DiscardOriginalResourceHealth();
+                entry?.ClearPostInstallState();
             }
         }
     }
@@ -1269,6 +1268,8 @@ public partial class BMSLibrary
                         }
                         List<PackageChartEntry> alreadyInstalledEntries = partition.AlreadyInstalledEntries;
                         List<PackageChartEntry> targetEntries = partition.ManualEstimationEntries;
+                        foreach (PackageChartEntry entry in partition.MissingEntries)
+                        { entry.ClearWarningsByCategory(ChartWarningCategory.InstalledState); }
                         ApplyPackageMixedInstallWarningsToEntries(alreadyInstalledEntries);
                         // 分類後の混合警告は更新し、確定済みDSTによる省略はhash照合・資源評価だけに適用します。
                         if (HasConfirmedInstallDestination(targetEntries)) { return; }
@@ -1925,7 +1926,7 @@ public partial class BMSLibrary
                             {
                                 packageLifecycleOwner.ReplaceInstalledPackages(installedPackages);
                             }
-                            ClearInstallDestinationsAfterSessionCommit(
+                            ClearPostInstallStateAfterSessionCommit(
                                 result.PackagesToClearInstallDestinations);
                         });
                 }
@@ -2355,7 +2356,7 @@ public partial class BMSLibrary
                             pendingDelta,
                             batchResult.PendingPackagesToRemove.Count,
                             batchResult.DeferredInstalledPackages);
-                    ClearInstallDestinationsAfterSessionCommit(
+                    ClearPostInstallStateAfterSessionCommit(
                         batchResult.PackagesToClearInstallDestinations);
                 });
         }
@@ -3027,7 +3028,7 @@ public partial class BMSLibrary
                                 pendingDelta,
                                 executionResult.PendingPackagesToRemove.Count,
                                 executionResult.DeferredInstalledPackages);
-                            ClearInstallDestinationsAfterSessionCommit(
+                            ClearPostInstallStateAfterSessionCommit(
                                 executionResult.PackagesToClearInstallDestinations);
                         });
                 }

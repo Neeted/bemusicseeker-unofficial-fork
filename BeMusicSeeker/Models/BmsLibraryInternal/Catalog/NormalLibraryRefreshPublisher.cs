@@ -27,6 +27,8 @@ internal sealed class NormalLibraryRefreshPublishRequest
     public IReadOnlyList<ChartFile> InstallDestinationChangedCharts { get; init; } = [];
 
 
+    /// <summary>成功した物理directory範囲を確定順で受け取ります。</summary>
+    internal IReadOnlyList<LibraryInstallDestinationChange> FolderChanges { get; init; } = [];
     public bool ResetsPriorNotifications { get; init; }
 
 }
@@ -84,7 +86,8 @@ internal sealed class NormalLibraryRefreshPublisher
                 changedDetailSha256s: [.. pendingNotifications.SelectMany(value => value.ChangedDetailSha256s).Distinct(System.StringComparer.OrdinalIgnoreCase)],
                 installedChartChanges: [.. pendingNotifications.SelectMany(value => value.InstalledChartChanges)],
                 catalogCommits: [.. pendingNotifications.SelectMany(value => value.CatalogCommits)],
-                scoreChanges: scoreChanges, referenceCommits: referenceCommits);
+                scoreChanges: scoreChanges, referenceCommits: referenceCommits,
+                folderChanges: [.. pendingNotifications.SelectMany(value => value.FolderChanges)]);
         }
     }
 
@@ -178,7 +181,7 @@ internal sealed class NormalLibraryRefreshPublisher
                 request.CatalogRevision,
                 request.Effects,
                 request.InstallDestinationChangedCharts,
-                request.ResetsPriorNotifications, request.ChangedCharts, request.DeletedTokens, request.ChangedDetailMd5s, request.ChangedDetailSha256s, request.InstalledChartChanges, request.Commit == null ? [] : [request.Commit], request.ScoreChange == null ? [] : [request.ScoreChange], request.ReferenceCommit == null ? [] : [request.ReferenceCommit]);
+                request.ResetsPriorNotifications, request.ChangedCharts, request.DeletedTokens, request.ChangedDetailMd5s, request.ChangedDetailSha256s, request.InstalledChartChanges, request.Commit == null ? [] : [request.Commit], request.ScoreChange == null ? [] : [request.ScoreChange], request.ReferenceCommit == null ? [] : [request.ReferenceCommit], request.FolderChanges);
             notifications.Add(notification);
             return version;
         }

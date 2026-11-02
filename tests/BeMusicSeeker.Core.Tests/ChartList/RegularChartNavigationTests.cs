@@ -15,6 +15,67 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class RegularChartNavigationTests
 {
+    /// <summary>所持の一時DST正本へ物理成功範囲を適用し、候補だけ・範囲内確定・範囲外確定を区別して相対位置と失効を確認します。</summary>
+    [TestMethod]
+    [DataRow("move", 0)]
+    [DataRow("move", 1)]
+    [DataRow("move", 2)]
+    [DataRow("merge", 0)]
+    [DataRow("merge", 1)]
+    [DataRow("merge", 2)]
+    [DataRow("delete", 0)]
+    [DataRow("delete", 1)]
+    [DataRow("delete", 2)]
+    public void FolderSuccess_UpdatesOnlyOwnedTransientReferences(string operation, int destinationMode)
+    {
+        string source = @"C:\Library\D", destination = @"C:\Library\D2";
+        string child = Path.Combine(source, "Child"), movedChild = Path.Combine(destination, "Child");
+        string outside = @"C:\Library\E";
+        ChartFile original = ChartTestValues.Empty() with
+        { Path = @"C:\Library\A\a.bms", Md5 = "same-hash", Warnings = [ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "resource")] };
+        ChartFile edited = ChartFileProjection.WithPackageState(original,
+            destinationMode == 0 ? null : destinationMode == 1 ? child : outside,
+            "代表題名", "代表作者", [child, outside],
+            [ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "resource"),
+                ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "candidate"),
+                ChartWarning.Create(ChartWarningKind.UnsupportedResourcePath, "source")]);
+        ChartFile other = original with { Path = @"C:\Library\Other\a.bms" };
+        var owner = new MainChartRowProjectionOwner();
+        owner.UpdateTransientStates([edited], forceInstallDestinationProjection: true);
+        IReadOnlyList<ChartFile> changed = owner.ApplyFolderChanges([new LibraryInstallDestinationChange
+        {
+            SourceFolderPath = source,
+            DestinationFolderPath = operation == "delete" ? null : destination,
+            InvalidateCandidates = operation != "move"
+        }]);
+        CollectionAssert.AreEqual(new[] { original.Path }, changed.Select(chart => chart.Path).ToArray());
+        ChartFileTransientState state = owner.GetTransientState(original, true);
+        string? expectedDestination = destinationMode == 0 ? string.Empty : destinationMode == 2 ? outside
+            : operation == "delete" ? null : movedChild;
+        Assert.AreEqual(expectedDestination, state.InstallDestination);
+        CollectionAssert.AreEqual(operation == "move" ? new[] { movedChild, outside } : Array.Empty<string>(), state.InstallDestinationSuggestions.ToArray());
+        Assert.AreEqual(operation != "move" && string.IsNullOrEmpty(expectedDestination) ? string.Empty : "代表題名", state.InstallDestinationTitle);
+        Assert.IsTrue(owner.CreateLibraryRow(null, original).Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+        Assert.AreEqual(operation == "move", state.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+        Assert.AreEqual(operation == "move" || !string.IsNullOrEmpty(expectedDestination),
+            state.Warnings.Any(warning => warning.Kind == ChartWarningKind.UnsupportedResourcePath));
+        Assert.IsFalse(owner.GetTransientState(other, true).HasState);
+        Assert.IsFalse(new MainChartRowProjectionOwner().GetTransientState(original, true).HasState);
+    }
+
+    /// <summary>directory成功範囲は順序を保ち、最後のreset以前の範囲を通常通知と一緒に捨てます。</summary>
+    [TestMethod]
+    public void FolderSuccess_NotificationBatchDiscardsOnlyBeforeLastReset()
+    {
+        var publisher = new NormalLibraryRefreshPublisher();
+        publisher.Publish(new NormalLibraryRefreshPublishRequest { FolderChanges = [new LibraryInstallDestinationChange { SourceFolderPath = "old" }] });
+        publisher.Publish(new NormalLibraryRefreshPublishRequest { ResetsPriorNotifications = true });
+        publisher.Publish(new NormalLibraryRefreshPublishRequest { FolderChanges = [new LibraryInstallDestinationChange { SourceFolderPath = "first" }, new LibraryInstallDestinationChange { SourceFolderPath = "second" }] });
+        NormalLibraryRefreshNotificationBatch batch = publisher.GetNotificationsAfter(0);
+        Assert.IsTrue(batch.ResetsPriorNotifications);
+        CollectionAssert.AreEqual(new[] { "first", "second" }, batch.FolderChanges.Select(change => change.SourceFolderPath).ToArray());
+    }
+
     /// <summary>実所持編集を通常の再表示へ保持し、実FullReinitialize通知と同DBの新ownerには持ち越しません。resetを直接辞書消去で代替しません。</summary>
     [TestMethod]
     public void InstallDestinationEdit_SurvivesRedisplayButNotFullReinitializeOrNewOwner()

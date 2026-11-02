@@ -8,11 +8,11 @@
 
 ## 譜面プロパティの文字コード解釈
 
-[ChartPropertiesViewModel](../../BeMusicSeeker/ViewModels/ChartOperations/ChartPropertiesViewModel.cs) は実ファイル診断へ保存済み指定を渡さず、[ChartResourceDiagnosticsService](../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/ChartResourceDiagnosticsService.cs) はBMSを自動判定で読み直す。BOMなしUTF-8の `#TITLE 漢` は、UTF-8へ修正した一覧では「漢」、プロパティ再読取りではCP932解釈になる場合がある。DB・一覧の修正値自体を失う問題ではない。
+[ChartPropertiesViewModel](../../BeMusicSeeker/ViewModels/ChartOperations/ChartPropertiesViewModel.cs) は、`BmsChartFileParser.GetConcreteFixedEncoding` で開く時点の具体的な固定指定を捕捉し、[ChartResourceDiagnosticsService](../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/ChartResourceDiagnosticsService.cs) を通じてBMS parserへ渡している。固定指定の受渡しは実装済みであり、再実装する対象ではない。実際に採用した復号方式とその由来を画面へ追加表示する案は未採用とする。
 
 採用する場合の方針は次のとおり。
 
-- 開く時点のパス・種類・配置と、所持では保存済み、保留では現在の項目内の文字コード・確定状態を捕捉する。確定した具体的指定は表示メタデータに使い、それ以外は既存の自動判定を維持する。
+- 開く時点の具体的な固定指定を診断へ渡す既存経路を維持する。所持の保存済み指定と保留の現在項目内の指定を使い、具体的な固定指定がない場合は既存の自動判定を維持する。
 - 実ファイル読取りは既存の一回を使い、採用した復号方式と由来を診断結果として返す。表示のための再読取り・再解析、新しいDB列は追加しない。
 - 表示メタデータと、CP932で扱うBMS/PMS資源名・定義番号の解釈を分ける。BMSONは既存のUTF-8を維持する。判定アルゴリズムや資源の確認先は変更しない。
 - コピー可能な読取り専用欄に「UTF-8（保存済み指定）」「CP932（自動判定）」「CP932（判定未確定）」等を表示する。BOMが指定に優先した場合は実際の採用方式と由来を示す。
@@ -28,6 +28,16 @@
 採用案は件数文字列だけを既存Resourcesへ接続し、既定資源と6言語の単数/複数・書式引数を揃えるものとする。drag形式、DropEffects、閾値、選択、Adorner寿命・themeは変更せず、ドラッグ中の言語追従用の購読やcacheを追加しない。TSVコピーと同じ共通表でも別原因・別単位として扱う。
 
 判定案は `LocalizationResourceParityTests` と共通表の代表に分担し、1/2/多件、英語単複、言語変更後に開始したghostの実表示を確認する。辞書整合だけで表示の保証を代替しない。
+
+## 資源のみ導入後の新規表示に子階層の対応譜面が含まれない
+
+外部パッケージPに `root.bms`、`sub/child.bms`、`sub/tone.wav` を置き、rootは `sub/tone.wav`、childは `tone.wav` を参照する。所持先Dにも同じハッシュの譜面が同じ相対配置にある状態で、Pを保留へ入れ、全項目の手動導入先をDにして推定先導入すると資源のみの導入になる。親自身には資源がなく、D直下にrootがあるため、親子資源の禁止条件や直下譜面のない親ルートの受理には依存しない。
+
+物理導入と所持状態は正しいが、[表示パッケージの生成](../../BeMusicSeeker/Models/Library/BMSLibrary.PackageInstall.cs) は、全入力ハッシュを集めても所持の解決をD直下に限る。rootは「新規」に表示される一方、対応するchildは表示されず、今回の資源配置に対応する譜面全体を「新規」だけでは確認できない。これは既知の未採用課題であり、以下の保守値の共用とは別に扱う。
+
+表示範囲を広げる場合は、元入力の相対ディレクトリを確定先へ写し、ディレクトリと主ハッシュから既存索引で実際のパス・所持tokenを解決する。元ファイル名から所持パスを推測せず、`root.bms` と同じハッシュの `renamed.bms` も扱う。子階層の無関係な全所持や別ディレクトリの同ハッシュは含めない。物理配置・入力回収・所持token・健康度の既存処理と、複数パッケージの独立した所属を維持する。
+
+採用時に表示保証を決め、直下のみ、親子混在、別名同ハッシュ、別ディレクトリ同ハッシュ、BMS/BMSON、先行導入によって資源のみへ変わる入力で判定する。表示対象と、その後に選択した所属を削除する範囲も揃える。現時点では子階層を含む表示への拡張を行わない。
 
 ## 資源のみ導入後の保守値の共用
 

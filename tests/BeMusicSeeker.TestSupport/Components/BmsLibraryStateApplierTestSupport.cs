@@ -52,6 +52,17 @@ internal static class BmsLibraryStateApplierTestSupport
         TrackingCallbacks callbacks)
         => ApplyCatalogRelocation(songDbPath, catalogFacts, callbacks, out _);
 
+    /// <summary>カタログ境界を直接試すfixtureに、セッションが渡す最終配置のTXT入力を準備します。</summary>
+    internal static LibraryCatalogMutationFacts PrepareFinalTextFacts(LibraryCatalogMutationFacts facts)
+    {
+        IReadOnlyList<ChartFile> moved = Lr2TextGroupResolver.ResolveCurrentChartFlags(facts.ChartPathChanges
+            .Where(change => change.Chart.Kind == ChartFileKind.Bms)
+            .Select(change => change.Chart with { Path = change.NewPath }));
+        return new LibraryCatalogMutationFacts(facts.ChartRemoveRequests, facts.ChartPathChanges,
+            facts.FolderPathChanges, facts.TextChanges,
+            moved.ToDictionary(chart => chart.Path, chart => chart.Txt.GetValueOrDefault(), StringComparer.Ordinal));
+    }
+
     /// <summary>確定後の共通現在値を観測するため、同じ局所カタログ所有者も返します。</summary>
     internal static CatalogMutationReceipt ApplyCatalogRelocation(
         string songDbPath,
@@ -82,7 +93,7 @@ internal static class BmsLibraryStateApplierTestSupport
             callbacks.LastSongDbWriteFailureStage = fact.Stage;
             callbacks.LastSongDbWriteFailure = fact.Exception;
         };
-        return owner.ApplyCatalogMutation(normalizedFacts);
+        return owner.ApplyCatalogMutation(PrepareFinalTextFacts(normalizedFacts));
     }
 
     /// <summary>同じ順序と所属契約で導入packageの観測用collectionを作ります。</summary>

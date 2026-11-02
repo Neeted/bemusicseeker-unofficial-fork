@@ -142,13 +142,18 @@ internal sealed partial class PackageLifecycleOwner
             stopwatch.Stop();
             result.PackageApplyMs = stopwatch.ElapsedMilliseconds;
 
+            var changedPackages = new HashSet<ChartPackage>();
             if (committedRemovalFacts != null)
             {
-                PruneInstalledPackagesForRemovedCharts(committedRemovalFacts, protectedPathFacts);
+                PruneInstalledPackagesForRemovedCharts(committedRemovalFacts, protectedPathFacts, changedPackages);
             }
 
             result.PublishPackagePaths = () =>
             {
+                foreach (ChartPackage package in changedPackages)
+                {
+                    package.PublishDisplayTitle();
+                }
                 foreach (LibraryInstalledPackagePathChange change in facts.InstalledPackagePathChanges)
                 {
                     change.Package?.PublishPath();
@@ -159,7 +164,8 @@ internal sealed partial class PackageLifecycleOwner
 
         private void PruneInstalledPackagesForRemovedCharts(
             IEnumerable<CatalogChartMutationFact> removalFacts,
-            IEnumerable<CatalogRelocationPathFact> protectedPathFacts)
+            IEnumerable<CatalogRelocationPathFact> protectedPathFacts,
+            ISet<ChartPackage> changedPackages)
         {
             if (removalFacts == null)
             {
@@ -187,7 +193,7 @@ internal sealed partial class PackageLifecycleOwner
             .Distinct(StringComparer.Ordinal)];
             if (bmsRemovedTokens.Count > 0 || bmsPathCleanupPaths.Count > 0)
             {
-                PruneInstalledPackagesForBmsFiles(bmsRemovedTokens, bmsPathCleanupPaths);
+                PruneInstalledPackagesForBmsFiles(bmsRemovedTokens, bmsPathCleanupPaths, changedPackages);
             }
 
             HashSet<OwnedChartToken> bmsonRemovedTokens = CreateRemovedTokens(
@@ -205,7 +211,7 @@ internal sealed partial class PackageLifecycleOwner
             .Distinct(StringComparer.Ordinal)];
             if (bmsonRemovedTokens.Count > 0 || bmsonPathCleanupPaths.Count > 0)
             {
-                PruneInstalledPackagesForBmsonSongs(bmsonRemovedTokens, bmsonPathCleanupPaths);
+                PruneInstalledPackagesForBmsonSongs(bmsonRemovedTokens, bmsonPathCleanupPaths, changedPackages);
             }
         }
 
@@ -238,7 +244,7 @@ internal sealed partial class PackageLifecycleOwner
                 StringComparer.Ordinal);
         }
 
-        private void PruneInstalledPackagesForBmsFiles(IEnumerable<OwnedChartToken> removedTokens, IEnumerable<string> pathCleanupPaths)
+        private void PruneInstalledPackagesForBmsFiles(IEnumerable<OwnedChartToken> removedTokens, IEnumerable<string> pathCleanupPaths, ISet<ChartPackage> changedPackages)
         {
             if (removedTokens == null && pathCleanupPaths == null)
             {
@@ -268,6 +274,11 @@ internal sealed partial class PackageLifecycleOwner
                         if (installedPackage.ChartEntries.Count == 0)
                         {
                             emptyInstalledPackages.Add(installedPackage);
+                            changedPackages.Remove(installedPackage);
+                        }
+                        else
+                        {
+                            changedPackages.Add(installedPackage);
                         }
                     }
                 }
@@ -285,7 +296,7 @@ internal sealed partial class PackageLifecycleOwner
             }
         }
 
-        private void PruneInstalledPackagesForBmsonSongs(IEnumerable<OwnedChartToken> removedTokens, IEnumerable<string> pathCleanupPaths)
+        private void PruneInstalledPackagesForBmsonSongs(IEnumerable<OwnedChartToken> removedTokens, IEnumerable<string> pathCleanupPaths, ISet<ChartPackage> changedPackages)
         {
             if (removedTokens == null && pathCleanupPaths == null)
             {
@@ -315,6 +326,11 @@ internal sealed partial class PackageLifecycleOwner
                         if (installedPackage.ChartEntries.Count == 0)
                         {
                             emptyInstalledPackages.Add(installedPackage);
+                            changedPackages.Remove(installedPackage);
+                        }
+                        else
+                        {
+                            changedPackages.Add(installedPackage);
                         }
                     }
                 }

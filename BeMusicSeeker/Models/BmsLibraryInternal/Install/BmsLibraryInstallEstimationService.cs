@@ -300,6 +300,30 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return result;
     }
 
+    /// <summary>現在の入力の各ハッシュと相対配置で導ける親根だけを手動指定として受理します。既知の通常directoryには追加照合を要求しません。</summary>
+    private static bool TryResolveManualPackageRoot(ChartPackage package, string directory,
+        Func<string, List<string>> installedDirectoriesByHash, out string root)
+    {
+        root = null;
+        if (package == null || installedDirectoriesByHash == null) { return false; }
+        foreach (IGrouping<string, PackageChartEntry> entries in (package.ChartEntries ?? [])
+            .Where(entry => !string.IsNullOrWhiteSpace(ChartLookupKey.GetPrimaryHash(entry?.Chart)))
+            .GroupBy(entry => ChartLookupKey.GetPrimaryHash(entry.Chart), StringComparer.OrdinalIgnoreCase))
+        {
+            List<string> installedDirectories = installedDirectoriesByHash(entries.Key);
+            foreach (PackageChartEntry entry in entries)
+            {
+                foreach (string installedDirectory in installedDirectories)
+                {
+                    if (TryConvertInstalledDirectoryToPackageRoot(package.path, entry.Chart.Path, installedDirectory, out string candidate)
+                        && string.Equals(candidate, directory, StringComparison.OrdinalIgnoreCase))
+                    { root = candidate; return true; }
+                }
+            }
+        }
+        return false;
+    }
+
     /// <summary>入力根から譜面への安全な相対directoryを所持位置の末尾から除き、再結合で同じ位置へ戻る候補根だけを返します。ファイルの存在確認や不一致時の祖先探索は行いません。</summary>
     private static bool TryConvertInstalledDirectoryToPackageRoot(string packagePath, string chartPath, string installedDirectory, out string candidateRoot)
     {
@@ -747,8 +771,8 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
                 || (chart.Warnings ?? []).Any(warning => warning != null && warning.Category == ChartWarningCategory.InstallEstimation));
     }
 
-    /// <summary>手動導入先を実在・所持の検査へ通し、ファイル入力は親directory、directory入力は絶対ドライブルートを保って照合します。大小文字を無視して一致した既知集合の登録表記を返し、後続の表示・導入・保存へ同じ表記を渡します。空入力は指定解除です。</summary>
-    public PendingInstallDestinationSelectionResult ValidateInstallDestination(PackageChartEntry targetEntry, IEnumerable<ChartPackage> pendingPackages, IEnumerable<string> knownChartDirectories, string destinationDirectory, bool allowStandaloneLibraryChart = false)
+    /// <summary>手動導入先を実在・所持の検査へ通し、ファイル入力は親directory、directory入力は絶対ドライブルートを保って照合します。大小文字を無視して一致した既知集合の登録表記を返し、後続の表示・導入・保存へ同じ表記を渡します。空入力は指定解除です。直下譜面のない親は、渡された現在の所持hash照会とパッケージ相対配置で根を証明できる場合だけ受理します。</summary>
+    public PendingInstallDestinationSelectionResult ValidateInstallDestination(PackageChartEntry targetEntry, IEnumerable<ChartPackage> pendingPackages, IEnumerable<string> knownChartDirectories, string destinationDirectory, bool allowStandaloneLibraryChart = false, Func<string, List<string>> installedDirectoriesByHash = null)
     {
         var result = new PendingInstallDestinationSelectionResult();
         if (targetEntry?.Chart == null)
@@ -798,7 +822,8 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             return result;
         }
         var knownDirectories = new HashSet<string>((knownChartDirectories ?? []).Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
-        if (!knownDirectories.TryGetValue(installDirectory, out string knownDirectory))
+        if (!knownDirectories.TryGetValue(installDirectory, out string knownDirectory)
+            && !TryResolveManualPackageRoot(package, installDirectory, installedDirectoriesByHash, out knownDirectory))
         {
             result.WarningMessage = string.Format(Properties.Resources.Warn_InstallDirMustContainBms, installDirectory);
             return result;

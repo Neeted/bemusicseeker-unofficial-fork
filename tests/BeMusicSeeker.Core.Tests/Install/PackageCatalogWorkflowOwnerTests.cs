@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
@@ -397,6 +398,92 @@ public sealed class PackageCatalogWorkflowOwnerTests
             Assert.IsFalse(library.OperationAdmission.IsActive);
         }
         finally { library?.RequestShutdown("catalog-record-test"); Directory.Delete(root, recursive: true); }
+    }
+
+    /// <summary>実導入Pのa/bと資源のみ導入Qのaを行へ投影し、選んだ所属だけを除きます。同tokenの別所属への誤解決・退役行の再結合・所持実体の削除を検出します。</summary>
+    [TestMethod]
+    [DataRow("q")]
+    [DataRow("p")]
+    [DataRow("both")]
+    [DataRow("siblings")]
+    [DataRow("retired")]
+    public async Task RemoveSelectionAsync_ResolvesActualInstalledMembership(string selection)
+    {
+        await InstallServiceComponentTestSupport.WithTemporarySongDbAsync(async (dbPath, root) =>
+        {
+            var scope = new ApplicationDatabaseScope();
+            string install = Directory.CreateDirectory(Path.Combine(root, "Library")).FullName;
+            string pSource = Directory.CreateDirectory(Path.Combine(root, "P")).FullName;
+            string qSource = Directory.CreateDirectory(Path.Combine(root, "Q")).FullName;
+            const string a = "#TITLE Song\n#ARTIST Artist\n#GENRE a\n#WAV01 sound.wav\n#00111:01\n";
+            File.WriteAllText(Path.Combine(pSource, "a.bms"), a);
+            File.WriteAllText(Path.Combine(pSource, "b.bms"), a + "#PLAYLEVEL 2\n");
+            File.WriteAllText(Path.Combine(pSource, "sound.wav"), "original");
+            File.WriteAllText(Path.Combine(qSource, "a.bms"), a);
+            File.WriteAllText(Path.Combine(qSource, "extra.wav"), "additional");
+            var p = ChartPackage.FromChartEntries([PackageChartEntry.FromPath(Path.Combine(pSource, "a.bms")), PackageChartEntry.FromPath(Path.Combine(pSource, "b.bms"))]);
+            p.path = pSource;
+            var q = ChartPackage.FromChartEntries([PackageChartEntry.FromPath(Path.Combine(qSource, "a.bms"))]); q.path = qSource;
+            var library = new TestBmsLibrary(scope, dbPath, null, null, new InstallServiceComponentTestSupport.RealFileMutationService(), new FileDbReportRecordingDialogs(),
+                new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = install,
+                    FolderNameFormat = "%TITLE%",
+                    DeletePendingPackageSourceAfterInstall = false
+                }, settings: TestBmsFactory.CreateRootSettings([install]))
+            { BmsCharts = [], BmsonCharts = [], ChartPackagesPending = [p], ChartPackagesInstalled = [] };
+            try
+            {
+                library.ForceInstallPendingPackages([p], approveNormalInstallOverride: true);
+                Assert.AreEqual(2, library.BmsCharts.Count());
+                string destination = Path.GetDirectoryName(library.BmsCharts.First().Path) ?? throw new AssertFailedException("導入先が必要です。");
+                library.ChartPackagesPending = [q];
+                foreach (PackageChartEntry entry in q.ChartEntries) { BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry); }
+                Assert.IsTrue(library.SetPendingInstallDestination(q.ChartEntries.Single(), destination, false));
+                PendingInstallBatchResult installed = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([q]);
+                Assert.IsTrue(installed.HasDurableCommit);
+                Assert.AreEqual(2, library.ChartPackagesInstalled.Count);
+                ChartPackage installedP = library.ChartPackagesInstalled.Single(package => package.ChartEntries.Count == 2);
+                ChartPackage installedQ = library.ChartPackagesInstalled.Single(package => package.ChartEntries.Count == 1);
+                ChartFile[] before = library.BmsCharts.ToArray();
+                Dictionary<string, byte[]> bytes = before.ToDictionary(chart => chart.Path, chart => File.ReadAllBytes(chart.Path));
+                var projector = new MainChartRowProjectionOwner();
+                ChartOperationTarget Target(PackageChartEntry entry)
+                {
+                    LibraryChartRow row = projector.CreatePackageRow(library, entry);
+                    Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, ChartOperationSourceScope.NewlyInstalledPackage, out ChartOperationTarget target));
+                    return target;
+                }
+                ChartOperationTarget qTarget = Target(installedQ.ChartEntries.Single());
+                ChartOperationTarget[] targets = selection switch
+                {
+                    "q" or "retired" => [qTarget],
+                    "p" => [Target(installedP.ChartEntries[0])],
+                    "siblings" => [.. installedP.ChartEntries.Select(Target)],
+                    _ => [Target(installedP.ChartEntries[0]), qTarget]
+                };
+                var owner = new PackageCatalogWorkflowOwner(() => library, library.OperationAdmission, new ChartMutationActivityOwner(),
+                    AcceptedDialogs(), new NoOpChartMutationPlaybackPort(), mutation => Task.Run(mutation), new BmsLibraryPackageCatalogStore(() => Task.CompletedTask));
+                if (selection == "retired") { Assert.IsTrue((await owner.RemovePackageAsync(PackageCatalogSection.Installed, installedQ)).Succeeded); }
+                PackageCatalogMutationResult result = await owner.RemoveSelectionAsync(PackageCatalogRemovalRequest.CreateInstalled(targets));
+                Assert.IsTrue(result.Succeeded);
+                Assert.AreEqual(selection is "q" or "retired", library.ChartPackagesInstalled.Contains(installedP));
+                Assert.AreEqual(selection is "p" or "siblings", library.ChartPackagesInstalled.Contains(installedQ));
+                Assert.AreEqual(2, library.BmsCharts.Count());
+                foreach (ChartFile chart in before)
+                {
+                    CollectionAssert.AreEqual(bytes[chart.Path], File.ReadAllBytes(chart.Path));
+                    Assert.AreSame(chart.Token, library.BmsCharts.Single(current => current.Path == chart.Path).Token);
+                    Assert.IsTrue(library.TryGetInstalledDirectoryByHash(chart.Md5, out string directory));
+                    Assert.AreEqual(destination, directory);
+                }
+                Assert.IsTrue(File.Exists(Path.Combine(destination, "extra.wav")));
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(scope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly();
+                CollectionAssert.AreEquivalent(before.Select(chart => chart.Path).ToArray(), db.Table<BeMusicSeeker.Models.LR2.LR2SongDB.song>().Select(row => row.path).ToArray());
+            }
+            finally { library.RequestShutdown("package-membership-removal"); }
+        });
     }
 
     private static PackageCatalogWorkflowOwner CreateOwner(

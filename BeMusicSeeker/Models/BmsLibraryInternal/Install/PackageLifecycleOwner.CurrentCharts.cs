@@ -51,7 +51,7 @@ internal sealed partial class PackageLifecycleOwner
                     Func<Action> complete = entry.DeferPropertyChangedNotificationPublication();
                     try
                     {
-                        entry.ApplyCurrentChart(chart);
+                        entry.ApplyCurrentChart(chart, refreshPendingWarnings: false);
                     }
                     finally
                     {
@@ -86,6 +86,42 @@ internal sealed partial class PackageLifecycleOwner
                 }
             }
         };
+    }
+
+    /// <summary>
+    /// prefix参照の更新前に、旧pathと同tokenの所属から単体packageの実確定先を捕捉します。
+    /// フォルダpackageの代表rootは個別譜面移動から推測しません。
+    /// </summary>
+    internal LibraryPackageReferenceFacts CaptureCommittedPackagePaths(
+        LibraryPackageReferenceFacts facts, IEnumerable<LibraryChartPathChange> changes)
+    {
+        var paths = (facts?.InstalledPackagePathChanges ?? [])
+            .GroupBy(change => change.Package).ToDictionary(group => group.Key, group => group.Last());
+        lock (packageCollectionStateLock)
+        {
+            foreach (LibraryChartPathChange change in changes ?? [])
+            {
+                if (change.Chart?.Token == null || !installedEntriesByToken.TryGetValue(change.Chart.Token, out HashSet<PackageChartEntry> entries))
+                {
+                    continue;
+                }
+                foreach (PackageChartEntry entry in entries)
+                {
+                    if (entry.Chart.Kind != change.Chart.Kind || !StringComparer.Ordinal.Equals(entry.Chart.Path, change.OldPath))
+                    {
+                        continue;
+                    }
+                    foreach (ChartPackage package in installedEntryMemberships[entry].Packages)
+                    {
+                        if (StringComparer.Ordinal.Equals(package.path, change.OldPath))
+                        {
+                            paths[package] = new LibraryInstalledPackagePathChange { Package = package, NewPath = change.NewPath };
+                        }
+                    }
+                }
+            }
+        }
+        return new LibraryPackageReferenceFacts(facts?.InstallDestinationChanges, paths.Values);
     }
 
     private void OnInstalledPackageCollectionChanged(object sender, NotifyCollectionChangedEventArgs args)

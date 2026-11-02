@@ -50,7 +50,15 @@
           <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Margin="0,4,0,0" Foreground="{DynamicResource App.DisabledTextBrush}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_list_drag_drop_hint, Mode=OneWay}" TextWrapping="Wrap" />
         </Grid>
       </settings:SettingsListEditor>
-    <settings:SettingsField IsEnabled="{Binding IsEditCompletionEnabled}" Visibility="{Binding RequiresReplacementBmsInstallDir, Converter={StaticResource BooleanToVisibilityConverter}}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_replacement_install}"><ComboBox ItemsSource="{Binding AvailableBMSDirectories}" SelectedItem="{Binding ReplacementBmsInstallDir}" /></settings:SettingsField>
+    <StackPanel Visibility="{Binding RequiresReplacementBmsInstallDir, Converter={StaticResource BooleanToVisibilityConverter}}">
+      <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_removed_install}">
+        <TextBox IsReadOnly="True" Text="{Binding RemovedBmsInstallDir, Mode=OneWay}" />
+      </settings:SettingsField>
+      <settings:SettingsField x:Name="replacementInstallField" IsEnabled="{Binding IsEditCompletionEnabled}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_replacement_install}"
+                              ValidationMessage="{Binding ReplacementBmsInstallDirValidationMessage}" ValidationStatus="{Binding ReplacementBmsInstallDirValidationStatus}">
+        <ComboBox x:Name="replacementInstallComboBox" Style="{StaticResource SettingsValidatedComboBoxStyle}" ItemsSource="{Binding AvailableBMSDirectories}" SelectedItem="{Binding ReplacementBmsInstallDir}" />
+      </settings:SettingsField>
+    </StackPanel>
 <StackPanel Orientation="Horizontal" Margin="0,8,0,0"><Button Tag="confirm:bms" Style="{StaticResource SettingsPrimaryButtonStyle}" IsEnabled="{Binding CanConfirmBmsRoots}" AutomationProperties.AutomationId="SettingsConfirmbms" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_confirm_bms_roots, Mode=OneWay}" /><Button Tag="cancel:bms" Style="{StaticResource SettingsQuietButtonStyle}" AutomationProperties.AutomationId="SettingsCancelbms" Margin="8,0,0,0" IsEnabled="{Binding CanCancelBmsRoots}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_cancel_changes, Mode=OneWay}" /></StackPanel></StackPanel></settings:SettingsSection>
 
 

@@ -181,13 +181,13 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
     /// <summary>導入準備と現在値の反映を排他する、エントリー固有の境界です。</summary>
     internal object GetMutationSyncRoot() => mutationGate;
 
-    /// <summary>確定済みの共通現在値を反映します。既存の通知延期境界を維持します。</summary>
-    internal void ApplyCurrentChart(ChartFile value)
+    /// <summary>共通現在値を反映します。保留の評価時だけ導入前警告を再評価し、導入済み所属への反映では再生成しません。</summary>
+    internal void ApplyCurrentChart(ChartFile value, bool refreshPendingWarnings = true)
     {
         lock (mutationGate)
         {
             chart = value ?? throw new ArgumentNullException(nameof(value));
-            RefreshUnsupportedResourcePathWarningCore();
+            if (refreshPendingWarnings) { RefreshUnsupportedResourcePathWarningCore(); }
         }
         RaiseChartChanged();
     }
@@ -452,12 +452,16 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
     }
 
     /// <summary>導入成功に向けたdetached準備と成功後のlive反映で、元配置結果・候補・導入前の構造警告と一時警告を解除します。</summary>
-    /// <remarks>準備時はdetached項目だけへ適用し、失敗・未処理のlive項目では元の警告を保持します。LR2投影の所有を解放して確定現在値の診断へ追従し、成功先の健康度は必須保守で再評価します。</remarks>
+    /// <remarks>準備時はdetached項目だけへ適用し、失敗・未処理のlive項目では元の警告を保持します。健康度とLR2投影の所有を解放して確定現在値の診断へ追従し、成功先の健康度は必須保守で再評価します。</remarks>
     internal void ClearPostInstallState()
     {
         DiscardOriginalResourceHealth();
         ClearWarningsByCategory(ChartWarningCategory.PackageLayout);
-        ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
+        lock (mutationGate)
+        {
+            ClearWarningsByCategoryCore(ChartWarningCategory.InstallEstimation, preservePendingParentWarning: false);
+            projectedWarningCategories.Add(ChartWarningCategory.InstallEstimation);
+        }
         ClearWarningsByCategory(ChartWarningCategory.ResourceHealth);
         ClearResourceHealthProjection();
         lock (mutationGate)
@@ -465,6 +469,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
             // 空の投影で上書きすると成功先の新しい診断も隠すため、分類の所有ごと解放します。
             ClearWarningsByCategoryCore(ChartWarningCategory.Lr2Compatibility);
             projectedWarningCategories.Remove(ChartWarningCategory.Lr2Compatibility);
+            projectedWarningCategories.Remove(ChartWarningCategory.ResourceHealth);
         }
         ReplacePendingInstallDestination(null, string.Empty, string.Empty, [], forceProjection: true);
     }
@@ -570,14 +575,14 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         }
     }
 
-    private void ClearWarningsByCategoryCore(ChartWarningCategory category)
+    private void ClearWarningsByCategoryCore(ChartWarningCategory category, bool preservePendingParentWarning = true)
     {
         ChartWarning preservedParent = chart.Resources == null && pendingWarnings.TryGetValue(ChartWarningKind.UnsupportedResourcePath, out ChartWarning previousParent) ? previousParent : null;
         foreach (ChartWarningKind kind in pendingWarnings.Where(pair => pair.Value.Category == category).Select(pair => pair.Key).ToList())
         {
             pendingWarnings.Remove(kind);
         }
-        if (category == ChartWarningCategory.InstallEstimation)
+        if (category == ChartWarningCategory.InstallEstimation && preservePendingParentWarning)
         {
             if (preservedParent != null) { pendingWarnings[ChartWarningKind.UnsupportedResourcePath] = preservedParent; }
             else { RefreshUnsupportedResourcePathWarningCore(); }

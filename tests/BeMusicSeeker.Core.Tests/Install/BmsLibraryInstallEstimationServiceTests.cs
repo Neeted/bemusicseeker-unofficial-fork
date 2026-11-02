@@ -254,6 +254,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     [DataRow(101, 90, true, false)]
     [DataRow(101, 91, true, true)]
     [DataRow(100, 95, false, true)]
+    [DataRow(100, 90, false, true)]
     [DataRow(100, 89, false, false)]
     [DataRow(100, 100, false, true)]
     public void SourceAudio_UsesExactCountsAndObservedLowerBound(int required, int matched, bool complete, bool both)
@@ -291,6 +292,17 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(InstallEstimationSourceAudioStatus.Verified, unresolved.Status);
         Assert.AreEqual(2, unresolved.Required);
         Assert.AreEqual(InstallEstimationRelatedRule.AnyField, unresolved.RelatedRule);
+        foreach (int matched in new[] { 9, 8 })
+        {
+            string[] names = [.. Enumerable.Range(0, matched).Select(i => $"tone{i}.wav")];
+            bundled.AddDir(@"C:\Counted", names);
+            var counted = InstallEstimationSourceAudio.Evaluate(ChartResourceSnapshot.Create(CreateFile("h", @"C:\Source\c.bms",
+                [.. names, .. Enumerable.Range(matched, 10 - matched).Select(i => $"../missing{i}.wav")])), bundled.GetEntryOrNull(@"C:\Counted"), true);
+            Assert.AreEqual(10, counted.Required);
+            Assert.AreEqual(matched, counted.ObservedMatched);
+            Assert.AreEqual(InstallEstimationSourceAudioStatus.Verified, counted.Status);
+            Assert.AreEqual(matched == 9 ? InstallEstimationRelatedRule.BothFields : InstallEstimationRelatedRule.AnyField, counted.RelatedRule);
+        }
     }
 
     /// <summary>通常・限定・ハッシュの同じ入力から同じ規則を渡し、候補並列・設定閾値・保持モードに左右されません。</summary>
@@ -575,6 +587,52 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Assert.AreEqual(@"C:\Candidate", result.SelectedCandidate.DirectoryPath);
             if (!apply) { CollectionAssert.Contains(result.SuggestedDestinationDirectories, @"C:\Candidate"); }
         }
+    }
+
+    /// <summary>親参照込み9/10の源側条件では同TITLE・別ARTISTを通常候補から除き、明示保持でも分類を変えず既知pathの手入力だけを受理します。</summary>
+    [TestMethod]
+    public void Estimate_NamedParentRequestPreservesClassificationAndExplicitDestination()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string source = Directory.CreateDirectory(Path.Combine(workspace.RootDirectory, "Source")).FullName;
+        string candidate = Directory.CreateDirectory(Path.Combine(workspace.RootDirectory, "Candidate")).FullName;
+        string[] names = [.. Enumerable.Range(0, 9).Select(i => $"tone{i}.wav")];
+        ChartFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(source, "chart.bms"), [.. names, "../parent.wav"])
+            with
+        { RawTitle = "Blue Orbit", RawArtist = "alice", Artist = "alice" };
+        var entry = PackageChartEntry.FromChart(chart);
+        var package = ChartPackage.FromChartEntries([entry]); package.path = source;
+        var resources = ChartResourceSnapshot.Create(chart);
+        var cache = new DirectoryResourceLookupCache(); cache.AddDir(source, names); cache.AddDir(candidate, names);
+        ChartFile candidateChart = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(candidate, "other.bms"), names)
+            with
+        { RawTitle = "Blue Orbit", RawArtist = "xyz", Artist = "xyz" };
+        Assert.AreNotEqual(chart.Md5, candidateChart.Md5);
+        InstallEstimationMetadataProfile profile = InstallEstimationMetadataNormalizer.BuildProfile([(candidateChart.RawTitle, candidateChart.RawArtist, candidateChart.Path)]);
+        var snapshot = new PackageInstallEstimationSnapshot
+        {
+            RepresentativeChart = chart,
+            DefinedResources = resources,
+            TargetChartResources = [(resources, "")],
+            TargetMetadataProfile = InstallEstimationMetadataNormalizer.BuildProfile([("Blue Orbit", "alice", chart.Path)]),
+            BundledResources = cache.GetEntryOrNull(source),
+            SourceDirectory = source
+        };
+        BmsLibraryInstallEstimationService service = CreateService(testSettings);
+        InstallEstimationResult normal = service.EstimateInstallationDirectoryForCandidateDirectories(snapshot, [candidate], cache, false, ChartInstallationEstimateMode.Normal, _ => profile);
+        InstallEstimationResult retained = service.EstimateInstallationDirectoryForCandidateDirectories(snapshot, [candidate], cache, false, ChartInstallationEstimateMode.Normal, _ => profile,
+            candidatePolicy: InstallEstimationCandidatePolicy.KeepUnrelated);
+        Assert.AreEqual(9, normal.SourceAudio.ObservedMatched);
+        Assert.AreEqual(10, normal.SourceAudio.Required);
+        Assert.AreEqual(InstallEstimationRelatedRule.BothFields, normal.SourceAudio.RelatedRule);
+        Assert.IsNull(normal.SelectedCandidate);
+        Assert.AreEqual(InstallEstimationMetadataRelation.Unrelated, retained.SelectedCandidate.MetadataRelation);
+        Assert.IsFalse(retained.SelectedCandidateMetadataEvidenceStrong);
+        Assert.IsFalse(retained.ShouldAutoApplyDestination);
+        PendingInstallDestinationSelectionResult selected = service.ValidateInstallDestination(entry, [package], [candidate], candidate);
+        Assert.IsTrue(selected.Success);
+        Assert.AreEqual(candidate, selected.ValidatedDestinationDirectory);
+        Assert.IsTrue(entry.Chart.Resources.Any(reference => reference.RestrictsAutomaticDestination));
     }
 
     /// <summary>音声完全の所持hash経路でも採用任意画像の親参照を別条件で検査し、音声完全なら自動確定できるという混同を防ぎます。</summary>
@@ -2471,7 +2529,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.IsTrue(PendingInstallDestinationEditRequest.TryCreate(target, out PendingInstallDestinationEditRequest request));
                 Assert.AreSame(entry, request.PackageEntry, "保留群の出自を明示して実storeへ渡します。");
                 string changedCaseInput = Path.Combine(tempRoot, "mixedparent", "knownsong");
-                ChartFile changed = store.SetPending(library, request, changedCaseInput);
+                ChartFile changed = store.SetPending(library, request, changedCaseInput).Single();
                 Assert.IsNotNull(changed);
                 string editedDestination = changed.InstallDestination;
                 string requestedDestination = package.ChartEntries.Single().Chart.InstallDestination;

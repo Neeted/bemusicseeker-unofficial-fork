@@ -536,6 +536,20 @@ public partial class SettingsDialogViewModel
     /// <summary>導入先が最終候補一覧から外れるときだけ代替選択を表示します。</summary>
     public bool RequiresReplacementBmsInstallDir => !AvailableBMSDirectories.Contains(ApplicationSettings.BMSInstallDir, StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>一覧から除く確定済み導入先です。変更先の選択だけでは保存値を置換しません。</summary>
+    public string RemovedBmsInstallDir => GetConfirmedBmsRoots().Contains(ApplicationSettings.BMSInstallDir, StringComparer.OrdinalIgnoreCase)
+        ? ApplicationSettings.BMSInstallDir : string.Empty;
+
+    /// <summary>残存候補への包含で変更先を検証し、削除対象の再選択と元から無効な設定を区別します。</summary>
+    public string ReplacementBmsInstallDirValidationMessage => !RequiresReplacementBmsInstallDir
+        || AvailableBMSDirectories.Contains(replacementBmsInstallDir, StringComparer.OrdinalIgnoreCase) ? string.Empty
+        : string.IsNullOrEmpty(RemovedBmsInstallDir) ? Resources.Error_InvalidBmsInstallDir
+        : AvailableBMSDirectories.Count == 0 ? Resources.Settings_replacement_install_empty
+        : Resources.Settings_replacement_install_required;
+
+    /// <summary>変更先が有効な候補になるまで必須入力表示を維持します。</summary>
+    public string ReplacementBmsInstallDirValidationStatus => string.IsNullOrEmpty(ReplacementBmsInstallDirValidationMessage) ? string.Empty : "Error";
+
     /// <summary>実操作は編集中の環境候補ではなく保存済みのrootを使います。</summary>
     internal string ConfirmedBeatorajaRootPath => ApplicationSettings.BeatorajaRootPath;
 
@@ -708,6 +722,10 @@ public partial class SettingsDialogViewModel
     private void RaiseEnvironmentAvailabilityChanged()
     {
         RaiseConfirmedBmsSelectionChanged();
+        RaisePropertyChanged(nameof(RequiresReplacementBmsInstallDir));
+        RaisePropertyChanged(nameof(RemovedBmsInstallDir));
+        RaisePropertyChanged(nameof(ReplacementBmsInstallDirValidationMessage));
+        RaisePropertyChanged(nameof(ReplacementBmsInstallDirValidationStatus));
         RaisePropertyChanged(nameof(HasEnvironmentChanges));
         RaisePropertyChanged(nameof(CanConfirmEnvironment));
         RaisePropertyChanged(nameof(CanCancelEnvironment));

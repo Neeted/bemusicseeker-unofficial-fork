@@ -20,6 +20,39 @@ namespace BeMusicSeeker.Tests;
 public sealed class ChartListVirtualViewTests
 {
 
+    /// <summary>全兄弟の変更キーで未実体化行も比較し直し、同hash別所属の値を変えず順序とfilter件数を更新します。</summary>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    public void RefreshKeyDependencies_ReordersAllChangedPackageEntries(bool descending, bool filtered)
+    {
+        var a = PackageChartEntry.FromChart(CreateFile(@"C:\P\a.bms", "A", "Artist", hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+        var b = PackageChartEntry.FromChart(CreateFile(@"C:\P\b.bms", "B", "Artist", hash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+        var q = PackageChartEntry.FromChart(CreateFile(@"C:\Q\q.bms", "Q", "Artist", hash: "cccccccccccccccccccccccccccccccc"));
+        var alias = PackageChartEntry.FromChart(CreateFile(@"C:\Alias\a.bms", "Alias", "Artist", hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+        q.SetInstallDestinationPathOnly(@"C:\M"); alias.SetInstallDestinationPathOnly(@"C:\N");
+        ChartListSourceRow[] sources = [.. new[] { a, b, q, alias }.Select(entry => ChartListSourceRow.FromPackageChartEntry(entry))];
+        Assert.IsTrue(ChartListOrder.TryCreate(sources, nameof(LibraryChartRow.instl_dst), descending ? ListSortDirection.Descending : ListSortDirection.Ascending, out ChartListOrder order));
+        bool Filter(ChartListSourceRow source) => !filtered || source.Chart.InstallDestination != @"C:\Z";
+        var view = new ChartListVirtualView(sources, order, LibraryChartRow.FromSourceRow, normalFilter: Filter, scoreInput: new ChartListScoreInput(null));
+        _ = view[0];
+        Assert.AreEqual(1, view.RealizedRowCount);
+        a.SetInstallDestinationPathOnly(@"C:\Z"); b.SetInstallDestinationPathOnly(@"C:\Z");
+        Assert.IsTrue(view.RefreshKeyDependencies([a.Chart.Md5, b.Chart.Md5], [], row => row.RefreshDisplayForDataDependency(MainViewDataDependency.InstallDestination)));
+        Assert.AreEqual(@"C:\N", alias.Chart.InstallDestination);
+        Assert.AreEqual(filtered ? 2 : 4, view.Count);
+        string[] actual = view.Cast<LibraryChartRow>().Select(row => row.instl_dst).ToArray();
+        CollectionAssert.AreEqual(filtered ? new[] { @"C:\M", @"C:\N" }
+            : descending ? new[] { @"C:\Z", @"C:\Z", @"C:\N", @"C:\M" }
+            : new[] { @"C:\M", @"C:\N", @"C:\Z", @"C:\Z" }, actual);
+        a.SetInstallDestinationPathOnly(null); b.SetInstallDestinationPathOnly(null);
+        Assert.IsTrue(view.RefreshKeyDependencies([a.Chart.Md5, b.Chart.Md5], [], row => row.RefreshDisplayForDataDependency(MainViewDataDependency.InstallDestination)));
+        Assert.AreEqual(4, view.Count);
+        CollectionAssert.AreEqual(descending ? new[] { @"C:\N", @"C:\M", "", "" } : new[] { "", "", @"C:\M", @"C:\N" },
+            view.Cast<LibraryChartRow>().Select(row => row.instl_dst).ToArray());
+    }
+
     private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
     /// <summary>件数照会では三行とも未生成とし、先頭アクセスだけが整列済みのAlpha一行を生成することで、件数取得時の全件生成を検出します。</summary>
     [TestMethod]

@@ -30,6 +30,106 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed partial class MainWindowPackageMaintenanceWpfTests
 {
+    /// <summary>設定画面の確定から同じlibraryの実差分scanへ接続し、解除rootの導入所属を新規作品と全件の再選択から除きます。</summary>
+    [TestMethod]
+    public void RemovedSearchRoot_CompiledSettingsPrunesInstalledTreeOnSameLibrary()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string a = Path.Combine(workspace.RootDirectory, "A"), b = Path.Combine(workspace.RootDirectory, "B");
+        Directory.CreateDirectory(a); Directory.CreateDirectory(b);
+        string aBase = Path.Combine(a, "base.bms"), bBase = Path.Combine(b, "base.bms");
+        File.WriteAllText(aBase, "#TITLE Root A\n#BPM 120\n");
+        File.WriteAllText(bBase, "#TITLE Root B\n#BPM 120\n");
+        string input = Path.Combine(workspace.RootDirectory, "added.bms");
+        File.WriteAllText(input, "#TITLE Added\n#BPM 120\n");
+        string database = Path.Combine(workspace.RootDirectory, "song.db"); File.WriteAllBytes(database, []);
+        Settings settings = TestBmsFactory.CreateRootSettings([a, b]);
+        settings.BMSInstallDir = a; settings.StartupSelectInstallPending = false;
+        TestBmsLibrary? library = null;
+        var scanner = new FastDirectoryFileScanner();
+        try
+        {
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(settings, (scope, vm, window) =>
+            {
+                TestBmsLibrary current = library ?? throw new AssertFailedException();
+                MainWindowPresentationTestHarness.ShowCompiledContent(scope, vm, window);
+                var table = (CustomTableView)window.FindName("customTableView");
+                ChartFile incoming = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(input));
+                ChartPackage pending = ChartPackageTestExtensions.CreatePackage(ChartPackageTestExtensions.CreateEntryWithInstallDestination(incoming, a));
+                pending.path = input; current.ChartPackagesPending = [pending];
+                PendingInstallBatchResult installed = current.InstallPendingPackagesToEstimatedDestinationsWithReceipt([pending]);
+                Assert.IsTrue(installed.HasDurableCommit); Assert.IsFalse(installed.SessionReceipt.HasRequiredFailure);
+                string installedPath = current.ChartPackagesInstalled.Single().ChartEntries.Single().Chart.Path;
+                NavigateInstalled(); Assert.AreEqual(1, table.ItemsSource.Cast<LibraryChartRow>().Count());
+                var settingsWindow = new SettingsWindow { DataContext = vm.SettingDialog, PlaybackPanel = vm.PlaybackPanel };
+                scope.ShowAndWaitForContentRendered(settingsWindow);
+                try
+                {
+                    var navigation = (ListBox)settingsWindow.FindName("settingsNavigation");
+                    navigation.SelectedItem = settingsWindow.FindName("navigationInstall");
+                    TestUiDispatcherHost.ProcessQueuedPresentation(); settingsWindow.UpdateLayout();
+                    var page = (FrameworkElement)((ContentControl)settingsWindow.FindName("settingsPageContent")).Content;
+                    ComboBox destination = Descendants(page).OfType<ComboBox>().Single(combo => System.Windows.Data.BindingOperations.GetBinding(combo, System.Windows.Controls.Primitives.Selector.SelectedItemProperty)?.Path?.Path == nameof(SettingsDialogViewModel.BMSInstallDir));
+                    Task select = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => destination.SelectedItem = b);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(select, "root-change-install-selection");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(vm.SettingDialog.SettingsOperationCompletionTask, "root-change-install-save");
+                    Assert.AreEqual(b, settings.BMSInstallDir);
+                    navigation.SelectedItem = settingsWindow.FindName("navigationGeneral");
+                    TestUiDispatcherHost.ProcessQueuedPresentation(); settingsWindow.UpdateLayout();
+                    page = (FrameworkElement)((ContentControl)settingsWindow.FindName("settingsPageContent")).Content;
+                    ((ListBox)page.FindName("bmsSearchRootPathListBox")).SelectedItem = a;
+                    var remove = (Button)page.FindName("removeBmsSearchRootButton");
+                    Task removal = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => remove.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, remove)));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(removal, "root-change-candidate-removal");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(vm.SettingDialog.SettingsOperationCompletionTask, "root-change-candidate-completion");
+                    Button confirm = Descendants(page).OfType<Button>().Single(button => Equals(button.Tag, "confirm:bms"));
+                    Task commit = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => confirm.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, confirm)));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(commit, "root-change-save-and-real-scan");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(vm.SettingDialog.SettingsOperationCompletionTask, "root-change-scan-completion");
+                    Assert.AreEqual(StandaloneBmsRootPathSettings.Serialize([b]), settings.StandaloneBmsRootPaths);
+                    Assert.IsTrue(File.Exists(aBase)); Assert.IsTrue(File.Exists(installedPath));
+                    Assert.AreEqual(0, current.ChartPackagesInstalled.Count);
+                    NavigateInstalled(); Assert.AreEqual(0, table.ItemsSource.Cast<LibraryChartRow>().Count());
+                    Task all = vm.RegularChartList.NavigateMaintenanceAsync(MainViewUpdateMode.FullScanAllChartsFilterSelected);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(all, "root-change-all-reselection");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    CollectionAssert.AreEqual(new[] { bBase }, table.ItemsSource.Cast<LibraryChartRow>().Select(row => row.path).ToArray());
+                }
+                finally { settingsWindow.Close(); }
+                void NavigateInstalled()
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(vm.RegularChartList.NavigateInstallAsync(MainViewUpdateMode.NewlyInstalledFolderSelected), "root-change-installed-reselection");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                }
+            }, prepareViewModel: vm =>
+            {
+                ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(vm);
+                library = new TestBmsLibrary(composition.DatabaseScope, database, getLR2Config: null, _lr2ScoreDB: null,
+                    startupRequiredFileScanReason: null, optionsSnapshotProvider: () => new BmsLibraryOptionsSnapshot
+                    { OperationModeLR2DB = false, BMSInstallDir = settings.BMSInstallDir, PendingInstallEstimateMaxParallelPackages = 1 },
+                    applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge, chartFileScanner: scanner,
+                    operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: settings)
+                { BmsCharts = new[] { aBase, bBase }.Select(path => BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path))).ToList(), BmsonCharts = [] };
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(composition.DatabaseScope, database, db =>
+                { foreach (ChartFile chart in library.BmsCharts) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song)); } });
+                ((IStartupLibraryApplicationPort)vm).AttachStartupLibrary(library);
+                vm.InstallTree.AttachLibrary(library);
+                SettingsRootTestFixture.SetActiveLibraryProfile(vm, true);
+                SettingsRootTestFixture.SetPrivateField(vm, "initializationCompleted", true);
+            });
+        }
+        finally { library?.RequestShutdown("compiled-removed-root"); }
+        static IEnumerable<DependencyObject> Descendants(DependencyObject root)
+        {
+            foreach (object child in LogicalTreeHelper.GetChildren(root))
+            {
+                if (child is not DependencyObject dependency) { continue; }
+                yield return dependency;
+                foreach (DependencyObject nested in Descendants(dependency)) { yield return nested; }
+            }
+        }
+    }
+
     /// <summary>三つの実treeから候補/手入力・取消・再表示保持をcompiled編集へ接続し、確定だけでは物理処理しません。全件条件は同path保留との分離と明示修復のfile/DB終端も確認します。</summary>
     [TestMethod]
     [DataRow(0)]
@@ -114,6 +214,22 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                             Assert.AreEqual(bDirectory, Current().instl_dst);
                             Assert.IsNotNull(Current().PackageEntry);
                         }
+                        var renamed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        EventHandler<NormalLibraryRefreshAppliedEventArgs> folderApplied = (_, args) =>
+                        {
+                            if (args.NotificationBatch.FolderChanges.Count > 0) { renamed.TrySetResult(); }
+                        };
+                        vm.RegularChartList.NormalLibraryRefreshApplied += folderApplied;
+                        try
+                        {
+                            LibraryMutationSessionReceipt receipt = currentLibrary.RenameChartFolderWithReceipt(aDirectory, "A-renamed");
+                            Assert.IsTrue(receipt.DurableCommit);
+                            Assert.IsFalse(receipt.HasRequiredFailure);
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(renamed.Task, "owned-destination-folder-success");
+                            aDirectory = Path.Combine(root, "A-renamed");
+                            movedPath = Path.Combine(aDirectory, "source.bms");
+                        }
+                        finally { vm.RegularChartList.NormalLibraryRefreshApplied -= folderApplied; }
                         Navigate(); Assert.AreEqual(aDirectory, Current().instl_dst);
                         Begin(); Assert.AreEqual(aDirectory, Editor().Text);
                         table.HandleKeyDown(Key.Escape, ModifierKeys.None); table.HandleKeyDown(Key.Escape, ModifierKeys.None);
@@ -347,7 +463,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     File.WriteAllText(bmsPath, "#PLAYER 1\n#TITLE A current\n#BPM 120\n");
                     File.WriteAllText(bmsonPath, "{}");
                     ChartFile bms = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsPath));
-                    ChartFile bmson = BmsonChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsonPath));
+                    ChartFile bmson = BmsonChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsonPath)) with { RawTitle = "B survivor", Title = "B survivor [solo]" };
                     string dbPath = Path.Combine(root, "song.db");
                     using (LR2SongDBExtended db = MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope.OpenSongWrite(dbPath))
                     {
@@ -372,6 +488,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     package.path = source;
                     library.ChartPackagesInstalled = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([package]);
                     ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
+                    viewModel.InstallTree.AttachLibrary(library);
                     var table = (CustomTableView)window.FindName("customTableView");
                     object content = window.Content;
                     window.Content = null;
@@ -413,6 +530,15 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.AreSame(rows, table.ItemsSource, "Rows公開と実表bindingの反映を別々に完了させてから編集を開始します。");
                     Assert.AreEqual(2, rows.Count);
+                    var installedTree = (TreeViewItem)window.FindName("newlyInstalledTreeViewItem");
+                    installedTree.BringIntoView();
+                    host.UpdateLayout();
+                    installedTree.ApplyTemplate();
+                    installedTree.UpdateLayout();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    TreeViewItem packageNode = installedTree.ItemContainerGenerator.ContainerFromItem(package) as TreeViewItem
+                        ?? throw new AssertFailedException("表示済みpackageノードが必要です。");
+                    Assert.AreEqual("A current", packageNode.Header);
                     LibraryChartRow[] realized = rows.Cast<LibraryChartRow>().ToArray();
                     EventHandler<MainChartListCellEditBeginningEventArgs> allowEdit = (_, request) => request.Accepted = true;
                     viewModel.MainChartList.CellEditBeginningRequested += allowEdit;
@@ -482,6 +608,17 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         using LR2SongDBExtended readback = new BmsLibraryDbGateway(library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly();
                         Assert.IsNotNull(readback.Find<LR2SongDB.song>(first.Chart.Path));
                         Assert.IsNotNull(readback.Find<LR2SongDBExtended.bmson_song>(second.Chart.Path));
+                        table.HandleKeyDown(Key.Escape, ModifierKeys.None);
+                        refreshApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        LibraryChartRemovalOutcome removed = library.RemoveLibraryCharts(
+                            library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(first.Chart)]), false, []);
+                        Assert.IsFalse(removed.HasError);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(refreshApplied.Task, "installed partial membership removal");
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.AreSame(packageNode, installedTree.ItemContainerGenerator.ContainerFromItem(package));
+                        Assert.AreEqual("B survivor [solo]", packageNode.Header);
+                        Assert.AreEqual(1, viewModel.MainChartList.Rows.Count);
+                        Assert.AreSame(second, viewModel.MainChartList.Rows.Cast<LibraryChartRow>().Single().PackageEntry);
                     }
                     finally
                     {
@@ -1250,9 +1387,15 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     }
 
     /// <summary>実推定のRelated候補が改名・別root移動後も生成済み行から選べ、根拠・警告・健康度を保ち、明示クリアでは登録時の結果へ戻ることを確認します。</summary>
-    /// <remarks>分類条件表は下位へ分担し、compiled推定・通常temp配下の候補セル入力・再編集初期値を、各回の実受信Task・Presentation・L終端へ接続します。</remarks>
+    /// <remarks>分類条件表は下位へ分担し、compiled推定・通常temp配下の候補セル入力・再編集初期値を、別の既知先への非空直接入力を含む各回の実受信Task・Presentation・L終端へ接続します。</remarks>
     [TestMethod]
-    public void PendingEstimationAndCandidateEditingReachRealizedRowsWithRelatedEvidence()
+    [DataRow(nameof(LibraryChartRow.instl_dst), false, false)]
+    [DataRow(nameof(LibraryChartRow.instl_dst), true, true)]
+    [DataRow(nameof(LibraryChartRow.InstallDestinationTitle), false, true)]
+    [DataRow(nameof(LibraryChartRow.InstallDestinationArtist), true, false)]
+    [DataRow(nameof(LibraryChartRow.WAVHealth), false, false)]
+    [DataRow(nameof(LibraryChartRow.WAVHealth), true, true)]
+    public void PendingEstimationAndCandidateEditingReachRealizedRowsWithRelatedEvidence(string sortColumn, bool descending, bool bmson)
     {
         using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         using IDisposable cultureScope = TestCultureScope.UseJapaneseCulture();
@@ -1267,6 +1410,9 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             string destinationRoot = Path.Combine(absoluteRoot, "OtherRoot");
             string source = Path.Combine(root, "Pending");
             string otherSource = Path.Combine(root, "OtherPending");
+            string alternateDestination = Directory.CreateDirectory(Path.Combine(registeredRoot, "A")).FullName;
+            string alternateOwnedPath = Path.Combine(alternateDestination, "other-known.bms");
+            File.WriteAllText(alternateOwnedPath, "#TITLE Alpha\n#ARTIST Alpha\n");
             Directory.CreateDirectory(candidate);
             Directory.CreateDirectory(source);
             Directory.CreateDirectory(otherSource);
@@ -1282,12 +1428,19 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             string sourcePath = Path.Combine(source, "pending.bms");
             string otherPath = Path.Combine(otherSource, "other.bms");
             File.WriteAllText(sourcePath, "#TITLE Target Song\r\n#ARTIST Source Author" + audio);
-            File.WriteAllText(otherPath, "#TITLE Other Pending\r\n#ARTIST Other Author\r\n");
+            File.WriteAllText(otherPath, "#TITLE Other Pending\n#ARTIST Other Author\n#WAV01 present.wav\n#WAV02 missing.wav\n#00111:0102\n");
+            File.WriteAllText(Path.Combine(otherSource, "present.wav"), "one of two");
+            string siblingPath = Path.Combine(source, bmson ? "sibling.bmson" : "sibling.bms");
+            File.WriteAllText(siblingPath, bmson
+                ? "{\"info\":{\"title\":\"Target Song\",\"artist\":\"Source Author\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[{\"name\":\"sound.wav\",\"notes\":[{\"x\":1,\"y\":0}]}]}"
+                : "#TITLE Target Song\r\n#ARTIST Source Author\r\n#GENRE sibling" + audio);
+            var sibling = PackageChartEntry.FromPath(siblingPath);
+            BmsLibraryPackageInstallService.InitializePendingResourceHealth(sibling);
             var entry = PackageChartEntry.FromPath(sourcePath);
             var otherEntry = PackageChartEntry.FromPath(otherPath);
             BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry);
             BmsLibraryPackageInstallService.InitializePendingResourceHealth(otherEntry);
-            var package = ChartPackage.FromChartEntries([entry]);
+            var package = ChartPackage.FromChartEntries([entry, sibling]);
             package.path = source;
             var otherPackage = ChartPackage.FromChartEntries([otherEntry]);
             otherPackage.path = otherSource;
@@ -1295,12 +1448,13 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             File.WriteAllBytes(songDbPath, []);
             Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => values.StartupSelectInstallPending = false);
             var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, ScanBmsFilesOnStartup = true };
-            var scanner = CapturedChartFileScanner.FromFixture(ownedPaths.Append(rootOwnedPath),
+            var scanner = CapturedChartFileScanner.FromFixture(ownedPaths.Append(rootOwnedPath).Append(alternateOwnedPath),
                 new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                 {
                     [absoluteRoot] = [Path.GetRelativePath(absoluteRoot, Path.Combine(candidate, "sound.wav"))],
                     [registeredRoot] = [Path.GetRelativePath(registeredRoot, Path.Combine(candidate, "sound.wav"))],
                     [candidate] = ["sound.wav"],
+                    [alternateDestination] = [],
                     [destinationRoot] = []
                 }, [absoluteRoot, destinationRoot]);
             // root/containerの資源は子からの集約であり、直下の所有音源には数えません。
@@ -1324,6 +1478,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 LibraryChartRow row = viewModel.MainChartList.Rows.Cast<LibraryChartRow>().Single(value => value.path == sourcePath);
                 LibraryChartRow otherRow = viewModel.MainChartList.Rows.Cast<LibraryChartRow>().Single(value => value.path == otherPath);
                 // 起動時の所持判定・表示投影を終えた現在値を、これから行う操作の比較基準にします。
+                string middle = Path.Combine(registeredRoot, "M");
+                otherEntry.ApplyInstallDestinationMetadata(middle, "Middle", "Middle");
                 ChartFile otherBefore = otherEntry.Chart;
                 int otherProjectionVersion = otherEntry.ProjectionVersion;
                 Assert.AreEqual(string.Empty, row.InstallDestinationTitle);
@@ -1349,8 +1505,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 (ChartWarningKind Kind, string Message)[] estimationReasons = row.Chart.Warnings
                     .Where(warning => warning.Category == ChartWarningCategory.InstallEstimation)
                     .Select(warning => (warning.Kind, warning.Message)).ToArray();
-                string renamedCandidate = Path.Combine(registeredRoot, "Renamed");
-                ChangeCandidate(() => currentLibrary.RenameChartFolder(candidate, "Renamed"), renamedCandidate);
+                string renamedCandidate = Path.Combine(registeredRoot, "Z");
+                ChangeCandidate(() => currentLibrary.RenameChartFolder(candidate, "Z"), renamedCandidate);
                 Assert.AreEqual(string.Empty, row.instl_dst);
                 CollectionAssert.AreEqual(new[] { candidate }, row.Chart.InstallDestinationSuggestions.ToArray());
                 CollectionAssert.AreEqual(estimationWarnings, row.Chart.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray());
@@ -1369,8 +1525,27 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 viewModel.MainChartList.ColumnsSettings.InstallDst.Visibility = Visibility.Visible;
                 CustomTableColumn destinationColumn = table.Columns.Single(column => column.EditPropertyName == "instl_dst");
                 table.Columns = [destinationColumn];
-                CommitCompiledDestination(candidate);
+                var sortRequested = new TaskCompletionSource<RegularChartSortRefreshRequestedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+                void OnSort(object? sender, RegularChartSortRefreshRequestedEventArgs request) => sortRequested.TrySetResult(request);
+                viewModel.RegularChartList.SortRefreshRequested += OnSort;
+                try
+                {
+                    viewModel.MainChartList.RequestSort(sortColumn, descending ? ListSortDirection.Descending : ListSortDirection.Ascending);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(sortRequested.Task, "pending destination initial sort");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(sortRequested.Task.Result.Presentation, "pending destination initial sort presentation");
+                }
+                finally { viewModel.RegularChartList.SortRefreshRequested -= OnSort; }
+                CommitCompiledDestination(candidate, chooseSuggestion: true);
+                AssertDestinationOrder(candidate);
                 Assert.AreEqual(candidate, entry.Chart.InstallDestination);
+                // 候補選択後、別の既知先を実セルへ直接入力し、兄弟の順序と表示完了まで確認します。
+                CommitCompiledDestination(alternateDestination);
+                Assert.AreEqual("Alpha", row.InstallDestinationTitle);
+                Assert.AreEqual("Alpha", row.InstallDestinationArtist);
+                Assert.AreEqual(0, row.Chart.WAVHealth);
+                CommitCompiledDestination(candidate);
+                AssertEvidence();
+                Assert.AreEqual(100, row.Chart.WAVHealth);
                 SelectDestinationCell();
                 Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None),
                     $"再編集のF2: current={table.GetCurrentCellColumn(table.SelectedIndex)?.EditPropertyName}, width={table.ActualWidth}, height={table.ActualHeight}, scope={viewModel.MainChartList.CurrentOperationContext.SourceScope}");
@@ -1380,13 +1555,14 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Assert.AreEqual(0, FindCurrentEditors(table).Count());
                 Assert.AreEqual(candidate, row.instl_dst);
                 AssertEvidence();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PendingPackages.SetPendingAsync(edit, string.Empty), "empty destination edit");
+                CommitCompiledDestination(string.Empty);
+                AssertDestinationOrder(string.Empty);
                 Assert.AreEqual(string.Empty, row.instl_dst);
                 Assert.AreEqual(string.Empty, row.InstallDestinationTitle);
                 Assert.AreEqual(string.Empty, row.InstallDestinationArtist);
                 CollectionAssert.AreEqual(new[] { candidate }, row.Chart.InstallDestinationSuggestions.ToArray());
                 Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
-                string movedCandidate = Path.Combine(destinationRoot, "Renamed");
+                string movedCandidate = Path.Combine(destinationRoot, "Z");
                 LibraryChartRef[] movingCharts = [.. currentLibrary.BmsCharts
                     .Where(chart => string.Equals(Path.GetDirectoryName(chart.Path), candidate, StringComparison.OrdinalIgnoreCase))
                     .Select(chart => LibraryChartRef.FromChartFile(chart))];
@@ -1431,12 +1607,13 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Assert.AreEqual(0, refreshed.Chart.WAVHealth);
                 StringAssert.Contains(refreshed.WarningDigestText, Resources.WarningDigest_ResourceMissing);
                 AssertOtherUnchanged();
-                Assert.AreEqual(string.Empty, otherRow.instl_dst);
-                Assert.AreEqual(string.Empty, otherRow.InstallDestinationTitle);
+                Assert.AreEqual(middle, otherRow.instl_dst);
+                Assert.AreEqual("Middle", otherRow.InstallDestinationTitle);
                 Assert.AreEqual(0, otherRow.Chart.InstallDestinationSuggestions.Count);
 
-                void CommitCompiledDestination(string destinationText)
+                void CommitCompiledDestination(string destinationText, bool chooseSuggestion = false)
                 {
+                    object rowsBefore = viewModel.MainChartList.Rows;
                     SelectDestinationCell();
                     Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
                     TextBox editor = FindCurrentEditors(table).Single();
@@ -1445,14 +1622,19 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     var mutation = new TaskCompletionSource<PendingPackageMutationAppliedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
                     void OnMutation(object? sender, PendingPackageWorkflowChangedEventArgs args)
                     {
-                        if (args is PendingPackageMutationAppliedEventArgs applied) { mutation.TrySetResult(applied); }
+                        if (args is PendingPackageMutationAppliedEventArgs applied)
+                        {
+                            Assert.AreEqual(0, applied.ChangedCharts.Count);
+                            CollectionAssert.AreEquivalent(new[] { sourcePath, siblingPath }, applied.ProjectionCharts.Select(chart => chart.Path).ToArray());
+                            mutation.TrySetResult(applied);
+                        }
                     }
                     Task? admissionTerminal = null;
                     Exception? editFailure = null;
                     viewModel.PendingPackages.WorkflowChanged += OnMutation;
                     try
                     {
-                        Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
+                        Assert.IsTrue(chooseSuggestion ? table.HandleEditSuggestionClick(destinationText) : table.HandleKeyDown(Key.Return, ModifierKeys.None));
                         admissionTerminal = composition.OperationAdmission.WaitForIdleAsync();
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(
                             TestUiDispatcherHost.AwaitNotificationAsync(mutation.Task, admissionTerminal, "compiled destination mutation"), "compiled destination mutation");
@@ -1485,6 +1667,23 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         }
                     }
                     CaptureCurrentRows();
+                    Assert.AreSame(rowsBefore, viewModel.MainChartList.Rows, "局所編集でRows全体を交換しません。");
+                    Assert.AreSame(entry, ((LibraryChartRow)table.GetSelectedRowsSnapshot().Single()).PackageEntry);
+                    AssertDestinationOrder(destinationText);
+                }
+
+                void AssertDestinationOrder(string destination)
+                {
+                    Assert.AreEqual(destination, sibling.Chart.InstallDestination ?? string.Empty);
+                    LibraryChartRow[] ordered = viewModel.MainChartList.Rows.Cast<LibraryChartRow>().ToArray();
+                    Assert.AreEqual(3, ordered.Length);
+                    bool beforeAscending = destination == alternateDestination
+                        || (sortColumn != nameof(LibraryChartRow.WAVHealth)
+                            && (string.IsNullOrEmpty(destination) || sortColumn == nameof(LibraryChartRow.InstallDestinationArtist)));
+                    bool packageFirst = descending ? !beforeAscending : beforeAscending;
+                    Assert.AreEqual(otherPath, ordered[packageFirst ? 2 : 0].path);
+                    CollectionAssert.AreEquivalent(new[] { sourcePath, siblingPath }, (packageFirst ? ordered.Take(2) : ordered.Skip(1)).Select(value => value.path).ToArray());
+                    Assert.AreEqual(middle, otherEntry.Chart.InstallDestination);
                 }
 
                 void AssertEvidence()

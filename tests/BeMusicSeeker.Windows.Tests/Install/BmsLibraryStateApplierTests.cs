@@ -584,7 +584,7 @@ public sealed class BmsLibraryStateApplierTests
                 LibraryCatalogMutationFacts catalogFacts = new(removeRequests, pathChanges, []);
 
                 CatalogMutationReceipt receipt = new CatalogMutationOwner(storage, new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath))
-                    .ApplyCatalogMutation(catalogFacts);
+                    .ApplyCatalogMutation(BmsLibraryStateApplierTestSupport.PrepareFinalTextFacts(catalogFacts));
                 lifecycle.ApplyPackageReferenceFacts(
                     LibraryPackageReferenceFacts.Empty,
                     receipt.RemovedCharts,
@@ -793,25 +793,33 @@ public sealed class BmsLibraryStateApplierTests
     /// <summary>一package内のBMSON削除は対象entryだけを剪定して残るentryと通知を保ち、package全体の誤削除を検出します。</summary>
     /// <remarks>確定factsをpackage参照へ反映する境界です。DB・正本の実保存はExactRemovalとMoveAndRemoveのケースが担います。</remarks>
     [TestMethod]
-    public void ApplyPackageReferenceFacts_UnregisterPrunesOnlyMatchingBmsonEntry()
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void ApplyPackageReferenceFacts_UnregisterPrunesOnlyMatchingBmsonEntry(bool bms, bool removeRepresentative)
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            ChartFile removedSong = (ChartTestValues.Empty(ChartFileKind.Bmson) with { Token = new OwnedChartToken() }) with
+            ChartFile removedSong = (ChartTestValues.Empty(bms ? ChartFileKind.Bms : ChartFileKind.Bmson) with { Token = new OwnedChartToken() }) with
             {
                 Path = "C:\\Library\\remove.bmson",
                 Folder = "C:\\Library",
-                Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                RawTitle = "削除する代表",
+                Title = "削除する代表 完全題名"
             };
-            ChartFile keptSong = (ChartTestValues.Empty(ChartFileKind.Bmson) with { Token = new OwnedChartToken() }) with
+            ChartFile keptSong = (ChartTestValues.Empty(bms ? ChartFileKind.Bms : ChartFileKind.Bmson) with { Token = new OwnedChartToken() }) with
             {
                 Path = "C:\\Library\\keep.bmson",
                 Folder = "C:\\Library",
-                Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                RawTitle = "残る代表",
+                Title = "残る代表 完全題名"
             };
             var removedEntry = PackageChartEntry.FromChart((removedSong));
             var keptEntry = PackageChartEntry.FromChart((keptSong));
-            var package = ChartPackage.FromChartEntries([removedEntry, keptEntry]);
+            var package = ChartPackage.FromChartEntries(removeRepresentative ? [removedEntry, keptEntry] : [keptEntry, removedEntry]);
             package.path = "C:\\Installed\\MixedPkg";
 
             ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
@@ -819,9 +827,26 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             PackageStateMutationApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            ApplyCommittedMutation(
-                applier,
-                CreateUnregisterFacts([(removedSong)]));
+            int titleNotifications = 0;
+            System.ComponentModel.PropertyChangedEventHandler changed = (_, args) =>
+            {
+                if (args.PropertyName == nameof(ChartPackage.DisplayTitle))
+                {
+                    titleNotifications++;
+                    Assert.AreEqual("残る代表 完全題名", package.DisplayTitle);
+                }
+            };
+            package.PropertyChanged += changed;
+            try
+            {
+                BmsLibraryStateApplyResult result = applier.ApplyPackageReferenceFacts(
+                    LibraryPackageReferenceFacts.Empty,
+                    CatalogChartMutationFact.CreateRemovalFacts(CreateUnregisterFacts([removedSong]).ChartRemoveRequests));
+                Assert.AreEqual(0, titleNotifications, "所属変更の最中にはUI題名を公開しません。");
+                result.PublishPackagePaths?.Invoke();
+                Assert.AreEqual(1, titleNotifications);
+            }
+            finally { package.PropertyChanged -= changed; }
 
             Assert.AreEqual(1, installedPackages.Count);
             Assert.AreSame(package, installedPackages.Single());
@@ -910,7 +935,7 @@ public sealed class BmsLibraryStateApplierTests
                 currentOwner.ReplaceCharts([bmsFile], [bmsonSong]);
                 var catalogOwner = new CatalogMutationOwner(currentOwner, new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath));
                 CatalogMutationReceipt receipt = catalogOwner.ApplyCatalogMutation(
-                    catalogFacts);
+                    BmsLibraryStateApplierTestSupport.PrepareFinalTextFacts(catalogFacts));
 
                 Assert.IsTrue(receipt.Applied);
                 Assert.AreEqual(2, receipt.RemovedCharts.Count);

@@ -18,6 +18,76 @@ public sealed class BmsLibraryDuplicateServiceTests
 {
     private readonly ApplicationDatabaseScope databaseScope = new();
 
+    /// <summary>外部単体入力の手動導入から衝突統合へ進み、実採番先を同token所属・package.path・Explorer要求まで一貫させます。</summary>
+    [TestMethod]
+    public void SingleFileInstall_MergeCollisionPublishesActualPackageAndExplorerPath()
+    {
+        WithTemporarySongDb(databaseScope, songDbPath =>
+        {
+            using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+            string root = Path.Combine(workspace.RootDirectory, "Library");
+            string source = Path.Combine(root, "S"), destination = Path.Combine(root, "D"), external = Path.Combine(workspace.RootDirectory, "external");
+            foreach (string directory in new[] { source, destination, external }) { Directory.CreateDirectory(directory); }
+            const string common = "#TITLE Common\n#ARTIST Common\n#WAV01 tone.wav\n#00111:01\n";
+            foreach (string directory in new[] { source, destination })
+            {
+                File.WriteAllText(Path.Combine(directory, "common.bms"), common);
+                File.WriteAllText(Path.Combine(directory, "tone.wav"), "audio");
+            }
+            string input = Path.Combine(external, "a.bms"), collision = Path.Combine(destination, "a.bms");
+            File.WriteAllText(input, "#TITLE External\n#ARTIST External\n#WAV01 tone.wav\n#00111:01\n");
+            File.WriteAllText(Path.Combine(external, "readme.txt"), "未選択の兄弟");
+            File.WriteAllText(collision, "#TITLE Collision\n#ARTIST Collision\n#WAV01 tone.wav\n#00111:01\n");
+            byte[] original = File.ReadAllBytes(input), preserved = File.ReadAllBytes(collision);
+            ChartFile[] owned = [.. Directory.EnumerateFiles(root, "*.bms", SearchOption.AllDirectories).Select(path => BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path)))];
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(),
+                new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = root,
+                    KeepInstallablePackagesPending = true,
+                    DeletePendingPackageSourceAfterInstall = false
+                }, settings: TestBmsFactory.CreateRootSettings([root]))
+            { BmsCharts = owned, BmsonCharts = [] };
+            try
+            {
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, db =>
+                { foreach (ChartFile chart in library.BmsCharts) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song)); } });
+                LibraryResourceIndexTestSupport.GetOwner(library).Replace(LibraryResourceIndex.CreateFromScanResult(ChartDirectoryScanBuilder.BuildFromRoots([root])));
+                library.InstallChartPackagesAutoWithProgressAsync([input], CancellationToken.None,
+                    new InstallServiceComponentTestSupport.RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult();
+                ChartPackage pending = library.ChartPackagesPending.Single();
+                Assert.AreEqual(input, pending.path);
+                Assert.IsTrue(library.SetPendingInstallDestination(pending.ChartEntries.Single(), source, false));
+                PendingInstallBatchResult installed = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([pending]);
+                Assert.IsTrue(installed.HasDurableCommit);
+                Assert.IsFalse(installed.SessionReceipt.HasRequiredFailure);
+                ChartPackage package = library.ChartPackagesInstalled.Single();
+                OwnedChartToken token = package.ChartEntries.Single().Chart.Token;
+                Assert.AreEqual(Path.Combine(source, "a.bms"), package.path);
+                DuplicateMergeMaintenanceReceipt merged = library.MergeChartDirectory(source, destination, operationId: 1);
+                Assert.IsTrue(merged.MergeApplied);
+                string expected = Path.Combine(destination, "a_.bms");
+                Assert.AreEqual(expected, package.path);
+                Assert.AreEqual(expected, package.ChartEntries.Single().Chart.Path);
+                Assert.AreSame(token, package.ChartEntries.Single().Chart.Token);
+                CollectionAssert.AreEqual(original, File.ReadAllBytes(expected));
+                CollectionAssert.AreEqual(preserved, File.ReadAllBytes(collision));
+                using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
+                Assert.IsNotNull(verify.Find<LR2SongDB.song>(expected));
+                var selected = new List<string>();
+                PendingPackageWorkflowOwner explorer = PendingPackageWorkflowOwnerTestSupport.CreateOwner(() => library, [],
+                    new PendingPackageStoreTestFixture.RecordingStore([]), PendingPackageWorkflowOwnerTestSupport.AcceptedDialogs(),
+                    _ => throw new AssertFailedException("単体参照をdirectoryとして開きません。"),
+                    path => { selected.Add(path); return new ExplorerOpenResult { Kind = ExplorerOpenResultKind.SelectedFile }; });
+                explorer.OpenPackageSourceInExplorer(package);
+                CollectionAssert.AreEqual(new[] { expected }, selected);
+                Assert.IsTrue(File.Exists(Path.Combine(external, "readme.txt")));
+            }
+            finally { library.RequestShutdown("single-file-merge"); }
+        });
+    }
+
     /// <summary>
     /// 二種類の重複MD5で三フォルダが連結する入力から一群と四譜面を抽出し、間接的な連結の分断と重複警告の欠落を検出します。
     /// </summary>
@@ -294,6 +364,12 @@ public sealed class BmsLibraryDuplicateServiceTests
                     BmsonCharts = []
                 };
 
+                ChartFile ownedExisting = library.BmsCharts.Single(chart => chart.Path == collisionPath);
+                var firstMembership = PackageChartEntry.FromChart(ownedExisting);
+                var secondMembership = PackageChartEntry.FromChart(ownedExisting);
+                library.ChartPackagesInstalled = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>(
+                    [ChartPackage.FromChartEntries([firstMembership]), ChartPackage.FromChartEntries([secondMembership])]);
+
                 DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(srcDir, dstDir, operationId: 1);
 
                 Assert.IsTrue(receipt.MergeApplied);
@@ -324,9 +400,17 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.AreEqual(7, existingRow.favorite);
                 Assert.AreEqual(12345, existingRow.adddate);
                 Assert.AreEqual("existing-user-tag", existingRow.tag);
+                Assert.AreEqual(1, existingRow.txt);
+                ChartFile committedExisting = library.BmsCharts.Single(chart => chart.Path == collisionPath);
+                Assert.AreSame(ownedExisting.Token, committedExisting.Token);
+                Assert.AreEqual(1, committedExisting.Txt);
+                Assert.AreEqual(1, firstMembership.Chart.Txt);
+                Assert.AreEqual(1, secondMembership.Chart.Txt);
+
                 LR2SongDB.song movedRow = verify.Find<LR2SongDB.song>(actualDestinationPath);
                 Assert.IsNotNull(movedRow);
                 Assert.AreEqual(sourceFile.Md5, movedRow.hash);
+                Assert.AreEqual(1, movedRow.txt);
                 Assert.IsNull(verify.Find<LR2SongDB.song>(srcChartPath));
                 CollectionAssert.AreEqual(new byte[] { 1 }, File.ReadAllBytes(Path.Combine(dstDir, "readme.txt")));
                 CollectionAssert.AreEqual(new byte[] { 4, 5, 6 }, File.ReadAllBytes(Path.Combine(dstDir, "readme(1).txt")));

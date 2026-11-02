@@ -530,7 +530,7 @@ internal sealed class CatalogMutationOwner
         CaptureLr2SynchronizationInputRowSnapshot().SongRows;
 
     /// <summary>
-    /// 保存トランザクション前に移転事実を検証して捕捉します。
+    /// 保存トランザクション前に移転事実を検証して捕捉します。BMSのTXTは操作で確定済みの全移転先値を必須とし、ここでは再探索しません。
     /// 指定tokenが退役済みなら失敗し、tokenなしの直接DB要求だけ入力値を使います。
     /// </summary>
     internal CatalogRelocationRequest CreateRelocationRequest(LibraryCatalogMutationFacts facts)
@@ -594,7 +594,7 @@ internal sealed class CatalogMutationOwner
                 Warnings = warnings,
                 Path = change.NewPath,
                 Folder = Path.GetFileName(Path.GetDirectoryName(change.NewPath)) ?? string.Empty,
-                Txt = chart.Kind == ChartFileKind.Bms ? Lr2TextGroupResolver.ResolveFlag(change.NewPath, chart.Txt.GetValueOrDefault()) : chart.Txt
+                Txt = chart.Kind == ChartFileKind.Bms ? facts.RelocatedTextFlags[change.NewPath] : chart.Txt
             }, maintenance);
             string oldPath = string.IsNullOrWhiteSpace(change.OldPath) ? chart.Path : change.OldPath;
             if (chart.Kind == ChartFileKind.Bms)
@@ -656,7 +656,7 @@ internal sealed class CatalogMutationOwner
             relocationRequest = CreateRelocationRequest(facts);
             removalRequest = CreateStorageRowsRemovalRequest(facts.ChartRemoveRequests);
             if (!relocationRequest.HasChanges
-                && !removalRequest.HasChanges)
+                && !removalRequest.HasChanges && facts.TextChanges.Count == 0)
             {
                 return CatalogMutationReceipt.NotApplied;
             }
@@ -665,12 +665,13 @@ internal sealed class CatalogMutationOwner
                 throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
             }
 
+            ValidateTextChanges(facts.TextChanges);
             CatalogRelocationDbReceipt dbResult;
             try
             {
                 dbResult = dbGateway.ReplaceAndRemoveLibraryMutationRows(
                     relocationRequest,
-                    removalRequest);
+                    removalRequest, facts.TextChanges);
             }
             catch (Exception ex)
             {
@@ -715,7 +716,7 @@ internal sealed class CatalogMutationOwner
             bool ownedCollectionChanged = removedChartFacts.Count > 0
                 || pathFacts.Count > 0;
             CatalogCommitReceipt commit = ownedCollectionOwner.ApplyMutation(removalRequest?.RemoveRequests, [.. relocationRequest.BmsPathReplacements.Select(value => new LibraryChartPathChange { Chart = value.Song, OldPath = value.OldPath, NewPath = value.Song.Path })
-                    .Concat(relocationRequest.BmsonPathReplacements.Select(value => new LibraryChartPathChange { Chart = value.Song, OldPath = value.OldPath, NewPath = value.Song.Path }))]);
+                    .Concat(relocationRequest.BmsonPathReplacements.Select(value => new LibraryChartPathChange { Chart = value.Song, OldPath = value.OldPath, NewPath = value.Song.Path }))], facts.TextChanges);
             int catalogRevision = ownedCollectionOwner.CatalogRevision;
             return new CatalogMutationReceipt(
                 applied: true,
@@ -977,7 +978,7 @@ internal sealed class CatalogMutationOwner
         out CatalogWriteFailureFact failureFact,
         Action onValidationPassed = null,
         IEnumerable<string> installPathsToDelete = null,
-        IEnumerable<ChartPackage> installRowsToUpsert = null)
+        IEnumerable<ChartPackage> installRowsToUpsert = null, IReadOnlyList<ChartFile> textChanges = null)
     {
         if (targets == null)
         {
@@ -992,7 +993,7 @@ internal sealed class CatalogMutationOwner
             using (maintenanceWriteGate.GetWriterGuard())
             {
                 CatalogInstalledTargetUpsertReceipt receipt = ApplyInstalledTargetUpsertUnsafe(
-                    CreateInstalledTargetUpsertRequestUnsafe(targets, installPathsToDelete, installRowsToUpsert),
+                    CreateInstalledTargetUpsertRequestUnsafe(targets, installPathsToDelete, installRowsToUpsert, textChanges),
                     onValidationPassed,
                     fact => capturedFailureFact = fact);
                 failureFact = null;
@@ -1078,7 +1079,7 @@ internal sealed class CatalogMutationOwner
     private CatalogInstalledTargetUpsertRequest CreateInstalledTargetUpsertRequestUnsafe(
         ChartStorageTargetSet targets,
         IEnumerable<string> installPathsToDelete = null,
-        IEnumerable<ChartPackage> installRowsToUpsert = null)
+        IEnumerable<ChartPackage> installRowsToUpsert = null, IReadOnlyList<ChartFile> textChanges = null)
     {
         var beforeByPath = new Dictionary<string, LibraryChartRef>(StringComparer.Ordinal);
         foreach (ChartFile target in targets.Charts)
@@ -1086,7 +1087,7 @@ internal sealed class CatalogMutationOwner
             beforeByPath[target.Path] = LibraryChartRef.FromChartFile(ownedCollectionOwner.Collection.ResolveCurrentChart(
                 LibraryChartRef.FromPath(target.Kind, target.Path, null, null)));
         }
-        return new CatalogInstalledTargetUpsertRequest(targets, beforeByPath, installPathsToDelete, installRowsToUpsert);
+        return new CatalogInstalledTargetUpsertRequest(targets, beforeByPath, installPathsToDelete, installRowsToUpsert, textChanges);
     }
 
     private CatalogInstalledTargetUpsertRequest CreateInstalledTargetUpsertRequestUnsafe(
@@ -1096,6 +1097,22 @@ internal sealed class CatalogMutationOwner
     {
         return CreateInstalledTargetUpsertRequestUnsafe(
             ChartStorageTargetSet.FromCharts((bmsRows ?? []).Concat(bmsonRows ?? [])), installPathsToDelete);
+    }
+
+    /// <summary>限定捕捉したTXT対象のtoken・厳密path・hashをDB確定前に検査します。</summary>
+    private void ValidateTextChanges(IReadOnlyList<ChartFile> changes)
+    {
+        lock (ownedCollectionOwner.Gate)
+        {
+            foreach (ChartFile chart in changes ?? [])
+            {
+                ChartFile current = ownedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(chart));
+                if (chart.Kind != ChartFileKind.Bms || chart.Token == null || current?.Token != chart.Token)
+                {
+                    throw new InvalidOperationException("TXT target changed before catalog commit.");
+                }
+            }
+        }
     }
 
     private CatalogInstalledTargetUpsertReceipt ApplyInstalledTargetUpsertUnsafe(
@@ -1116,6 +1133,7 @@ internal sealed class CatalogMutationOwner
             }
         }
 
+        ValidateTextChanges(request.TextChanges);
         ChartStorageTargetSet targets = request.Targets;
         bool hasInstallRowDeletion = request.InstallPathsToDelete.Count > 0;
         bool hasInstallRowUpsert = request.InstallRowsToUpsert.Count > 0;
@@ -1123,7 +1141,7 @@ internal sealed class CatalogMutationOwner
             || (targets.BmsCharts.Count == 0
                 && targets.BmsonCharts.Count == 0
                 && !hasInstallRowDeletion
-                && !hasInstallRowUpsert))
+                && !hasInstallRowUpsert && request.TextChanges.Count == 0))
         {
             return CatalogInstalledTargetUpsertReceipt.NotApplied;
         }
@@ -1156,6 +1174,7 @@ internal sealed class CatalogMutationOwner
                         songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(chart), typeof(LR2SongDBExtended.bmson_song));
                     }
                 }
+                BmsLibraryDbGateway.UpdateTextRows(songDb, request.TextChanges);
                 if (hasInstallRowDeletion || hasInstallRowUpsert)
                 {
                     BmsLibraryDbGateway.ApplyInstallTableMutationWithinTransaction(songDb, request.InstallPathsToDelete, request.InstallRowsToUpsert);
@@ -1174,16 +1193,16 @@ internal sealed class CatalogMutationOwner
 
         // DB is durable at this boundary.  Only now can the canonical owner
         // move to the preflight destination and be published to storage views.
-        bool hasOwnedStorageTargets = targets.Charts.Count > 0;
+        bool hasOwnedStorageTargets = targets.Charts.Count > 0 || request.TextChanges.Count > 0;
         OwnedChartCollectionVersionSnapshot versions = ownedCollectionOwner.CaptureVersionSnapshot();
         bool ownedCollectionApplied = false;
         if (hasOwnedStorageTargets)
         {
-            ownedCollectionApplied = ownedCollectionOwner.ApplyCommittedChartUpsert(targets.Charts, out _);
+            ownedCollectionApplied = ownedCollectionOwner.ApplyCommittedChartUpsert(targets.Charts, out _, request.TextChanges);
         }
         int catalogRevision = ownedCollectionOwner.CatalogRevision;
         return new CatalogInstalledTargetUpsertReceipt(
-            applied: targets.BmsCharts.Count > 0
+            applied: request.TextChanges.Count > 0 || targets.BmsCharts.Count > 0
                 || targets.BmsonCharts.Count > 0
                 || hasInstallRowDeletion
                 || hasInstallRowUpsert,
@@ -1392,8 +1411,9 @@ internal sealed class CatalogInstalledTargetUpsertRequest
     /// <param name="beforeByPath">要求作成時の対象完全一致pathごとの所持識別とdigest。不在はnull。</param>
     /// <param name="installPathsToDelete">同じtransactionで削除するpending install行の元の生キー。</param>
     /// <param name="installRowsToUpsert">同じtransactionでupsertするpending install row。</param>
-    internal CatalogInstalledTargetUpsertRequest(ChartStorageTargetSet targets, IReadOnlyDictionary<string, LibraryChartRef> beforeByPath, IEnumerable<string> installPathsToDelete = null, IEnumerable<ChartPackage> installRowsToUpsert = null)
+    internal CatalogInstalledTargetUpsertRequest(ChartStorageTargetSet targets, IReadOnlyDictionary<string, LibraryChartRef> beforeByPath, IEnumerable<string> installPathsToDelete = null, IEnumerable<ChartPackage> installRowsToUpsert = null, IReadOnlyList<ChartFile> textChanges = null)
     {
+        TextChanges = Array.AsReadOnly((textChanges ?? []).ToArray());
         Targets = targets ?? ChartStorageTargetSet.FromCharts([]);
         BmsCharts = Targets.BmsCharts;
         BmsonCharts = Targets.BmsonCharts;
@@ -1407,6 +1427,9 @@ internal sealed class CatalogInstalledTargetUpsertRequest
 
     /// <summary>確定した共通の保存変更事実です。保存行を保持しません。</summary>
     internal ChartStorageTargetSet Targets { get; }
+
+    /// <summary>新規追加に含めず、同tokenのまま保存するTXT実差分です。</summary>
+    internal IReadOnlyList<ChartFile> TextChanges { get; }
 
     internal IReadOnlyList<ChartFile> BmsCharts { get; }
 

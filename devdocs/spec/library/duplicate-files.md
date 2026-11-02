@@ -104,6 +104,8 @@ BMSの警告は同じ所持tokenの共通現在値へ反映し、BMSONは重複�
 
 `SearchDuplicateChartGroups` の重複ハッシュ数・対象行数・接続フォルダ数、`ui_suppress`、`duplicate_refresh_priority`、`duplicate_group_autoselect` を診断に使います。確定結果と異常報告の回数は共通の変更仕様に従います。
 
+単体ファイルを表す導入済みpackageは、統合前に捕捉したtokenと旧完全一致pathから、衝突回避後の実際の移転先へ参照を更新します。フォルダpackageのrootと区別し、次のExplorer要求にも確定先を渡します。参照の退役・題名公開は[ライブラリ変更](mutations.md#退役所属と確定したパッケージ参照)に従います。
+
 ## 実装とテストの対応
 
 `BmsLibraryDuplicateServiceTests.MergeChartDirectory_TwoWarmOperationsKeepIndexesCurrentWithoutFullRebuild` は実検索・再利用と2回の実統合で、フォルダ集合4→3→2、グループ譜面6→5→4、重複警告4→3→2、所持・DB総数22→21→20を確認する。統合後も残る1グループ、移動先の固有hash参照、移動元消失、既存重複実体のbytesと背景16行を保つ。旧snapshotと温めた索引を全再構築しない保証を同じケースで維持する。

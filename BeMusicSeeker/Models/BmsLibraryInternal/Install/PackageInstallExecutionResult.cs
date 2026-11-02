@@ -69,15 +69,19 @@ internal sealed class PackageInstallSessionPhysicalMutation
     internal PackageInstallSessionPhysicalMutation(
         FileDbMutationPreparedCommit preparedCommit,
         Action<IReadOnlyDictionary<(ChartFileKind Kind, string Path), ChartFile>> applyLiveState,
-        string destinationDirectory)
+        string destinationDirectory, IEnumerable<string> successfulTextDirectories = null)
     {
         this.preparedCommit = preparedCommit ?? throw new ArgumentNullException(nameof(preparedCommit));
         this.applyLiveState = applyLiveState;
         DestinationDirectory = destinationDirectory;
+        SuccessfulTextDirectories = Array.AsReadOnly((successfulTextDirectories ?? []).ToArray());
     }
 
     /// <summary>resource index の operation-scoped scan 対象 destination directory。</summary>
     internal string DestinationDirectory { get; }
+
+    /// <summary>Prepare成功の非directory TXTの確定宛先親です。</summary>
+    internal IReadOnlyList<string> SuccessfulTextDirectories { get; }
 
     /// <summary>session terminal facts に追加する confirmed physical target。</summary>
     internal IReadOnlyList<LibraryMutationSessionTarget> ConfirmedTargets => preparedCommit.ConfirmedTargets;

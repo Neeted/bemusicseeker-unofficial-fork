@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
@@ -60,6 +61,7 @@ internal sealed partial class LibraryMutationOwner
         private readonly string reason;
         private readonly ICollection<Action> postLeaseNotifications;
         private readonly List<LibraryCatalogMutationFacts> catalogFacts = [];
+        private readonly List<LibraryInstallDestinationChange> successfulFolderChanges = [];
         private readonly List<LibraryPackageReferenceFacts> packageReferenceFacts = [];
         private readonly List<LibraryMutationSessionTarget> confirmedTargets = [];
         private readonly List<LibraryMutationSessionItemFailure> itemFailures = [];
@@ -154,6 +156,7 @@ internal sealed partial class LibraryMutationOwner
                 facts.PackageReferenceFacts,
                 [new LibraryMutationSessionTarget(sourceDirectory, destinationDirectory)],
                 facts.StorageRowPathNotificationPolicy);
+            successfulFolderChanges.Add(new LibraryInstallDestinationChange { SourceFolderPath = sourceDirectory, DestinationFolderPath = destinationDirectory });
             movedFolders.Add(new LibraryFolderPathChange
             {
                 OldFolderPath = sourceDirectory,
@@ -185,6 +188,7 @@ internal sealed partial class LibraryMutationOwner
                 [new LibraryMutationSessionTarget(sourceDirectory, destinationDirectory)],
                 LibraryStorageRowPathNotificationPolicy.Suppressed);
             preparedPackageMutations.Add(physicalMutation);
+            successfulFolderChanges.Add(new LibraryInstallDestinationChange { SourceFolderPath = sourceDirectory, DestinationFolderPath = destinationDirectory, InvalidateCandidates = true });
             mergedFolders.Add(new LibraryFolderPathChange
             {
                 OldFolderPath = sourceDirectory,
@@ -243,6 +247,7 @@ internal sealed partial class LibraryMutationOwner
                 if (!string.IsNullOrWhiteSpace(path))
                 {
                     resourceDirectoryRemovals.Add(path);
+                    successfulFolderChanges.Add(new LibraryInstallDestinationChange { SourceFolderPath = path, InvalidateCandidates = true });
                 }
             }
         }
@@ -417,12 +422,53 @@ internal sealed partial class LibraryMutationOwner
                 return CreateReceipt(durableCommit: false, applyFailure: invalidMix);
             }
 
+            LibraryCatalogMutationFacts combinedCatalogFacts = CombineCatalogFacts(catalogFacts);
+            IReadOnlyList<ChartFile> resolvedTextCharts;
+            List<ChartFile> textChanges;
+            try
+            {
+                string[] textDirectories = [.. preparedPackageMutations.SelectMany(mutation => mutation.SuccessfulTextDirectories).Distinct(StringComparer.OrdinalIgnoreCase)];
+                List<ChartFile> textTargets;
+                lock (owner.catalogOwnedCollectionOwner.Gate)
+                {
+                    textTargets = textDirectories.Length == 0 ? [] : owner.catalogOwnedCollectionOwner.Collection.CreateSnapshotForDirectChildDirectories(textDirectories);
+                }
+                var consumedTokens = new HashSet<OwnedChartToken>(combinedCatalogFacts.ChartRemoveRequests.Select(request => request.Token)
+                    .Concat(combinedCatalogFacts.ChartPathChanges.Select(change => change.Chart?.Token)));
+                var consumedPaths = new HashSet<string>(installedPackageCharts.Select(chart => chart.Path)
+                    .Concat(combinedCatalogFacts.ChartPathChanges.SelectMany(change => new[] { change.OldPath, change.NewPath }))
+                    .Concat(combinedCatalogFacts.ChartRemoveRequests.Select(request => request.Path)), StringComparer.Ordinal);
+                textTargets.RemoveAll(chart => chart.Kind != ChartFileKind.Bms || consumedTokens.Contains(chart.Token) || consumedPaths.Contains(chart.Path));
+                ChartFile[] relocatedTextTargets = [.. combinedCatalogFacts.ChartPathChanges
+                    .Where(change => change.Chart?.Kind == ChartFileKind.Bms)
+                    .Select(change => change.Chart with { Path = change.NewPath })];
+                resolvedTextCharts = Lr2TextGroupResolver.ResolveCurrentChartFlags(
+                    installedPackageCharts.Concat(textTargets).Concat(relocatedTextTargets));
+                var relocatedTextFlags = resolvedTextCharts.Skip(installedPackageCharts.Count + textTargets.Count)
+                    .ToDictionary(chart => chart.Path, chart => chart.Txt.GetValueOrDefault(), StringComparer.Ordinal);
+                textChanges = new List<ChartFile>();
+                for (int index = 0; index < textTargets.Count; index++)
+                {
+                    ChartFile resolved = resolvedTextCharts[installedPackageCharts.Count + index];
+                    if (resolved.Txt != textTargets[index].Txt) { textChanges.Add(resolved); }
+                }
+                combinedCatalogFacts = new LibraryCatalogMutationFacts(combinedCatalogFacts.ChartRemoveRequests,
+                    combinedCatalogFacts.ChartPathChanges, combinedCatalogFacts.FolderPathChanges, textChanges, relocatedTextFlags);
+            }
+            catch (Exception exception)
+            {
+                foreach (PackageInstallSessionPhysicalMutation mutation in preparedPackageMutations)
+                {
+                    AppendRecoveryCandidatePathsCore(mutation.RecoveryCandidatePaths);
+                }
+                return CreateReceipt(durableCommit: false, applyFailure: exception);
+            }
             var sessionNotifications = new List<Action>();
             FileDbMutationCommitResult applyResult;
             if (hasInstallChanges)
             {
                 var installedTargets = ChartStorageTargetSet.FromInstalledCharts(
-                    Lr2TextGroupResolver.ResolveCurrentChartFlags(installedPackageCharts));
+                    resolvedTextCharts.Take(installedPackageCharts.Count));
                 applyResult = owner.CommitInstalledSessionChanges(
                     installedTargets,
                     installPathsToDelete,
@@ -430,11 +476,10 @@ internal sealed partial class LibraryMutationOwner
                     reason,
                     mutationCapability,
                     sessionNotifications.Add,
-                    ref applyCounts);
+                    ref applyCounts, textChanges);
             }
             else
             {
-                LibraryCatalogMutationFacts combinedCatalogFacts = CombineCatalogFacts(catalogFacts);
                 LibraryPackageReferenceFacts combinedPackageFacts = CombinePackageReferenceFacts(packageReferenceFacts);
                 applyResult = owner.CommitCatalogSessionChanges(
                     combinedCatalogFacts,
@@ -443,7 +488,8 @@ internal sealed partial class LibraryMutationOwner
                     mutationCapability,
                     sessionNotifications.Add,
                     ref applyCounts,
-                    storageRowPathNotificationPolicy);
+                    storageRowPathNotificationPolicy,
+                    successfulFolderChanges.ToArray());
             }
 
             if (!applyResult.DurableCommit)
@@ -535,7 +581,7 @@ internal sealed partial class LibraryMutationOwner
             if (hasInstallChanges && finalizationFailure == null)
             {
                 finalizationFailure = RunRequiredDurableFinalizers();
-                if (finalizationFailure == null && committedInstallCharts.Count > 0)
+                if (finalizationFailure == null && (committedInstallCharts.Count > 0 || textChanges.Count > 0))
                 {
                     try
                     {
@@ -544,7 +590,7 @@ internal sealed partial class LibraryMutationOwner
                         var currentInstallCharts = new List<ChartFile>(committedInstallCharts.Count);
                         lock (owner.catalogOwnedCollectionOwner.Gate)
                         {
-                            foreach (ChartFile committedChart in committedInstallCharts.Values)
+                            foreach (ChartFile committedChart in committedInstallCharts.Values.Concat(textChanges))
                             {
                                 ChartFile current = owner.catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(
                                     LibraryChartRef.FromChartFile(committedChart)) ?? throw new KeyNotFoundException();
@@ -561,6 +607,23 @@ internal sealed partial class LibraryMutationOwner
                 }
             }
 
+            if (!hasInstallChanges && finalizationFailure == null && textChanges.Count > 0)
+            {
+                try
+                {
+                    var currentTextCharts = new List<ChartFile>();
+                    lock (owner.catalogOwnedCollectionOwner.Gate)
+                    {
+                        foreach (ChartFile chart in textChanges)
+                        {
+                            currentTextCharts.Add(owner.catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(chart))
+                                ?? throw new KeyNotFoundException());
+                        }
+                    }
+                    sessionNotifications.Add(owner.packageLifecycleOwner.PrepareCommittedChartApplication(currentTextCharts));
+                }
+                catch (Exception exception) { finalizationFailure = exception; }
+            }
             if (finalizationFailure == null)
             {
                 foreach (Action notification in sessionNotifications)
@@ -592,6 +655,26 @@ internal sealed partial class LibraryMutationOwner
             {
                 changedScopes.Add(Lr2FolderPath.NormalizeDirectoryPath(removed));
             }
+            var chartDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (LibraryCatalogMutationFacts facts in catalogFacts)
+            {
+                foreach (string path in facts.ChartRemoveRequests.Select(request => request.Path)
+                    .Concat(facts.ChartPathChanges.SelectMany(change => new[] { change.OldPath, change.NewPath })))
+                {
+                    if (!string.IsNullOrWhiteSpace(path))
+                    {
+                        chartDirectories.Add(Lr2FolderPath.NormalizeDirectoryPath(Path.GetDirectoryName(path)));
+                    }
+                }
+            }
+            chartDirectories.Remove(null);
+            // 物理scopeの削除と譜面所有境界の消滅を区別し、後者では子Entryを保持します。
+            var consumedScopes = new HashSet<string>(resourceDirectoryRemovals
+                .Concat(movedFolders.Select(change => change.OldFolderPath))
+                .Concat(mergedFolders.Select(change => change.OldFolderPath))
+                .Select(Lr2FolderPath.NormalizeDirectoryPath), StringComparer.OrdinalIgnoreCase);
+            chartDirectories.RemoveWhere(path => IsWithinScopes(path, consumedScopes));
+            changedScopes.UnionWith(chartDirectories);
             changedScopes.UnionWith(installedResourceDirectories.Select(Lr2FolderPath.NormalizeDirectoryPath));
             changedScopes.Remove(null);
             if (changedScopes.Count == 0)
@@ -616,7 +699,7 @@ internal sealed partial class LibraryMutationOwner
                 }
             }
 
-            HashSet<string> scanRoots = DirectoryResourceLookupCache.NormalizeSourceRoots(requiredAncestors);
+            HashSet<string> scanRoots = DirectoryResourceLookupCache.NormalizeSourceRoots(requiredAncestors.Concat(chartDirectories));
             ChartScanResult ancestorScan = null;
             if (scanRoots.Count > 0 && !ChartDirectoryScanBuilder.TryBuildFromRoots(
                 scanRoots, out ancestorScan, out string failureReason, owner.rootFileEnumerator))
@@ -628,7 +711,7 @@ internal sealed partial class LibraryMutationOwner
 
             var replacements = new Dictionary<string, ChartScanResult>(StringComparer.OrdinalIgnoreCase);
             // 走査rootを包含縮約しても、置換が必要な下位祖先Entryは捨てません。
-            foreach (string ancestor in requiredAncestors)
+            foreach (string ancestor in requiredAncestors.Concat(chartDirectories).Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 replacements.Add(ancestor, ancestorScan.ChartDirectories.Contains(ancestor) ? ancestorScan : null);
             }

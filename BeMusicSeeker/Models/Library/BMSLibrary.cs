@@ -46,8 +46,10 @@ internal sealed class NormalLibraryRefreshNotification
         IReadOnlyList<InstalledChartCurrentChange> installedChartChanges = null,
         IReadOnlyList<CatalogCommitReceipt> catalogCommits = null,
         IReadOnlyList<ScoreSnapshotChange> scoreChanges = null,
-        IReadOnlyList<PlaylistReferenceCommitReceipt> referenceCommits = null)
+        IReadOnlyList<PlaylistReferenceCommitReceipt> referenceCommits = null,
+        IReadOnlyList<LibraryInstallDestinationChange> folderChanges = null)
     {
+        FolderChanges = folderChanges == null ? [] : [.. folderChanges];
         CatalogCommits = catalogCommits ?? [];
         ScoreChanges = scoreChanges ?? [];
         ReferenceCommits = referenceCommits == null ? [] : referenceCommits.ToImmutableArray();
@@ -67,6 +69,8 @@ internal sealed class NormalLibraryRefreshNotification
     internal IReadOnlyList<PlaylistReferenceCommitReceipt> ReferenceCommits { get; }
     internal int CatalogRevision { get; }
     internal LibraryChartRefreshEffects Effects { get; }
+    /// <summary>実directory操作の成功順を保つ短命な範囲です。個別譜面移動を含みません。</summary>
+    internal IReadOnlyList<LibraryInstallDestinationChange> FolderChanges { get; }
     internal IReadOnlyList<ChartFile> InstallDestinationChangedCharts { get; }
     internal bool ResetsPriorNotifications { get; }
     internal IReadOnlyList<ChartFile> ChangedCharts { get; }
@@ -89,8 +93,10 @@ internal sealed class NormalLibraryRefreshNotificationBatch
         IReadOnlyList<InstalledChartCurrentChange> installedChartChanges = null,
         IReadOnlyList<CatalogCommitReceipt> catalogCommits = null,
         IReadOnlyList<ScoreSnapshotChange> scoreChanges = null,
-        IReadOnlyList<PlaylistReferenceCommitReceipt> referenceCommits = null)
+        IReadOnlyList<PlaylistReferenceCommitReceipt> referenceCommits = null,
+        IReadOnlyList<LibraryInstallDestinationChange> folderChanges = null)
     {
+        FolderChanges = folderChanges == null ? [] : [.. folderChanges];
         CatalogCommits = catalogCommits ?? [];
         ScoreChanges = scoreChanges ?? [];
         ReferenceCommits = referenceCommits == null ? [] : referenceCommits.ToImmutableArray();
@@ -110,6 +116,8 @@ internal sealed class NormalLibraryRefreshNotificationBatch
     internal IReadOnlyList<PlaylistReferenceCommitReceipt> ReferenceCommits { get; }
     internal int CatalogRevision { get; }
     internal LibraryChartRefreshEffects Effects { get; }
+    /// <summary>実directory操作の成功順を保つ短命な範囲です。個別譜面移動を含みません。</summary>
+    internal IReadOnlyList<LibraryInstallDestinationChange> FolderChanges { get; }
     internal IReadOnlyList<ChartFile> InstallDestinationChangedCharts { get; }
     internal bool ResetsPriorNotifications { get; }
     internal IReadOnlyList<ChartFile> ChangedCharts { get; }
@@ -120,7 +128,7 @@ internal sealed class NormalLibraryRefreshNotificationBatch
     internal IReadOnlyList<string> ChangedDetailMd5s { get; }
     internal IReadOnlyList<string> ChangedDetailSha256s { get; }
     internal bool HasRefreshNotification => ResetsPriorNotifications || Effects != LibraryChartRefreshEffects.None
-        || InstallDestinationChangedCharts.Count > 0 || ChangedCharts.Count > 0 || DeletedTokens.Count > 0 || ScoreChanges.Count > 0 || ReferenceCommits.Count > 0;
+        || FolderChanges.Count > 0 || InstallDestinationChangedCharts.Count > 0 || ChangedCharts.Count > 0 || DeletedTokens.Count > 0 || ScoreChanges.Count > 0 || ReferenceCommits.Count > 0;
     internal bool HasEffect(LibraryChartRefreshEffects effect) => (Effects & effect) != 0;
 }
 
@@ -3762,7 +3770,13 @@ public partial class BMSLibrary : ObservableObject
         }
 
         package.DeferredEstimateReason = PendingEstimateDeferredReason.None;
-        ApplyPackageMixedInstallWarningsToEntries(request.AlreadyInstalledEntries.Where(entry => entry?.Chart != null && ContainsInstalledChartUnsafe(entry.Chart)));
+        foreach (PackageChartEntry entry in request.TargetEntries.Concat(request.AlreadyInstalledEntries).Distinct())
+        {
+            if (entry?.Chart == null) { continue; }
+            entry.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
+            if (ContainsInstalledChartUnsafe(entry.Chart))
+            { entry.SetWarning(ChartWarningKind.AlreadyInstalled, Resources.Warning_AlreadyInstalled); }
+        }
 
         var previouslyOwned = request.AlreadyInstalledEntries.ToHashSet();
         List<PackageChartEntry> currentTargetEntries = [.. request.TargetEntries.Where(entry => entry?.Chart != null
@@ -9275,7 +9289,13 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="isOwnedChartEdit">所持一譜面の要求ならtrue。同pathの保留群とは分離し、保留要求の失効を所持へ読み替えません。</param>
     /// <returns>導入先を検証し、対象へ適用した場合は <see langword="true"/>。</returns>
     internal bool SetPendingInstallDestination(PackageChartEntry targetEntry, string destinationDirectory, bool isOwnedChartEdit)
+        => SetPendingInstallDestination(targetEntry, destinationDirectory, isOwnedChartEdit, out _);
+
+    /// <summary>検証・適用した全項目を返し、同じ操作の表示更新がパッケージ内の兄弟を落とさないようにします。拒否時は空集合です。</summary>
+    internal bool SetPendingInstallDestination(PackageChartEntry targetEntry, string destinationDirectory, bool isOwnedChartEdit,
+        out IReadOnlyList<PackageChartEntry> targetEntries)
     {
+        targetEntries = [];
         if (targetEntry == null)
         {
             throw new ArgumentNullException("targetEntry");
@@ -9290,7 +9310,7 @@ public partial class BMSLibrary : ObservableObject
                     allowStandaloneLibraryChart = isOwnedChartEdit && IsKnownLibraryChartUnsafe(targetEntry.Chart);
                 }
                 PendingInstallDestinationSelectionResult selection = CreateInstallEstimationService().ValidateInstallDestination(targetEntry,
-                    isOwnedChartEdit ? [] : ChartPackagesPending, CreateKnownChartDirectorySnapshotUnsafe(), destinationDirectory, allowStandaloneLibraryChart);
+                    isOwnedChartEdit ? [] : ChartPackagesPending, CreateKnownChartDirectorySnapshotUnsafe(), destinationDirectory, allowStandaloneLibraryChart, GetDistinctInstalledDirectoriesByPrimaryHashUnsafe);
                 if (!selection.Success)
                 {
                     ShowOperationDialog(selection.WarningMessage, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
@@ -9300,6 +9320,7 @@ public partial class BMSLibrary : ObservableObject
                 (DirectoryResourceLookupCache.Entry Bundled, bool Complete) source = ApplyResolvedInstallDestinationPathAndMetadataToEntries(selection.TargetEntries, selection.ValidatedDestinationDirectory, selection.Package, relativeDirectories);
                 RefreshPendingResourceHealth(selection.TargetEntries, selection.Package, source.Bundled, source.Complete, relativeDirectories);
                 if (!isOwnedChartEdit) { ClearDeferredEstimateReasonForEntriesUnsafe(selection.TargetEntries); }
+                targetEntries = selection.TargetEntries;
                 return true;
             }
         }

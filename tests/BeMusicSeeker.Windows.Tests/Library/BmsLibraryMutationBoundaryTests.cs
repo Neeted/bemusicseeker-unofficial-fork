@@ -3,6 +3,7 @@ using System.IO;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
@@ -15,6 +16,109 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryMutationBoundaryTests
 {
+    /// <summary>譜面だけの削除・無効化を実sessionへ通し、独立した固定最終FSの初回索引と六分類・所有境界・三分類の候補逆引きを一致させます。</summary>
+    [TestMethod]
+    [DataRow("last", false)]
+    [DataRow("last", true)]
+    [DataRow("remaining", false)]
+    [DataRow("parent", false)]
+    [DataRow("child", false)]
+    public void ChartOnlyMutation_MatchesIndependentFinalResourceIndex(string condition, bool disable)
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+        WithTemporarySongDb(database =>
+        {
+            string workspace = Path.GetDirectoryName(database) ?? throw new AssertFailedException();
+            string actual = Path.Combine(workspace, "Actual"), expected = Path.Combine(workspace, "Expected");
+            string selectedRelative = condition == "child" ? Path.Combine("P", "C", "selected.bms") : Path.Combine("P", "selected.bms");
+            var survivors = new List<string>();
+            if (condition == "remaining") { survivors.Add(Path.Combine("P", "kept.bms")); }
+            if (condition == "parent") { survivors.Add(Path.Combine("P", "C", "kept.bms")); }
+            if (condition == "child") { survivors.Add(Path.Combine("P", "kept.bms")); }
+            foreach (string root in new[] { actual, expected })
+            {
+                Directory.CreateDirectory(Path.Combine(root, "P", "C"));
+                foreach (string relative in survivors.Concat(root == actual ? new[] { selectedRelative } : []))
+                {
+                    File.WriteAllText(Path.Combine(root, relative), "#TITLE " + relative + "\n#BPM 120\n");
+                }
+                foreach (string relative in new[] { "P/tone.wav", "P/cover.png", "P/movie.mpg", "P/C/child.wav", "P/C/child.png", "P/C/child.mpg" })
+                { File.WriteAllText(Path.Combine(root, relative), "resource"); }
+            }
+            var library = new TestBmsLibrary(databaseScope, database, null, null, new ResilientFileMutationService(),
+                new RecordingDialogService(), new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
+            {
+                BmsCharts = Directory.EnumerateFiles(actual, "*.bms", SearchOption.AllDirectories)
+                    .Select(path => BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path))).ToList(),
+                BmsonCharts = []
+            };
+            try
+            {
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, database, db =>
+                { foreach (ChartFile chart in library.BmsCharts) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song)); } });
+                LibraryResourceIndexOwner owner = LibraryResourceIndexTestSupport.GetOwner(library);
+                owner.Replace(LibraryResourceIndex.CreateFromScanResult(ChartDirectoryScanBuilder.BuildFromRoots([actual])));
+                long generation = owner.CaptureSnapshot().Generation;
+                uint[][] lookupKeys = [
+                    [ChartResourceKeyHash.GetLookupHash("tone.wav"), ChartResourceKeyHash.GetLookupHash("child.wav"), ChartResourceKeyHash.GetLookupHash(Path.Combine("C", "child.wav"))],
+                    [ChartResourceKeyHash.GetLookupHash("cover.png"), ChartResourceKeyHash.GetLookupHash("child.png"), ChartResourceKeyHash.GetLookupHash(Path.Combine("C", "child.png"))],
+                    [ChartResourceKeyHash.GetLookupHash("movie.mpg"), ChartResourceKeyHash.GetLookupHash("child.mpg"), ChartResourceKeyHash.GetLookupHash(Path.Combine("C", "child.mpg"))]
+                ];
+                // 消失した所有dirの既存候補bucketも、実sessionから除去されることを確認します。
+                Func<uint, IReadOnlyCollection<string>>[] previousLookups = Lookups(owner.CaptureSnapshot().DirectoryLookupCache);
+                for (int category = 0; category < lookupKeys.Length; category++)
+                {
+                    foreach (uint key in lookupKeys[category]) { _ = previousLookups[category](key); }
+                }
+
+                ChartFile selected = library.BmsCharts.Single(chart => chart.Path == Path.Combine(actual, selectedRelative));
+                if (disable)
+                {
+                    LibraryMutationSessionReceipt receipt = library.RenameBMSFilesExtensionsWithReceipt(
+                        [library.PrepareLibraryFileExtensionRenameBatch([selected], ".disabled")], unregister: true);
+                    Assert.IsFalse(receipt.HasRequiredFailure);
+                }
+                else
+                {
+                    LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(selected)]), false, []);
+                    Assert.IsFalse(outcome.HasError);
+                }
+                LibraryResourceIndexSnapshot current = owner.CaptureSnapshot();
+                Assert.AreEqual(generation + (condition == "remaining" ? 0 : 1), current.Generation);
+                DirectoryResourceLookupCache expectedCache = LibraryResourceIndex.CreateFromScanResult(ChartDirectoryScanBuilder.BuildFromRoots([expected])).DirectoryLookupCache;
+                foreach (string relative in new[] { "P", Path.Combine("P", "C") })
+                {
+                    DirectoryResourceLookupCache.Entry expectedEntry = expectedCache.GetEntryOrNull(Path.Combine(expected, relative));
+                    DirectoryResourceLookupCache.Entry actualEntry = current.DirectoryLookupCache.GetEntryOrNull(Path.Combine(actual, relative));
+                    if (expectedEntry == null) { Assert.IsNull(actualEntry, relative); continue; }
+                    Assert.IsNotNull(actualEntry, relative);
+                    uint[][] expectedValues = [expectedEntry.AudioRelativePathHashArray, expectedEntry.ImageRelativePathHashArray, expectedEntry.MovieRelativePathHashArray,
+                        expectedEntry.SelfOwnedAudioRelativePathHashArray, expectedEntry.SelfOwnedImageRelativePathHashArray, expectedEntry.SelfOwnedMovieRelativePathHashArray];
+                    uint[][] actualValues = [actualEntry.AudioRelativePathHashArray, actualEntry.ImageRelativePathHashArray, actualEntry.MovieRelativePathHashArray,
+                        actualEntry.SelfOwnedAudioRelativePathHashArray, actualEntry.SelfOwnedImageRelativePathHashArray, actualEntry.SelfOwnedMovieRelativePathHashArray];
+                    for (int category = 0; category < 6; category++) { CollectionAssert.AreEquivalent(expectedValues[category], actualValues[category], relative); }
+                }
+                Func<uint, IReadOnlyCollection<string>>[] expectedLookups = Lookups(expectedCache);
+                Func<uint, IReadOnlyCollection<string>>[] actualLookups = Lookups(current.DirectoryLookupCache);
+                for (int category = 0; category < lookupKeys.Length; category++)
+                {
+                    foreach (uint key in lookupKeys[category])
+                    {
+                        CollectionAssert.AreEqual(
+                            expectedLookups[category](key).Select(path => Path.GetRelativePath(expected, path)).ToArray(),
+                            actualLookups[category](key).Select(path => Path.GetRelativePath(actual, path)).ToArray(),
+                            $"candidate category={category} key={key}");
+                    }
+                }
+                Assert.IsTrue(Directory.Exists(Path.Combine(actual, "P", "C")));
+            }
+            finally { library.RequestShutdown("chart-only-resource-boundary"); }
+            static Func<uint, IReadOnlyCollection<string>>[] Lookups(DirectoryResourceLookupCache cache)
+                => [cache.GetDirectoriesByAudioRelativeHash, cache.GetDirectoriesByImageRelativeHash, cache.GetDirectoriesByMovieRelativeHash];
+
+        });
+    }
+
     /// <summary>
     /// 保証：同じ操作scopeの確認不要警告は重複を集約してFlushまで保留し、実通知には対象パスを保持する。
     /// </summary>

@@ -190,7 +190,7 @@ internal sealed partial class CatalogOwnedCollectionOwner
     }
     /// <summary>DBで確定した項目削除と内部移転を、共通現在値と隣接索引へ一回適用します。</summary>
     /// <returns>同じ確定時の現在値・版・旧新差分。後続entryへはこのAfterを共有します。</returns>
-    internal CatalogCommitReceipt ApplyMutation(IReadOnlyList<OwnedChartRemoveRequest> removals, IReadOnlyList<LibraryChartPathChange> paths)
+    internal CatalogCommitReceipt ApplyMutation(IReadOnlyList<OwnedChartRemoveRequest> removals, IReadOnlyList<LibraryChartPathChange> paths, IReadOnlyList<ChartFile> textChanges = null)
     {
         return Commit(state =>
         {
@@ -203,18 +203,33 @@ internal sealed partial class CatalogOwnedCollectionOwner
             {
                 state.ApplyPathChanges(paths);
             }
+            ApplyTextChanges(state, textChanges);
         });
     }
     /// <summary>DB 確定前に追加・差替え対象の共通現在値を検査します。</summary>
     internal void ValidateChartUpsert(IEnumerable<ChartFile> values) { lock (gate) { collection.ValidateCharts(values); } }
-    /// <summary>DB 確定した追加・差替えを現在値と索引へ一回適用し、新しい所持識別を発行します。</summary>
-    internal bool ApplyCommittedChartUpsert(IReadOnlyList<ChartFile> values, out bool normalized)
+    /// <summary>DB確定した追加・差替えと存続TXT変更を一回適用します。追加・差替えの識別発行と、存続token・順序の維持を同じ確定に含めます。</summary>
+    internal bool ApplyCommittedChartUpsert(IReadOnlyList<ChartFile> values, out bool normalized, IReadOnlyList<ChartFile> textChanges = null)
     {
         bool orderNormalized = false;
-        CatalogCommitReceipt receipt = Commit(state => orderNormalized = state.UpsertCharts(values));
+        CatalogCommitReceipt receipt = Commit(state =>
+        {
+            orderNormalized = state.UpsertCharts(values);
+            ApplyTextChanges(state, textChanges);
+        });
         normalized = orderNormalized;
         return receipt.HasChanges;
     }
+    private static void ApplyTextChanges(OwnedChartCollectionState state, IReadOnlyList<ChartFile> changes)
+    {
+        foreach (ChartFile change in changes ?? [])
+        {
+            ChartFile current = state.ResolveCurrentChart(LibraryChartRef.FromChartFile(change));
+            if (current?.Token != change.Token) { throw new InvalidOperationException("TXT target changed before commit."); }
+            state.ApplyCurrentChartValue(current with { Txt = change.Txt });
+        }
+    }
+
     /// <summary>同じ所持識別の内容変更を共通現在値と温まったハッシュ索引へ反映します。</summary>
     internal bool ApplyDigestChanges(IReadOnlyList<LibraryChartDigestChange> changes)
     {

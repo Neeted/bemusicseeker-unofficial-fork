@@ -319,7 +319,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.IsTrue(receipt.DurableCommit);
                 Assert.IsNull(receipt.FinalizationFailure);
                 Assert.AreEqual(0, port.Calls);
-                Assert.AreEqual(0, LibraryResourceIndexTestSupport.GetOwner(library).CaptureSnapshot().DirectoryLookupCache.Count);
+                Assert.AreEqual(1, LibraryResourceIndexTestSupport.GetOwner(library).CaptureSnapshot().DirectoryLookupCache.Count);
+                Assert.IsNotNull(LibraryResourceIndexTestSupport.GetOwner(library).CaptureSnapshot().DirectoryLookupCache.GetEntryOrNull(Path.Combine(parent, "Renamed")));
             }
             finally { library.RequestShutdown("ancestor-not-built-test"); }
         });
@@ -692,6 +693,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 {
                     CatalogApplyCount = 1,
                     PackageReferenceApplyCount = 1,
+                    ReverseLookupApplyCount = 1,
                     Lr2SyncCount = 1,
                     RequiredPublicationCount = 1
                 }, receipt.ApplyCounts);

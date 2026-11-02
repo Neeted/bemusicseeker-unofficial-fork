@@ -231,6 +231,9 @@ internal sealed partial class LibraryMutationOwner
 
         public int NormalLibraryRefreshNotificationVersion { get; set; }
 
+        /// <summary>同じ成功操作の通常通知へ含めるdirectory移動・統合・削除の順序付き事実です。</summary>
+        public IReadOnlyList<LibraryInstallDestinationChange> FolderChanges { get; set; } = [];
+
         public ResourceHealthIndexMutation ResourceHealthMutation { get; }
 
         public ResourceHealthIndexDispatchResult ResourceHealthDispatchResult { get; set; }
@@ -348,6 +351,21 @@ internal sealed partial class LibraryMutationOwner
             replacementEvent.Request,
             replacementEvent.ResourceHealthIndexCurrentAtBase);
         mutationResult.CatalogRevision = receipt.CatalogRevision;
+        if (receipt.OwnedCollectionApplied)
+        {
+            // 走査で退役が確定したtokenだけを剪定し、通知は通常変更と同じ解放後へ渡します。
+            Action publishCollections = null;
+            BmsLibraryStateApplyResult packageResult;
+            using (packageLifecycleOwner.BeginCollectionMutationScope(deferPublication: publication => publishCollections = publication))
+            {
+                packageResult = packageLifecycleOwner.ApplyPackageReferenceFacts(LibraryPackageReferenceFacts.Empty, receipt.RemovedCharts);
+            }
+            mutationResult.PackagePathsPublication = () =>
+            {
+                publishCollections?.Invoke();
+                packageResult.PublishPackagePaths?.Invoke();
+            };
+        }
         string dispatchReason = string.IsNullOrWhiteSpace(replacementEvent.Reason)
             ? "file_scan"
             : "file_scan_" + replacementEvent.Reason;
@@ -442,7 +460,7 @@ internal sealed partial class LibraryMutationOwner
         LibraryFileMutationCapability mutationCapability,
         ref LibraryMutationSessionApplyCounts applyCounts,
         IEnumerable<string> installPathsToDelete = null,
-        IEnumerable<ChartPackage> installRowsToUpsert = null)
+        IEnumerable<ChartPackage> installRowsToUpsert = null, IReadOnlyList<ChartFile> textChanges = null)
     {
         if (addedTargets == null)
         {
@@ -487,7 +505,7 @@ internal sealed partial class LibraryMutationOwner
                         out deferredFailureFact,
                         () => catalogValidationPassed = true,
                         installPathsToDelete,
-                        installRowsToUpsert);
+                        installRowsToUpsert, textChanges);
                     mutationResult.CatalogRevision = installedTargetReceipt.CatalogRevision;
                 }
             }
@@ -1801,7 +1819,8 @@ internal sealed partial class LibraryMutationOwner
         LibraryFileMutationCapability mutationCapability,
         Action<Action> postLeaseNotificationObserver,
         ref LibraryMutationSessionApplyCounts applyCounts,
-        LibraryStorageRowPathNotificationPolicy storageRowPathNotificationPolicy = LibraryStorageRowPathNotificationPolicy.Notify)
+        LibraryStorageRowPathNotificationPolicy storageRowPathNotificationPolicy = LibraryStorageRowPathNotificationPolicy.Notify,
+        IReadOnlyList<LibraryInstallDestinationChange> folderChanges = null)
     {
         ArgumentNullException.ThrowIfNull(mutationCapability);
         ArgumentNullException.ThrowIfNull(postLeaseNotificationObserver);
@@ -1809,6 +1828,8 @@ internal sealed partial class LibraryMutationOwner
         bool durableCommit = false;
         try
         {
+            packageReferenceFacts = packageLifecycleOwner.CaptureCommittedPackagePaths(
+                packageReferenceFacts, catalogFacts?.ChartPathChanges);
             ApplyLibraryMutationFactsCore(
                 catalogFacts,
                 packageReferenceFacts,
@@ -1817,7 +1838,8 @@ internal sealed partial class LibraryMutationOwner
                 mutationCapability: mutationCapability,
                 postLeaseNotificationObserver: postLeaseNotificationObserver,
                 applyCounts: ref applyCounts,
-                storageRowPathNotificationPolicy: storageRowPathNotificationPolicy);
+                storageRowPathNotificationPolicy: storageRowPathNotificationPolicy,
+                folderChanges: folderChanges);
             return FileDbMutationCommitResult.Durable();
         }
         catch (Exception exception)
@@ -1836,7 +1858,8 @@ internal sealed partial class LibraryMutationOwner
         LibraryFileMutationCapability mutationCapability,
         Action<Action> postLeaseNotificationObserver,
         ref LibraryMutationSessionApplyCounts applyCounts,
-        LibraryStorageRowPathNotificationPolicy storageRowPathNotificationPolicy)
+        LibraryStorageRowPathNotificationPolicy storageRowPathNotificationPolicy,
+        IReadOnlyList<LibraryInstallDestinationChange> folderChanges)
     {
         const string defaultReason = "library_delta";
         bool collectPerformanceLog = !string.IsNullOrWhiteSpace(performanceLogContext);
@@ -1863,6 +1886,7 @@ internal sealed partial class LibraryMutationOwner
                     storageRowPathNotificationPolicy,
                     resourceHealthMutation.BaseInputVersion,
                     resourceHealthIndexCurrentAtBase: resourceHealthMutation.BaseIndexCurrent);
+                mutationResult.FolderChanges = folderChanges ?? [];
                 timings.BuildMutationMs = StopPerformanceStepStopwatch(buildMutationStopwatch);
                 lock (catalogOwnedCollectionOwner.Gate)
                 {
@@ -2066,7 +2090,7 @@ internal sealed partial class LibraryMutationOwner
         }
         IReadOnlyList<ChartFile> installDestinationChangedCharts = result.InstallDestinationChangedCharts ?? [];
         LibraryChartRefreshEffects effects = CreateLibraryChartRefreshEffects(result, installDestinationChangedCharts);
-        if (effects == LibraryChartRefreshEffects.None)
+        if (effects == LibraryChartRefreshEffects.None && result.FolderChanges.Count == 0)
         {
             return;
         }
@@ -2075,6 +2099,7 @@ internal sealed partial class LibraryMutationOwner
         {
             CatalogRevision = catalogRevision,
             Effects = effects,
+            FolderChanges = result.FolderChanges,
             InstallDestinationChangedCharts = installDestinationChangedCharts,
 
             ResetsPriorNotifications = false,
@@ -2218,7 +2243,7 @@ internal sealed partial class LibraryMutationOwner
         string lookupReason,
         LibraryFileMutationCapability mutationCapability,
         Action<Action> postLeaseNotificationObserver,
-        ref LibraryMutationSessionApplyCounts applyCounts)
+        ref LibraryMutationSessionApplyCounts applyCounts, IReadOnlyList<ChartFile> textChanges = null)
     {
         ArgumentNullException.ThrowIfNull(mutationCapability);
         ArgumentNullException.ThrowIfNull(postLeaseNotificationObserver);
@@ -2231,7 +2256,7 @@ internal sealed partial class LibraryMutationOwner
             .Where(package => package != null && !string.IsNullOrWhiteSpace(package.path))
             .GroupBy(package => package.path, StringComparer.Ordinal)
             .Select(group => group.Last())];
-        if (addedTargets.Charts.Count == 0 && installPaths.Count == 0 && installRows.Count == 0)
+        if (addedTargets.Charts.Count == 0 && installPaths.Count == 0 && installRows.Count == 0 && (textChanges?.Count ?? 0) == 0)
         {
             return FileDbMutationCommitResult.Durable();
         }
@@ -2243,7 +2268,7 @@ internal sealed partial class LibraryMutationOwner
                 mutationCapability,
                 ref applyCounts,
                 installPathsToDelete: installPaths,
-                installRowsToUpsert: installRows);
+                installRowsToUpsert: installRows, textChanges: textChanges);
         if (storageReceipt.Failure != null)
         {
             postLeaseNotificationObserver(

@@ -949,11 +949,31 @@ public sealed partial class PendingPackageWorkflowOwnerTests
     public async Task SetPendingAsync_HoldsAdmissionThroughRequiredPresentation(bool failPresentation)
     {
         var events = new List<string>();
-        ChartFile chart = CreateChart();
-        var store = new RecordingStore(events) { SetResult = chart };
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string destination = Directory.CreateDirectory(Path.Combine(workspace.RootDirectory, "Installed")).FullName;
+        string nextDestination = Directory.CreateDirectory(Path.Combine(workspace.RootDirectory, "Next")).FullName;
+        string source = Directory.CreateDirectory(Path.Combine(workspace.RootDirectory, "Pending")).FullName;
+        string[] input = [Path.Combine(source, "a.bms"), Path.Combine(source, "b.bms")];
+        File.WriteAllText(input[0], "#TITLE A\n"); File.WriteAllText(input[1], "#TITLE B\n");
+        string owned = Path.Combine(destination, "owned.bms"), nextOwned = Path.Combine(nextDestination, "owned.bms");
+        File.WriteAllText(owned, "#TITLE Owned\n"); File.WriteAllText(nextOwned, "#TITLE Next\n");
+        PackageChartEntry[] entries = [.. input.Select(PackageChartEntry.FromPath)];
+        foreach (PackageChartEntry entry in entries) { BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry); }
+        var package = ChartPackage.FromChartEntries(entries); package.path = source;
         var gate = new ChartFileOperationSynchronizer();
-        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs(), chartFileOperations: gate);
-        Assert.IsTrue(PendingInstallDestinationEditRequest.TryCreate(CreateTarget(chart), out PendingInstallDestinationEditRequest request));
+        File.WriteAllBytes(Path.Combine(workspace.RootDirectory, "song.db"), []);
+        var library = new TestBmsLibrary(new ApplicationDatabaseScope(), Path.Combine(workspace.RootDirectory, "song.db"), null, null, null,
+            new RecordingLibraryDialogService(), new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false },
+            operationAdmission: gate)
+        {
+            BmsCharts = [BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(owned)), BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(nextOwned))],
+            BmsonCharts = [],
+            ChartPackagesPending = [package],
+            ChartPackagesInstalled = []
+        };
+        PendingPackageWorkflowOwner owner = CreateOwner(() => library, events, new BmsLibraryPendingPackageStore(), AcceptedDialogs(), chartFileOperations: gate);
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(LibraryChartRow.FromPackageChartEntry(entries[0]), ChartOperationSourceScope.PendingPackage, out ChartOperationTarget target));
+        Assert.IsTrue(PendingInstallDestinationEditRequest.TryCreate(target, out PendingInstallDestinationEditRequest request));
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         bool hold = true;
@@ -962,7 +982,9 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         {
             if (args is PendingPackageMutationAppliedEventArgs applied && hold)
             {
-                Assert.AreSame(request.PackageEntry!.Chart, applied.ProjectionCharts.Single());
+                Assert.AreEqual(0, applied.ChangedCharts.Count);
+                CollectionAssert.AreEquivalent(entries.Select(entry => entry.Chart).ToArray(), applied.ProjectionCharts.ToArray());
+                Assert.IsTrue(applied.ProjectionCharts.All(chart => chart.InstallDestination == destination));
                 applied.Presentation = Present();
             }
         };
@@ -971,22 +993,33 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             entered.TrySetResult(); await release.Task;
             if (failPresentation) { throw failure; }
         }
-        Task edit = owner.SetPendingAsync(request, @"C:\Installed");
+        Task edit = owner.SetPendingAsync(request, destination);
         try
         {
-            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, edit, "pending-required-presentation");
-            Assert.IsFalse(edit.IsCompleted);
-            Assert.AreEqual(@"C:\Installed", store.LastDestinationDirectory);
-            Assert.IsTrue(events.Contains("suppression-end"));
-            Assert.IsTrue(events.Contains("activity-end"));
-            Assert.IsFalse(gate.TryEnter(out IDisposable rejected)); rejected?.Dispose();
+            try
+            {
+                await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, edit, "pending-required-presentation");
+                Assert.IsFalse(edit.IsCompleted);
+                Assert.IsTrue(entries.All(entry => entry.Chart.InstallDestination == destination));
+                Assert.IsTrue(events.Contains("suppression-end"));
+                Assert.IsTrue(events.Contains("activity-end"));
+                Assert.IsFalse(gate.TryEnter(out IDisposable rejected)); rejected?.Dispose();
+            }
+            finally { hold = false; release.TrySetResult(); }
+            if (failPresentation) { Assert.AreSame(failure, await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => edit)); }
+            else { await edit; }
+            Assert.IsTrue(gate.TryEnter(out IDisposable next)); next.Dispose();
+            await owner.SetPendingAsync(request, nextDestination);
+            Assert.IsTrue(entries.All(entry => entry.Chart.InstallDestination == nextDestination));
         }
-        finally { hold = false; release.TrySetResult(); }
-        if (failPresentation) { Assert.AreSame(failure, await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => edit)); }
-        else { await edit; }
-        Assert.IsTrue(gate.TryEnter(out IDisposable next)); next.Dispose();
-        await owner.SetPendingAsync(request, @"C:\Next");
-        Assert.AreEqual(@"C:\Next", store.LastDestinationDirectory);
+        finally
+        {
+            hold = false;
+            release.TrySetResult();
+            try { await edit; }
+            catch (InvalidOperationException exception) when (failPresentation && ReferenceEquals(exception, failure)) { }
+            finally { library.RequestShutdown("pending-edit-test"); }
+        }
     }
 
     /// <summary>保留導入先の消去が失敗しても抑制とactivityを閉じ、元失敗を伝えて成功の一覧更新を通知しない。</summary>

@@ -107,6 +107,67 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>単体入力の確定DSTを保持した再推定でも、アプリ内で最後の所持を削除した事実を警告へ反映します。別所持・未対象・元配置と再選択後の表示を保持します。</summary>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public void SearchEstimatedInstallationDirectory_RefreshesOwnedWarningAfterChartRemoval(bool batch, bool anotherCopy)
+    {
+        InstallServiceComponentTestSupport.WithTemporarySongDb((dbPath, root) =>
+        {
+            string registered = Directory.CreateDirectory(Path.Combine(root, "Library")).FullName;
+            string song = Directory.CreateDirectory(Path.Combine(registered, "S")).FullName;
+            string input = Directory.CreateDirectory(Path.Combine(root, "External")).FullName;
+            const string text = "#TITLE Song\n#ARTIST Artist\n#WAV01 sound.wav\n#00111:01\n";
+            string aPath = CreateBmsFileWithContents(song, "a.bms", text);
+            string basePath = CreateBmsFileWithContents(song, "base.bms", text + "#GENRE base\n");
+            string sourcePath = CreateBmsFileWithContents(input, "a.bms", text);
+            File.WriteAllText(Path.Combine(input, "readme.txt"), "not selected");
+            File.WriteAllText(Path.Combine(song, "sound.wav"), "retained audio");
+            List<ChartFile> owned = [ReadChart(aPath), ReadChart(basePath)];
+            if (anotherCopy) { owned.Add(ReadChart(CreateBmsFileWithContents(Path.Combine(registered, "Other"), "a.bms", text))); }
+            var scope = new ApplicationDatabaseScope();
+            var library = new TestBmsLibrary(scope, dbPath, null, null, new InstallServiceComponentTestSupport.RealFileMutationService(), new FileDbReportRecordingDialogs(),
+                new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false }, settings: TestBmsFactory.CreateRootSettings([registered]))
+            { BmsCharts = owned, BmsonCharts = [], ChartPackagesPending = [], ChartPackagesInstalled = [] };
+            try
+            {
+                new BmsLibraryDbGateway(scope, new BmsDatabaseLoadOptions(true, true, true), dbPath).UpsertSongs(owned);
+                AutoInstallWorkflowResult discovered = new BmsLibraryPackageInstallService().PrepareAutoInstallWorkflow([sourcePath], [], [], _ => true);
+                ChartPackage package = discovered.DiscoveredPackages.Single();
+                Assert.AreEqual(sourcePath, package.path, "未選択readmeだけでは単体をフォルダへ昇格しません。");
+                library.ChartPackagesPending = [package];
+                PackageChartEntry entry = package.ChartEntries.Single();
+                Assert.IsTrue(library.SetPendingInstallDestination(entry, song, false));
+                void Estimate() { if (batch) { library.SearchEstimatedInstallationDirectory([package]); } else { library.SearchEstimatedInstallationDirectory(package); } }
+                Estimate();
+                AssertWarning(true);
+                library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(library.BmsCharts.Single(chart => chart.Path == aPath))]), false, []);
+                Assert.IsFalse(File.Exists(aPath));
+                Assert.IsTrue(File.Exists(basePath));
+                Assert.IsTrue(File.Exists(Path.Combine(song, "sound.wav")));
+                Estimate();
+                Assert.AreEqual(song, entry.Chart.InstallDestination);
+                AssertWarning(anotherCopy);
+                library.RemoveInstallDestination(package.ChartEntries, package);
+                AssertWarning(anotherCopy);
+                Assert.AreEqual(0, entry.Chart.WAVHealth);
+                Assert.AreEqual(text, File.ReadAllText(sourcePath));
+                Assert.AreEqual("not selected", File.ReadAllText(Path.Combine(input, "readme.txt")));
+                void AssertWarning(bool expected)
+                {
+                    Assert.AreEqual(expected, entry.Chart.Warnings.Any(w => w.Kind == ChartWarningKind.AlreadyInstalled));
+                    LibraryChartRow row = new MainChartRowProjectionOwner().CreatePackageRow(library, entry);
+                    Assert.AreEqual(expected, row.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_AlreadyInstalled, StringComparison.Ordinal));
+                    Assert.AreEqual(expected, ChartWarningProjectionFormatter.BuildDisplayText(row.Chart, null, false).Contains(BeMusicSeeker.Properties.Resources.Warning_AlreadyInstalled, StringComparison.Ordinal));
+                }
+            }
+            finally { library.RequestShutdown("pending-owned-warning"); }
+        });
+    }
+
     /// <summary>同pathの所持/保留要求を分離し、所持は一譜面だけ、保留は全項目へ適用します。実推定の保留理由は所持編集で維持し、保留編集だけで解除します。親参照診断・失効保留拒否・新所持要求を保ちます。</summary>
     [TestMethod]
     [DataRow(false)]
@@ -143,7 +204,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.IsTrue(GridRowResolver.TryGetInstallDestinationEditTarget(LibraryChartRow.FromChartFile(owned), ChartOperationSourceScope.Library,
                 MainViewOperationSection.FullScanCheck, out ChartOperationTarget ownedTarget));
             Assert.IsTrue(PendingInstallDestinationEditRequest.TryCreate(ownedTarget, out PendingInstallDestinationEditRequest ownedRequest));
-            ChartFile changed = store.SetPending(library, ownedRequest, ownedDst);
+            ChartFile changed = store.SetPending(library, ownedRequest, ownedDst).Single();
             Assert.IsNotNull(changed); Assert.AreEqual(ownedDst, changed.InstallDestination);
             Assert.AreEqual(reasonBefore, package.DeferredEstimateReason);
             for (int index = 0; index < package.ChartEntries.Count; index++)
@@ -168,7 +229,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.IsTrue(GridRowResolver.TryGetInstallDestinationEditTarget(LibraryChartRow.FromChartFile(owned), ChartOperationSourceScope.Library,
                 MainViewOperationSection.FullScanCheck, out ChartOperationTarget freshTarget));
             Assert.IsTrue(PendingInstallDestinationEditRequest.TryCreate(freshTarget, out PendingInstallDestinationEditRequest freshRequest));
-            Assert.AreEqual(pendingDst, store.SetPending(library, freshRequest, pendingDst)?.InstallDestination);
+            Assert.AreEqual(pendingDst, store.SetPending(library, freshRequest, pendingDst)?.Single().InstallDestination);
         });
     }
     /// <summary>同じ群で捕捉時点が異なる同梱入力を先頭一件で代表せず、不明Anyとして明示指定を受理します。</summary>

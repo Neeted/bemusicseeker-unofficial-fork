@@ -3145,6 +3145,12 @@ public class Resources
     public static string Settings_cancel_changes => ResourceManager.GetString("Settings_cancel_changes", resourceCulture);
     /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
     public static string Settings_replacement_install => ResourceManager.GetString("Settings_replacement_install", resourceCulture);
+    /// <summary>BMS検索対象から削除する現在のインストール先の見出しを取得します。</summary>
+    public static string Settings_removed_install => ResourceManager.GetString("Settings_removed_install", resourceCulture);
+    /// <summary>現在のインストール先を削除するときに、残った候補から変更先を選ぶ案内を取得します。</summary>
+    public static string Settings_replacement_install_required => ResourceManager.GetString("Settings_replacement_install_required", resourceCulture);
+    /// <summary>変更先候補がなく、検索対象の追加または削除操作の取消を求める案内を取得します。</summary>
+    public static string Settings_replacement_install_empty => ResourceManager.GetString("Settings_replacement_install_empty", resourceCulture);
     /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
     public static string Settings_use_on_start => ResourceManager.GetString("Settings_use_on_start", resourceCulture);
     /// <summary>選択recordだけを確定する操作名です。</summary>

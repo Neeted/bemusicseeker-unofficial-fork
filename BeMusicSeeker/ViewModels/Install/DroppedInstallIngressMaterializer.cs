@@ -94,7 +94,7 @@ internal sealed class DroppedInstallIngressMaterializer
     }
 
     /// <summary>
-    /// Acquires a complete batch atomically and returns a durable request or a typed failure.
+    /// 実体のルート・祖先・子孫を検査してバッチ全体を確保し、永続する要求または分類付き失敗を返します。信頼済みTEMPの子孫だけは起点属性を検査しません。
     /// </summary>
     internal DroppedInstallIngressAcquisitionResult Acquire(IEnumerable<string> paths)
     {
@@ -317,15 +317,28 @@ internal sealed class DroppedInstallIngressMaterializer
     private FileAttributes GetStableSourceAttributesWithAncestors(string source)
     {
         string root = Path.GetPathRoot(source);
-        string relativePath = string.IsNullOrWhiteSpace(root)
-            ? string.Empty
-            : Path.GetRelativePath(root, source);
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            throw new UnsafeDroppedInstallSourceException("A dropped install source must have a filesystem root.");
+        }
+
+        // 実体の起点は相対配置ではありません。ルート自身も一度属性を検査します。
+        FileAttributes attributes = getAttributes(root);
+        EnsureAttributesAreNotReparsePoint(attributes);
+        if ((attributes & FileAttributes.Directory) == 0)
+        {
+            throw new DirectoryNotFoundException("A dropped install source root is not a directory: " + root);
+        }
+        string relativePath = Path.GetRelativePath(root, source);
+        if (string.Equals(relativePath, ".", StringComparison.Ordinal))
+        {
+            return attributes;
+        }
         ValidateRelativePath(relativePath);
         string[] components = relativePath.Split(
             [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
             StringSplitOptions.RemoveEmptyEntries);
         string current = root;
-        FileAttributes attributes = default;
         for (int index = 0; index < components.Length; index++)
         {
             current = LongPathFileSystem.NormalizePathForStorage(

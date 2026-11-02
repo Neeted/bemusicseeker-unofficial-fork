@@ -4,6 +4,7 @@ using System.Reflection;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
@@ -15,6 +16,73 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryPackageLifecycleTests
 {
+    /// <summary>同live libraryで導入先を先に変更して検索rootを解除し、実差分scanが元実体を残したまま退役tokenの全所属と空packageを剪定します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ReloadFileDiff_RemovedRootPrunesInstalledMembershipsButKeepsFiles(bool bmson)
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+        WithTemporarySongDb(database =>
+        {
+            string root = Path.GetDirectoryName(database) ?? throw new AssertFailedException();
+            string a = Path.Combine(root, "A"), b = Path.Combine(root, "B"), external = Path.Combine(root, "External");
+            foreach (string directory in new[] { a, b, external }) { Directory.CreateDirectory(directory); }
+            string aBase = Path.Combine(a, "base.bms"), bBase = Path.Combine(b, "base.bms");
+            File.WriteAllText(aBase, "#TITLE Root A\n#BPM 120\n");
+            File.WriteAllText(bBase, "#TITLE Root B\n#BPM 120\n");
+            string input = Path.Combine(external, bmson ? "added.bmson" : "added.bms");
+            File.WriteAllText(input, bmson ? "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Added\"},\"sound_channels\":[]}" : "#TITLE Added\n#BPM 120\n");
+            Settings settings = TestBmsFactory.CreateRootSettings([a, b]);
+            settings.BMSInstallDir = a;
+            var scanner = CapturedChartFileScanner.FromFixture([bBase], new Dictionary<string, IEnumerable<string>> { [b] = [] }, [b]);
+            var library = new TestBmsLibrary(databaseScope, database, getLR2Config: null, _lr2ScoreDB: null,
+                startupRequiredFileScanReason: null, optionsSnapshotProvider: () => new BmsLibraryOptionsSnapshot
+                { OperationModeLR2DB = false, BMSInstallDir = settings.BMSInstallDir, PendingInstallEstimateMaxParallelPackages = 1 },
+                applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge, chartFileScanner: scanner,
+                dialogService: new BmsLibraryInitializationTestSupport.RecordingDialogService(), settings: settings,
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher))
+            {
+                BmsCharts = new[] { aBase, bBase }.Select(path => BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path))).ToList(),
+                BmsonCharts = []
+            };
+            try
+            {
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, database, db =>
+                { foreach (ChartFile chart in library.BmsCharts) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song)); } });
+                ChartFile incoming = bmson ? BmsonChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(input))
+                    : BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(input));
+                ChartPackage pending = ChartPackageTestExtensions.CreatePackage(ChartPackageTestExtensions.CreateEntryWithInstallDestination(incoming, a));
+                pending.path = input;
+                library.ChartPackagesPending = new ObservableCollection<ChartPackage>([pending]);
+                PendingInstallBatchResult install = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([pending]);
+                Assert.IsTrue(install.HasDurableCommit);
+                Assert.IsFalse(install.SessionReceipt.HasRequiredFailure);
+                ChartPackage first = library.ChartPackagesInstalled.Single();
+                ChartFile installed = first.ChartEntries.Single().Chart;
+                var second = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(installed)]);
+                second.path = installed.Path;
+                library.ChartPackagesInstalled = new ObservableCollection<ChartPackage>([first, second]);
+                settings.BMSInstallDir = b;
+                settings.Save();
+                settings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([b]);
+                settings.BMSRootPath = b;
+                settings.Save();
+                library.ReloadFileDiff();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(File.Exists(installed.Path));
+                Assert.IsTrue(File.Exists(aBase));
+                Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
+                CollectionAssert.AreEqual(new[] { bBase }, library.BmsCharts.Select(chart => chart.Path).ToArray());
+                Assert.AreEqual(0, library.BmsonCharts.Count);
+                using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), database).OpenSongDbReadOnly();
+                Assert.IsNull(verify.Find<LR2SongDB.song>(aBase));
+                Assert.IsNotNull(verify.Find<LR2SongDB.song>(bBase));
+            }
+            finally { library.RequestShutdown("removed-root-installed-memberships"); }
+        });
+    }
+
     /// <summary>局所確定値の反映、複数所属、旧購読の解除と未具体化列の非I/Oを同じownerで確認します。</summary>
     [TestMethod]
     // BMS/BMSONの共通現在値を、同じ所属・退役条件で検査します。

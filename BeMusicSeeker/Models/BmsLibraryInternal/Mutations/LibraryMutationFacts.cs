@@ -20,11 +20,19 @@ internal sealed class LibraryCatalogMutationFacts
     /// <param name="chartRemoveRequests">確定した譜面削除要求。</param>
     /// <param name="chartPathChanges">確定した譜面パス移動。</param>
     /// <param name="folderPathChanges">確定したフォルダーパス移動。</param>
+    /// <param name="textChanges">存続する同token BMSのTXT実差分。</param>
+    /// <param name="relocatedTextFlags">セッションで評価済みの移転先完全一致pathとTXT。BMS移転がある場合は全移転先を必須とします。</param>
     internal LibraryCatalogMutationFacts(
         IEnumerable<OwnedChartRemoveRequest> chartRemoveRequests = null,
         IEnumerable<LibraryChartPathChange> chartPathChanges = null,
-        IEnumerable<LibraryFolderPathChange> folderPathChanges = null)
+        IEnumerable<LibraryFolderPathChange> folderPathChanges = null,
+        IEnumerable<ChartFile> textChanges = null,
+        IReadOnlyDictionary<string, int> relocatedTextFlags = null)
     {
+        TextChanges = Array.AsReadOnly((textChanges ?? []).ToArray());
+        RelocatedTextFlags = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
+            relocatedTextFlags == null ? new Dictionary<string, int>(StringComparer.Ordinal)
+                : new Dictionary<string, int>(relocatedTextFlags, StringComparer.Ordinal));
         ChartRemoveRequests = Array.AsReadOnly((chartRemoveRequests ?? [])
             .Where(request => request != null)
             .ToArray());
@@ -36,6 +44,12 @@ internal sealed class LibraryCatalogMutationFacts
             .ToArray());
     }
 
+    /// <summary>同じ操作の最終配置で評価済みの移転先BMSのTXTです。欠落pathを再探索して補いません。</summary>
+    internal IReadOnlyDictionary<string, int> RelocatedTextFlags { get; }
+
+    /// <summary>同token・完全一致pathを保持する存続BMSのTXT実差分です。</summary>
+    internal IReadOnlyList<ChartFile> TextChanges { get; }
+
     /// <summary>所有者参照またはパス整理として確定した削除要求。</summary>
     internal IReadOnlyList<OwnedChartRemoveRequest> ChartRemoveRequests { get; }
 
@@ -46,7 +60,7 @@ internal sealed class LibraryCatalogMutationFacts
     internal IReadOnlyList<LibraryFolderPathChange> FolderPathChanges { get; }
 
     /// <summary>いずれかのカタログ事実を保持しているかを返します。</summary>
-    internal bool HasChanges => ChartRemoveRequests.Count > 0
+    internal bool HasChanges => TextChanges.Count > 0 || ChartRemoveRequests.Count > 0
         || ChartPathChanges.Count > 0
         || FolderPathChanges.Count > 0;
 

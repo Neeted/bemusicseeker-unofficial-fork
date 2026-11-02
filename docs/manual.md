@@ -188,7 +188,7 @@ Configure the language, operating mode, BMS directories, LR2 directory, beatoraj
 
 #### Registering BMS Directories
 
-In either mode, edit the search-root list with `Add`, drag and drop, and removal, then press `Change BMS directories`. Multiple edits apply once using the final list. If you remove the current install destination, explicitly choose its replacement in the same section.
+In either mode, edit the search-root list with `Add`, drag and drop, and removal, then press `Change BMS directories`. Multiple edits apply once using the final list. When removing the current install destination, check `Current install destination (to be removed)` and select a remaining BMS directory under `New install destination` before confirming. Selection alone does not save changes. If no directories remain, add a BMS directory or use `Discard these changes` to restore the list and install destination.
 
 Registered paths adopt the actual folder-name casing confirmed during scanning.
 

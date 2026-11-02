@@ -139,7 +139,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 string newPath = Path.Combine(Path.GetDirectoryName(path) ?? throw new InvalidOperationException(), "9.bms");
                 File.WriteAllText(newPath, "#TITLE Moved\n");
                 Assert.IsTrue(mutation.ApplyCatalogMutation(new(chartPathChanges: [new LibraryChartPathChange
-                { Chart = charts[1], OldPath = charts[1].Path, NewPath = newPath }])).Applied);
+                { Chart = charts[1], OldPath = charts[1].Path, NewPath = newPath }], relocatedTextFlags: new Dictionary<string, int> { [newPath] = 0 })).Applied);
                 DeliverSelectionChanges(fixture);
                 Assert.AreEqual(0, table.SelectedIndex);
                 Assert.AreEqual(2, fixture.View.IndexOfSelectionIdentity(charts[1].Token));

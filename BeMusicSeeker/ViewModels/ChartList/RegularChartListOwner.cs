@@ -1602,6 +1602,17 @@ internal sealed partial class RegularChartListOwner : IDisposable
             mainChartList.RowProjection.PruneTransientStatesToOwnedCharts(library);
         }
 
+        IReadOnlyList<ChartFile> folderReferenceChanges = mainChartList.RowProjection.ApplyFolderChanges(notificationBatch.FolderChanges);
+        if (folderReferenceChanges.Count > 0 && mainChartList.Rows is ChartListVirtualView destinationView)
+        {
+            using IDisposable selection = destinationView.PreserveSelection();
+            bool changed = destinationView.RefreshKeyDependencies(
+                folderReferenceChanges.Select(chart => chart.Md5), folderReferenceChanges.Select(chart => chart.Sha256),
+                row => row.RefreshDisplayForDataDependency(MainViewDataDependency.InstallDestination));
+            if (changed) { destinationView.PublishOrderChanged(); }
+            mainChartList.UpdateSummaryText(destinationView);
+        }
+
         if (mainChartList.Rows is ChartListVirtualView { NormalInput: NormalLibrarySourceRows normalInput }
             && ReferenceEquals(normalInput.Library, library)
             && (notificationBatch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged)
