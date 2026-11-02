@@ -92,7 +92,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             string path = Path.Combine(root, "chart.bmson");
             File.WriteAllBytes(Path.Combine(root, "bms-tone.wav"), CreateStereoFloatWave(0.25f, -0.125f));
             File.WriteAllBytes(Path.Combine(root, "bmson-tone.wav"), CreateStereoFloatWave(-0.125f, 0.375f));
-            File.WriteAllText(bmsPath, "#PLAYER 1\r\n#TITLE BMS native export\r\n#BPM 120\r\n#WAV01 bms-tone.wav\r\n#00111:01\r\n");
+            File.WriteAllText(bmsPath, "#PLAYER 1\r\n#TITLE BMS native export\r\n#BPM 120\r\n#WAV01\tbms-tone.wav\r\n#00111:01\r\n");
             File.WriteAllText(path, "{\"version\":\"1.0.0\",\"info\":{\"init_bpm\":120,\"title\":\"BMSON native export\"},\"sound_channels\":[{\"name\":\"bmson-tone.wav\",\"notes\":[{\"y\":0,\"x\":1}]}]}");
             var events = new EventLog();
             var playback = new RecordingPlayback(events);

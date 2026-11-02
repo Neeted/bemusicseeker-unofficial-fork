@@ -471,6 +471,16 @@ internal static partial class ChartInfoParser
             GetBmsonTimeline(timelinesByY, note.Y, resolution, mode).HasBga = true;
         }
 
+        // layer/poorもSTOP後の速度復帰を観測する時点ですが、BGA使用フラグの根拠にはしません。
+        foreach (BmsonBgaNote note in (document?.Bga?.LayerEvents ?? []).Concat(document?.Bga?.PoorEvents ?? []))
+        {
+            timeoutGuard.ThrowIfTimedOutEvery(++bgaIndex, "bmson_layer_poor_events");
+            if (note != null)
+            {
+                GetBmsonTimeline(timelinesByY, note.Y, resolution, mode);
+            }
+        }
+
         model.SetTimelines([.. timelinesByY.Values], timeoutGuard);
         int totalNotes = model.GetTotalNotes();
         model.Difficulty = InferBeatorajaDifficulty(info.Title, ComposeBmsonSubtitle(info.Subtitle, info.ChartName), totalNotes);

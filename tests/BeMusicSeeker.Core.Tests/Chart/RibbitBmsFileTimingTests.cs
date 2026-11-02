@@ -13,6 +13,25 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class RibbitBmsFileTimingTests
 {
+    /// <summary>ヘッダー境界のASCIIタブを空白と同じに扱い、値内空白・BASE/LNOBJ・採用枝・時刻と元byteのhashを保つ。</summary>
+    [TestMethod]
+    [DataRow(" ")]
+    [DataRow("\t")]
+    public void HeaderDelimiterKeepsMetadataResourceBranchAndTiming(string delimiter)
+    {
+        string source = $"#BPM{delimiter}120\n#BASE{delimiter}+62\n#LNOBJ{delimiter}aa\n"
+            + $"#WAVAA{delimiter}sample tone.wav\n#TITLE{delimiter}sample title\n#ARTIST{delimiter}sample artist\n"
+            + $"#RANDOM{delimiter}1\n#IF{delimiter}1\n#00111:AAaa\n#ENDIF\n#ENDRANDOM\n";
+        WithChart(source, bms =>
+        {
+            Assert.AreEqual("sample title", bms.Title);
+            Assert.AreEqual("sample artist", bms.Artist);
+            AssertScheduledAudio(bms, ("sample tone.wav", 96000L));
+            Assert.AreEqual(Convert.ToHexString(MD5.HashData(File.ReadAllBytes(bms.Path))).ToLowerInvariant(), bms.Md5);
+            CollectionAssert.AreEqual(new[] { 1 }, bms.RandomPattern.Select(choice => choice.Value).ToArray());
+        });
+    }
+
     /// <summary>
     /// AA/aaの両定義は明示62と従来推測のどちらでも別音源として発音し、16/36宣言で強制的に同一視する誤りも検出する。
     /// </summary>

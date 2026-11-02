@@ -67,7 +67,7 @@ internal sealed class ChartPropertiesViewModel : ViewModel
     public string Artist { get; private set; }
     /// <summary>取得・解析失敗時だけ表示する文言です。初期・読取り中・成功時は空です。</summary>
     public string Status { get; private set; } = string.Empty;
-    /// <summary>通常参照の問題と、正常・採用状態を含む任意画像の全定義を現言語で整形した、コピー可能な一覧です。</summary>
+    /// <summary>通常参照と非空任意画像の実問題を現言語で整形した、コピー可能な一覧です。</summary>
     public string Issues { get; private set; } = string.Empty;
     /// <summary>定義元を保つ未使用リソース定義の一覧です。</summary>
     public string UnusedDefinitions { get; private set; } = string.Empty;
@@ -133,21 +133,20 @@ internal sealed class ChartPropertiesViewModel : ViewModel
         // 初期・読取り中を成功した空一覧へ読み替えず、取得済みの事実だけを再整形します。
         if (diagnostics is not null)
         {
-            IEnumerable<ChartResourceDiagnosticIssue> definitions = diagnostics.Issues;
-            if (!diagnostics.OptionalImageDefinitions.IsDefault) { definitions = definitions.Concat(diagnostics.OptionalImageDefinitions); }
-            IEnumerable<string> issueLines = definitions.Select(issue => FormatDefinition(issue.Definition)
-                + (issue.Definition.Reference.Usage == ChartResourceUsage.Normal ? string.Empty
-                    : " [" + (issue.Definition.IsAdopted ? Resources.ChartPropertiesAdopted : Resources.ChartPropertiesDiagnosticOnly) + "]")
+            int width = LineNumberWidth(diagnostics.Issues.Select(issue => issue.Definition));
+            IEnumerable<string> issueLines = diagnostics.Issues.Select(issue => FormatDefinition(issue.Definition, width)
                 + FormatDiagnosticFacts(issue.Definition, issue.Reason));
-            if (!diagnostics.AlternativeCp932Definitions.IsDefault)
+            if (!diagnostics.AlternativeCp932Definitions.IsDefaultOrEmpty)
             {
-                issueLines = issueLines.Concat(diagnostics.AlternativeCp932Definitions.Select(definition =>
-                    "[" + Resources.ChartPropertiesCp932AlternativeInterpretation + "] " + FormatDefinition(definition)
-                    + " (" + Resources.ChartPropertiesCp932Unsupported + ")"));
+                int alternativeWidth = LineNumberWidth(diagnostics.AlternativeCp932Definitions);
+                issueLines = issueLines.Append(Resources.ChartPropertiesCp932AlternativeInterpretation)
+                    .Concat(diagnostics.AlternativeCp932Definitions.Select(definition =>
+                        FormatDefinition(definition, alternativeWidth) + " (" + Resources.ChartPropertiesCp932Unsupported + ")"));
             }
             Issues = JoinOrNone(issueLines);
+            int unusedWidth = LineNumberWidth(diagnostics.UnusedDefinitions);
             UnusedDefinitions = JoinOrNone(diagnostics.UnusedDefinitions.Select(definition =>
-                FormatDefinition(definition) + FormatUnusedProblem(definition)));
+                FormatDefinition(definition, unusedWidth) + FormatUnusedProblem(definition)));
             UndefinedReferences = JoinOrNone(diagnostics.UndefinedReferences.Select(number => FormatNumber(number.Source, number.Id)));
         }
         Status = failed ? Resources.ChartPropertiesFailed : string.Empty;
@@ -166,10 +165,15 @@ internal sealed class ChartPropertiesViewModel : ViewModel
         return text.Length == 0 ? Resources.None : text;
     }
 
-    private static string FormatDefinition(ChartResourceDefinition definition)
-        => FormatNumber(definition.Source, definition.Id)
-            + (definition.LineNumber.HasValue ? " [" + string.Format(Resources.ChartPropertiesDefinitionLine, definition.LineNumber.Value) + "]" : string.Empty)
-            + " " + (definition.RawLine ?? definition.Reference.RawPath);
+    private static int LineNumberWidth(IEnumerable<ChartResourceDefinition> definitions)
+        => definitions.Select(definition => definition.LineNumber ?? 0).DefaultIfEmpty().Max()
+            .ToString(System.Globalization.CultureInfo.InvariantCulture).Length;
+
+    private static string FormatDefinition(ChartResourceDefinition definition, int width)
+        => definition.LineNumber.HasValue
+            ? definition.LineNumber.Value.ToString(System.Globalization.CultureInfo.InvariantCulture).PadLeft(width)
+                + "  " + definition.RawLine
+            : FormatNumber(definition.Source, definition.Id) + "  " + definition.Reference.RawPath;
 
     private static string FormatUnusedProblem(ChartResourceDefinition definition)
         => FormatDiagnosticFacts(definition, definition.Reference.Classification == ChartResourceClassification.Matchable ? null
@@ -186,21 +190,13 @@ internal sealed class ChartPropertiesViewModel : ViewModel
     // 同一解析のCP932事実は通常理由へ添えます。別解釈との行番号・IDによる結合は行いません。
     private static string FormatDiagnosticFacts(ChartResourceDefinition definition, ChartResourceDiagnosticReason? reason)
     {
-        string text = reason.HasValue ? FormatReason(reason.Value) + FormatCountingContext(definition) : string.Empty;
+        string text = reason.HasValue ? FormatReason(reason.Value) : string.Empty;
         if (definition.Cp932DecodeUnsupported)
         {
             text += (text.Length == 0 ? string.Empty : "; ") + Resources.ChartPropertiesCp932Unsupported;
         }
         return text.Length == 0 ? string.Empty : " (" + text + ")";
     }
-
-    // 分類理由は使用・採用状態に依存しません。要求への算入だけを定義の文脈で区別します。
-    private static string FormatCountingContext(ChartResourceDefinition definition)
-        => !definition.Reference.IsUsed || !definition.IsAdopted
-            || definition.Reference.Classification == ChartResourceClassification.Excluded
-                ? "; " + Resources.ChartPropertiesNotCounted
-                : definition.Reference.Classification == ChartResourceClassification.Unmatchable
-                    ? "; " + Resources.ChartPropertiesCountedUnfulfilled : string.Empty;
 
     private static string FormatNumber(string source, string id)
         => string.IsNullOrEmpty(id) ? source
@@ -213,7 +209,6 @@ internal sealed class ChartPropertiesViewModel : ViewModel
         ChartResourceDiagnosticReason.MissingFileName => Resources.ChartPropertiesExcludedFileName,
         ChartResourceDiagnosticReason.UnknownKind => Resources.ChartPropertiesExcludedKind,
         ChartResourceDiagnosticReason.MalformedSyntax => Resources.ChartPropertiesExcludedSyntax,
-        ChartResourceDiagnosticReason.Satisfied => Resources.ChartPropertiesSatisfied,
         ChartResourceDiagnosticReason.Unverifiable => Resources.ChartPropertiesUnverifiable,
         ChartResourceDiagnosticReason.InvalidPath => Resources.ChartPropertiesInvalidPath,
         _ => Resources.ChartPropertiesUnsupported

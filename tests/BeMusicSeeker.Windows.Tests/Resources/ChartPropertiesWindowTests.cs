@@ -55,7 +55,7 @@ public sealed class ChartPropertiesWindowTests
                     ResourceService.Current.ChangeCulture(culture);
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.AreEqual(Resources.ChartPropertiesFirstCandidate, ((TextBox)window.FindName("valueVerificationBasis")).Text);
-                    Assert.AreEqual("#WAV01 missing.wav (" + Resources.ChartPropertiesMissing + ")", ((TextBox)window.FindName("listIssues")).Text);
+                    Assert.AreEqual("#WAV01  missing.wav (" + Resources.ChartPropertiesMissing + ")", ((TextBox)window.FindName("listIssues")).Text);
                     var unused = (TextBox)window.FindName("listUnusedDefinitions");
                     var undefined = (TextBox)window.FindName("listUndefinedReferences");
                     Assert.AreEqual(Resources.None, unused.Text);
@@ -91,6 +91,8 @@ public sealed class ChartPropertiesWindowTests
                     var text = (TextBox)window.FindName(names[i]);
                     Assert.IsTrue(text.IsVisible);
                     Assert.IsTrue(text.IsReadOnly);
+                    Assert.AreEqual("Consolas", text.FontFamily.Source);
+                    Assert.AreEqual(ScrollBarVisibility.Auto, text.HorizontalScrollBarVisibility);
                     Assert.AreSame(text.FindResource("ResourceList"), text.Style, "三分類は同じ保護域を持つ入力styleへ接続する。");
                     Assert.AreEqual(16d, text.Padding.Right);
                     Assert.AreEqual(16d, text.Padding.Bottom);

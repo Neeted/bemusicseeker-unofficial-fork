@@ -125,6 +125,12 @@ bmsonのオブジェクト欄にある数値・文字列などの変換不能値
 
 `ChartInfoParserBehaviorTests.ParseBmson_TotalDefinitionPreservesEffectiveValue` は省略・100・0・負値・null・正値倍率を実解析で比較します。`ChartInfoBackfillStorageTests.BackfillChartInfos_AppliesChartInfoToBmsonStorageOwner` は実補完とSQLite再読込みからLibraryChartRowのTOTAL/T/N・未定義表示・defined/undefined検索へ接続します。`ChartInfoInlineHydrationTests.DeferredChartInfoHydration_MissingCurrentRowBackfillsRegardlessOfCompletedLr2Status` は欠落情報と旧21を対象に、旧署名Completedで全体同期が始まらず、level12が譜面由来3へ戻り再読込みでも保たれることを確認します。
 
+### BMSONの共通表示と画像イベント
+
+導入時の詳細値投影ではBMSONの共通Modeを基本解析値のまま保持します。`keyboard-24k` / `keyboard-24k-double` の一覧・整列は24/48、詳細互換IDは25/50です。レベル・難易度・digestの投影とBMSの詳細Mode補正は維持し、追加読取りは行いません。通常・推定先導入とDB再読込みは `ChartInfoInstallFailureRetryTests.InstallChartPackages_AddsBmsonAndBuildsInlineChartInfo`、投影は `ChartInfoInlineHydrationTests.InlineProjection_BmsonPreservesCommonMode` が確認します。
+
+`bga_events`・`layer_events`・`poor_events` は各座標に同じタイムラインを確保します。同座標を統合し、BGA使用フラグは `bga_events` の実イベントだけを根拠とします。STOP間の画像だけの時点も速度復帰へ反映しますが、ノート数・演奏長は変えません。`ChartInfoParserBehaviorTests.ParseBmson_ImageCoordinatesRestoreSpeedBetweenStops` が三種・重複・空配列を確認します。詳細解析版22を維持し、旧版21からは既存の再解析で更新し、同版キャッシュを強制失効しません。
+
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |

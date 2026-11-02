@@ -19,6 +19,7 @@
           <Setter Property="Margin" Value="0,0,0,8" />
         </Style>
         <Style x:Key="ResourceList" TargetType="TextBox" BasedOn="{StaticResource ReadOnlyValue}">
+          <Setter Property="FontFamily" Value="Consolas" />
           <Setter Property="Margin" Value="0" />
           <Setter Property="VerticalContentAlignment" Value="Top" />
           <Setter Property="Padding" Value="8,5,16,16" />

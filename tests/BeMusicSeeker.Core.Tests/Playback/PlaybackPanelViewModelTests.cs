@@ -9,6 +9,7 @@ using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
+using Ribbit.BMS;
 using static BeMusicSeeker.TestSupport.Components.PlaybackPanelTestSupport;
 
 namespace BeMusicSeeker.Tests;
@@ -17,6 +18,114 @@ namespace BeMusicSeeker.Tests;
 public sealed class PlaybackPanelViewModelTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
+
+    /// <summary>通常の候補列から一時配置Bへ進み、実parser入力不良だけなら回収・元名復元・受付解放後にCへ進む。Stopと独立した回収・復元失敗では再開しない。</summary>
+    [TestMethod]
+    [DataRow("continue")]
+    [DataRow("stop")]
+    [DataRow("cleanup")]
+    [DataRow("restore")]
+    public async Task TemporaryInputFailureReturnsToOriginalCursorOnlyAfterSuccessfulCleanup(string condition)
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string source = Directory.CreateDirectory(workspace.GetPath("source")).FullName;
+        string destination = Directory.CreateDirectory(workspace.GetPath("destination")).FullName;
+        string first = workspace.GetPath("A.bms");
+        string last = workspace.GetPath("C.bms");
+        string bad = Path.Combine(source, "bad.bms");
+        string copied = Path.Combine(destination, "bad_.bms");
+        File.WriteAllText(first, "#BPM 120\n#00111:01\n");
+        File.WriteAllText(last, "#BPM 120\n#00111:01\n");
+        File.WriteAllText(bad, "#BPM 120\n#RANDOM 2147483647\n");
+        byte[] original = File.ReadAllBytes(bad);
+        File.WriteAllText(Path.Combine(destination, "bad.bms"), "existing destination");
+        string songDb = workspace.GetPath("song.db");
+        File.WriteAllBytes(songDb, []);
+        PackageChartEntry entry = ChartPackageTestExtensions.CreateEntryWithInstallDestination(ChartTestValues.Empty() with { Path = bad }, destination);
+        var rows = new MainChartListViewModel
+        {
+            Rows = new List<object> { ChartTestValues.Empty() with { Path = first },
+            LibraryChartRow.FromChartFile(entry.Chart), ChartTestValues.Empty() with { Path = last } }
+        };
+        var operations = new ChartFileOperationSynchronizer();
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dialogs = new FakePlaybackDialogService();
+        var notices = new List<Exception>();
+        var player = new PreloadBmsPlayer
+        {
+            BeginOperation = path =>
+            {
+                if (path == copied)
+                {
+                    Exception failure = Assert.ThrowsExactly<BMSFile.InvalidBmsFileException>(() => PlaybackChart.Load(path));
+                    entered.TrySetResult(failure);
+                    return new PlaybackStartOperation(ready.Task, ready.Task);
+                }
+                if (path == last)
+                {
+                    Assert.IsFalse(operations.IsActive);
+                    Assert.IsFalse(File.Exists(copied));
+                    CollectionAssert.AreEqual(original, File.ReadAllBytes(bad));
+                }
+                return new PlaybackStartOperation(Task.CompletedTask, completion.Task);
+            }
+        };
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+            new InMemoryPlaybackSettingsStore(), dialogs, failure => notices.Add(failure), operations);
+        panel.AttachLibrary(new TestBmsLibrary(new ApplicationDatabaseScope(), songDb, null, null, null, null,
+            new TestUiScheduler(() => null), settings: testSettings));
+        FileStream? locked = null;
+        Task? navigation = null;
+        Task stop = Task.CompletedTask;
+        try
+        {
+            await panel.StartAtIndex(0);
+            navigation = panel.Next();
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, navigation, "temporary-input-ready");
+            Assert.IsTrue(operations.IsActive);
+            Assert.IsFalse(File.Exists(bad));
+            if (condition == "cleanup") { locked = new FileStream(copied, FileMode.Open, FileAccess.Read, FileShare.Read); }
+            if (condition == "restore") { File.WriteAllText(bad, "third party"); }
+            if (condition == "stop")
+            {
+                stop = panel.StopPlayback(closeProcess: true);
+                Assert.IsNull(panel.NowPlayingChart);
+                Assert.IsFalse(stop.IsCompleted, "Ready所有gateの実終端までStopも待ちます。");
+            }
+            ready.SetException(await entered.Task);
+            await Task.WhenAll(navigation, stop);
+            Assert.IsFalse(operations.IsActive);
+            CollectionAssert.AreEqual(condition == "continue" ? new[] { first, copied, last } : new[] { first, copied }, player.Starts.ToArray());
+            Assert.AreEqual(condition == "continue" ? last : null, panel.NowPlayingChart?.Path);
+            Assert.AreEqual(condition == "continue" ? 1 : 0, notices.Count);
+            if (condition == "continue") { Assert.AreSame(await entered.Task, notices[0]); }
+            if (condition is "cleanup" or "restore")
+            {
+                var aggregate = dialogs.LastPlaybackFailure as AggregateException;
+                Assert.IsNotNull(aggregate);
+                Exception[] causes = aggregate.Flatten().InnerExceptions.ToArray();
+                Assert.AreEqual(2, causes.Length);
+                Assert.IsTrue(causes.Any(cause => ReferenceEquals(cause, entered.Task.Result)));
+                Assert.IsTrue(causes.Any(cause => cause is IOException));
+                Assert.AreEqual(1, dialogs.PlaybackFailureNotificationCount);
+                Assert.AreEqual(condition == "cleanup" ? 1 : 0, dialogs.TemporaryFilesRemainNotificationCount);
+            }
+            else { Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount); }
+            Assert.AreEqual("existing destination", File.ReadAllText(Path.Combine(destination, "bad.bms")));
+            if (condition == "restore") { Assert.AreEqual("third party", File.ReadAllText(bad)); }
+            else { CollectionAssert.AreEqual(original, File.ReadAllBytes(bad)); }
+        }
+        finally
+        {
+            locked?.Dispose();
+            ready.TrySetCanceled();
+            completion.TrySetResult();
+            try { await Task.WhenAll(navigation ?? Task.CompletedTask, stop); }
+            finally { panel.BeginShutdown(); await panel.CloseForShutdown(); }
+        }
+    }
 
     /// <summary>方式の確定は現再生を維持し、候補のない送り・Pause/Resume/Restart/Stop・L Busyではfactoryを消費せず、次の開始だけが捕捉した形式能力を適用し、成功後は再生成しません。</summary>
     /// <remarks>外部から内蔵へのbmson明示起動と、内蔵から外部への通常送りでbmsonを除外することを同じ利用フローで確認します。変更の停止順はFileMutation系列が担当します。</remarks>
@@ -618,7 +727,7 @@ public sealed class PlaybackPanelViewModelTests
                 await panel.StartAtIndex(0);
                 if (condition == "Paused") { panel.TogglePause(); }
             }
-            if (condition == "Failure") { player.PlayStartException = new IOException("開始故障"); }
+            if (condition == "Failure") { player.PlayStartException = new InvalidOperationException("開始故障"); }
             if (condition == "Cancel") { player.PlayStartException = new OperationCanceledException(); }
             await panel.Start(false, () => requests++);
             Assert.AreEqual(expectedRequests, requests);
@@ -999,9 +1108,14 @@ public sealed class PlaybackPanelViewModelTests
     /// <summary>Readyの入力不良が開始時または非同期に届いても一回通知して次の有効曲へ進み、同じ失敗や面要求を重ねず、同じ開始内では待機中に保存された次回player要求を消費しません。</summary>
     /// <remarks>同期失敗は既存のskip保証、非同期失敗はReady待機中の次回設定保存と後続の明示開始までを確認します。</remarks>
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task InternalReady_InvalidInputNotifiesAndSkipsOnce(bool asynchronous)
+    [DataRow("bmson", 0)]
+    [DataRow("bmson", 1)]
+    [DataRow("bmson", 2)]
+    [DataRow("bms", 0)]
+    [DataRow("bms", 1)]
+    [DataRow("bms", 2)]
+    [DataRow("data", 1)]
+    public async Task InternalReady_InvalidInputNotifiesAndSkipsOnce(string inputKind, int failureBoundary)
     {
         using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string firstPath = workspace.GetPath("firstPath.tmp");
@@ -1009,13 +1123,21 @@ public sealed class PlaybackPanelViewModelTests
         string nextPath = workspace.GetPath("nextPath.tmp");
         File.WriteAllBytes(nextPath, []);
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var failure = new InvalidDataException("Invalid selected chart.");
+        bool asynchronous = failureBoundary == 2;
+        string invalidPath = workspace.GetPath("invalid." + (inputKind == "bmson" ? "bmson" : "bms"));
+        File.WriteAllText(invalidPath, inputKind == "bmson" ? "{\"info\":{\"init_bpm\":0}}" : "#BPM 120\n#RANDOM 2147483647\n");
+        Exception failure = inputKind switch
+        {
+            "bmson" => Assert.ThrowsExactly<Ribbit.BMS.InvalidBmsonFileException>(() => Ribbit.BMS.PlaybackChart.Load(invalidPath)),
+            "bms" => Assert.ThrowsExactly<Ribbit.BMS.BMSFile.InvalidBmsFileException>(() => Ribbit.BMS.PlaybackChart.Load(invalidPath)),
+            _ => new InvalidDataException("Invalid selected chart.")
+        };
         if (!asynchronous) { ready.SetException(failure); }
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var player = new PreloadBmsPlayer
         {
             BeginOperation = path => path == firstPath
-                ? new PlaybackStartOperation(ready.Task, ready.Task)
+                ? failureBoundary == 0 ? throw failure : new PlaybackStartOperation(ready.Task, ready.Task)
                 : new PlaybackStartOperation(Task.CompletedTask, completion.Task)
         };
         var replacement = new PreloadBmsPlayer { Completion = completion.Task };
@@ -1023,7 +1145,7 @@ public sealed class PlaybackPanelViewModelTests
         int notices = 0;
         var rows = new MainChartListViewModel { Rows = new List<object> { (ChartTestValues.Empty() with { Path = firstPath }), (ChartTestValues.Empty() with { Path = nextPath }) } };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => notices++, new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), observed => { Assert.AreSame(failure, observed); notices++; }, new ChartFileOperationSynchronizer());
         rows.SelectedIndex = 0;
         int surfaceRequests = 0;
         Task start = panel.Start(requestPlayerSurface: () => surfaceRequests++);
@@ -1352,7 +1474,7 @@ public sealed class PlaybackPanelViewModelTests
             Task start = Task.CompletedTask;
             int startedCount = 0;
             bool inputExistedAtInvocation = false;
-            var failure = new IOException("external player start failed");
+            var failure = new InvalidOperationException("external player start failed");
             try
             {
                 long generation = panel.BeginPlayback(currentFile, 0);
@@ -2460,7 +2582,7 @@ public sealed class PlaybackPanelViewModelTests
         using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string chartPath = workspace.GetPath("chartPath.tmp");
         File.WriteAllBytes(chartPath, []);
-        var failure = new IOException("player start failed");
+        var failure = new InvalidOperationException("player start failed");
         var player = new FakeBmsPlayer { PlayStartException = failure };
         var dialogs = new FakePlaybackDialogService();
         var chartList = new MainChartListViewModel
@@ -2797,7 +2919,7 @@ public sealed class PlaybackPanelViewModelTests
         using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string chartPath = workspace.GetPath("chartPath.tmp");
         File.WriteAllBytes(chartPath, []);
-        var playerFailure = new IOException("player start failed");
+        var playerFailure = new InvalidOperationException("player start failed");
         var notificationFailure = new InvalidOperationException("notification failed");
         var player = new FakeBmsPlayer { PlayStartException = playerFailure };
         var dialogs = new FakePlaybackDialogService { PlaybackFailureException = notificationFailure };
@@ -3845,7 +3967,8 @@ public sealed class PlaybackPanelViewModelTests
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var failure = new InvalidDataException("invalid previous chart");
+        File.WriteAllText(paths[2], "#BPM 120\n#RANDOM 2147483647\n");
+        BMSFile.InvalidBmsFileException failure = Assert.ThrowsExactly<Ribbit.BMS.BMSFile.InvalidBmsFileException>(() => Ribbit.BMS.PlaybackChart.Load(paths[2]));
         if (!asynchronous) { ready.SetException(failure); }
         var player = new PreloadBmsPlayer
         {
@@ -4187,7 +4310,8 @@ public sealed class PlaybackPanelViewModelTests
             var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var failure = new InvalidDataException("bad folder candidate");
+            File.WriteAllText(paths[1], "#BPM 120\n#RANDOM 2147483647\n");
+            BMSFile.InvalidBmsFileException failure = Assert.ThrowsExactly<Ribbit.BMS.BMSFile.InvalidBmsFileException>(() => Ribbit.BMS.PlaybackChart.Load(paths[1]));
             FakeBmsPlayer player;
             if (delayedReady)
             {

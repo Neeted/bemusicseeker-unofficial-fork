@@ -16,10 +16,27 @@ internal sealed class temporarilyCopyFiles : IDisposable
     private readonly HashSet<string> ownedFiles = [];
     private readonly List<string> createdDirectories = [];
     private int disposed;
-    private int cleanupFailed;
+    private readonly List<Exception> cleanupFailures = [];
 
     /// <summary>回収終端後、所有した一時物を回収できなかったかを返します。詳細はログに残し、操作所有者が一度だけ通知します。</summary>
-    internal bool HasCleanupFailure => Volatile.Read(ref cleanupFailed) != 0;
+    internal bool HasCleanupFailure { get { lock (cleanupFailures) { return cleanupFailures.Count != 0; } } }
+
+    /// <summary>回収終端後の独立した元原因を返します。開始入力不良と併存する場合に呼出元が停止を判断します。</summary>
+    internal Exception CleanupFailure
+    {
+        get
+        {
+            lock (cleanupFailures)
+            {
+                return cleanupFailures.Count switch
+                {
+                    0 => null,
+                    1 => cleanupFailures[0],
+                    _ => new AggregateException(cleanupFailures)
+                };
+            }
+        }
+    }
 
     /// <summary>コピー前に回収の所有者を作成します。コピー失敗時にも呼出元が回収結果を参照できます。</summary>
     /// <param name="wait">開始境界後に回収まで保持する既存の時間（ミリ秒）。</param>
@@ -64,7 +81,7 @@ internal sealed class temporarilyCopyFiles : IDisposable
 
     private void RecordCleanupFailure(Exception failure, string path)
     {
-        Interlocked.Exchange(ref cleanupFailed, 1);
+        lock (cleanupFailures) { cleanupFailures.Add(failure); }
         try { NLogWrapper.FileLogger?.Warn(failure, "temporary_preview_cleanup_failed path=" + path); }
         catch { /* 任意の診断失敗で、残る回収や元のコピー・再生結果を変更しません。 */ }
     }

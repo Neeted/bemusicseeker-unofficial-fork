@@ -3231,35 +3231,23 @@ public class Resources
     /// <summary>保留復元確認から不明な選択が返った場合の説明です。</summary>
     public static string Error_PendingRestoreChoiceUnknown => ResourceManager.GetString("Error_PendingRestoreChoiceUnknown", resourceCulture);
 
-    /// <summary>リソース定義の分類・位置・採用状態を表示します。</summary>
-    public static string ChartPropertiesDefinitionLine => ResourceManager.GetString("ChartPropertiesDefinitionLine", resourceCulture);
 
-    /// <summary>リソース定義の分類・位置・採用状態を表示します。</summary>
-    public static string ChartPropertiesAdopted => ResourceManager.GetString("ChartPropertiesAdopted", resourceCulture);
 
-    /// <summary>リソース定義の分類・位置・採用状態を表示します。</summary>
-    public static string ChartPropertiesDiagnosticOnly => ResourceManager.GetString("ChartPropertiesDiagnosticOnly", resourceCulture);
 
-    /// <summary>リソース定義の分類・位置・採用状態を表示します。</summary>
+    /// <summary>リソース定義の問題の理由を表示します。</summary>
     public static string ChartPropertiesExcludedEmpty => ResourceManager.GetString("ChartPropertiesExcludedEmpty", resourceCulture);
 
-    /// <summary>リソース定義の分類・位置・採用状態を表示します。</summary>
+    /// <summary>リソース定義の問題の理由を表示します。</summary>
     public static string ChartPropertiesExcludedFileName => ResourceManager.GetString("ChartPropertiesExcludedFileName", resourceCulture);
 
-    /// <summary>リソース定義の分類・位置・採用状態を表示します。</summary>
+    /// <summary>リソース定義の問題の理由を表示します。</summary>
     public static string ChartPropertiesExcludedKind => ResourceManager.GetString("ChartPropertiesExcludedKind", resourceCulture);
 
-    /// <summary>リソース定義の分類・位置・採用状態を表示します。</summary>
+    /// <summary>リソース定義の問題の理由を表示します。</summary>
     public static string ChartPropertiesExcludedSyntax => ResourceManager.GetString("ChartPropertiesExcludedSyntax", resourceCulture);
 
-    /// <summary>リソース定義の分類・位置・採用状態を表示します。</summary>
-    public static string ChartPropertiesSatisfied => ResourceManager.GetString("ChartPropertiesSatisfied", resourceCulture);
 
-    /// <summary>使用・採用した名前付き非照合要求だけの計数結果を説明します。</summary>
-    public static string ChartPropertiesCountedUnfulfilled => ResourceManager.GetString("ChartPropertiesCountedUnfulfilled", resourceCulture);
 
-    /// <summary>未使用・未採用・対象外の定義を要求数に含めないことを説明します。</summary>
-    public static string ChartPropertiesNotCounted => ResourceManager.GetString("ChartPropertiesNotCounted", resourceCulture);
     /// <summary>採用本文とは別のCP932問題原文と、その通常解釈との併記を明示します。</summary>
     public static string ChartPropertiesCp932AlternativeInterpretation => ResourceManager.GetString("ChartPropertiesCp932AlternativeInterpretation", resourceCulture);
     /// <summary>設定受理時に組込み予約領域へのBMS登録・出力基点を拒否する理由の書式です。{0}は用途、{1}は指定先、{2}は組込みフォルダで、設定訂正を案内します。</summary>

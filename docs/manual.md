@@ -605,11 +605,11 @@ Select one chart with a local file and choose `Chart properties` from the list c
 
 The window shows the title, artist, chart path, resource verification basis and verification path, with three categories:
 
-- `Resource issues and optional image definitions`: Check missing resources, excluded definitions and invalid paths, plus all auxiliary-image definitions with their selection and existence status. Each entry retains its source, definition number, line number and original text.
+- `Resource issues`: Check missing resources and invalid paths with the original text and a short reason. BMS entries appear in source order with line numbers. Later auxiliary-image definitions are also checked; healthy images and empty specifications are omitted.
 - `Unused resource definitions`: #WAV and #BMP definitions not referenced for sound or display in this chart, with their original text and classification reason. Another definition number or chart may use the same file.
 - `Undefined reference numbers`: Definition numbers referenced by the chart without a corresponding #WAV or #BMP definition, such as silent notes. `#WAV01` and `#BMP01` are listed separately.
 
-CP932 diagnostics for LR2 are attached to the same definition when they use the normal interpretation. When the interpretation differs, the original text and line position are marked as an `Alternative interpretation for LR2`. The same specification may appear alongside its normal interpretation.
+CP932 diagnostics for LR2 are attached to the same definition when they use the normal interpretation. When the interpretation differs, the original text and line position appear under `Issues when interpreted as CP932`. The same specification may appear alongside its normal interpretation.
 
 For BMSON, the window lists unused audio channels and `bga_header` definitions, and BGA reference numbers with no matching definition. Audio and auxiliary images use their native field names, such as `sound_channels` and `info.back_image`.
 

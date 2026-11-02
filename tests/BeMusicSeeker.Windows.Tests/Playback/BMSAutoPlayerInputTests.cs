@@ -22,6 +22,25 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class BMSAutoPlayerInputTests
 {
+    /// <summary>省略名の読める実体を拡張子候補より優先し、破損していれば次のwavを復号する。短名も同じ契約を使う。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ExtensionlessAudioKeepsReadableOriginalAndFallsThroughDecodeFailure(bool corruptOriginal)
+    {
+        using var directory = new TemporaryDirectory();
+        File.WriteAllBytes(directory.File("a"), corruptOriginal ? [1, 2, 3] : BuildPcmWave(2));
+        File.WriteAllBytes(directory.File("a.wav"), BuildPcmWave(3));
+        using var player = new BMSAutoPlayer(CreateFallbackChart(directory, true, "a"));
+        player.LoadResources();
+        BmsAudioResource resource = player.AudioResourcesByIndex.Single(item => item != null)
+            ?? throw new AssertFailedException("省略名の音源が必要です。");
+        Assert.AreEqual(directory.File(corruptOriginal ? "a.wav" : "a"), resource.Path);
+        Assert.AreEqual(corruptOriginal ? 3L : 2L, resource.Audio.FrameCount);
+        Assert.AreEqual(0.5f, resource.Audio.GetSample(0), 0f);
+        Assert.AreEqual(0, player.OmittedAudioSources.Count);
+    }
+
     /// <summary>実在する各階層と譜面側に同名・別PCMを置き、BMS/PMSの親参照とdir経由の親参照が意図した階層の音源だけを採用する。</summary>
     /// <remarks>実PlaybackChart.LoadからNULL_DEVICEの音源読込み・decoderまで接続し、採用絶対path・元PCM・frame・rate・省略なしを確認するため共有native状態を直列所有する。</remarks>
     [TestMethod]
@@ -69,16 +88,21 @@ public sealed class BMSAutoPlayerInputTests
     /// <summary>BMS／bmsonでwav→ogg→mp3の最初の復号成功を採用し、選んだ候補の元rate・frame・PCMを保って途中失敗を省略に出さない。</summary>
     /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [TestMethod]
-    [DataRow(false, 0)]
-    [DataRow(false, 1)]
-    [DataRow(false, 2)]
-    [DataRow(true, 0)]
-    [DataRow(true, 1)]
-    [DataRow(true, 2)]
-    public void AudioFallbackUsesFirstDecodedCandidateAndKeepsItsPcm(bool bmson, int successfulCandidate)
+    [DataRow(false, 0, "tone.mp3")]
+    [DataRow(false, 1, "tone.mp3")]
+    [DataRow(false, 2, "tone.mp3")]
+    [DataRow(true, 0, "tone.mp3")]
+    [DataRow(true, 1, "tone.mp3")]
+    [DataRow(true, 2, "tone.mp3")]
+    [DataRow(true, 0, "tone")]
+    [DataRow(true, 1, "a")]
+    [DataRow(true, 2, "sub/a")]
+    public void AudioFallbackUsesFirstDecodedCandidateAndKeepsItsPcm(bool bmson, int successfulCandidate, string reference = "tone.mp3")
     {
         using var directory = new TemporaryDirectory();
-        string[] names = ["tone.wav", "tone.ogg", "tone.mp3"];
+        string stem = Path.ChangeExtension(reference, null);
+        Directory.CreateDirectory(Path.GetDirectoryName(directory.File(stem)) ?? throw new AssertFailedException("音源の親pathが必要です。"));
+        string[] names = [stem + ".wav", stem + ".ogg", stem + ".mp3"];
         for (int index = 0; index < names.Length; index++)
         {
             // コンテナー判定はsignatureの契約なので、拡張子候補ごとに異なる小さいWAVEを使います。
@@ -86,11 +110,11 @@ public sealed class BMSAutoPlayerInputTests
             BinaryPrimitives.WriteInt16LittleEndian(wave.AsSpan(44), (short)(8192 * (index + 1)));
             File.WriteAllBytes(directory.File(names[index]), index < successfulCandidate ? [1, 2, 3] : wave);
         }
-        using var player = new BMSAutoPlayer(CreateFallbackChart(directory, bmson, "tone.mp3"));
+        using var player = new BMSAutoPlayer(CreateFallbackChart(directory, bmson, reference));
         player.LoadResources();
         BmsAudioResource resource = player.AudioResourcesByIndex.Single(item => item != null)
             ?? throw new AssertFailedException("The fallback source is missing.");
-        Assert.AreEqual(directory.File(names[successfulCandidate]), resource.Path);
+        Assert.AreEqual(Path.GetFullPath(directory.File(names[successfulCandidate])), resource.Path);
         Assert.AreEqual(successfulCandidate + 1L, resource.Audio.FrameCount);
         Assert.AreEqual(44100, resource.Audio.SampleRate);
         Assert.AreEqual(0.25f * (successfulCandidate + 1), resource.Audio.GetSample(0), 0f);
@@ -100,9 +124,10 @@ public sealed class BMSAutoPlayerInputTests
     /// <summary>サブフォルダの全拡張子候補をbasenameより先に試し、失敗を尽くしてからbasenameの正常候補を採用する。</summary>
     /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void AudioFallbackExhaustsSubdirectoryBeforeBasenameCandidates(bool bmson)
+    [DataRow(false, "sub/tone.wav")]
+    [DataRow(true, "sub/tone.wav")]
+    [DataRow(true, "sub/tone")]
+    public void AudioFallbackExhaustsSubdirectoryBeforeBasenameCandidates(bool bmson, string reference = "sub/tone.wav")
     {
         using var directory = new TemporaryDirectory();
         Directory.CreateDirectory(directory.File("sub"));
@@ -111,7 +136,7 @@ public sealed class BMSAutoPlayerInputTests
         File.WriteAllBytes(directory.File("sub/tone.mp3"), BuildPcmWave(3));
         File.WriteAllBytes(directory.File("tone.wav"), BuildPcmWave(4));
         File.WriteAllBytes(directory.File("tone.ogg"), BuildPcmWave(5));
-        PlaybackChart chart = CreateFallbackChart(directory, bmson, "sub/tone.wav");
+        PlaybackChart chart = CreateFallbackChart(directory, bmson, reference);
         BmsAudioResourceLoadResult first = BmsAudioResourceLoader.Load(chart, directory.File(""), 1f);
         Assert.AreEqual(Path.GetFullPath(directory.File("sub/tone.mp3")), first.ResourcesByIndex.Single(item => item != null)?.Path);
         File.WriteAllBytes(directory.File("sub/tone.mp3"), [7, 8, 9]);
@@ -278,7 +303,7 @@ public sealed class BMSAutoPlayerInputTests
         PlaybackChart chart;
         if (bmson)
         {
-            chart = CreateFallbackChart(directory, true, "tone.wav");
+            chart = CreateFallbackChart(directory, true, "tone");
         }
         else
         {
@@ -289,7 +314,7 @@ public sealed class BMSAutoPlayerInputTests
             }
             File.WriteAllBytes(Path.Combine(chartDirectory, "tone.wav"), decoy);
             string path = Path.Combine(chartDirectory, "chart.bms");
-            WriteChart(path, "#BPM 120\n#WAV01 ../../tone.wav\n#00011:01\n");
+            WriteChart(path, "#BPM 120\n#WAV01\t../../tone.wav\n#00011:01\n");
             chart = PlaybackChart.Load(path);
         }
         var input = NextSongPreloadInput.Capture(chart.Path);
@@ -359,7 +384,7 @@ public sealed class BMSAutoPlayerInputTests
         string wave = directory.File("used.ogg");
         File.WriteAllBytes(directory.File("used.wav"), [1, 2, 3]);
         File.WriteAllBytes(wave, BuildPcmWave(frameCount: 2205));
-        File.WriteAllText(path, "{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"name\":\"used.wav\",\"notes\":[{\"y\":0}]},{\"name\":\"used.wav\",\"notes\":[{\"y\":0}]}]}");
+        File.WriteAllText(path, "{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"name\":\"used\",\"notes\":[{\"y\":0}]},{\"name\":\"used\",\"notes\":[{\"y\":0}]}]}");
         var chart = PlaybackChart.Load(path);
         BassAudioSession session = BmsAudioResourceLoader.CaptureActiveSession();
         int streams = session.OwnedStreamCount;

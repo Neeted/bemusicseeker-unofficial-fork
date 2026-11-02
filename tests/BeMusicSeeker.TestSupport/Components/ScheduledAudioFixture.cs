@@ -1,5 +1,8 @@
 using System.Text;
+using BeMusicSeeker.Models;
 using ManagedBass;
+using Ribbit.BMS;
+using Ribbit.Media;
 using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.TestSupport.Components;
@@ -7,6 +10,77 @@ namespace BeMusicSeeker.TestSupport.Components;
 /// <summary>複数moduleで共有する既存音声テストの準備・観測境界を一か所で所有します。</summary>
 internal static class ScheduledAudioFixture
 {
+    /// <summary>導入した実譜面の480frame定音源を通常ロード・一件先読み・途中seekへ接続し、BMSONは実WAVEの終端とPCMも確認します。呼出側はnative共有状態を直列所有します。</summary>
+    internal static async Task AssertInstalledChartAudioAsync(string path, long[] expectedStarts, bool writeWave)
+    {
+        SampleRate frequency = BassAudioPlayer.Frequency;
+        SampleFormat format = BassAudioPlayer.Format;
+        float volume = BassAudioPlayer.DefaultVolume;
+        BassAudioSession? session = null;
+        var preload = new NextSongPreloadOwner((input, token) => PreparedBmsSong.Prepare(PlaybackChart.Load(input.Path), 1f, token));
+        try
+        {
+            BassAudioPlayer.Free();
+            BassAudioRuntime.Shutdown();
+            BassAudioPlayer.Frequency = SampleRate.SAMPLE_RATE_48000Hz;
+            BassAudioPlayer.Format = SampleFormat.SAMPLE_FLOAT_32BIT;
+            BassAudioPlayer.DefaultVolume = 1f;
+            BassAudioWriter.InitializeOwnedSession(out session);
+            using var player = new BMSAutoPlayer(PlaybackChart.Load(path));
+            player.LoadResources();
+            CollectionAssert.AreEqual(expectedStarts, player.AudioSchedule.Events.Select(item => item.StartFrame).ToArray());
+            Assert.AreEqual(0, player.OmittedAudioSources.Count);
+            var input = NextSongPreloadInput.Capture(path);
+            PreparedBmsSong prepared = await preload.Request(input);
+            Assert.AreSame(prepared, await preload.TakeAsync(input));
+            using var adopted = new BMSAutoPlayer(prepared.Chart);
+            adopted.AdoptPreparedSong(prepared);
+            CollectionAssert.AreEqual(expectedStarts, adopted.AudioSchedule.Events.Select(item => item.StartFrame).ToArray());
+            Assert.AreEqual(player.MusicDuration, adopted.MusicDuration);
+            Assert.IsNotNull(session);
+            using (var scheduler = new BmsRealtimeAudioScheduler(adopted.AudioSchedule, adopted.AudioResourcesByIndex,
+                session, new BassMixerSourceNativeBoundary(), adopted.Duration, expectedStarts[^1] + 240, 1f, 1))
+            {
+                var renderer = new AudioPcmRenderer(session.MixerHandle, 48000, 2);
+                float[] sample = new float[2];
+                Assert.AreEqual(1, renderer.ReadFrames(sample, 1).FramesRead);
+                Assert.AreEqual(0.125f, sample[0], 1e-6f);
+                Assert.AreEqual(0.125f, sample[1], 1e-6f);
+            }
+            if (writeWave)
+            {
+                Assert.AreEqual(TimeSpan.FromSeconds(5.01), player.MusicDuration);
+                using var writer = new BMSAutoPlayWriter(PlaybackChart.Load(path));
+                writer.LoadResources();
+                string output = Path.Combine(Path.GetDirectoryName(path) ?? throw new InvalidOperationException(), "verified-audio");
+                writer.Write(EncoderType.WAVE, 0.4f, output, BMSAutoPlayWriter.Normalization.NONE);
+                AudioTestWaveFile wave = AudioTestWaveFileReader.Read(File.ReadAllBytes(output + ".wav"));
+                Assert.AreEqual(240480, wave.DataLength / (wave.Channels * sizeof(float)));
+                foreach (int frame in new[] { 0, 479, 480, 239999, 240000, 240479 })
+                {
+                    float expected = frame < 480 || frame >= 240000 ? 0.02f : 0f;
+                    Assert.AreEqual(expected, BitConverter.ToSingle(wave.Bytes, wave.DataOffset + frame * wave.Channels * sizeof(float)), 1e-6f);
+                }
+            }
+        }
+        finally
+        {
+            await preload.InvalidateAsync();
+            try
+            {
+                Assert.IsTrue(BassAudioWriter.TryReleaseEncoder());
+                if (session != null) { Assert.IsTrue(BassAudioPlayer.Free(session)); }
+            }
+            finally
+            {
+                BassAudioRuntime.Shutdown();
+                BassAudioPlayer.DefaultVolume = volume;
+                BassAudioPlayer.Frequency = frequency;
+                BassAudioPlayer.Format = format;
+            }
+        }
+    }
+
     /// <summary>実scheduled mixerへ委譲し、指定したnative操作だけに既存の故障を注入します。</summary>
     internal sealed class FaultInjectingScheduledNativeBoundary(
         int failResumeAt,

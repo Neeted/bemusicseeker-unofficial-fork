@@ -149,6 +149,9 @@ internal static class BmsChartFileParser
     internal static bool IsZeroNote(string path)
     {
         using FileStream stream = LongPathFileSystem.OpenRead(path);
+        // UTF-8 BOMだけを消費し、他の文字コードや本文中の文字は従来どおり検査します。
+        bool utf8Bom = stream.ReadByte() == 0xEF && stream.ReadByte() == 0xBB && stream.ReadByte() == 0xBF;
+        stream.Position = utf8Bom ? 3 : 0;
         using var reader = new StreamReader(stream, Encoding.GetEncoding("shift_jis"), detectEncodingFromByteOrderMarks: false);
         return !ReadLines(reader).Any(line => visibleObjectChRegex.IsMatch(line));
     }
@@ -282,7 +285,7 @@ internal static class BmsChartFileParser
             }
             // 定義行と同じ行頭空白を許容し、コロン後と末尾のチャンネル原文は変更しません。
             string resourceLine = item.TrimStart();
-            if (TryReadNamedDirective(resourceLine, "BASE", out string numberBase) && numberBase == "62")
+            if (TryReadNamedDirective(resourceLine, "BASE", out string numberBase) && int.TryParse(numberBase, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedBase) && parsedBase == 62)
             {
                 base62 = true;
             }
@@ -460,7 +463,7 @@ internal static class BmsChartFileParser
                 case BmsDirective.Banner:
                     details?.Definitions.Add(new ChartResourceDefinition("#BANNER", null,
                         ChartResourceReference.Parse(value, ChartResourceKind.Image, ChartResourceUsage.Banner),
-                        lineNumber, item, IsAdopted: string.IsNullOrWhiteSpace(banner) && !string.IsNullOrWhiteSpace(value),
+                        lineNumber, item,
                         Cp932DecodeUnsupported: lineUndecodable));
                     if (string.IsNullOrWhiteSpace(banner))
                     {
@@ -470,7 +473,7 @@ internal static class BmsChartFileParser
                 case BmsDirective.StageFile:
                     details?.Definitions.Add(new ChartResourceDefinition("#STAGEFILE", null,
                         ChartResourceReference.Parse(value, ChartResourceKind.Image, ChartResourceUsage.Stagefile),
-                        lineNumber, item, IsAdopted: string.IsNullOrWhiteSpace(stagefile) && !string.IsNullOrWhiteSpace(value),
+                        lineNumber, item,
                         Cp932DecodeUnsupported: lineUndecodable));
                     if (string.IsNullOrWhiteSpace(stagefile))
                     {
@@ -480,7 +483,7 @@ internal static class BmsChartFileParser
                 case BmsDirective.BackBmp:
                     details?.Definitions.Add(new ChartResourceDefinition("#BACKBMP", null,
                         ChartResourceReference.Parse(value, ChartResourceKind.Image, ChartResourceUsage.Backbmp),
-                        lineNumber, item, IsAdopted: string.IsNullOrWhiteSpace(backbmp) && !string.IsNullOrWhiteSpace(value),
+                        lineNumber, item,
                         Cp932DecodeUnsupported: lineUndecodable));
                     if (string.IsNullOrWhiteSpace(backbmp))
                     {

@@ -1542,7 +1542,7 @@ public partial class BMSFile
         {
             int length = s.Length;
             int i;
-            for (i = 0; i < length && s[i] != ' ' && s[i] != ':'; i++)
+            for (i = 0; i < length && s[i] != ' ' && s[i] != '\t' && s[i] != ':'; i++)
             {
             }
             return (i != length) ?

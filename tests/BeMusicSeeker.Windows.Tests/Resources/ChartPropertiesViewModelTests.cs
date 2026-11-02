@@ -57,7 +57,7 @@ public sealed class ChartPropertiesViewModelTests
             foreach (string culture in new[] { "en-US", "ja-JP" })
             {
                 ResourceService.Current.ChangeCulture(culture);
-                Assert.AreEqual("#WAV01 [" + string.Format(Resources.ChartPropertiesDefinitionLine, 1) + "] #WAV01 tone.wav (" + Resources.ChartPropertiesMissing + ")", model.Issues);
+                Assert.AreEqual("1  #WAV01 tone.wav (" + Resources.ChartPropertiesMissing + ")", model.Issues);
                 Assert.AreEqual(Resources.ChartPropertiesConfiguredDestination, model.VerificationBasis);
                 Assert.AreEqual(@"C:\Original", model.VerificationPath);
                 Assert.AreEqual(path, model.Path);
@@ -267,14 +267,14 @@ public sealed class ChartPropertiesViewModelTests
                 ResourceService.Current.ChangeCulture(culture);
                 string[] reasons = [Resources.ChartPropertiesMissing, Resources.ChartPropertiesInvalidPath, Resources.ChartPropertiesUnsupported,
                     Resources.ChartPropertiesUnverifiable];
-                string prefix = bmson ? "sound_channels[0] sound.wav" : "#WAV01 visual.png";
+                string prefix = bmson ? "sound_channels[0]  sound.wav" : "#WAV01  visual.png";
                 string[] lines = model.Issues.Split(Environment.NewLine);
                 Assert.AreEqual(reasons.Length, lines.Length);
                 for (int i = 0; i < reasons.Length; i++)
                 {
                     Assert.AreEqual(prefix + " (" + reasons[i] + ")", lines[i]);
                 }
-                Assert.AreEqual(bmson ? "bga_header[0] (7) visual.png" : "#BMP02 sound.wav", model.UnusedDefinitions);
+                Assert.AreEqual(bmson ? "bga_header[0] (7)  visual.png" : "#BMP02  sound.wav", model.UnusedDefinitions);
                 Assert.AreEqual(bmson ? "bga_header (9)" : "#BMP01", model.UndefinedReferences);
                 Assert.AreEqual(bmson ? Resources.ChartPropertiesBmsonUnusedDescription : Resources.ChartPropertiesUnusedDescription, model.UnusedDescription);
                 Assert.AreEqual(bmson ? Resources.ChartPropertiesBmsonUndefinedDescription : Resources.ChartPropertiesUndefinedDescription, model.UndefinedDescription);
@@ -294,10 +294,10 @@ public sealed class ChartPropertiesViewModelTests
         }
     }
 
-    /// <summary>実サービスが返す三用途の正常採用画像と全後続定義を、採用状態・存在結果付きで各一回整形します。元ファイルを削除した後も六言語の往復は捕捉済みの事実だけを使い、読取り回数を増やしません。</summary>
+    /// <summary>実サービスが返す三用途の画像問題を原文順に一回整形し、正常画像を除きます。元ファイルを削除した後も六言語の往復は捕捉済みの事実だけを使い、読取り回数を増やしません。</summary>
     [TestMethod]
     [DoNotParallelize]
-    public async Task LoadAsync_OptionalImageDefinitionsKeepAdoptionAndExistenceAcrossLanguages()
+    public async Task LoadAsync_OptionalImageProblemsKeepSourceOrderAcrossLanguages()
     {
         CultureInfo? previousCulture = Resources.Culture;
         using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
@@ -322,18 +322,17 @@ public sealed class ChartPropertiesViewModelTests
             foreach (string culture in new[] { "ja-JP", "en-US", "fr-FR", "ko-KR", "zh-CN", "zh-TW", "ja-JP" })
             {
                 ResourceService.Current.ChangeCulture(culture);
-                string[] reasons = [Resources.ChartPropertiesSatisfied, Resources.ChartPropertiesSatisfied, Resources.ChartPropertiesMissing,
+                string[] reasons = [string.Empty, string.Empty, Resources.ChartPropertiesMissing,
                     Resources.ChartPropertiesUnsupported, Resources.ChartPropertiesExcludedFileName];
                 string[] lines = model.Issues.Split(Environment.NewLine);
-                Assert.AreEqual(rawLines.Length, lines.Length);
+                Assert.AreEqual(9, lines.Length);
                 for (int source = 0; source < sources.Length; source++)
                 {
-                    for (int value = 0; value < paths.Length; value++)
+                    for (int value = 2; value < paths.Length; value++)
                     {
                         int line = source * paths.Length + value;
-                        string expected = sources[source] + " [" + string.Format(Resources.ChartPropertiesDefinitionLine, line + 1) + "] "
-                            + rawLines[line] + " [" + (value == 0 ? Resources.ChartPropertiesAdopted : Resources.ChartPropertiesDiagnosticOnly)
-                            + "] (" + reasons[value] + (value == 0 ? string.Empty : "; " + Resources.ChartPropertiesNotCounted) + ")";
+                        string expected = (line + 1).ToString(CultureInfo.InvariantCulture).PadLeft(2) + "  "
+                            + rawLines[line] + " (" + reasons[value] + ")";
                         Assert.AreEqual(1, lines.Count(item => item == expected), culture + ": " + rawLines[line]);
                     }
                 }
@@ -353,10 +352,10 @@ public sealed class ChartPropertiesViewModelTests
         }
     }
 
-    /// <summary>同じ実譜面の使用・未使用・先頭採用・後続・対象外を実診断から整形し、原因と計数文脈を区別します。表示上の計数説明は既存健康度の分母・任意画像状態と一致し、六言語の再整形でも再取得しません。</summary>
+    /// <summary>同じ実譜面の使用・未使用・先頭採用・後続・対象外を実診断から整形し、問題と未使用を区別します。健康度の分母・任意画像状態を保持し、六言語の再整形でも再取得しません。</summary>
     [TestMethod]
     [DoNotParallelize]
-    public async Task LoadAsync_SeparatesClassificationReasonsFromCountingContext()
+    public async Task LoadAsync_SeparatesActualProblemsFromUnusedDefinitions()
     {
         CultureInfo? previousCulture = Resources.Culture;
         using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
@@ -366,7 +365,7 @@ public sealed class ChartPropertiesViewModelTests
         {
             string path = System.IO.Path.Combine(directory.FullName, "chart.bms");
             File.WriteAllBytes(System.IO.Path.Combine(directory.FullName, "present.jpg"), []);
-            (string Raw, ChartResourceDiagnosticReason Reason, bool? Counted, bool Unused)[] definitions =
+            (string Raw, ChartResourceDiagnosticReason? Reason, bool? Counted, bool Unused)[] definitions =
             [
                 ("#WAV01 ../used.wav", ChartResourceDiagnosticReason.Unsupported, true, false),
                 ("#WAV02 bad|used.wav", ChartResourceDiagnosticReason.InvalidPath, true, false),
@@ -384,7 +383,7 @@ public sealed class ChartPropertiesViewModelTests
                 ("#BACKBMP ", ChartResourceDiagnosticReason.Empty, false, false),
                 ("#BACKBMP .png", ChartResourceDiagnosticReason.MissingFileName, false, false),
                 ("#BACKBMP ../later-back.png", ChartResourceDiagnosticReason.Unsupported, false, false),
-                ("#BANNER present.png", ChartResourceDiagnosticReason.Satisfied, null, false),
+                ("#BANNER present.png", null, null, false),
                 ("#BANNER bad|later-banner.png", ChartResourceDiagnosticReason.InvalidPath, false, false)
             ];
             File.WriteAllText(path, string.Join("\n", definitions.Select(item => item.Raw)) + "\n#00111:01020307\n#00104:01020304\n", System.Text.Encoding.ASCII);
@@ -416,12 +415,13 @@ public sealed class ChartPropertiesViewModelTests
                 ResourceService.Current.ChangeCulture(culture);
                 string[] issues = model.Issues.Split(Environment.NewLine);
                 string[] unused = model.UnusedDefinitions.Split(Environment.NewLine);
-                Assert.AreEqual(15, issues.Length);
+                Assert.AreEqual(13, issues.Length);
                 Assert.AreEqual(3, unused.Length);
                 for (int index = 0; index < definitions.Length; index++)
                 {
-                    (string Raw, ChartResourceDiagnosticReason Reason, bool? Counted, bool Unused) definition = definitions[index];
-                    string position = "[" + string.Format(Resources.ChartPropertiesDefinitionLine, index + 1) + "]";
+                    (string Raw, ChartResourceDiagnosticReason? Reason, bool? Counted, bool Unused) definition = definitions[index];
+                    if (index is 13 or 16) { continue; }
+                    string position = (index + 1).ToString(CultureInfo.InvariantCulture).PadLeft(definition.Unused ? 1 : 2) + "  ";
                     string line = (definition.Unused ? unused : issues).Single(item => item.Contains(position, StringComparison.Ordinal));
                     Assert.IsTrue(line.Contains(definition.Raw.TrimEnd(), StringComparison.Ordinal), line);
                     string reason = definition.Reason switch
@@ -432,11 +432,9 @@ public sealed class ChartPropertiesViewModelTests
                         ChartResourceDiagnosticReason.Empty => Resources.ChartPropertiesExcludedEmpty,
                         ChartResourceDiagnosticReason.UnknownKind => Resources.ChartPropertiesExcludedKind,
                         ChartResourceDiagnosticReason.MalformedSyntax => Resources.ChartPropertiesExcludedSyntax,
-                        _ => Resources.ChartPropertiesSatisfied
+                        _ => throw new AssertFailedException("予期しない理由です。")
                     };
                     Assert.IsTrue(line.Contains("(" + reason, StringComparison.Ordinal), culture + ": " + definition.Raw);
-                    Assert.AreEqual(definition.Counted == true, line.Contains(Resources.ChartPropertiesCountedUnfulfilled, StringComparison.Ordinal), line);
-                    Assert.AreEqual(definition.Counted == false, line.Contains(Resources.ChartPropertiesNotCounted, StringComparison.Ordinal), line);
                 }
                 await model.LoadAsync();
                 Assert.AreEqual(1, calls);
@@ -494,20 +492,15 @@ public sealed class ChartPropertiesViewModelTests
                 ResourceService.Current.ChangeCulture(culture);
                 string[] issues = model.Issues.Split(Environment.NewLine);
                 string[] unused = model.UnusedDefinitions.Split(Environment.NewLine);
-                Assert.AreEqual(6, issues.Length);
+                Assert.AreEqual(5, issues.Length);
                 Assert.AreEqual(1, unused.Length);
                 Assert.AreEqual(4, issues.Count(line => line.Contains(Resources.ChartPropertiesCp932Unsupported, StringComparison.Ordinal)));
                 Assert.IsTrue(unused[0].Contains(Resources.ChartPropertiesCp932Unsupported, StringComparison.Ordinal));
                 Assert.IsFalse(model.Issues.Contains(Resources.ChartPropertiesCp932AlternativeInterpretation, StringComparison.Ordinal));
-                string AtLine(int number) => issues.Concat(unused).Single(line => line.Contains("[" + string.Format(Resources.ChartPropertiesDefinitionLine, number) + "]", StringComparison.Ordinal));
+                string AtLine(int number) => issues.Concat(unused).Single(line => line.StartsWith(number.ToString(CultureInfo.InvariantCulture) + "  ", StringComparison.Ordinal));
                 Assert.IsTrue(AtLine(1).Contains(Resources.ChartPropertiesUnsupported, StringComparison.Ordinal));
-                Assert.IsTrue(AtLine(1).Contains(Resources.ChartPropertiesCountedUnfulfilled, StringComparison.Ordinal));
-                Assert.IsTrue(AtLine(2).StartsWith("#WAV02 ", StringComparison.Ordinal));
+                Assert.IsTrue(AtLine(2).StartsWith("2  #WAV02 ", StringComparison.Ordinal));
                 Assert.IsTrue(AtLine(3).Contains(Resources.ChartPropertiesMissing, StringComparison.Ordinal));
-                Assert.IsTrue(AtLine(3).Contains(Resources.ChartPropertiesAdopted, StringComparison.Ordinal));
-                Assert.IsTrue(AtLine(4).Contains(Resources.ChartPropertiesDiagnosticOnly, StringComparison.Ordinal));
-                Assert.IsTrue(AtLine(4).Contains(Resources.ChartPropertiesNotCounted, StringComparison.Ordinal));
-                Assert.IsTrue(AtLine(7).Contains(Resources.ChartPropertiesSatisfied, StringComparison.Ordinal));
                 Assert.IsTrue(AtLine(7).Contains(presentName, StringComparison.Ordinal));
                 await model.LoadAsync();
                 Assert.AreEqual(1, calls);
@@ -562,34 +555,32 @@ public sealed class ChartPropertiesViewModelTests
             foreach (string culture in new[] { "ja-JP", "en-US", "fr-FR", "ko-KR", "zh-CN", "zh-TW", "ja-JP" })
             {
                 ResourceService.Current.ChangeCulture(culture);
-                string prefix = "[" + Resources.ChartPropertiesCp932AlternativeInterpretation + "] ";
                 string[] lines = model.Issues.Split(Environment.NewLine);
-                string[] alternatives = lines.Where(line => line.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
-                string[] normal = lines.Where(line => !line.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
+                int heading = Array.IndexOf(lines, Resources.ChartPropertiesCp932AlternativeInterpretation);
+                Assert.IsTrue(heading >= 0);
+                Assert.AreEqual(1, lines.Count(line => line == Resources.ChartPropertiesCp932AlternativeInterpretation));
+                string[] alternatives = lines.Skip(heading + 1).ToArray();
+                string[] normal = lines.Take(heading).ToArray();
                 Assert.AreEqual(scenario == "newline" ? 2 : 1, alternatives.Length);
                 Assert.AreEqual(scenario == "newline" ? 4 : scenario == "bom" ? 1 : 0, normal.Length);
                 foreach (string line in alternatives)
                 {
                     Assert.IsTrue(line.Contains(Resources.ChartPropertiesCp932Unsupported, StringComparison.Ordinal));
-                    Assert.IsFalse(line.Contains(Resources.ChartPropertiesAdopted, StringComparison.Ordinal));
-                    Assert.IsFalse(line.Contains(Resources.ChartPropertiesDiagnosticOnly, StringComparison.Ordinal));
-                    Assert.IsFalse(line.Contains(Resources.ChartPropertiesCountedUnfulfilled, StringComparison.Ordinal));
-                    Assert.IsFalse(line.Contains(Resources.ChartPropertiesNotCounted, StringComparison.Ordinal));
                 }
                 Assert.IsTrue(normal.All(line => !line.Contains(Resources.ChartPropertiesCp932Unsupported, StringComparison.Ordinal)));
                 if (scenario == "newline")
                 {
                     string cp04 = alternatives.Single(line => line.Contains("#WAV04 ", StringComparison.Ordinal));
-                    string normal04 = normal.Single(line => line.StartsWith("#WAV04 ", StringComparison.Ordinal));
-                    Assert.IsTrue(cp04.Contains("[" + string.Format(Resources.ChartPropertiesDefinitionLine, 3) + "]", StringComparison.Ordinal));
-                    Assert.IsTrue(normal04.Contains("[" + string.Format(Resources.ChartPropertiesDefinitionLine, 4) + "]", StringComparison.Ordinal));
+                    string normal04 = normal.Single(line => line.StartsWith("4  #WAV04 ", StringComparison.Ordinal));
+                    Assert.IsTrue(cp04.StartsWith("3  ", StringComparison.Ordinal));
+                    Assert.IsTrue(normal04.StartsWith("4  ", StringComparison.Ordinal));
                     Assert.IsTrue(alternatives.Single(line => line.Contains("#WAV01 ", StringComparison.Ordinal)).Contains("#WAV02 swallowed.wav", StringComparison.Ordinal));
                 }
                 else
                 {
                     string raw = System.Text.Encoding.GetEncoding(932).GetString(bytes).Split('\n')[0];
                     Assert.IsTrue(alternatives[0].Contains(raw, StringComparison.Ordinal));
-                    Assert.IsTrue(alternatives[0].Contains("[" + string.Format(Resources.ChartPropertiesDefinitionLine, 1) + "]", StringComparison.Ordinal));
+                    Assert.IsTrue(alternatives[0].StartsWith("1  ", StringComparison.Ordinal));
                 }
                 await model.LoadAsync();
                 Assert.AreEqual(1, calls);

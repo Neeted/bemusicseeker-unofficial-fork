@@ -17,6 +17,58 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
 {
     private readonly ApplicationDatabaseScope databaseScope = new();
 
+    /// <summary>同path/hashの旧BASE62健康度を選択再スキャンで訂正し、警告・索引・保存値を更新します。未選択譜面と詳細行の再構築を拒否します。</summary>
+    [TestMethod]
+    public async Task RescanAsync_Base62CorrectsPersistedCountsWithoutRebuildingDetails()
+    {
+        await WithTemporarySongDbAsync(async dbPath =>
+        {
+            string root = Path.GetDirectoryName(dbPath) ?? throw new InvalidOperationException();
+            string path = Path.Combine(root, "base.bms");
+            File.WriteAllText(path, "#BASE +62\n#BPM 120\n#WAVAA upper.wav\n#WAVaa lower.wav\n#00111:AA\n");
+            File.WriteAllBytes(Path.Combine(root, "upper.wav"), [1]);
+            ChartFile parsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path));
+            ResourceHealthMaintenanceSnapshot old = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(parsed) with { WavFilesDefined = 2, WavFilesExisting = 1 };
+            ChartFile chart = ChartFileProjection.WithMaintenance(parsed, old);
+            string untouchedPath = Path.Combine(root, "untouched.bms");
+            File.WriteAllText(untouchedPath, "#BPM 120\n#00111:01");
+            ChartFile untouched = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(untouchedPath));
+            var library = new TestBmsLibrary(databaseScope, dbPath, null, null, new TestFileMutationService(),
+                new FileDbReportRecordingDialogs(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
+            { BmsCharts = [chart, untouched], BmsonCharts = [] };
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath);
+            gateway.UpsertSongs(library.BmsCharts);
+            gateway.UpsertMaintenanceInfos([old]);
+            ChartDetails detail = ChartInfoParser.Parse(path, parsed.Md5, parsed.Sha256);
+            gateway.UpsertChartInfos([detail]);
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, dbPath, db =>
+            {
+                db.Execute("CREATE TRIGGER reject_chart_rebuild BEFORE INSERT ON chart_info BEGIN SELECT RAISE(ABORT, 'unexpected detail rebuild'); END;");
+            });
+            try
+            {
+                Assert.AreEqual(50, library.BmsCharts.Single(c => c.Path == path).WAVHealth);
+                Assert.IsTrue(ChartResourceHealthRequest.TryCreate([new ChartOperationTarget(library.BmsCharts.Single(c => c.Path == path), null,
+                    ChartOperationSourceScope.Library, true, false, false, ChartOperationCapabilities.RunResourceHealthCheck)], out ChartResourceHealthRequest request));
+                var owner = new SelectedChartResourceHealthWorkflowOwner(() => library, new RecordingDialogService());
+                Assert.IsTrue((await owner.RescanAsync(request)).Succeeded);
+                ChartFile current = library.BmsCharts.Single(c => c.Path == path);
+                Assert.AreEqual(100, current.WAVHealth);
+                Assert.AreEqual(parsed.Md5, current.Md5);
+                Assert.IsFalse(current.Warnings.Any(w => w.Kind == ChartWarningKind.ResourceWavMissing));
+                Assert.IsFalse(library.GetChartsNeedResourceFix(null).Any(c => c.Path == path));
+                Assert.AreEqual(untouched.Md5, library.BmsCharts.Single(c => c.Path == untouchedPath).Md5);
+                using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
+                LR2SongDBExtended.maintenance saved = read.Table<LR2SongDBExtended.maintenance>().Single();
+                Assert.AreEqual(1, saved.wav_files_defined);
+                Assert.AreEqual(1, saved.wav_files_existing);
+                Assert.AreEqual(detail.charthash, read.Table<LR2SongDBExtended.chart_info>().Single().charthash);
+            }
+            finally { library.RequestShutdown("base62-rescan"); }
+        });
+    }
+
     /// <summary>DB起動後の強制再調査は、再復号の文字列差分あり・同値とも生メタデータとmtimeだけを保存し、他のsong全列・背景行を保持します。本番owner・store・hydrate・SQLiteを通します。</summary>
     [TestMethod]
     [DataRow(false)]

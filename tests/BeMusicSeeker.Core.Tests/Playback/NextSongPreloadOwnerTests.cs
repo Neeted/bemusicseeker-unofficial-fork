@@ -9,6 +9,65 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class NextSongPreloadOwnerTests
 {
+    /// <summary>入力I/Oだけを通常失敗とし、分類外BMS・native・OOM・独立cleanupを含む失敗は次候補へ読み替えない。</summary>
+    [TestMethod]
+    public void InputClassificationPreservesIndependentFatalCauses()
+    {
+        foreach (Exception failure in new Exception[] { new InvalidDataException(), new IOException(), new UnauthorizedAccessException() })
+        {
+            Assert.IsTrue(NextSongPreloadOwner.IsInputFailure(failure));
+        }
+        foreach (Exception failure in new Exception[] { new BMSFile.InvalidBmsFileException("unclassified"),
+            new AudioSourceFatalException("native"), new OutOfMemoryException(),
+            new AggregateException(new InvalidDataException(), new InvalidOperationException("cleanup")) })
+        {
+            Assert.IsFalse(NextSongPreloadOwner.IsInputFailure(failure));
+        }
+    }
+
+    /// <summary>実parserの型付き入力不良を準備中に引き取り、元Taskの終端と同じ例外を一回だけ移管して再解析しない。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PendingParserFailureTransfersOriginalExceptionOnce(bool bmson)
+    {
+        using var fixture = new ChartFixture();
+        string path = fixture.Input(bmson ? "bad.bmson" : "bad.bms").Path;
+        File.WriteAllText(path, bmson ? "{\"info\":{\"init_bpm\":0}}" : "#BPM 120\n#RANDOM 2147483647\n");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        int preparations = 0;
+        var owner = new NextSongPreloadOwner((input, token) =>
+        {
+            Interlocked.Increment(ref preparations);
+            entered.SetResult();
+            release.Wait();
+            return PreparedBmsSong.Prepare(PlaybackChart.Load(input.Path), 1f, token);
+        });
+        var input = NextSongPreloadInput.Capture(path);
+        Task<PreparedBmsSong> work = owner.Request(input);
+        Task<PreparedBmsSong?>? adoption = null;
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, work, "parser-preparation");
+            adoption = owner.TakeAsync(input);
+            Assert.IsFalse(adoption.IsCompleted);
+            release.Set();
+            Exception failure = await Assert.ThrowsAsync<Exception>(() => work);
+            Assert.IsTrue(NextSongPreloadOwner.IsInputFailure(failure));
+            Assert.AreSame(failure, await Assert.ThrowsAsync<Exception>(() => adoption));
+            Assert.AreEqual(1, preparations);
+            Assert.IsNull(await owner.TakeAsync(input));
+        }
+        finally
+        {
+            release.Set();
+            try { await work; } catch (Exception failure) when (NextSongPreloadOwner.IsInputFailure(failure)) { }
+            if (adoption != null) { try { await adoption; } catch (Exception failure) when (NextSongPreloadOwner.IsInputFailure(failure)) { } }
+            await owner.InvalidateAsync();
+        }
+    }
+
     /// <summary>
     /// 保証：新旧bmsonの先読み結果を一度だけ採用し、不正入力の失敗は採用まで保持して再解析や別入力への読み替えをしない。
     /// </summary>

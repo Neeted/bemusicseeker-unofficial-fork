@@ -7,7 +7,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>明示読取りだけで収集する定義元・定義番号と参照です。定義元は解析時の命令またはBMSON項目から保持し、拡張子から推定しません。</summary>
 internal sealed record ChartResourceDefinition(string Source, string Id, ChartResourceReference Reference,
-    int? LineNumber = null, string RawLine = null, bool IsAdopted = true, bool Cp932DecodeUnsupported = false);
+    int? LineNumber = null, string RawLine = null, bool Cp932DecodeUnsupported = false);
 
 /// <summary>対応する定義のない参照番号です。定義元ごとの名前空間を保ちます。</summary>
 internal sealed record ChartResourceReferenceNumber(string Source, string Id);
@@ -23,7 +23,7 @@ internal sealed class ChartResourceParseDetails
     internal List<ChartResourceReferenceNumber> UndefinedReferences { get; } = [];
 }
 
-/// <summary>定義の分類・存在確認の結果です。正常な任意画像もSatisfiedとして保持します。</summary>
+/// <summary>定義の分類・存在確認の結果です。成功時は理由を持たず、独立したCP932問題だけを残せます。</summary>
 internal enum ChartResourceDiagnosticReason
 {
     Missing,
@@ -33,21 +33,19 @@ internal enum ChartResourceDiagnosticReason
     Empty,
     MissingFileName,
     UnknownKind,
-    MalformedSyntax,
-    Satisfied
+    MalformedSyntax
 }
 
 /// <summary>定義と、その分類・存在確認の結果です。</summary>
-internal sealed record ChartResourceDiagnosticIssue(ChartResourceDefinition Definition, ChartResourceDiagnosticReason Reason);
+internal sealed record ChartResourceDiagnosticIssue(ChartResourceDefinition Definition, ChartResourceDiagnosticReason? Reason);
 
-/// <summary>一画面の寿命だけで使用する診断結果です。通常参照の問題とCP932事実だけの使用定義、任意画像の全定義を各一回保持し、別解釈のCP932原文は対応付けずに分けます。ライブラリへ書き戻しません。</summary>
+/// <summary>一画面の寿命だけで使用する診断結果です。通常参照と非空任意画像の実問題を原文順で各一回保持し、別解釈のCP932原文は対応付けずに分けます。ライブラリへ書き戻しません。</summary>
 internal sealed record ChartResourceDiagnostics(
     string Title,
     string Artist,
     ImmutableArray<ChartResourceDiagnosticIssue> Issues,
     ImmutableArray<ChartResourceDefinition> UnusedDefinitions,
     ImmutableArray<ChartResourceReferenceNumber> UndefinedReferences,
-    ImmutableArray<ChartResourceDiagnosticIssue> OptionalImageDefinitions = default,
     ImmutableArray<ChartResourceDefinition> AlternativeCp932Definitions = default);
 
 /// <summary>選択譜面一件を既存の軽量パーサーで読み、捕捉した配置文脈で資源を照合します。DB、管理主体、索引へ依存しません。</summary>
@@ -73,7 +71,6 @@ internal sealed class ChartResourceDiagnosticsService
 
         placement ??= new ChartResourcePlacement(ChartResourcePlacementBasis.Current, Path.GetDirectoryName(snapshot.Path));
         ImmutableArray<ChartResourceDiagnosticIssue>.Builder issues = ImmutableArray.CreateBuilder<ChartResourceDiagnosticIssue>();
-        ImmutableArray<ChartResourceDiagnosticIssue>.Builder optionalImages = ImmutableArray.CreateBuilder<ChartResourceDiagnosticIssue>();
         foreach (ChartResourceDefinition definition in details.Definitions.Where(item => item.Reference.IsUsed))
         {
             ChartResourceReference reference = definition.Reference;
@@ -96,17 +93,17 @@ internal sealed class ChartResourceDiagnosticsService
                 bool? exists = placement.Exists(reference);
                 reason = exists == true ? null : exists == false ? ChartResourceDiagnosticReason.Missing : ChartResourceDiagnosticReason.Unverifiable;
             }
-            if (reference.Usage != ChartResourceUsage.Normal)
+            if (reference.Usage != ChartResourceUsage.Normal && string.IsNullOrWhiteSpace(reference.RawPath))
             {
-                optionalImages.Add(new ChartResourceDiagnosticIssue(definition, reason ?? ChartResourceDiagnosticReason.Satisfied));
+                reason = null;
             }
-            else if (reason.HasValue || definition.Cp932DecodeUnsupported)
+            if (reason.HasValue || definition.Cp932DecodeUnsupported)
             {
-                issues.Add(new ChartResourceDiagnosticIssue(definition, reason ?? ChartResourceDiagnosticReason.Satisfied));
+                issues.Add(new ChartResourceDiagnosticIssue(definition, reason));
             }
         }
         return new ChartResourceDiagnostics(chart.Title, chart.Artist, issues.ToImmutable(),
             details.Definitions.Where(item => item.Reference.Usage == ChartResourceUsage.Normal && !item.Reference.IsUsed).ToImmutableArray(),
-            details.UndefinedReferences.ToImmutableArray(), optionalImages.ToImmutable(), details.AlternativeCp932Definitions.ToImmutableArray());
+            details.UndefinedReferences.ToImmutableArray(), details.AlternativeCp932Definitions.ToImmutableArray());
     }
 }

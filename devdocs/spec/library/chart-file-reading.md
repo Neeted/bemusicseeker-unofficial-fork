@@ -128,7 +128,7 @@ UTF-8 BOM付きのBMS/PMSは、BOMを優先して判定名と実際の復号方�
 
 BOM付き本文も従来の置換復号を維持し、混在入力を新たに拒否しません。BOM直後の通常資源も実採用本文で読みます。保存BMSのstagefile・backbmp・bannerだけは従来のCP932先頭非空値を維持し、BMSONの画像・preview保存値も従来の正規化を維持します。
 
-LR2診断はCP932自身の論理行で全WAV/BMP・任意画像の原文を評価し、未使用・対象外・後続画像も含めます。CR・LF・CRLFと不正先行バイトによる改行消費は既存の復号規則を維持し、実採用本文へ行番号で診断を結合しません。復号不能と親参照は同時に保持します。同じCP932本文の診断事実は解析中の同定義へ添え、別行へ再収集しません。採用本文が異なる場合と先頭BOM専用の独立診断は、CP932の問題原文・CP932自身の論理行を[譜面プロパティ](../ui/chart-properties.md)で「LR2用の別解釈」と明示します。同じ指定の通常解釈との併記を許し、別本文間をID・行番号で結合しません。通常資源からLR2原文を逆算せず、長命なbytes・本文・CP932定義履歴を追加しません。`maintenance.encoding`は詳細ノート解析の文字コードを変えません。
+LR2診断はCP932自身の論理行で全WAV/BMP・任意画像の原文を評価し、未使用・対象外・後続画像も含めます。CR・LF・CRLFと不正先行バイトによる改行消費は既存の復号規則を維持し、実採用本文へ行番号で診断を結合しません。復号不能と親参照は同時に保持します。同じCP932本文の診断事実は解析中の同定義へ添え、別行へ再収集しません。採用本文が異なる場合と先頭BOM専用の独立診断は、CP932の問題原文・CP932自身の論理行を[譜面プロパティ](../ui/chart-properties.md)で「CP932で解釈した場合の問題」の見出し・説明を対象がある場合だけ一回表示します。同じ指定の通常解釈との併記を許し、別本文間をID・行番号で結合しません。通常資源からLR2原文を逆算せず、長命なbytes・本文・CP932定義履歴を追加しません。`maintenance.encoding`は詳細ノート解析の文字コードを変えません。
 
 ### 導入と手動再走査
 
@@ -164,6 +164,12 @@ LR2の`song_rows`は一回だけ読んだsnapshotを共通入口で解析しま�
 | `chart_info_backfill parse_failed` | 共通解析処理の失敗。名称だけで補完経路と断定せず、周辺の集計と合わせる |
 
 手動指定は保留の元配置と捕捉済み現在配置を新参照で再評価し、明示DST・候補・所属を維持します。旧キーに基づく推定は自動確定に再利用せず、既存の再推定入口で新参照を評価します。同path・SHAの既取得固定指定は発見・昇格・入れ子分類より前へ渡し、内容変更時は引き継ぎません。資源だけの実DB保存は`SelectedChartMutationWorkflowOwnerTests.ApplyEncoding_RealStorePersistsEncodingAndFixedMarkUnderSameAdmission`、探索前の指定は`BmsLibraryPackageInstallServiceTests.PrepareAutoInstallWorkflow_AppliesSameInputFixedEncodingBeforePackageDiscovery`、再取得・プロパティの捕捉指定は既存Maintenance/ChartProperties系列で確認します。
+
+### 軽量使用IDとゼロノート判定
+
+軽量使用IDのBASEは整数として読み、`62`・`+62`・`062`・前後空白を数値62として扱います。WAV/BMPの使用・未使用・未定義分類を共通に揃え、全分岐・同一ID全定義・LNOBJを含む既存参照規則を保ちます。内蔵parserの最後の有効16/36/62と詳細parserの規則は統一しません。保存済み健康度の訂正は選択した譜面の構成ファイル再スキャンで明示的に行い、保存後に現在値・不足警告・索引へ反映します。通常起動や診断画面では更新せず、詳細22の再構築・追加永続版を増やしません。`ChartResourceSnapshotTests.ParseSnapshot_IntegerBase62KeepsResourceIdsDistinct` と `SelectedChartResourceHealthWorkflowOwnerTests.RescanAsync_Base62CorrectsPersistedCountsWithoutRebuildingDetails` が確認します。
+
+保留のゼロノート判定は先頭3バイトのUTF-8 BOMだけを消費して、既存の逐次読取り・可視ノート正規表現で全分岐を検査します。本文中の文字・UTF-16/32・詳細NOTE数による代替には広げません。ノートありは改名せず、真のゼロノートだけ既存の衝突処理と保留/DB反映へ渡します。`ChartResourceSnapshotTests.IsZeroNote_RecognizesFirstUtf8BomWithoutRemovingBodyCharacters` と `PendingPackageWorkflowOwnerTests.RenamePendingZeroNoteChartsAsync_RealStoreInvalidatesOnlyZeroNoteBmsAndPms` がBMS/PMS、原bytesと衝突保全を確認します。
 
 ## 実装とテストの対応
 

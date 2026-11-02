@@ -488,7 +488,7 @@ public sealed class PlaybackPanelViewModelTests
 
     /// <summary>
     /// 実一時コピーを二件残留させ、元名復元と変更受付の解放後に一度だけ通知します。
-    /// 通知Taskの終端を待ち、通知・元名復元が失敗しても開始主原因を変更せず、第三者fileと退避元を保全します。
+    /// 通知Taskの終端を待ち、開始原因と独立した回収・復元原因を一回の失敗通知へ保持します。残留通知の故障で原因を置換せず、第三者fileと退避元を保全します。
     /// </summary>
     /// <remarks>Windowsの削除共有拒否だけを実FSで作り、playerのReadyと通知の寿命は既存の代替実装で制御します。</remarks>
     [TestMethod]
@@ -587,7 +587,17 @@ public sealed class PlaybackPanelViewModelTests
                 Assert.AreEqual(destination, notifiedDirectory);
                 Assert.IsFalse(gateActiveAtNotification);
                 Assert.AreEqual(!failRestore, sourceRestoredAtNotification);
-                if (failStart) { Assert.AreSame(startFailure, dialogs.LastPlaybackFailure); }
+                if (failStart)
+                {
+                    var aggregate = dialogs.LastPlaybackFailure as AggregateException;
+                    Assert.IsNotNull(aggregate);
+                    Exception[] causes = aggregate.Flatten().InnerExceptions.ToArray();
+                    Assert.AreEqual(failRestore ? 4 : 3, causes.Length);
+                    Assert.AreEqual(1, causes.Count(cause => ReferenceEquals(cause, startFailure)));
+                    Assert.AreEqual(failRestore ? 3 : 2, causes.Count(cause => cause is IOException));
+                    Assert.IsFalse(causes.Any(cause => cause.Message == "残留通知の表示失敗"), "任意の通知故障は開始・回収・復元の原因へ置き換えません。");
+                    Assert.IsNull(panel.NowPlayingChart);
+                }
                 if (failRestore)
                 {
                     Assert.AreEqual("third party chart", originalBytesAtNotification);
@@ -598,6 +608,9 @@ public sealed class PlaybackPanelViewModelTests
                         && log.Contains(Path.Combine(source, "chart_.bms"), StringComparison.Ordinal)
                         && log.Contains(nameof(IOException), StringComparison.Ordinal)));
                 }
+                LogManager.Flush();
+                Assert.AreEqual(2, logs.Logs.Count(log => log.Contains("temporary_preview_cleanup_failed", StringComparison.Ordinal)
+                    && log.Contains(nameof(IOException), StringComparison.Ordinal)), "二件の回収失敗は集約通知とともに元path付き診断にも残します。");
                 Assert.AreEqual(!failStart, panel.IsPlaying);
                 Assert.AreEqual(failStart ? 1 : 0, dialogs.PlaybackFailureNotificationCount);
                 Assert.AreEqual("existing chart", File.ReadAllText(Path.Combine(destination, "chart.bms")));

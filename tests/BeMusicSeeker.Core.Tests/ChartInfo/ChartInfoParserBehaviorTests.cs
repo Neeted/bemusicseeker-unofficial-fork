@@ -14,7 +14,31 @@ namespace BeMusicSeeker.Tests;
 /// </summary>
 [TestClass]
 public sealed class ChartInfoParserBehaviorTests
-{    /// <summary>正ノーツBMSONのTOTAL省略・非正値・nullは未定義、明示正値は定義済みとし、有効TOTALの既定計算と倍率を維持します。</summary>
+{
+    /// <summary>STOP間の三種画像座標は速度復帰を作り、重複座標を統合します。BGAフラグだけはbgaイベントに限定します。</summary>
+    [TestMethod]
+    [DataRow("bga_events", 1)]
+    [DataRow("layer_events", 0)]
+    [DataRow("poor_events", 0)]
+    public void ParseBmson_ImageCoordinatesRestoreSpeedBetweenStops(string events, int bga)
+    {
+        WithTemporarySongDb((root, _) =>
+        {
+            string path = Path.Combine(root, "images.bmson");
+            string json = "{\"info\":{\"init_bpm\":120,\"resolution\":240},\"lines\":[{\"y\":0},{\"y\":960},{\"y\":1920}],\"stop_events\":[{\"y\":960,\"duration\":240},{\"y\":1440,\"duration\":240}],\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":0},{\"x\":1,\"y\":1920}]}],\"bga\":{\"" + events + "\":[{\"y\":1200,\"id\":1},{\"y\":1200,\"id\":2}]}}";
+            File.WriteAllText(path, json);
+            ChartDetails row = ChartInfoParser.Parse(path);
+            Assert.AreEqual(4, row.speedchange_count);
+            Assert.AreEqual(bga, row.bga);
+            Assert.AreEqual(2, row.notes);
+            File.WriteAllText(path, json.Replace("[{\"y\":1200,\"id\":1},{\"y\":1200,\"id\":2}]", "[]", StringComparison.Ordinal));
+            ChartDetails empty = ChartInfoParser.Parse(path);
+            Assert.AreEqual(empty.length, row.length);
+            Assert.AreEqual(empty.notes, row.notes);
+            Assert.AreEqual(0, empty.bga);
+        });
+    }
+    /// <summary>正ノーツBMSONのTOTAL省略・非正値・nullは未定義、明示正値は定義済みとし、有効TOTALの既定計算と倍率を維持します。</summary>
     [TestMethod]
     [DataRow("", false, 260d)]
     [DataRow(",\"total\":100", true, 260d)]

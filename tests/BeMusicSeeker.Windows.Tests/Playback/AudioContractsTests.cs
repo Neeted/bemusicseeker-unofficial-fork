@@ -21,6 +21,137 @@ public sealed class AudioContractsTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
 
+    /// <summary>現曲の実音声を保ったまま型付き解析失敗を先読みし、一致採用時だけ一回通知してCへ進む。準備中採用と自然送りも同じ元作業を使う。</summary>
+    [TestMethod]
+    [DataRow(false, false, false)]
+    [DataRow(true, true, false)]
+    [DataRow(false, false, true)]
+    public async Task ParserInputPreloadFailureIsDeferredUntilMatchingNavigation(bool adoptWhilePreparing, bool natural, bool failCleanup)
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string first = WritePlaybackChart(workspace.RootDirectory, "A.bms", 120, 50);
+        string last = WritePlaybackChart(workspace.RootDirectory, "C.bms", 120, 50);
+        string bad = workspace.GetPath("B.bmson");
+        File.WriteAllText(bad, "{\"info\":{\"init_bpm\":0}}");
+        File.WriteAllBytes(workspace.GetPath("tone.wav"), ScheduledAudioFixture.BuildFloatWave(48000, Enumerable.Repeat(0.125f, 960).ToArray()));
+        File.AppendAllText(first, "#WAV01 tone.wav\n#00011:01\n");
+        File.AppendAllText(last, "#WAV01 tone.wav\n#00011:01\n");
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var parsed = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cleanupRelease = new ManualResetEventSlim();
+        var cleanupEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cleanupFailure = new InvalidOperationException("independent runtime cleanup");
+        int cleanupAttempts = 0;
+        var events = new List<string>();
+        int preparations = 0;
+        var runtime = new RecordingAudioPlaybackRuntime(events)
+        {
+            FreeFailureForCall = _ =>
+            {
+                if (!failCleanup || !parsed.Task.IsCompleted || Interlocked.Increment(ref cleanupAttempts) != 1) { return null; }
+                cleanupEntered.TrySetResult();
+                cleanupRelease.Wait();
+                return cleanupFailure;
+            },
+            InitializeResult = CreatePlaybackInitializationResult(),
+            InitializeAction = snapshot =>
+            {
+                if (BassAudioPlayer.ActiveSession == null)
+                { BassAudioPlayer.InitializeOwned(BassAudioPlayer.DeviceDriver.NULL_DEVICE, default, 0f, out _); }
+            }
+        };
+        var player = new ObservedInternalBmsPlayer(new SettingsPlayerSettingsGateway(() => testSettings), runtime,
+            path => new BMSAutoPlayer(PlaybackChart.Load(path)),
+            (input, token) =>
+            {
+                Interlocked.Increment(ref preparations);
+                entered.TrySetResult();
+                release.Wait();
+                try { return PreparedBmsSong.Prepare(PlaybackChart.Load(input.Path), 1f, token); }
+                catch (Exception failure) { parsed.TrySetResult(failure); throw; }
+            });
+        var rows = new MainChartListViewModel
+        {
+            Rows = new List<object> { ChartTestValues.Empty() with { Path = first },
+                ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = bad }, ChartTestValues.Empty() with { Path = last } }
+        };
+        var notices = new List<Exception>();
+        var dialogs = new ObservedPlaybackDialogs(events);
+        testSettings.FolderSkipPlayMode = false;
+        testSettings.SinglePlayMode = false;
+        testSettings.RepeatPlayMode = false;
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackDispatcher(), new MainChartListPlaybackQueue(rows),
+            new SettingsPlaybackSettingsStore(() => testSettings), dialogs, failure => notices.Add(failure), new ChartFileOperationSynchronizer());
+        var started = new List<string>();
+        panel.PlaybackStarted += (_, _) => started.Add(panel.NowPlayingChart?.Path ?? "");
+        Task? navigation = null;
+        try
+        {
+            await panel.StartAtIndex(0);
+            PlaybackStartOperation current = player.Operation ?? throw new AssertFailedException("開始操作が必要です。");
+            await ObserveSignalOrFailureAsync(entered.Task, current.Completion);
+            Assert.AreEqual(first, panel.NowPlayingChart?.Path);
+            Assert.IsTrue(panel.IsPlaying);
+            Assert.AreEqual(0, notices.Count);
+            Assert.AreEqual(1, preparations);
+            if (!adoptWhilePreparing)
+            {
+                release.Set();
+                await ObserveSignalOrFailureAsync(parsed.Task, current.Completion);
+                Assert.AreEqual(first, panel.NowPlayingChart?.Path);
+                Assert.AreEqual(0, notices.Count);
+            }
+            navigation = panel.Next(natural ? player : null, EventArgs.Empty);
+            if (adoptWhilePreparing) { Assert.IsFalse(navigation.IsCompleted); }
+            release.Set();
+            if (failCleanup)
+            {
+                await ObserveSignalOrFailureAsync(cleanupEntered.Task, navigation);
+                Assert.IsFalse(navigation.IsCompleted);
+                Assert.AreEqual(0, notices.Count);
+                Assert.AreEqual(0, dialogs.Notifications);
+                CollectionAssert.AreEqual(new[] { first }, started);
+                cleanupRelease.Set();
+                await navigation;
+                Exception reported = await dialogs.Failure.Task;
+                Exception[] causes = ExceptionCauses(reported).ToArray();
+                Assert.AreEqual(2, causes.Length);
+                Assert.IsTrue(causes.Any(cause => ReferenceEquals(cause, parsed.Task.Result)));
+                Assert.IsTrue(causes.Any(cause => ReferenceEquals(cause, cleanupFailure)));
+                Assert.AreEqual(1, dialogs.Notifications);
+                Assert.AreEqual(0, notices.Count);
+                Assert.AreEqual(1, preparations);
+                Assert.IsNull(panel.NowPlayingChart);
+                CollectionAssert.AreEqual(new[] { first }, started);
+                PlaybackStartOperation failedStart = player.Operation ?? throw new AssertFailedException("失敗開始の所有者が必要です。");
+                Assert.AreSame(reported, await GetTaskFailureAsync(failedStart.Completion));
+                return;
+            }
+            await navigation;
+            Assert.AreEqual(last, panel.NowPlayingChart?.Path);
+            CollectionAssert.AreEqual(new[] { first, last }, started);
+            Assert.AreEqual(1, preparations);
+            Assert.AreEqual(1, notices.Count);
+            Assert.AreSame(await parsed.Task, notices[0]);
+            Assert.IsInstanceOfType<InvalidBmsonFileException>(notices[0]);
+            Assert.AreEqual(0, dialogs.Notifications);
+        }
+        finally
+        {
+            release.Set();
+            cleanupRelease.Set();
+            try { if (navigation != null) { await navigation; } }
+            finally
+            {
+                panel.BeginShutdown();
+                await panel.CloseForShutdown();
+                BassAudioPlayer.Free();
+                BassAudioRuntime.Shutdown();
+            }
+        }
+    }
+
     /// <summary>実panelの変更停止portは、現曲の実readと先読みdecoder解放の実終端まで入力回収を待ち、同じL内では新試聴を予約しません。</summary>
     /// <remarks>NULL_DEVICEと実入力・decoder所有を使います。目録の対象確定・実削除・失敗保全はPackageCatalogWorkflowOwnerTests、停止の失敗集約は既存InternalClose系列が担当します。</remarks>
     [TestMethod]

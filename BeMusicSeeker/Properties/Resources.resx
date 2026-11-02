@@ -3663,7 +3663,7 @@ ON：すべての使用リソースを要求し、不足時は保留にします
     <value>譜面パス</value>
   </data>
   <data name="ChartPropertiesIssues" xml:space="preserve">
-    <value>リソースの問題と任意画像定義</value>
+    <value>リソースの問題</value>
   </data>
   <data name="ChartPropertiesFailed" xml:space="preserve">
     <value>譜面の読取りまたは解析に失敗しました。再確認するには閉じて開き直してください。</value>
@@ -4063,15 +4063,6 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Error_PendingRestoreChoiceUnknown" xml:space="preserve">
     <value>保留パッケージの復元確認で不明な選択が返されました。</value>
   </data>
-  <data name="ChartPropertiesDefinitionLine" xml:space="preserve">
-    <value>行 {0}</value>
-  </data>
-  <data name="ChartPropertiesAdopted" xml:space="preserve">
-    <value>採用値</value>
-  </data>
-  <data name="ChartPropertiesDiagnosticOnly" xml:space="preserve">
-    <value>診断専用（未採用）</value>
-  </data>
   <data name="ChartPropertiesExcludedEmpty" xml:space="preserve">
     <value>空の指定</value>
   </data>
@@ -4084,17 +4075,8 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="ChartPropertiesExcludedSyntax" xml:space="preserve">
     <value>不正構文</value>
   </data>
-  <data name="ChartPropertiesSatisfied" xml:space="preserve">
-    <value>対応する資源が存在します</value>
-  </data>
-  <data name="ChartPropertiesCountedUnfulfilled" xml:space="preserve">
-    <value>個別の未充足として計数します</value>
-  </data>
-  <data name="ChartPropertiesNotCounted" xml:space="preserve">
-    <value>要求数に含めません</value>
-  </data>
   <data name="ChartPropertiesCp932AlternativeInterpretation" xml:space="preserve">
-    <value>LR2用の別解釈（CP932・通常の解釈と併記される場合があります）</value>
+    <value>CP932で解釈した場合の問題 (通常の解釈と併記される場合があります)</value>
   </data>
   <data name="Validation_Lr2BuiltinCustomFolderReservedFormat" xml:space="preserve"><value>{0}には、LR2組込みカスタムフォルダの予約領域を指定できません。
 指定先: {1}

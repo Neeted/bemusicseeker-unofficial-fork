@@ -164,10 +164,13 @@ public sealed class ChartInfoInstallFailureRetryTests
     /// <summary>実bmsonを物理導入して同じ処理内で専用song表・詳細・索引へ反映し、別の全件補完の予約や形式固有の保存漏れを検出する。</summary>
     /// <remarks>本番ライブラリの導入・警告・受付を実DBへ接続する。設定と入力はcaseごとに所有し、保存・通知を計算値で代替しない。</remarks>
     [TestMethod]
-    public void InstallChartPackages_AddsBmsonAndBuildsInlineChartInfo()
+    [DataRow("keyboard-24k", 24, 25, false)]
+    [DataRow("keyboard-24k-double", 48, 50, true)]
+    [DoNotParallelize]
+    public async Task InstallChartPackages_AddsBmsonAndBuildsInlineChartInfo(string mode, int commonMode, int detailMode, bool estimated)
     {
 
-        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        await WithTemporarySongDb(async (string tempRootPath, string songDbPath) =>
         {
             string sourceDir = Path.Combine(tempRootPath, "SourceBmson");
             string installDir = Path.Combine(tempRootPath, "InstalledBmson");
@@ -178,24 +181,61 @@ public sealed class ChartInfoInstallFailureRetryTests
                 sourceChartPath,
                 "{"
                     + "\"version\":\"1.0.0\","
-                    + "\"info\":{\"title\":\"install bmson\",\"level\":1,\"mode_hint\":\"beat-7k\",\"init_bpm\":120,\"judge_rank\":100,\"total\":100,\"resolution\":240},"
-                    + "\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":0}]}]"
+                    + "\"info\":{\"title\":\"install bmson\",\"level\":1,\"mode_hint\":\"" + mode + "\",\"init_bpm\":120,\"judge_rank\":100,\"total\":100,\"resolution\":240},"
+                    + "\"lines\":[{\"y\":0},{\"y\":960},{\"y\":1920}],"
+                    + "\"stop_events\":[{\"y\":960,\"duration\":240},{\"y\":1440,\"duration\":240}],"
+                    + "\"bga\":{\"layer_events\":[{\"y\":1200,\"id\":1}],\"poor_events\":[{\"y\":1200,\"id\":1}]},"
+                    + "\"sound_channels\":[{\"name\":\"tone\",\"notes\":[{\"x\":1,\"y\":0},{\"x\":1,\"y\":1920}]}]"
                     + "}",
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            File.WriteAllBytes(Path.Combine(sourceDir, "tone.wav"), ScheduledAudioFixture.BuildFloatWave(48000, Enumerable.Repeat(0.125f, 960).ToArray()));
             ChartFile pendingSong = ChartTestValues.ReadBmson(sourceChartPath);
             var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart((pendingSong))]);
             package.path = sourceDir;
             package.delete_parent = false;
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null,
+                new InstallServiceComponentTestSupport.RealFileMutationService(), new RecordingDialogService(),
+                new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = installDir,
+                    FolderNameFormat = "%TITLE%",
+                    KeepInstallablePackagesPending = false,
+                    PendingInstallEstimateMaxParallelPackages = 1
+                }, settings: TestBmsFactory.CreateRootSettings([installDir]))
+            { BmsCharts = [], BmsonCharts = [], ChartPackagesPending = [], ChartPackagesInstalled = [] };
 
-            InvokeInstallChartPackages(library, [package], installDir);
+            if (estimated)
+            {
+                package.ChartEntries.Single().ApplyInstallDestinationMetadata(installDir, "Installed", "Artist");
+                library.ChartPackagesPending = [package];
+                library.InstallPendingPackagesToEstimatedDestinations([package]);
+            }
+            else
+            {
+                await library.InstallChartPackagesAutoWithProgressAsync([sourceDir], CancellationToken.None,
+                    new InstallServiceComponentTestSupport.RecordingPackageInstallProgressWriter());
+            }
 
             Assert.AreEqual(0, library.ChartInfoBackfillRequestedVersion);
             ChartFile installedSong = library.BmsonCharts.Single();
-            Assert.IsNotNull(library.ResolveChartInfo(installedSong.Sha256, installedSong.Md5));
+            ChartDetails detail = library.ResolveChartInfo(installedSong.Sha256, installedSong.Md5);
+            Assert.IsNotNull(detail);
+            Assert.AreEqual(commonMode, installedSong.Mode);
+            Assert.AreEqual(detailMode, detail.mode);
+            Assert.AreEqual(4, detail.speedchange_count);
+            Assert.AreEqual(2, detail.notes);
+            Assert.AreEqual(0, detail.bga);
+            Assert.AreEqual(22, detail.parser_version);
+            await ScheduledAudioFixture.AssertInstalledChartAudioAsync(installedSong.Path, [0, 240000], writeWave: true);
             using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM bmson_song WHERE path = '" + installedSong.Path.Replace("'", "''") + "';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = '" + installedSong.Sha256 + "';"));
+            ChartFile reloaded = ChartSongStorageMapping.FromBmsonRow(verify.Table<LR2SongDBExtended.bmson_song>().Single());
+            Assert.AreEqual(commonMode, reloaded.Mode);
+            Assert.AreEqual(installedSong.Md5, reloaded.Md5);
+            Assert.AreEqual(installedSong.Sha256, reloaded.Sha256);
+            Assert.AreEqual(detailMode, verify.Table<LR2SongDBExtended.chart_info>().Single().mode);
         });
     }
 

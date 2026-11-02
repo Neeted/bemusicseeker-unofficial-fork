@@ -11,6 +11,20 @@ public sealed class ChartResourceDiagnosticsTests
 {
     private TestWorkspace? ownedWorkspace;
 
+    /// <summary>正常先頭画像を除き、分岐内の後続画像と通常不足を分類別に連結せず原文順で残します。任意空白だけを除き通常空指定は保持します。</summary>
+    [TestMethod]
+    public void Read_InterleavedProblemsPreserveRawIndentationAndBranchDefinitions()
+    {
+        string path = Path.Combine(CaseWorkspace.RootDirectory, "mixed.bms");
+        File.WriteAllBytes(Path.Combine(CaseWorkspace.RootDirectory, "present.png"), []);
+        string[] lines = ["#STAGEFILE present.png", "#RANDOM 2", "#IF 2", "  #STAGEFILE missing (later).png", "#WAV01 missing.wav", "#ENDIF", "#BACKBMP   ", "#WAV02 ", "#00111:0102"];
+        File.WriteAllText(path, string.Join("\n", lines));
+        ChartResourceDiagnostics result = new ChartResourceDiagnosticsService().Read(path, ChartFileKind.Bms);
+        CollectionAssert.AreEqual(new[] { 4, 5, 8 }, result.Issues.Select(issue => issue.Definition.LineNumber.GetValueOrDefault()).ToArray());
+        CollectionAssert.AreEqual(new[] { lines[3], lines[4], lines[7] }, result.Issues.Select(issue => issue.Definition.RawLine).ToArray());
+        Assert.AreEqual(ChartResourceDiagnosticReason.Empty, result.Issues[2].Reason);
+    }
+
     /// <summary>ケース開始後だけ利用できる、可変ファイル領域の所有者です。</summary>
     private TestWorkspace CaseWorkspace => ownedWorkspace
         ?? throw new InvalidOperationException("ケースの可変媒体はTestInitialize後に利用します。");
@@ -88,13 +102,13 @@ public sealed class ChartResourceDiagnosticsTests
                     "bga_events":[{"id":1,"y":0},{"id":9,"y":1},{"id":"bad","y":2},{"id":{"unsupported":1},"y":3}],
                     "layer_events":[{"id":9,"y":0},{"id":10,"y":1}],"poor_events":[{"id":10,"y":0},{"id":9,"y":1},{"id":11,"y":2}]}}
             """), ChartFileKind.Bmson);
-        Assert.AreEqual(4, result.Issues.Length);
+        Assert.AreEqual(5, result.Issues.Length);
         CollectionAssert.AreEquivalent(new[] { "sound_channels[1]", "sound_channels[2]", "key_channels[1]", "mine_channels[1]", "bga_header[1]", "bga_header[2]" },
             result.UnusedDefinitions.Select(item => item.Source).ToArray());
         Assert.IsTrue(result.UnusedDefinitions.Where(item => !item.Source.StartsWith("bga_header", StringComparison.Ordinal)).All(item => item.Id == null));
         CollectionAssert.AreEquivalent(new[] { "bga_header:9", "bga_header:10", "bga_header:11" }, result.UndefinedReferences.Select(item => item.Source + ":" + item.Id).ToArray());
         CollectionAssert.AreEquivalent(new[] { "info.back_image", "sound_channels[0]", "key_channels[0]", "mine_channels[0]", "bga_header[0]" },
-            result.Issues.Concat(result.OptionalImageDefinitions).Select(item => item.Definition.Source).ToArray());
+            result.Issues.Select(item => item.Definition.Source).ToArray());
     }
 
     /// <summary>UTF-8 BOMで始まる先頭資源も独立したCP932診断へ渡し、復号不能と親参照を同時に保持します。通常要求の採用本文はBOMを認識します。</summary>
@@ -182,26 +196,16 @@ public sealed class ChartResourceDiagnosticsTests
             ("#BANNER ", false),
             ("#BANNER banner.png", true));
         ChartResourceDiagnostics result = new ChartResourceDiagnosticsService().Diagnose(snapshot, ChartFileKind.Bms);
-        Assert.AreEqual(0, result.Issues.Length);
-        foreach (ChartResourceUsage usage in new[] { ChartResourceUsage.Stagefile, ChartResourceUsage.Banner })
-        {
-            Assert.AreEqual(ChartResourceDiagnosticReason.Missing,
-                result.OptionalImageDefinitions.Single(issue => issue.Definition.IsAdopted && issue.Definition.Reference.Usage == usage).Reason);
-            Assert.IsTrue(result.OptionalImageDefinitions.Any(item => item.Definition.IsAdopted && item.Definition.Reference.Usage == usage && item.Definition.Cp932DecodeUnsupported));
-        }
-        ChartResourceDiagnosticIssue back = result.OptionalImageDefinitions.Single(issue => issue.Definition.IsAdopted && issue.Definition.Reference.Usage == ChartResourceUsage.Backbmp);
-        Assert.AreEqual(ChartResourceDiagnosticReason.Missing, back.Reason);
-        Assert.AreEqual("first-back.png", back.Definition.Reference.RawPath);
-        Assert.IsFalse(result.OptionalImageDefinitions.Any(issue => issue.Definition.IsAdopted && issue.Definition.Reference.RawPath.StartsWith("ignored", StringComparison.Ordinal)));
-        Assert.AreEqual(6, result.OptionalImageDefinitions.Length);
-        Assert.AreEqual(3, result.OptionalImageDefinitions.Count(item => !item.Definition.IsAdopted));
-        Assert.IsTrue(result.OptionalImageDefinitions.Any(item => !item.Definition.IsAdopted && item.Definition.Cp932DecodeUnsupported && item.Definition.Reference.RawPath.StartsWith("ignored-back", StringComparison.Ordinal)));
+        Assert.AreEqual(5, result.Issues.Length);
+        CollectionAssert.AreEqual(new[] { 1, 2, 3, 4, 6 }, result.Issues.Select(item => item.Definition.LineNumber.GetValueOrDefault()).ToArray());
+        Assert.IsTrue(result.Issues.All(item => item.Reason == ChartResourceDiagnosticReason.Missing));
+        CollectionAssert.AreEqual(new[] { 1, 4, 6 }, result.Issues.Where(item => item.Definition.Cp932DecodeUnsupported).Select(item => item.Definition.LineNumber.GetValueOrDefault()).ToArray());
         Assert.AreEqual(0, result.AlternativeCp932Definitions.Length);
     }
 
-    /// <summary>三用途の任意画像は正常な先頭採用値を含む全定義を一度ずつ残します。後続の実在・欠損・親参照・名前なしも原文、論理行、分類、非採用状態を保ち、通常WAV/BMPの成功を問題一覧へ増やしません。</summary>
+    /// <summary>三用途の任意画像は後続の欠損・親参照・名前なしの実問題だけを原文順に残し、正常値を除きます。原文、論理行、分類を保ち、通常WAV/BMPの成功を問題一覧へ増やしません。</summary>
     [TestMethod]
-    public void Read_OptionalImagesRetainEveryDefinitionIncludingSatisfiedAdoptedValues()
+    public void Read_OptionalImagesRetainOnlyActualProblemsInSourceOrder()
     {
         string directory = CreateDirectory();
         try
@@ -210,7 +214,7 @@ public sealed class ChartResourceDiagnosticsTests
             File.WriteAllBytes(Path.Combine(directory, "tone.ogg"), []);
             string[] sources = ["#STAGEFILE", "#BACKBMP", "#BANNER"];
             string[] paths = ["present.png", "present.bmp", "missing.png", "../outside.png", ".png"];
-            ChartResourceDiagnosticReason[] reasons = [ChartResourceDiagnosticReason.Satisfied, ChartResourceDiagnosticReason.Satisfied,
+            ChartResourceDiagnosticReason?[] reasons = [null, null,
                 ChartResourceDiagnosticReason.Missing, ChartResourceDiagnosticReason.Unsupported, ChartResourceDiagnosticReason.MissingFileName];
             ChartResourceClassification[] classifications = [ChartResourceClassification.Matchable, ChartResourceClassification.Matchable,
                 ChartResourceClassification.Matchable, ChartResourceClassification.Unmatchable, ChartResourceClassification.Excluded];
@@ -218,19 +222,18 @@ public sealed class ChartResourceDiagnosticsTests
             string path = Path.Combine(directory, "chart.bms");
             File.WriteAllText(path, string.Join("\n", lines) + "\n#WAV01 tone.wav\n#BMP01 present.png\n#00111:01\n#00104:01\n", Encoding.ASCII);
             ChartResourceDiagnostics result = new ChartResourceDiagnosticsService().Read(path, ChartFileKind.Bms);
-            Assert.AreEqual(0, result.Issues.Length);
-            Assert.AreEqual(lines.Length, result.OptionalImageDefinitions.Length);
+            Assert.AreEqual(9, result.Issues.Length);
+            CollectionAssert.AreEqual(new[] { 3, 4, 5, 8, 9, 10, 13, 14, 15 }, result.Issues.Select(item => item.Definition.LineNumber.GetValueOrDefault()).ToArray());
             Assert.AreEqual(0, result.UnusedDefinitions.Length);
             for (int source = 0; source < sources.Length; source++)
             {
-                for (int value = 0; value < paths.Length; value++)
+                for (int value = 2; value < paths.Length; value++)
                 {
                     int line = source * paths.Length + value;
-                    ChartResourceDiagnosticIssue entry = result.OptionalImageDefinitions.Single(item => item.Definition.LineNumber == line + 1);
+                    ChartResourceDiagnosticIssue entry = result.Issues.Single(item => item.Definition.LineNumber == line + 1);
                     Assert.AreEqual(sources[source], entry.Definition.Source);
                     Assert.AreEqual(lines[line], entry.Definition.RawLine);
                     Assert.AreEqual(paths[value], entry.Definition.Reference.RawPath);
-                    Assert.AreEqual(value == 0, entry.Definition.IsAdopted);
                     Assert.AreEqual(reasons[value], entry.Reason);
                     Assert.AreEqual(classifications[value], entry.Definition.Reference.Classification);
                 }
@@ -282,7 +285,7 @@ public sealed class ChartResourceDiagnosticsTests
         ChartResourceDiagnostics result = new ChartResourceDiagnosticsService().Diagnose(snapshot, ChartFileKind.Bms, placement, encoding);
         ChartResourceDiagnosticIssue entry = result.Issues.Single();
         Assert.AreEqual(replacementName, entry.Definition.Reference.RawPath);
-        Assert.AreEqual(ChartResourceDiagnosticReason.Satisfied, entry.Reason);
+        Assert.IsNull(entry.Reason);
         Assert.IsTrue(entry.Definition.Cp932DecodeUnsupported);
         Assert.AreEqual(0, result.AlternativeCp932Definitions.Length);
         ChartFile parsed = BmsChartFileParser.ParseSnapshot(snapshot, encoding);
@@ -382,15 +385,15 @@ public sealed class ChartResourceDiagnosticsTests
                 """, Encoding.GetEncoding("shift_jis"));
             var service = new ChartResourceDiagnosticsService();
             ChartResourceDiagnostics result = service.Read(path, ChartFileKind.Bms);
-            Assert.AreEqual(5, result.Issues.Length);
+            Assert.AreEqual(7, result.Issues.Length);
             Assert.IsTrue(result.Issues.Any(item => item.Definition.Id == "02" && item.Reason == ChartResourceDiagnosticReason.InvalidPath));
             Assert.IsTrue(result.Issues.Any(item => item.Definition.Id == "03" && item.Definition.Reference.Kind == ChartResourceKind.Audio && item.Reason == ChartResourceDiagnosticReason.Unsupported));
             Assert.IsTrue(result.Issues.Any(item => item.Definition.Reference.RawPath == "unsupported.dat" && item.Reason == ChartResourceDiagnosticReason.UnknownKind));
             CollectionAssert.AreEquivalent(new[] { "absent.wav", "absent.png", "back.png", "banner.bmp" },
-                result.Issues.Concat(result.OptionalImageDefinitions).Where(item => item.Reason == ChartResourceDiagnosticReason.Missing).Select(item => item.Definition.Reference.RawPath).ToArray());
-            Assert.AreEqual(ChartResourceDiagnosticReason.Satisfied, result.OptionalImageDefinitions.Single(item => item.Definition.Reference.Usage == ChartResourceUsage.Stagefile).Reason);
-            Assert.IsTrue(result.OptionalImageDefinitions.Any(item => item.Definition.Reference.Usage == ChartResourceUsage.Backbmp));
-            Assert.IsTrue(result.OptionalImageDefinitions.Any(item => item.Definition.Reference.Usage == ChartResourceUsage.Banner));
+                result.Issues.Where(item => item.Reason == ChartResourceDiagnosticReason.Missing).Select(item => item.Definition.Reference.RawPath).ToArray());
+            Assert.IsFalse(result.Issues.Any(item => item.Definition.Reference.Usage == ChartResourceUsage.Stagefile));
+            Assert.IsTrue(result.Issues.Any(item => item.Definition.Reference.Usage == ChartResourceUsage.Backbmp));
+            Assert.IsTrue(result.Issues.Any(item => item.Definition.Reference.Usage == ChartResourceUsage.Banner));
 
             Assert.AreEqual(0, service.Diagnose(Snapshot("#TITLE No resources", path), ChartFileKind.Bms).Issues.Length);
             Assert.AreEqual(0, service.Diagnose(Snapshot("#STAGEFILE \n#BACKBMP \n#BANNER ", path), ChartFileKind.Bms).Issues.Length);

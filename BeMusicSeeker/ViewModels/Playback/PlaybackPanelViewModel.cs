@@ -1527,28 +1527,38 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
         index = candidate.Index;
         ChartFile bmsFile = candidate.Chart;
+        PlaybackStartObservation observation = null;
+        Exception temporaryFailure = null;
         if (NeedsTemporaryInstall(bmsFile))
         {
-            // 候補の解決後に別の導入入口が先取りできるため、状態変更前に非待機取得します。
+            // 回収・元名復元と受付解放を終えてから、同じ要求のcursorへ入力失敗を戻します。
             if (!chartFileOperations.TryEnter(out IDisposable operationGate)) { return; }
-            await StartTemporarilyInstalledChart(bmsFile, bmsFile, index,
-                bmsFile.InstallDestination, operationGate, request, generation, acceptedSurfaceRequest, candidate.Locator).ConfigureAwait(false);
-            return;
+            (long startedGeneration, PlaybackStartObservation startedObservation, Exception failure) =
+                await StartTemporarilyInstalledChart(bmsFile, bmsFile, index,
+                    bmsFile.InstallDestination, operationGate, request, generation, acceptedSurfaceRequest, candidate.Locator).ConfigureAwait(false);
+            acceptedSurfaceRequest = null;
+            request = null;
+            if (failure == null) { return; }
+            generation = startedGeneration;
+            observation = startedObservation;
+            temporaryFailure = failure;
         }
-        long? appliedGeneration;
-        try { appliedGeneration = await ApplyPlayerForNextPlaybackAsync(request, generation).ConfigureAwait(false); }
-        finally { PostPlayerSurfaceRequest(acceptedSurfaceRequest); }
-        acceptedSurfaceRequest = null;
-        request = null;
-        if (!appliedGeneration.HasValue) { return; }
-        long? startedGeneration = BeginPlaybackCore(bmsFile, appliedGeneration.Value, candidate.Locator);
-        if (!startedGeneration.HasValue) { return; }
-        generation = startedGeneration.Value;
-        if (index >= 0) { playbackQueue.SelectedIndex = index; }
-
-        PlaybackStartObservation observation = null;
+        else
+        {
+            long? appliedGeneration;
+            try { appliedGeneration = await ApplyPlayerForNextPlaybackAsync(request, generation).ConfigureAwait(false); }
+            finally { PostPlayerSurfaceRequest(acceptedSurfaceRequest); }
+            acceptedSurfaceRequest = null;
+            request = null;
+            if (!appliedGeneration.HasValue) { return; }
+            long? startedGeneration = BeginPlaybackCore(bmsFile, appliedGeneration.Value, candidate.Locator);
+            if (!startedGeneration.HasValue) { return; }
+            generation = startedGeneration.Value;
+            if (index >= 0) { playbackQueue.SelectedIndex = index; }
+        }
         try
         {
+            if (temporaryFailure != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(temporaryFailure).Throw(); }
             Task<bool> playStartTask = TryPlayStart(
                 generation,
                 bmsFile.Path,
@@ -1567,7 +1577,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             }
             return;
         }
-        catch (InvalidDataException value)
+        catch (Exception value) when (NextSongPreloadOwner.IsInputFailure(value))
         {
             if (IsPlaybackStartObservationCompleted(observation)
                 || (observation != null && !IsCurrentPlaybackObservation(observation)))
@@ -1591,8 +1601,8 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         NotifyPlaybackStarted(generation);
     }
 
-    /// <summary>パッケージ内の相対配置を保った一時素材で開始し、既存のReadyまたは外部開始境界と保持時間の後に所有物を回収して元の譜面名を復元します。残留は受付解放後に一度だけ通知します。</summary>
-    private async Task StartTemporarilyInstalledChart(
+    /// <summary>パッケージ内の相対配置を保った一時素材で開始し、既存のReadyまたは外部開始境界と保持時間の後に所有物を回収して元の譜面名を復元します。残留は受付解放後に一度だけ通知し、開始失敗と独立した回収失敗を呼出元の候補探索へ返します。</summary>
+    private async Task<(long Generation, PlaybackStartObservation Observation, Exception Failure)> StartTemporarilyInstalledChart(
         ChartFile playbackChart,
         ChartFile bmsFile,
         int index,
@@ -1605,6 +1615,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     {
         long generation = 0;
         Exception primaryFailure = null;
+        PlaybackStartObservation playbackStartObservation = null;
         var temporaryFiles = new temporarilyCopyFiles(wait: 2000);
         try
         {
@@ -1620,9 +1631,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                     appliedGeneration = await ApplyPlayerForNextPlaybackAsync(request, expectedGeneration).ConfigureAwait(false);
                 }
                 finally { PostPlayerSurfaceRequest(acceptedSurfaceRequest); }
-                if (!appliedGeneration.HasValue) { return; }
+                if (!appliedGeneration.HasValue) { return (generation, playbackStartObservation, primaryFailure); }
                 long? startedGeneration = BeginPlaybackCore(bmsFile, appliedGeneration.Value, locator);
-                if (!startedGeneration.HasValue) { return; }
+                if (!startedGeneration.HasValue) { return (generation, playbackStartObservation, primaryFailure); }
                 generation = startedGeneration.Value;
                 playbackQueue.SelectedIndex = index;
                 ChartPackage chartPackage = library.ChartPackagesPending
@@ -1634,7 +1645,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                         && !playbackDialogs.ConfirmTemporaryInstallPlayback())
                     {
                         await TryStopPlaybackForGeneration(generation, bmsFile).ConfigureAwait(false);
-                        return;
+                        return (generation, playbackStartObservation, primaryFailure);
                     }
                     chartPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(playbackChart)]);
                     chartPackage.delete_parent = false;
@@ -1645,7 +1656,6 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 bool directoryPackage = LongPathFileSystem.DirectoryExists(chartPackage.path);
                 string sourceRoot = directoryPackage ? chartPackage.path : Path.GetDirectoryName(originalPath);
                 Task<bool> playbackStartTask = null;
-                PlaybackStartObservation playbackStartObservation = null;
                 try
                 {
                     string temporaryPath = FindTemporaryPlaybackSourcePath(originalPath, sourceRoot, installDestination);
@@ -1687,7 +1697,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                                 allowPreload: false);
                             if (!await playbackStartTask.ConfigureAwait(false))
                             {
-                                return;
+                                return (generation, playbackStartObservation, primaryFailure);
                             }
                         }
                         catch (OperationCanceledException)
@@ -1696,13 +1706,12 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                             {
                                 TryClearPlaybackForStartObservation(playbackStartObservation);
                             }
-                            return;
+                            return (generation, playbackStartObservation, primaryFailure);
                         }
                         catch (Exception ex)
                         {
                             primaryFailure = ex;
-                            StopAfterPlaybackStartFailure(playbackStartObservation, ex);
-                            return;
+
                         }
                     }
                 }
@@ -1723,14 +1732,20 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                         catch (Exception restoreFailure) when (primaryFailure != null)
                         {
                             ReportTemporaryPlaybackCleanupFailure(restoreFailure, "restore", workingPath, originalPath);
+                            primaryFailure = new AggregateException(primaryFailure, restoreFailure);
                         }
                     }
                 }
-                if (playbackStartTask != null)
+                if (primaryFailure != null && temporaryFiles.CleanupFailure is Exception cleanupFailure)
+                {
+                    primaryFailure = new AggregateException(primaryFailure, cleanupFailure);
+                }
+                if (playbackStartTask != null && primaryFailure == null)
                 {
                     NotifyPlaybackStarted(generation);
                 }
             }
+            return (generation, playbackStartObservation, primaryFailure);
         }
         catch
         {

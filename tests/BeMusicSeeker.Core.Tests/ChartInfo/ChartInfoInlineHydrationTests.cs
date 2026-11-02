@@ -17,6 +17,28 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartInfoInlineHydrationTests
 {
+    /// <summary>実BMSON基本値から詳細を生成し、互換IDと共通鍵数を区別したままレベル・難易度・digestを投影します。</summary>
+    [TestMethod]
+    [DataRow("keyboard-24k", 24, 25)]
+    [DataRow("keyboard-24k-double", 48, 50)]
+    [DataRow("beat-7k", 7, 7)]
+    [DataRow("popn-9k", 9, 9)]
+    public void InlineProjection_BmsonPreservesCommonMode(string mode, int commonMode, int detailMode)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes("{\"info\":{\"mode_hint\":\"" + mode + "\",\"level\":12,\"init_bpm\":120},\"sound_channels\":[{\"name\":\"tone\",\"notes\":[{\"x\":1,\"y\":0}]}]}");
+        ChartFileSnapshot snapshot = ChartFileContentReader.CreateSnapshot(@"C:\test\mode.bmson", bytes, DateTime.UnixEpoch);
+        ChartFile basic = BmsonChartFileParser.ParseSnapshot(snapshot);
+        ChartDetails details = ChartInfoParser.ParseBytesDetailed(bytes, snapshot.Path, snapshot.Md5, snapshot.Sha256).Row;
+        Assert.AreEqual(commonMode, basic.Mode);
+        Assert.AreEqual(detailMode, details.mode);
+        ChartFile current = new ChartInfoStorageApplication(basic, snapshot.Md5, snapshot.Sha256, snapshot.LastWriteTimeUtc, details).CreateCurrentValue();
+        Assert.AreEqual(commonMode, current.Mode);
+        Assert.AreEqual(12, current.Level);
+        Assert.AreEqual(details.difficulty, current.Difficulty);
+        Assert.AreEqual(snapshot.Md5, current.Md5);
+        Assert.AreEqual(snapshot.Sha256, current.Sha256);
+    }
+
     private TestWorkspace? ownedWorkspace;
 
     /// <summary>ケース開始後だけ利用できる、可変ファイル領域の所有者です。</summary>
@@ -916,21 +938,25 @@ public sealed class ChartInfoInlineHydrationTests
     /// </summary>
     /// <remarks>実DBの現行保存行を解析serviceへ接続し、再利用判定と適用結果を観測する。ここでは新規commitを保証しない。</remarks>
     [TestMethod]
-    public void ChartInfoInlineBuildService_AppliesExistingCurrentRowWithoutParsing()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ChartInfoInlineBuildService_AppliesExistingCurrentRowWithoutParsing(bool bmson)
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
-            string chartPath = Path.Combine(tempRootPath, "already-current.bms");
+            string chartPath = Path.Combine(tempRootPath, bmson ? "already-current.bmson" : "already-current.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE current\r\n", Encoding.ASCII);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            ChartFile file = ChartTestValues.Empty() with
+            ChartFile file = ChartTestValues.Empty(bmson ? ChartFileKind.Bmson : ChartFileKind.Bms) with
             {
-                Path = chartPath
+                Path = chartPath,
+                Mode = bmson ? 24 : 7
             };
             file = file with { Md5 = snapshot.Md5 };
             file = file with { Sha256 = snapshot.Sha256 };
             var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             BeMusicSeeker.Models.ChartDetails expected = CreateChartInfoRow(file.Sha256, file.Md5, parserVersion: BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+            expected = expected with { mode = bmson ? 25 : 7 };
             gateway.UpsertChartInfos([expected]);
             var service = new ChartInfoInlineBuildService(new ChartInfoBuildService(), parserDegree: 1);
             var currentFailures = new Dictionary<string, BeMusicSeeker.Models.ChartParseFailure>(StringComparer.OrdinalIgnoreCase)
@@ -957,6 +983,7 @@ public sealed class ChartInfoInlineHydrationTests
             Assert.AreEqual(1, result.AppliedRows.Count);
             Assert.AreEqual(expected.sha256, result.AppliedRows[0].sha256);
             Assert.AreEqual(expected.md5, result.AppliedRows[0].md5);
+            Assert.AreEqual(bmson ? 24 : 7, result.StorageApplications.Single().CreateCurrentValue().Mode);
         });
     }
 

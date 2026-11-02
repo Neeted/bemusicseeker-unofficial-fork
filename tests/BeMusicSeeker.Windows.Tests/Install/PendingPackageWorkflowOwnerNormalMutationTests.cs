@@ -14,6 +14,71 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class PendingPackageWorkflowOwnerTests
 {
+    /// <summary>UTF-8 BOM先頭ノートを通常取込みで保留し、ゼロノート無効化後も同じ項目を再選択して実導入できます。原bytes・音源・install行を保持します。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task RenamePendingZeroNoteChartsAsync_BomChartSurvivesImportAndCanBeInstalled()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string source = Directory.CreateDirectory(Path.Combine(workspace.RootDirectory, "source")).FullName;
+        string destination = Directory.CreateDirectory(Path.Combine(workspace.RootDirectory, "installed")).FullName;
+        string dbPath = Path.Combine(workspace.RootDirectory, "song.db");
+        string path = Path.Combine(source, "first-note.bms");
+        byte[] bytes = [.. Encoding.UTF8.GetPreamble(), .. Encoding.ASCII.GetBytes("#00111:01010101\n#BPM 120\n#TITLE bom playable\n#ARTIST fixture\n#WAV01 audio.wav\n")];
+        byte[] audio = ScheduledAudioFixture.BuildFloatWave(48000, Enumerable.Repeat(0.125f, 960).ToArray());
+        File.WriteAllBytes(path, bytes);
+        File.WriteAllBytes(Path.Combine(source, "audio.wav"), audio);
+        var databaseScope = new ApplicationDatabaseScope();
+        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, dbPath, db =>
+        {
+            db.CreateTable<LR2SongDB.song>();
+            db.CreateTable<LR2SongDB.folder>();
+            db.CreateTable<LR2SongDBExtended.maintenance>();
+            db.CreateTable<LR2SongDBExtended.bmson_song>();
+            db.CreateTable<LR2SongDBExtended.install>();
+        });
+        var library = new TestBmsLibrary(databaseScope, dbPath, null, null,
+            new InstallServiceComponentTestSupport.RealFileMutationService(), new RecordingLibraryDialogService(),
+            new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+            () => new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = false,
+                KeepInstallablePackagesPending = true,
+                BMSInstallDir = destination,
+                FolderNameFormat = "%TITLE%"
+            }, settings: TestBmsFactory.CreateRootSettings([destination]))
+        { BmsCharts = [], BmsonCharts = [], ChartPackagesPending = [], ChartPackagesInstalled = [] };
+        try
+        {
+            await library.InstallChartPackagesAutoWithProgressAsync([source], CancellationToken.None,
+                new InstallServiceComponentTestSupport.RecordingPackageInstallProgressWriter());
+            ChartPackage package = library.ChartPackagesPending.Single();
+            PackageChartEntry entry = package.ChartEntries.Single();
+            string pendingPath = entry.Chart.Path;
+            PendingPackageWorkflowOwner owner = CreateOwner(() => library, [], new BmsLibraryPendingPackageStore(), AcceptedDialogs(),
+                chartFileOperations: library.OperationAdmission, playback: new NoOpChartMutationPlaybackPort());
+            await owner.RenamePendingZeroNoteChartsAsync();
+            Assert.AreSame(entry, library.ChartPackagesPending.Single().ChartEntries.Single());
+            CollectionAssert.AreEqual(bytes, File.ReadAllBytes(pendingPath));
+            CollectionAssert.AreEqual(audio, File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(pendingPath) ?? throw new InvalidOperationException(), "audio.wav")));
+            using (LR2SongDBExtended read = databaseScope.OpenSongReadOnly(dbPath))
+            { Assert.AreEqual(1, read.Table<LR2SongDBExtended.install>().Count()); }
+            ChartOperationTarget target = new(entry.Chart, null, ChartOperationSourceScope.PendingPackage, false, true, false,
+                ChartOperationCapabilities.RunResourceHealthCheck, entry);
+            Assert.AreSame(target, ChartPropertiesViewModel.ResolveTarget([target]));
+            entry.ApplyInstallDestinationMetadata(destination, "Installed", "Artist");
+            library.InstallPendingPackagesToEstimatedDestinations([package]);
+            ChartFile installed = library.BmsCharts.Single();
+            Assert.AreEqual(".bms", Path.GetExtension(installed.Path));
+            CollectionAssert.AreEqual(bytes, File.ReadAllBytes(installed.Path));
+            CollectionAssert.AreEqual(audio, File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(installed.Path) ?? throw new InvalidOperationException(), "audio.wav")));
+            Assert.IsFalse(BmsChartFileParser.IsZeroNote(installed.Path));
+            await ScheduledAudioFixture.AssertInstalledChartAudioAsync(installed.Path, [96000, 120000, 144000, 168000], writeWave: false);
+            Assert.AreEqual(0, library.ChartPackagesPending.Count);
+        }
+        finally { library.RequestShutdown("bom-import-install"); }
+    }
+
     /// <summary>確認済みの全所持folderと単体だけを実owner・storeで削除し、完全発見後に不正子譜面を追加したfolder・復元部分一覧・部分管理列から対象外の譜面・資源・install行を失う誤りを検出します。</summary>
     /// <remarks>実解析結果から対象を分類し、本番storeを介した物理変更・SQLite・公開集合への反映を観測する。衝突先や対象外のbytesは実FSで保全を確認する。</remarks>
     [TestMethod]
@@ -121,12 +186,13 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             ChartFile WriteBms(string name, bool notes)
             {
                 string path = Path.Combine(pendingRoot, name);
-                File.WriteAllText(path, "#PLAYER 1\r\n#TITLE " + name + "\r\n#BPM 120\r\n" + (notes ? "#00111:01\r\n" : string.Empty), Encoding.ASCII);
+                File.WriteAllText(path, (notes ? "#00111:01010101\r\n" : string.Empty) + "#PLAYER 1\r\n#TITLE " + name + "\r\n#BPM 120\r\n", new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
                 return BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path));
             }
             ChartFile zeroBms = WriteBms("zero.bms", false);
             ChartFile zeroPms = WriteBms("zero.pms", false);
             ChartFile nonzero = WriteBms("nonzero.bms", true);
+            ChartFile nonzeroPms = WriteBms("nonzero.pms", true);
             ChartFile disabled = WriteBms("disabled.bmx", false);
             string bmsonPath = Path.Combine(pendingRoot, "zero.bmson");
             File.WriteAllText(bmsonPath, "{\"version\":\"1.0.0\",\"info\":{\"title\":\"zero BMSON\",\"init_bpm\":120},\"sound_channels\":[]}");
@@ -137,10 +203,10 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             Directory.CreateDirectory(directoryCollision);
             string directoryMarker = Path.Combine(directoryCollision, "kept.txt");
             File.WriteAllBytes(directoryMarker, [5, 1]);
-            var package = ChartPackage.FromChartEntries(new[] { zeroBms, zeroPms, nonzero, disabled, bmson }.Select(PackageChartEntry.FromChart));
+            var package = ChartPackage.FromChartEntries(new[] { zeroBms, zeroPms, nonzero, nonzeroPms, disabled, bmson }.Select(PackageChartEntry.FromChart));
             package.path = pendingRoot;
             package.delete_parent = false;
-            string[] unchanged = [nonzero.Path, disabled.Path, bmsonPath, collision, directoryMarker];
+            string[] unchanged = [nonzero.Path, nonzeroPms.Path, disabled.Path, bmsonPath, collision, directoryMarker];
             var bytes = unchanged.Concat(new[] { zeroBms.Path, zeroPms.Path }).ToDictionary(path => path, File.ReadAllBytes);
             library = CreateNormalPendingLibrary(databaseScope, root, [package], []);
             PendingPackageWorkflowOwner owner = CreateOwner(() => library, [], new BmsLibraryPendingPackageStore(), AcceptedDialogs(),
@@ -154,7 +220,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             CollectionAssert.AreEqual(bytes[zeroPms.Path], File.ReadAllBytes(Path.Combine(pendingRoot, "zero(1).pmx")));
             foreach (string path in unchanged) { CollectionAssert.AreEqual(bytes[path], File.ReadAllBytes(path)); }
             Assert.IsTrue(Directory.Exists(directoryCollision));
-            string[] expected = [nonzero.Path, disabled.Path, bmsonPath];
+            string[] expected = [nonzero.Path, nonzeroPms.Path, disabled.Path, bmsonPath];
             CollectionAssert.AreEquivalent(expected, library.ChartPackagesPending.SelectMany(item => item.ChartEntries).Select(entry => entry.Chart.Path).ToArray());
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(root, "song.db")).OpenSongDbReadOnly();
             Assert.AreEqual(package.path, verify.Table<LR2SongDBExtended.install>().Single().path);

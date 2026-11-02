@@ -41,14 +41,24 @@ public class Resources
         return filePath;
     }
 
+    /// <summary>既知拡張子はwav・ogg・mp3の順、省略名は元の実体を先に試してから同じ音声候補を返します。</summary>
     public static IEnumerable<string> NormalizeExtension(string filePath)
     {
-        if (string.IsNullOrWhiteSpace(filePath) || filePath.Length < 4)
+        if (string.IsNullOrWhiteSpace(filePath))
         {
             yield return filePath;
             yield break;
         }
         string extension = Path.GetExtension(filePath);
+        if (extension.Length == 0)
+        {
+            yield return filePath;
+            foreach (string audioFileExtension in AudioFileExtensions)
+            {
+                yield return filePath + audioFileExtension;
+            }
+            yield break;
+        }
         string filePathWoExt = filePath.Substring(0, filePath.Length - extension.Length);
         var array = new ReadOnlyCollection<string>[3] { AudioFileExtensions, ImageFileExtensions, VideoFileExtensions };
         for (int i = 0; i < array.Length; i++)

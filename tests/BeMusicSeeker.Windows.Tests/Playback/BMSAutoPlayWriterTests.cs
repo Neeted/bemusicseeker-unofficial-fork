@@ -215,14 +215,14 @@ public sealed class BMSAutoPlayWriterTests
             string path = Path.Combine(chartDirectory, name + (bmson ? ".bmson" : ".bms"));
             File.WriteAllText(path, bmson
                 ? "{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"name\":\"" + resource + "\",\"notes\":[{\"y\":0}]}]}"
-                : "#BPM 120\n#WAV01 " + resource + "\n#00011:01\n");
+                : "#BPM 120\n#WAV01\t" + resource + "\n#00011:01\n");
             using var writer = new BMSAutoPlayWriter(PlaybackChart.Load(path));
             writer.LoadResources();
             Assert.AreEqual(0, writer.OmittedAudioSources.Count);
             writer.Write(EncoderType.WAVE, 0.4f, directory.File(name + "-out"), BMSAutoPlayWriter.Normalization.NONE);
             return AudioTestWaveFileReader.Read(File.ReadAllBytes(directory.File(name + "-out.wav")));
         }
-        AssertSamePcm(Render("direct", "direct.wav"), Render("fallback", bmson ? "tone.wav" : "../../tone.wav"));
+        AssertSamePcm(Render("direct", "direct.wav"), Render("fallback", bmson ? "tone" : "../../tone.wav"));
     }
 
     /// <summary>BMS・bmsonとも同名directoryを出力ベース名として扱い、既存完成fileがある場合は親directory直下で採番し、入力と既存file・directoryを保全する。</summary>

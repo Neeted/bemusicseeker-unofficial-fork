@@ -10,6 +10,53 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartResourceSnapshotTests
 {
+    /// <summary>整数62の表記差と大小IDの逆配置で、WAV/BMPの使用・未使用・未定義を同じ規則で区別します。</summary>
+    [TestMethod]
+    [DataRow("62")]
+    [DataRow("+62")]
+    [DataRow("062")]
+    [DataRow("  +62  ")]
+    public void ParseSnapshot_IntegerBase62KeepsResourceIdsDistinct(string numberBase)
+    {
+        foreach (string source in new[] { "WAV", "BMP" })
+        {
+            foreach (string used in new[] { "AA", "aa" })
+            {
+                string other = used == "AA" ? "aa" : "AA";
+                string extension = source == "WAV" ? "wav" : "png";
+                string channel = source == "WAV" ? "11" : "04";
+                string body = $"#BASE {numberBase}\n#{source}AA upper.{extension}\n#{source}aa lower.{extension}\n#001{channel}:{used}ZZ\n";
+                var details = new ChartResourceParseDetails();
+                ChartFile chart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.CreateSnapshot(@"C:\test\base.bms", Encoding.ASCII.GetBytes(body), DateTime.UnixEpoch), details: details);
+                Assert.AreEqual(used, details.Definitions.Single(d => d.Reference.IsUsed).Id);
+                Assert.AreEqual(other, details.Definitions.Single(d => !d.Reference.IsUsed).Id);
+                Assert.AreEqual("ZZ", details.UndefinedReferences.Single().Id);
+                Assert.AreEqual(1, chart.Resources.Count(r => r.IsUsed));
+            }
+        }
+    }
+
+    /// <summary>BMS/PMSの先頭UTF-8 BOMだけを除き、可視ノート・全分岐とBGMのみの従来判定を保持します。</summary>
+    [TestMethod]
+    [DataRow(".bms", false)]
+    [DataRow(".bms", true)]
+    [DataRow(".pms", false)]
+    [DataRow(".pms", true)]
+    public void IsZeroNote_RecognizesFirstUtf8BomWithoutRemovingBodyCharacters(string extension, bool bom)
+    {
+        string path = Path.Combine(CaseWorkspace.RootDirectory, "zero" + extension);
+        foreach ((string body, bool zero) in new[] {
+            ("#00111:01010101\n#BPM 120", false),
+            ("#BPM 120\n#00111:01", false),
+            ("#RANDOM 2\n#IF 2\n#00111:01\n#ENDIF", false),
+            ("#WAV01 audio.wav", true), ("#00101:01", true),
+            ("#TITLE text\n\uFEFF#00111:01", true), ("#00111:0000", true) })
+        {
+            File.WriteAllBytes(path, [.. bom ? Encoding.UTF8.GetPreamble() : [], .. Encoding.UTF8.GetBytes(body)]);
+            Assert.AreEqual(zero, BmsChartFileParser.IsZeroNote(path), body);
+        }
+    }
+
     private TestWorkspace? ownedWorkspace;
 
     /// <summary>ケース開始後だけ利用できる、可変ファイル領域の所有者です。</summary>
@@ -126,7 +173,7 @@ public sealed class ChartResourceSnapshotTests
         Assert.AreEqual("sha256", parsed.Sha256);
     }
 
-    /// <summary>任意画像は先頭非空を分類後も採用し、後続は原文・位置・分類・採用状態を診断だけへ渡します。不正WAV構文も未定義IDへ重複表示しません。</summary>
+    /// <summary>任意画像は先頭非空を分類後も採用し、後続は原文・位置・分類を診断だけへ渡します。不正WAV構文も未定義IDへ重複表示しません。</summary>
     [TestMethod]
     public void ParseSnapshot_KeepsAllOptionalDefinitionsOnlyInDiagnosticLifetime()
     {
@@ -141,7 +188,6 @@ public sealed class ChartResourceSnapshotTests
         Assert.AreEqual(7, details.Definitions.Count);
         Assert.AreEqual(ChartResourcePathNormalizationStatus.MalformedSyntax, details.Definitions.Single(d => d.Id == "01").Reference.Status);
         Assert.AreEqual(0, details.UndefinedReferences.Count);
-        CollectionAssert.AreEqual(new[] { false, true, false }, details.Definitions.Where(d => d.Source == "#STAGEFILE").Select(d => d.IsAdopted).ToArray());
         Assert.AreEqual(4, details.Definitions.Single(d => d.Reference.RawPath == "later.png").LineNumber);
     }
 
