@@ -20,7 +20,7 @@ Windowsの日常検証には外部プレイヤーの実起動2件、更新Gatewa
 
 通常コミット・dev統合は `verify`、整形を省く反復は `dev`、公開候補は `full` を使います。旧単一TestsとPowerShell検証runnerは廃止し、読み取り専用TestDataだけを現位置へ保持します。
 
-`full` はReleaseのCore・Scenariosを各1回、Windowsを重複のない3分類で実行します。必須10IDは `SC-01, SC-02, SC-09, SC-10A, SC-10B, SC-11, SC-13, SC-14, SC-ExistingData, SC-CurrentUpdate` です。追加DesktopとSC-05fは段階1の対象外で、[保留シナリオ](../../tests/Deferred/Scenarios/README.md)を成功・skipとして数えません。正式Fullの `--filter` は準備前に拒否し、局所検証は対象projectを直接実行します。
+`full` はReleaseのCore・Scenariosを各1回、Windowsを重複のない3分類で実行します。必須11IDは `SC-01, SC-02, SC-05, SC-09, SC-10A, SC-10B, SC-11, SC-13, SC-14, SC-ExistingData, SC-CurrentUpdate` です。明示導入先消失後の再読込・再選択を `SC-05` で確認します。追加Desktopは[再開計画](../../devdocs/plan/test-platform-migration.md)の対象で、標準入口へ含めません。正式Fullの `--filter` は準備前に拒否し、局所検証は対象projectを直接実行します。
 
 Fullは全C#の整形・build後、固定Legacy、Current、Nextを準備してtest段階へ進みます。NextはCurrentの実バイナリ版の末尾をcheckedで1増やした実行限定の版です。通常公開版とAssemblyVersionは変えず、publishの `-ApplicationVersion` とvariant別ArtifactRootで分離します。fixtureの成功を実publish・Full成功の代わりにはしません。
 

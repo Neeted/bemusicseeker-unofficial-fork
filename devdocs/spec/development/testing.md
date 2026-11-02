@@ -144,7 +144,7 @@ LR2同期・フォルダ改名・重複統合の実DB/FS、rollback、receipt、
 
 ### テスト区分
 
-実行集合はmoduleとprofileで決めます。Core/Windowsの通常ケース、ScenariosのDaily/Full、Compatibility/Performanceの明示 `Suite.*` を区別します。旧 `ProcessIntegration` 等の属性が残っていても新入口の除外規則には使いません。追加DesktopとSC-05fは[保留資料](../../../tests/Deferred/Scenarios/README.md)に従い、段階1の必須集合へ含めません。
+実行集合はmoduleとprofileで決めます。Core/Windowsの通常ケース、ScenariosのDaily/Full、Compatibility/Performanceの明示 `Suite.*` を区別します。旧 `ProcessIntegration` 等の属性が残っていても新入口の除外規則には使いません。明示導入先消失後の再読込・再選択はScenariosのFullで確認します。追加Desktopは[再開計画](../../plan/test-platform-migration.md)に従い、標準入口の必須集合へ含めません。
 
 環境不足を `Ignore` / `Inconclusive` で飛ばさず失敗にし、未実施を成功として扱いません。[BMS譜面位置の比較ツール](chart-parse-audit.md)は簡易開発用です。変更確認は対象RunnerのReleaseビルドと差分点検に限定し、恒常toolテストは設けません。
 
@@ -245,7 +245,7 @@ constructor-only harnessは `PrepareConstructorOnlyShell` で既存のshell acti
 
 ### Fullの処理順と期限
 
-全体整形・Release build後に固定Legacy ZIP、Current、Nextを準備し、Core・Scenariosを各一回、Windowsを重複のない3分類で実行します。Desktopと明示環境/性能suiteは含めません。必須10IDは `SC-01, SC-02, SC-09, SC-10A, SC-10B, SC-11, SC-13, SC-14, SC-ExistingData, SC-CurrentUpdate` です。同じIDの複数DataRowを許し、全行Passedを要求します。
+全体整形・Release build後に固定Legacy ZIP、Current、Nextを準備し、Core・Scenariosを各一回、Windowsを重複のない3分類で実行します。Desktopと明示環境/性能suiteは含めません。必須11IDは `SC-01, SC-02, SC-05, SC-09, SC-10A, SC-10B, SC-11, SC-13, SC-14, SC-ExistingData, SC-CurrentUpdate` です。同じIDの複数DataRowを許し、全行Passedを要求します。
 
 | 段階 | 制限時間 |
 | --- | ---: |

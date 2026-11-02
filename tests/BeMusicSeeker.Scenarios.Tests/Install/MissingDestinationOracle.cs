@@ -12,7 +12,7 @@ internal static class MissingDestinationOracle
     {
         string physical = renamed ? fixture.Renamed : fixture.Original;
         string saved = reloaded ? fixture.Renamed : fixture.Original;
-        var expectedFiles = fixture.ExistingFiles.Select(file => (Path.Combine(physical, file.Name), file))
+        (string, MissingDestinationFile file)[] expectedFiles = fixture.ExistingFiles.Select(file => (Path.Combine(physical, file.Name), file))
             .Concat(fixture.SentinelFiles.Select(file => (Path.Combine(fixture.Library, "Sentinel", file.Name), file)))
             .Concat(installed ? fixture.DifferenceFiles.Select(file => (Path.Combine(fixture.Renamed, file.Name), file)) : []).ToArray();
         CollectionAssert.AreEquivalent(expectedFiles.Select(pair => pair.Item1).ToArray(), Directory.GetFiles(fixture.Library, "*", SearchOption.AllDirectories));

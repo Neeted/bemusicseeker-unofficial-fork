@@ -21,7 +21,7 @@ public sealed class MissingDestinationScenarioTests
         try
         {
             await using var fixture = new MissingDestinationFixture(workspace);
-            var deadline = ProcessDeadline.FromTimeout(TimeSpan.FromMinutes(3));
+            var deadline = ProcessDeadline.FromSuiteEnvironment(TimeSpan.FromMinutes(3));
             await RunAsync(fixture, workspace, deadline, async app =>
             {
                 AssertInitialization(await app.WaitForStartupAsync(deadline));
