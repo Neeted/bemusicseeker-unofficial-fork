@@ -1,0 +1,962 @@
+using System.IO.Compression;
+using System.Runtime.ExceptionServices;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Processes;
+
+namespace BeMusicSeeker.Tests;
+
+[TestClass]
+[TestCategory("ProcessIntegration")]
+public sealed class ReleaseScriptVersionSourceTests
+{
+    private const string Version = "9.9.9.9";
+    private const string Tag = "v9.9.9.9";
+
+    /// <summary>MSTestが各ケースへ渡す取消と診断の文脈です。</summary>
+    public required TestContext TestContext { get; set; }
+
+    /// <summary>
+    /// mainより複数commit先でも通常版の正本propsからdraftと資産manifestを生成し、生成物以外の変更のcommitやremote mainの先行更新を検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトへ渡す。gh/文書生成は局所fixtureに差し替える。</remarks>
+    [TestMethod]
+    public async Task CreateDraftUsesCanonicalVersionAndCommitsOnlyGeneratedFilesWithMultipleAheadCommits()
+    {
+        await RunCaseAsync(true, false, async fixture =>
+        {
+            await fixture.AddCommitAsync("source-a.txt", "first ahead commit");
+            await fixture.AddCommitAsync("source-b.txt", "second ahead commit");
+            string aheadHeadBefore = await fixture.HeadCommitAsync();
+            string remoteMainBefore = await fixture.RemoteMainCommitAsync();
+
+            ProcessResult result = await fixture.RunReleaseAsync("-CreateDraft");
+
+            AssertSuccess(result);
+            Assert.AreEqual(remoteMainBefore, await fixture.RemoteMainCommitAsync(), result.CombinedOutput);
+            Assert.AreEqual(await fixture.HeadCommitAsync(), await fixture.LocalTagCommitAsync(Tag));
+
+            string[] generatedDiff = await fixture.DiffNamesAsync(aheadHeadBefore);
+            CollectionAssert.AreEquivalent(
+                new[] { "docs/index.html", "docs/index.ja.html", "update.json" },
+                generatedDiff,
+                result.CombinedOutput);
+            Assert.AreEqual(0, Directory.GetFiles(fixture.DistRoot, "update-v*.json").Length);
+            Assert.IsFalse(File.Exists(Path.Combine(fixture.Root, "version.txt")));
+
+            using var manifest = JsonDocument.Parse(File.ReadAllText(fixture.UpdateManifestPath));
+            Assert.AreEqual(Version, manifest.RootElement.GetProperty("version").GetString());
+            Assert.AreEqual(Tag, manifest.RootElement.GetProperty("releaseTag").GetString());
+            JsonElement assets = manifest.RootElement.GetProperty("assets");
+            Assert.AreEqual(2, assets.GetArrayLength());
+
+            AssertManifestAsset(assets[0], fixture.NormalPackagePath, "app", false);
+            AssertManifestAsset(assets[1], fixture.MetadataPackagePath, "app-with-metadata", true);
+        });
+    }
+
+    /// <summary>
+    /// 互換versionファイルがない通常packageだけの入力でdraftを作成し、退役した版取得経路を必須にする誤りを検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
+    [TestMethod]
+    public async Task CreateDraftDoesNotRequireCompatibilityVersionFile()
+    {
+        await RunCaseAsync(false, false, async fixture =>
+        {
+            ProcessResult result = await fixture.RunReleaseAsync("-CreateDraft");
+
+            AssertSuccess(result);
+            Assert.IsTrue(File.Exists(fixture.UpdateManifestPath), result.CombinedOutput);
+            Assert.AreEqual(await fixture.HeadCommitAsync(), await fixture.LocalTagCommitAsync(Tag));
+        });
+    }
+
+    /// <summary>
+    /// 互換versionファイルが残る入力でもその内容を保持し、新版の正本値で旧互換データを書き換える誤りを検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
+    [TestMethod]
+    public async Task CreateDraftLeavesCompatibilityVersionFileUnchanged()
+    {
+        await RunCaseAsync(false, true, async fixture =>
+        {
+            string compatibilityPath = Path.Combine(fixture.Root, "version.txt");
+            string before = File.ReadAllText(compatibilityPath);
+
+            ProcessResult result = await fixture.RunReleaseAsync("-CreateDraft");
+
+            AssertSuccess(result);
+            Assert.AreEqual(before, File.ReadAllText(compatibilityPath));
+        });
+    }
+
+    /// <summary>
+    /// 既存manifestが同じreleaseなら公開時刻を保持し、別releaseなら更新することで、再実行による時刻の改変と別版の時刻流用を検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task CreateDraftPublishedAtIsReusedOnlyForTheSameRelease(bool sameRelease)
+    {
+        await RunCaseAsync(false, false, async fixture =>
+        {
+            const string previousPublishedAt = "2000-01-02T03:04:05Z";
+            await fixture.SeedExistingManifestAsync(
+                sameRelease ? Version : "1.0.0.0",
+                sameRelease ? Tag : "v1.0.0.0",
+                previousPublishedAt);
+
+            ProcessResult result = await fixture.RunReleaseAsync("-CreateDraft");
+
+            AssertSuccess(result);
+            using var manifest = JsonDocument.Parse(File.ReadAllText(fixture.UpdateManifestPath));
+            string? publishedAt = manifest.RootElement.GetProperty("publishedAt").GetString();
+            if (sameRelease)
+            {
+                Assert.AreEqual(previousPublishedAt, publishedAt);
+            }
+            else
+            {
+                Assert.AreNotEqual(previousPublishedAt, publishedAt);
+            }
+        });
+    }
+
+    /// <summary>
+    /// 通常app・metadata packageがともにない入力はdraft生成を拒否し、tagや生成commitを残さない。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトへ渡す。gh/文書生成は局所fixtureに差し替える。</remarks>
+    [TestMethod]
+    public async Task CreateDraftRequiresNormalPackage()
+    {
+        await RunCaseAsync(false, false, async fixture =>
+        {
+            File.Delete(fixture.NormalPackagePath);
+
+            ProcessResult result = await fixture.RunReleaseAsync("-CreateDraft");
+
+            AssertFailure(result);
+            Assert.IsNull(await fixture.LocalTagCommitAsync(Tag));
+            Assert.AreEqual(fixture.InitialHead, await fixture.HeadCommitAsync());
+        });
+    }
+
+    /// <summary>
+    /// draft公開成功時の公開状態・remote mainのHEAD一致と編集引数を確認し、本文や題名を再指定する誤りを検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトへ渡す。gh/文書生成は局所fixtureに差し替える。</remarks>
+    [TestMethod]
+    public async Task PublishDraftPublishesReleaseUpdatesRemoteMainAndUsesOnlyDraftEditArgument()
+    {
+        await RunCaseAsync(true, true, async fixture =>
+        {
+            AssertSuccess(await fixture.RunReleaseAsync("-CreateDraft"));
+            string releaseHead = await fixture.HeadCommitAsync();
+            string remoteMainBefore = await fixture.RemoteMainCommitAsync();
+            int publishLogStart = fixture.GhLogLines().Count;
+
+            ProcessResult result = await fixture.RunReleaseAsync("-PublishDraft");
+
+            AssertSuccess(result);
+            Assert.AreNotEqual(remoteMainBefore, await fixture.RemoteMainCommitAsync());
+            Assert.AreEqual(releaseHead, await fixture.RemoteMainCommitAsync());
+            Assert.AreEqual("false", File.ReadAllText(fixture.GhStatePath).Trim());
+            string[] publishCommands = fixture.GhLogLines().Skip(publishLogStart).ToArray();
+            string[] releaseEdits = publishCommands
+                .Where(line => line.StartsWith("release edit ", StringComparison.Ordinal))
+                .ToArray();
+            CollectionAssert.AreEqual(new[] { $"release edit {Tag} --draft=false" }, releaseEdits);
+            Assert.IsFalse(releaseEdits[0].Contains("--notes-file", StringComparison.Ordinal));
+            Assert.IsFalse(releaseEdits[0].Contains("--notes", StringComparison.Ordinal));
+            Assert.IsFalse(releaseEdits[0].Contains("--title", StringComparison.Ordinal));
+        });
+    }
+
+    /// <summary>
+    /// tag・HEAD・ZIPの内容・manifest・remote資産が一致しない各入力で公開とmain更新を止め、未確認資産を正式配信へ進める誤りを検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
+    [TestMethod]
+    [DataRow("head")]
+    [DataRow("remote-tag")]
+    [DataRow("zip")]
+    [DataRow("asset-size")]
+    [DataRow("asset-set")]
+    public async Task PublishDraftRejectsTagHeadZipManifestOrRemoteAssetMismatchWithoutPushingMain(string mismatch)
+    {
+        await RunCaseAsync(true, true, async fixture =>
+        {
+            AssertSuccess(await fixture.RunReleaseAsync("-CreateDraft"));
+            string remoteMainBefore = await fixture.RemoteMainCommitAsync();
+
+            switch (mismatch)
+            {
+                case "head":
+                    await fixture.AddCommitAsync("after-release.txt", "head moved");
+                    break;
+                case "remote-tag":
+                    await fixture.SetRemoteTagCommitAsync(fixture.InitialHead);
+                    break;
+                case "zip":
+                    long packageLength = new FileInfo(fixture.NormalPackagePath).Length;
+                    string[] packageEntries = fixture.ZipEntryNames(fixture.NormalPackagePath);
+                    string packageHash = Convert.ToHexString(
+                        SHA256.HashData(File.ReadAllBytes(fixture.NormalPackagePath)));
+                    fixture.RewriteNormalPackageContent();
+                    Assert.AreEqual(packageLength, new FileInfo(fixture.NormalPackagePath).Length);
+                    CollectionAssert.AreEqual(packageEntries, fixture.ZipEntryNames(fixture.NormalPackagePath));
+                    Assert.AreNotEqual(
+                        packageHash,
+                        Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(fixture.NormalPackagePath))));
+                    break;
+                case "asset-size":
+                    fixture.WriteRemoteAssetsJson(JsonSerializer.Serialize(new[]
+                    {
+                        new
+                        {
+                            name = Path.GetFileName(fixture.NormalPackagePath),
+                            size = new FileInfo(fixture.NormalPackagePath).Length + 1
+                        },
+                        new
+                        {
+                            name = Path.GetFileName(fixture.MetadataPackagePath),
+                            size = new FileInfo(fixture.MetadataPackagePath).Length
+                        }
+                    }));
+                    break;
+                case "asset-set":
+                    fixture.WriteRemoteAssetsJson("[]");
+                    break;
+                default:
+                    Assert.Fail("Unknown mismatch: " + mismatch);
+                    break;
+            }
+
+            ProcessResult result = await fixture.RunReleaseAsync("-PublishDraft");
+
+            Assert.AreNotEqual(0, result.ExitCode, result.CombinedOutput);
+            Assert.AreEqual(remoteMainBefore, await fixture.RemoteMainCommitAsync(), result.CombinedOutput);
+            Assert.IsFalse(fixture.GhLogLines().Any(line => line.Contains("--draft=false", StringComparison.Ordinal)));
+        });
+    }
+
+    /// <summary>
+    /// remote mainが独立に進んだ入力では資産公開前に拒否し、非祖先の履歴へ正式releaseを押し込む誤りを検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
+    [TestMethod]
+    public async Task PublishDraftRejectsNonAncestorRemoteMainBeforePublishingAssets()
+    {
+        await RunCaseAsync(false, false, async fixture =>
+        {
+            AssertSuccess(await fixture.RunReleaseAsync("-CreateDraft"));
+            string remoteMainBefore = await fixture.RemoteMainCommitAsync();
+            await fixture.AdvanceRemoteMainOnIndependentCloneAsync();
+            string advancedRemoteMain = await fixture.RemoteMainCommitAsync();
+
+            ProcessResult result = await fixture.RunReleaseAsync("-PublishDraft");
+
+            AssertFailure(result);
+            Assert.AreNotEqual(remoteMainBefore, await fixture.RemoteMainCommitAsync());
+            Assert.AreEqual(advancedRemoteMain, await fixture.RemoteMainCommitAsync());
+            Assert.IsFalse(fixture.GhLogLines().Any(line => line.Contains("--draft=false", StringComparison.Ordinal)));
+        });
+    }
+
+    /// <summary>
+    /// 資産公開が失敗したときremote mainを保持し、配信に失敗した版だけを正式履歴へ進める誤りを検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
+    [TestMethod]
+    public async Task PublishDraftDoesNotPushMainWhenReleasePublicationFails()
+    {
+        await RunCaseAsync(false, false, async fixture =>
+        {
+            AssertSuccess(await fixture.RunReleaseAsync("-CreateDraft"));
+            string remoteMainBefore = await fixture.RemoteMainCommitAsync();
+            fixture.FailReleasePublication = true;
+
+            ProcessResult result = await fixture.RunReleaseAsync("-PublishDraft");
+
+            Assert.AreNotEqual(0, result.ExitCode, result.CombinedOutput);
+            Assert.AreEqual(remoteMainBefore, await fixture.RemoteMainCommitAsync());
+        });
+    }
+
+    /// <summary>
+    /// 既に公開済みの同一releaseを再実行してmainを収束させ、公開操作を重複させたり完了済み状態を拒否したりする誤りを検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
+    [TestMethod]
+    public async Task PublishDraftAllowsRerunAfterReleaseIsAlreadyPublished()
+    {
+        await RunCaseAsync(false, true, async fixture =>
+        {
+            AssertSuccess(await fixture.RunReleaseAsync("-CreateDraft"));
+            AssertSuccess(await fixture.RunReleaseAsync("-PublishDraft"));
+            int publishCallsBefore = fixture.GhLogLines().Count(line => line.Contains("--draft=false", StringComparison.Ordinal));
+
+            ProcessResult result = await fixture.RunReleaseAsync("-PublishDraft");
+
+            AssertSuccess(result);
+            Assert.AreEqual(publishCallsBefore, fixture.GhLogLines().Count(line => line.Contains("--draft=false", StringComparison.Ordinal)));
+            Assert.AreEqual(await fixture.HeadCommitAsync(), await fixture.RemoteMainCommitAsync());
+        });
+    }
+
+    /// <summary>
+    /// dev HEADからpreview draftを作成してtagを接続し、正式manifest・互換version・mainの内容をpreview版で変更する誤りを検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
+    [TestMethod]
+    public async Task PreviewDraftTagsDevHeadAndLeavesTrackedReleaseFilesAndMainUnchanged()
+    {
+        await RunCaseAsync(true, true, async fixture =>
+        {
+            await fixture.CheckoutDevelopmentBranchAsync();
+            string headBefore = await fixture.HeadCommitAsync();
+            string mainBefore = await fixture.RemoteMainCommitAsync();
+            byte[] manifestBefore = File.ReadAllBytes(fixture.UpdateManifestPath);
+            byte[] compatibilityBefore = File.ReadAllBytes(Path.Combine(fixture.Root, "version.txt"));
+
+            ProcessResult result = await fixture.RunReleaseAsync("-CreatePrereleaseDraft", "-PreviewSuffix", "preview.7");
+
+            AssertSuccess(result);
+            string previewTag = Tag + "-preview.7";
+            Assert.AreEqual(headBefore, await fixture.LocalTagCommitAsync(previewTag));
+            Assert.AreEqual(headBefore, await fixture.RemoteTagCommitAsync(previewTag));
+            Assert.AreEqual(headBefore, await fixture.HeadCommitAsync());
+            Assert.AreEqual(mainBefore, await fixture.RemoteMainCommitAsync());
+            CollectionAssert.AreEqual(manifestBefore, File.ReadAllBytes(fixture.UpdateManifestPath));
+            CollectionAssert.AreEqual(compatibilityBefore, File.ReadAllBytes(Path.Combine(fixture.Root, "version.txt")));
+            Assert.IsTrue(fixture.GhLogLines().Any(line => line.Contains("--prerelease", StringComparison.Ordinal) &&
+                                                            line.Contains("--draft", StringComparison.Ordinal)));
+        });
+    }
+
+    /// <summary>
+    /// 同名preview tagが別HEADを指す場合は既存tagを保持して拒否し、過去のpreviewの識別先を上書きする誤りを検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
+    [TestMethod]
+    public async Task PreviewDraftRejectsExistingPreviewTagAtAnotherHead()
+    {
+        await RunCaseAsync(false, true, async fixture =>
+        {
+            await fixture.CheckoutDevelopmentBranchAsync();
+            string previewTag = Tag + "-preview.1";
+            await fixture.CreateLocalTagAsync(previewTag, fixture.InitialHead);
+            await fixture.AddCommitAsync("dev-change.txt", "new dev head");
+
+            ProcessResult result = await fixture.RunReleaseAsync("-CreatePrereleaseDraft");
+
+            Assert.AreNotEqual(0, result.ExitCode, result.CombinedOutput);
+            Assert.AreEqual(fixture.InitialHead, await fixture.LocalTagCommitAsync(previewTag));
+            Assert.IsFalse(fixture.GhLogLines().Any(line => line.Contains("release create", StringComparison.Ordinal)));
+        });
+    }
+
+    private static void AssertManifestAsset(JsonElement asset, string packagePath, string kind, bool includesMetadata)
+    {
+        FileInfo package = new(packagePath);
+        Assert.AreEqual(kind, asset.GetProperty("kind").GetString());
+        Assert.AreEqual(package.Name, asset.GetProperty("fileName").GetString());
+        Assert.AreEqual(package.Length, asset.GetProperty("sizeBytes").GetInt64());
+        Assert.AreEqual(includesMetadata, asset.GetProperty("includesChartInfoMetadata").GetBoolean());
+        string hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(packagePath))).ToLowerInvariant();
+        Assert.AreEqual(hash, asset.GetProperty("sha256").GetString());
+    }
+
+    private static void AssertSuccess(ProcessResult result)
+    {
+        Assert.AreEqual(0, result.ExitCode, result.CombinedOutput);
+    }
+
+    private static void AssertFailure(ProcessResult result)
+    {
+        Assert.AreNotEqual(0, result.ExitCode, "PowerShell unexpectedly succeeded: " + result.CombinedOutput);
+    }
+
+    private async Task RunCaseAsync(bool includeMetadata, bool includeCompatibilityFile, Func<ReleaseFixture, Task> action)
+    {
+        var deadline = ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(360));
+        var failureCleanup = new Lazy<ProcessDeadline>(() => ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(5)));
+        var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        var fixture = new ReleaseFixture(workspace, deadline, failureCleanup, TestContext.CancellationToken);
+        Exception? primary = null;
+        Exception? cleanup = null;
+        try
+        {
+            await fixture.InitializeAsync(includeMetadata, includeCompatibilityFile);
+            await action(fixture);
+        }
+        catch (Exception failure)
+        {
+            primary = failure;
+            _ = failureCleanup.Value;
+        }
+        try
+        {
+            fixture.CleanupWorkspace(primary is null ? deadline : failureCleanup.Value);
+        }
+        catch (Exception failure) { cleanup = failure; }
+        ThrowFailures(primary, cleanup);
+    }
+
+    private static void ThrowFailures(Exception? primary, Exception? cleanup)
+    {
+        if (primary is not null)
+        {
+            if (cleanup is not null)
+            {
+                // 元の例外とstackを維持し、プロセス回収と媒体回収の失敗も別途残します。
+                const string key = "ReleaseFixture.CleanupFailure";
+                primary.Data[key] = primary.Data[key] is Exception previous
+                    ? new AggregateException(previous, cleanup)
+                    : cleanup;
+            }
+            ExceptionDispatchInfo.Capture(primary).Throw();
+        }
+        if (cleanup is not null) { ExceptionDispatchInfo.Capture(cleanup).Throw(); }
+    }
+
+    private sealed class ReleaseFixture
+    {
+        private static readonly string[] RequiredPackageEntries =
+        [
+            "BeMusicSeeker.exe",
+            "BeMusicSeeker.dll.config",
+            "test.mp3",
+            "libs/x64/7z.dll",
+            "native/Everything3_x64.dll",
+            "native/EverythingBridge_x64.dll",
+            "libs/x64/bass.dll",
+            "libs/x64/bassasio.dll",
+            "libs/x64/bassenc.dll",
+            "libs/x64/bassmix.dll",
+            "libs/x64/basswasapi.dll",
+            "libs/x64/bass_fx.dll",
+            "libs/x64/bms_vorbis.dll",
+            "lang/en-US.json",
+            "lang/fr-FR.json",
+            "lang/ja-JP.json",
+            "lang/ko-KR.json",
+            "lang/zh-CN.json",
+            "lang/zh-TW.json",
+            "D3DCompiler_47_cor3.dll",
+            "e_sqlite3.dll",
+            "PenImc_cor3.dll",
+            "PresentationNative_cor3.dll",
+            "vcruntime140_cor3.dll",
+            "wpfgfx_cor3.dll",
+            "BeMusicSeeker.Updater.exe",
+            "update-managed-files.txt"
+        ];
+
+        private readonly TestWorkspace workspace;
+        private readonly ProcessDeadline deadline;
+        private readonly Lazy<ProcessDeadline> failureCleanup;
+        private readonly CancellationToken cancellationToken;
+        private Dictionary<string, string?> environment = new(StringComparer.OrdinalIgnoreCase);
+        private string gitPath = string.Empty;
+        private string pwshPath = string.Empty;
+        private bool preserveArtifacts;
+
+        public ReleaseFixture(TestWorkspace workspace, ProcessDeadline deadline,
+            Lazy<ProcessDeadline> failureCleanup, CancellationToken cancellationToken)
+        {
+            this.workspace = workspace;
+            this.deadline = deadline;
+            this.failureCleanup = failureCleanup;
+            this.cancellationToken = cancellationToken;
+            Root = workspace.GetPath("repo");
+            DistRoot = Path.Combine(Root, "dist");
+            NormalPackagePath = Path.Combine(DistRoot, $"bemusicseeker-unofficial-fork-v{Version}.zip");
+            MetadataPackagePath = Path.Combine(DistRoot, $"bemusicseeker-unofficial-fork-v{Version}-with-metadata.zip");
+            ScriptPath = Path.Combine(Root, "scripts", "release.ps1");
+            UpdateManifestPath = Path.Combine(Root, "update.json");
+            RemotePath = workspace.GetPath("remote.git");
+            FakeBinRoot = workspace.GetPath("fakebin");
+            GhStatePath = workspace.GetPath("gh-state.txt");
+            GhAssetsPath = workspace.GetPath("gh-assets.json");
+            GhLogPath = workspace.GetPath("gh.log");
+            InitialHead = string.Empty;
+        }
+
+        public string Root { get; }
+
+        public string DistRoot { get; }
+
+        public string NormalPackagePath { get; }
+
+        public string MetadataPackagePath { get; }
+
+        public string ScriptPath { get; }
+
+        public string UpdateManifestPath { get; }
+
+        public string RemotePath { get; }
+
+        public string FakeBinRoot { get; }
+
+        public string GhStatePath { get; }
+
+        public string GhAssetsPath { get; }
+
+        public string GhLogPath { get; }
+
+        public string InitialHead { get; private set; }
+
+        public bool FailReleasePublication { get; set; }
+
+        public async Task InitializeAsync(bool includeMetadata, bool includeCompatibilityFile)
+        {
+            gitPath = ResolveExecutable("git.exe");
+            pwshPath = ResolveExecutable("pwsh.exe");
+            CreateFiles(includeMetadata, includeCompatibilityFile);
+            environment = CreateEnvironment();
+            await InitializeGitAsync();
+        }
+
+        public async Task AddCommitAsync(string relativePath, string content)
+        {
+            File.WriteAllText(Path.Combine(Root, relativePath), content, Encoding.UTF8);
+            await RunGitAsync("add", "--", relativePath);
+            await RunGitAsync("commit", "-m", "source change");
+        }
+
+        public async Task SeedExistingManifestAsync(string version, string releaseTag, string publishedAt)
+        {
+            string manifest = JsonSerializer.Serialize(new { version, releaseTag, publishedAt });
+            File.WriteAllText(UpdateManifestPath, manifest + Environment.NewLine, Encoding.UTF8);
+            await RunGitAsync("add", "--", "update.json");
+            await RunGitAsync("commit", "-m", "seed existing update manifest");
+        }
+
+        public async Task CheckoutDevelopmentBranchAsync()
+        {
+            await RunGitAsync("checkout", "-b", "dev");
+            await RunGitAsync("push", "-u", "origin", "dev");
+        }
+
+        public async Task CreateLocalTagAsync(string tag, string commit)
+        {
+            await RunGitAsync("tag", tag, commit);
+        }
+
+        public async Task<string> HeadCommitAsync()
+        {
+            return await RunGitAsync("rev-parse", "HEAD");
+        }
+
+        public async Task<string?> LocalTagCommitAsync(string tag)
+        {
+            ProcessResult result = await RunProcessAsync(
+                gitPath,
+                new[] { "rev-parse", "--verify", $"{tag}^{{commit}}" },
+                Root,
+                null);
+            return result.ExitCode == 0 ? result.StandardOutput.Trim() : null;
+        }
+
+        public async Task<string?> RemoteTagCommitAsync(string tag)
+        {
+            ProcessResult result = await RunProcessAsync(
+                gitPath,
+                new[] { "ls-remote", "--tags", "origin", $"refs/tags/{tag}" },
+                Root,
+                null);
+            if (result.ExitCode != 0 || string.IsNullOrWhiteSpace(result.StandardOutput))
+            {
+                return null;
+            }
+            return result.StandardOutput.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)[0];
+        }
+
+        public async Task<string> RemoteMainCommitAsync()
+        {
+            string output = await RunGitAsync("ls-remote", "--heads", "origin", "refs/heads/main");
+            return output.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)[0];
+        }
+
+        public async Task<string[]> DiffNamesAsync(string baseCommit)
+        {
+            return (await RunGitAsync("diff", "--name-only", $"{baseCommit}..HEAD"))
+                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(path => path.Replace('\\', '/'))
+                .ToArray();
+        }
+
+        public async Task SetRemoteTagCommitAsync(string commit)
+        {
+            await RunGitAtAsync(RemotePath, "update-ref", $"refs/tags/{Tag}", commit);
+        }
+
+        public void WriteRemoteAssetsJson(string json)
+        {
+            File.WriteAllText(GhAssetsPath, json, Encoding.ASCII);
+        }
+
+        public void RewriteNormalPackageContent()
+        {
+            using ZipArchive archive = ZipFile.Open(NormalPackagePath, ZipArchiveMode.Update);
+            ZipArchiveEntry entry = archive.GetEntry("test.mp3")
+                ?? throw new InvalidOperationException("Fixture ZIP did not contain test.mp3.");
+            using Stream stream = entry.Open();
+            stream.Position = 0;
+            stream.WriteByte((byte)'y');
+        }
+
+        public string[] ZipEntryNames(string packagePath)
+        {
+            using ZipArchive archive = ZipFile.OpenRead(packagePath);
+            return archive.Entries.Select(entry => entry.FullName).ToArray();
+        }
+
+        public IReadOnlyList<string> GhLogLines()
+        {
+            return File.Exists(GhLogPath)
+                ? File.ReadAllLines(GhLogPath)
+                : Array.Empty<string>();
+        }
+
+        public Task<ProcessResult> RunReleaseAsync(params string[] arguments)
+        {
+            var additions = new Dictionary<string, string?>
+            {
+                ["GH_FAIL_EDIT"] = FailReleasePublication ? "1" : null
+            };
+            return RunProcessAsync(pwshPath, new[] { "-NoProfile", "-NonInteractive", "-File", ScriptPath }.Concat(arguments), Root, additions);
+        }
+
+        public async Task AdvanceRemoteMainOnIndependentCloneAsync()
+        {
+            string cloneRoot = workspace.GetPath("mutator");
+            await RunGitAtAsync(workspace.RootDirectory, "clone", "--branch", "main", RemotePath, cloneRoot);
+            File.WriteAllText(Path.Combine(cloneRoot, "remote-only.txt"), "remote main advanced", Encoding.UTF8);
+            await RunGitAtAsync(cloneRoot, "config", "user.email", "release-tests@example.invalid");
+            await RunGitAtAsync(cloneRoot, "config", "user.name", "Release Integration Tests");
+            await RunGitAtAsync(cloneRoot, "add", "--", "remote-only.txt");
+            await RunGitAtAsync(cloneRoot, "commit", "-m", "remote main change");
+            await RunGitAtAsync(cloneRoot, "push", "origin", "main");
+            await RunGitAsync("fetch", "origin", "main");
+        }
+
+        public void CleanupWorkspace(ProcessDeadline cleanupDeadline)
+        {
+            if (preserveArtifacts) { return; }
+            try
+            {
+                RequireTime(cleanupDeadline);
+                // Gitが作った専有objectだけを削除可能へ戻し、全プロセス終端後に一度回収します。
+                foreach (string objects in new[] { Path.Combine(Root, ".git", "objects"),
+                    Path.Combine(RemotePath, "objects"), workspace.GetPath("mutator/.git/objects") })
+                {
+                    if (!Directory.Exists(objects)) { continue; }
+                    foreach (string file in Directory.EnumerateFiles(objects, "*", SearchOption.AllDirectories))
+                    {
+                        RequireTime(cleanupDeadline);
+                        File.SetAttributes(file, File.GetAttributes(file) & ~FileAttributes.ReadOnly);
+                    }
+                }
+                RequireTime(cleanupDeadline);
+                workspace.Dispose();
+                RequireTime(cleanupDeadline);
+            }
+            catch
+            {
+                PreserveArtifacts();
+                throw;
+            }
+        }
+
+        private void PreserveArtifacts()
+        {
+            preserveArtifacts = true;
+            workspace.PreserveArtifacts();
+        }
+
+        private static void RequireTime(ProcessDeadline deadline)
+        {
+            if (deadline.Remaining == TimeSpan.Zero) { throw new TimeoutException("Releaseケースの共有期限を超えました。"); }
+        }
+
+        private void CreateFiles(bool includeMetadata, bool includeCompatibilityFile)
+        {
+            Directory.CreateDirectory(Path.Combine(Root, "scripts"));
+            Directory.CreateDirectory(Path.Combine(Root, "BeMusicSeeker", "Properties"));
+            Directory.CreateDirectory(Path.Combine(Root, "release notes"));
+            Directory.CreateDirectory(Path.Combine(Root, "docs"));
+            Directory.CreateDirectory(DistRoot);
+            Directory.CreateDirectory(FakeBinRoot);
+
+            string repositoryRoot = FindRepositoryRoot();
+            File.Copy(Path.Combine(repositoryRoot, "scripts", "release.ps1"), ScriptPath);
+            File.Copy(Path.Combine(repositoryRoot, "scripts", "application-version.ps1"), Path.Combine(Root, "scripts", "application-version.ps1"));
+            File.Copy(
+                Path.Combine(repositoryRoot, "scripts", "portable-package-layout.ps1"),
+                Path.Combine(Root, "scripts", "portable-package-layout.ps1"));
+            File.WriteAllText(
+                Path.Combine(Root, "ApplicationVersion.props"),
+                "<Project><PropertyGroup><BeMusicSeekerAppVersion>9.9.9.9</BeMusicSeekerAppVersion></PropertyGroup></Project>",
+                Encoding.UTF8);
+            string sourceNote = Directory.GetFiles(Path.Combine(repositoryRoot, "release notes"), "v2.1.6.0*").Single();
+            File.Copy(sourceNote, Path.Combine(Root, "release notes", $"v{Version} リリースノート.md"));
+            File.WriteAllText(Path.Combine(Root, "docs", "index.html"), "source", Encoding.UTF8);
+            File.WriteAllText(Path.Combine(Root, "docs", "index.ja.html"), "source-ja", Encoding.UTF8);
+            File.WriteAllText(Path.Combine(Root, "docs", ".nojekyll"), string.Empty, Encoding.UTF8);
+            File.WriteAllText(
+                Path.Combine(Root, ".gitignore"),
+                "dist/\n",
+                Encoding.ASCII);
+
+            if (includeCompatibilityFile)
+            {
+                File.WriteAllText(Path.Combine(Root, "version.txt"), "2.1.6.0\n", Encoding.UTF8);
+            }
+
+            File.WriteAllText(UpdateManifestPath, "{\"unchanged\":true}\n", Encoding.UTF8);
+            CreateZip(NormalPackagePath, includeMetadata: false);
+            if (includeMetadata)
+            {
+                CreateZip(MetadataPackagePath, includeMetadata: true);
+            }
+
+            File.Delete(GhStatePath);
+            File.WriteAllText(GhAssetsPath, BuildAssetJson(includeMetadata), Encoding.ASCII);
+            File.WriteAllText(GhLogPath, string.Empty, Encoding.UTF8);
+            File.WriteAllText(Path.Combine(FakeBinRoot, "gh.cmd"), FakeGhScript, Encoding.ASCII);
+            File.WriteAllText(Path.Combine(FakeBinRoot, "uv.cmd"), FakeUvScript, Encoding.ASCII);
+        }
+
+        private async Task InitializeGitAsync()
+        {
+            await RunGitAsync("init");
+            await RunGitAsync("checkout", "-b", "main");
+            await RunGitAsync("config", "user.email", "release-tests@example.invalid");
+            await RunGitAsync("config", "user.name", "Release Integration Tests");
+            await RunGitAsync("add", ".");
+            await RunGitAsync("commit", "-m", "fixture base");
+            InitialHead = await HeadCommitAsync();
+            await RunGitAsync("init", "--bare", RemotePath);
+            await RunGitAsync("remote", "add", "origin", RemotePath);
+            await RunGitAsync("push", "-u", "origin", "main");
+        }
+
+        private void CreateZip(string path, bool includeMetadata)
+        {
+            using ZipArchive archive = ZipFile.Open(path, ZipArchiveMode.Create);
+            foreach (string entryName in RequiredPackageEntries)
+            {
+                ZipArchiveEntry entry = archive.CreateEntry(entryName);
+                using Stream stream = entry.Open();
+                stream.WriteByte((byte)'x');
+            }
+            if (includeMetadata)
+            {
+                ZipArchiveEntry entry = archive.CreateEntry("chart-info-metadata.7z");
+                using Stream stream = entry.Open();
+                stream.WriteByte((byte)'m');
+            }
+        }
+
+        private string BuildAssetJson(bool includeMetadata)
+        {
+            var assets = new List<object>
+            {
+                new { name = Path.GetFileName(NormalPackagePath), size = new FileInfo(NormalPackagePath).Length }
+            };
+            if (includeMetadata)
+            {
+                assets.Add(new { name = Path.GetFileName(MetadataPackagePath), size = new FileInfo(MetadataPackagePath).Length });
+            }
+            return JsonSerializer.Serialize(assets);
+        }
+
+        private Task<string> RunGitAsync(params string[] arguments) => RunGitAtAsync(Root, arguments);
+
+        private async Task<string> RunGitAtAsync(string workingDirectory, params string[] arguments)
+        {
+            ProcessResult result = await RunProcessAsync(gitPath, arguments, workingDirectory);
+            if (result.ExitCode != 0)
+            {
+                throw new InvalidOperationException("git failed: " + result.CombinedOutput);
+            }
+            return result.StandardOutput.Trim();
+        }
+
+        private async Task<ProcessResult> RunProcessAsync(string fileName, IEnumerable<string> arguments,
+            string workingDirectory, IReadOnlyDictionary<string, string?>? additions = null)
+        {
+            RequireTime(deadline);
+            cancellationToken.ThrowIfCancellationRequested();
+            ProcessDeadline commandDeadline = deadline.LimitRemaining(TimeSpan.FromSeconds(60));
+            var childEnvironment = new Dictionary<string, string?>(environment, StringComparer.OrdinalIgnoreCase);
+            if (additions is not null)
+            {
+                foreach ((string key, string? value) in additions) { childEnvironment[key] = value; }
+            }
+            OwnedProcess? process = null;
+            ProcessCompletion? completion = null;
+            Exception? primary = null;
+            Exception? cleanup = null;
+            try
+            {
+                process = OwnedProcess.Start(new ProcessStartRequest(fileName, arguments.ToArray(),
+                    workingDirectory, childEnvironment, ProcessOwnershipPolicy.Application), () => failureCleanup.Value);
+                completion = await process.WaitForExitAsync(commandDeadline, cancellationToken);
+            }
+            catch (Exception failure)
+            {
+                primary = failure;
+                _ = failureCleanup.Value;
+                if (failure is OwnedProcessStartException { CleanupFailure: not null }) { PreserveArtifacts(); }
+            }
+            if (process is not null)
+            {
+                try
+                {
+                    ProcessStopResult stopped = await process.StopAsync(null, primary is null ? commandDeadline : failureCleanup.Value);
+                    cleanup = stopped.CleanupFailure;
+                    if (cleanup is not null) { _ = failureCleanup.Value; }
+                    if (cleanup is not null || !process.Completion.IsCompletedSuccessfully) { PreserveArtifacts(); }
+                }
+                catch (Exception failure)
+                {
+                    cleanup = failure;
+                    _ = failureCleanup.Value;
+                    PreserveArtifacts();
+                }
+                try
+                {
+                    // StopAsyncの確定した期限を再利用するため、Disposeの既定10秒は追加されません。
+                    await process.DisposeAsync();
+                }
+                catch (Exception failure)
+                {
+                    _ = failureCleanup.Value;
+                    if (!ReferenceEquals(cleanup, failure))
+                    {
+                        cleanup = cleanup is null ? failure : new AggregateException(cleanup, failure);
+                    }
+                    PreserveArtifacts();
+                }
+            }
+            ThrowFailures(primary, cleanup);
+            ProcessCompletion result = completion ?? throw new InvalidOperationException("プロセス結果を回収できません。");
+            return new ProcessResult(result.ExitCode, result.StandardOutput, result.StandardError);
+        }
+
+        private Dictionary<string, string?> CreateEnvironment()
+        {
+            var child = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            foreach (string key in Environment.GetEnvironmentVariables().Keys)
+            {
+                if (key.StartsWith("GIT_", StringComparison.OrdinalIgnoreCase)
+                    || key.StartsWith("GH_", StringComparison.OrdinalIgnoreCase)
+                    || key.StartsWith("GITHUB_", StringComparison.OrdinalIgnoreCase)
+                    || key.StartsWith("UV_", StringComparison.OrdinalIgnoreCase))
+                {
+                    child[key] = null;
+                }
+            }
+            string hooks = workspace.GetPath("empty-hooks");
+            Directory.CreateDirectory(hooks);
+            string configuration = workspace.GetPath("gitconfig");
+            string escapedHooks = hooks.Replace('\\', '/').Replace("\"", "\\\"", StringComparison.Ordinal);
+            File.WriteAllText(configuration,
+                "[user]\n name = Release Integration Tests\n email = release-tests@example.invalid\n" +
+                "[commit]\n gpgsign = false\n[tag]\n gpgsign = false\n" +
+                $"[core]\n hooksPath = \"{escapedHooks}\"\n autocrlf = false\n" +
+                $"[init]\n templateDir = \"{escapedHooks}\"\n", new UTF8Encoding(false));
+            child["GIT_CONFIG_NOSYSTEM"] = "1";
+            child["GIT_CONFIG_GLOBAL"] = configuration;
+            child["GIT_TERMINAL_PROMPT"] = "0";
+            child["GIT_ALLOW_PROTOCOL"] = "file";
+            child["GH_STATE"] = GhStatePath;
+            child["GH_ASSETS"] = GhAssetsPath;
+            child["GH_LOG"] = GhLogPath;
+            // 実gh/uvや別Gitの発見を避け、子だけを専有代替と解決済み実行体へ限定します。
+            child["PATH"] = string.Join(Path.PathSeparator, FakeBinRoot,
+                Path.GetDirectoryName(gitPath), Path.GetDirectoryName(pwshPath), Environment.SystemDirectory);
+            child["PATHEXT"] = ".COM;.EXE;.BAT;.CMD";
+            return child;
+        }
+
+        private static string ResolveExecutable(string name)
+        {
+            foreach (string directory in (Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(Path.PathSeparator))
+            {
+                string candidateDirectory = directory.Trim('"');
+                if (!Path.IsPathFullyQualified(candidateDirectory)) { continue; }
+                string candidate = Path.Combine(candidateDirectory, name);
+                if (File.Exists(candidate)) { return Path.GetFullPath(candidate); }
+            }
+            throw new FileNotFoundException($"実行に必要な実ファイルをPATHから解決できません: {name}");
+        }
+
+        private static string FindRepositoryRoot()
+        {
+            DirectoryInfo? directory = new(AppContext.BaseDirectory);
+            while (directory is not null)
+            {
+                if (File.Exists(Path.Combine(directory.FullName, "BeMusicSeeker.sln")))
+                {
+                    return directory.FullName;
+                }
+                directory = directory.Parent;
+            }
+            throw new DirectoryNotFoundException("Repository root was not found.");
+        }
+
+        private const string FakeUvScript = "@echo off\r\necho generated>docs\\index.html\r\necho generated-ja>docs\\index.ja.html\r\nexit /b 0\r\n";
+
+        private const string FakeGhScript = "@echo off\r\nsetlocal EnableDelayedExpansion\r\n" +
+            "if not \"%GH_LOG%\"==\"\" echo %*>>\"%GH_LOG%\"\r\n" +
+            "if /I \"%~1\"==\"auth\" goto success\r\n" +
+            "if /I not \"%~1\"==\"release\" goto success\r\n" +
+            "if /I \"%~2\"==\"view\" goto view\r\n" +
+            "if /I \"%~2\"==\"create\" goto create\r\n" +
+            "if /I \"%~2\"==\"edit\" goto edit\r\n" +
+            "if /I \"%~2\"==\"upload\" goto upload\r\n" +
+            "goto success\r\n" +
+            ":view\r\n" +
+            "if not defined GH_STATE goto no_release\r\n" +
+            "if not exist \"%GH_STATE%\" goto no_release\r\n" +
+            "set /p state=<\"%GH_STATE%\"\r\n" +
+            "set /p assets=<\"%GH_ASSETS%\"\r\n" +
+            "echo {\"isDraft\":!state!,\"assets\":!assets!}\r\n" +
+            "goto success\r\n" +
+            ":create\r\n" +
+            "echo true>\"%GH_STATE%\"\r\n" +
+            "goto success\r\n" +
+            ":edit\r\n" +
+            "if defined GH_FAIL_EDIT goto fail_edit\r\n" +
+            "if /I \"%~4\"==\"--draft\" if /I \"%~5\"==\"false\" goto published\r\n" +
+            "echo true>\"%GH_STATE%\"\r\n" +
+            "goto success\r\n" +
+            ":published\r\n" +
+            "echo false>\"%GH_STATE%\"\r\n" +
+            "goto success\r\n" +
+            ":upload\r\n" +
+            "if defined GH_FAIL_UPLOAD goto fail_upload\r\n" +
+            "goto success\r\n" +
+            ":fail_edit\r\n" +
+            "exit /b 7\r\n" +
+            ":fail_upload\r\n" +
+            "exit /b 8\r\n" +
+            ":no_release\r\n" +
+            "exit /b 1\r\n" +
+            ":success\r\n" +
+            "exit /b 0\r\n";
+    }
+
+    private sealed record ProcessResult(int ExitCode, string StandardOutput, string StandardError)
+    {
+        public string CombinedOutput => StandardOutput + Environment.NewLine + StandardError;
+    }
+}
