@@ -403,9 +403,11 @@ public sealed class OwnedProcessTests
         await using OwnedProcess process = Start("hang", workspace.Ready, workspace.Release);
         await workspace.WaitReadyAsync();
         var shared = ProcessDeadline.FromTimeout(TimeSpan.FromMilliseconds(40));
+        string sharedCutoff = shared.Export();
         await Assert.ThrowsAsync<TimeoutException>(() => process.WaitForExitAsync(shared));
         await Assert.ThrowsAsync<TimeoutException>(() => process.WaitForRootExitAsync(shared));
-        Assert.AreEqual(TimeSpan.Zero, shared.Remaining);
+        // タイマ通知と単調時計の微小差ではなく、元の絶対期限を再設定しないことを確認します。
+        Assert.AreEqual(sharedCutoff, shared.Export());
         await Assert.ThrowsAsync<TimeoutException>(() => process.WaitForExitAsync(shared));
         using var canceled = new CancellationTokenSource();
         canceled.Cancel();

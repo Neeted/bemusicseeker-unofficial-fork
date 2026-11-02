@@ -1985,7 +1985,7 @@ public sealed class Lr2SongDbSyncServiceTests
     private static void WaitForLr2FaultStage(Task stage, Task operation)
     {
         Task completed = Task.WhenAny(stage, operation).GetAwaiter().GetResult();
-        if (completed == operation)
+        if (completed == operation && !stage.IsCompleted)
         {
             operation.GetAwaiter().GetResult();
             Assert.Fail("必要なgateの観測前に操作が完了しました。");
@@ -2352,7 +2352,7 @@ public sealed class Lr2SongDbSyncServiceTests
                 cancellation.Cancel();
                 try
                 {
-                    if (operation != null)
+                    if (operation is { IsCompleted: false })
                     {
                         try
                         {
