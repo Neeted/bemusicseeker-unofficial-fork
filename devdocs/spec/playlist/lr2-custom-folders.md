@@ -83,7 +83,7 @@
 | `AllSongsFolder` / `UserFolder` | 全体の「表名 ALL」と各フォルダ。削除済み譜面を除き、空のフォルダ名は表名を表示する。 |
 | `LevelFolder` | レベルを切り捨てた整数ごとの `LEVEL n` とNULL用の `LEVEL ???`。 |
 | `AlphabetFolder` | `A.B.C.D.` から `U.V.W.X.Y.Z.` までの6区間と `OTHERS`。 |
-| `ClearFolder` | `CLEAR FOLDER` 配下に番号付きのNO PLAY、FAILED、ASSIST、EASY、CLEAR、HARD、FC、P.A。タイトルには番号を付けない。LR2のclear=2をEASYビットでASSIST/EASYに分け、FCはP.Aビットを持たないものだけとする。 |
+| `ClearFolder` | `CLEAR FOLDER` 配下に番号付きのNO PLAY、FAILED、ASSIST、EASY、CLEAR、HARD、FC、P.A。タイトルには番号を付けない。NO PLAYはscore行なしまたはclear=0とする。LR2のclear=2をEASYビットでASSIST/EASYに分け、FCはP.Aビットを持たないものだけとする。 |
 | `DJLevelFolder` | `DJ LEVEL` 配下のAAA、AA、A、UNDER A。A未満とスコアなしを最後の区分へまとめる。 |
 | `CategoryAllFolder` | `ALL LONG NOTES` と判定種類別。 |
 | `OtherFolder` | `MY BEST`、`NEW SONGS`、`REMOVED SONGS`。IR取得・未送信検知が有効なときは `UNSENT SONGS`。 |

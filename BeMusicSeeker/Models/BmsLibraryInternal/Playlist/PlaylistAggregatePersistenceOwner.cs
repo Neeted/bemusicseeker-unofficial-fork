@@ -96,7 +96,10 @@ internal sealed class PlaylistAggregatePersistenceOwner
         public bool UpdatesLastUpdate => HeaderKnownChanged || DataKnownChanged;
 
         /// <summary>名称・解決済みdata参照・ハッシュの差または初期化によって、ヘッダーとコースを保存する必要があるかを返します。</summary>
-        public bool NeedsHeaderPersistence => NamesChanged || EffectiveDataUriChanged || HeaderKnownChanged || HeaderHashInitialized || HeaderHashMigrated || DataKnownChanged || DataHashInitialized;
+        /// <summary>取得が保存済みの空欄URIを補完した場合だけheaderを保存します。</summary>
+        public bool SourceUriCompleted { get; internal set; }
+
+        public bool NeedsHeaderPersistence => SourceUriCompleted || NamesChanged || EffectiveDataUriChanged || HeaderKnownChanged || HeaderHashInitialized || HeaderHashMigrated || DataKnownChanged || DataHashInitialized;
 
         public bool NeedsEntryPersistence => EntryFingerprintChanged || DataKnownChanged || DataHashInitialized;
 
@@ -161,6 +164,8 @@ internal sealed class PlaylistAggregatePersistenceOwner
 
     private readonly IUiScheduler uiScheduler;
 
+    private readonly Action<PlaylistEntryCommitReceipt> registerReloadHeader;
+
     private readonly object synchronization = new();
 
     private readonly HashSet<BMSTable> activeTables = [];
@@ -206,8 +211,9 @@ internal sealed class PlaylistAggregatePersistenceOwner
         PlaylistPersistenceRepository repository,
         ReaderWriterLockSlimWrapper activeCollectionLock,
         IUiScheduler uiScheduler,
-        IPlaylistEntryMutationWorkObserver entryMutationWorkObserver = null)
+        IPlaylistEntryMutationWorkObserver entryMutationWorkObserver = null, Action<PlaylistEntryCommitReceipt> registerReloadHeader = null)
     {
+        this.registerReloadHeader = registerReloadHeader;
         this.repository = repository ?? throw new ArgumentNullException(nameof(repository));
         this.entryMutationWorkObserver = entryMutationWorkObserver;
         this.activeCollectionLock = activeCollectionLock ?? throw new ArgumentNullException(nameof(activeCollectionLock));
@@ -635,63 +641,69 @@ internal sealed class PlaylistAggregatePersistenceOwner
         }
     }
 
-    internal void ReplaceHeaders(
-        IEnumerable<BMSTable> tables,
-        bool allowReloadReservation = false,
-        bool requireCurrentTarget = true)
+    /// <summary>有限表のheaderを一括DB確定し、同じ保護区間から不変receiptを登録します。配送は呼出元のguard解放後です。</summary>
+    internal void ReplaceHeaders(IEnumerable<BMSTable> tables, bool allowReloadReservation = false,
+        bool requireCurrentTarget = true, Action<PlaylistEntryCommitReceipt> register = null)
     {
         List<BMSTable> tableList = [.. (tables ?? []).Where(table => table != null).Distinct()];
-        if (tableList.Count == 0)
+        if (tableList.Count == 0) { return; }
+        using (activeCollectionLock.GetReaderGuard())
         {
-            return;
-        }
-        lock (synchronization)
-        {
-            EnsureWriteAllowedUnsafe(tableList, allowReloadReservation, requireCurrentTarget);
-            Dictionary<BMSTable, int?> previousPlaylistIds = CapturePlaylistIds(tableList);
+            List<IDisposable> guards = [];
             try
             {
-                repository.ReplaceHeaders(tableList);
-                foreach (BMSTable table in tableList)
+                foreach (BMSTable table in tableList.OrderBy(table => table.playlist_id)) { guards.Add(table.ReaderWriterLock.GetReaderGuard()); }
+                lock (synchronization)
                 {
-                    RefreshActiveIdentityUnsafe(table);
+                    EnsureWriteAllowedUnsafe(tableList, allowReloadReservation, requireCurrentTarget);
+                    Dictionary<BMSTable, int?> previousPlaylistIds = CapturePlaylistIds(tableList);
+                    try
+                    {
+                        repository.ReplaceHeaders(tableList);
+                        foreach (BMSTable table in tableList)
+                        {
+                            RefreshActiveIdentityUnsafe(table);
+                            register?.Invoke(new(table, table.PlaylistEntriesRevision, table.PlaylistEntriesRevision, [], Header: PlaylistHeaderValue.Capture(table)));
+                        }
+                        persistenceGeneration++;
+                    }
+                    catch { RestorePlaylistIdsUnsafe(previousPlaylistIds); throw; }
                 }
-                persistenceGeneration++;
             }
-            catch
-            {
-                RestorePlaylistIdsUnsafe(previousPlaylistIds);
-                throw;
-            }
+            finally { for (int index = guards.Count - 1; index >= 0; index--) { guards[index].Dispose(); } }
         }
     }
 
-    /// <summary>追加先名だけの変更を不変入力から準備し、同じ既存IDへ一括保存した後に正本の名前を公開します。</summary>
-    internal void ReplaceOutputBaseNames(IReadOnlyList<(BMSTable Table, string Name)> updates)
+    /// <summary>追加先名だけの変更を不変入力から準備し、同じ既存IDへ一括保存後、正本と表示receiptを同時確定します。</summary>
+    internal void ReplaceOutputBaseNames(IReadOnlyList<(BMSTable Table, string Name)> updates, Action<PlaylistEntryCommitReceipt> register = null)
     {
         if (updates.Count == 0) { return; }
         using (activeCollectionLock.GetReaderGuard())
         {
-            lock (synchronization)
+            List<IDisposable> guards = [];
+            try
             {
-                EnsureWriteAllowedUnsafe(updates.Select(update => update.Table).ToList(), false, true);
-                var headers = new List<BMSTable>();
-                foreach ((BMSTable table, string name) in updates)
+                foreach (BMSTable table in updates.Select(update => update.Table).OrderBy(table => table.playlist_id)) { guards.Add(table.ReaderWriterLock.GetWriterGuard()); }
+                lock (synchronization)
                 {
-                    using (table.ReaderWriterLock.GetReaderGuard())
+                    EnsureWriteAllowedUnsafe(updates.Select(update => update.Table).ToList(), false, true);
+                    var headers = new List<BMSTable>();
+                    foreach ((BMSTable table, string name) in updates)
                     {
                         BMSTable header = table.CreatePersistenceHeaderSnapshot(table.last_update);
                         header.custom_folder_output_base_name = name;
                         headers.Add(header);
                     }
+                    repository.ReplaceHeaders(headers);
+                    foreach ((BMSTable table, string name) in updates)
+                    {
+                        table.custom_folder_output_base_name = name;
+                        register?.Invoke(new(table, table.PlaylistEntriesRevision, table.PlaylistEntriesRevision, [], Header: PlaylistHeaderValue.Capture(table)));
+                    }
+                    persistenceGeneration++;
                 }
-                repository.ReplaceHeaders(headers);
-                foreach ((BMSTable table, string name) in updates)
-                {
-                    using (table.ReaderWriterLock.GetWriterGuard()) { table.custom_folder_output_base_name = name; }
-                }
-                persistenceGeneration++;
             }
+            finally { for (int index = guards.Count - 1; index >= 0; index--) { guards[index].Dispose(); } }
         }
     }
 
@@ -707,7 +719,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
         ReplaceHeaders([table], allowReloadReservation, requireCurrentTarget);
     }
 
-    private void PersistReloadedTable(BMSTable newTable, bool needsEntryPersistence, bool needsHeaderPersistence)
+    private PlaylistHeaderValue PersistReloadedTable(BMSTable newTable, bool needsEntryPersistence, bool needsHeaderPersistence)
     {
         lock (synchronization)
         {
@@ -725,6 +737,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
             }
             RefreshActiveIdentityUnsafe(newTable);
             persistenceGeneration++;
+            return needsHeaderPersistence || needsEntryPersistence ? PlaylistHeaderValue.Capture(newTable) : null;
         }
     }
 
@@ -743,16 +756,17 @@ internal sealed class PlaylistAggregatePersistenceOwner
         PlaylistReloadPersistenceDecision persistenceDecision, bool requireCurrentTargetForApply)
     {
         if (requireCurrentTargetForApply && (!IsActive(oldTable) || IsRetiredOrRemoved(oldTable))) { return (false, null); }
+        PlaylistHeaderValue savedHeader;
         using (oldTable.ReaderWriterLock.GetReaderGuard())
         {
-            PersistReloadedTable(newTable, persistenceDecision?.NeedsEntryPersistence == true,
+            savedHeader = PersistReloadedTable(newTable, persistenceDecision?.NeedsEntryPersistence == true,
                 persistenceDecision?.NeedsHeaderPersistence == true);
         }
         if (persistenceDecision?.NeedsStatePersistence != true) { return (true, null); }
         try
         {
             MarkReloadRetired(oldTable);
-            if (await ReplaceActiveTableInCollectionAsync(oldTable, newTable).ConfigureAwait(false)) { return (true, null); }
+            if (await ReplaceActiveTableInCollectionAsync(oldTable, newTable, savedHeader).ConfigureAwait(false)) { return (true, null); }
         }
         catch (Exception failure)
         {
@@ -811,7 +825,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
         }
     }
 
-    private async Task<bool> ReplaceActiveTableInCollectionAsync(BMSTable oldTable, BMSTable newTable)
+    private async Task<bool> ReplaceActiveTableInCollectionAsync(BMSTable oldTable, BMSTable newTable, PlaylistHeaderValue savedHeader)
     {
         ObservableCollection<BMSTable> tables = activeTableCollection;
         if (tables == null)
@@ -835,6 +849,8 @@ internal sealed class PlaylistAggregatePersistenceOwner
                     if (index < tables.Count && ReferenceEquals(tables[index], newTable))
                     {
                         ReplaceActive(oldTable, newTable);
+                        if (savedHeader != null)
+                        { registerReloadHeader?.Invoke(new(newTable, newTable.PlaylistEntriesRevision, newTable.PlaylistEntriesRevision, [], Header: savedHeader)); }
                     }
                 }
             }
@@ -1002,7 +1018,9 @@ internal sealed class PlaylistAggregatePersistenceOwner
                     repository.ReplaceEntry(candidate, table.CreatePersistenceHeaderSnapshot(lastUpdate), entry);
                     table.ApplyEntryCandidate(entry, candidate);
                     table.last_update = lastUpdate;
-                    PlaylistEntryCommitReceipt receipt = table.CommitEntryValues([table.CaptureEntryChange(entry, before)]);
+                    PlaylistEntryCommitReceipt receipt = table.CommitEntryValues([table.CaptureEntryChange(entry, before)])
+                        with
+                    { Header = PlaylistHeaderValue.Capture(table) };
                     persistenceGeneration++;
                     register(receipt);
                     return receipt;
@@ -1044,6 +1062,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
                     {
                         int? previousId = mutation.Table.playlist_id;
                         PlaylistEntryCommitReceipt receipt = mutation.Table.ApplyEntryMutation(mutation);
+                        if (persist && requireCurrentTarget) { receipt = receipt with { Header = PlaylistHeaderValue.Capture(mutation.Table) }; }
                         if (previousId != mutation.Table.playlist_id) { RefreshActiveIdentityUnsafe(mutation.Table); }
                         register(receipt);
                         receipts.Add(receipt);
@@ -1363,6 +1382,9 @@ internal sealed class PlaylistAggregatePersistenceOwner
             NamesChanged = !string.Equals(oldTable.name, newTable.name, StringComparison.Ordinal)
                 || !string.Equals(oldTable.org_name, newTable.org_name, StringComparison.Ordinal),
             EffectiveDataUriChanged = !Uri.Equals(oldTable.GetAbsoluteDataUrl(), newTable.GetAbsoluteDataUrl()),
+            SourceUriCompleted = (oldTable.Header_url == null && newTable.Header_url != null)
+                || (oldTable.Data_url == null && newTable.Data_url != null)
+                || (oldTable.Page_url == null && newTable.Page_url != null),
             EntryFingerprintChanged = playlistContentDiffResult.HasChanges,
             HeaderKnownChanged = hashChangeResult.HeaderKnownChanged,
             HeaderHashInitialized = hashChangeResult.HeaderHashInitialized,

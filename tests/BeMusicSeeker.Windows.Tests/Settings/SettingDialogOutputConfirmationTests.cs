@@ -23,6 +23,14 @@ public sealed class SettingDialogOutputConfirmationTests
 {
     private TestWorkspace? ownedWorkspace;
 
+    private static PlaylistSummaryRow BuildOutputSummary(PlaylistWorkspaceViewModel workspace)
+    {
+        workspace.RequestPlaylistSummaryMode(true);
+        workspace.RebuildPlaylistSummaryView(runAsync: false);
+        TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "output-current-summary");
+        return workspace.PlaylistSummaryView.Single();
+    }
+
     /// <summary>初期化済みのケース専有媒体だけを返し、constructorでは領域を作りません。</summary>
     private TestWorkspace CaseWorkspace => ownedWorkspace
         ?? throw new InvalidOperationException("ケースの可変媒体はTestInitialize後に利用します。");
@@ -446,13 +454,19 @@ public sealed class SettingDialogOutputConfirmationTests
                     current.Playlist.BMSTables.Add(table);
                     current.Playlist.CommitBMSTableWithEntriesToDB(table);
                     current.Owner.PlaylistWorkspace.RefreshPlaylistTreeTables(current.Playlist);
+                    PlaylistSummaryRow summaryRow = BuildOutputSummary(current.Owner.PlaylistWorkspace);
+                    Assert.AreEqual("Original", summaryRow.OutputBaseName);
                     using (LR2SongDBExtended db = current.Composition.DatabaseScope.OpenSongWrite(values.LR2SongDBPath))
                     { db.Execute("CREATE TRIGGER fail_output_header BEFORE INSERT ON playlist WHEN NEW.playlist_id = 7199 BEGIN SELECT RAISE(ABORT, 'header failed'); END;"); }
                     SettingsDialogViewModel dialog = current.Owner.SettingDialog;
                     dialog.SelectedCustomFolderAdditionalOutputBaseDir = original;
                     dialog.SelectedCustomFolderAdditionalOutputBaseName = "Failed";
                     dialog.RenameSelectedCustomFolderAdditionalOutputBaseDir();
+                    Assert.AreEqual("Original", summaryRow.OutputBaseName, "未公開draftを表示しません。");
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync("additional"), "output-header-failure");
+                    Assert.AreSame(summaryRow, current.Owner.PlaylistWorkspace.PlaylistSummaryView.Single());
+                    Assert.AreEqual("Original", summaryRow.OutputBaseName);
+                    Assert.AreEqual("Original", summaryRow.OutputBaseDisplayName);
                     Assert.AreEqual(1, failures.Count);
                     Assert.IsInstanceOfType<SQLite.SQLiteException>(failures[0]);
                     Assert.AreEqual("Original", table.custom_folder_output_base_name);
@@ -469,6 +483,7 @@ public sealed class SettingDialogOutputConfirmationTests
                         current = OpenOwner(values);
                         dialog = current.Owner.SettingDialog;
                         table = current.Playlist.BMSTables.Single();
+                        summaryRow = BuildOutputSummary(current.Owner.PlaylistWorkspace);
                     }
                     dialog.SelectedCustomFolderAdditionalOutputBaseDir = reopenOwner ? failed : original;
                     dialog.SelectedCustomFolderAdditionalOutputBaseName = "My Charts";
@@ -476,6 +491,9 @@ public sealed class SettingDialogOutputConfirmationTests
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync("additional"), "output-header-next-request");
                     Assert.AreEqual(1, failures.Count, string.Join(Environment.NewLine, failures));
                     Assert.AreEqual(reopenOwner ? "Original" : "My Charts", table.custom_folder_output_base_name);
+                    Assert.AreSame(summaryRow, current.Owner.PlaylistWorkspace.PlaylistSummaryView.Single());
+                    Assert.AreEqual(table.custom_folder_output_base_name, summaryRow.OutputBaseName);
+                    Assert.AreEqual(reopenOwner ? "Original" : "My Charts", summaryRow.OutputBaseDisplayName);
                     Assert.AreEqual(CustomFolderOutputBaseRegistry.SerializeBaseDirectories([latest]), values.LR2CustomFolderAdditionalOutputBaseDirs);
                     Assert.AreEqual(CustomFolderOutputBaseRegistry.SerializeBaseDirectories([latest]), TestSettingsFactory.OpenSettings(settingsPath).LR2CustomFolderAdditionalOutputBaseDirs);
                     Assert.AreEqual(!reopenOwner, File.Exists(Path.Combine(latest, "Table", "0000.lr2folder")));
@@ -497,6 +515,13 @@ public sealed class SettingDialogOutputConfirmationTests
                     }
                     using LR2SongDBExtended verify = new BmsLibraryDbGateway(current.Composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).OpenSongDbReadOnly();
                     Assert.AreEqual("My Charts", verify.Table<BMSTable>().Single().custom_folder_output_base_name);
+                    dialog.SelectedCustomFolderAdditionalOutputBaseDir = latest;
+                    dialog.RemoveSelectedCustomFolderAdditionalOutputBaseDir();
+                    Assert.AreEqual("My Charts", summaryRow.OutputBaseName, "削除draftを保存前に表示しません。");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync("additional"), "output-header-remove-base");
+                    Assert.AreEqual(string.Empty, summaryRow.OutputBaseName);
+                    Assert.AreEqual(Path.GetFileName(values.LR2CustomFolderOutputBaseDir), summaryRow.OutputBaseDisplayName);
+                    Assert.AreEqual(1, failures.Count);
                 }
                 finally
                 {
@@ -511,11 +536,13 @@ public sealed class SettingDialogOutputConfirmationTests
     /// <summary>生成失敗と旧先のファイル・DB行整理失敗を区別し、採用済み設定を保ちます。整理失敗は対象と原因を通知して後続同期へ進み、次の明示選択で過去旧先を全回収しません。</summary>
     [TestMethod]
     [DataRow("generation")]
+    [DataRow("lr2-sync")]
     [DataRow("file-cleanup")]
     [DataRow("row-cleanup")]
     public void OutputConfirmation_GenerationAndCleanupFailuresAllowLatestRequest(string failureKind)
     {
-        bool cleanupOnly = failureKind != "generation", rowCleanup = failureKind == "row-cleanup";
+        bool syncFailure = failureKind == "lr2-sync";
+        bool cleanupOnly = failureKind is "file-cleanup" or "row-cleanup", rowCleanup = failureKind == "row-cleanup";
         string root = CreateTemporaryRoot(CaseWorkspace);
         try
         {
@@ -558,11 +585,14 @@ public sealed class SettingDialogOutputConfirmationTests
                 var warnings = new List<string>();
                 owner.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
                     warnings.AddRange(request.Receipt.Notifications.Select(notification => notification.Message));
-                var externalSync = new RecordingOutputSettingsSyncRuntime();
+                var externalSync = new RecordingOutputSettingsSyncRuntime { FailNext = syncFailure };
                 SetPrivateField(owner.SettingDialog, "lr2SongDbSyncWorkflow", new Lr2SongDbSyncWorkflowOwner(externalSync));
                 try
                 {
                     playlist.CommitBMSTableWithEntriesToDB(table);
+                    PlaylistSummaryRow summaryRow = BuildOutputSummary(owner.PlaylistWorkspace);
+                    string originalDisplay = summaryRow.OutputBaseDisplayName;
+                    int entryRevision = table.PlaylistEntriesRevision, totalCharts = summaryRow.TotalCharts;
                     string oldFile = Path.Combine(values.LR2CustomFolderOutputBaseDir, "Table", "0000.lr2folder");
                     Directory.CreateDirectory(Path.GetDirectoryName(oldFile)!);
                     File.WriteAllText(oldFile, "old output");
@@ -582,19 +612,25 @@ public sealed class SettingDialogOutputConfirmationTests
                         Directory.CreateDirectory(Path.GetDirectoryName(blockedFile)!);
                         File.WriteAllText(blockedFile, "blocked output");
                     }
-                    using (rowCleanup ? null : File.Open(blockedFile, FileMode.Open, FileAccess.ReadWrite, FileShare.Read))
+                    using (rowCleanup || syncFailure ? null : File.Open(blockedFile, FileMode.Open, FileAccess.ReadWrite, FileShare.Read))
                     {
                         owner.SettingDialog.LR2CustomFolderOutputDir = selected;
+                        Assert.AreEqual(originalDisplay, summaryRow.OutputBaseDisplayName, "draftは確定表示を変えません。");
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("normal"), "output-selected-failure");
+                        Assert.AreSame(summaryRow, owner.PlaylistWorkspace.PlaylistSummaryView.Single());
+                        Assert.AreEqual("SelectedOutput", summaryRow.OutputBaseDisplayName);
+                        Assert.AreEqual(entryRevision, table.PlaylistEntriesRevision);
+                        Assert.AreEqual(totalCharts, summaryRow.TotalCharts);
+                        Assert.AreEqual(string.Empty, summaryRow.OutputBaseName, "既定出力基点の変更はheaderを改名しません。");
                     }
                     Assert.AreEqual(cleanupOnly ? 0 : 1, failures.Count);
                     Assert.AreEqual(selected, values.LR2CustomFolderOutputBaseDir);
                     Assert.AreEqual(selected, TestSettingsFactory.OpenSettings(settingsPath).LR2CustomFolderOutputBaseDir);
                     Assert.AreEqual(selected, composition.CustomFolderOutputSettingsProvider().LR2CustomFolderOutputBaseDir);
                     CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), selected);
-                    Assert.AreEqual(cleanupOnly, File.ReadAllText(selectedFile) != "blocked output");
-                    Assert.AreEqual(!rowCleanup, File.Exists(oldFile));
-                    Assert.AreEqual(cleanupOnly ? 1 : 0, externalSync.ExternalSyncCount, "旧先整理だけの失敗でも必要な外部同期へ進みます。");
+                    Assert.AreEqual(cleanupOnly || syncFailure, File.ReadAllText(selectedFile) != "blocked output");
+                    Assert.AreEqual(!rowCleanup && !syncFailure, File.Exists(oldFile));
+                    Assert.AreEqual(cleanupOnly || syncFailure ? 1 : 0, externalSync.ExternalSyncCount, "旧先整理だけの失敗でも必要な外部同期へ進みます。");
                     if (cleanupOnly) { Assert.IsTrue(warnings.Any(warning => warning.Contains(Path.GetDirectoryName(oldFile)!, StringComparison.Ordinal))); }
                     if (rowCleanup)
                     {
@@ -609,14 +645,15 @@ public sealed class SettingDialogOutputConfirmationTests
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.CommitOutputSettingsAsync("normal"), "output-latest-after-failure");
                     Assert.AreEqual(cleanupOnly ? 0 : 1, failures.Count, string.Join(Environment.NewLine, failures));
                     Assert.AreEqual(latest, values.LR2CustomFolderOutputBaseDir);
+                    Assert.AreEqual("LatestOutput", summaryRow.OutputBaseDisplayName);
                     Assert.IsTrue(File.Exists(Path.Combine(latest, "Table", "0000.lr2folder")));
-                    Assert.AreEqual(cleanupOnly ? 2 : 1, externalSync.ExternalSyncCount);
+                    Assert.AreEqual(cleanupOnly || syncFailure ? 2 : 1, externalSync.ExternalSyncCount);
                     if (rowCleanup)
                     {
                         using LR2SongDBExtended read = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).OpenSongDbReadOnly();
                         Assert.AreEqual(1, read.Table<LR2SongDB.folder>().Count(row => row.path == oldFile), "次操作は過去の旧行整理を再開しません。");
                     }
-                    else { Assert.IsTrue(File.Exists(oldFile), "次操作は過去の旧先回収を再開しません。"); }
+                    else { Assert.AreEqual(!syncFailure, File.Exists(oldFile), "次操作は過去の旧先回収を再開しません。"); }
 
                 }
                 finally
@@ -646,12 +683,15 @@ public sealed class SettingDialogOutputConfirmationTests
             BmsLibraryOptionsSnapshot? optionsSnapshot = null, Action<bool>? admissionResult = null)
             => throw new AssertFailedException("Output settings must use the external-folder continuation.");
 
+        internal bool FailNext { get; set; }
+
         public Task SyncExternalFolderRowsForCustomFolderOutputBaseChangeAsync(string reason,
             LibraryFileMutationCapability? capability = null, LibraryFileMutationCapability? playlistCapability = null)
         {
             Assert.IsNotNull(capability);
             Assert.IsNotNull(playlistCapability);
             ExternalSyncCount++;
+            if (FailNext) { FailNext = false; return Task.FromException(new IOException("output-sync-failed")); }
             return Task.CompletedTask;
         }
     }

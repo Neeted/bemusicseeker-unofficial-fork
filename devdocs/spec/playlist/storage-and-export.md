@@ -45,11 +45,25 @@ entryの所持譜面の解決・所持集計と参照索引への登録は、MD5
 
 LR2の管理出力先を変える保存は、[出力配置条件](lr2-custom-folders.md#出力先と事前検査)を副作用前に満たす必要があります。保存済み包含配置への明示出力・移行・削除も同じ条件で拒否し、正本の保存や出力先の自動修正を行いません。配置を変えないエントリの追加・削除は既存のDB先行確定を維持します。付随するLR2出力が包含配置で拒否された場合は、編集済みのDB・モデルを保持し、確定後の出力失敗として通知します。
 
+### 保存headerの配送
+
+DB成功・現在値採用と同じ保護区間で、表参照・ID、名前・シンボル・接頭辞・出力先・更新日時・URL・同期/root/BMTのflagと順序・基点名を小さな不変headerとして既存receiptへ捕捉します。件数、STATUS、settings、全entryは載せません。headerだけならentry版と更新日時を保ち、無変更・拒否・DB前失敗では架空の変更を登録しません。
+
+既存の単一drainがguard解放後に配送し、同batchの同じ生存表には最後のheaderを投影します。退役参照を同IDの新表へ転用しません。headerだけでは詳細のbuffer・再構築・件数再集計を起動せず、非表示rawも含む対象行とそのfilter/sort位置だけを更新します。初回build・再表示も同じ投影を使います。
+
+プロパティ、inline、一括属性、BMT順、項目更新、既存表への取込みは保存済みheaderをこの配送へ集め、必要な出力と実表示終端まで同じ操作権限で待ちます。DB後の出力失敗でも表示を試み、元の失敗を保持します。設定による表示名は公開済みsettingsを使い、DB後・settings公開前の失敗でもその時点の確定値を配送します。次の操作へ前の表示失敗を持ち越しません。
+
+`PlaylistEntryCommitTests.CommitHeader_CapturesImmutableSavedHeaderWithoutEntryRevision` と `PlaylistWorkspaceActionWorkflowTests.PlaylistPropertySave_PublishesHeaderOnlyChangesToCurrentSummary`、既存の局所仕事量・scheduler終端ケースで確認します。
+
 ### プロパティのURL
 
 Page・Header・Dataはnullによる明示解除を受理します。Pageの非null指定は有効な絶対URIを要求し、Header・Dataは有効な相対URIも受理します。同期OFFではURLの未設定やHeader・Dataの片方だけの指定も許容します。不正な非null入力を未設定や旧値へ置き換えて保存しません。画面での空欄・変換失敗と訂正・取消は[プロパティ画面](../ui/playlist-properties.md#単一プレイリストの編集)に従います。
 
-外部同期ONでは、Pageが `bmseeker` の既存例外を除き、Header・Dataがともに設定され、PageまたはHeaderが絶対URIであることを要求します。Pageがnullでも絶対Headerを基点に相対Dataを使えます。HTTP(S)だけを要求する取得操作の検査を、この保存条件へ流用しません。
+外部同期ONは優先取得元 `Page ?? Header` が絶対URIなら受理します。Pageだけ、絶対Headerだけ、絶対Pageと相対Header、ローカルURIも対象です。ON操作は候補だけを変え、通信・保存はOKまで行いません。保存済みOFFからONへの変更、実効取得元の変更、保存済みHeader/Dataの今回の新たな空欄化のいずれかがあれば、一回だけ既存取得へ接続します。非空Data変更、Pageに隠れた非空Header変更、同値保存と取得失敗後の同値再保存は取得しません。
+
+取得が保存済み空欄のURIを補完した場合もheaderを保存して現在表へ採用します。本文・項目が不変なら本文hash・更新日時・項目保存を変えません。Dataまで読めた完成表だけを採用し、途中失敗では確定設定と旧項目を保持します。
+
+名前付き空フォルダの空判定は削除履歴を除いた有効所属を使います。最後の譜面の削除・移動後も既存ダミー表現を残し、読込み、改名、空同士の統合も同じ条件に揃えます。空文字は名前なし、受理済み空白名は名前付きとして区別します。
 
 ### 互換フォルダ名
 
@@ -263,6 +277,8 @@ SQL読取りは `SQLITE_ROW` と `SQLITE_DONE` 以外を失敗とし、途中行
 日常の代表フローでは、外部同期ONの表を通常importで登録し、MEMOだけを実詳細編集で保存します。独立した同期OFFのローカル表は、通常新規作成から実propertyのOK・登録・必要処理・閉鎖を通し、実通常行の追加、数値Level・MEMO、フォルダ作成・改名・詳細行移動、propertyの上下操作を保存します。フォルダ順はDBのJSON配列と実ノードの表示順をそれぞれ確認します。
 
 JSON二出力は既存export処理の通知receipt終端後に両ファイルを独立解析します。全entryのhash・title・artist・所属と数値 `org_level`、フォルダ互換表現 `level`、headerの名前・symbol・`folder_order` を照合し、MEMOはDB・表示・次起動へ分担します。保存後にテスト側から値を補充せず、通常終了後の別processで同じ登録IDとentry集合、編集値を確認します。
+
+共通header配送の不変値と同版保存は `PlaylistEntryCommitTests.CommitHeader_CapturesImmutableSavedHeaderWithoutEntryRevision`、URIだけの現在行更新とコピーは `PlaylistWorkspaceActionWorkflowTests.PlaylistPropertySave_PublishesHeaderOnlyChangesToCurrentSummary`、参照置換の必要公開終端は同 `PlaylistPropertySave_ReplacementWaitsForItsSummaryPublication` が確認します。設定の実portはWindows `SettingDialogOutputConfirmationTests` の改名DB失敗、生成・LR2同期失敗系列で、確定設定とheaderに一致する同じ現在行を確認します。
 
 ## 実装とテストの対応
 

@@ -71,17 +71,23 @@ Driveのキーは一度復号した値をクエリ値として符号化し、繰
 
 通常一括・外部API一括の成功済み集合、外部APIの失敗済み集合、共有ページの循環、venueの非CORE除外に同じ大小文字の意味を使います。先行失敗はcaseが異なる別実体を塞がず、同じ失敗実体は操作内で再取得しません。循環にはfragmentを除いたURI全体を使い、確認フォーム等に必要なquery遷移を保ちます。成功・失敗・非CORE除外には共有ファイルID等の実体キーを使います。比較のための通信・再試行・操作をまたぐキャッシュは追加しません。
 
+取得済みHTMLはSgmlReader、JSONはNewtonsoft.Jsonで構造として読みます。復号はBOM、有効なHTTP charset、本文先頭meta、UTF-8の順です。不明charsetはmetaへ進み、http-equivのShift-JISも扱います。属性とJSON文字列は一回だけ復号し、parserへ通信を委譲しません。
+
+当該作品の配布候補とそのscheme検査は同じ集合を使います。無関係なmailto/javascriptで取得や元ページへのBrowserFallbackを拒否しません。本体候補が非HTTPだけなら入力エラーとし、非HTTPへ要求しません。対応候補を選んで通信を開始した後は別候補へ再試行しません。
+
 | HTMLの取得元 | 解決方法と制限 |
 | --- | --- |
 | Google Drive / usercontent | `download-form` のGETフォームとhidden入力。actionはDrive系ホストのHTTP(S)だけ。 |
 | MediaFire | `downloadButton` または `popsok` のリンク。MediaFire自身またはそのサブドメインだけ。 |
-| `manbow.nothing.sh/event.cgi` | `DownLoadAddress` / `DownloadAddress` 付近のリンク。配布先として他の対応ページを辿れる。 |
+| `manbow.nothing.sh/event.cgi` | 大小文字・空白を正規化したDownloadAddress見出しの隣接配布セル。先頭本体と明示本体mirrorだけを掲載順で選び、追加BGA等を除く。省略タグでも次項目へ探索を広げない。 |
 | `venue.bmssearch.net` の末尾が数値の作品ページ | 埋込みの `type: CORE` の `downloadURL` またはリンク。イベント全体の `packages` を除き、リンク経由でも復活させない。 |
 | `bmssearch.net/bmses/` | 埋込みの `downloads[].url` またはリンク。 |
 
 後二者は直接アーカイブまたは既知の共有ページだけを許可し、他の作品・会場ページへ再帰しません。再帰は最大4段、フラグメントを除いたURIで循環を止めます。解決先にも同じURI・サイズ・ファイル判定を適用します。
 
 Driveフォルダ、JavaScript操作、CAPTCHA、ログイン、同意フォーム、ブラウザーの取得イベントが必要な配布元は自動解決しません。埋込み解析は現在の形式に依存し、形式変更を成功と推定しません。
+
+venueはURLのaliasとnumberに一致するbms.downloadLinksのCORE、BMS SEARCHはURLの作品IDに一致しdownloads[].urlを持つ完全データを使います。同ID省略形・relatedLinks・別作品・イベントpackagesは除きます。当該配布構造が読めたら除外物をanchorで復活させません。既知Next文字列を文書順に連結し、通常JSONレコードだけを読み、I/HL等や汎用Flight参照解決は扱いません。識別子なしの旧埋込みとanchorだけの既存入力は維持します。固定gatewayの `PlaylistUrlAcquisitionOwnershipTests.DownloadCandidate_SelectsOnlyCurrentWorkDistribution` と既存共有ページケースで確認します。
 
 ### URL本文の無受信期限と終了
 

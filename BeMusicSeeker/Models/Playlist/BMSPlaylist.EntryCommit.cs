@@ -26,9 +26,31 @@ public partial class BMSPlaylist
         }
     }
 
+    /// <summary>配送先が同じ生存表参照かを所有者の参照索引で確認します。</summary>
+    internal bool ContainsActivePlaylistTable(BMSTable table) => playlistAggregatePersistenceOwner.IsActive(table);
+
+    /// <summary>公開済み設定だけで表示名が変わる表を既存header配送へ加え、設定確定前からの保存receiptも配送します。</summary>
+    internal void PublishOutputSettingsHeaders(CustomFolderOutputSettingsSnapshot previous, CustomFolderOutputSettingsSnapshot current)
+    {
+        using (rwlockBMSTables.GetReaderGuard())
+        {
+            foreach (BMSTable table in BMSTables)
+            {
+                using (table.ReaderWriterLock.GetReaderGuard())
+                {
+                    string name = table.custom_folder_output_base_name;
+                    if (CustomFolderOutputBaseRegistry.GetDisplayName(name, previous.LR2CustomFolderOutputBaseDir, previous.LR2CustomFolderAdditionalOutputBaseDirs)
+                        == CustomFolderOutputBaseRegistry.GetDisplayName(name, current.LR2CustomFolderOutputBaseDir, current.LR2CustomFolderAdditionalOutputBaseDirs)) { continue; }
+                    RegisterEntryCommit(new(table, table.PlaylistEntriesRevision, table.PlaylistEntriesRevision, [], Header: PlaylistHeaderValue.Capture(table)));
+                }
+            }
+        }
+        SignalEntryCommitsAvailable();
+    }
+
     private void RegisterEntryCommit(PlaylistEntryCommitReceipt receipt)
     {
-        if (receipt.Changes.IsEmpty && receipt.FolderOrder.IsDefault) { return; }
+        if (receipt.Changes.IsEmpty && receipt.FolderOrder.IsDefault && receipt.Header == null) { return; }
         lock (entryCommitGate) { entryCommits.Enqueue(receipt); }
     }
 
@@ -42,7 +64,8 @@ public partial class BMSPlaylist
         }
         foreach (IGrouping<BMSTable, PlaylistEntryCommitReceipt> table in pending.GroupBy(receipt => receipt.Table))
         {
-            if (publishedHeaderTables?.Contains(table.Key) == true) { continue; }
+            if (publishedHeaderTables?.Contains(table.Key) == true
+                || table.All(receipt => receipt.Changes.IsEmpty && receipt.FolderOrder.IsDefault)) { continue; }
             try
             {
                 table.Key.PublishEntryCommitProperties(table.Any(receipt => !receipt.FolderOrder.IsDefault

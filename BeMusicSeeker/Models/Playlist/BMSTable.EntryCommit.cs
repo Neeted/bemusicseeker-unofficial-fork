@@ -250,10 +250,10 @@ public partial class BMSTable
         HashSet<BMSTableEntry> addedReferences = [];
         List<(BMSTableEntry Entry, BMSTableEntry Candidate)> added = [];
         int Count(string folder) => folderCounts.TryGetValue(new(folder), out int count) ? count
-            : entriesByFolder.TryGetValue(new(folder), out HashSet<BMSTableEntry> members) ? members.Count : 0;
+            : activeFolderCounts.TryGetValue(new(folder), out int activeCount) ? activeCount : 0;
         void Remove(BMSTableEntry entry, bool preserveEmptyFolder = true)
         {
-            if (removed.Add(entry)) { folderCounts[new(entry.folder)] = Count(entry.folder) - 1; }
+            if (removed.Add(entry) && !entry.is_removed) { folderCounts[new(entry.folder)] = Count(entry.folder) - 1; }
             if (preserveEmptyFolder) { preserveEmptyFolders.Add(entry.folder); }
         }
         foreach (BMSTableEntry entry in removals)
@@ -290,12 +290,12 @@ public partial class BMSTable
                 || (entriesByIdentity.TryGetValue(identity, out HashSet<BMSTableEntry> matches)
                     && matches.Any(match => !removed.Contains(match)))) { return; }
             if (entry.md5 == BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER && (folder.Length == 0 || Count(folder) > 0)) { return; }
-            if (entry.md5 != BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER
+            if ((!entry.is_removed || replaceRemovedDestinations) && entry.md5 != BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER
                 && entriesByIdentity.TryGetValue((folder, BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER), out HashSet<BMSTableEntry> dummies))
             {
                 foreach (BMSTableEntry dummy in dummies) { Remove(dummy); }
             }
-            if (entry.md5 != BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER
+            if ((!entry.is_removed || replaceRemovedDestinations) && entry.md5 != BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER
                 && addedIdentities.Remove((folder, BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER), out BMSTableEntry stagedDummy))
             {
                 added.RemoveAll(item => ReferenceEquals(item.Entry, stagedDummy));
@@ -308,11 +308,11 @@ public partial class BMSTable
             candidate.folder = folder;
             if (replaceRemovedDestinations) { candidate.is_removed = false; }
             candidate.NormalizeForPlaylistPersistence();
-            if (movesExisting) { folderCounts[new(entry.folder)] = Count(entry.folder) - 1; }
+            if (movesExisting && !entry.is_removed) { folderCounts[new(entry.folder)] = Count(entry.folder) - 1; }
             added.Add((entry, candidate));
             addedReferences.Add(entry);
             addedIdentities.Add(identity, entry);
-            folderCounts[new(folder)] = Count(folder) + 1;
+            if (!candidate.is_removed) { folderCounts[new(folder)] = Count(folder) + 1; }
         }
         foreach ((BMSTableEntry entry, string folder) in additions) { Add(entry, folder); }
         foreach (string folder in preserveEmptyFolders)
@@ -363,8 +363,8 @@ public partial class BMSTable
         List<BMSTableEntry> removals = [];
         List<(BMSTableEntry Entry, string Folder)> additions = [];
         int destinationCount = before == destination ? 0 : entriesByFolder.TryGetValue(new(destination), out HashSet<BMSTableEntry> destinationMembers)
-            ? destinationMembers.Count : 0;
-        bool removesDummies = destination.Length == 0 || members.Count + destinationCount > 1;
+            ? destinationMembers.Count(entry => !entry.is_removed && entry.md5 != BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER) : 0;
+        bool removesDummies = destination.Length == 0 || members.Any(entry => !entry.is_removed && entry.md5 != BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER) || destinationCount > 0;
         if (removesDummies && before != destination
             && entriesByIdentity.TryGetValue((destination, BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER), out HashSet<BMSTableEntry> destinationDummies))
         {

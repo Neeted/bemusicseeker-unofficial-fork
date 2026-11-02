@@ -14,6 +14,23 @@ public sealed class PlaylistLampAggregationTests
 
     private static readonly DateTime ScoreUpdatedAt = new(2026, 8, 28, 2, 3, 4, DateTimeKind.Utc);
 
+    /// <summary>同じ実譜面の別保存所属は成績を各一件と数え、同一所属の再配送だけを除きます。80%二所属と20%一所属の平均を60%に保ちます。</summary>
+    [TestMethod]
+    public void Aggregate_WeightsSavedMembershipsRatherThanResolvedCharts()
+    {
+        PlaylistLampScore first = Score("first", "first", ClearType.HARD, RankType.AAA, perfect: 80);
+        PlaylistLampScore other = Score("other", "other", ClearType.CLEAR, RankType.C, perfect: 20);
+        var one = new PlaylistLampEntrySnapshot("folder", "original-md5", true, md5: "first", resolvedMd5: "first", resolvedSha256: "first");
+        var two = new PlaylistLampEntrySnapshot("folder", "original-sha", true, sha256: "first", resolvedMd5: "first", resolvedSha256: "first");
+        PlaylistLampAggregationResult result = Aggregate("saved-memberships", ["folder"],
+            [one, two, one, Entry("folder", "other", true, sha256: "other")], CreateScoreSnapshot(ActiveScoreSource.Beatoraja, first, other));
+        Assert.AreEqual(3, result.Statistics.TotalCount);
+        Assert.AreEqual(3, result.Statistics.OwnedCount);
+        Assert.AreEqual(3, result.Statistics.PlayedCount);
+        Assert.AreEqual(0.6, result.Statistics.AverageExRate ?? throw new AssertFailedException("保存所属の成績平均がありません。"), 0.0001);
+        Assert.AreEqual(2, Count(result.ClearSegments, PlaylistLampClearCategory.HARD));
+    }
+
     /// <summary>所持と未所持にスコア有無を交差させ、総数を分母にプレイ率・クリア率とスコア対象のEX率平均を計算する。未所持の除外や平均分母の混同を検出する。</summary>
     [TestMethod]
     public void Aggregate_countsScoresForOwnedAndUnownedEntriesWithTotalDenominators()

@@ -4,6 +4,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.ViewModels;
 using static BeMusicSeeker.TestSupport.Components.ChartInfoComponentTestSupport;
 using static BeMusicSeeker.TestSupport.Components.ChartInfoHydrationTestSupport;
 using static BeMusicSeeker.TestSupport.Components.PlaylistLampSourceTestSupport;
@@ -18,6 +19,81 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryPlaylistLampDataSourceTests
 {
     private readonly ApplicationDatabaseScope databaseScope = new();
+
+    /// <summary>通常JSONのMD5だけ/SHAだけの二所属を実保存・読戻しし、所持・path変化を往復しても保存所属キーと総数2を維持します。</summary>
+    [TestMethod]
+    public async Task CaptureAsync_PreservesSavedMembershipAcrossOwnershipChanges()
+    {
+        await WithTemporarySongDb(async (unusedDirectory, songDbPath) =>
+        {
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            string md5 = new('a', 32), sha = new('b', 64);
+            var table = new BMSTable("{\"name\":\"Membership\",\"symbol\":\"M\",\"data_url\":\"data.json\"}",
+                _data_json: "[{\"md5\":\"" + md5 + "\",\"level\":\"1\"},{\"sha256\":\"" + sha + "\",\"level\":\"1\"}]")
+            { playlist_id = 17 };
+            string directory = Path.GetDirectoryName(songDbPath) ?? throw new AssertFailedException();
+            string scorePath = Path.Combine(directory, "score.db");
+            using (LR2ScoreDBExtended db = databaseScope.OpenScoreWrite(scorePath))
+            {
+                db.CreateTable<LR2ScoreDB.player>(); db.CreateTable<LR2ScoreDB.score>();
+                db.Insert(new LR2ScoreDB.score { hash = md5, clear = ClearType.CLEAR, perfect = 80, totalnotes = 100 });
+            }
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = true);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(directory)), scorePath,
+                new TestFileMutationService(), new PlaylistSummaryAggregationTestDoubles.RecordingDialogService(), new TestUiScheduler(() => null), settings: settings)
+            { BmsCharts = [] };
+            library.InitializeScoresOnly(null);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, lr2PlaylistFolderSynchronization: new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath), uiScheduler: new TestUiScheduler(() => null))
+            { BMSTables = new ObservableCollection<BMSTable>([table]) };
+            try
+            {
+                playlist.CommitBMSTableWithEntriesToDB(table);
+                using (LR2SongDBExtended read = databaseScope.OpenSongReadOnly(songDbPath))
+                { Assert.AreEqual(2, read.Table<LR2SongDBExtended.playlist_entry>().Count()); }
+                var repository = new PlaylistPersistenceRepository(databaseScope, songDbPath);
+                BMSTable reloaded = repository.LoadPlaylistHeaders().Single();
+                reloaded.entries = [.. repository.LoadPersistedPlaylistEntries(reloaded.playlist_id, activeOnly: false)];
+                playlist.BMSTables = new ObservableCollection<BMSTable>([reloaded]);
+                Assert.AreNotSame(table, reloaded);
+                var source = new BmsLibraryPlaylistLampDataSource(playlist, library);
+                string[]? identities = null;
+                foreach (int step in Enumerable.Range(0, 4))
+                {
+                    library.BmsCharts = step is 1 or 2 ? [CreateLibraryFile("C:/charts/" + step + ".bms", md5, sha)] : [];
+                    PlaylistLampAggregationRequest request = await source.CaptureAsync(PlaylistLampViewerQuery.Latest("17"), CancellationToken.None);
+                    Assert.AreEqual(2, request.Entries.Count);
+                    string[] current = request.Entries.Select(entry => entry.IdentityKey).ToArray();
+                    Assert.AreEqual(2, current.Distinct(StringComparer.Ordinal).Count());
+                    if (identities != null) { CollectionAssert.AreEqual(identities, current); }
+                    identities = current;
+                    Assert.AreEqual(step is 1 or 2 ? 2 : 0, request.Entries.Count(entry => entry.IsOwned));
+                    if (step == 1)
+                    {
+                        PlaylistLampAggregationResult result = new PlaylistLampAggregationService().Aggregate(request);
+                        Assert.AreEqual(2, result.Statistics.TotalCount);
+                        Assert.AreEqual(2, result.FolderRows.Single().Count);
+                        using PlaylistWorkspaceViewModel workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _,
+                            playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
+                        workspace.SetDetailDataSource(new PlaylistDetailDataSource(library, playlist, new MainChartRowProjectionOwner()));
+                        workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+                        foreach (PlaylistLampViewerNavigationRequest navigation in new[]
+                        {
+                            PlaylistLampViewerNavigationRequest.ForFolder(PlaylistLampSegmentInvocationRequest.ForClear("17", request.FolderOrder.Single(), PlaylistLampClearCategory.NORMAL)),
+                            PlaylistLampViewerNavigationRequest.ForOverall("17", PlaylistLampSegmentKind.Clear, PlaylistLampClearCategory.NORMAL, null)
+                        })
+                        {
+                            Assert.IsTrue(workspace.TryRequestPlaylistLampNavigation(navigation));
+                            await workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected,
+                                MainViewUpdateMode.PlaylistFilterSelected, false, default);
+                            await workspace.WaitForDetailBuildIdleAsync();
+                            Assert.AreEqual(2, workspace.DetailViewState.View.Rows.Count);
+                        }
+                    }
+                }
+            }
+            finally { playlist.RequestShutdown("lamp-membership"); library.RequestShutdown("lamp-membership"); }
+        });
+    }
 
     /// <summary>実フォルダ名[NO SONG]と未所持MD5エントリを捕捉し、実chart_infoの補完SHAを所持SHAとは区別して渡す。名前による所属欠落・補完漏れ・所持誤認を検出する。</summary>
     [TestMethod]

@@ -25,6 +25,76 @@ public sealed class BmsPlaylistCustomFolderOutputTests
 {
     private readonly ApplicationDatabaseScope databaseScope = new();
 
+    /// <summary>生成した全所属/各folderの通常・RANDOM COMMANDでscoreなしとclear=0だけをNO PLAYへ入れ、出力単位の範囲と明示再出力を保ちます。</summary>
+    [TestMethod]
+    [DataRow(LR2SongDBExtended.playlist.EntryUnitType.File)]
+    [DataRow(LR2SongDBExtended.playlist.EntryUnitType.Folder)]
+    public void CustomFolderOutput_NoPlayIncludesStoredZero(LR2SongDBExtended.playlist.EntryUnitType unit)
+    {
+        using var owned = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        testSettings.OperationModeLR2DB = true;
+        testSettings.LR2CustomFolderOutputBaseDir = Path.Combine(owned.RootDirectory, "output");
+        string dbPath = CreateTempSongDbPath(databaseScope, owned.RootDirectory);
+        PlaylistPersistenceRepository.EnsureSchema(databaseScope, dbPath);
+        var table = new BMSTable
+        {
+            playlist_id = 7399,
+            name = "NoPlay",
+            Output_dir = "NoPlay",
+            entry_type = unit,
+            ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
+                & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                & ~LR2SongDBExtended.playlist.CustomFolderType.ClearFolder
+                & ~LR2SongDBExtended.playlist.CustomFolderType.RandomFolder,
+            Folder_order = ["Group", "Other"],
+            entries = Enumerable.Range(1, 5).Select(number => new BMSTableEntry
+            {
+                md5 = number.ToString("x32"),
+                title = "Song " + number,
+                folder = number == 4 ? "Other" : "Group",
+                is_removed = number == 5
+            }).ToArray()
+        };
+        using (LR2SongDBExtended seed = databaseScope.OpenSongWrite(dbPath))
+        {
+            seed.Execute("CREATE TABLE score(hash TEXT PRIMARY KEY, clear INTEGER, rank INTEGER, op_history INTEGER, minbp INTEGER);");
+            foreach (int number in Enumerable.Range(1, 7))
+            {
+                seed.Execute("INSERT INTO song(hash,title,folder,path) VALUES (?,?,?,?);", number.ToString("x32"), "Song " + number,
+                    number == 6 ? "Package1" : "Package" + number, number + ".bms");
+                if (number != 1) { seed.Execute("INSERT INTO score(hash,clear,minbp) VALUES (?,?,0);", number.ToString("x32"), number == 3 ? 1 : 0); }
+            }
+        }
+        var playlist = new TestBmsPlaylist(databaseScope, dbPath,
+            CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, dbPath, CustomFolderOutputPhysicalSurface.Empty),
+            uiScheduler: new TestUiScheduler(() => null), settings: testSettings)
+        { BMSTables = new ObservableCollection<BMSTable>([table]) };
+        try
+        {
+            foreach (bool reoutput in new[] { false, true })
+            {
+                if (reoutput) { playlist.ReOutputCustomFolder(table); } else { playlist.ReOutputCustomFolderAndCommitToDB(table); }
+                string directory = Path.Combine(testSettings.LR2CustomFolderOutputBaseDir, table.Output_dir, "CLEAR FOLDER", "0 NO PLAY");
+                string[] files = Directory.GetFiles(directory, "*.lr2folder");
+                Assert.AreEqual(6, files.Length);
+                using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(dbPath);
+                foreach (string file in files)
+                {
+                    string text = ReadShiftJisText(file);
+                    string title = text.Split('\n').Single(line => line.StartsWith("#TITLE ", StringComparison.Ordinal));
+                    int[] numbers = title.Contains("Other", StringComparison.Ordinal) ? [4]
+                        : title.Contains("ALL", StringComparison.Ordinal) ? unit == LR2SongDBExtended.playlist.EntryUnitType.Folder ? [1, 2, 4, 6] : [1, 2, 4]
+                        : unit == LR2SongDBExtended.playlist.EntryUnitType.Folder ? [1, 2, 6] : [1, 2];
+                    string command = ReadCustomFolderCommand(text);
+                    CollectionAssert.AreEquivalent(numbers.Select(number => number.ToString("x32")).ToArray(),
+                        verify.Query<LR2SongDB.song>("SELECT song.* FROM song LEFT JOIN score ON song.hash=score.hash WHERE " + command).Select(song => song.hash).ToArray());
+                }
+            }
+        }
+        finally { playlist.RequestShutdown("no-play-command"); }
+    }
+
     /// <summary>負小数のfloor・負整数・0・正値・未定義を実COMMANDと保存DBで選曲し、通常/RANDOMの集合とASCII名を地域によらず保ちます。明示再出力は旧不良本文も修復します。</summary>
     [TestMethod]
     [DataRow("sv-SE")]
@@ -1212,6 +1282,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 () => null!,
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
 
+            service.PlaylistPropertyCatalogChanged += (_, _) => { };
             service.PlaylistPropertySummaryDataRefreshRequested += (_, _) => { };
             PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
                 ?? throw new AssertFailedException("Playlist edit session was not created.");
@@ -1589,6 +1660,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             service.PlaylistPropertyEntriesChanged += (_, _) => { };
             service.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             int summaryRefreshCount = 0;
+            service.PlaylistPropertyCatalogChanged += (_, _) => { };
             service.PlaylistPropertySummaryDataRefreshRequested += (_, request) =>
             {
                 if (string.Equals(request.Reason, "playlist_property_resync", StringComparison.Ordinal))
@@ -1680,6 +1752,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             service.PlaylistPropertySyncProgressChanged += (_, _) => { };
             service.PlaylistPropertySyncFinished += (_, _) => { };
 
+            service.PlaylistPropertyCatalogChanged += (_, _) => { };
             service.PlaylistPropertySummaryDataRefreshRequested += (_, _) => { };
             service.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             PlaylistPropertyExternalSyncFailedEventArgs? reportedFailure = null;

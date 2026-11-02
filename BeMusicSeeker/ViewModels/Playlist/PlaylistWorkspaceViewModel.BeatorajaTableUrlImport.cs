@@ -179,8 +179,11 @@ public sealed partial class PlaylistWorkspaceViewModel
                         if (ApplyBeatorajaTableUrlImportRawUrl(current, target.RawUrl, target.Uri)) { changed.Add(current); }
                     }
                     if (changed.Count == 0) { return; }
-                    tables.CommitBMSTableHeadersToDB(changed, capability: authority);
-                    await tables.BmtOutput.ExportTablesAsync(changed, "beatoraja_table_url_import_raw_url_changed", authority);
+                    await RunWithSavedHeaderPresentationAsync(async () =>
+                    {
+                        tables.CommitBMSTableHeadersToDB(changed, capability: authority);
+                        await tables.BmtOutput.ExportTablesAsync(changed, "beatoraja_table_url_import_raw_url_changed", authority);
+                    });
                 }
                 foreach (BeatorajaTableUrlImportTarget target in targets ?? [])
                 {

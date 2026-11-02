@@ -45,24 +45,26 @@ public sealed partial class PlaylistWorkspaceViewModel
         BMSPlaylist playlists = GetPlaylistStore();
         using LibraryFileMutationLease accepted = playlists.AcquirePlaylistMutationLease("playlist_summary_bmt_output_changed");
         using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
-        List<BMSTable> changedTables = [.. CaptureCurrentPlaylistSummaryTargets(playlists, rows, expectedStore)
+        await RunWithSavedHeaderPresentationAsync(async () =>
+        {
+            List<BMSTable> changedTables = [.. CaptureCurrentPlaylistSummaryTargets(playlists, rows, expectedStore)
             .Where(table => (table.is_bmt_output != false) != isBmtOutput)];
-        if (changedTables.Count == 0)
-        {
-            return;
-        }
+            if (changedTables.Count == 0)
+            {
+                return;
+            }
 
-        var previousValues = changedTables.ToDictionary(table => table, table => table.is_bmt_output);
-        foreach (BMSTable table in changedTables)
-        {
-            table.is_bmt_output = isBmtOutput;
-        }
-        PersistPlaylistSummaryHeaderChanges(
-            () => playlists.CommitBMSTableHeadersToDB(changedTables, capability: authority),
-            () => { foreach (KeyValuePair<BMSTable, bool?> item in previousValues) { item.Key.is_bmt_output = item.Value; } });
-        await playlists.BmtOutput.ExportTablesAsync(changedTables, "playlist_summary_bmt_output_changed", authority);
-        RequestPlaylistSummaryDataRefresh(
-            "playlist_summary_bmt_output_changed");
+            var previousValues = changedTables.ToDictionary(table => table, table => table.is_bmt_output);
+            foreach (BMSTable table in changedTables)
+            {
+                table.is_bmt_output = isBmtOutput;
+            }
+            PersistPlaylistSummaryHeaderChanges(
+                () => playlists.CommitBMSTableHeadersToDB(changedTables, capability: authority),
+                () => { foreach (KeyValuePair<BMSTable, bool?> item in previousValues) { item.Key.is_bmt_output = item.Value; } });
+            await playlists.BmtOutput.ExportTablesAsync(changedTables, "playlist_summary_bmt_output_changed", authority);
+
+        }).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -411,7 +413,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             // この列挙で未表示のrawも正本属性へ揃えるため、filter済みの古い候補や候補別deltaは残しません。
             IEnumerable<PlaylistSummaryRow> projected = safeRawRows.Select(row =>
             {
-                if (row.TableRef != null) { row.ApplySavedProperties(row.TableRef, notify: false); }
+                if (row.TableRef != null) { row.ApplySavedProperties(row.TableRef, customFolderOutputSettingsProvider(), notify: false); }
                 return row;
             });
             PlaylistSummaryPresentationResult result = BuildPlaylistSummaryPresentationRows(projected, keywordFilter, ownedFilter, sortParameters);

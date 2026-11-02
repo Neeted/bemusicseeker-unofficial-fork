@@ -315,6 +315,7 @@ public sealed class PlaylistCatalogViewChangeTests
 
         var service = new PlaylistPropertySaveService(() => fixture.Playlist, () => fixture.Library, () => null!,
             () => new CustomFolderOutputSettingsSnapshot());
+        service.PlaylistPropertyCatalogChanged += (_, _) => { };
         service.PlaylistPropertySummaryDataRefreshRequested += (_, _) => { };
         var draft = new MainChartListCellEditContext(target, nameof(PlaylistDetailRow.memo),
             ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);

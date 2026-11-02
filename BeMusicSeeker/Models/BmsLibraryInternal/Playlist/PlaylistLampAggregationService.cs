@@ -344,7 +344,7 @@ internal sealed class PlaylistLampAggregationService
     private static List<PlaylistLampEntrySnapshot> DistinctEntries(IReadOnlyList<PlaylistLampEntrySnapshot> entries)
     {
         var result = new List<PlaylistLampEntrySnapshot>();
-        var indexes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var indexes = new Dictionary<string, int>(StringComparer.Ordinal);
         int unknownOrdinal = 0;
         foreach (PlaylistLampEntrySnapshot entry in entries ?? [])
         {

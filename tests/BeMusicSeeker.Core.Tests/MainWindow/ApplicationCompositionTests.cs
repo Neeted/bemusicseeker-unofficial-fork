@@ -16,7 +16,7 @@ public sealed partial class ApplicationCompositionTests
 
     /// <summary>重複選択とnull・false・trueの出力設定から実変更だけを保存し、必要出力の終端後に完了して再要求の無変更では出力を繰り返しません。</summary>
     [TestMethod]
-    public void PlaylistWorkspaceBmtOutputTogglePersistsDistinctChangedHeadersAndRequestsSummaryRefresh()
+    public void PlaylistWorkspaceBmtOutputTogglePersistsDistinctChangedHeadersWithoutSummaryRebuild()
     {
         using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         var databaseScope = new ApplicationDatabaseScope();
@@ -78,6 +78,12 @@ public sealed partial class ApplicationCompositionTests
                 _ => { },
                 (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
             AttachImmediatePlaylistPresentationRouter(workspace);
+            workspace.RequestPlaylistSummaryMode(true);
+            workspace.RebuildPlaylistSummaryView(runAsync: false);
+            workspace.WaitForPlaylistSummaryDataBuildIdleAsync().GetAwaiter().GetResult();
+            PlaylistSummaryRow currentSecond = workspace.PlaylistSummaryView.Single(row => ReferenceEquals(row.TableRef, second));
+            int flagNotifications = 0;
+            currentSecond.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(PlaylistSummaryRow.IsBmtOutput)) { flagNotifications++; } };
             int completedOutputCount = 0;
             playlist.BmtOutput.RequestProgressReporter = (_, running) =>
             {
@@ -98,7 +104,11 @@ public sealed partial class ApplicationCompositionTests
             Assert.IsNull(first.is_bmt_output);
             Assert.AreEqual(true, second.is_bmt_output);
             Assert.AreEqual(true, third.is_bmt_output);
-            Assert.IsTrue(workspace.CurrentPlaylistSummaryDataRebuildGeneration > generationBeforeFirstAction);
+            Assert.AreSame(currentSecond, workspace.PlaylistSummaryView.Single(row => ReferenceEquals(row.TableRef, second)));
+            Assert.IsTrue(currentSecond.IsBmtOutput);
+            Assert.IsTrue(flagNotifications > 0);
+            CollectionAssert.AreEqual(new[] { "First", "Second", "Third" }, workspace.PlaylistSummaryView.Select(row => row.Name).ToArray());
+            Assert.AreEqual(generationBeforeFirstAction, workspace.CurrentPlaylistSummaryDataRebuildGeneration, "headerだけの保存は全summaryを再構築しません。");
             Assert.AreEqual(1, completedOutputCount, "必要出力の実終端後に変更Taskを完了します。");
             long generationBeforeNoOp = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
             workspace.ApplyPlaylistSummaryCellActionAsync(

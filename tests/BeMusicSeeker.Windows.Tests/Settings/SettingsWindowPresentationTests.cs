@@ -5744,6 +5744,8 @@ public sealed class SettingsWindowPresentationTests
 
     private sealed class DangerWorkspacePort : ISettingsDialogWorkspacePort
     {
+        public Task PublishOutputSettingsHeadersAsync(CustomFolderOutputSettingsSnapshot previous) => Task.CompletedTask;
+
         internal Func<Task>? ExportOperation { get; init; }
         public bool HasPlaylistTables => true;
 

@@ -215,6 +215,7 @@ public sealed class SettingDialogEnvironmentConfirmationTests
                         playlist.CommitBMSTableHeadersToDB([table]);
                         var service = new PlaylistPropertySaveService(() => playlist, () => library, () => config, composition.CustomFolderOutputSettingsProvider);
                         // この代表は実保存・出力までを担い、Windowを要しない表示通知は終端だけ受けます。
+                        service.PlaylistPropertyCatalogChanged += (_, _) => { };
                         service.PlaylistPropertySummaryDataRefreshRequested += (_, _) => { };
                         service.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
                         Task<PlaylistPropertyEditSession> editing = service.CreateEditSessionAsync(table, false);

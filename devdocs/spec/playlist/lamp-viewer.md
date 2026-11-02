@@ -65,6 +65,8 @@ DPI変更時はWPFの標準処理を維持し、独自のフォルダ名・件�
 
 ### 統計とカテゴリ
 
+同じ表の保存所属（フォルダと元entryのMD5・SHA-256・LR2 ID・タイトル優先のキー）を集計単位とし、同じ所属の重複配送だけを除きます。所持解決後のMD5やpathで別所属を統合しません。同じ実譜面のMD5だけ/SHAだけの二所属は、所持変化を往復しても二件のまま、同じ成績を各所属へ適用します。カテゴリ・割合・統計と区間からの詳細一覧も同じ単位です。`BmsLibraryPlaylistLampDataSourceTests.CaptureAsync_PreservesSavedMembershipAcrossOwnershipChanges` と `PlaylistLampAggregationTests.Aggregate_WeightsSavedMembershipsRatherThanResolvedCharts` が捕捉と重み付けを分担します。
+
 有効な実エントリだけを集計し、未所持のエントリも総数に含めます。全体の割合の分母は総数、フォルダの割合はそのフォルダの実エントリ数です。分母が0なら「利用不可」とし、0%にはしません。
 
 通常フォルダの保存名が文字どおり `[NO SONG]` でも、他の通常フォルダと同じく所属・件数・全体集計へ含めます。通常の表から捕捉するフォルダ順と実エントリに特殊ノードは混ぜません。ツリーの未所持特殊ノードは `IsSpecial` と選択種別で区別し、表示名が同じことを通常フォルダの除外理由にはしません。
@@ -146,6 +148,8 @@ DPI変更時はWPFの標準処理を維持し、独自のフォルダ名・件�
 クリアの別名 `pf`、`fc`、`exh`、`hc`、`nc`、`ec`、`ae`、`lae`、`f` と、DJレベルの `aaa`、`aa`、`a`～`f` を実際の一覧パーサーに渡します。`ASSIST` は `INVALID | L_ASSIST`、`AAA` は `AAA | MAX` に対応します。文字列の厳密な順序ではなく、最終的な所属と一回の表示反映を契約にします。
 
 過去日のグラフからも現在のカテゴリ・範囲へ移り、基準日時を一覧へ渡しません。ツリー選択が成功した後だけ、メインウィンドウの最小化解除・アクティブ化・フォーカスを一回試みます。フォーカスに失敗しても、適用した移動を取り消しません。ビューアと他のウィンドウの選択状態は維持します。
+
+通常JSONのMD5だけ・SHA256だけの二所属は `BmsLibraryPlaylistLampDataSourceTests.CaptureAsync_PreservesSavedMembershipAcrossOwnershipChanges` で、新モデルへのDB読戻し、所持・path変更・未所持への復帰、同じ成績モードのfolder/全体区間から実詳細二行への遷移を確認します。
 
 ## 実装とテストの対応
 

@@ -631,7 +631,7 @@ public sealed partial class ApplicationCompositionTests
         }
     }
 
-    /// <summary>構成済みworkspaceのBMT順変更を実DBへ保存し、表示中のデータ再構築延期と非表示時の即時反映を分けます。</summary>
+    /// <summary>実compositionのBMT順変更をDBとconfigへ保存し、表示中は同じ現在行・選択通知の終端までPを保持し、非表示中はrawだけへ反映します。</summary>
     [TestMethod]
     public async Task ComposedPlaylistWorkspacePersistsSummaryBmtOrderAndRefreshesSummary()
     {
@@ -649,10 +649,27 @@ public sealed partial class ApplicationCompositionTests
             {
             }
             PlaylistPersistenceRepository.EnsureSchema(composition.DatabaseScope, songDbPath);
-            var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
-            var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
+            string beatorajaRoot = Path.Combine(tempDirectory, "beatoraja");
+            Directory.CreateDirectory(beatorajaRoot);
+            File.WriteAllText(Path.Combine(beatorajaRoot, "beatoraja.jar"), string.Empty);
+            string configPath = Path.Combine(beatorajaRoot, BeatorajaConfigService.ConfigFileName);
+            File.WriteAllText(configPath, "{\"tablepath\":\"table\",\"tableURL\":[\"https://example.test/unmanaged\"]}");
+            testSettings.EnableBeatorajaBmtOutput = true; testSettings.BeatorajaRootPath = beatorajaRoot;
+            testSettings.RegisterBeatorajaBmtUrls = true; testSettings.OperationModeLR2DB = false;
+            var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1, entries = [new BMSTableEntry { md5 = new string('a', 32), title = "First song" }] };
+            var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2, entries = [new BMSTableEntry { md5 = new string('b', 32), title = "Second song" }] };
             TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, songDbPath, testSettings);
             playlist.BMSTables = new ObservableCollection<BMSTable>([first, second]);
+            playlist.CommitBMSTablesWithEntriesToDB([first, second]);
+            await playlist.BmtOutput.ExportAllAsync("composition-order-seed");
+            var deliveryEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseDelivery = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            bool holdDelivery = false;
+            async Task Apply(Action action)
+            {
+                if (holdDelivery) { deliveryEntered.TrySetResult(); await releaseDelivery.Task; }
+                action();
+            }
             MainChartListViewModel mainChartList = composition.CreateMainChartListViewModel(action => action(), _ => { });
             PlaylistWorkspaceViewModel workspace = composition.CreatePlaylistWorkspaceViewModel(
                 action => action(),
@@ -679,9 +696,13 @@ public sealed partial class ApplicationCompositionTests
                 () => { },
                 _ => { },
                 (exception, message) => { },
-                (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
+                (_, _) => false, (_, _) => false, Apply, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
             AttachPlaylistPresentationRouter(workspace, deferSummaryData: true);
+            workspace.ConfigureCatalogNotificationQueue(action => action());
+            workspace.RefreshPlaylistTreeTables(playlist, null);
             workspace.IsPlaylistSummaryMode = true;
+            workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.BmtSort), System.ComponentModel.ListSortDirection.Ascending);
+            workspace.RebuildPlaylistSummaryView(runAsync: false);
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
                 mainChartList,
                 workspace,
@@ -712,39 +733,62 @@ public sealed partial class ApplicationCompositionTests
                  chartInfoParseFailureRemovalLibraryProvider: () => null!,
                  lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner(),
                  startupProgressWorkflowOwner: TestStartupProgressOwnerFactory.Create());
+            Task? operation = null;
             try
             {
+                PlaylistSummaryRow firstRow = workspace.PlaylistSummaryView.Single(row => row.PlaylistId == 1);
+                PlaylistSummaryRow secondRow = workspace.PlaylistSummaryView.Single(row => row.PlaylistId == 2);
+                var selection = (BeMusicSeeker.Views.ICustomTableSelectionIdentitySource)workspace.PlaylistSummaryView;
+                int starts = 0, completed = 0, propertyChanges = 0;
+                object? selectedId = firstRow.PlaylistId;
+                selection.SelectionUpdateStarting += (_, _) => { starts++; selectedId = selection.GetSelectionIdentity(selection.IndexOfSelectionIdentity(firstRow.PlaylistId)); };
+                selection.SelectionUpdateCompleted += (_, _) => { completed++; Assert.AreEqual(firstRow.PlaylistId, selection.GetSelectionIdentity(selection.IndexOfSelectionIdentity(selectedId))); };
+                firstRow.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(PlaylistSummaryRow.BmtSort)) { propertyChanges++; } };
                 long generationBeforeVisibleRefresh = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
-                await workspace.ApplyCurrentVisibleBmtOrderAsync(
-                [
-                    new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second },
-                    new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first }
-                ]);
-
-                Assert.AreEqual(2, first.bmt_sort);
-                Assert.AreEqual(1, second.bmt_sort);
-                Assert.AreEqual(generationBeforeVisibleRefresh + 1L, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
-                Assert.AreEqual(
-                    PlaylistSummaryDeferredRefreshKind.Data,
-                    workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false));
+                holdDelivery = true;
+                operation = workspace.ApplyCurrentVisibleBmtOrderAsync([secondRow, firstRow]);
+                await TestUiDispatcherHost.AwaitNotificationAsync(deliveryEntered.Task, operation, "composed BMT header delivery");
+                Assert.IsFalse(operation.IsCompleted); Assert.IsFalse(playlist.CanEnterPlaylistMutation);
+                Assert.AreEqual(1, firstRow.BmtSort); Assert.AreEqual(2, secondRow.BmtSort);
+                releaseDelivery.TrySetResult(); await operation; holdDelivery = false;
+                Assert.AreSame(secondRow, workspace.PlaylistSummaryView[0]); Assert.AreSame(firstRow, workspace.PlaylistSummaryView[1]);
+                Assert.AreEqual(2, firstRow.BmtSort); Assert.AreEqual(1, secondRow.BmtSort);
+                Assert.IsTrue(propertyChanges > 0); Assert.IsTrue(starts > 0); Assert.AreEqual(starts, completed);
+                Assert.IsTrue(playlist.CanEnterPlaylistMutation);
+                Assert.AreEqual(generationBeforeVisibleRefresh, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
+                Assert.AreEqual(PlaylistSummaryDeferredRefreshKind.None, workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false));
                 using (LR2SongDBExtended verify = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
                 {
                     Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT bmt_sort FROM playlist WHERE playlist_id = ?;", 1));
                     Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT bmt_sort FROM playlist WHERE playlist_id = ?;", 2));
                 }
+                string[] ReadUrls() => (Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(configPath))["tableURL"] as Newtonsoft.Json.Linq.JArray
+                    ?? throw new AssertFailedException("tableURLがありません。")).Select(value => value.ToString()).ToArray();
+                CollectionAssert.AreEqual(new[] { "https://example.test/unmanaged", "bemusicseeker://playlist/2", "bemusicseeker://playlist/1" }, ReadUrls());
                 workspace.IsPlaylistSummaryMode = false;
-                await workspace.ApplyCurrentVisibleBmtOrderAsync(
-                [
-                    new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first },
-                    new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second }
-                ]);
-                Assert.IsTrue(workspace.CurrentPlaylistSummaryDataRebuildGeneration > generationBeforeVisibleRefresh + 1L);
-                Assert.AreEqual(
-                    PlaylistSummaryDeferredRefreshKind.None,
-                    workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false));
+                // 非表示化自身の世代失効と、順序編集による構築要求を区別します。
+                long hiddenGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+                operation = workspace.ApplyCurrentVisibleBmtOrderAsync([firstRow, secondRow]);
+                await operation;
+                Assert.AreEqual(hiddenGeneration, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
+                Assert.AreEqual(PlaylistSummaryDeferredRefreshKind.None, workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false));
+                Assert.AreEqual(1, first.bmt_sort); Assert.AreEqual(2, second.bmt_sort);
+                CollectionAssert.AreEqual(new[] { "https://example.test/unmanaged", "bemusicseeker://playlist/1", "bemusicseeker://playlist/2" }, ReadUrls());
+                // 非表示中は現在viewを再公開せず、次の表示が参照するrawへ確定値を残します。
+                List<PlaylistSummaryRow> raw = workspace.GetPlaylistSummaryRowsCacheSnapshot(out _, out _);
+                Assert.IsNotNull(raw);
+                Assert.AreEqual(1, raw.Single(row => row.PlaylistId == 1).BmtSort);
+                Assert.AreEqual(2, raw.Single(row => row.PlaylistId == 2).BmtSort);
+                using LR2SongDBExtended hiddenVerify = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
+                CollectionAssert.AreEqual(new int?[] { 1, 2 }, hiddenVerify.Table<BMSTable>().OrderBy(table => table.bmt_sort).Select(table => table.playlist_id).ToArray());
             }
             finally
             {
+                releaseDelivery.TrySetResult();
+                if (operation != null) { await operation; }
+                await playlist.WaitForPlaylistMutationIdleAsync();
+                workspace.StopPlaylistSummaryDataBuild(); await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                workspace.Dispose(); playlist.RequestShutdown("composition-order-test");
                 childComposition.RegularChartListOwner.Dispose();
             }
         }

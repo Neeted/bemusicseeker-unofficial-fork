@@ -399,6 +399,8 @@ public sealed class SettingDialogOperationShutdownTests
 
     private sealed class SettingsOperationWorkspace(Func<Task> export) : ISettingsDialogWorkspacePort
     {
+        public Task PublishOutputSettingsHeadersAsync(CustomFolderOutputSettingsSnapshot previous) => Task.CompletedTask;
+
         public bool HasPlaylistTables => true;
         public long PlaylistCatalogVersion => 0;
         public IReadOnlyList<PlaylistTablePresentationSnapshot> CapturePlaylistPresentationSnapshots() => [];

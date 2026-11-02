@@ -20,6 +20,8 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
 
     private readonly PlaylistPropertySaveService saveService;
 
+    private readonly Func<Task> waitForSavedPresentation;
+
     private PlaylistPropertyEditSession editSession;
 
     private readonly bool isForNewTable;
@@ -491,8 +493,9 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
 
     internal PlaylistPropertyDialogViewModel(
         PlaylistPropertySaveService service,
-        PlaylistPropertyEditSession preparedSession)
+        PlaylistPropertyEditSession preparedSession, Func<Task> waitForSavedPresentation = null)
     {
+        this.waitForSavedPresentation = waitForSavedPresentation;
         saveService = service ?? throw new ArgumentNullException(nameof(service));
         editSession = preparedSession ?? throw new ArgumentNullException(nameof(preparedSession));
         bmsTable = editSession.Table;
@@ -557,15 +560,7 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         {
             return true;
         }
-        if (Page_url != null && Page_url.Scheme == "bmseeker")
-        {
-            return true;
-        }
-        if (Header_url != null && Data_url != null && ((Page_url != null && Page_url.IsAbsoluteUri) || Header_url.IsAbsoluteUri))
-        {
-            return true;
-        }
-        return false;
+        return BMSTable.CanStartExternalSync(Page_url, Header_url);
     }
 
     private bool IsOutputDirValid()
@@ -593,9 +588,7 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         {
             PlaylistPropertyValues values = await saveService.ResetAsync(editSession);
             loadTableProperties(values);
-            return isForNewTable || CheckValidation()
-                ? PlaylistPropertyDialogOperationResult.Completed
-                : PlaylistPropertyDialogOperationResult.ValidationFailed;
+            return PlaylistPropertyDialogOperationResult.Completed;
         }
         finally
         {
@@ -647,10 +640,16 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
             }
             editSession.Adopt(commit);
             bmsTable = editSession.Table;
-            if (commit.RequestedValuesSaved) { loadTableProperties(editSession.Values); }
-            // 継続失敗時は、まだDBへ保存していない編集中の値を保持する。
-            // Resetの基準は結果に含まれる最新保存値へ更新済み。
+            Exception presentationFailure = null;
+            try { if (commit.RequestedValuesSaved) { loadTableProperties(editSession.Values); } }
+            catch (Exception failure) { presentationFailure = failure; }
+            // 継続失敗時も取消基準は最新確定値です。画面反映が失敗しても共通配送の終端を試みます。
+            try { if (waitForSavedPresentation != null) { await waitForSavedPresentation(); } }
+            catch (Exception failure) { presentationFailure ??= failure; }
+            try { await commit.SavedPresentation; }
+            catch (Exception failure) { presentationFailure ??= failure; }
             saveService.PublishSaveFailure(commit);
+            if (presentationFailure != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(presentationFailure).Throw(); }
             return PlaylistPropertyDialogOperationResult.Completed;
         }
         finally

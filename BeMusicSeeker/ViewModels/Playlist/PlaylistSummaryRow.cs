@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -11,27 +12,47 @@ public class PlaylistSummaryRow : INotifyPropertyChanged
     [field: NonSerialized]
     public event PropertyChangedEventHandler PropertyChanged;
 
-    /// <summary>保存済み正本の編集属性と派生表示を対象行だけへ反映します。rawcacheは無通知で進め、現在行だけBindingへ通知します。</summary>
-    internal void ApplySavedProperties(BMSTable table, bool notify = true)
+    /// <summary>保存headerと公開済み設定だけから対象行を投影します。件数・STATUS・表参照は変更しません。</summary>
+    internal void ApplySavedProperties(PlaylistHeaderValue header, CustomFolderOutputSettingsSnapshot settings, bool notify = true)
     {
-        using (table.ReaderWriterLock.GetReaderGuard())
-        {
-            Name = table.name ?? string.Empty;
-            FolderName = table.Output_dir ?? string.Empty;
-            string explicitDirectory = BMSTable.NormalizeOutputDirectoryName(table.output_dir);
-            FolderNameUndefined = string.IsNullOrWhiteSpace(explicitDirectory)
-                || string.Equals(explicitDirectory, BMSTable.CreateDefaultOutputDirectoryName(table.name), StringComparison.Ordinal);
-            CompatPrefix = table.compat_prefix ?? string.Empty;
-            Symbol = table.symbol ?? string.Empty;
-            LastUpdate = table.last_update;
-        }
+        PlaylistId = header.PlaylistId;
+        Name = header.Name ?? string.Empty;
+        FolderName = BMSTable.ResolveOutputDirectoryName(header.Name, header.OutputDirectory) ?? string.Empty;
+        string explicitDirectory = BMSTable.NormalizeOutputDirectoryName(header.OutputDirectory);
+        FolderNameUndefined = string.IsNullOrWhiteSpace(explicitDirectory)
+            || string.Equals(explicitDirectory, BMSTable.CreateDefaultOutputDirectoryName(header.Name), StringComparison.Ordinal);
+        CompatPrefix = header.CompatPrefix ?? string.Empty;
+        Symbol = header.Symbol ?? string.Empty;
+        LastUpdate = header.LastUpdate;
+        HeaderUri = BMSTable.ResolvePlaylistUri(header.HeaderUrl, header.PageUrl);
+        DataUri = BMSTable.ResolvePlaylistUri(header.DataUrl, HeaderUri ?? header.PageUrl);
+        Uri page = header.PageUrl ?? HeaderUri;
+        LinkUri = page?.IsAbsoluteUri == true && page.Scheme != "bmseeker" ? page : null;
+        IsExternalSync = header.IsExternalSync;
+        IsRootFolder = header.IsRootFolder;
+        BmtSort = header.BmtSort ?? int.MaxValue;
+        IsBmtOutput = header.IsBmtOutput != false;
+        OutputBaseName = header.OutputBaseName ?? string.Empty;
+        OutputBaseDisplayName = CustomFolderOutputBaseRegistry.GetDisplayName(header.OutputBaseName,
+            settings.LR2CustomFolderOutputBaseDir, settings.LR2CustomFolderAdditionalOutputBaseDirs);
         if (notify) { PublishSavedProperties(); }
     }
 
-    /// <summary>現在表示への確定属性通知を、collectionの局所変更と同じUI処理で発行します。</summary>
+    /// <summary>初回構築・再表示で現在の生存表headerを同じ投影へ渡します。</summary>
+    internal void ApplySavedProperties(BMSTable table, CustomFolderOutputSettingsSnapshot settings, bool notify = true)
+    {
+        PlaylistHeaderValue header;
+        using (table.ReaderWriterLock.GetReaderGuard()) { header = PlaylistHeaderValue.Capture(table); }
+        ApplySavedProperties(header, settings, notify);
+    }
+
+    /// <summary>現在行の全header属性とURI派生属性をBindingへ通知します。</summary>
     internal void PublishSavedProperties()
     {
-        foreach (string property in new[] { nameof(Name), nameof(FolderName), nameof(FolderNameUndefined), nameof(CompatPrefix), nameof(Symbol), nameof(LastUpdate) })
+        foreach (string property in new[] { nameof(Name), nameof(FolderName), nameof(FolderNameUndefined), nameof(CompatPrefix),
+            nameof(Symbol), nameof(LastUpdate), nameof(LinkUri), nameof(HeaderUri), nameof(DataUri), nameof(HeaderUriText),
+            nameof(DataUriText), nameof(IsExternalSync), nameof(IsRootFolder), nameof(BmtSort), nameof(IsBmtOutput),
+            nameof(OutputBaseName), nameof(OutputBaseDisplayName) })
         { PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(property)); }
     }
     public int? PlaylistId { get; set; }

@@ -108,7 +108,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         if (!TryBeginPlaylistMutation(store, kind, out IDisposable admission)) { return; }
         using IDisposable accepted = admission;
         using LibraryFileMutationCapability capability = store.CreatePlaylistMutationCapability(admission);
-        await Task.Run(() => execute(capability)).ConfigureAwait(false);
+        await RunWithSavedHeaderPresentationAsync(() => Task.Run(() => execute(capability))).ConfigureAwait(false);
     }
 
     /// <summary>手動改名の新しい空白入力だけを空文字へ揃え、同じ確定名を保存と選択の対応付けへ渡します。</summary>
@@ -866,7 +866,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    private void PublishEntriesChanged(BMSTable table, bool refreshSummaryIfVisible = true)
+    private void PublishEntriesChanged(BMSTable table, bool refreshSummaryIfVisible = true, Action<long> beforeSummaryRefresh = null)
     {
         // entry の値・所属は正規 receipt が既存 source と構築要求へ配送します。
         // ここでは folder rename 等で実選択が変わり、まだその選択の要求がない場合だけ再表示します。
@@ -885,7 +885,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (refreshSummaryIfVisible)
             {
                 RequestPlaylistSummaryDataRefresh(
-                    "playlist_entries_updated");
+                    "playlist_entries_updated", beforeRefreshRequested: beforeSummaryRefresh);
             }
         }
     }

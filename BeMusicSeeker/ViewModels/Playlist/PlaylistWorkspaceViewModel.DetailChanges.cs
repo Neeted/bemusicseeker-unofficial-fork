@@ -71,9 +71,45 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    private Task WaitForDetailEntryDeliveryAsync()
+    /// <summary>同じ操作権限内で保存と必要出力、確定headerの表示終端を待ち、先行失敗を保持します。</summary>
+    /// <param name="operation">同操作の保存・必要出力を行う実Taskです。</param>
+    /// <param name="publishAfterOutput">必要出力の成否にかかわらず試す、保存済みcatalogの通知です。先行する出力失敗は置換しません。</param>
+    private async Task RunWithSavedHeaderPresentationAsync(Func<Task> operation, Action publishAfterOutput = null)
     {
-        lock (detailEntryDeliveryLock) { return detailEntryDelivery; }
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo failure = null;
+        try { await operation().ConfigureAwait(false); }
+        catch (Exception error) { failure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error); }
+        try { publishAfterOutput?.Invoke(); }
+        catch (Exception error)
+        {
+            if (failure == null) { failure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error); }
+            else { TryLogPlaylistDropSecondaryFailure(error, "playlist_saved_catalog_presentation_failed"); }
+        }
+        try { await WaitForDetailEntryDeliveryAsync().ConfigureAwait(false); }
+        catch (Exception error)
+        {
+            if (failure == null) { throw; }
+            TryLogPlaylistDropSecondaryFailure(error, "playlist_saved_header_presentation_failed");
+        }
+        failure?.Throw();
+    }
+
+    async Task ISettingsDialogWorkspacePort.PublishOutputSettingsHeadersAsync(CustomFolderOutputSettingsSnapshot previous)
+    {
+        GetPlaylistStore().PublishOutputSettingsHeaders(previous, customFolderOutputSettingsProvider());
+        await WaitForDetailEntryDeliveryAsync().ConfigureAwait(false);
+    }
+
+    private async Task WaitForDetailEntryDeliveryAsync()
+    {
+        Task delivery;
+        lock (detailEntryDeliveryLock) { delivery = detailEntryDelivery; }
+        try { await delivery.ConfigureAwait(false); }
+        finally
+        {
+            lock (detailEntryDeliveryLock)
+            { if (ReferenceEquals(detailEntryDelivery, delivery)) { detailEntryDelivery = Task.CompletedTask; } }
+        }
     }
 
     private async Task DeliverEntryCommitsAsync(Task previous, BMSPlaylist store, ImmutableArray<PlaylistEntryCommitReceipt> receipts, bool refreshSummary)
@@ -90,6 +126,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 {
                     foreach (PlaylistEntryCommitReceipt receipt in receipts)
                     {
+                        if (receipt.Changes.IsEmpty && receipt.FolderOrder.IsDefault) { continue; }
                         BufferEntryCommit(DetailBuildState.CurrentBuildRequest, receipt);
                         BufferEntryCommit(DetailBuildState.PendingRequest, receipt);
                         lock (DetailViewState.SyncRoot)
@@ -122,8 +159,17 @@ public sealed partial class PlaylistWorkspaceViewModel
                         }
                     }
                 }
-                PublishDetailChanges();
+                if (receipts.Any(receipt => !receipt.Changes.IsEmpty || !receipt.FolderOrder.IsDefault)) { PublishDetailChanges(); }
+                CustomFolderOutputSettingsSnapshot settings = customFolderOutputSettingsProvider();
+                List<Exception> headerFailures = [];
+                foreach (IGrouping<BMSTable, PlaylistEntryCommitReceipt> group in receipts.Where(receipt => receipt.Header != null).GroupBy(receipt => receipt.Table))
+                {
+                    if (!store.ContainsActivePlaylistTable(group.Key)) { continue; }
+                    try { ApplySummarySavedProperties(group.Key, group.Last().Header, settings); }
+                    catch (Exception failure) { headerFailures.Add(failure); }
+                }
                 if (refreshSummary) { RequestPlaylistSummaryDataRefresh("playlist_entry_lookup_changed"); }
+                if (headerFailures.Count > 0) { throw new AggregateException(headerFailures); }
                 return true;
             });
         }).ConfigureAwait(false);

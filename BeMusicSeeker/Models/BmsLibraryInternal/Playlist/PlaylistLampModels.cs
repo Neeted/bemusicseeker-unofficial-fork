@@ -278,28 +278,14 @@ internal sealed class PlaylistLampEntrySnapshot
         IsOwned = isOwned;
         IsRemoved = isRemoved;
         IsDummy = isDummy || string.Equals(Md5, BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER, StringComparison.OrdinalIgnoreCase);
-        IdentityKey = Normalize(identityKey);
-        if (string.IsNullOrWhiteSpace(IdentityKey))
-        {
-            IdentityKey = !string.IsNullOrWhiteSpace(ResolvedMd5)
-                ? "md5:" + ResolvedMd5
-                : !string.IsNullOrWhiteSpace(Md5)
-                    ? "md5:" + Md5
-                    : !string.IsNullOrWhiteSpace(ResolvedSha256)
-                        ? "sha256:" + ResolvedSha256
-                        : !string.IsNullOrWhiteSpace(Sha256)
-                            ? "sha256:" + Sha256
-                            : !string.IsNullOrWhiteSpace(ResolvedPath)
-                                ? "path:" + ResolvedPath
-                                : string.Empty;
-        }
+        IdentityKey = identityKey ?? string.Empty;
     }
 
     /// <summary>通常 folder の論理名です。</summary>
     public string FolderName { get; }
 
-    /// <summary>同一 chart 判定に使う安定 identity です。</summary>
-    public string IdentityKey { get; private set; }
+    /// <summary>同じ表・フォルダ内の保存所属を識別する元entryのidentity です。</summary>
+    public string IdentityKey { get; }
 
     /// <summary>playlist entry の MD5 です。</summary>
     public string Md5 { get; }

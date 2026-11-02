@@ -79,6 +79,179 @@ public sealed class BmsPlaylistExternalReloadTests
 
     private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
 
+
+    /// <summary>手動再同期の実DB置換後、header配送と固有summary公開を順に保持します。出力と表示が失敗しても元原因を返し、Pは必要表示の試行まで解放しません。</summary>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task ManualResync_WaitsForHeaderAndReplacementSummaryPublication(bool failPresentation, bool failOutput)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(enableBmtOutput: true, modelUiScheduler: new TestUiScheduler(() => null));
+        fixture.Workspace.Dispose();
+        var queued = System.Threading.Channels.Channel.CreateUnbounded<(Action Apply, TaskCompletionSource Completion)>();
+        bool hold = false;
+        Task Schedule(Action action)
+        {
+            if (!hold) { action(); return Task.CompletedTask; }
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Assert.IsTrue(queued.Writer.TryWrite((action, completion)));
+            return completion.Task;
+        }
+        using PlaylistWorkspaceViewModel workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _,
+            playlistStoreProvider: () => fixture.Playlist, playlistLibraryProvider: () => fixture.Library,
+            restoreUiApplyScheduler: Schedule, presentationRefreshDeferredProvider: _ => true);
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+        fixture.Playlist.BmtOutput.FailureReporter = workspace.ReportBmtOutputFailures;
+        workspace.RequestPlaylistSummaryMode(true); workspace.RebuildPlaylistSummaryView(runAsync: false);
+        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        PlaylistSummaryRow oldRow = workspace.PlaylistSummaryView.Single();
+        var started = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int builds = 0;
+        workspace.PlaylistSummaryBuildStarted += (_, completion) => { builds++; if (hold) { started.TrySetResult(completion); } };
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(fixture.HeaderPath) ?? throw new AssertFailedException(), "data.json"),
+            "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"New A\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"New B\",\"level\":\"2\"}]");
+        FileStream? blocker = failOutput ? new FileStream(fixture.BmtManifestPath, FileMode.Open, FileAccess.Read, FileShare.None) : null;
+        var presentationFailure = new InvalidOperationException("manual reload summary publication failed");
+        Task? operation = null;
+        Task? summary = null;
+        var held = new List<(Action Apply, TaskCompletionSource Completion)>();
+        async Task<(Action Apply, TaskCompletionSource Completion)> Next()
+        {
+            Task<(Action Apply, TaskCompletionSource Completion)> next = queued.Reader.ReadAsync().AsTask();
+            await TestUiDispatcherHost.AwaitNotificationAsync(next, operation ?? throw new AssertFailedException(), "manual reload owned presentation");
+            (Action Apply, TaskCompletionSource Completion) work = await next; held.Add(work); return work;
+        }
+        void Apply((Action Apply, TaskCompletionSource Completion) work)
+        {
+            try { work.Apply(); work.Completion.TrySetResult(); }
+            catch (Exception error) { work.Completion.TrySetException(error); }
+        }
+        try
+        {
+            hold = true;
+            // treeの単表入口とsummaryの行入口はいずれも同じ受理済み手動再同期へ到達します。
+            operation = failPresentation ? workspace.ResyncPlaylistsAsync([oldRow]) : workspace.ResyncPlaylistTableAsync(fixture.Table);
+            (Action Apply, TaskCompletionSource Completion) first = await Next();
+            Assert.AreNotSame(fixture.Table, fixture.Playlist.BMSTables.Single());
+            Assert.AreSame(oldRow, workspace.PlaylistSummaryView.Single());
+            Assert.IsFalse(operation.IsCompleted); Assert.IsFalse(fixture.Playlist.CanEnterPlaylistMutation);
+            using (LR2SongDBExtended read = fixture.DatabaseScope.OpenSongReadOnly(fixture.SongDb))
+            {
+                var saved = read.Table<BMSTableEntry>().ToList();
+                Assert.AreEqual(2, saved.Count(entry => !entry.is_removed));
+                Assert.AreEqual(4, saved.Count(entry => entry.is_removed), "再取得は旧所属の削除履歴を保存します。");
+            }
+            Apply(first);
+            while (!started.Task.IsCompleted) { Apply(await Next()); }
+            summary = await started.Task;
+            (Action Apply, TaskCompletionSource Completion) publication = await Next();
+            Assert.IsFalse(summary.IsCompleted); Assert.IsFalse(operation.IsCompleted);
+            Assert.IsFalse(fixture.Playlist.CanEnterPlaylistMutation);
+            Assert.AreSame(oldRow, workspace.PlaylistSummaryView.Single());
+            hold = false;
+            if (failPresentation) { publication.Completion.TrySetException(presentationFailure); }
+            else { Apply(publication); }
+            Exception? failure = null;
+            try { await operation; } catch (Exception error) { failure = error; }
+            if (failPresentation)
+            {
+                Assert.IsNotNull(failure);
+                IReadOnlyList<Exception> failures = new AggregateException(failure).Flatten().InnerExceptions;
+                Assert.IsTrue(failures.Any(error => ReferenceEquals(error, presentationFailure)));
+                Assert.AreEqual(failOutput, failures.Any(error => error is PlaylistMutationPostCommitException));
+            }
+            else { Assert.IsNull(failure); }
+            Assert.IsTrue(summary.IsCompleted); Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+            Assert.AreEqual(1, builds);
+            blocker?.Dispose(); blocker = null;
+            if (failPresentation) { await workspace.ResyncPlaylistTableAsync(fixture.Playlist.BMSTables.Single()); }
+            PlaylistSummaryRow current = workspace.PlaylistSummaryView.Single();
+            Assert.AreSame(fixture.Playlist.BMSTables.Single(), current.TableRef); Assert.AreNotSame(oldRow, current);
+            Assert.AreEqual(2, current.TotalCharts);
+            int beforeDrain = builds;
+            workspace.DrainDeferredPlaylistSummaryRefresh(false, false);
+            Assert.AreEqual(beforeDrain, builds, "既存shellの遅延callbackで二重構築しません。");
+            using LibraryFileMutationLease nextAdmission = fixture.Playlist.AcquirePlaylistMutationLease("manual-reload-next");
+        }
+        finally
+        {
+            hold = false;
+            foreach ((Action Apply, TaskCompletionSource Completion) work in held.Where(work => !work.Completion.Task.IsCompleted)) { Apply(work); }
+            while (queued.Reader.TryRead(out (Action Apply, TaskCompletionSource Completion) work)) { Apply(work); }
+            if (operation != null) { try { await operation; } catch (Exception) { } }
+            if (summary != null) { try { await summary; } catch (Exception) { } }
+            blocker?.Dispose();
+            await workspace.WaitForDetailBuildIdleAsync(); await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        }
+    }
+
+    /// <summary>絶対Pageから空Headerだけを補完する実reloadを通し、項目へ再保存せずDB・現在表・必要BMTを確定します。</summary>
+    [TestMethod]
+    public async Task ReloadPlaylistTargetsAsync_CompletesOnlyHeaderWithoutRewritingEntries()
+    {
+        string directory = Path.Combine(CaseWorkspace.RootDirectory, "header-completion");
+        Directory.CreateDirectory(directory);
+        string path = CreateTempSongDbPath(databaseScope, directory);
+        PlaylistPersistenceRepository.EnsureSchema(databaseScope, path);
+        string pagePath = Path.Combine(directory, "index.html"), headerPath = Path.Combine(directory, "header.json"), dataPath = Path.Combine(directory, "data.json");
+        Uri pageUri = new(pagePath), headerUri = new(headerPath), dataUri = new(dataPath);
+        File.WriteAllText(pagePath, "<html><head><meta name='bmstable' content='" + headerUri.AbsoluteUri + "'></head><body></body></html>");
+        File.WriteAllText(headerPath, "{\"name\":\"Header completion\",\"symbol\":\"H\",\"data_url\":\"" + dataUri.AbsoluteUri + "\"}");
+        File.WriteAllText(dataPath, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Keep\",\"level\":\"1\"}]");
+        string bmtDirectory = Path.Combine(directory, "bmt");
+        var tasks = new ConcurrentQueue<Task>();
+        var playlist = new TestBmsPlaylist(databaseScope, path, null, null, null,
+            () => new PlaylistUrlCompletionOptionsSnapshot(),
+            () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmtDirectory },
+            () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, uiScheduler: new TestUiScheduler(() => null))
+        { BMSTables = [] };
+        playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { tasks.Enqueue(Task.Run(work)); return true; };
+        try
+        {
+            BMSTable original = await playlist.ExternalSyncOwner.LoadExternalTableAsync(pageUri);
+            original.playlist_id = 7921; original.Header_url = null; original.is_bmt_output = true;
+            DateTime update = new(2020, 2, 3, 4, 5, 6), added = new(2019, 1, 2, 3, 4, 5);
+            original.last_update = update; original.entries.Single().adddate = added; original.entries.Single().memo = "local memo";
+            string headerHash = original.header_sha256, dataHash = original.data_sha256;
+            Assert.AreEqual(pageUri, original.Page_url); Assert.AreEqual(dataUri, original.Data_url);
+            Assert.IsFalse(string.IsNullOrEmpty(headerHash)); Assert.IsFalse(string.IsNullOrEmpty(dataHash));
+            playlist.BMSTables.Add(original); playlist.CommitBMSTableWithEntriesToDB(original);
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(path))
+            {
+                foreach (string kind in new[] { "INSERT", "UPDATE", "DELETE" })
+                {
+                    db.Execute("CREATE TRIGGER header_only_no_" + kind + " BEFORE " + kind + " ON playlist_entry BEGIN SELECT RAISE(ABORT, 'header completion must not save entries'); END;");
+                }
+            }
+            var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
+            playlist.BmtOutput.ExportProgressReporter = progress.Enqueue;
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([original]);
+            results.ThrowIfFailed();
+            PlaylistExternalSyncOwner.PlaylistReloadTargetResult result = results.Single();
+            BMSTable current = playlist.BMSTables.Single();
+            Assert.AreSame(current, result.ResultTable); Assert.AreNotSame(original, current);
+            Assert.IsFalse(result.Updated); Assert.IsTrue(result.StatePersisted); Assert.IsTrue(result.NeedsBmtExport);
+            Assert.AreEqual(headerUri, current.Header_url); Assert.AreEqual(pageUri, current.Page_url); Assert.AreEqual(dataUri, current.Data_url);
+            Assert.AreEqual(headerHash, current.header_sha256); Assert.AreEqual(dataHash, current.data_sha256); Assert.AreEqual(update, current.last_update);
+            Assert.AreEqual("Header completion", current.name); Assert.AreEqual(added, current.entries.Single().adddate); Assert.AreEqual("local memo", current.entries.Single().memo);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), path).OpenSongDbReadOnly();
+            BMSTable saved = verify.Table<BMSTable>().Single(); BMSTableEntry entry = verify.Table<BMSTableEntry>().Single();
+            Assert.AreEqual(headerUri, saved.Header_url); Assert.AreEqual(pageUri, saved.Page_url); Assert.AreEqual(dataUri, saved.Data_url);
+            Assert.AreEqual(headerHash, saved.header_sha256); Assert.AreEqual(dataHash, saved.data_sha256); Assert.AreEqual(update, saved.last_update);
+            Assert.AreEqual("Keep", entry.title); Assert.AreEqual(added, entry.adddate); Assert.AreEqual("local memo", entry.memo);
+            Assert.IsTrue(progress.Any(snapshot => snapshot.IsActive));
+            Assert.IsTrue(File.Exists(Path.Combine(bmtDirectory, BmtTableExportService.ManifestFileName)));
+            Assert.AreEqual(1, Directory.GetFiles(bmtDirectory, "*.bmt").Length);
+        }
+        finally
+        {
+            await playlist.WaitForPlaylistMutationIdleAsync();
+            while (tasks.TryDequeue(out Task? task)) { await task; }
+            playlist.RequestShutdown("header-completion-test");
+        }
+    }
+
     /// <summary>不適合日時のhash初期化では日時を保ち、同原文を再保存せず、既知header/data原文差だけ更新日時を進めます。旧adddate/memoは実mergeと新DBで保持します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]

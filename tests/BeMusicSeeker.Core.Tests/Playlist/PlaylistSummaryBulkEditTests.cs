@@ -290,6 +290,104 @@ public sealed class PlaylistSummaryBulkEditTests
         Assert.AreEqual(afterCommit ? "Q1" : "P1", verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id=7492 AND title='entry 0';"));
     }
 
+
+    /// <summary>四bulk入口のcatalog予約失敗でも必要BMTを試し、header配送中はPを保持します。BMT失敗が先行する場合はその原因を維持します。</summary>
+    [TestMethod]
+    [DataRow("types", false)]
+    [DataRow("sync", false)]
+    [DataRow("root", false)]
+    [DataRow("base", false)]
+    [DataRow("types", true)]
+    [DataRow("sync", true)]
+    [DataRow("root", true)]
+    [DataRow("base", true)]
+    public async Task BulkHeaderCatalogQueueFailure_DoesNotSkipOutputOrHeaderDelivery(string route, bool failOutput)
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(enableBmtOutput: true, modelUiScheduler: new TestUiScheduler(() => null));
+        fixture.Workspace.Dispose();
+        if (route == "base")
+        {
+            fixture.Table.custom_folder_output_base_name = "retired";
+            fixture.Playlist.CommitBMSTableHeaderToDB(fixture.Table);
+        }
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var catalogEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool hold = false;
+        var catalogFailure = new InvalidOperationException("catalog queue rejected");
+        async Task Apply(Action action)
+        {
+            if (hold) { entered.TrySetResult(); await release.Task; }
+            action();
+        }
+        using PlaylistWorkspaceViewModel workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _,
+            playlistStoreProvider: () => fixture.Playlist, playlistLibraryProvider: () => fixture.Library,
+            restoreUiApplyScheduler: Apply,
+            catalogNotificationQueue: action =>
+            {
+                if (hold) { catalogEntered.TrySetResult(); throw catalogFailure; }
+                action();
+            });
+        workspace.RefreshPlaylistTreeTables(fixture.Playlist, fixture.Library);
+        workspace.SetPlaylistSummaryMode(enabled: true); workspace.RebuildPlaylistSummaryView(runAsync: false);
+        PlaylistSummaryRow row = workspace.PlaylistSummaryView.Single();
+        int revision = fixture.Table.PlaylistEntriesRevision;
+        DateTime update = fixture.Table.last_update;
+        int projected = 0;
+        row.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(PlaylistSummaryRow.Name)) { projected++; } };
+        var outputFailures = new List<BmtTableExportService.FileOperationFailure>();
+        fixture.Playlist.BmtOutput.FailureReporter = failures => outputFailures.AddRange(failures);
+        FileStream? blocker = failOutput ? new FileStream(fixture.BmtManifestPath, FileMode.Open, FileAccess.Read, FileShare.None) : null;
+        Task? operation = null;
+        try
+        {
+            hold = true;
+            operation = route switch
+            {
+                "types" => workspace.ApplyPlaylistSummaryCustomFolderOutputTypes([row], new PlaylistWorkspaceViewModel.PlaylistSummaryCustomFolderOutputPatch { AllSongsFolder = false }),
+                "sync" => workspace.ApplyPlaylistSummaryExternalSync([row], true),
+                "root" => workspace.ApplyPlaylistSummaryRootFolder([row], true),
+                _ => workspace.ApplyPlaylistSummaryOutputBase([row], string.Empty)
+            };
+            await TestUiDispatcherHost.AwaitNotificationAsync(Task.WhenAll(entered.Task, catalogEntered.Task), operation, "bulk catalog failure and header gate");
+            Assert.IsFalse(operation.IsCompleted); Assert.AreEqual(0, projected);
+            Assert.ThrowsExactly<InvalidOperationException>(() => fixture.Playlist.AcquirePlaylistMutationLease("bulk-header-gate-competing"));
+            if (failOutput) { Assert.IsTrue(outputFailures.Count > 0); }
+            else
+            {
+                string output = Path.GetDirectoryName(fixture.BmtManifestPath) ?? throw new AssertFailedException();
+                Assert.AreEqual(1, Directory.GetFiles(output, "*.bmt").Length, "catalog予約が失敗しても必要なBMTを出力します。");
+            }
+            release.TrySetResult();
+            if (failOutput)
+            {
+                PlaylistMutationPostCommitException failure = await Assert.ThrowsExactlyAsync<PlaylistMutationPostCommitException>(() => operation);
+                Assert.IsNotNull(failure.InnerException);
+                Assert.IsInstanceOfType<IOException>(failure.InnerException);
+                StringAssert.Contains(failure.InnerException.Message, BmtTableExportService.ManifestFileName);
+            }
+            else { Assert.AreSame(catalogFailure, await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => operation)); }
+            Assert.AreEqual(1, projected); Assert.AreSame(row, workspace.PlaylistSummaryView.Single());
+            Assert.AreEqual(revision, fixture.Table.PlaylistEntriesRevision); Assert.AreEqual(update, row.LastUpdate);
+            Assert.AreEqual(fixture.Table.is_external_sync, row.IsExternalSync); Assert.AreEqual(fixture.Table.is_root_folder, row.IsRootFolder);
+            Assert.AreEqual(fixture.Table.custom_folder_output_base_name ?? string.Empty, row.OutputBaseName);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
+            BMSTable saved = verify.Table<BMSTable>().Single();
+            Assert.AreEqual(fixture.Table.ignore_folder_output, saved.ignore_folder_output);
+            Assert.AreEqual(fixture.Table.is_external_sync, saved.is_external_sync); Assert.AreEqual(fixture.Table.is_root_folder, saved.is_root_folder);
+            Assert.AreEqual(fixture.Table.custom_folder_output_base_name, saved.custom_folder_output_base_name);
+            using LibraryFileMutationLease next = fixture.Playlist.AcquirePlaylistMutationLease("bulk-header-gate-next");
+        }
+        finally
+        {
+            release.TrySetResult();
+            if (operation != null) { try { await operation; } catch (Exception error) when (error is InvalidOperationException or PlaylistMutationPostCommitException) { } }
+            blocker?.Dispose();
+            await fixture.Playlist.WaitForPlaylistMutationIdleAsync();
+            workspace.StopPlaylistSummaryDataBuild(); await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        }
+    }
+
     /// <summary>実BMT台帳の読取り故障をDB確定後に発生させ、概要コピー/候補または採用済み詳細を確定値へ進めます。二次通知故障を重ねても出力原因を保ち、Pと進捗・receiptの終端を実Taskで確認します。DB前の旧状態は既存DurableFailureとprefix境界ケースが担当します。</summary>
     [TestMethod]
     [DataRow(true, false)]
@@ -407,7 +505,7 @@ public sealed class PlaylistSummaryBulkEditTests
             Assert.AreEqual(1, catalogNotifications);
             Assert.IsTrue(headerGuardsReleased);
             Assert.IsTrue(collectionGuardReleased);
-            Assert.AreEqual(summaryActive ? 1 : 0, summaryRequests);
+            Assert.AreEqual(0, summaryRequests, "header投影は全summary更新の要求を退役します。現在行の値は下で確認します。");
             Assert.AreEqual(1, keywordNotifications);
             CollectionAssert.AreEqual(new[] { "Changed Prefix" }, keywordCandidates.Single());
             if (summaryActive)

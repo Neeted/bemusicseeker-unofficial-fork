@@ -764,7 +764,7 @@ public partial class BMSPlaylist : ObservableObject
         lr2SongDBPath = _lr2SongDB;
         this.databaseScope = databaseScope ?? throw new ArgumentNullException(nameof(databaseScope));
         playlistPersistenceRepository = new PlaylistPersistenceRepository(databaseScope, _lr2SongDB, initializeEntryWriteConnection);
-        playlistAggregatePersistenceOwner = new PlaylistAggregatePersistenceOwner(playlistPersistenceRepository, rwlockBMSTables, this.uiScheduler);
+        playlistAggregatePersistenceOwner = new PlaylistAggregatePersistenceOwner(playlistPersistenceRepository, rwlockBMSTables, this.uiScheduler, registerReloadHeader: RegisterEntryCommit);
         playlistAggregatePersistenceOwner.SetActiveCollection([], _BMSTables);
         lr2config = getLR2Config;
         beatorajaBmtSongHashResolverFactory = getBeatorajaBmtSongHashResolver;
@@ -1652,7 +1652,7 @@ public partial class BMSPlaylist : ObservableObject
         string easyPredicate = clearColumn + " = 2 AND (" + opHistoryValue + " & " + ClearTypeStorageConverter.OptionHistoryEasy + ") != 0";
         var clearScopes = new List<Tuple<string, string, string>>
         {
-            Tuple.Create("0 NO PLAY", "NO PLAY", clearColumn + " IS NULL"),
+            Tuple.Create("0 NO PLAY", "NO PLAY", "(" + clearColumn + " IS NULL OR " + clearColumn + " = 0)"),
             Tuple.Create("1 FAILED", "FAILED", clearColumn + " = 1"),
             Tuple.Create("2 ASSIST", "ASSIST", clearColumn + " = 2 AND NOT (" + easyPredicate + ")"),
             Tuple.Create("3 EASY", "EASY", easyPredicate),
@@ -2015,8 +2015,8 @@ public partial class BMSPlaylist : ObservableObject
                 if (!string.Equals(oldName, nextName, StringComparison.Ordinal)) { updates.Add((table, nextName)); }
             }
         }
-        playlistAggregatePersistenceOwner.ReplaceOutputBaseNames(updates.AsReadOnly());
-        if (updates.Count > 0) { ApplyCommittedPlaylistReferenceHeaders(CaptureReferenceHeaders(updates.Select(update => update.Table))); }
+        playlistAggregatePersistenceOwner.ReplaceOutputBaseNames(updates.AsReadOnly(), RegisterEntryCommit);
+        if (updates.Count > 0) { ApplyCommittedPlaylistReferenceHeaders(CaptureReferenceHeaders(updates.Select(update => update.Table)), deliverHeaders: false); }
         return locations.AsReadOnly();
     }
 
@@ -4716,7 +4716,7 @@ public partial class BMSPlaylist : ObservableObject
         using (rwlockBMSTables.GetReaderGuard())
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
         {
-            playlistAggregatePersistenceOwner.ReplaceHeader(bmsTable);
+            playlistAggregatePersistenceOwner.ReplaceHeaders([bmsTable], register: RegisterEntryCommit);
         }
         ApplyCommittedPlaylistReferenceHeaders(CaptureReferenceHeaders([bmsTable]));
     }
@@ -4774,7 +4774,7 @@ public partial class BMSPlaylist : ObservableObject
             playlistAggregatePersistenceOwner.ReplaceHeaders(
                 tableList,
                 allowReloadReservation: false,
-                requireCurrentTarget: requireCurrentTarget);
+                requireCurrentTarget: requireCurrentTarget, register: RegisterEntryCommit);
             referenceHeaders = CaptureReferenceHeadersUnderCollectionGuard(tableList);
         }
         finally
@@ -4798,7 +4798,7 @@ public partial class BMSPlaylist : ObservableObject
         playlistAggregatePersistenceOwner.ReplaceHeaders(
             bmsTables,
             allowReloadReservation: false,
-            requireCurrentTarget: true);
+            requireCurrentTarget: true, register: RegisterEntryCommit);
         return CaptureReferenceHeaders(bmsTables);
     }
 

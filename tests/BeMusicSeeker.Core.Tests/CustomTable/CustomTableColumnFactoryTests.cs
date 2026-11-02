@@ -15,6 +15,29 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomTableColumnFactoryTests
 {
+    /// <summary>三つのflagは実factoryからセルとTSVへ同じTrue/Falseを渡し、コピー自体は値を変更しません。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PlaylistFlags_CopyCurrentBoolean(bool value)
+    {
+        var settings = new PlaylistSummaryColumnSettings();
+        settings.IsExternalSync.Visibility = Visibility.Visible;
+        settings.IsRootFolder.Visibility = Visibility.Visible;
+        settings.IsBmtOutput.Visibility = Visibility.Visible;
+        CustomTableColumn[] columns = CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).Where(column =>
+            column.Id is "IsExternalSync" or "IsRootFolder" or "IsBmtOutput").ToArray();
+        var row = new PlaylistSummaryRow { IsExternalSync = value, IsRootFolder = value, IsBmtOutput = value };
+        foreach (CustomTableColumn column in columns)
+        {
+            Assert.AreEqual(value.ToString(), CustomTableDataTransfer.BuildCellText(row, column));
+            Assert.AreEqual(value, column.GetChecked(row));
+        }
+        Assert.IsTrue(CustomTableDataTransfer.TryBuildTsv(new object[] { row }, columns, out string text));
+        Assert.AreEqual(string.Join("\t", Enumerable.Repeat(value.ToString(), 3)), text);
+        Assert.AreEqual(value, row.IsExternalSync); Assert.AreEqual(value, row.IsRootFolder); Assert.AreEqual(value, row.IsBmtOutput);
+    }
+
     /// <summary>LR2/beatorajaの実履歴投影からMD5/SHA256/RAW列へ本来の値だけを渡し、所持譜面解決・未解決・SHA単独のmetadata取得でも表示/セルコピー/TSVを一致させます。metadata取得をローカル解決と混同し、SHAをMD5へ代用する誤りを検出します。</summary>
     [TestMethod]
     [DataRow("lr2-resolved")]

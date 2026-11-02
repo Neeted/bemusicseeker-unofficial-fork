@@ -245,6 +245,8 @@ internal sealed class SettingsDialogHarness : IDisposable
     /// <summary>実操作の受付を保ち、workspaceへの要求と終端を記録します。</summary>
     internal sealed class RecordingWorkspacePort : ISettingsDialogWorkspacePort
     {
+        public Task PublishOutputSettingsHeadersAsync(CustomFolderOutputSettingsSnapshot previous) => Task.CompletedTask;
+
         internal IReadOnlyList<PlaylistTablePresentationSnapshot> Snapshots { get; init; } = [];
 
         internal bool ThrowOnBmt { get; set; }

@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -84,6 +85,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         return GetPlaylistStore().ResolveActivePlaylistTableForMutation(previousTable);
     }
 
+    /// <summary>手動再同期の保存・出力と、この操作が要求した一覧公開およびheader配送の実終端を同じP内で回収します。</summary>
     internal async Task ResyncPlaylistsAsync(IEnumerable<BMSTable> tablesToResync)
     {
         if (tablesToResync == null)
@@ -132,6 +134,13 @@ public sealed partial class PlaylistWorkspaceViewModel
             using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlists.OperationNotificationOwner.BeginSession();
             List<Exception> failures = [];
             var adoptionFailures = new ConcurrentQueue<Exception>();
+            long requestedSummaryGeneration = 0;
+            var summaryPresentations = new ConcurrentQueue<Task>();
+            void CaptureSummaryPresentation(long generation, Task completion)
+            {
+                if (generation == Interlocked.Read(ref requestedSummaryGeneration)) { summaryPresentations.Enqueue(completion); }
+            }
+            PlaylistSummaryBuildStarted += CaptureSummaryPresentation;
             try
             {
                 BeginPlaylistSyncProgressOperation(ManualPlaylistReloadProgressSource);
@@ -142,7 +151,8 @@ public sealed partial class PlaylistWorkspaceViewModel
                     + activeTables.Count);
                 results = await playlists.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
                     activeTables,
-                    target => AdoptPlaylistReloadTarget(target, "manual_playlist_resync", adoptionFailures),
+                    target => AdoptPlaylistReloadTarget(target, "manual_playlist_resync", adoptionFailures,
+                        beforeSummaryRefresh: generation => Interlocked.Exchange(ref requestedSummaryGeneration, generation)),
                     snapshot => ReportPlaylistSyncProgress(snapshot, ManualPlaylistReloadProgressSource,
                         BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_manual_reload),
                     "manual_resync",
@@ -174,6 +184,23 @@ public sealed partial class PlaylistWorkspaceViewModel
             finally
             {
                 failures.AddRange(adoptionFailures);
+                try
+                {
+                    await playlistRestoreUiApplyScheduler(() =>
+                    {
+                        // この再同期が残した既存要求だけをdrainします。別要求へ置換された世代や非表示の構築は待ちません。
+                        long requested = Interlocked.Read(ref requestedSummaryGeneration);
+                        if (requested != 0 && IsPlaylistSummaryMode
+                            && CurrentPlaylistSummaryDataRebuildGeneration + 1 == requested)
+                        { DrainDeferredPlaylistSummaryRefresh(dataRefreshRequired: false, rebuildAsync: true); }
+                    }).ConfigureAwait(false);
+                }
+                catch (Exception failure) { failures.Add(failure); }
+                finally { PlaylistSummaryBuildStarted -= CaptureSummaryPresentation; }
+                try { await Task.WhenAll(summaryPresentations).ConfigureAwait(false); }
+                catch (Exception failure) { failures.Add(failure); }
+                try { await WaitForDetailEntryDeliveryAsync().ConfigureAwait(false); }
+                catch (Exception failure) { failures.Add(failure); }
                 CapturePlaylistWorkflowFailure(() => EndPlaylistSyncProgressOperation(ManualPlaylistReloadProgressSource), failures);
                 CapturePlaylistWorkflowFailure(() => PublishPlaylistOperationNotificationReceipt(
                     notificationSession, "manual playlist resync notification"), failures);
@@ -201,7 +228,8 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// 並列callbackの必須採用失敗は操作内に集め、全対象と必要出力の終端後に返します。
     /// </summary>
     private void AdoptPlaylistReloadTarget(PlaylistExternalSyncOwner.PlaylistReloadTargetResult target,
-        string reason, ConcurrentQueue<Exception> failures, bool applyReferences = true)
+        string reason, ConcurrentQueue<Exception> failures, bool applyReferences = true,
+        Action<long> beforeSummaryRefresh = null)
     {
         void Capture(Action action)
         {
@@ -232,7 +260,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 catch { /* 診断の再通知で元の再取得結果を変えない。 */ }
             }
         }
-        Capture(() => RequestPlaylistSummaryDataRefresh(reason));
+        Capture(() => RequestPlaylistSummaryDataRefresh(reason, beforeRefreshRequested: beforeSummaryRefresh));
     }
 
     private static void CapturePlaylistWorkflowFailure(Action action, ICollection<Exception> failures)

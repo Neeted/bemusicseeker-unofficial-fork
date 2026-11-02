@@ -103,6 +103,9 @@ internal interface ISettingsDialogWorkspacePort
 
     Task RunWithPlaylistOperationNotificationsAsync(Func<Task> operation, string operationName);
 
+    /// <summary>確定settingsと保存headerを共通配送し、失敗時も現在の確定値の実表示終端を待ちます。</summary>
+    Task PublishOutputSettingsHeadersAsync(CustomFolderOutputSettingsSnapshot previous);
+
     event EventHandler<PlaylistCatalogChangedEventArgs> PlaylistCatalogChanged;
 }
 

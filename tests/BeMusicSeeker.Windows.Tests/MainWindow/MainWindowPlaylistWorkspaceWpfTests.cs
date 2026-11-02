@@ -605,6 +605,13 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 CollectionAssert.AreEqual(new[] { 3 }, Selected());
                 var supersededApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 long supersededGeneration = long.MaxValue;
+                var independentBuildStarted = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+                void CaptureIndependentBuild(long generation, Task completion)
+                {
+                    if (generation == supersededGeneration) { independentBuildStarted.TrySetResult(completion); }
+                }
+                workspace.PlaylistSummaryBuildStarted += CaptureIndependentBuild;
+                PlaylistSummaryRow supersedingRow = workspace.PlaylistSummaryView.Single(row => row.PlaylistId == 4);
                 EventHandler supersededCompleted = (_, _) =>
                 {
                     if (workspace.CurrentPlaylistSummaryDataRebuildGeneration >= supersededGeneration) { supersededApplied.TrySetResult(); }
@@ -613,22 +620,30 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 System.ComponentModel.PropertyChangedEventHandler? supersede = null;
                 supersede = (_, args) =>
                 {
-                    if (args.PropertyName != nameof(workspace.PlaylistSummaryView)) { return; }
-                    workspace.PropertyChanged -= supersede;
-                    supersededGeneration = workspace.RequestPlaylistSummaryDataRefresh("selection-notification-supersedes-bmt");
+                    if (args.PropertyName != nameof(PlaylistSummaryRow.BmtSort)) { return; }
+                    supersedingRow.PropertyChanged -= supersede;
+                    workspace.RequestPlaylistSummaryDataRefresh("selection-notification-supersedes-bmt",
+                        beforeRefreshRequested: generation => supersededGeneration = generation);
                 };
-                workspace.PropertyChanged += supersede;
+                supersedingRow.PropertyChanged += supersede;
                 try
                 {
                     visible = workspace.PlaylistSummaryView.ToArray();
                     operation = workspace.DropSummaryRowsInBmtOrderAsync(visible, [visible.Single(row => row.PlaylistId == 4)], 0, 4);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "selection-bmt-superseded-drop");
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(independentBuildStarted.Task, "selection-bmt-independent-build-started");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(independentBuildStarted.Task.GetAwaiter().GetResult(), "selection-bmt-independent-build-terminal");
                     TestUiDispatcherHost.AwaitPresentationOnDispatcher(supersededApplied.Task, "selection-bmt-superseded-presentation");
+                    Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
+                    CollectionAssert.AreEqual(new int?[] { 4, 3, 1, 2 }, workspace.PlaylistSummaryView.Select(row => row.PlaylistId).ToArray());
                     CollectionAssert.AreEqual(new[] { 3 }, Selected(), "通知中に世代更新された旧BMT意図では現選択を上書きしません。");
                 }
                 finally
                 {
-                    workspace.PropertyChanged -= supersede;
+                    supersedingRow.PropertyChanged -= supersede;
+                    workspace.PlaylistSummaryBuildStarted -= CaptureIndependentBuild;
+                    if (independentBuildStarted.Task.IsCompletedSuccessfully)
+                    { TestUiDispatcherHost.AwaitTaskOnDispatcher(independentBuildStarted.Task.GetAwaiter().GetResult(), "selection-bmt-independent-build-cleanup"); }
                     selectionSource.SelectionUpdateCompleted -= supersededCompleted;
                 }
                 table.ItemsSource = null;
@@ -3356,8 +3371,13 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 enableOutput = true;
                 string songPath = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(fixture.Root, "BeMusicSeeker.exe")).StandaloneSongDbPath;
                 var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
-                PlaylistSummaryRow row = CreatePlaylistSummaryRow(fixture.Table);
-                summary.ItemsSource = new List<PlaylistSummaryRow> { row };
+                fixture.ViewModel.PlaylistWorkspace.RequestPlaylistSummaryMode(true);
+                fixture.ViewModel.PlaylistWorkspace.RebuildPlaylistSummaryView(runAsync: false);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.ViewModel.PlaylistWorkspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "property-replacement-summary-initial");
+                PlaylistSummaryRow row = fixture.ViewModel.PlaylistWorkspace.PlaylistSummaryView.Single();
+                summary.ItemsSource = fixture.ViewModel.PlaylistWorkspace.PlaylistSummaryView;
+                int summaryBuilds = 0;
+                fixture.ViewModel.PlaylistWorkspace.PlaylistSummaryBuildStarted += (_, _) => summaryBuilds++;
                 summary.SelectRowsByPredicate(_ => true);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 ActualMainWindowFixture activeFixture = fixture;
@@ -3374,6 +3394,13 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         Task firstSave = dialog.WaitForOperationCompletionAsync();
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(firstSave, "property-first-failed-save");
                         Assert.IsTrue(firstSave.IsCompletedSuccessfully);
+                        PlaylistSummaryRow savedSummary = activeFixture.ViewModel.PlaylistWorkspace.PlaylistSummaryView.Single();
+                        Assert.AreSame(activeFixture.Playlist.BMSTables.Single(), savedSummary.TableRef);
+                        Assert.AreNotSame(activeFixture.Table, savedSummary.TableRef);
+                        Assert.AreEqual(new Uri(header), savedSummary.LinkUri);
+                        int buildsAtTerminal = summaryBuilds;
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.AreEqual(buildsAtTerminal, summaryBuilds, "保存内drain後のshell予約は一覧を二重構築しません。");
                         Assert.IsNull(notificationObservationFailure,
                             "通知時の所有者・可視状態・確定参照採用の観測が失敗しました。" + Environment.NewLine + notificationObservationFailure);
                         Task ownerWaitAfterCompletion = dialog.WaitForOperationCompletionAsync();
@@ -3681,13 +3708,27 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
     /// <summary>編集中propertyへ一回のnative Closeを送ると正本へresetして取消結果で閉じ、親を再有効化して所有状態とDataContextを解放します。</summary>
     [TestMethod]
-    public void PlaylistPropertyDialog_NativeCloseRequestClosesAfterSynchronousReset()
+    [DataRow("native", false, true)]
+    [DataRow("native", true, false)]
+    [DataRow("native", true, true)]
+    [DataRow("cancel", true, false)]
+    [DataRow("cancel", true, true)]
+    [DataRow("escape", true, false)]
+    [DataRow("escape", true, true)]
+    public void PlaylistPropertyDialog_NativeCloseRequestClosesAfterSynchronousReset(string closeKind, bool importedEmptyName, bool edit)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             ActualMainWindowFixture fixture = CreateActualMainWindowFixture(windowTest);
             try
             {
+                if (importedEmptyName)
+                {
+                    fixture.Table.LoadHeaderJSON("{\"name\":\"\",\"symbol\":\"D\",\"data_url\":\"./data.json\"}",
+                        _data_json: fixture.Table.DataToJson());
+                    fixture.Playlist.CommitBMSTableHeaderToDB(fixture.Table);
+                }
+                string savedName = fixture.Table.name;
                 var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
                 PlaylistSummaryRow row = CreatePlaylistSummaryRow(fixture.Table);
                 summary.ItemsSource = new List<PlaylistSummaryRow> { row };
@@ -3708,8 +3749,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         const string draftPlaylistName = "Native modal draft";
                         var draft =
                             (PlaylistPropertyDialogViewModel)dialog.DataContext;
-                        draft.name = draftPlaylistName;
-                        Assert.AreEqual(draftPlaylistName, draft.name);
+                        if (edit) { draft.symbol = draftPlaylistName; }
 
                         TaskCompletionSource<object?> closed = NewCompletion();
                         EventHandler closedHandler = (_, _) =>
@@ -3724,7 +3764,14 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         try
                         {
                             nativeCloseRequestCount++;
-                            dialog.Close();
+                            if (closeKind == "cancel") { RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyCancel")); }
+                            else if (closeKind == "escape")
+                            {
+                                PresentationSource source = PresentationSource.FromVisual(dialog) ?? throw new AssertFailedException();
+                                dialog.RaiseEvent(new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, source, 0, System.Windows.Input.Key.Escape)
+                                { RoutedEvent = System.Windows.Input.Keyboard.KeyDownEvent });
+                            }
+                            else { dialog.Close(); }
                             try
                             {
                                 TestUiDispatcherHost.AwaitPresentationOnDispatcher(
@@ -3756,7 +3803,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     closedAfterSingleNativeCloseRequest,
                     $"One native close request must close after reset completion. Test-owned retry used: {testOwnedRetryUsed}.");
                 Assert.AreEqual(
-                    NativeModalFixturePlaylistName,
+                    savedName,
                     nameAtClosed,
                     "Reset must restore the fixture's original playlist name before the native window raises Closed.");
                 Assert.IsTrue(

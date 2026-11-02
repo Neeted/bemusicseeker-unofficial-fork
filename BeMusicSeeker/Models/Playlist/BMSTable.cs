@@ -503,44 +503,16 @@ public partial class BMSTable : LR2SongDBExtended.playlist
         LoadHeaderJSON(_header_json, _page_url_absolute, __header_url, _data_json);
     }
 
-    public Uri GetAbsoluteHeaderUrl()
-    {
-        if (Header_url != null)
-        {
-            if (Header_url.IsAbsoluteUri)
-            {
-                return Header_url;
-            }
-            if (Page_url != null)
-            {
-                return new Uri(Page_url, Header_url);
-            }
-        }
-        return null;
-    }
+    /// <summary>保存されたPageを基点にHeader参照を解決します。</summary>
+    public Uri GetAbsoluteHeaderUrl() => ResolvePlaylistUri(Header_url, Page_url);
 
-    public Uri GetAbsoluteDataUrl()
-    {
-        if (Data_url != null)
-        {
-            if (Data_url.IsAbsoluteUri)
-            {
-                return Data_url;
-            }
-            if (GetAbsoluteHeaderUrl() != null)
-            {
-                return new Uri(GetAbsoluteHeaderUrl(), Data_url);
-            }
-            if (Page_url != null)
-            {
-                return new Uri(Page_url, Data_url);
-            }
-        }
-        return null;
-    }
+    /// <summary>Header、Pageの順に基点を選びData参照を解決します。</summary>
+    public Uri GetAbsoluteDataUrl() => ResolvePlaylistUri(Data_url, GetAbsoluteHeaderUrl() ?? Page_url);
 
-    /// <summary>正本を変更せず、ヘッダーJSONを生成します。日時はInvariantの固定日/7桁小数秒で出力し、Data_urlが空の場合だけ出力用のURI参照を使います。</summary>
-    /// <param name="outputDataUrl">ファイル出力用のURL。正本の値があれば正本を優先し、省略時は従来の値をそのまま出力します。</param>
+    /// <summary>絶対参照を保持し、相対参照は絶対基点がある場合だけ解決します。基点なしは未解決です。</summary>
+    internal static Uri ResolvePlaylistUri(Uri value, Uri baseUri)
+        => value?.IsAbsoluteUri == true ? value : value != null && baseUri?.IsAbsoluteUri == true ? new Uri(baseUri, value) : null;
+
     public string HeaderToJson(string outputDataUrl = null)
     {
         return CreateHeaderJson(outputDataUrl).ToString(Formatting.Indented);
@@ -1028,18 +1000,11 @@ public partial class BMSTable : LR2SongDBExtended.playlist
         }
     }
 
-    public bool EnableExternalSync()
-    {
-        if (Page_url != null && Page_url.Scheme == "bmseeker")
-        {
-            return base.is_external_sync = true;
-        }
-        if (Header_url != null && Data_url != null && ((Page_url != null && Page_url.IsAbsoluteUri) || Header_url.IsAbsoluteUri))
-        {
-            return base.is_external_sync = true;
-        }
-        return base.is_external_sync = false;
-    }
+    /// <summary>優先取得元Page、未指定時Headerが絶対URIなら、URIを補わず取得を開始できます。</summary>
+    internal static bool CanStartExternalSync(Uri page, Uri header) => (page ?? header)?.IsAbsoluteUri == true;
+
+    /// <summary>既存の取得優先順で開始可能な場合だけ外部同期を有効にします。</summary>
+    public bool EnableExternalSync() => base.is_external_sync = CanStartExternalSync(Page_url, Header_url);
 
     public bool DisableExternalSync()
     {
@@ -1144,7 +1109,7 @@ public partial class BMSTable : LR2SongDBExtended.playlist
                 value = new FolderNormalizeState();
                 dictionary[inputEntry.folder] = value;
             }
-            value.Count++;
+            if (!inputEntry.is_removed && inputEntry.md5 != BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER) { value.Count++; }
             if (!value.SeenKeys.Add(getEntryIdentityKey(inputEntry)))
             {
                 hashSet ??= [];
@@ -1156,7 +1121,7 @@ public partial class BMSTable : LR2SongDBExtended.playlist
             }
         }
         addDummyRemovalTargets(dictionary, ref hashSet);
-        if (folderNormalizeState != null && folderNormalizeState.DummyEntries.Count > 0 && folderNormalizeState.Count > 1)
+        if (folderNormalizeState != null && folderNormalizeState.DummyEntries.Count > 0 && folderNormalizeState.Count > 0)
         {
             hashSet ??= [];
             foreach (BMSTableEntry dummyEntry in folderNormalizeState.DummyEntries)
@@ -1176,7 +1141,7 @@ public partial class BMSTable : LR2SongDBExtended.playlist
         foreach (KeyValuePair<string, FolderNormalizeState> item in statesByFolder)
         {
             FolderNormalizeState value = item.Value;
-            if (value.DummyEntries.Count > 0 && (value.Count > 1 || item.Key == string.Empty))
+            if (value.DummyEntries.Count > 0 && (value.Count > 0 || item.Key == string.Empty))
             {
                 removalSet ??= [];
                 foreach (BMSTableEntry dummyEntry in value.DummyEntries)
@@ -1187,7 +1152,8 @@ public partial class BMSTable : LR2SongDBExtended.playlist
         }
     }
 
-    private static string getEntryIdentityKey(BMSTableEntry entry)
+    /// <summary>保存所属の重複判定に共用する、元entryのMD5・SHA・LR2 ID・タイトル優先のキーです。</summary>
+    internal static string getEntryIdentityKey(BMSTableEntry entry)
     {
         if (!string.IsNullOrWhiteSpace(entry.md5))
         {

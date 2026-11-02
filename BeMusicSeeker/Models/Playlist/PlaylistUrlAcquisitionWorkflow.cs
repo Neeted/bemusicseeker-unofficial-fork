@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -108,7 +107,7 @@ internal sealed class AppPlaylistUrlDownloadGateway : IPlaylistUrlDownloadGatewa
     }
 }
 
-internal sealed class PlaylistUrlAcquisitionWorkflow
+internal sealed partial class PlaylistUrlAcquisitionWorkflow
 {
     private const long DownloadAndInstallSizeLimitBytes = 536870912L;
 
@@ -122,7 +121,6 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
 
     private static readonly Regex odriveRegex = new("https?://onedrive\\.live\\.com/redir\\?(.*)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static readonly Regex htmlAttributeRegex = new("(?<name>[A-Za-z_:][-A-Za-z0-9_:.]*)\\s*=\\s*(?:\\\"(?<double>[^\\\"]*)\\\"|'(?<single>[^']*)'|(?<bare>[^\\s\\\"'=<>`]+))", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private readonly IPlaylistUrlDownloadGateway _downloadGateway;
 
@@ -607,16 +605,8 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
         {
             return (null, false);
         }
-        Uri resolvedUri = ResolveSharedDownloadPageUri(response.ResponseUri ?? requestedUri, html);
-        if (resolvedUri != null && resolvedUri.IsAbsoluteUri && !IsSameUriWithoutFragment(resolvedUri, requestedUri))
-        {
-            return IsHttpOrHttps(resolvedUri)
-                ? (resolvedUri, false)
-                : (null, true);
-        }
-        return ContainsUnsupportedSharedDownloadUri(response.ResponseUri ?? requestedUri, html)
-            ? (null, true)
-            : (null, false);
+        (Uri resolvedUri, bool unsupportedScheme) result = ResolveSharedDownloadPage(response.ResponseUri ?? requestedUri, html);
+        return result.resolvedUri != null && IsSameUriWithoutFragment(result.resolvedUri, requestedUri) ? (null, false) : result;
     }
 
     /// <summary>
@@ -632,106 +622,6 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
     private static bool IsHttpOrHttps(Uri uri)
     {
         return uri != null && (uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) || uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static bool ContainsUnsupportedSharedDownloadUri(Uri pageUri, string html)
-    {
-        if (!IsSharedDownloadPageResolutionCandidate(pageUri) || string.IsNullOrWhiteSpace(html))
-        {
-            return false;
-        }
-        bool isMediaFirePage = IsExactHostOrSubdomain(pageUri.Host, "mediafire.com");
-        bool isDownloadSourcePage = IsDownloadSourcePageUri(pageUri);
-        foreach (Match anchorMatch in Regex.Matches(html, "<a\\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-        {
-            Dictionary<string, string> attributes = ParseHtmlAttributes(anchorMatch.Value);
-            if (!attributes.TryGetValue("href", out string href)
-                || string.IsNullOrWhiteSpace(href))
-            {
-                continue;
-            }
-            if (isMediaFirePage)
-            {
-                attributes.TryGetValue("id", out string id);
-                attributes.TryGetValue("class", out string className);
-                if (!string.Equals(id, "downloadButton", StringComparison.OrdinalIgnoreCase)
-                    && !(className?.IndexOf("popsok", StringComparison.OrdinalIgnoreCase) >= 0))
-                {
-                    continue;
-                }
-                if (IsUnsupportedAbsoluteDownloadUri(pageUri, href))
-                {
-                    return true;
-                }
-                continue;
-            }
-            if (isDownloadSourcePage
-                && IsUnsupportedAbsoluteDownloadUri(pageUri, href))
-            {
-                return true;
-            }
-        }
-        foreach (Match formMatch in Regex.Matches(html, "<form\\b(?=[^>]*\\bid\\s*=\\s*[\"']download-form[\"'])[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-        {
-            Dictionary<string, string> attributes = ParseHtmlAttributes(formMatch.Value);
-            if (attributes.TryGetValue("action", out string action)
-                && IsUnsupportedAbsoluteDownloadUri(pageUri, action))
-            {
-                return true;
-            }
-        }
-        string decodedJson = DecodeEmbeddedJsonText(html);
-        foreach (Match uriMatch in Regex.Matches(
-            decodedJson,
-            "\"downloadURL\"\\s*:\\s*\"(?<url>[^\"<>]+)\"",
-            RegexOptions.IgnoreCase))
-        {
-            if (IsUnsupportedAbsoluteDownloadUri(pageUri, uriMatch.Groups["url"].Value))
-            {
-                return true;
-            }
-        }
-        foreach (Match blockMatch in Regex.Matches(decodedJson, "\"downloads\"\\s*:\\s*\\[(?<body>.*?)\\]", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-        {
-            foreach (Match uriMatch in Regex.Matches(
-                blockMatch.Groups["body"].Value,
-                "\"url\"\\s*:\\s*\"(?<url>[^\"<>]+)\"",
-                RegexOptions.IgnoreCase))
-            {
-                if (IsUnsupportedAbsoluteDownloadUri(pageUri, uriMatch.Groups["url"].Value))
-                {
-                    return true;
-                }
-            }
-        }
-        foreach (Match downloadMatch in Regex.Matches(html, "(?:Down\\s*Load|Download)Address.*?<a\\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-        {
-            Dictionary<string, string> attributes = ParseHtmlAttributes(downloadMatch.Value);
-            if (attributes.TryGetValue("href", out string href)
-                && IsUnsupportedAbsoluteDownloadUri(pageUri, href))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static bool IsUnsupportedAbsoluteDownloadUri(Uri pageUri, string candidateText)
-    {
-        if (string.IsNullOrWhiteSpace(candidateText))
-        {
-            return false;
-        }
-        string decodedCandidate = WebUtility.HtmlDecode(candidateText.Trim());
-        if (!Uri.TryCreate(pageUri, decodedCandidate, out Uri candidate))
-        {
-            return false;
-        }
-        if (!candidate.IsAbsoluteUri || IsHttpOrHttps(candidate))
-        {
-            return false;
-        }
-        return true;
     }
 
     private static bool IsExactHostOrSubdomain(string host, string rootDomain)
@@ -760,268 +650,8 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
             || IsExactHostOrSubdomain(host, "mediafire.com");
     }
 
-    internal static Uri ResolveSharedDownloadPageUri(Uri pageUri, string html)
-    {
-        if (pageUri == null || string.IsNullOrWhiteSpace(html))
-        {
-            return null;
-        }
-        if (TryResolveGoogleDriveWarningPageUri(pageUri, html, out Uri googleDriveUri))
-        {
-            return googleDriveUri;
-        }
-        if (TryResolveMediaFireDownloadUri(pageUri, html, out Uri mediaFireUri))
-        {
-            return mediaFireUri;
-        }
-        if (TryResolveManbowDownloadUri(pageUri, html, out Uri manbowUri))
-        {
-            return manbowUri;
-        }
-        if (TryResolveBmsSearchDownloadUri(pageUri, html, out Uri bmsSearchUri))
-        {
-            return bmsSearchUri;
-        }
-        return null;
-    }
-
-    private static bool TryResolveGoogleDriveWarningPageUri(Uri pageUri, string html, out Uri resolvedUri)
-    {
-        resolvedUri = null;
-        if (!IsGoogleDriveHost(pageUri))
-        {
-            return false;
-        }
-        Match formMatch = Regex.Match(html, "<form\\b(?=[^>]*\\bid\\s*=\\s*[\"']download-form[\"'])[^>]*>(?<body>.*?)</form>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
-        if (!formMatch.Success)
-        {
-            return false;
-        }
-        Dictionary<string, string> formAttributes = ParseHtmlAttributes(formMatch.Value);
-        if (formAttributes.TryGetValue("method", out string method) && !string.Equals(method, "get", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-        if (!formAttributes.TryGetValue("action", out string action) || string.IsNullOrWhiteSpace(action))
-        {
-            action = pageUri.ToString();
-        }
-        if (!Uri.TryCreate(pageUri, action, out Uri actionUri))
-        {
-            return false;
-        }
-        if (!IsHttpOrHttps(actionUri) || !IsGoogleDriveHost(actionUri))
-        {
-            return false;
-        }
-        List<KeyValuePair<string, string>> queryParameters = ParseQueryParameters(actionUri.Query);
-        foreach (Match inputMatch in Regex.Matches(formMatch.Groups["body"].Value, "<input\\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-        {
-            string inputTag = inputMatch.Value;
-            Dictionary<string, string> inputAttributes = ParseHtmlAttributes(inputTag);
-            if (!inputAttributes.TryGetValue("name", out string name) || string.IsNullOrWhiteSpace(name))
-            {
-                continue;
-            }
-            string type = inputAttributes.TryGetValue("type", out string inputType) ? inputType : string.Empty;
-            if (type.Equals("submit", StringComparison.OrdinalIgnoreCase)
-                || type.Equals("button", StringComparison.OrdinalIgnoreCase)
-                || Regex.IsMatch(inputTag, "\\sdisabled(?:\\s|=|>|/)", RegexOptions.IgnoreCase))
-            {
-                continue;
-            }
-            SetQueryParameter(queryParameters, name, inputAttributes.TryGetValue("value", out string value) ? value : string.Empty);
-        }
-        resolvedUri = BuildUriWithQuery(actionUri, queryParameters);
-        return true;
-    }
-
-    private static bool TryResolveMediaFireDownloadUri(Uri pageUri, string html, out Uri resolvedUri)
-    {
-        resolvedUri = null;
-        if (pageUri == null || !IsHttpOrHttps(pageUri) || !IsExactHostOrSubdomain(pageUri.Host, "mediafire.com"))
-        {
-            return false;
-        }
-        foreach (Match anchorMatch in Regex.Matches(html, "<a\\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-        {
-            Dictionary<string, string> attributes = ParseHtmlAttributes(anchorMatch.Value);
-            if (!attributes.TryGetValue("href", out string href) || string.IsNullOrWhiteSpace(href))
-            {
-                continue;
-            }
-            attributes.TryGetValue("id", out string id);
-            attributes.TryGetValue("class", out string className);
-            if (!string.Equals(id, "downloadButton", StringComparison.OrdinalIgnoreCase)
-                && !(className?.IndexOf("popsok", StringComparison.OrdinalIgnoreCase) >= 0))
-            {
-                continue;
-            }
-            if (Uri.TryCreate(pageUri, WebUtility.HtmlDecode(href), out Uri candidate)
-                && IsHttpOrHttps(candidate)
-                && IsExactHostOrSubdomain(candidate.Host, "mediafire.com"))
-            {
-                resolvedUri = candidate;
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static bool TryResolveManbowDownloadUri(Uri pageUri, string html, out Uri resolvedUri)
-    {
-        resolvedUri = null;
-        if (!IsManbowDownloadPageUri(pageUri))
-        {
-            return false;
-        }
-        Match match = Regex.Match(html, "(?:Down\\s*Load|Download)Address.*?<a\\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
-        if (!match.Success)
-        {
-            return false;
-        }
-        Dictionary<string, string> attributes = ParseHtmlAttributes(match.Value);
-        return attributes.TryGetValue("href", out string href) && TryCreateResolvableDownloadUri(pageUri, href, allowDownloadSourcePageUri: true, out resolvedUri);
-    }
-
-    private static bool TryResolveBmsSearchDownloadUri(Uri pageUri, string html, out Uri resolvedUri)
-    {
-        resolvedUri = null;
-        if (!IsVenueBmsSearchUri(pageUri) && !IsBmsSearchInfoUri(pageUri))
-        {
-            return false;
-        }
-        if (IsVenueBmsSearchUri(pageUri))
-        {
-            if (TryResolveSerializedVenueCoreDownloadUri(pageUri, html, out resolvedUri))
-            {
-                return true;
-            }
-            return TryResolveAnchorDownloadUri(pageUri, html, allowDownloadSourcePageUri: false, CollectSerializedVenueNonCoreDownloadKeys(pageUri, html), out resolvedUri);
-        }
-        if (TryResolveSerializedDownloadUri(pageUri, html, out resolvedUri))
-        {
-            return true;
-        }
-        return TryResolveAnchorDownloadUri(pageUri, html, allowDownloadSourcePageUri: false, out resolvedUri);
-    }
-
-    private static bool TryResolveAnchorDownloadUri(Uri pageUri, string html, bool allowDownloadSourcePageUri, out Uri resolvedUri)
-    {
-        return TryResolveAnchorDownloadUri(pageUri, html, allowDownloadSourcePageUri, null, out resolvedUri);
-    }
-
-    private static bool TryResolveAnchorDownloadUri(Uri pageUri, string html, bool allowDownloadSourcePageUri, HashSet<string> excludedDownloadKeys, out Uri resolvedUri)
-    {
-        resolvedUri = null;
-        foreach (Match anchorMatch in Regex.Matches(html, "<a\\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-        {
-            Dictionary<string, string> attributes = ParseHtmlAttributes(anchorMatch.Value);
-            if (attributes.TryGetValue("href", out string href) && TryCreateResolvableDownloadUri(pageUri, href, allowDownloadSourcePageUri, out resolvedUri))
-            {
-                string downloadKey = CreatePlaylistUrlDownloadKey(resolvedUri);
-                if (!string.IsNullOrWhiteSpace(downloadKey) && excludedDownloadKeys?.Contains(downloadKey) == true)
-                {
-                    continue;
-                }
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static bool TryResolveSerializedVenueCoreDownloadUri(Uri pageUri, string html, out Uri resolvedUri)
-    {
-        resolvedUri = null;
-        foreach (SerializedVenueDownloadCandidate candidate in EnumerateSerializedVenueDownloadCandidates(html))
-        {
-            if (!candidate.IsCore)
-            {
-                continue;
-            }
-            if (TryCreateResolvableDownloadUri(pageUri, candidate.Url, allowDownloadSourcePageUri: false, out resolvedUri))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static HashSet<string> CollectSerializedVenueNonCoreDownloadKeys(Uri pageUri, string html)
-    {
-        var keys = new HashSet<string>(StringComparer.Ordinal);
-        foreach (SerializedVenueDownloadCandidate candidate in EnumerateSerializedVenueDownloadCandidates(html))
-        {
-            if (candidate.IsCore)
-            {
-                continue;
-            }
-            if (TryCreateResolvableDownloadUri(pageUri, candidate.Url, allowDownloadSourcePageUri: false, out Uri resolvedUri))
-            {
-                string downloadKey = CreatePlaylistUrlDownloadKey(resolvedUri);
-                if (!string.IsNullOrWhiteSpace(downloadKey))
-                {
-                    keys.Add(downloadKey);
-                }
-            }
-        }
-        return keys;
-    }
-
-    private sealed class SerializedVenueDownloadCandidate
-    {
-        internal SerializedVenueDownloadCandidate(string url, bool isCore)
-        {
-            Url = url;
-            IsCore = isCore;
-        }
-
-        internal string Url { get; }
-
-        internal bool IsCore { get; }
-    }
-
-    private static List<SerializedVenueDownloadCandidate> EnumerateSerializedVenueDownloadCandidates(string html)
-    {
-        var candidates = new List<SerializedVenueDownloadCandidate>();
-        string text = DecodeEmbeddedJsonText(html);
-        foreach (Match objectMatch in Regex.Matches(text, "\\{(?<body>[^{}]{0,2048}\"downloadURL\"[^{}]{0,2048})\\}", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-        {
-            string body = objectMatch.Groups["body"].Value;
-            Match urlMatch = Regex.Match(body, "\"downloadURL\"\\s*:\\s*\"(?<url>[^\"<>]+)\"", RegexOptions.IgnoreCase);
-            if (!urlMatch.Success)
-            {
-                continue;
-            }
-            bool isCore = Regex.IsMatch(body, "\"type\"\\s*:\\s*\"CORE\"", RegexOptions.IgnoreCase);
-            candidates.Add(new SerializedVenueDownloadCandidate(urlMatch.Groups["url"].Value, isCore));
-        }
-        return candidates;
-    }
-
-    private static bool TryResolveSerializedDownloadUri(Uri pageUri, string html, out Uri resolvedUri)
-    {
-        resolvedUri = null;
-        string text = DecodeEmbeddedJsonText(html);
-        foreach (Match match in Regex.Matches(text, "\"downloadURL\"\\s*:\\s*\"(?<url>[^\"<>]+)\"", RegexOptions.IgnoreCase))
-        {
-            if (TryCreateResolvableDownloadUri(pageUri, match.Groups["url"].Value, allowDownloadSourcePageUri: false, out resolvedUri))
-            {
-                return true;
-            }
-        }
-        foreach (Match blockMatch in Regex.Matches(text, "\"downloads\"\\s*:\\s*\\[(?<body>.*?)\\]", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-        {
-            foreach (Match urlMatch in Regex.Matches(blockMatch.Groups["body"].Value, "\"url\"\\s*:\\s*\"(?<url>[^\"<>]+)\"", RegexOptions.IgnoreCase))
-            {
-                if (TryCreateResolvableDownloadUri(pageUri, urlMatch.Groups["url"].Value, allowDownloadSourcePageUri: false, out resolvedUri))
-                {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
+    /// <summary>配布候補の同じ選択結果から対応する取得先だけを返します。</summary>
+    internal static Uri ResolveSharedDownloadPageUri(Uri pageUri, string html) => ResolveSharedDownloadPage(pageUri, html).resolvedUri;
 
     private static bool IsGoogleDriveHost(Uri uri)
     {
@@ -1073,7 +703,7 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
         {
             return false;
         }
-        string decodedHref = WebUtility.HtmlDecode(href.Trim());
+        string decodedHref = href.Trim();
         if (!Uri.TryCreate(pageUri, decodedHref, out Uri candidate) || !IsHttpOrHttps(candidate))
         {
             return false;
@@ -1154,48 +784,6 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
             || IsBmsSearchInfoUri(uri);
     }
 
-    private static string DecodeEmbeddedJsonText(string text)
-    {
-        if (string.IsNullOrEmpty(text))
-        {
-            return string.Empty;
-        }
-        string decoded = WebUtility.HtmlDecode(text);
-        decoded = Regex.Replace(decoded, "\\\\u(?<hex>[0-9A-Fa-f]{4})", match =>
-        {
-            int value = int.Parse(match.Groups["hex"].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-            if (value >= 0xD800 && value <= 0xDFFF)
-            {
-                return match.Value;
-            }
-            return char.ConvertFromUtf32(value);
-        });
-        return decoded.Replace("\\\"", "\"").Replace("\\/", "/");
-    }
-
-    private static Dictionary<string, string> ParseHtmlAttributes(string tag)
-    {
-        var attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (string.IsNullOrWhiteSpace(tag))
-        {
-            return attributes;
-        }
-        foreach (Match match in htmlAttributeRegex.Matches(tag))
-        {
-            string name = match.Groups["name"].Value;
-            string value = match.Groups["double"].Success
-                ? match.Groups["double"].Value
-                : match.Groups["single"].Success
-                    ? match.Groups["single"].Value
-                    : match.Groups["bare"].Value;
-            if (!string.IsNullOrWhiteSpace(name))
-            {
-                attributes[name] = WebUtility.HtmlDecode(value ?? string.Empty);
-            }
-        }
-        return attributes;
-    }
-
     private async Task<string> ReadTextWithLimitAsync(Stream source, string charSet, int maxBytes, CancellationToken cancellationToken = default)
     {
         if (source == null || maxBytes <= 0)
@@ -1213,15 +801,7 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
                 return null;
             }
         }
-        try
-        {
-            Encoding encoding = string.IsNullOrWhiteSpace(charSet) ? Encoding.UTF8 : Encoding.GetEncoding(charSet.Trim('"'));
-            return encoding.GetString(memoryStream.ToArray());
-        }
-        catch (Exception failure) when (failure is ArgumentException or NotSupportedException)
-        {
-            return Encoding.UTF8.GetString(memoryStream.ToArray());
-        }
+        return DecodeDownloadPage(memoryStream.ToArray(), charSet);
     }
 
     // 無受信の期限は一回の実読取りだけに適用する。書込み・解析や次の読取りへ時計を持ち越さない。

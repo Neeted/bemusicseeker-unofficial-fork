@@ -19,7 +19,18 @@ internal sealed record PlaylistEntryChange(
 internal sealed record PlaylistEntryCommitReceipt(
     BMSTable Table, int BaseRevision, int Revision,
     ImmutableArray<PlaylistEntryChange> Changes,
-    ImmutableArray<string> FolderOrder = default);
+    ImmutableArray<string> FolderOrder = default, PlaylistHeaderValue Header = null);
+
+/// <summary>DB確定と同じ保護区間で捕捉する小さなheaderです。件数・設定・runtime・所属はそれぞれの所有者に残します。</summary>
+internal sealed record PlaylistHeaderValue(int? PlaylistId, string Name, string Symbol, string CompatPrefix,
+    string OutputDirectory, DateTime LastUpdate, Uri PageUrl, Uri HeaderUrl, Uri DataUrl,
+    bool IsExternalSync, bool IsRootFolder, int? BmtSort, bool? IsBmtOutput, string OutputBaseName)
+{
+    /// <summary>現在の表のheaderを捕捉します。呼出元が表のreaderまたはwriterを保持します。</summary>
+    internal static PlaylistHeaderValue Capture(BMSTable table) => new(table.playlist_id, table.name, table.symbol,
+        table.compat_prefix, table.output_dir, table.last_update, table.Page_url, table.Header_url, table.Data_url,
+        table.is_external_sync, table.is_root_folder, table.bmt_sort, table.is_bmt_output, table.custom_folder_output_base_name);
+}
 
 /// <summary>reader 内で同時に捕捉した表の entry 版と不変値です。元 entry は識別だけに使います。</summary>
 internal sealed record PlaylistEntryReadSnapshot(

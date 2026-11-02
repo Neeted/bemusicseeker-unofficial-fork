@@ -30,10 +30,11 @@ public partial class BMSPlaylist
     }
 
     /// <summary>集合guardを保持して保存した呼出元が、全guard解放後・必要出力前に同じheader捕捉を適用します。</summary>
-    internal void ApplyCommittedPlaylistReferenceHeaders(IReadOnlyList<PlaylistReferenceTableHeader> headers)
+    internal void ApplyCommittedPlaylistReferenceHeaders(IReadOnlyList<PlaylistReferenceTableHeader> headers, bool deliverHeaders = true)
     {
         try { libraryBindings?.ApplyReferenceCommits([], headers); }
         catch (Exception failure) { throw new PlaylistMutationPostCommitException("playlist_reference_header_apply", failure); }
+        finally { if (deliverHeaders) { SignalEntryCommitsAvailable(); } }
     }
 
     /// <summary>同entry/header確定groupを全guard解放後に参照索引へ適用し、失敗時にも必要出力を試みて最初の原因を返します。</summary>
@@ -84,10 +85,14 @@ public partial class BMSPlaylist
     /// <summary>外部更新の同じ確定receiptを必要出力前に受け、任意UIeventの有無に依存せず参照へ公開します。</summary>
     private void PublishReferenceTableUpdates(IReadOnlyList<PlaylistExternalSyncOwner.PlaylistTableUpdateReceipt> receipts)
     {
-        PlaylistExternalSyncOwner.PlaylistTableUpdateReceipt[] changed = [.. receipts.Where(receipt => receipt.Updated || receipt.ReferenceEntriesChanged
+        try
+        {
+            PlaylistExternalSyncOwner.PlaylistTableUpdateReceipt[] changed = [.. receipts.Where(receipt => receipt.Updated || receipt.ReferenceEntriesChanged
             || !ReferenceEquals(receipt.OldTable, receipt.NewTable))];
-        if (changed.Length == 0) { return; }
-        PublishReferenceTables(changed.Select(receipt => receipt.NewTable).Where(table => table != null),
-            changed.Where(receipt => receipt.OldTable != null && !ReferenceEquals(receipt.OldTable, receipt.NewTable)).Select(receipt => receipt.OldTable));
+            if (changed.Length == 0) { return; }
+            PublishReferenceTables(changed.Select(receipt => receipt.NewTable).Where(table => table != null),
+                changed.Where(receipt => receipt.OldTable != null && !ReferenceEquals(receipt.OldTable, receipt.NewTable)).Select(receipt => receipt.OldTable));
+        }
+        finally { SignalEntryCommitsAvailable(); }
     }
 }

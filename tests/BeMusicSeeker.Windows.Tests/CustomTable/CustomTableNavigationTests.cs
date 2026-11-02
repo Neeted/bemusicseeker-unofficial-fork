@@ -15,6 +15,47 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomTableNavigationTests
 {
+    /// <summary>三flagの実factory生値がCtrl+C/選択TSVへ届き、コピーで値を反転しないことをClipboard前で確認します。</summary>
+    [TestMethod]
+    [DataRow("IsExternalSync", false, false)]
+    [DataRow("IsExternalSync", false, true)]
+    [DataRow("IsExternalSync", true, false)]
+    [DataRow("IsExternalSync", true, true)]
+    [DataRow("IsRootFolder", false, false)]
+    [DataRow("IsRootFolder", false, true)]
+    [DataRow("IsRootFolder", true, false)]
+    [DataRow("IsRootFolder", true, true)]
+    [DataRow("IsBmtOutput", false, false)]
+    [DataRow("IsBmtOutput", false, true)]
+    [DataRow("IsBmtOutput", true, false)]
+    [DataRow("IsBmtOutput", true, true)]
+    public void PlaylistFlagCopyShortcuts_UseCurrentSavedBoolean(string columnId, bool value, bool tsv)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            var settings = new PlaylistSummaryColumnSettings();
+            settings.IsExternalSync.Visibility = settings.IsRootFolder.Visibility = settings.IsBmtOutput.Visibility = Visibility.Visible;
+            CustomTableColumn actual = CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).Single(column => column.Id == columnId);
+            var row = new PlaylistSummaryRow { IsExternalSync = value, IsRootFolder = value, IsBmtOutput = value };
+            string? copied = null;
+            var sentinel = new InvalidOperationException("現在flagを観測してClipboard前で停止します。");
+            var probe = new CustomTableColumn(actual.Id, actual.Header, actual.Layout, actual.FallbackOrder, actual.SortMemberPath, actual.Alignment,
+                actual.GetText, editTextSelector: current => { Assert.AreSame(row, current); copied = actual.GetEditText(current); throw sentinel; });
+            CustomTableView table = CreateTable([probe]);
+            try
+            {
+                table.ItemsSource = new[] { row };
+                table.SelectedIndex = 0;
+                Assert.AreSame(sentinel, Assert.ThrowsExactly<InvalidOperationException>(() => table.HandleKeyDown(Key.C,
+                    ModifierKeys.Control | (tsv ? ModifierKeys.Shift : ModifierKeys.None))));
+                Assert.AreEqual(value.ToString(), copied);
+                Assert.AreEqual(value, row.IsExternalSync); Assert.AreEqual(value, row.IsRootFolder); Assert.AreEqual(value, row.IsBmtOutput);
+                Assert.AreEqual(0, table.SelectedIndex);
+            }
+            finally { table.ItemsSource = null; }
+        });
+    }
+
     /// <summary>実Ctrl+Cが実履歴列の現在行の値を使い、複数選択の副行や交換前sourceを使わないことを確認します。factoryの生値を記録した専用例外でClipboard前に止め、キー配送と値投影を分担します。</summary>
     [TestMethod]
     [DataRow("Hash")]

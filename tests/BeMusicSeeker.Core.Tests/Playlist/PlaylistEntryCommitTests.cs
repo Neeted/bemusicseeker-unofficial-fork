@@ -19,6 +19,43 @@ public sealed class PlaylistEntryCommitTests
     private const string LowerSha256 = LowerMd5 + LowerMd5;
     private const string MixedSha256 = MixedMd5 + MixedMd5;
 
+    /// <summary>header単独の実DB確定はentry版と日時を保ち、後続保存後も先の捕捉URI・名前を不変に保ちます。無変更要求はreceiptを増やしません。</summary>
+    [TestMethod]
+    public void CommitHeader_CapturesImmutableSavedHeaderWithoutEntryRevision()
+    {
+        using var fixture = new Fixture();
+        BMSTable table = fixture.Tables[0];
+        int revision = table.PlaylistEntriesRevision;
+        DateTime date = table.last_update;
+        PlaylistEntryCommitReceipt Commit(PlaylistHeaderEdit edit) => fixture.Owner.CommitEntryMutations(
+            new Dictionary<BMSTable, Func<IPlaylistEntryMutationWorkObserver, BMSTable.EntryMutation>>
+            { [table] = observer => table.PrepareHeaderMutation(edit, observer) }, fixture.Receipts.Add).Single();
+        PlaylistEntryCommitReceipt first = Commit(new PlaylistHeaderEdit
+        {
+            Fields = PlaylistHeaderFields.PageUrl,
+            PageUrl = new Uri("https://example.test/first")
+        });
+        Commit(new PlaylistHeaderEdit
+        {
+            Fields = PlaylistHeaderFields.PageUrl | PlaylistHeaderFields.Name,
+            PageUrl = new Uri("https://example.test/second"),
+            Name = "second"
+        });
+        Assert.AreSame(table, first.Table);
+        Assert.IsNotNull(first.Header);
+        Assert.AreEqual(table.playlist_id, first.Header.PlaylistId);
+        Assert.AreEqual(new Uri("https://example.test/first"), first.Header.PageUrl);
+        Assert.AreEqual("table-9201", first.Header.Name);
+        Assert.AreEqual(date, first.Header.LastUpdate);
+        Assert.AreEqual(revision, first.BaseRevision);
+        Assert.AreEqual(revision, first.Revision);
+        Assert.IsTrue(first.Changes.IsEmpty);
+        Assert.AreEqual(revision, table.PlaylistEntriesRevision);
+        fixture.Owner.CommitEntryMutations(new Dictionary<BMSTable, Func<IPlaylistEntryMutationWorkObserver, BMSTable.EntryMutation>>
+        { [table] = observer => table.PrepareHeaderMutation(new PlaylistHeaderEdit(), observer) }, fixture.Receipts.Add);
+        Assert.AreEqual(2, fixture.Receipts.Count);
+    }
+
     /// <summary>画面を経由しない保存入口でもURL1/2の非空無効URIは拒否し、正本・補完・DBと版を保持します。</summary>
     [TestMethod]
     [DataRow(nameof(BMSTableEntry.Url))]

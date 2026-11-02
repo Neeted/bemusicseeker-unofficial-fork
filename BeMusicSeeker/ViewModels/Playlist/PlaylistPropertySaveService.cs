@@ -44,6 +44,9 @@ internal sealed class PlaylistPropertySaveService
 
     internal event EventHandler<PlaylistPropertyEntriesChangedEventArgs> PlaylistPropertyEntriesChanged;
 
+    /// <summary>所属を変えない表示属性の保存後、catalogと検索候補の依存だけを更新します。</summary>
+    internal event EventHandler PlaylistPropertyCatalogChanged;
+
     internal event EventHandler<PlaylistOperationNotificationPresentationRequestedEventArgs> PlaylistOperationNotificationPresentationRequested;
 
     internal PlaylistPropertySaveService(
@@ -445,7 +448,9 @@ internal sealed class PlaylistPropertySaveService
 
         bool shouldReloadExternalPlaylist = table.is_external_sync
             && (!baseline.IsExternalSync
-                || !HasSameUri(baseline.PageUrl ?? baseline.HeaderUrl, table.Page_url ?? table.Header_url));
+                || !HasSameUri(baseline.PageUrl ?? baseline.HeaderUrl, table.Page_url ?? table.Header_url)
+                || (baseline.HeaderUrl != null && table.Header_url == null)
+                || (baseline.DataUrl != null && table.Data_url == null));
         if (shouldReloadExternalPlaylist)
         {
             Uri uri = table.Page_url ?? table.Header_url;
@@ -573,39 +578,18 @@ internal sealed class PlaylistPropertySaveService
             }
         }
 
-        if (displayProjectionChanged)
+        if (displayProjectionChanged && !entryFolderProjectionChanged && !externalResyncApplied)
         {
-            if (entryFolderProjectionChanged)
-            {
-                CapturePresentationFailure(() => RaiseRequiredEvent(
-                    PlaylistPropertyEntriesChanged,
-                    new PlaylistPropertyEntriesChangedEventArgs(table),
-                    "Playlist property entries-changed publication"), failures);
-            }
-            else
-            {
-                CapturePresentationFailure(() => RaiseRequiredEvent(
-                    PlaylistPropertySummaryDataRefreshRequested,
-                    new PlaylistSummaryDataRefreshRequestedEventArgs(
-                        "playlist_property_changed"),
-                    "Playlist property summary refresh"), failures);
-            }
+            CapturePresentationFailure(() => RaiseRequiredEvent(PlaylistPropertyCatalogChanged, EventArgs.Empty,
+                "Playlist property catalog publication"), failures);
         }
-        else if (externalResyncApplied)
+        if (entryFolderProjectionChanged || externalResyncApplied)
         {
+            var presentation = new PlaylistPropertyEntriesChangedEventArgs(table, refreshSummaryIfVisible: externalResyncApplied);
             CapturePresentationFailure(() => RaiseRequiredEvent(
-                PlaylistPropertyEntriesChanged,
-                new PlaylistPropertyEntriesChangedEventArgs(table),
+                PlaylistPropertyEntriesChanged, presentation,
                 "Playlist property entries-changed publication"), failures);
-        }
-
-        if (outputBaseNameChanged || outputDirectoryChanged)
-        {
-            CapturePresentationFailure(() => RaiseRequiredEvent(
-                PlaylistPropertySummaryDataRefreshRequested,
-                new PlaylistSummaryDataRefreshRequestedEventArgs(
-                    "playlist_property_output_changed"),
-                "Playlist property summary refresh"), failures);
+            commit.SavedPresentation = presentation.Completion;
         }
         await CompletePendingOutputsAsync(store, commit, authority, failures, notificationSession).ConfigureAwait(false);
         if (failures.Count == 1) { ExceptionDispatchInfo.Capture(failures[0]).Throw(); }
@@ -832,10 +816,7 @@ internal sealed class PlaylistPropertySaveService
             return false;
         }
         if (values.IsExternalSync
-            && !(values.PageUrl?.Scheme == "bmseeker"
-                || (values.HeaderUrl != null
-                    && values.DataUrl != null
-                    && ((values.PageUrl?.IsAbsoluteUri == true) || values.HeaderUrl.IsAbsoluteUri))))
+            && !BMSTable.CanStartExternalSync(values.PageUrl, values.HeaderUrl))
         {
             return false;
         }
@@ -1154,6 +1135,8 @@ internal sealed class PlaylistPropertyBaseline
 
     internal Uri HeaderUrl { get; private set; }
 
+    internal Uri DataUrl { get; private set; }
+
     internal IReadOnlyList<string> FolderOrder { get; private set; }
 
     /// <summary>属性保存前の旧値と、登録前の作成経路から確定した旧配置の有無を捕捉します。</summary>
@@ -1172,6 +1155,7 @@ internal sealed class PlaylistPropertyBaseline
             Symbol = table.symbol,
             PageUrl = table.Page_url,
             HeaderUrl = table.Header_url,
+            DataUrl = table.Data_url,
             FolderOrder = [.. table.Folder_order ?? []]
         };
     }
@@ -1190,6 +1174,8 @@ internal sealed class PlaylistPropertySaveCommit
         Settings = settings;
     }
 
+    /// <summary>同じ保存が要求した参照置換後の一覧公開Taskです。別要求のidle待機へ広げません。</summary>
+    internal Task SavedPresentation { get; set; } = Task.CompletedTask;
     /// <summary>実登録前の作成経路。登録確定後はfalseに進め、集合不在から新規へ戻しません。</summary>
     internal bool IsNewDraft { get; set; }
     /// <summary>初回属性保存だけの旧値。結果を返す前に解放し、継続には使いません。</summary>
@@ -1322,6 +1308,9 @@ internal sealed class PlaylistPropertyEntriesChangedEventArgs : EventArgs
         Table = table ?? throw new ArgumentNullException(nameof(table));
         RefreshSummaryIfVisible = refreshSummaryIfVisible;
     }
+
+    /// <summary>購読workspaceがこの通知から開始した一覧公開の実Taskを返します。</summary>
+    internal Task Completion { get; set; } = Task.CompletedTask;
 
     internal BMSTable Table { get; }
 

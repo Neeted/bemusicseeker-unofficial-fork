@@ -9,6 +9,27 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistReloadMergeTests
 {
+    /// <summary>本文と絶対Dataが不変でも、保存済みHeader空欄の補完だけを保存・BMTへ渡し、本文版と日時は保持します。</summary>
+    [TestMethod]
+    public void MergeReloadedBMSTableState_CompletesEmptyHeaderWithoutEntrySave()
+    {
+        BMSTable original = CreateUriContextTable(true), reloaded = CreateUriContextTable(true);
+        original.Page_url = reloaded.Page_url = new Uri("https://example.test/page");
+        original.Header_url = null;
+        reloaded.Header_url = new Uri("https://example.test/header.json");
+        original.Data_url = reloaded.Data_url = new Uri("https://example.test/data.json");
+        BMSTable merged = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(original, reloaded,
+            PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(original.entries), out PlaylistAggregatePersistenceOwner.PlaylistReloadPersistenceDecision decision);
+        Assert.IsTrue(decision.NeedsHeaderPersistence);
+        Assert.IsTrue(decision.NeedsBmtExport);
+        Assert.IsFalse(decision.NeedsEntryPersistence);
+        Assert.IsFalse(decision.UpdatesLastUpdate);
+        Assert.AreEqual(original.last_update, merged.last_update);
+        Assert.AreEqual(original.header_sha256, merged.header_sha256);
+        Assert.AreEqual(original.data_sha256, merged.data_sha256);
+        Assert.AreEqual(reloaded.Header_url, merged.Header_url);
+    }
+
     /// <summary>空行・全絶対URL行で本文hashが同じでもdata基準差を保存し、path/queryのcaseを捨てる比較と日時・entryの過剰保存を検出します。</summary>
     [TestMethod]
     [DataRow("https://example.test/old/rows.json", "https://example.test/new/rows.json", false)]

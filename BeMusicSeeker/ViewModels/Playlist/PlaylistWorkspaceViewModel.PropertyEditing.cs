@@ -182,6 +182,13 @@ public sealed partial class PlaylistWorkspaceViewModel
         });
     }
 
+    private void ForwardPlaylistPropertyCatalogChanged(object sender, EventArgs args)
+        => ApplyPlaylistPropertyPresentation(() =>
+        {
+            PublishPlaylistCatalogChanged();
+            PlaylistKeywordValueCandidatesChanged?.Invoke(this, EventArgs.Empty);
+        });
+
     private void ForwardPlaylistEntriesChanged(
         object sender,
         PlaylistPropertyEntriesChangedEventArgs request)
@@ -192,9 +199,27 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         ApplyPlaylistPropertyPresentation(() =>
         {
-            PublishPlaylistCatalogChanged();
-            PlaylistKeywordValueCandidatesChanged?.Invoke(this, EventArgs.Empty);
-            PublishEntriesChanged(request.Table, request.RefreshSummaryIfVisible && Volatile.Read(ref summaryPropertyEditSession) == null);
+            var failures = new List<Exception>();
+            TryPublish(PublishPlaylistCatalogChanged, failures);
+            TryPublish(() => PlaylistKeywordValueCandidatesChanged?.Invoke(this, EventArgs.Empty), failures);
+            long requestedGeneration = 0;
+            void CaptureBuild(long generation, Task completion)
+            {
+                if (generation == requestedGeneration) { request.Completion = completion; }
+            }
+            PlaylistSummaryBuildStarted += CaptureBuild;
+            try
+            {
+                PublishEntriesChanged(request.Table,
+                    request.RefreshSummaryIfVisible && Volatile.Read(ref summaryPropertyEditSession) == null,
+                    generation => requestedGeneration = generation);
+                // shellの通常集約は次turnへ予約されますが、この保存に必要な置換公開はPの終端です。
+                // 既存deferred要求だけをここでdrainし、予約済みshell callbackには追加構築を残しません。
+                if (requestedGeneration != 0 && IsPlaylistSummaryMode)
+                { DrainDeferredPlaylistSummaryRefresh(dataRefreshRequired: false, rebuildAsync: true); }
+            }
+            finally { PlaylistSummaryBuildStarted -= CaptureBuild; }
+            if (failures.Count > 0) { throw new AggregateException(failures); }
         });
     }
 
@@ -316,7 +341,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         try
         {
             ActivePropertyDialog?.Dispose();
-            ActivePropertyDialog = new PlaylistPropertyDialogViewModel(service, editSession);
+            ActivePropertyDialog = new PlaylistPropertyDialogViewModel(service, editSession, WaitForDetailEntryDeliveryAsync);
             return ActivePropertyDialog;
         }
         catch
@@ -503,7 +528,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             editSession.Adopt(commit);
             try
             {
-                await ApplySummarySavedPropertiesAsync(commit.Table).ConfigureAwait(true);
+                await WaitForDetailEntryDeliveryAsync().ConfigureAwait(true);
             }
             catch (Exception failure)
             {
@@ -521,45 +546,51 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     private Task ApplySummarySavedPropertiesAsync(BMSTable table)
-        => playlistRestoreUiApplyScheduler(() =>
+    {
+        PlaylistHeaderValue header;
+        using (table.ReaderWriterLock.GetReaderGuard()) { header = PlaylistHeaderValue.Capture(table); }
+        return playlistRestoreUiApplyScheduler(() => ApplySummarySavedProperties(table, header, customFolderOutputSettingsProvider()));
+    }
+
+    private void ApplySummarySavedProperties(BMSTable table, PlaylistHeaderValue header, CustomFolderOutputSettingsSnapshot settings)
+    {
+        var failures = new List<Exception>();
+        try
         {
-            var failures = new List<Exception>();
-            try
+            playlistSummaryView.PreserveSelection(() =>
             {
-                playlistSummaryView.PreserveSelection(() =>
+                PlaylistSummaryRow current = null;
+                System.Collections.Specialized.NotifyCollectionChangedEventArgs change = null;
+                bool textChanged = false;
+                int projectedRows = 0, filteredRows = 0, comparisons = 0;
+                lock (playlistSummaryTransitionLock)
                 {
-                    PlaylistSummaryRow current = null;
-                    System.Collections.Specialized.NotifyCollectionChangedEventArgs change = null;
-                    bool textChanged = false;
-                    int projectedRows = 0, filteredRows = 0, comparisons = 0;
-                    lock (playlistSummaryTransitionLock)
+                    playlistSummaryRowsCache.TryGetTableRow(table, out PlaylistSummaryRow raw);
+                    if (isPlaylistSummaryMode && appliedPlaylistSummaryIdentity is PlaylistSummaryPresentationIdentity identity)
                     {
-                        playlistSummaryRowsCache.TryGetTableRow(table, out PlaylistSummaryRow raw);
-                        if (isPlaylistSummaryMode && appliedPlaylistSummaryIdentity is PlaylistSummaryPresentationIdentity identity)
-                        {
-                            playlistSummaryView.TryGetTableRow(table, out current);
-                            var sort = new ChartListSortParameters { ColumnsName = identity.SortColumn, Direction = identity.SortDirection };
-                            IComparer<PlaylistSummaryRow> comparer = PlaylistSummarySortEngine.CreateComparer(sort, out _);
-                            var countedComparer = Comparer<PlaylistSummaryRow>.Create((left, right) => { comparisons++; return comparer.Compare(left, right); });
-                            change = playlistSummaryView.ApplySavedProperties(table, raw, countedComparer,
-                            target => { filteredRows++; return ApplyPlaylistSummaryFilters([target], identity.KeywordFilter, identity.OwnedFilter).Any(); }, out projectedRows);
-                            string nextText = FormatPlaylistSummaryText(playlistSummaryView.TotalCharts, playlistSummaryView.Count);
-                            textChanged = playlistSummaryText != nextText;
-                            playlistSummaryText = nextText;
-                        }
-                        else if (raw != null) { raw.ApplySavedProperties(table, notify: false); projectedRows++; }
+                        playlistSummaryView.TryGetTableRow(table, out current);
+                        var sort = new ChartListSortParameters { ColumnsName = identity.SortColumn, Direction = identity.SortDirection };
+                        IComparer<PlaylistSummaryRow> comparer = PlaylistSummarySortEngine.CreateComparer(sort, out _);
+                        var countedComparer = Comparer<PlaylistSummaryRow>.Create((left, right) => { comparisons++; return comparer.Compare(left, right); });
+                        change = playlistSummaryView.ApplySavedProperties(table, header, settings, raw, countedComparer,
+                        target => { filteredRows++; return ApplyPlaylistSummaryFilters([target], identity.KeywordFilter, identity.OwnedFilter).Any(); }, out projectedRows);
+                        string nextText = FormatPlaylistSummaryText(playlistSummaryView.TotalCharts, playlistSummaryView.Count);
+                        textChanged = playlistSummaryText != nextText;
+                        playlistSummaryText = nextText;
                     }
-                    // 表示交換後の旧rowは完了対象にしません。現在行だけ派生属性と局所集合変更を通知します。
-                    LogBuild("playlist_summary_edit projectedRows=" + projectedRows + " filteredRows=" + filteredRows + " comparisons=" + comparisons);
-                    if (current != null) { TryPublish(current.PublishSavedProperties, failures); }
-                    TryPublish(() => playlistSummaryView.PublishLocalChange(change), failures);
-                    if (textChanged) { TryPublish(() => RaisePropertyChanged(nameof(PlaylistSummaryText)), failures); }
-                    return true;
-                }, () => TryPublish(() => playlistSummaryView.PublishSelectionUpdateCompleted(EventArgs.Empty), failures));
-            }
-            catch (Exception ex) { failures.Add(ex); }
-            if (failures.Count > 0) { throw new PlaylistSummaryPublishException(new AggregateException(failures)); }
-        });
+                    else if (raw != null) { raw.ApplySavedProperties(header, settings, notify: false); projectedRows++; }
+                }
+                // 表示交換後の旧rowは完了対象にしません。現在行だけ派生属性と局所集合変更を通知します。
+                LogBuild("playlist_summary_edit projectedRows=" + projectedRows + " filteredRows=" + filteredRows + " comparisons=" + comparisons);
+                if (current != null) { TryPublish(current.PublishSavedProperties, failures); }
+                TryPublish(() => playlistSummaryView.PublishLocalChange(change), failures);
+                if (textChanged) { TryPublish(() => RaisePropertyChanged(nameof(PlaylistSummaryText)), failures); }
+                return true;
+            }, () => TryPublish(() => playlistSummaryView.PublishSelectionUpdateCompleted(EventArgs.Empty), failures));
+        }
+        catch (Exception ex) { failures.Add(ex); }
+        if (failures.Count > 0) { throw new PlaylistSummaryPublishException(new AggregateException(failures)); }
+    }
 
     private static bool IsSummaryPropertyEditable(string propertyName)
     {

@@ -20,6 +20,7 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
 
     private readonly record struct RawEntrySnapshot(
         string Folder,
+        string Identity,
         string Md5,
         string Sha256,
         bool IsRemoved);
@@ -113,6 +114,7 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
                     .Where(entry => entry != null)
                     .Select(entry => new RawEntrySnapshot(
                         entry.folder,
+                        BMSTable.getEntryIdentityKey(entry),
                         entry.md5,
                         entry.sha256,
                         entry.is_removed))
@@ -152,20 +154,9 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
             string resolvedSha256 = resolved?.Sha256;
             BeMusicSeeker.Models.ChartDetails chartInfo = library.ResolveChartInfo(entry.Sha256, entry.Md5);
             string chartInfoSha256 = chartInfo?.sha256;
-            string identityKey = !string.IsNullOrWhiteSpace(resolvedMd5)
-                ? "md5:" + resolvedMd5
-                : !string.IsNullOrWhiteSpace(entry.Md5)
-                    ? "md5:" + entry.Md5
-                    : !string.IsNullOrWhiteSpace(resolvedSha256)
-                        ? "sha256:" + resolvedSha256
-                        : !string.IsNullOrWhiteSpace(entry.Sha256)
-                            ? "sha256:" + entry.Sha256
-                            : !string.IsNullOrWhiteSpace(chartInfoSha256)
-                                ? "chart-info-sha256:" + chartInfoSha256
-                                : resolved?.Path;
             lampEntries.Add(new PlaylistLampEntrySnapshot(
                 entry.Folder,
-                identityKey,
+                entry.Identity,
                 resolved != null && !string.IsNullOrWhiteSpace(resolved.Path),
                 entry.Md5,
                 entry.Sha256,
