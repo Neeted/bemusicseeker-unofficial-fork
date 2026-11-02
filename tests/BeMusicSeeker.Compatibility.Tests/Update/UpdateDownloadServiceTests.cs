@@ -1,12 +1,12 @@
-using System;
-using System.IO;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Update;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
 
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+[TestCategory("Suite.DirectorySymbolicLink")]
 public sealed class UpdateDownloadServiceTests
 {
 
@@ -17,7 +17,8 @@ public sealed class UpdateDownloadServiceTests
     [TestCategory("EnvironmentIntegration")]
     public void PrepareUpdaterLaunchRejectsReparsePointInCurrentWorkDirectory()
     {
-        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdateDownloadServiceTests", Guid.NewGuid().ToString("N"));
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = workspace.RootDirectory;
         string externalDirectory = Path.Combine(root, "external");
         Directory.CreateDirectory(externalDirectory);
         File.WriteAllText(Path.Combine(externalDirectory, "sentinel.txt"), "external-sentinel");
@@ -70,7 +71,8 @@ public sealed class UpdateDownloadServiceTests
     [TestCategory("EnvironmentIntegration")]
     public void TryDeleteDownloadedPackageRejectsReparsePointDownloadsDirectory()
     {
-        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdateDownloadServiceTests", Guid.NewGuid().ToString("N"));
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = workspace.RootDirectory;
         string externalDirectory = Path.Combine(root, "external");
         Directory.CreateDirectory(externalDirectory);
         string externalPackagePath = Path.Combine(externalDirectory, "app.zip");

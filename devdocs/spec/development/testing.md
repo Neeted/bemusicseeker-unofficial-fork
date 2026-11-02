@@ -327,7 +327,7 @@ Fullは通常2ホスト、一般 `ProcessIntegration`、専用 `EnvironmentInteg
 
 固定corpusと実toolはCompatibility moduleの `Suite.*` 属性で選択します。suiteの明示選択をopt-inとし、旧 `BMS_TEST_CHART_INFO_FULL` / `BMS_TEST_PRODUCTION_DIFF_FULL` / `BMS_TEST_CHART_INFO_SLOW` の事前ガードは使いません。通常のCore/Windows検証へ固定corpus全件を混ぜません。
 
-固定入力はリポジトリの `BeMusicSeeker.Tests/TestData` を読み取り専用で参照し、build出力へ複製しません。入力・参照DB・外部tool・Java準備JSONの欠如や不正は失敗です。suite一覧、準備、正式入口と直接module実行は[互換検査の案内](../../../tests/BeMusicSeeker.Compatibility.Tests/README.md)を参照します。正式入口は登録済み8suiteから一つを選び、Release・1workerで実行します。suiteの起動・前提検査・本体・通常回収・実exitは60秒を共有し、失敗回収10秒は既存の共通cutoffを使います。この初期運用上限はcorpus全体の完了保証ではなく、内側parser/toolの期限でも延長しません。直接moduleの成功を正式入口の成功へ読み替えません。
+固定入力はリポジトリの `BeMusicSeeker.Tests/TestData` を読み取り専用で参照し、build出力へ複製しません。入力・参照DB・外部tool・Java準備JSONの欠如や不正は失敗です。suite一覧、準備、正式入口と直接module実行は[互換検査の案内](../../../tests/BeMusicSeeker.Compatibility.Tests/README.md)を参照します。正式入口は登録済み12suiteから一つを選び、Release・1workerで実行します。suiteの起動・前提検査・本体・通常回収・実exitはDriveRoot/DirectorySymbolicLinkが180秒、他suiteが60秒を共有し、失敗回収10秒は既存の共通cutoffを使います。この初期運用上限はcorpus全体の完了保証ではなく、内側parser/toolの期限でも延長しません。直接moduleの成功を正式入口の成功へ読み替えません。
 
 性能検査の入口は `benchmark-net10-performance.ps1 -Corpus all -Configuration Release -Scale small,medium,large` です。`contract` は診断出力、`estimation` は候補リソースの評価、`parser` は同位置だけのノートの全位置で次音なしを確認する機能検査で、走査回数・所要時間は測定しません。規模に対応する入力数は各ケースに置き、800万の逆引きキーや実DB・20 ZIPの導入全体の代わりとは扱いません。条件、完了範囲、反復値、結果同等性は[性能仕様](../core/performance-and-scale.md)に従います。
 
@@ -336,6 +336,8 @@ Fullは通常2ホスト、一般 `ProcessIntegration`、専用 `EnvironmentInteg
 外部エンコーダーは `ExternalAudioEncoderSmokeTests` で明示実行します。`EnvironmentIntegration` として専用環境で実行し、`BMS_TEST_AUDIO_ENCODERS=1` を必須とします。指定がなければ失敗です。`BMS_TEST_AUDIO_ENCODER_DIR`、アプリ基準、`libs\x64`、`x64` の順に検索します。`BMS_TEST_AUDIO_ENCODER_TYPES` は `MP3_LAME,AAC_NERO,OPUS,FLAC,OGG_VORBIS` の部分集合です。指定した実行ファイルがない場合、または指定なしで一つも見つからない場合は失敗です。
 
 生成した短いステレオPCM/WAVを本番の `BassAudioWriter` とエンコード・停止・後片付けへ通し、ファイルの形式識別と採番を確認します。実行ファイル、ライセンス、生成音声をリポジトリの固定入力へ追加しません。
+
+環境条件のDriveRoot（8methods/10rows）、DirectorySymbolicLink（6/6、file linkを含む）、CrossVolume（4/4）、Junction（3/7）はCompatibilityの明示suiteへ所属します。実能力不足をskipや代用入力へ変えません。全Compatibilityは既存UiModuleLifetimeでsession排他・専有profile・日本語辞書を準備し、実hostは遅延生成します。正式runnerは `BMS_TEST_SUITE_DEADLINE` のQPC始点とTimeSpan ticksを子だけへ渡し、lease・updater・probe・junctionの局所期限が元cutoffを延長しないよう制限します。未指定の直接MTPだけ有限既定を使い、明示不正・期限切れは失敗です。他moduleと準備processは同変数を明示除去し、親環境は変更しません。親の失敗回収は既存の `min(suite cutoff + 10秒, 検出時刻 + 10秒)` を維持します。期限の再読・不正拒否・gate後の実子importとrunner接続はCore/Verificationの契約testで分担します。
 
 ### 画面確認
 

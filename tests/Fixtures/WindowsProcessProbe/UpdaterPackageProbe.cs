@@ -3,6 +3,7 @@ using System.IO;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.TestSupport.Components.Update;
 using BeMusicSeeker.TestSupport.Processes;
 using BeMusicSeeker.TestSupport.Verification;
@@ -23,7 +24,7 @@ internal sealed class UpdaterPackageProbe
     private UpdaterPackageProbe(UpdaterPackageProbeRequest request)
     {
         this.request = request;
-        deadline = ProcessDeadline.FromTimeout(TimeSpan.FromTicks(request.RemainingTicks));
+        deadline = ProcessDeadline.FromSuiteEnvironment(TimeSpan.FromTicks(request.RemainingTicks));
         Commands = new UpdaterPackageCommands(request.UpdaterPath, deadline, cleanupDeadline);
     }
 
@@ -54,6 +55,9 @@ internal sealed class UpdaterPackageProbe
         {
             switch (caseName)
             {
+                case nameof(WindowsGatewayAcceptsDriveRootReadyReceiptAndCancelsWithoutApplying):
+                    WindowsGatewayAcceptsDriveRootReadyReceiptAndCancelsWithoutApplying();
+                    break;
                 case nameof(RecoverCommandDefersWhenTheApplicationExecutableIsStillRunning):
                     Assert.IsFalse(request.Restarting);
                     RecoverCommandDefersWhenTheApplicationExecutableIsStillRunning();
@@ -69,7 +73,7 @@ internal sealed class UpdaterPackageProbe
         finally
         {
             // 強制停止そのものから回収時間へ含め、内側finallyで確定済みなら同じ期限を引き継ぎます。
-            ProcessDeadline cleanup = cleanupDeadline.Value;
+            ProcessDeadline cleanup = primary is null ? deadline : cleanupDeadline.Value;
             foreach ((Process Process, Task<string> Output, Task<string> Error) owned in directProcesses.AsEnumerable().Reverse())
             {
                 try
@@ -99,6 +103,41 @@ internal sealed class UpdaterPackageProbe
             }
         }
     }
+
+    /// <summary>親が所有するdrive rootで実gatewayのready receipt・Abort・旧tree保持を確認します。</summary>
+    private void WindowsGatewayAcceptsDriveRootReadyReceiptAndCancelsWithoutApplying()
+    {
+        string appDirectoryPath = request.RootDirectory;
+        string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
+        string readyPath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-ready.txt");
+        string decisionPath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt");
+        string workingDirectory = Directory.CreateDirectory(Path.Combine(appDirectoryPath, "update_work", "current")).FullName;
+        string canonicalBefore = ComputeCanonicalTreeHash(appDirectoryPath);
+        Process? process = null;
+        var gateway = new WindowsUpdaterProcessGateway(startInfo =>
+        {
+            Assert.IsTrue(startInfo.CreateNoWindow);
+            Assert.AreEqual(workingDirectory, startInfo.WorkingDirectory);
+            startInfo.RedirectStandardOutput = true;
+            startInfo.RedirectStandardError = true;
+            process = StartDirectProcess(startInfo);
+            return process;
+        });
+        var launchRequest = UpdaterProcessLaunchRequest.Create(
+            request.UpdaterPath, workingDirectory, appDirectoryPath, packagePath,
+            Path.Combine(appDirectoryPath, "update_backup"), readyPath, decisionPath,
+            Path.Combine(appDirectoryPath, "restart.exe"));
+        UpdaterLaunchReceipt receipt = gateway.Prepare(launchRequest).Start();
+        Assert.IsNotNull(process);
+        Assert.AreEqual("1", File.ReadAllText(readyPath).Trim());
+        Assert.IsFalse(process.HasExited);
+        Assert.AreEqual(canonicalBefore, ComputeCanonicalTreeHash(appDirectoryPath));
+        receipt.Abort();
+        WaitForDirectExit(process, deadline);
+        // 全子孫終端後の最終treeとZIP・再起動markerは、親Jobを回収した親caseで確認します。
+        Assert.IsTrue(process.HasExited);
+    }
+
 
     private Process StartDirectProcess(ProcessStartInfo info, bool waitForReady = false)
     {

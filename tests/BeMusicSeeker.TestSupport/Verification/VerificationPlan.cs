@@ -18,6 +18,10 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
 {
     private static readonly IReadOnlyDictionary<string, TimeSpan> CompatibilitySuites = new Dictionary<string, TimeSpan>(StringComparer.Ordinal)
     {
+        ["DriveRoot"] = TimeSpan.FromSeconds(180),
+        ["DirectorySymbolicLink"] = TimeSpan.FromSeconds(180),
+        ["CrossVolume"] = TimeSpan.FromSeconds(60),
+        ["Junction"] = TimeSpan.FromSeconds(60),
         ["chart-info-bms"] = TimeSpan.FromSeconds(60),
         ["chart-info-bmson"] = TimeSpan.FromSeconds(60),
         ["chart-info-production"] = TimeSpan.FromSeconds(60),
@@ -51,7 +55,7 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
                 new("Windows", null, 1, true),
                 new("Scenarios", full ? null : "TestCategory=Daily", 1, true),
                 .. full ? new[] { new VerificationModule("Desktop.E2E", null, 1, true) } : []],
-            "compatibility" => [new("Compatibility", SuiteFilter(suite), 1, false)],
+            "compatibility" => [new("Compatibility", SuiteFilter(suite), 1, true)],
             "performance" => [new("Performance", SuiteFilter(suite), 1, false)],
             _ => throw new ArgumentException($"未知のprofileです: {profile}"),
         };
@@ -104,7 +108,7 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
         "dev" or "verify" => new Dictionary<string, IReadOnlyList<string>> { ["Scenarios"] = ["SC-01", "SC-02", "SC-09"] },
         "full" => new Dictionary<string, IReadOnlyList<string>>
         {
-            ["Scenarios"] = ["SC-01", "SC-02", "SC-03", "SC-04", "SC-05", "SC-06", "SC-08", "SC-09", "SC-10", "SC-11", "SC-12", "SC-13", "SC-14"],
+            ["Scenarios"] = ["SC-01", "SC-02", "SC-03", "SC-04", "SC-05", "SC-06", "SC-08", "SC-09", "SC-10A", "SC-10B", "SC-11", "SC-12", "SC-13", "SC-14"],
             ["Desktop.E2E"] = ["SC-15a", "SC-15b", "SC-16", "DT-01", "DT-02", "DT-03"],
         },
         _ => new Dictionary<string, IReadOnlyList<string>>(),

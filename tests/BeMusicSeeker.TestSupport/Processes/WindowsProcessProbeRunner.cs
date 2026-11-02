@@ -41,7 +41,7 @@ internal static class WindowsProcessProbeRunner
             {
                 try
                 {
-                    ProcessStopResult stopped = await process.StopAsync(null, cleanupDeadline.Value);
+                    ProcessStopResult stopped = await process.StopAsync(null, primary is null ? deadline : cleanupDeadline.Value);
                     if (stopped.CleanupFailure is not null) { cleanup.Add(stopped.CleanupFailure); }
                 }
                 catch (Exception exception) { cleanup.Add(exception); }

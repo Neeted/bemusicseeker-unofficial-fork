@@ -49,7 +49,7 @@ public sealed class VerificationPlanTests
         Assert.AreEqual("Release", full.Configuration);
         Assert.IsTrue(full.Format);
         Assert.AreEqual(TimeSpan.FromSeconds(1380), full.TestTimeout);
-        CollectionAssert.AreEqual(new[] { "SC-01", "SC-02", "SC-03", "SC-04", "SC-05", "SC-06", "SC-08", "SC-09", "SC-10", "SC-11", "SC-12", "SC-13", "SC-14" }, full.RequiredScenarioIds["Scenarios"].ToArray());
+        CollectionAssert.AreEqual(new[] { "SC-01", "SC-02", "SC-03", "SC-04", "SC-05", "SC-06", "SC-08", "SC-09", "SC-10A", "SC-10B", "SC-11", "SC-12", "SC-13", "SC-14" }, full.RequiredScenarioIds["Scenarios"].ToArray());
         CollectionAssert.AreEqual(new[] { "SC-15a", "SC-15b", "SC-16", "DT-01", "DT-02", "DT-03" }, full.RequiredScenarioIds["Desktop.E2E"].ToArray());
         Assert.IsTrue(VerificationPlan.Create("verify", 8).Format);
         Assert.IsFalse(VerificationPlan.Create("dev", 8).Format);
@@ -64,17 +64,21 @@ public sealed class VerificationPlanTests
     public void FullRejectsFilterBeforeCreatingAnExecutionPlan(string filter)
         => Assert.Throws<ArgumentException>(() => VerificationPlan.Parse(["full", "--filter", filter], 8));
 
-    /// <summary>登録suiteだけをRelease・単一workerの標準MTPへ渡し、起動から回収までの60秒上限を適用します。</summary>
+    /// <summary>登録suiteだけをRelease・単一workerの標準MTPへ渡し、起動から回収までのsuite別上限を適用します。</summary>
     [TestMethod]
-    [DataRow("chart-info-bms")]
-    [DataRow("chart-info-bmson")]
-    [DataRow("chart-info-production")]
-    [DataRow("chart-info-production-slow")]
-    [DataRow("chart-info-production-latest")]
-    [DataRow("chart-info-edge")]
-    [DataRow("chart-info-archive")]
-    [DataRow("chartstring-java")]
-    public void RegisteredCompatibilitySuiteSelectsOneReleaseModule(string suite)
+    [DataRow("chart-info-bms", 60)]
+    [DataRow("chart-info-bmson", 60)]
+    [DataRow("chart-info-production", 60)]
+    [DataRow("chart-info-production-slow", 60)]
+    [DataRow("chart-info-production-latest", 60)]
+    [DataRow("chart-info-edge", 60)]
+    [DataRow("chart-info-archive", 60)]
+    [DataRow("chartstring-java", 60)]
+    [DataRow("DriveRoot", 180)]
+    [DataRow("DirectorySymbolicLink", 180)]
+    [DataRow("CrossVolume", 60)]
+    [DataRow("Junction", 60)]
+    public void RegisteredCompatibilitySuiteSelectsOneReleaseModule(string suite, int timeoutSeconds)
     {
         var plan = VerificationPlan.Parse(["compatibility", "--suite", suite], 8);
         VerificationModule module = plan.Modules.Single();
@@ -83,10 +87,10 @@ public sealed class VerificationPlanTests
         Assert.AreEqual($"TestCategory=Suite.{suite}", module.Filter);
         Assert.AreEqual("Release", plan.Configuration);
         Assert.IsFalse(plan.Format);
-        Assert.IsFalse(module.UsesUi);
+        Assert.IsTrue(module.UsesUi);
         Assert.AreEqual(1, module.Workers);
         Assert.AreEqual("MethodLevel", module.CreateRunSettings().Descendants("Scope").Single().Value);
-        Assert.AreEqual(TimeSpan.FromSeconds(60), plan.TestTimeout);
+        Assert.AreEqual(TimeSpan.FromSeconds(timeoutSeconds), plan.TestTimeout);
         Assert.AreEqual("tests/verification-compatibility.slnf", plan.SolutionFilter);
         Assert.AreEqual(0, plan.RequiredScenarioIds.Count);
     }

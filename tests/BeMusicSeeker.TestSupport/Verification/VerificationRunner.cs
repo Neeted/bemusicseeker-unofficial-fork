@@ -96,7 +96,8 @@ internal static class VerificationRunner
         async Task<ProcessCompletion> ExecutePreparation(string executable, IReadOnlyList<string> arguments, RunnerStage stage)
         {
             VerificationCommandResult result = await ExecuteProcessAsync(run, stage,
-                new ProcessStartRequest(executable, arguments, run.Repository, ownershipPolicy: ProcessOwnershipPolicy.Preparation),
+                new ProcessStartRequest(executable, arguments, run.Repository,
+                    new Dictionary<string, string?> { [ProcessDeadline.SuiteDeadlineEnvironmentVariable] = null }, ownershipPolicy: ProcessOwnershipPolicy.Preparation),
                 run.RunRoot, $"preparation-{++commandIndex:D3}");
             commands.Add(result);
             summaryDeadline = stage.CleanupDeadline;
@@ -189,6 +190,7 @@ internal static class VerificationRunner
                         {
                             [TestRunDirectory.EnvironmentVariable] = Path.Combine(directory, "cases"),
                             [DistributionCatalog.EnvironmentVariable] = distributionCatalog,
+                            [ProcessDeadline.SuiteDeadlineEnvironmentVariable] = module.Name == "Compatibility" ? testing.ExecutionDeadline.Export() : null,
                         }),
                         directory, "process", started => Interlocked.CompareExchange(ref executionStart, started, 0), cleanupIntervals);
                 }

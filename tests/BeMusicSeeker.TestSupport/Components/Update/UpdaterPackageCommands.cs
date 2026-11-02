@@ -57,7 +57,8 @@ internal sealed class UpdaterPackageCommands(string updaterPath, ProcessDeadline
         if (result.CleanupFailure is not null) { throw result.CleanupFailure; }
     }
 
-    private bool WaitForReadyOrProcessExit(OwnedProcess process, string filePath)
+    /// <summary>readyまたは実root終端を、caseの共有期限内で待ちます。</summary>
+    internal bool WaitForReadyOrProcessExit(OwnedProcess process, string filePath)
     {
         while (!File.Exists(filePath))
         {

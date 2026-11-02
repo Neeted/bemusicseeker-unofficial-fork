@@ -9,7 +9,7 @@ internal static class ChartInfoToolTestSupport
     /// <summary>実toolを30秒以内に終端させ、失敗時は独立した5秒の回収結果も保持します。</summary>
     internal static async Task<ProcessCompletion> RunAsync(string fileName, IReadOnlyList<string> arguments, string workingDirectory, string temporaryDirectory, Action preserveUncollectedWorkspace)
     {
-        var deadline = ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(30));
+        var deadline = ProcessDeadline.FromSuiteEnvironment(TimeSpan.FromSeconds(30));
         ProcessDeadline? cleanupDeadline = null;
         ProcessDeadline BeginCleanup() => cleanupDeadline ??= ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(5));
         var request = new ProcessStartRequest(fileName, arguments, workingDirectory,
@@ -39,7 +39,7 @@ internal static class ChartInfoToolTestSupport
             Exception? cleanup = null;
             try
             {
-                ProcessStopResult stopped = await process.StopAsync(null, BeginCleanup());
+                ProcessStopResult stopped = await process.StopAsync(null, primary is null ? deadline : BeginCleanup());
                 cleanup = stopped.CleanupFailure;
                 if (cleanup is not null && !process.Completion.IsCompletedSuccessfully) { preserveUncollectedWorkspace(); }
             }

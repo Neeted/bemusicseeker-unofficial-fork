@@ -21,15 +21,17 @@ Windowsの日常検証には外部プレイヤーの実起動2件、更新Gatewa
 
 外部プレイヤーの起動判断・更新要求・runtime引数の通常解析はCore、ログ構成と相対manifestのCWDを扱うcaseはWindowsへ配置します。設定互換とBASS collectibleの三caseはWindowsから一case一fresh `WindowsProcessProbe` を起動し、子内の表明と回収を成功JSONの前に完了します。旧暫定入口は残存する通常対象を固定ハッシュで分けた2ホストを実行し、移管済みfresh caseを重ねて実行しません。除外後の通常集合への `DoNotParallelize` 混入と空の片側hostは非成功です。新moduleの実行方式は変更しません。
 
-`full` はReleaseのCore、Windows、Scenarios、Desktop.E2Eを各1回実行します。Scenariosは全件、SC-07はCompatibility所属のため対象外です。必須IDはScenariosのSC-01〜SC-14（SC-07を除く）、DesktopのSC-15a・SC-15b・SC-16・DT-01〜DT-03です。正式Fullは `--filter` を準備開始前に拒否します。局所検証は対象projectを直接実行します。
+`full` はReleaseのCore、Windows、Scenarios、Desktop.E2Eを各1回実行します。Scenariosは全件、SC-07はCompatibility所属のため対象外です。必須IDはScenariosのSC-01〜SC-14（SC-07を除き、SC-10はSC-10A・SC-10Bの両方を要求）、DesktopのSC-15a・SC-15b・SC-16・DT-01〜DT-03です。正式Fullは `--filter` を準備開始前に拒否します。局所検証は対象projectを直接実行します。
 
 Fullは全C# sourceの整形・build後、固定旧ZIP、現行V、次版Vnextを準備してからtest段階を開始します。Vは通常の公開版値、VnextはVの実バイナリの版から末尾をcheckedで1増やした実行限定の版です。通常の公開版値とAssemblyVersionを変えません。版指定はpublishの `-ApplicationVersion` から生成属性へ接続し、各ArtifactRoot内のproject別obj/binへ分離します。実シナリオは引き続き移行対象です。未接続によるpublish失敗や必須ID不足を成功扱いせず、fixtureを使う準備部品の検査だけで実Full成功としません。
 
-`compatibility --suite <名前>` は[互換検査の8suite](../../tests/BeMusicSeeker.Compatibility.Tests/README.md)から一つを選び、Release・1worker・MethodLevelで実行します。Compatibilityのsolution filterをlocked restore・buildしてから起動し、整形は行いません。suiteの欠指定・空白・未知名は準備開始前に拒否します。名前は大文字小文字を区別し、aliasや `all` はありません。標準 `--filter` はsuite条件とのANDで渡し、OR条件で他suiteへ広げません。選択ゼロも不成功です。
+`compatibility --suite <名前>` は[互換検査の12suite](../../tests/BeMusicSeeker.Compatibility.Tests/README.md)から一つを選び、Release・1worker・MethodLevelで実行します。Compatibilityのsolution filterをlocked restore・buildしてから起動し、整形は行いません。suiteの欠指定・空白・未知名は準備開始前に拒否します。名前は大文字小文字を区別し、aliasや `all` はありません。標準 `--filter` はsuite条件とのANDで渡し、OR条件で他suiteへ広げません。選択ゼロも不成功です。
 
-各suiteの起動・前提検査・本体・通常回収・実exitは一つの60秒期限を共有します。これは初期運用上限であり、corpus全体の完了時間保証ではありません。失敗回収は共通の10秒を一度だけ確定します。Java準備JSONなどの入力は子環境へ継承し、実caseで検査します。必要なtoolや固定入力の取得・展開・権限設定は事前に済ませ、通常runの準備処理へ追加しません。
+DriveRootとDirectorySymbolicLinkは180秒、CrossVolume・Junctionと既存の固定参照8suiteは60秒を、起動・前提検査・本体・通常回収・実exitで共有します。これは初期運用上限であり、corpus全体の完了時間保証ではありません。失敗回収は共通の10秒を一度だけ確定します。Java準備JSONなどの入力は子環境へ継承し、実caseで検査します。必要なtoolや固定入力の取得・展開・権限設定は事前に済ませ、通常runの準備処理へ追加しません。
 
-`performance` と未登録の環境suiteは未実装の非成功を維持します。一つのCompatibility suiteの成功を、全suiteや正式Fullの成功とは扱いません。直接module実行と旧標準入口も引き続き利用できます。
+環境条件のDriveRoot（8メソッド・10行）、DirectorySymbolicLink（6・6、file linkを含む）、CrossVolume（4・4）、Junction（3・7）は明示suiteとして実行します。実能力・必要入力の不足をskipや代用品へ変えません。`performance` は未実装の非成功を維持し、未登録suiteは準備前に拒否します。一つのCompatibility suiteの成功を、全suiteや正式Fullの成功とは扱いません。直接module実行と旧標準入口も引き続き利用できます。
+
+正式Compatibility runnerはQPC始点とTimeSpan ticksの期限を `BMS_TEST_SUITE_DEADLINE` で子だけへ渡し、lease・updater・probe・junction・外部toolの既存小上限との早い方を使います。他moduleと準備processは同変数を明示除去し、親環境は変更しません。未指定の直接MTPだけ有限の局所既定を使い、明示空・不正・期限切れは失敗です。直接MTPの局所成功を正式runnerの共有期限内成功とは扱いません。
 
 ## 配布物の受渡し
 
@@ -39,7 +41,7 @@ VとVnextはrun内の別のArtifactRootへ各1回publishします。生成ZIPは
 
 全配布物の完成後だけ `distribution/catalog.json` をatomicに公開し、子環境の `BMS_TEST_DISTRIBUTION_CATALOG` で渡します。`DistributionCatalog.ReadFromEnvironmentAsync(repository, deadline)` は呼出元が明示したrepositoryの追跡manifestを正本としてcatalogの旧版identityを照合し、未指定・不正を失敗にします。catalogの自己申告や所在から正本を選ばず、自動探索・再取得は行いません。直接module実行でも検査済みcatalogを明示指定し、moduleからの自動publishは行いません。caseは `ExtractInstallationAsync` でTestWorkspace内の新しいinstallationへZIPを展開し、共有publish/ZIPを変更しません。通常はCurrentを使い、SC-15aの更新先にだけNextを使います。
 
-更新の実配布境界は `Scenarios/Update` の非Daily 30メソッド・32行で検査します。旧 `UpdaterPackageSyncTests` の27メソッド・29行と公開受入3件を移し、元のFQN・属性・故障入力・表明を維持します。旧5件のドライブルート・reparse専用保証は旧側に残します。短いSC-IDを代用して必須ID不足を解消したことにはしません。旧FullのReleaseAcceptance空選択は非成功を保ち、旧入口の退役は移行完了時に行います。
+更新の実配布境界は `Scenarios/Update` の非Daily 30メソッド・32行で検査します。旧 `UpdaterPackageSyncTests` の27メソッド・29行と公開受入3件を移し、元のFQN・属性・故障入力・表明を維持します。ドライブルート4件とreparse1件の専用保証はCompatibilityのDriveRoot/DirectorySymbolicLinkへ所属します。これらのCLIは明示した `BMS_SCD_UPDATER_PUBLISH_ROOT`、または未指定時の通常buildを使い、managed callbackは既存build fixtureを使います。短いSC-IDを代用して必須ID不足を解消したことにはしません。旧FullのReleaseAcceptance空選択は非成功を保ち、旧入口の退役は移行完了時に行います。
 
 この32行はcase開始時の単調180秒をcatalog読取りから全Job・pipe終端まで共有し、公開payload30秒とlayout60秒など元の小さい上限も維持します。起動途中失敗とfinallyは同じLazy回収10秒を使用し、公開payload/layoutは元の回収5秒へ一度だけ制限します。Currentの実updater・公開root・ZIPと固定Legacy ZIPをTestWorkspaceへコピーまたは展開し、Nextの用途は増やしません。手作りZIPやjournalは故障条件として維持します。managed callback境界だけは既存updaterの明示build fixtureを配布し、NativeAOT配布やcatalogへ混ぜません。
 
@@ -51,7 +53,7 @@ test/appは共通 `OwnedProcess` がsuspended起動からJob割当を確立し�
 
 各moduleは直接実行でも専有run rootを準備します。runner経由ではmoduleごとに異なる `cases` 領域を子環境の `BMS_TEST_RUN_ROOT` へ渡し、各caseが `TestWorkspace.Create(runRoot)` で独立した可変領域を作ります。DB・Window・processの所有者が先に終端してからworkspaceを破棄します。証跡を残す `PreserveArtifacts()` は他の資源の回収を省略しません。
 
-Windows、Scenarios、Desktopは初期化前に同一ユーザー・Windows sessionのfile leaseを取得します。module内の全Window・子processを回収した後に解放します。runnerと子appは同じleaseを二重取得しません。
+Windows、Scenarios、Desktop、Compatibilityは既存UiModuleLifetimeで初期化前に同一ユーザー・Windows sessionのfile leaseを取得します。Compatibilityも専有profile・日本語辞書を使い、実WPF hostは必要なcaseで遅延生成します。module内の全Window・子processを回収した後に解放します。runnerと子appは同じleaseを二重取得しません。
 
 期待moduleごとの今回のTRX、process終了コード、全終端を照合し、選択結果が全件Passedの場合だけ成功します。部分skip、全skip、ゼロ件、report欠落・不正、timeout、回収失敗も不成功です。未選択moduleは「対象外」として区別します。
 

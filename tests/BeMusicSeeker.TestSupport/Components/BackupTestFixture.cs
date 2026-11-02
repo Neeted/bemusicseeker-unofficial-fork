@@ -12,12 +12,13 @@ internal static class BackupTestFixture
     /// <summary>専有workspace内にバックアップ先と元DBの固定入力を作り、同期の検証後に作成したtreeを回収します。</summary>
     /// <param name="workspace">ケースの呼出元が全体の寿命とDisposeを所有する領域。このhelperはその配下に作る一つのtreeだけを回収します。</param>
     /// <param name="test">バックアップ先と元DBパスを受ける同期callback。独自に開始したTaskやVM・DB接続は、媒体を回収する前に呼出元が終端・解放します。</param>
+    /// <param name="cleanupTree">falseなら内部treeの回収をworkspace所有者へ委ね、未終端時のPreserveArtifactsを尊重します。</param>
     /// <remarks>
     /// backupsディレクトリの作成後、元DB入力の書込みとcallbackをtry/finallyで囲みます。
-    /// finallyはtree内の全ファイル属性をNormalへ戻してからtreeを再帰削除します。workspace全体のDisposeは呼出元に残ります。
+    /// 既定のfinallyはtree内の全ファイル属性をNormalへ戻してからtreeを再帰削除します。workspace全体のDisposeは呼出元に残ります。
     /// 入力準備・callbackの失敗は伝播します。属性変更・削除が失敗した場合も伝播し、そのfinally例外が先行する失敗を置き換える通常の例外順序を保ちます。
     /// </remarks>
-    internal static void WithBackupTree(TestWorkspace workspace, Action<string, string> test)
+    internal static void WithBackupTree(TestWorkspace workspace, Action<string, string> test, bool cleanupTree = true)
     {
         string tree = Path.Combine(workspace.RootDirectory, "BackupTests", Guid.NewGuid().ToString("N"));
         string root = Path.Combine(tree, "backups");
@@ -30,23 +31,27 @@ internal static class BackupTestFixture
         }
         finally
         {
-            foreach (string file in Directory.EnumerateFiles(tree, "*", SearchOption.AllDirectories))
+            if (cleanupTree)
             {
-                File.SetAttributes(file, FileAttributes.Normal);
+                foreach (string file in Directory.EnumerateFiles(tree, "*", SearchOption.AllDirectories))
+                {
+                    File.SetAttributes(file, FileAttributes.Normal);
+                }
+                Directory.Delete(tree, recursive: true);
             }
-            Directory.Delete(tree, recursive: true);
         }
     }
 
     /// <summary>選択バックアップ用の設定XML・曲DB・スコアDBを同じtreeへ準備し、旧環境依存ケースとCoreケースで共用します。</summary>
     /// <param name="workspace">呼出元が全体の寿命とDisposeを所有する領域。配下treeの回収はWithBackupTreeへ委ねます。</param>
     /// <param name="test">バックアップ先・設定XML・曲DB・スコアディレクトリを順に受ける同期callback。独自TaskやVM・DB接続の終端・解放は呼出元が担います。</param>
+    /// <param name="cleanupTree">falseなら内部treeの回収をworkspace所有者へ委ね、未終端時のPreserveArtifactsを尊重します。</param>
     /// <remarks>
     /// 固定内容の書込みとcallbackは<see cref="WithBackupTree"/>の回収境界内で実行します。
     /// 準備・callbackの失敗とfinallyの属性復元・tree削除の失敗は、その同じ伝播順序を保ちます。
-    /// helperはworkspace全体をDisposeせず、作成済みtreeの回収後も呼出元がケース領域を所有します。
+    /// helperはworkspace全体をDisposeしません。cleanupTree=falseではtreeも残し、呼出元がケース終端時にまとめて回収します。
     /// </remarks>
-    internal static void WithSelectedBackupTree(TestWorkspace workspace, Action<string, string, string, string> test)
+    internal static void WithSelectedBackupTree(TestWorkspace workspace, Action<string, string, string, string> test, bool cleanupTree = true)
     {
         WithBackupTree(workspace, (root, songDbPath) =>
         {
@@ -58,7 +63,7 @@ internal static class BackupTestFixture
             WriteAllText(songDbPath, "song-content");
             WriteAllText(Path.Combine(scoreDirectoryPath, "score.db"), "score-content");
             test(root, configPath, songDbPath, scoreDirectoryPath);
-        });
+        }, cleanupTree);
     }
 
     /// <summary>日付名の既存世代4件へ識別用DBを作り、保存対象外の世代が保たれることを観測する入力を揃えます。</summary>

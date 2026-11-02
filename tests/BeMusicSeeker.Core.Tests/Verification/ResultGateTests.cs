@@ -145,6 +145,29 @@ public sealed class ResultGateTests
         Assert.AreEqual("Scenarios", results.Single().Name);
     }
 
+    /// <summary>分離済みのSC-10A/Bを双方要求し、片側欠落や旧ID一件で補完する誤りを拒否します。</summary>
+    [TestMethod]
+    [DataRow("both", true)]
+    [DataRow("missing-a", false)]
+    [DataRow("missing-b", false)]
+    [DataRow("old", false)]
+    public void SplitScoreFlowsRequireBothCurrentIds(string condition, bool expected)
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string path = workspace.GetPath("result.trx");
+        string[] names = condition switch
+        {
+            "both" => ["[SC-10A] score import", "[SC-10B] score export"],
+            "missing-a" => ["[SC-10B] score export"],
+            "missing-b" => ["[SC-10A] score import"],
+            _ => ["[SC-10] old flow"],
+        };
+        CreateReport(names.Select(_ => "Passed").ToArray(), names).Save(path);
+        ModuleOutcome result = ResultGate.Evaluate(["Scenarios"], [new("Scenarios", path, 0, true)],
+            new Dictionary<string, IReadOnlyList<string>> { ["Scenarios"] = ["SC-10A", "SC-10B"] }).Single();
+        Assert.AreEqual(expected, result.Passed, string.Join(";", result.Errors));
+    }
+
     private static XDocument CreateReport(string[] outcomes, string[]? names = null)
     {
         XNamespace ns = "http://microsoft.com/schemas/VisualStudio/TeamTest/2010";

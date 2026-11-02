@@ -1,13 +1,12 @@
-using System;
-using System.IO;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using BeMusicSeeker.TestSupport.Components;
 using static BeMusicSeeker.TestSupport.Components.BmsLibraryPendingLegacyMutationTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+[TestCategory("Suite.DirectorySymbolicLink")]
 public sealed class BmsLibraryPendingLegacyMutationTests
 {
     /// <summary>実symlinkの選択譜面を拒否し、外部のリンク先を残してファイルや親ディレクトリの削除へ進まない。</summary>

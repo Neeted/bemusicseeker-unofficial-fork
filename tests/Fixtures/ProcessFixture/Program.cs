@@ -20,6 +20,19 @@ internal static class Program
         {
             case "--test-session":
                 return await ObserveScenarioTransportAsync(args[1]);
+            case "suite-deadline-after-gate":
+                File.WriteAllText(args[1], "ready");
+                await WaitForFileAsync(args[2]);
+                try
+                {
+                    ProcessDeadline.FromSuiteEnvironment(TimeSpan.FromMinutes(3));
+                    return 0;
+                }
+                catch (TimeoutException)
+                {
+                    Console.Write("expired");
+                    return 3;
+                }
             case "exit":
                 return 0;
             case "runner-command":

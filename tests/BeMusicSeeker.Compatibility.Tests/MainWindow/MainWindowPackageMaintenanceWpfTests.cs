@@ -1,17 +1,14 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.TestSupport.Wpf.PackageMaintenanceEditorTestSupport;
 
 namespace BeMusicSeeker.Tests;
@@ -20,6 +17,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>保守操作の実ファイル・DB反映と、compiledメニューから管理主体への接続を検証します。</summary>
 /// <remarks>要求の可否とreceipt単体は下位へ任せ、ここでは実画面の選択・編集保持やクリックの配送先と非同期終端を観測します。</remarks>
 [TestClass]
+[TestCategory("Suite.DriveRoot")]
 // 実画面の共有Resourcesと音声資源を、終了まで同じfixtureで所有します。
 [DoNotParallelize]
 public sealed partial class MainWindowPackageMaintenanceWpfTests
@@ -31,14 +29,15 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     [TestCategory("EnvironmentIntegration")]
     public void PendingDestinationEditing_DriveRootPreservesOwnedChartThroughRelocationAndReedit()
     {
-        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_DriveRootPresentation_" + Guid.NewGuid().ToString("N"));
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = workspace.RootDirectory;
         string previousDirectory = Environment.CurrentDirectory;
         OwnedTestDrive? drive = null;
         TestBmsLibrary? library = null;
         Exception? primaryFailure = null;
         try
         {
-            drive = OwnedTestDrive.Create(root);
+            drive = OwnedTestDrive.Create(root, 'Z');
             drive.AssertOwned();
             string absoluteRoot = drive.Root;
             string registeredRoot = Path.Combine(absoluteRoot, "LibraryRoot");
@@ -158,7 +157,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     ChartFile current = currentLibrary.BmsCharts.Single(chart => ReferenceEquals(chart.Token, rootOwnedBefore.Token));
                     Assert.AreEqual(rootOwnedPath, current.Path);
                     Assert.AreSame(rootOwnedBefore.Token, current.Token);
-                    using LR2SongDBExtended readback = new BmsLibraryDbGateway(library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
+                    using LR2SongDBExtended readback = new BmsLibraryDbGateway(currentLibrary.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                     Assert.AreEqual(rootOwnedPath, readback.Table<LR2SongDB.song>().Single(chart => chart.path == rootOwnedPath).path);
                 }
                 void ChangeCandidate(Action operation, string nextCandidate)
@@ -205,14 +204,16 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             catch (Exception failure) { failures.Add(failure); }
             try { Environment.CurrentDirectory = previousDirectory; }
             catch (Exception failure) { failures.Add(failure); }
-            try { drive?.Dispose(); }
-            catch (Exception failure) { failures.Add(failure); }
-            try { if (Directory.Exists(root)) { Directory.Delete(root, recursive: true); } }
-            catch (Exception failure) { failures.Add(failure); }
+            if (failures.Count == 0)
+            {
+                try { drive?.AssertOwned(); drive?.Dispose(); }
+                catch (Exception failure) { failures.Add(failure); }
+            }
+            if (failures.Count != 0) { workspace.PreserveArtifacts(); }
             if (failures.Count != 0)
             {
                 if (primaryFailure != null) { failures.Insert(0, primaryFailure); }
-                throw new AggregateException(failures);
+                throw new AggregateException("未回収のdrive fixtureを保持します: " + root + "; " + drive, failures);
             }
         }
     }

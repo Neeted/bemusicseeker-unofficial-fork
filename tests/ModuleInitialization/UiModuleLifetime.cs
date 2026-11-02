@@ -21,7 +21,7 @@ public sealed class UiModuleLifetime
     public static async Task Initialize(TestContext context)
     {
         string runRoot = TestRunDirectory.RootDirectory;
-        TestUiSessionLease acquiredLease = await TestUiSessionLease.AcquireAsync(ProcessDeadline.FromTimeout(TimeSpan.FromMinutes(3)));
+        TestUiSessionLease acquiredLease = await TestUiSessionLease.AcquireAsync(ProcessDeadline.FromSuiteEnvironment(TimeSpan.FromMinutes(3)));
         lease = acquiredLease;
         try
         {

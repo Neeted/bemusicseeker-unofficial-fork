@@ -1,15 +1,11 @@
-using System;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.TestSupport.Wpf.Lr2SettingsOwnerTestFixture;
 
 namespace BeMusicSeeker.Tests;
@@ -17,6 +13,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>LR2設定と実ライブラリ・出力ownerの接続を検証します。</summary>
 /// <remarks>共有 culture・theme・Bass 受付と composition 購読を使うため非並列にします。</remarks>
 [TestClass]
+[TestCategory("Suite.DriveRoot")]
 [DoNotParallelize]
 public sealed class SettingDialogLr2OwnerTests
 {

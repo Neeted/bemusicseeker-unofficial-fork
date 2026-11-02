@@ -1,20 +1,23 @@
-using System;
 using System.ComponentModel;
-using System.IO;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Text;
-using BeMusicSeeker.Models.Utils;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using BeMusicSeeker.TestSupport.Files;
 
 namespace BeMusicSeeker.Tests;
 
 /// <summary>明示された別volumeの既存fixture基点に、ケース所有の子ディレクトリだけを確保します。</summary>
-internal sealed class CrossVolumeTestDirectories : IDisposable
+internal sealed class CrossVolumeTestDirectories
 {
-    private CrossVolumeTestDirectories(string sourceBaseDirectory, string destinationBaseDirectory)
+    private readonly TestWorkspace sourceWorkspace;
+    private readonly TestWorkspace destinationWorkspace;
+
+    private CrossVolumeTestDirectories(TestWorkspace sourceWorkspace, TestWorkspace destinationWorkspace)
     {
-        SourceBaseDirectory = sourceBaseDirectory;
-        DestinationBaseDirectory = destinationBaseDirectory;
+        this.sourceWorkspace = sourceWorkspace;
+        this.destinationWorkspace = destinationWorkspace;
+        SourceBaseDirectory = sourceWorkspace.RootDirectory;
+        DestinationBaseDirectory = destinationWorkspace.RootDirectory;
     }
 
     /// <summary>ケースが作成し、回収する移動元の基点です。</summary>
@@ -23,10 +26,37 @@ internal sealed class CrossVolumeTestDirectories : IDisposable
     /// <summary>ケースが作成し、回収する移動先の基点です。</summary>
     public string DestinationBaseDirectory { get; }
 
-    /// <summary>環境変数で指定された二つの実volumeを確認し、書込み探索なしで所有領域を作成します。</summary>
-    /// <param name="testName">所有する子ディレクトリ名へ含めるテスト名。</param>
-    /// <returns>生成した子ディレクトリのみを解放する所有者。</returns>
-    public static CrossVolumeTestDirectories Create(string testName)
+    /// <summary>別volumeの専有媒体を一度所有し、本体と両媒体の回収失敗を別保持します。入力基点は削除しません。</summary>
+    internal static void Run(Action<CrossVolumeTestDirectories> test)
+    {
+        CrossVolumeTestDirectories directories = Create();
+        Exception? primary = null;
+        var cleanup = new List<Exception>();
+        try { test(directories); }
+        catch (Exception failure) { primary = failure; }
+        finally
+        {
+            foreach (TestWorkspace workspace in new[] { directories.sourceWorkspace, directories.destinationWorkspace })
+            {
+                try { workspace.Dispose(); }
+                catch (Exception failure)
+                {
+                    workspace.PreserveArtifacts();
+                    failure.Data["PreservedCrossVolumeWorkspace"] = workspace.RootDirectory;
+                    cleanup.Add(failure);
+                }
+            }
+        }
+        if (primary is not null)
+        {
+            if (cleanup.Count > 0) { primary.Data["CrossVolumeCleanupFailures"] = new AggregateException(cleanup); }
+            ExceptionDispatchInfo.Capture(primary).Throw();
+        }
+        if (cleanup.Count > 0) { throw new AggregateException("別volume媒体の回収に失敗しました。", cleanup); }
+    }
+
+    /// <summary>二つの実volumeを確認し、部分作成失敗時も元例外を保って作成済み媒体だけを回収します。</summary>
+    private static CrossVolumeTestDirectories Create()
     {
         string sourceFixture = ReadFixtureBase("BMS_TEST_CROSS_VOLUME_SOURCE_ROOT");
         string destinationFixture = ReadFixtureBase("BMS_TEST_CROSS_VOLUME_DESTINATION_ROOT");
@@ -36,29 +66,22 @@ internal sealed class CrossVolumeTestDirectories : IDisposable
         Assert.AreNotEqual(ReadVolumeIdentity(sourceFixture), ReadVolumeIdentity(destinationFixture),
             ignoreCase: true, "指定したfixture基点は同じ実volumeです。");
 
-        string suffix = SanitizePathPart(testName) + "_" + Guid.NewGuid().ToString("N");
-        var directories = new CrossVolumeTestDirectories(
-            Path.Combine(sourceFixture, "BeMusicSeeker_CrossVolume_Source_" + suffix),
-            Path.Combine(destinationFixture, "BeMusicSeeker_CrossVolume_Destination_" + suffix));
+        var source = TestWorkspace.Create(sourceFixture);
         try
         {
-            LongPathFileSystem.CreateDirectory(directories.SourceBaseDirectory);
-            LongPathFileSystem.CreateDirectory(directories.DestinationBaseDirectory);
-            return directories;
+            return new CrossVolumeTestDirectories(source, TestWorkspace.Create(destinationFixture));
         }
         catch (Exception failure)
         {
-            try { directories.Dispose(); }
-            catch (Exception cleanupFailure) { throw new AggregateException(failure, cleanupFailure); }
+            try { source.Dispose(); }
+            catch (Exception cleanupFailure)
+            {
+                source.PreserveArtifacts();
+                cleanupFailure.Data["PreservedCrossVolumeWorkspace"] = source.RootDirectory;
+                failure.Data["CrossVolumeCleanupFailures"] = new AggregateException(cleanupFailure);
+            }
             throw;
         }
-    }
-
-    /// <summary>指定されたfixture基点は保持し、このケースが生成した子だけを回収します。</summary>
-    public void Dispose()
-    {
-        try { DeleteDirectoryIfExists(SourceBaseDirectory); }
-        finally { DeleteDirectoryIfExists(DestinationBaseDirectory); }
     }
 
     private static string ReadFixtureBase(string variableName)
@@ -94,38 +117,4 @@ internal sealed class CrossVolumeTestDirectories : IDisposable
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetVolumeNameForVolumeMountPoint(string mountPoint, StringBuilder volumeName, int bufferLength);
 
-    private static string SanitizePathPart(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return "test";
-        }
-
-        foreach (char invalidChar in Path.GetInvalidFileNameChars())
-        {
-            value = value.Replace(invalidChar, '_');
-        }
-        return value;
-    }
-
-    private static void DeleteDirectoryIfExists(string directoryPath)
-    {
-        if (!LongPathFileSystem.DirectoryExists(directoryPath))
-        {
-            return;
-        }
-
-        foreach (string childFilePath in LongPathFileSystem.EnumerateFiles(directoryPath, "*", SearchOption.AllDirectories))
-        {
-            LongPathFileSystem.SetAttributes(childFilePath, FileAttributes.Normal);
-        }
-
-        foreach (string childDirectoryPath in LongPathFileSystem.EnumerateDirectories(directoryPath, "*", SearchOption.AllDirectories))
-        {
-            LongPathFileSystem.SetAttributes(childDirectoryPath, FileAttributes.Normal);
-        }
-
-        LongPathFileSystem.SetAttributes(directoryPath, FileAttributes.Normal);
-        LongPathFileSystem.DeleteDirectory(directoryPath, recursive: true);
-    }
 }

@@ -1,17 +1,13 @@
-using System;
-using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
-using System.Linq;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.TestSupport.Files;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.TestSupport.Components.BackupTestFixture;
 
 namespace BeMusicSeeker.Tests;
 
 /// <remarks>世代の公開と回収、長いパス、共有ロックは実ファイル操作が必要です。各ケースは専用領域を回収し、SQLite 整理は小さい実 DB で確認します。</remarks>
 [TestClass]
+[TestCategory("Suite.Junction")]
 public sealed class BackupTests
 {
     private TestWorkspace? ownedWorkspace;
@@ -54,9 +50,8 @@ public sealed class BackupTests
             string? linkParent = Path.GetDirectoryName(link);
             Assert.IsNotNull(linkParent);
             Directory.CreateDirectory(linkParent);
-            try
+            DirectoryJunctionFixture.Run(CaseWorkspace, link, target, () =>
             {
-                CreateDirectoryJunction(link, target);
                 Backup.BackupSaveResult result = Backup.SaveSelectedBackupsWithResult(root, TimeSpan.Zero, 1,
                     Backup.Target.Config | Backup.Target.ScoreDB, config, song, score);
 
@@ -68,16 +63,8 @@ public sealed class BackupTests
                 CollectionAssert.AreEquivalent(old, Directory.GetDirectories(root));
                 Assert.IsTrue((File.GetAttributes(link) & FileAttributes.ReparsePoint) != 0);
                 Assert.AreEqual("target-content", ReadAllText(sentinel));
-            }
-            finally
-            {
-                // 再帰清掃にリンク先を渡さず、リンク自体を先に除去します。
-                if (Directory.Exists(link) && (File.GetAttributes(link) & FileAttributes.ReparsePoint) != 0)
-                {
-                    Directory.Delete(link);
-                }
-            }
-        });
+            });
+        }, cleanupTree: false);
     }
 
     /// <summary>選択済みScoreのジャンクションも同日・間隔未到達なら辿らず省略し、未選択リンクは設定だけの保存を妨げません。</summary>
@@ -104,9 +91,8 @@ public sealed class BackupTests
                 Directory.CreateDirectory(existing);
                 WriteAllText(Path.Combine(existing, "sentinel.db"), "existing-content");
             }
-            try
+            DirectoryJunctionFixture.Run(CaseWorkspace, link, target, () =>
             {
-                CreateDirectoryJunction(link, target);
                 Backup.BackupSaveResult result = Backup.SaveSelectedBackupsWithResult(root, TimeSpan.FromDays(7), 1,
                     scenario == "unselected" ? Backup.Target.Config : Backup.Target.ScoreDB, config, song, score);
 
@@ -125,29 +111,8 @@ public sealed class BackupTests
                 }
                 Assert.IsTrue((File.GetAttributes(link) & FileAttributes.ReparsePoint) != 0);
                 Assert.AreEqual("target-content", ReadAllText(Path.Combine(target, "sentinel.db")));
-            }
-            finally
-            {
-                if (Directory.Exists(link))
-                {
-                    Directory.Delete(link);
-                }
-            }
-        });
+            });
+        }, cleanupTree: false);
     }
 
-    private static void CreateDirectoryJunction(string link, string target)
-    {
-        PowerShellTestProcess.Run(
-                    PowerShellTestProcess.FindRepositoryRoot(),
-                    "$ErrorActionPreference = 'Stop'; New-Item -ItemType Junction -Path $env:BMS_TEST_JUNCTION_PATH -Target $env:BMS_TEST_JUNCTION_TARGET | Out-Null",
-                    "directory junction fixture",
-                    new Dictionary<string, string>
-                    {
-                        ["BMS_TEST_JUNCTION_PATH"] = link,
-                        ["BMS_TEST_JUNCTION_TARGET"] = target
-                    });
-        Assert.IsTrue((File.GetAttributes(link) & FileAttributes.ReparsePoint) != 0);
-        Assert.AreEqual(target, new DirectoryInfo(link).ResolveLinkTarget(returnFinalTarget: true)?.FullName, ignoreCase: true);
-    }
 }

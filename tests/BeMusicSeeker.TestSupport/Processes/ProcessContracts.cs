@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
 
 namespace BeMusicSeeker.TestSupport.Processes;
 
@@ -61,6 +62,37 @@ public sealed class ProcessDeadline
         ArgumentOutOfRangeException.ThrowIfLessThan(timeout, TimeSpan.Zero);
         return new ProcessDeadline(timeout);
     }
+
+    /// <summary>同一Windows起動内でsuiteの単調時計期限を子へ渡す環境変数です。</summary>
+    public const string SuiteDeadlineEnvironmentVariable = "BMS_TEST_SUITE_DEADLINE";
+
+    /// <summary>QPC始点とTimeSpan ticksを区別して出力します。永続化や別machineへの転送には使いません。</summary>
+    internal string Export() => string.Create(CultureInfo.InvariantCulture, $"qpc:{started};ticks:{timeout.Ticks}");
+
+    /// <summary>元の始点を保持して復元します。空・不正・未来の始点・期限切れは有限既定へ置換しません。</summary>
+    internal static ProcessDeadline Import(string value)
+    {
+        string[] parts = value.Split(';');
+        if (parts.Length != 2 || !parts[0].StartsWith("qpc:", StringComparison.Ordinal)
+            || !parts[1].StartsWith("ticks:", StringComparison.Ordinal)
+            || !long.TryParse(parts[0].AsSpan(4), NumberStyles.None, CultureInfo.InvariantCulture, out long start)
+            || !long.TryParse(parts[1].AsSpan(6), NumberStyles.None, CultureInfo.InvariantCulture, out long ticks)
+            || start > Stopwatch.GetTimestamp() || ticks < 0)
+        {
+            throw new FormatException("suiteの共有期限が不正です。");
+        }
+        var deadline = new ProcessDeadline(start, TimeSpan.FromTicks(ticks));
+        if (deadline.Remaining == TimeSpan.Zero) { throw new TimeoutException("suiteの共有期限が切れています。"); }
+        return deadline;
+    }
+
+    /// <summary>未指定の直接実行だけ有限既定を使い、指定時は元のsuite期限と局所上限の早い方を使います。</summary>
+    internal static ProcessDeadline FromSuiteEnvironment(TimeSpan localMaximum)
+        => FromSuiteValue(Environment.GetEnvironmentVariable(SuiteDeadlineEnvironmentVariable), localMaximum);
+
+    /// <summary>環境値の有無を区別し、明示値を検査した後に局所上限で制限します。</summary>
+    internal static ProcessDeadline FromSuiteValue(string? value, TimeSpan localMaximum)
+        => value is null ? FromTimeout(localMaximum) : Import(value).LimitRemaining(localMaximum);
 
     /// <summary>期限をリセットせず残時間を返します。</summary>
     public TimeSpan Remaining

@@ -1,12 +1,10 @@
-using System;
-using System.IO;
 using BeMusicSeeker.ViewModels;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.TestSupport.Components.DroppedInstallIngressMaterializerTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+[TestCategory("Suite.DirectorySymbolicLink")]
 public sealed class DroppedInstallIngressMaterializerTests
 {
     /// <summary>実symlinkを含むtreeは拒否してリンク先のsentinelを保ち、外部treeを辿ってコピー・削除する誤りを検出します。</summary>

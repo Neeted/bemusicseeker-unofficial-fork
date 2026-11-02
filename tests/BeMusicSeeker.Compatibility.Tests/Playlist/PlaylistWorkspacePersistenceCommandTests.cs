@@ -1,14 +1,10 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
+using System.Runtime.ExceptionServices;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.TestSupport.Components.SharedPlaylistWorkspaceFixture;
-using PlaylistWorkspaceViewModelTests = BeMusicSeeker.Tests.PlaylistWorkspacePersistenceCommandTests;
 
 namespace BeMusicSeeker.Tests;
 
@@ -16,6 +12,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>backup・復元・export・BMT順序・dropの実確定と、summary buildの世代・取消・終端を検証します。</summary>
 /// <remarks>実SQLite、出力、configの確定順と失敗後の事実は実資源を用い、UIは既存schedulerの受理・実行・完了を制御します。画面の所有modalと入力操作はWPF代表が分担し、process DB lock競争だけ非並列です。</remarks>
 [TestClass]
+[TestCategory("Suite.DriveRoot")]
 public sealed class PlaylistWorkspacePersistenceCommandTests
 {
 
@@ -24,35 +21,57 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     [TestCategory("EnvironmentIntegration")]
     public async Task PlaylistWorkspaceExportPlaylistTableAsync_DifferentDriveWritesAbsoluteFileReference()
     {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests), Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
+        var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string tempDirectory = caseWorkspace.RootDirectory;
+        OwnedTestDrive? drive = null;
+        Exception? primary = null;
+        var cleanup = new List<Exception>();
         try
         {
             // Zは予約・照会・定義の前に除外し、別名の実領域はこのケース配下だけに置きます。
-            using var drive = OwnedTestDrive.Create(tempDirectory, 'Z');
-            try
-            {
-                drive.AssertOwned();
-                SerializationObservedTable table = CreateJsonExportTable();
-                var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
-                PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
-                List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
-                workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
-                string headerPath = Path.Combine(tempDirectory, "header.json");
-                string dataPath = Path.Combine(drive.Root, "data.json");
-                table.DataUrlReadObserver = () => AssertJsonExportSourceUrls(table, null);
+            drive = OwnedTestDrive.Create(tempDirectory, 'Z');
+            drive.AssertOwned();
+            SerializationObservedTable table = CreateJsonExportTable();
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
+            List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
+            string headerPath = Path.Combine(tempDirectory, "header.json");
+            string dataPath = Path.Combine(drive.Root, "data.json");
+            table.DataUrlReadObserver = () => AssertJsonExportSourceUrls(table, null);
 
-                dialogs.JsonExportResults.Enqueue(new(UiDialogStatus.Accepted, new(headerPath, dataPath)));
-                await workspace.ExportPlaylistTableAsync(table);
+            dialogs.JsonExportResults.Enqueue(new(UiDialogStatus.Accepted, new(headerPath, dataPath)));
+            await workspace.ExportPlaylistTableAsync(table);
 
-                drive.AssertOwned();
-                AssertExportedJsonDataReference(headerPath, dataPath, absoluteFileReference: true);
-                AssertJsonExportSourceUrls(table, null);
-                Assert.IsTrue(notifications.Single().Receipt.IsEmpty);
-            }
-            finally { drive.AssertOwned(); }
+            drive.AssertOwned();
+            AssertExportedJsonDataReference(headerPath, dataPath, absoluteFileReference: true);
+            AssertJsonExportSourceUrls(table, null);
+            Assert.IsTrue(notifications.Single().Receipt.IsEmpty);
         }
-        finally { Directory.Delete(tempDirectory, recursive: true); }
+        catch (Exception failure) { primary = failure; }
+        finally
+        {
+            if (drive is not null)
+            {
+                try
+                {
+                    drive.AssertOwned();
+                    drive.Dispose();
+                }
+                catch (Exception failure) { cleanup.Add(failure); }
+            }
+            if (cleanup.Count > 0) { caseWorkspace.PreserveArtifacts(); }
+            try { caseWorkspace.Dispose(); }
+            catch (Exception failure) { cleanup.Add(failure); caseWorkspace.PreserveArtifacts(); }
+        }
+        if (primary is not null)
+        {
+            if (cleanup.Count > 0)
+            { primary.Data["PlaylistExportCleanupFailures"] = new AggregateException("保持媒体: " + tempDirectory + "; " + drive, cleanup); }
+            ExceptionDispatchInfo.Capture(primary).Throw();
+        }
+        if (cleanup.Count > 0)
+        { throw new AggregateException("exportの回収を確認できません。保持媒体: " + tempDirectory + "; " + drive, cleanup); }
     }
 
     private static void AssertJsonExportSourceUrls(SerializationObservedTable table, Uri? dataUrl)

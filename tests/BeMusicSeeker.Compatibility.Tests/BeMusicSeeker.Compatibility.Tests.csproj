@@ -1,17 +1,19 @@
 <Project Sdk="MSTest.Sdk">
   <PropertyGroup>
+    <UseWPF>true</UseWPF>
     <EnableMicrosoftTestingExtensionsTrxReport>true</EnableMicrosoftTestingExtensionsTrxReport>
     <EnableMicrosoftTestingExtensionsCrashDump>true</EnableMicrosoftTestingExtensionsCrashDump>
     <EnableMicrosoftTestingExtensionsHangDump>true</EnableMicrosoftTestingExtensionsHangDump>
   </PropertyGroup>
   <ItemGroup>
+    <Using Include="System.IO" />
     <ProjectReference Include="../../tools/chart-info-export/ChartInfoExport.csproj" />
 
     <ProjectReference Include="../BeMusicSeeker.TestSupport/BeMusicSeeker.TestSupport.csproj" />
     <ProjectReference Include="../../BeMusicSeeker/BeMusicSeeker.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="../ModuleInitialization/ModuleLifetime.cs" Link="Infrastructure/ModuleLifetime.cs" />
+    <Compile Include="../ModuleInitialization/UiModuleLifetime.cs" Link="Infrastructure/UiModuleLifetime.cs" />
     <Compile Include="../ModuleInitialization/AssemblySettings.cs" Link="Infrastructure/AssemblySettings.cs" />
   </ItemGroup>
   <!-- 公式projectの正本build出力を実CLIとして配布し、ケース内ではbuildしない。 -->
@@ -27,5 +29,31 @@
       <_ChartInfoExportFiles Include="$(_ChartInfoExportSource)**/*" />
     </ItemGroup>
     <Copy SourceFiles="@(_ChartInfoExportFiles)" DestinationFiles="@(_ChartInfoExportFiles->'$(TargetDir)tools/chart-info-export/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+  <Import Project="../Fixtures/UpdaterRestartApplication/UpdaterRestartApplication.targets" />
+  <ItemGroup>
+    <ProjectReference Include="../Fixtures/WindowsProcessProbe/WindowsProcessProbe.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <Target Name="CopyWindowsProcessProbe" AfterTargets="Build">
+    <Error Condition="'$(TargetDir)' == '' Or !$([System.IO.Path]::IsPathFullyQualified('$(TargetDir)'))" Text="Test output directory must be absolute and nonempty." />
+    <PropertyGroup>
+      <_WindowsProbeDestination>$([System.IO.Path]::GetFullPath($([System.IO.Path]::Combine('$(TargetDir)', 'fixtures/windows-process-probe'))))</_WindowsProbeDestination>
+      <_WindowsProbeDestinationRoot>$([System.IO.Path]::GetPathRoot('$(_WindowsProbeDestination)'))</_WindowsProbeDestinationRoot>
+      <_WindowsProbeOutputRoot>$([System.IO.Path]::GetFullPath('$(TargetDir)'))</_WindowsProbeOutputRoot>
+    </PropertyGroup>
+    <Error Condition="'$(_WindowsProbeDestination)' == '$(_WindowsProbeDestinationRoot)' Or '$(_WindowsProbeDestination)' == '$(_WindowsProbeOutputRoot)'" Text="Fixture directory must be a dedicated child of the test output directory." />
+    <MSBuild Projects="../Fixtures/WindowsProcessProbe/WindowsProcessProbe.csproj" Targets="GetTargetPath" Properties="Configuration=$(Configuration);Platform=$(Platform)">
+      <Output TaskParameter="TargetOutputs" ItemName="_WindowsProbeTarget" />
+    </MSBuild>
+    <PropertyGroup>
+      <_WindowsProbeSource>@(_WindowsProbeTarget->'%(RootDir)%(Directory)')</_WindowsProbeSource>
+    </PropertyGroup>
+    <Error Condition="'$(_WindowsProbeSource)' == ''" Text="Windows process probe output directory is unavailable." />
+    <ItemGroup>
+      <_WindowsProbeFiles Include="$(_WindowsProbeSource)**/*" />
+    </ItemGroup>
+    <!-- 専有 leaf だけを再生成し、以前の平坦化コピーや退役した依存の残骸を残しません。 -->
+    <RemoveDir Directories="$(_WindowsProbeDestination)" />
+    <Copy SourceFiles="@(_WindowsProbeFiles)" DestinationFiles="@(_WindowsProbeFiles->'$(_WindowsProbeDestination)/%(RecursiveDir)%(Filename)%(Extension)')" />
   </Target>
 </Project>

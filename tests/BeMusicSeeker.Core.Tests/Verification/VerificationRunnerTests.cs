@@ -33,6 +33,7 @@ public sealed class VerificationRunnerTests
     {
         const string inputVariable = "BMS_TEST_CHARTSTRING_REFERENCE_JSON";
         string? originalInput = Environment.GetEnvironmentVariable(inputVariable);
+        string? originalDeadline = Environment.GetEnvironmentVariable(ProcessDeadline.SuiteDeadlineEnvironmentVariable);
         const string filter = "FullyQualifiedName~Reference|TestCategory=OtherSuite";
         using var fixture = new RunnerFixture();
         var plan = VerificationPlan.Parse(["compatibility", "--suite", "chartstring-java", "--filter", filter], processors);
@@ -54,6 +55,15 @@ public sealed class VerificationRunnerTests
         var settings = XDocument.Load(arguments[Array.IndexOf(arguments, "--settings") + 1]);
         Assert.AreEqual("1", settings.Descendants("Workers").Single().Value);
         Assert.AreEqual("MethodLevel", settings.Descendants("Scope").Single().Value);
+        Assert.IsNotNull(request.Environment[ProcessDeadline.SuiteDeadlineEnvironmentVariable]);
+        var imported = ProcessDeadline.Import(request.Environment[ProcessDeadline.SuiteDeadlineEnvironmentVariable] ?? throw new AssertFailedException());
+        Assert.IsTrue(imported.Remaining > TimeSpan.Zero && imported.Remaining <= plan.TestTimeout);
+        foreach ((string Name, ProcessStartRequest Request) preparation in fixture.Requests.Where(item => item.Name != "Compatibility"))
+        {
+            Assert.IsTrue(preparation.Request.Environment.ContainsKey(ProcessDeadline.SuiteDeadlineEnvironmentVariable));
+            Assert.IsNull(preparation.Request.Environment[ProcessDeadline.SuiteDeadlineEnvironmentVariable]);
+        }
+        Assert.AreEqual(originalDeadline, Environment.GetEnvironmentVariable(ProcessDeadline.SuiteDeadlineEnvironmentVariable));
         Assert.IsFalse(request.Environment.ContainsKey(inputVariable));
         Assert.AreEqual(originalInput, Environment.GetEnvironmentVariable(inputVariable));
         Assert.AreEqual(fixture.Path("run/Compatibility/cases"), request.Environment[TestRunDirectory.EnvironmentVariable]);
@@ -144,16 +154,23 @@ public sealed class VerificationRunnerTests
     [TestMethod]
     public async Task FullPreparesSharedArtifactsBeforeRunningEachSelectedModuleOnce()
     {
+        string? originalDeadline = Environment.GetEnvironmentVariable(ProcessDeadline.SuiteDeadlineEnvironmentVariable);
         using var distribution = new DistributionFixture();
         distribution.CreateLegacy();
         using var fixture = new RunnerFixture(distribution)
         {
             FormatInput = true,
-            ScenarioIds = ["SC-01", "SC-02", "SC-03", "SC-04", "SC-05", "SC-06", "SC-08", "SC-09", "SC-10", "SC-11", "SC-12", "SC-13", "SC-14"],
+            ScenarioIds = ["SC-01", "SC-02", "SC-03", "SC-04", "SC-05", "SC-06", "SC-08", "SC-09", "SC-10A", "SC-10B", "SC-11", "SC-12", "SC-13", "SC-14"],
         };
         VerificationRunResult result = await VerificationRunner.ExecuteAsync(VerificationPlan.Create("full", 1),
             fixture.Run() with { TestTimeout = null });
         Assert.AreEqual(0, result.ExitCode, result.PrimaryFailure?.ToString());
+        foreach ((string Name, ProcessStartRequest Request) observed in fixture.Requests)
+        {
+            Assert.IsTrue(observed.Request.Environment.ContainsKey(ProcessDeadline.SuiteDeadlineEnvironmentVariable));
+            Assert.IsNull(observed.Request.Environment[ProcessDeadline.SuiteDeadlineEnvironmentVariable]);
+        }
+        Assert.AreEqual(originalDeadline, Environment.GetEnvironmentVariable(ProcessDeadline.SuiteDeadlineEnvironmentVariable));
         CollectionAssert.AreEqual(new[] { "style", "whitespace", "build", "publish-v", "publish-next", "Core", "Windows", "Scenarios", "Desktop.E2E" }, fixture.Requests
             .Where(item => item.Name is "style" or "whitespace" or "build" or "publish-v" or "publish-next" or "Core" or "Windows" or "Scenarios" or "Desktop.E2E")
             .Select(item => item.Name).ToArray());
