@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
+using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Processes;
 using BeMusicSeeker.TestSupport.Ui;
 using BeMusicSeeker.TestSupport.Verification;
@@ -18,6 +19,8 @@ internal static class Program
         Console.OutputEncoding = new UTF8Encoding(false);
         switch (args[0])
         {
+            case "audio-owner-cleanup":
+                return ObserveAudioOwnerCleanup(args[1], args[2]);
             case "--test-session":
                 return await ObserveScenarioTransportAsync(args[1]);
             case "suite-deadline-after-gate":
@@ -110,6 +113,43 @@ internal static class Program
             default:
                 throw new ArgumentException("未知の fixture 操作です。");
         }
+    }
+
+    // 実native故障の代用ではなく、音声caseと同じ診断・専有process終了責務をmanaged入力で観測します。
+    private static int ObserveAudioOwnerCleanup(string mode, string runRoot)
+    {
+        AudioEncoderCleanupObservation observation = mode switch
+        {
+            "stop-unconfirmed" => AudioEncoderCleanupObservation.NativeStopUnconfirmed,
+            "exit-unconfirmed" or "diagnostic-write-failed" => AudioEncoderCleanupObservation.ChildExitUnconfirmed,
+            "writer-unreleased" => AudioEncoderCleanupObservation.WriterOwnerUnreleased,
+            "not-started" or "initialization-failed" or "assertion" or "fault" or "cancel" or "released" or "handle-dispose-failed"
+                => AudioEncoderCleanupObservation.NoUnconfirmedOwner,
+            _ => throw new ArgumentException("未知の音声終了観測条件です。", nameof(mode))
+        };
+        using var workspace = TestWorkspace.Create(runRoot);
+        File.WriteAllText(Path.Combine(runRoot, "audio-owner-reached"), workspace.RootDirectory);
+        File.WriteAllText(workspace.GetPath("source-retained"), "owned input");
+        Exception? primary = mode switch
+        {
+            "not-started" or "released" => null,
+            "cancel" => new OperationCanceledException("audio-primary-cancel"),
+            _ => new InvalidOperationException("audio-primary-" + mode)
+        };
+        if (primary is not null)
+        {
+            primary.Data["AudioSmoke.CleanupFailures"] = new List<Exception>
+            {
+                new IOException("audio-secondary-first"),
+                new InvalidOperationException("audio-secondary-second")
+            };
+        }
+        if (mode == "diagnostic-write-failed") { Directory.CreateDirectory(workspace.GetPath("audio-owner-unreleased.txt")); }
+        AudioEncoderTestTermination.Complete(observation, workspace,
+            ProcessDeadline.Import(Environment.GetEnvironmentVariable(ProcessDeadline.SuiteDeadlineEnvironmentVariable)
+                ?? throw new InvalidOperationException("親の共有期限が必要です。")), primary, "managed cleanup observation: " + mode);
+        File.WriteAllText(Path.Combine(runRoot, "audio-next-initialization"), "reached");
+        return primary is null ? 0 : 7;
     }
 
     // 既存process fixtureで通信だけを検査します。製品起動や保存の成功oracleには使いません。

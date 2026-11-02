@@ -327,17 +327,21 @@ Fullは通常2ホスト、一般 `ProcessIntegration`、専用 `EnvironmentInteg
 
 固定corpusと実toolはCompatibility moduleの `Suite.*` 属性で選択します。suiteの明示選択をopt-inとし、旧 `BMS_TEST_CHART_INFO_FULL` / `BMS_TEST_PRODUCTION_DIFF_FULL` / `BMS_TEST_CHART_INFO_SLOW` の事前ガードは使いません。通常のCore/Windows検証へ固定corpus全件を混ぜません。
 
-固定入力はリポジトリの `BeMusicSeeker.Tests/TestData` を読み取り専用で参照し、build出力へ複製しません。入力・参照DB・外部tool・Java準備JSONの欠如や不正は失敗です。suite一覧、準備、正式入口と直接module実行は[互換検査の案内](../../../tests/BeMusicSeeker.Compatibility.Tests/README.md)を参照します。正式入口は登録済み12suiteから一つを選び、Release・1workerで実行します。suiteの起動・前提検査・本体・通常回収・実exitはDriveRoot/DirectorySymbolicLinkが180秒、他suiteが60秒を共有し、失敗回収10秒は既存の共通cutoffを使います。この初期運用上限はcorpus全体の完了保証ではなく、内側parser/toolの期限でも延長しません。直接moduleの成功を正式入口の成功へ読み替えません。
+固定入力はリポジトリの `BeMusicSeeker.Tests/TestData` を読み取り専用で参照し、build出力へ複製しません。入力・参照DB・外部tool・Java準備JSONの欠如や不正は失敗です。suite一覧、準備、正式入口と直接module実行は[互換検査の案内](../../../tests/BeMusicSeeker.Compatibility.Tests/README.md)を参照します。正式入口は登録済み16suiteから一つを選び、Release・1workerで実行します。suiteの起動・前提検査・本体・通常回収・実exitはDriveRoot/DirectorySymbolicLinkが180秒、他suiteが60秒を共有し、失敗回収10秒は既存の共通cutoffを使います。この初期運用上限はcorpus全体の完了保証ではなく、内側parser/toolの期限でも延長しません。直接moduleの成功を正式入口の成功へ読み替えません。
 
 性能検査は `dotnet run --project tools/BeMusicSeeker.Verify -- performance --suite NAME` を使います。登録名と初期監視上限は[正式入口](../../../tools/BeMusicSeeker.Verify/README.md#明示性能suite)に示します。Release・単一worker・session排他で既存14メソッド/16 MTP行を9suiteへ分け、全3規模・全route・全反復を固定します。正式performanceのfilter、未登録・未指定suiteは準備前に拒否し、部分調査は直接MTPへ分担します。日常の診断writer5契約や小型機能保証を実負荷成功の代用にはしません。
 
 suiteの起動・前提・本文・通常回収・実exitは共通ProcessDeadlineの一期限を共有し、親の失敗回収10秒も一回だけです。監視上限は実行を監視する運用値であり、速度目標ではありません。新しい業務期待やworkloadを増やさず既存保証を移管します。scan/LR2/Folder/Copy/Bmsonは準備・表明・回収を外へ分けて実操作を計時し、既存時計は維持します。800万逆引きや実DB・20 ZIP導入全体の代わりとは扱いません。条件、完了範囲、反復値、結果同等性は[性能仕様](../core/performance-and-scale.md)に従います。
 
-外部エンコーダーは `ExternalAudioEncoderSmokeTests` で明示実行します。`EnvironmentIntegration` として専用環境で実行し、`BMS_TEST_AUDIO_ENCODERS=1` を必須とします。指定がなければ失敗です。`BMS_TEST_AUDIO_ENCODER_DIR`、アプリ基準、`libs\x64`、`x64` の順に検索します。`BMS_TEST_AUDIO_ENCODER_TYPES` は `MP3_LAME,AAC_NERO,OPUS,FLAC,OGG_VORBIS` の部分集合です。指定した実行ファイルがない場合、または指定なしで一つも見つからない場合は失敗です。
+外部エンコーダーはCompatibilityの `ExternalAudioEncoderSmokeTests` を正式 `compatibility --suite audio-encoders` で明示実行します。`EnvironmentIntegration` として専用環境で実行し、`BMS_TEST_AUDIO_ENCODERS=1` を必須とします。指定がなければ失敗です。`BMS_TEST_AUDIO_ENCODER_DIR`、アプリ基準、`libs\x64`、`x64` の順に検索します。`BMS_TEST_AUDIO_ENCODER_TYPES` は `MP3_LAME,AAC_NERO,OPUS,FLAC,OGG_VORBIS` の部分集合です。指定subsetの未知名・カンマリスト内の空要素・重複・実行ファイル不足、または種類指定なしで一つも見つからない場合は失敗です。種類未指定・空文字・全空白は発見分だけを実行します。
 
 生成した短いステレオPCM/WAVを本番の `BassAudioWriter` とエンコード・停止・後片付けへ通し、ファイルの形式識別と採番を確認します。実行ファイル、ライセンス、生成音声をリポジトリの固定入力へ追加しません。
 
 環境条件のDriveRoot（8methods/10rows）、DirectorySymbolicLink（6/6、file linkを含む）、CrossVolume（4/4）、Junction（3/7）はCompatibilityの明示suiteへ所属します。実能力不足をskipや代用入力へ変えません。全Compatibilityは既存UiModuleLifetimeでsession排他・専有profile・日本語辞書を準備し、実hostは遅延生成します。正式runnerは `BMS_TEST_SUITE_DEADLINE` のQPC始点とTimeSpan ticksを子だけへ渡し、lease・updater・probe・junctionの局所期限が元cutoffを延長しないよう制限します。未指定の直接MTPだけ有限既定を使い、明示不正・期限切れは失敗です。Compatibility/Performance以外のmoduleと準備processは同変数を明示除去し、親環境は変更しません。親の失敗回収は既存の `min(suite cutoff + 10秒, 検出時刻 + 10秒)` を維持します。期限の再読・不正拒否・gate後の実子importとrunner接続はCore/Verificationの契約testで分担します。
+
+ACLは `compatibility --suite install-acl`（2行）、固定Everythingの実pack/decodeは `compatibility --suite everything-native-path-identity`（2行）、BASSencの実WSH子終了値は `compatibility --suite audio-encoder-child`（2行）を使います。実外部encoderの1行と合わせた4suiteは各60秒・共通失敗回収10秒の初期上限であり、全種類・入力の実測完走保証ではありません。decoderの旧30秒は親suite残とのmin、回収は `min(suite cutoff + 10秒, 失敗検出時刻 + 10秒)` とし、root・両pipe・Jobの終端を確認します。未回収媒体と未解放encoder/sessionを保全し、主失敗とcleanup失敗を残します。
+
+ACLは専有領域の実操作終端後に両DACLを復旧してからworkspaceを回収し、外部rootのACLは変更しません。nativeは必須 `BMS_EVERYTHING_PATH_IDENTITY_FIXTURE` の固定SDK/fixtureを読み、可変DLLコピーをTestWorkspaceに置きます。未指定・不足・能力不成立をskip・成功にせず、準備生成180秒とsuite実行60秒は別枠です。固定nativeは実IPC/indexのSC-07、WSH子は実外部encoderの代替ではありません。正式名・入力・旧3ファイルの後継と準備例は[Compatibilityの説明](../../../tests/BeMusicSeeker.Compatibility.Tests/README.md)にまとめます。入力環境は既存の子環境継承を使い、親processの環境を書き換えません。
 
 ### 画面確認
 
@@ -385,7 +389,7 @@ suiteの起動・前提・本文・通常回収・実exitは共通ProcessDeadlin
 | 公開旧版のファイル適用、現行版の更新 | C#の旧更新受入、[現行更新の受入](../../../scripts/accept-net10-update.ps1) | [`LegacyUpdaterDistributionMigrationTests`](../../../tests/BeMusicSeeker.Scenarios.Tests/Update/LegacyUpdaterDistributionMigrationTests.cs) は固定旧updaterによる実配布ZIPの適用・旧ファイル除去・利用者ファイル保持、[`UpdaterPackageSyncTests`](../../../tests/BeMusicSeeker.Scenarios.Tests/Update/UpdaterPackageSyncTests.cs) は現行updaterのプロトコル・失敗・復元を確認する。 |
 | 利用済み設定の生成と非初回判定 | [受入設定の生成](../../../scripts/acceptance-settings-fixture.ps1)、[既存データ起動](../../../scripts/accept-net10-existing-data.ps1) | [`ApplicationSettingsLifecycleTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationSettingsLifecycleTests.cs) の `LegacySettingsFixtureGeneratorPreservesTypedVersionAndScalarValues` は生成した設定を実設定ストアで読み、版・設定値・非初回判定を確認する。現行配布物での既存設定の読取りはFullの既存データ起動で確認する。 |
 | 予期しない所有モーダルの拒否 | [共通の画面観測](../../../scripts/verification-ui-automation.ps1) | [`ExistingDataAcceptanceDialogContractTests`](../../../BeMusicSeeker.Tests/Verification/ExistingDataAcceptanceDialogContractTests.cs) はPID・所有先・可視・有効・モーダル条件とプロセス結果ゲートを確認する。自動応答は行わない。 |
-| 外部エンコーダー | [`BassAudioWriter`](../../../BeMusicSeeker/Ribbit/Media/BassAudioWriter.cs) | [`ExternalAudioEncoderSmokeTests`](../../../BeMusicSeeker.Tests/Playback/ExternalAudioEncoderSmokeTests.cs) |
+| 外部エンコーダー | [`BassAudioWriter`](../../../BeMusicSeeker/Ribbit/Media/BassAudioWriter.cs) | [`ExternalAudioEncoderSmokeTests`](../../../tests/BeMusicSeeker.Compatibility.Tests/Playback/ExternalAudioEncoderSmokeTests.cs) |
 
 ## 関連資料
 

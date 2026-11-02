@@ -26,11 +26,11 @@ Windowsの日常検証には外部プレイヤーの実起動2件、更新Gatewa
 
 Fullは全C# sourceの整形・build後、固定旧ZIP、現行V、次版Vnextを準備してからtest段階を開始します。Vは通常の公開版値、VnextはVの実バイナリの版から末尾をcheckedで1増やした実行限定の版です。通常の公開版値とAssemblyVersionを変えません。版指定はpublishの `-ApplicationVersion` から生成属性へ接続し、各ArtifactRoot内のproject別obj/binへ分離します。実シナリオは引き続き移行対象です。未接続によるpublish失敗や必須ID不足を成功扱いせず、fixtureを使う準備部品の検査だけで実Full成功としません。
 
-`compatibility --suite <名前>` は[互換検査の12suite](../../tests/BeMusicSeeker.Compatibility.Tests/README.md)から一つを選び、Release・1worker・MethodLevelで実行します。Compatibilityのsolution filterをlocked restore・buildしてから起動し、整形は行いません。suiteの欠指定・空白・未知名は準備開始前に拒否します。名前は大文字小文字を区別し、aliasや `all` はありません。標準 `--filter` はsuite条件とのANDで渡し、OR条件で他suiteへ広げません。選択ゼロも不成功です。
+`compatibility --suite <名前>` は[互換検査の16suite](../../tests/BeMusicSeeker.Compatibility.Tests/README.md)から一つを選び、Release・1worker・MethodLevelで実行します。Compatibilityのsolution filterをlocked restore・buildしてから起動し、整形は行いません。suiteの欠指定・空白・未知名は準備開始前に拒否します。名前は大文字小文字を区別し、aliasや `all` はありません。標準 `--filter` はsuite条件とのANDで渡し、OR条件で他suiteへ広げません。選択ゼロも不成功です。
 
-DriveRootとDirectorySymbolicLinkは180秒、CrossVolume・Junctionと既存の固定参照8suiteは60秒を、起動・前提検査・本体・通常回収・実exitで共有します。これは初期運用上限であり、corpus全体の完了時間保証ではありません。失敗回収は共通の10秒を一度だけ確定します。Java準備JSONなどの入力は子環境へ継承し、実caseで検査します。必要なtoolや固定入力の取得・展開・権限設定は事前に済ませ、通常runの準備処理へ追加しません。
+DriveRootとDirectorySymbolicLinkは180秒、CrossVolume・Junction、固定参照8suite、install-acl・everything-native-path-identity・audio-encoders・audio-encoder-childは60秒を、起動・前提検査・本体・通常回収・実exitで共有します。これは初期運用上限であり、corpus全体の完了時間保証ではありません。失敗回収は共通の10秒を一度だけ確定します。Java準備JSONなどの入力は子環境へ継承し、実caseで検査します。必要なtoolや固定入力の取得・展開・権限設定は事前に済ませ、通常runの準備処理へ追加しません。
 
-環境条件のDriveRoot（8メソッド・10行）、DirectorySymbolicLink（6・6、file linkを含む）、CrossVolume（4・4）、Junction（3・7）は明示suiteとして実行します。実能力・必要入力の不足をskipや代用品へ変えません。未登録suiteは準備前に拒否します。一つのCompatibility suiteの成功を、全suiteや正式Fullの成功とは扱いません。直接module実行と旧標準入口も引き続き利用できます。
+環境条件のDriveRoot（8メソッド・10行）、DirectorySymbolicLink（6・6、file linkを含む）、CrossVolume（4・4）、Junction（3・7）は明示suiteとして実行します。実能力・必要入力の不足をskipや代用品へ変えません。未登録suiteは準備前に拒否します。ACL（2行）、固定Everything native（2行）、実外部encoder（1行）、BASSenc/WSH子（2行）はそれぞれ `install-acl`、`everything-native-path-identity`、`audio-encoders`、`audio-encoder-child` を指定します。固定nativeには `BMS_EVERYTHING_PATH_IDENTITY_FIXTURE`、実外部encoderには `BMS_TEST_AUDIO_ENCODERS=1` と実exeの準備が必要です。入力不足は未成功とし、WSH子の成功で実外部encoderを代用しません。固定nativeも実IPC/indexのSC-07を代替しません。詳細な入力と後継sourceは[互換検査](../../tests/BeMusicSeeker.Compatibility.Tests/README.md#acl固定native外部音声)を参照します。一つのCompatibility suiteの成功を、全suiteや正式Fullの成功とは扱いません。直接module実行と旧標準入口も引き続き利用できます。
 
 正式Compatibility runnerはQPC始点とTimeSpan ticksの期限を `BMS_TEST_SUITE_DEADLINE` で子だけへ渡し、lease・updater・probe・junction・外部toolの既存小上限との早い方を使います。Compatibility/Performance以外のmoduleと準備processは同変数を明示除去し、親環境は変更しません。未指定の直接MTPだけ有限の局所既定を使い、明示空・不正・期限切れは失敗です。直接MTPの局所成功を正式runnerの共有期限内成功とは扱いません。
 

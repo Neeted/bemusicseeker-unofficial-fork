@@ -31,6 +31,9 @@ internal static class PackageInstallComponentTestSupport
     {
         private readonly TestWorkspace workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         internal string Root => workspace.RootDirectory;
+
+        /// <summary>ACL復旧未確認の媒体を保持します。既存Work・DBの終端責任は維持し、DisposeAsyncで引き続き回収します。</summary>
+        internal void PreserveArtifacts() => workspace.PreserveArtifacts();
         internal string LibraryRoot => Path.Combine(Root, "Library");
         internal string Destination => Path.Combine(LibraryRoot, "Song");
         internal string Database => Path.Combine(Root, "song.db");

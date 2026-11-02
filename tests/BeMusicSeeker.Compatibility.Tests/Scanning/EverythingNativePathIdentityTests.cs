@@ -1,18 +1,16 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
 
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+[TestCategory("Suite.everything-native-path-identity")]
 public sealed class EverythingNativePathIdentityTests
 {
     public TestContext? TestContext { get; set; }
@@ -34,8 +32,8 @@ public sealed class EverythingNativePathIdentityTests
             Assert.Fail("BMS_EVERYTHING_PATH_IDENTITY_FIXTUREで明示したnative試験DLLが必要です。");
         }
         Assert.IsTrue(Path.IsPathFullyQualified(fixtureBase), "fixture app baseは絶対パスで指定します。");
-        string caseRoot = Path.Combine(fixtureBase, "cases", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(Path.Combine(caseRoot, "native"));
+        var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string caseRoot = workspace.RootDirectory;
         IntPtr control = IntPtr.Zero;
         EverythingNative? native = null;
         FixtureEnd? end = null;
@@ -43,6 +41,8 @@ public sealed class EverythingNativePathIdentityTests
         Exception? primaryFailure = null;
         try
         {
+            // 固定fixtureは読取り専用入力とし、可変DLLコピーだけをcase所有領域へ置きます。
+            Directory.CreateDirectory(Path.Combine(caseRoot, "native"));
             string sdk = Path.Combine(fixtureBase, "native", "Everything3_x64.dll");
             string bridge = Path.Combine(fixtureBase, "native", "EverythingBridge_x64.dll");
             Assert.IsTrue(File.Exists(bridge), "指定したfixture bridgeがありません。");
@@ -156,7 +156,7 @@ public sealed class EverythingNativePathIdentityTests
             }
             catch (Exception error) { cleanupErrors.Add(error); }
             try { if (control != IntPtr.Zero) { NativeLibrary.Free(control); } } catch (Exception error) { cleanupErrors.Add(error); }
-            try { Directory.Delete(caseRoot, recursive: true); } catch (Exception error) { cleanupErrors.Add(error); }
+            try { workspace.Dispose(); } catch (Exception error) { cleanupErrors.Add(error); }
             if (cleanupErrors.Count > 0)
             {
                 var error = new AggregateException("native fixture cleanup failed", cleanupErrors);

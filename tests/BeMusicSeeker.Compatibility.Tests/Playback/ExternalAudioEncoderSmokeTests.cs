@@ -1,14 +1,13 @@
-using System;
 using System.Buffers.Binary;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
-using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Text;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Processes;
+using BeMusicSeeker.TestSupport.Verification;
 using ManagedBass;
 using ManagedBass.Enc;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
 
@@ -39,7 +38,8 @@ public sealed class ExternalAudioEncoderSmokeTests
     [TestMethod]
     [TestCategory("ProcessIntegration")]
     [TestCategory("EnvironmentIntegration")]
-    public void AvailableExternalEncodersProduceRecognizableOutput()
+    [TestCategory("Suite.audio-encoders")]
+    public async Task AvailableExternalEncodersProduceRecognizableOutput()
     {
         if (!string.Equals(
                 Environment.GetEnvironmentVariable(EnabledEnvironmentVariable)?.Trim(),
@@ -92,7 +92,8 @@ public sealed class ExternalAudioEncoderSmokeTests
         try
         {
             BassAudioWriter.EncoderDirectory = configuredDirectory ?? AppContext.BaseDirectory;
-            RunSmoke(available);
+            var suiteDeadline = ProcessDeadline.FromSuiteEnvironment(TimeSpan.FromSeconds(60));
+            await RunSmokeAsync(available, suiteDeadline);
         }
         finally
         {
@@ -106,14 +107,18 @@ public sealed class ExternalAudioEncoderSmokeTests
     [DataRow(0)]
     [DataRow(7)]
     [TestCategory("ProcessIntegration")]
+    [TestCategory("Suite.audio-encoder-child")]
     public void BassEncodeStartWriteStopPreservesOwnedChildExitCode(int expectedExitCode)
     {
-        ManagedBassWriterSession? session = null;
+        var suiteDeadline = ProcessDeadline.FromSuiteEnvironment(TimeSpan.FromSeconds(60));
+        var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        var session = new ManagedBassWriterSession(workspace, suiteDeadline);
+        bool childTerminated = true;
         ExceptionDispatchInfo? primaryFailure = null;
         try
         {
-            session = ManagedBassWriterSession.Start();
-            AssertNativeEncoderChildExit(expectedExitCode);
+            session.Initialize();
+            AssertNativeEncoderChildExit(expectedExitCode, workspace, suiteDeadline, ref childTerminated);
         }
         catch (Exception exception)
         {
@@ -121,23 +126,30 @@ public sealed class ExternalAudioEncoderSmokeTests
         }
         finally
         {
-            CaptureCleanup(ref primaryFailure, () => session?.Dispose());
+            if (childTerminated) { session.Dispose(ref primaryFailure); }
+            PreserveUnreleasedSession(ref primaryFailure, session, workspace);
+            CaptureCleanup(ref primaryFailure, workspace.Dispose);
         }
 
         primaryFailure?.Throw();
     }
 
-    private static void AssertNativeEncoderChildExit(int expectedExitCode)
+    private static void AssertNativeEncoderChildExit(int expectedExitCode, TestWorkspace workspace,
+        ProcessDeadline suiteDeadline, ref bool childTerminated)
     {
         BassAudioSession audioSession = BassAudioPlayer.ActiveSession
             ?? throw new InvalidOperationException("The writer has no active audio session.");
         // stdinをEOFまで消費する一つのプロセスで、BASSencの同期停止と終了コードを確認します。
         // PowerShellはコンソールから切り離されるとスクリプト実行前に終了するため、WSHを使います。
-        string scriptPath = Path.Combine(Path.GetTempPath(), "bms-encoder-eof-" + Guid.NewGuid().ToString("N") + ".js");
+        string scriptPath = workspace.GetPath("encoder-eof.js");
         string commandLine = AudioEncoderCommandFactory.QuoteWindowsArgument(
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cscript.exe"))
             + " //B //Nologo " + AudioEncoderCommandFactory.QuoteWindowsArgument(scriptPath);
         int encoderHandle = 0;
+        bool encoderAcquired = false;
+        bool exitConfirmed = false;
+        uint? lastExitCode = null;
+        int lastExitError = 0;
         IAudioEncoderProcessHandle? processHandle = null;
         ExceptionDispatchInfo? primaryFailure = null;
         try
@@ -148,6 +160,7 @@ public sealed class ExternalAudioEncoderSmokeTests
             encoderHandle = BassEnc.EncodeStart(
                 audioSession.MixerHandle, commandLine,
                 EncodeFlags.Unicode | EncodeFlags.NoHeader | EncodeFlags.Pause, null, IntPtr.Zero);
+            encoderAcquired = encoderHandle != 0;
             Assert.AreNotEqual(0, encoderHandle, "BASS_Encode_Start failed with " + Bass.LastError + ".");
             Assert.IsTrue(AudioEncoderProcessHandle.TryDuplicate(
                 AudioEncoderProcessHandle.FromBassEncoderHandle(encoderHandle),
@@ -162,9 +175,10 @@ public sealed class ExternalAudioEncoderSmokeTests
                 encoderHandle = 0;
             }
             Assert.IsTrue(stopped, "BASS_Encode_Stop failed with " + Bass.LastError + ".");
-            Assert.IsTrue(AudioEncoderProcessHandle.TryGetExitCode(
-                processHandle, out uint actualExitCode, out int exitError),
-                "GetExitCodeProcess failed with Win32 error " + exitError + ".");
+            bool exitRead = AudioEncoderProcessHandle.TryGetExitCode(processHandle, out uint actualExitCode, out lastExitError);
+            lastExitCode = exitRead ? actualExitCode : null;
+            exitConfirmed = exitRead && actualExitCode != 259;
+            Assert.IsTrue(exitConfirmed, "GetExitCodeProcess did not confirm exit; Win32 error " + lastExitError + ".");
             Assert.AreEqual((uint)expectedExitCode, actualExitCode);
         }
         catch (Exception exception)
@@ -181,13 +195,39 @@ public sealed class ExternalAudioEncoderSmokeTests
                     {
                         throw new InvalidOperationException("The native encoder helper did not stop: " + Bass.LastError);
                     }
+                    encoderHandle = 0;
                 });
             }
-            if (processHandle != null)
+            if (encoderHandle == 0 && processHandle is { } ownedProcessHandle)
             {
-                CaptureCleanup(ref primaryFailure, processHandle.Dispose);
+                CaptureCleanup(ref primaryFailure, () =>
+                {
+                    if (!exitConfirmed)
+                    {
+                        bool exitRead = AudioEncoderProcessHandle.TryGetExitCode(ownedProcessHandle, out uint exitCode, out lastExitError);
+                        lastExitCode = exitRead ? exitCode : null;
+                        exitConfirmed = exitRead && exitCode != 259;
+                    }
+                    if (!exitConfirmed)
+                    { throw new InvalidOperationException("The native encoder child exit is not confirmed: " + lastExitError); }
+                    ownedProcessHandle.Dispose();
+                    processHandle = null;
+                });
             }
-            CaptureCleanup(ref primaryFailure, () => File.Delete(scriptPath));
+            childTerminated = !encoderAcquired || (encoderHandle == 0 && exitConfirmed);
+            if (!childTerminated || processHandle != null)
+            {
+                workspace.PreserveArtifacts();
+                primaryFailure ??= ExceptionDispatchInfo.Capture(new InvalidOperationException("The native encoder child remains owned."));
+                primaryFailure.SourceException.Data["AudioSmoke.NativeEncoderOwner"] = new object?[] { encoderHandle, processHandle };
+            }
+            AudioEncoderCleanupObservation observation = !encoderAcquired
+                ? AudioEncoderCleanupObservation.NoUnconfirmedOwner
+                : encoderHandle != 0 ? AudioEncoderCleanupObservation.NativeStopUnconfirmed
+                : !exitConfirmed ? AudioEncoderCleanupObservation.ChildExitUnconfirmed
+                : AudioEncoderCleanupObservation.NoUnconfirmedOwner;
+            AudioEncoderTestTermination.Complete(observation, workspace, suiteDeadline, primaryFailure?.SourceException,
+                $"encoderAcquired={encoderAcquired}; stopConfirmed={encoderAcquired && encoderHandle == 0}; exitConfirmed={exitConfirmed}; exitCode={lastExitCode}; exitError={lastExitError}");
         }
         primaryFailure?.Throw();
     }
@@ -266,9 +306,9 @@ public sealed class ExternalAudioEncoderSmokeTests
         string?[] directories = new[]
         {
             configuredDirectory,
-            AppContext.BaseDirectory,
-            Path.Combine(AppContext.BaseDirectory, "libs", "x64"),
-            Path.Combine(AppContext.BaseDirectory, "x64")
+            ApplicationPathPolicy.Current.AssetsDirectory,
+            Path.Combine(ApplicationPathPolicy.Current.AssetsDirectory, "libs", "x64"),
+            Path.Combine(ApplicationPathPolicy.Current.AssetsDirectory, "x64")
         };
 
         return directories
@@ -277,19 +317,16 @@ public sealed class ExternalAudioEncoderSmokeTests
             .Distinct(StringComparer.OrdinalIgnoreCase);
     }
 
-    private static void RunSmoke(IReadOnlyList<EncoderType> encoderTypes)
+    private static async Task RunSmokeAsync(IReadOnlyList<EncoderType> encoderTypes, ProcessDeadline suiteDeadline)
     {
-        string temporaryDirectory = Path.Combine(
-            Path.GetTempPath(),
-            "BeMusicSeekerExternalEncoderSmoke",
-            Guid.NewGuid().ToString("N"));
-
-        ManagedBassWriterSession? session = null;
+        var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string temporaryDirectory = workspace.RootDirectory;
+        var session = new ManagedBassWriterSession(workspace, suiteDeadline);
         ExceptionDispatchInfo? primaryFailure = null;
         try
         {
             Directory.CreateDirectory(temporaryDirectory);
-            session = ManagedBassWriterSession.Start();
+            session.Initialize();
             BassAudioSession ownedSession = BassAudioPlayer.ActiveSession
                 ?? throw new InvalidOperationException("The writer has no active audio session.");
             ChannelInfo mixerInfo = Bass.ChannelGetInfo(ownedSession.MixerHandle);
@@ -330,7 +367,7 @@ public sealed class ExternalAudioEncoderSmokeTests
                     File.ReadAllBytes(collisionPath),
                     "The existing output was overwritten instead of receiving a collision suffix.");
                 AssertOutputSignature(encoderType, outputPath, mixerInfo.Frequency, mixerInfo.Channels);
-                AssertDecodedOutput(encoderType, outputPath, temporaryDirectory, mixerInfo.Frequency, mixerInfo.Channels);
+                await AssertDecodedOutputAsync(encoderType, outputPath, workspace, suiteDeadline, mixerInfo.Frequency, mixerInfo.Channels);
                 Assert.IsTrue(
                     BassAudioWriter.TryReleaseEncoder(),
                     "The encoder owner did not release cleanly after " + encoderType + ".");
@@ -342,8 +379,9 @@ public sealed class ExternalAudioEncoderSmokeTests
         }
         finally
         {
-            CaptureCleanup(ref primaryFailure, () => session?.Dispose());
-            CaptureCleanup(ref primaryFailure, () => Directory.Delete(temporaryDirectory, recursive: true));
+            session.Dispose(ref primaryFailure);
+            PreserveUnreleasedSession(ref primaryFailure, session, workspace);
+            CaptureCleanup(ref primaryFailure, workspace.Dispose);
         }
 
         primaryFailure?.Throw();
@@ -415,10 +453,11 @@ public sealed class ExternalAudioEncoderSmokeTests
         }
     }
 
-    private static void AssertDecodedOutput(
+    private static async Task AssertDecodedOutputAsync(
         EncoderType encoderType,
         string outputPath,
-        string temporaryDirectory,
+        TestWorkspace workspace,
+        ProcessDeadline suiteDeadline,
         int expectedSampleRate,
         int expectedChannels)
     {
@@ -428,9 +467,9 @@ public sealed class ExternalAudioEncoderSmokeTests
             string decoderPath = Path.Combine(encoderDirectory, "opusdec.exe");
             Assert.IsTrue(File.Exists(decoderPath), "opusdec.exe is required to validate the Opus decode.");
 
-            string decodedWavePath = Path.Combine(temporaryDirectory, "opus-decoded.wav");
-            RunDecoderProcess(
-                decoderPath,
+            string decodedWavePath = workspace.GetPath("opus-decoded.wav");
+            await RunDecoderProcessAsync(
+                decoderPath, workspace, suiteDeadline,
                 "--float",
                 "--rate",
                 "48000",
@@ -447,9 +486,9 @@ public sealed class ExternalAudioEncoderSmokeTests
             string decoderPath = Path.Combine(encoderDirectory, "flac.exe");
             Assert.IsTrue(File.Exists(decoderPath), "flac.exe is required to validate the FLAC decode.");
 
-            string decodedWavePath = Path.Combine(temporaryDirectory, "flac-decoded.wav");
-            RunDecoderProcess(
-                decoderPath,
+            string decodedWavePath = workspace.GetPath("flac-decoded.wav");
+            await RunDecoderProcessAsync(
+                decoderPath, workspace, suiteDeadline,
                 "--decode",
                 "--force",
                 "--output-name=" + decodedWavePath,
@@ -523,38 +562,50 @@ public sealed class ExternalAudioEncoderSmokeTests
         return (value & 0x0080_0000) == 0 ? value : value | unchecked((int)0xFF00_0000);
     }
 
-    private static void RunDecoderProcess(string executable, params string[] arguments)
+    private static async Task RunDecoderProcessAsync(string executable, TestWorkspace workspace, ProcessDeadline suiteDeadline, params string[] arguments)
     {
-        var startInfo = new ProcessStartInfo
+        ProcessDeadline deadline = suiteDeadline.LimitRemaining(TimeSpan.FromSeconds(30));
+        ProcessDeadline? cleanupDeadline = null;
+        ProcessDeadline BeginCleanup() => cleanupDeadline ??= suiteDeadline.AddGrace(TimeSpan.FromSeconds(10)).LimitRemaining(TimeSpan.FromSeconds(10));
+        OwnedProcess process;
+        try
         {
-            FileName = executable,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-        foreach (string argument in arguments)
-        {
-            startInfo.ArgumentList.Add(argument);
+            process = OwnedProcess.Start(new ProcessStartRequest(executable, arguments, workspace.RootDirectory), BeginCleanup);
         }
-
-        string decoderName = Path.GetFileName(executable);
-        using Process process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("The test decoder process did not start.");
-        if (!process.WaitForExit(milliseconds: 30000))
+        catch (OwnedProcessStartException failure) when (failure.CleanupFailure is not null)
+        {
+            workspace.PreserveArtifacts();
+            throw;
+        }
+        ExceptionDispatchInfo? primaryFailure = null;
+        try
+        {
+            ProcessCompletion completion = await process.WaitForExitAsync(deadline);
+            Assert.AreEqual(0, completion.ExitCode, Path.GetFileName(executable) + " rejected the encoded audio output."
+                + Environment.NewLine + completion.StandardOutput + Environment.NewLine + completion.StandardError);
+        }
+        catch (Exception failure)
+        {
+            primaryFailure = ExceptionDispatchInfo.Capture(failure);
+            BeginCleanup();
+        }
+        finally
         {
             try
             {
-                process.Kill(entireProcessTree: true);
+                ProcessStopResult stopped = await process.StopAsync(null, primaryFailure is null ? deadline : BeginCleanup());
+                if (stopped.CleanupFailure is not null) { CaptureFailure(ref primaryFailure, stopped.CleanupFailure); }
             }
-            catch (InvalidOperationException)
+            catch (Exception failure) { CaptureFailure(ref primaryFailure, failure); }
+            if (!process.Completion.IsCompletedSuccessfully) { workspace.PreserveArtifacts(); }
+            try { await process.DisposeAsync(); }
+            catch (Exception failure)
             {
-                // 終了との競合時は、その終了を待ってから失敗を報告します。
+                workspace.PreserveArtifacts();
+                CaptureFailure(ref primaryFailure, failure);
             }
-
-            process.WaitForExit();
-            Assert.Fail(decoderName + " did not finish within 30 seconds.");
         }
-
-        Assert.AreEqual(0, process.ExitCode, decoderName + " rejected the encoded audio output.");
+        primaryFailure?.Throw();
     }
 
     private static bool HasMpegFrameSync(byte[] data)
@@ -648,75 +699,69 @@ public sealed class ExternalAudioEncoderSmokeTests
 
     private static void CaptureCleanup(ref ExceptionDispatchInfo? primaryFailure, Action cleanup)
     {
-        try
-        {
-            cleanup();
-        }
-        catch (Exception exception)
-        {
-            primaryFailure ??= ExceptionDispatchInfo.Capture(exception);
-        }
+        try { cleanup(); }
+        catch (Exception failure) { CaptureFailure(ref primaryFailure, failure); }
     }
 
-    private sealed class ManagedBassWriterSession : IDisposable
+    private static void CaptureFailure(ref ExceptionDispatchInfo? primaryFailure, Exception failure)
     {
-        private bool disposed;
-
-        private ManagedBassWriterSession()
+        if (primaryFailure is null) { primaryFailure = ExceptionDispatchInfo.Capture(failure); return; }
+        const string key = "AudioSmoke.CleanupFailures";
+        if (primaryFailure.SourceException.Data[key] is not List<Exception> failures)
         {
+            failures = [];
+            primaryFailure.SourceException.Data[key] = failures;
+        }
+        failures.Add(failure);
+    }
+
+    private static void PreserveUnreleasedSession(ref ExceptionDispatchInfo? failure, ManagedBassWriterSession session, TestWorkspace workspace)
+    {
+        if (session.IsReleased) { return; }
+        workspace.PreserveArtifacts();
+        failure ??= ExceptionDispatchInfo.Capture(new InvalidOperationException("The audio session remains owned."));
+        failure.SourceException.Data["AudioSmoke.SessionOwner"] = session;
+    }
+
+    private sealed class ManagedBassWriterSession(TestWorkspace workspace, ProcessDeadline suiteDeadline)
+    {
+        /// <summary>encoder停止後のplayerとruntimeの解放を確認した場合だけ真です。</summary>
+        internal bool IsReleased { get; private set; }
+
+        /// <summary>呼出元が先に所有したhelperで初期化し、途中失敗も同じfinallyで回収します。</summary>
+        internal void Initialize()
+        {
+            BassAudioRuntime.Shutdown();
+            BassAudioRuntime.Initialize();
+            BassAudioWriter.Initialize();
         }
 
-        internal static ManagedBassWriterSession Start()
+        /// <summary>本体の主原因を維持して解放失敗を追加し、実owner未解放だけを専有process終了へ接続します。</summary>
+        internal void Dispose(ref ExceptionDispatchInfo? failure)
         {
-            try
-            {
-                BassAudioRuntime.Shutdown();
-                BassAudioRuntime.Initialize();
-                BassAudioWriter.Initialize();
-                return new ManagedBassWriterSession();
-            }
-            catch
-            {
-                ExceptionDispatchInfo? cleanupFailure = null;
-                CaptureCleanup(ref cleanupFailure, () =>
-                {
-                    if (!BassAudioWriter.TryReleaseEncoder())
-                    {
-                        throw new InvalidOperationException("The external encoder owner did not release.");
-                    }
-                });
-                CaptureCleanup(ref cleanupFailure, () => BassAudioPlayer.Free());
-                CaptureCleanup(ref cleanupFailure, () => BassAudioRuntime.Shutdown());
-                throw;
-            }
-        }
-
-        public void Dispose()
-        {
-            if (disposed)
-            {
-                return;
-            }
-
-            disposed = true;
-            ExceptionDispatchInfo? failure = null;
+            if (IsReleased) { return; }
             CaptureCleanup(ref failure, () =>
             {
-                if (BassAudioWriter.RecordState == PlayState.Playing)
-                {
-                    BassAudioWriter.StopRecording();
-                }
+                if (BassAudioWriter.RecordState == PlayState.Playing) { BassAudioWriter.StopRecording(); }
             });
+            bool? encoderReleased = null;
             CaptureCleanup(ref failure, () =>
             {
-                if (!BassAudioWriter.TryReleaseEncoder())
-                {
-                    throw new InvalidOperationException("The external encoder owner did not release.");
-                }
+                encoderReleased = BassAudioWriter.TryReleaseEncoder();
+                if (encoderReleased == false) { throw new InvalidOperationException("The external encoder owner did not release."); }
             });
-            CaptureCleanup(ref failure, () => BassAudioPlayer.Free());
-            CaptureCleanup(ref failure, () => BassAudioRuntime.Shutdown());
-            failure?.Throw();
+            // 停止失敗は解放済みではありません。元source/sessionを保持して失敗とともに返します。
+            if (encoderReleased == false)
+            {
+                AudioEncoderTestTermination.Complete(AudioEncoderCleanupObservation.WriterOwnerUnreleased,
+                    workspace, suiteDeadline, failure?.SourceException, "TryReleaseEncoder=false; writer owner release unconfirmed");
+            }
+            if (encoderReleased != true) { return; }
+            bool playerFreed = false;
+            bool runtimeStopped = false;
+            CaptureCleanup(ref failure, () => { BassAudioPlayer.Free(); playerFreed = true; });
+            CaptureCleanup(ref failure, () => { BassAudioRuntime.Shutdown(); runtimeStopped = true; });
+            IsReleased = playerFreed && runtimeStopped;
         }
     }
 }

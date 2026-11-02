@@ -131,18 +131,20 @@ managedの実decode接続は、同じ試験cppを専用defineでDLLにも生成�
 
 ```powershell
 pwsh -NoProfile -File native/EverythingBridge/test-x64.ps1 -BuildPathIdentityFixture
-$env:BMS_EVERYTHING_PATH_IDENTITY_FIXTURE = Join-Path $PWD 'native/EverythingBridge/obj/query-tests/path-identity-fixture'
-pwsh -NoProfile -File scripts/verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~EverythingNativePathIdentityTests'
+# PowerShell 7.4以降。固定入力は子環境にだけ指定します。
+$fixtureBase = Join-Path $PWD 'native/EverythingBridge/obj/query-tests/path-identity-fixture'
+$nativeRun = Start-Process dotnet -ArgumentList 'run --project tools/BeMusicSeeker.Verify -- compatibility --suite everything-native-path-identity' -WorkingDirectory $PWD.Path -Environment @{ BMS_EVERYTHING_PATH_IDENTITY_FIXTURE = $fixtureBase } -WindowStyle Hidden -Wait -PassThru
+if ($nativeRun.ExitCode -ne 0) { throw "native suite failed: $($nativeRun.ExitCode)" }
 ```
 
-`ProcessIntegration` の通常親子とdrive rootの代表二件は、実pointerから六面・三逆引き・取得済み参照の健康度・通常推定を確認します。
+Compatibilityの [`EverythingNativePathIdentityTests`](../../tests/BeMusicSeeker.Compatibility.Tests/Scanning/EverythingNativePathIdentityTests.cs) の通常親子とdrive rootの代表二件は、実pointerから六面・三逆引き・取得済み参照の健康度・通常推定を確認します。
 root代表はCドライブの非root WorkingDirectoryを持つ専用testhostで実行し、共有current directoryを変えず、実rootにファイルを作りません。
 非rootの明示基準位置でも絶対rootへ解決されることを確認し、`C:` を現在位置で救済しません。
-環境変数未指定なら未実施、指定済みでDLL/SDK不足・SDK版/hash不一致・初期化失敗なら失敗です。
-case固有baseへDLLと固定SDKを複製し、`ApplicationPathSnapshot`で指定します。製品のbase/current directoryは変更しません。
+`BMS_EVERYTHING_PATH_IDENTITY_FIXTURE` は絶対baseの必須入力です。未指定・DLL/SDK不足・固定SDK 3.0.0.9の版/hash不一致・初期化失敗はいずれも不成功です。実行中の探索fallbackや資産生成はしません。
+固定fixture baseは読取り専用で使い、TestWorkspaceのcase固有baseへDLLと固定SDKを複製し、`ApplicationPathSnapshot`で指定します。製品のbase/current directoryは変更しません。
 SDKのfixture保持参照と製品Shutdown用参照を分け、同期走査/worker終端・packed解放→Dispose/Shutdown→
 client/state/result回収確認→SDK保持参照解放→制御DLL解放→case directory削除の順に回収します。
-fixture生成も既存compile/testと共通180秒、cleanupは追加10秒の同じ期限を使います。
+fixture生成は既存compile/testと共通180秒、cleanupは追加10秒の同じ期限を使います。正式Compatibility suiteは別枠の60秒と共通失敗回収10秒を使う初期上限で、実測完走保証ではありません。実EverythingサービスのIPC・索引更新を検査するSC-07の代替ではありません。
 通常C#ビルドへC++ compiler要件を加えず、生成物はobj内に置きます。
 
 実EverythingのIPCからDBまでの一連実行、実環境の完了時間や800万キー・全native heap/CPU/memory peakの測定はこの試験の範囲外です。

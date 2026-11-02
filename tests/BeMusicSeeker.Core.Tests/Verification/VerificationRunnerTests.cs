@@ -13,19 +13,23 @@ namespace BeMusicSeeker.Core.Tests.Verification;
 public sealed class VerificationRunnerTests
 {
     /// <summary>CPU予算によらず選択suiteを一回だけ起動し、標準filter・設定・reportと同じrunの証跡へ接続します。</summary>
-    /// <remarks>Java入力の継承を妨げる子環境上書きと親環境の変更を検出します。実Javaの入力読取りは正式suiteの受入で確認します。</remarks>
+    /// <remarks>固定参照・native・音声入力の継承を妨げる子環境上書きと親環境変更を検出します。実入力読取りは各正式suiteの受入で確認します。</remarks>
     [TestMethod]
-    [DataRow("compatibility", 1)]
-    [DataRow("compatibility", 8)]
-    [DataRow("performance", 8)]
-    public async Task ExplicitSuiteRunsOnlySelectedModuleAndRecordsAppliedContract(string profile, int processors)
+    [DataRow("compatibility", 1, "chartstring-java")]
+    [DataRow("compatibility", 8, "chartstring-java")]
+    [DataRow("performance", 8, "copy-tracking")]
+    [DataRow("compatibility", 8, "install-acl")]
+    [DataRow("compatibility", 8, "everything-native-path-identity")]
+    [DataRow("compatibility", 8, "audio-encoders")]
+    [DataRow("compatibility", 8, "audio-encoder-child")]
+    public async Task ExplicitSuiteRunsOnlySelectedModuleAndRecordsAppliedContract(string profile, int processors, string suite)
     {
-        const string inputVariable = "BMS_TEST_CHARTSTRING_REFERENCE_JSON";
-        string? originalInput = Environment.GetEnvironmentVariable(inputVariable);
+        string[] inputVariables = ["BMS_TEST_CHARTSTRING_REFERENCE_JSON", "BMS_EVERYTHING_PATH_IDENTITY_FIXTURE",
+            "BMS_TEST_AUDIO_ENCODERS", "BMS_TEST_AUDIO_ENCODER_DIR", "BMS_TEST_AUDIO_ENCODER_TYPES"];
+        Dictionary<string, string?> originalInputs = inputVariables.ToDictionary(name => name, Environment.GetEnvironmentVariable);
         string? originalDeadline = Environment.GetEnvironmentVariable(ProcessDeadline.SuiteDeadlineEnvironmentVariable);
         const string filter = "FullyQualifiedName~Reference|TestCategory=OtherSuite";
         string moduleName = profile == "compatibility" ? "Compatibility" : "Performance";
-        string suite = profile == "compatibility" ? "chartstring-java" : "copy-tracking";
         string expectedFilter = profile == "compatibility" ? $"(TestCategory=Suite.{suite})&({filter})" : $"TestCategory=Suite.{suite}";
         using var fixture = new RunnerFixture();
         var plan = VerificationPlan.Parse(profile == "compatibility"
@@ -57,8 +61,11 @@ public sealed class VerificationRunnerTests
             Assert.IsNull(preparation.Request.Environment[ProcessDeadline.SuiteDeadlineEnvironmentVariable]);
         }
         Assert.AreEqual(originalDeadline, Environment.GetEnvironmentVariable(ProcessDeadline.SuiteDeadlineEnvironmentVariable));
-        Assert.IsFalse(request.Environment.ContainsKey(inputVariable));
-        Assert.AreEqual(originalInput, Environment.GetEnvironmentVariable(inputVariable));
+        foreach (string inputVariable in inputVariables)
+        {
+            Assert.IsFalse(request.Environment.ContainsKey(inputVariable));
+            Assert.AreEqual(originalInputs[inputVariable], Environment.GetEnvironmentVariable(inputVariable));
+        }
         Assert.AreEqual(fixture.Path($"run/{moduleName}/cases"), request.Environment[TestRunDirectory.EnvironmentVariable]);
         Assert.IsTrue(result.Commands.All(command => command.Passed));
         Assert.AreEqual(moduleName, result.Modules.Single().Name);

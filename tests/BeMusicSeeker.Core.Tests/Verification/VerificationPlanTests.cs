@@ -78,6 +78,10 @@ public sealed class VerificationPlanTests
     [DataRow("DirectorySymbolicLink", 180)]
     [DataRow("CrossVolume", 60)]
     [DataRow("Junction", 60)]
+    [DataRow("install-acl", 60)]
+    [DataRow("everything-native-path-identity", 60)]
+    [DataRow("audio-encoders", 60)]
+    [DataRow("audio-encoder-child", 60)]
     public void RegisteredCompatibilitySuiteSelectsOneReleaseModule(string suite, int timeoutSeconds)
     {
         var plan = VerificationPlan.Parse(["compatibility", "--suite", suite], 8);
@@ -93,6 +97,9 @@ public sealed class VerificationPlanTests
         Assert.AreEqual(TimeSpan.FromSeconds(timeoutSeconds), plan.TestTimeout);
         Assert.AreEqual("tests/verification-compatibility.slnf", plan.SolutionFilter);
         Assert.AreEqual(0, plan.RequiredScenarioIds.Count);
+        const string filter = "FullyQualifiedName~Reference|TestCategory=OtherSuite";
+        Assert.AreEqual($"(TestCategory=Suite.{suite})&({filter})",
+            VerificationPlan.Parse(["compatibility", "--suite", suite, "--filter", filter], 8).Modules.Single().Filter);
     }
 
     /// <summary>欠指定・空白・未知・一括名・大小文字違いは実行計画を作らず、準備前に拒否します。</summary>
