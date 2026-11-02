@@ -26,6 +26,56 @@ public sealed class ApplicationSettingsLifecycleTests
     [TestCleanup]
     public void CleanupWorkspace() => ownedWorkspace?.Dispose();
 
+    /// <summary>独立した旧XML生成主体の設定を実providerで読み、型付きバージョンと XML 特殊文字を含む値の互換読込みと既存起動判定を確認します。</summary>
+    [TestMethod]
+    public void LegacySettingsFixtureGeneratorPreservesTypedVersionAndScalarValues()
+    {
+        string directory = Path.Combine(CaseWorkspace.RootDirectory, "BmsLegacySettingsFixture-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "user.config");
+        try
+        {
+            LegacySettingsFixture.Write(path, new Dictionary<string, string>
+            {
+                ["AssemblyVersion"] = "17.23.41.59",
+                ["Lang"] = "ja-JP",
+                ["AppearanceTheme"] = "Light",
+                ["OperationModeLR2DB"] = "False",
+                ["BMSRootPath"] = @"C:\譜面 & <fixture>",
+                ["BMSInstallDir"] = @"C:\譜面 & <fixture>\install",
+                ["TableListURL"] = "https://example.invalid/?a=1&b=<fixture>"
+            });
+
+            Settings settings = TestSettingsFactory.OpenSettings(path);
+            SerializableVersion version = settings.AssemblyVersion;
+            Assert.IsNotNull(version);
+            Assert.AreEqual(17, version.Major);
+            Assert.AreEqual(23, version.Minor);
+            Assert.AreEqual(41, version.Build);
+            Assert.AreEqual(59, version.Revision);
+            Assert.AreEqual("ja-JP", settings.Lang);
+            Assert.AreEqual("Light", settings.AppearanceTheme);
+            Assert.IsFalse(settings.OperationModeLR2DB);
+            Assert.AreEqual("C:\\譜面 & <fixture>", settings.BMSRootPath);
+            Assert.AreEqual("C:\\譜面 & <fixture>\\install", settings.BMSInstallDir);
+            Assert.AreEqual(
+                new Uri("https://example.invalid/?a=1&b=<fixture>"),
+                settings.TableListURL);
+
+            var lifecycle = new ApplicationSettingsLifecycle(
+                settingsStore: new FileSettingsStore(settings),
+                normalizeSettings: () => { });
+            ApplicationSettingsInitializationResult result = lifecycle.Initialize(
+                ["ja-JP", "en-US"],
+                () => new SerializableVersion(17, 23, 41, 59));
+            Assert.IsFalse(result.FirstStartup);
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
     /// <summary>最初の正規化が失敗した場合、元例外を返して設定の読取り・保存へ進む誤りを検出します。</summary>
     [TestMethod]
     public void InitializeReadFailureDoesNotReadStoreOrContinue()

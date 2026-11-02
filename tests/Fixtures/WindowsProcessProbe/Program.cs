@@ -9,6 +9,10 @@ internal static class Program
     private static Task<int> Main(string[] args)
     {
         Console.OutputEncoding = new UTF8Encoding(false);
+        if (args.Length == 1 && args[0] == "known-folder")
+        {
+            return Task.FromResult(KnownFolderProbe.Run());
+        }
         if (args.Length == 3 && args[0] == "update-package")
         {
             return UpdaterPackageProbe.RunAsync(args[1], args[2]);
