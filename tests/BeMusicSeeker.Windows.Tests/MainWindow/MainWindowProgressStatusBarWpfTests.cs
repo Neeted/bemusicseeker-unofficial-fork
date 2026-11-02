@@ -20,6 +20,7 @@ namespace BeMusicSeeker.Tests;
 
 /// <remarks>行の受付・世代・集計はOperationProgressHubの下位ケースが担い、実Windowではcompiled表示と行ボタンの接続を確認します。MainWindowTestLifetimeで共有Resourcesを所有するため並列実行しません。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 [DoNotParallelize]
 public sealed class MainWindowProgressStatusBarWpfTests
 {

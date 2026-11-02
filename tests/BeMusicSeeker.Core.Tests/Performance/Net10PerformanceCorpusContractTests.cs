@@ -119,21 +119,18 @@ public sealed class Net10PerformanceCorpusContractTests
     }
 
     /// <summary>
-    /// 実sink到達を保持してproducerと別threadで処理されることを観測し、投入処理上でsinkを同期実行する誤りを検出する。
+    /// 閉じたgateで待つsinkを解放する前にTryWriteが返り、その後に実sink到達を観測して、投入処理上でsinkを同期実行する誤りを検出する。
     /// </summary>
     [TestMethod]
     public async Task BatchWriter_InvokesSinkOnBackgroundReader()
     {
         var sinkEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseSink = new ManualResetEventSlim();
-        int producerThreadId = Environment.CurrentManagedThreadId;
-        int sinkThreadId = producerThreadId;
         var writer = new Net10PerformanceBatchWriter(
             4,
             2,
             _ =>
             {
-                sinkThreadId = Environment.CurrentManagedThreadId;
                 sinkEntered.TrySetResult();
                 releaseSink.Wait();
             });
@@ -147,7 +144,6 @@ public sealed class Net10PerformanceCorpusContractTests
                 "owner_started",
                 null)));
             await sinkEntered.Task;
-            Assert.AreNotEqual(producerThreadId, sinkThreadId);
         }
         catch (Exception exception)
         {

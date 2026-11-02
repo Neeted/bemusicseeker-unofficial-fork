@@ -19,6 +19,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>実プレイリスト保存に伴うLR2ファイル・DB同期と、出力失敗後の明示保存継続を確認します。</summary>
 /// <remarks>SQL本文、実ファイルの整理、SQLite確定は下位の自己転記では代替できません。画面なしの保存serviceを主に使い、共有Dispatcherを設定する代表だけ非並列で接続を確認します。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 public sealed class BmsPlaylistCustomFolderOutputTests
 {
     private readonly ApplicationDatabaseScope databaseScope = new();

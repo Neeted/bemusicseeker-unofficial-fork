@@ -66,22 +66,6 @@ public sealed class ApplicationVersionTests
         Assert.IsFalse(Directory.Exists(fixture.Path("variant/dist")));
     }
 
-    /// <summary>旧Fullの版取得関数も同じ正本を使い、literal readerを残して配布準備だけ旧値になる誤りを検出します。</summary>
-    [TestMethod]
-    public async Task LegacyVerificationReaderUsesTheCanonicalSource()
-    {
-        using var fixture = new VersionFixture();
-        string source = Quote(System.IO.Path.Combine(VersionFixture.Repository, "scripts/verify-refactor.ps1"));
-        string command = $". {Quote(fixture.Path("scripts/application-version.ps1"))}; "
-            + $"$ast=[System.Management.Automation.Language.Parser]::ParseFile({source},[ref]$null,[ref]$null); "
-            + "$function=$ast.Find({param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-AssemblyInformationalVersion'},$true); "
-            + "if($null -eq $function){throw '旧入口の版取得関数がありません。'}; . ([scriptblock]::Create($function.Extent.Text)); "
-            + $"Get-AssemblyInformationalVersion -Root {Quote(fixture.Root)}";
-        ProcessCompletion result = await fixture.CommandAsync(command);
-        Assert.AreEqual(0, result.ExitCode, result.StandardError);
-        Assert.AreEqual("9.8.7.6", result.StandardOutput.Trim());
-    }
-
     /// <summary>旧local-update準備は通常packageをcanonical版で選び、既存の検証feed版・copy・hash生成の意味を維持します。</summary>
     [TestMethod]
     public async Task LegacyLocalUpdatePreparationSelectsTheCanonicalPackage()

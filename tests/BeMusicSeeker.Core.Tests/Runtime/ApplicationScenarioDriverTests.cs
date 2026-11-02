@@ -213,13 +213,23 @@ public sealed class ApplicationScenarioDriverTests
                 {
                     if (task is null) { continue; }
                     try { await task.WaitAsync(deadline.Remaining); }
-                    catch (Exception cleanup) when (primary is not null) { primary.Data["RestartDrainTaskFailure"] = cleanup; }
+                    catch (Exception cleanup)
+                    {
+                        workspace.PreserveArtifacts();
+                        if (primary is null) { primary = cleanup; throw; }
+                        primary.Data["RestartDrainTaskFailure"] = cleanup;
+                    }
                 }
             }
             finally
             {
                 try { await driver.DisposeAsync(); }
-                catch (Exception cleanup) when (primary is not null) { primary.Data["ScenarioCleanupFailure"] = cleanup; }
+                catch (Exception cleanup)
+                {
+                    workspace.PreserveArtifacts();
+                    if (primary is null) { primary = cleanup; throw; }
+                    primary.Data["ScenarioCleanupFailure"] = cleanup;
+                }
             }
         }
 

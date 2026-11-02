@@ -8,11 +8,12 @@ internal delegate Task<ProcessCompletion> ExecuteCommand(string executable, IRea
 /// <summary>全体またはGitの変更集合を対象として、style修正からwhitespace修正へ進めます。</summary>
 internal static class RepositoryFormatter
 {
-    /// <summary>Fullは標準formatterの全体適用を各一回行います。変更範囲だけはGitで集合を確定し、対象ゼロなら起動しません。</summary>
-    internal static async Task FormatAsync(string repository, ExecuteCommand execute, ProcessDeadline deadline, bool allSources = false)
+    /// <summary>全体適用は各formatterを一回、変更範囲はGitで集合を確定して適用します。手動入口の復元も同じ期限を使い、変更C#ゼロなら復元・整形を省きます。</summary>
+    internal static async Task FormatAsync(string repository, ExecuteCommand execute, ProcessDeadline deadline, bool allSources = false, bool restore = false)
     {
         if (allSources)
         {
+            await RestoreAsync();
             await FormatCategoryAsync("style", []);
             await FormatCategoryAsync("whitespace", []);
             return;
@@ -24,6 +25,7 @@ internal static class RepositoryFormatter
             return;
         }
 
+        await RestoreAsync();
         IReadOnlyList<IReadOnlyList<string>> batches = CreateBatches(paths);
         foreach (string category in new[] { "style", "whitespace" })
         {
@@ -31,6 +33,14 @@ internal static class RepositoryFormatter
             {
                 await FormatCategoryAsync(category, ["--include", .. batch]);
             }
+        }
+
+        async Task RestoreAsync()
+        {
+            if (!restore) { return; }
+            ProcessCompletion result = await execute("dotnet", ["restore", Path.Combine(repository, "BeMusicSeeker.sln"),
+                "--locked-mode", "--disable-build-servers", "-p:Platform=x64"], deadline);
+            RequireSuccess(result, "整形前の復元");
         }
 
         async Task FormatCategoryAsync(string category, IReadOnlyList<string> includes)

@@ -24,6 +24,7 @@ namespace BeMusicSeeker.Tests;
 
 /// <remarks>compiled列menuと検索・編集Controlのイベント接続、popupの実配置・仮想化・IME経路を検査するため実WPFを使います。候補生成・保存失敗・編集可否の条件網羅はSearchとCustomTableのownerテストが分担します。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 // MainWindowのApplication.Resourcesとテーマ設定を一時変更し、所有Window・popupを閉じてから共有状態を復元します。
 [DoNotParallelize]
 public sealed class MainWindowChartPresentationWpfTests
@@ -1031,9 +1032,21 @@ public sealed class MainWindowChartPresentationWpfTests
                         AssertCandidateRowLimit(fields, 10);
                         ScrollViewer favoriteViewer = FindVisualDescendants<ScrollViewer>(favorites).Single();
                         ScrollViewer historyViewer = FindVisualDescendants<ScrollViewer>(history).Single();
+                        Assert.AreEqual(6, favorites.Items.Count);
+                        Assert.IsTrue(favoriteViewer.ScrollableHeight > 0d);
                         double historyOffset = historyViewer.VerticalOffset;
-                        favoriteViewer.ScrollToEnd();
-                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        var scrolled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        ScrollChangedEventHandler scrolledHandler = (_, _) =>
+                        {
+                            if (favoriteViewer.VerticalOffset > 0d) { scrolled.TrySetResult(); }
+                        };
+                        favoriteViewer.ScrollChanged += scrolledHandler;
+                        try
+                        {
+                            favoriteViewer.ScrollToEnd();
+                            TestUiDispatcherHost.AwaitPresentationOnDispatcher(scrolled.Task, "search-favorites.scrolled");
+                        }
+                        finally { favoriteViewer.ScrollChanged -= scrolledHandler; }
                         Assert.IsTrue(favoriteViewer.VerticalOffset > 0d);
                         Assert.AreEqual(historyOffset, historyViewer.VerticalOffset, "各候補sectionのoffsetを共有しない。");
                         var popupBorder = (Border)normal.Editor.AssistancePopupControl.Child;
@@ -2223,6 +2236,7 @@ public sealed class MainWindowChartPresentationWpfTests
         }
         rows.ItemsSource = originalSource;
         TestUiDispatcherHost.ProcessQueuedPresentation();
+        rows.UpdateLayout();
     }
 
     private static double[] GetSectionViewportHeights(KeywordSearchEditor editor)

@@ -4,7 +4,7 @@ Windows 11の新しい開発環境を準備するための手順です。初回�
 
 Linuxで編集・クロスビルド・移植可能な既存テストの局所検証を行う場合は、[Linuxの構築手順](setup-linux.md)を参照してください。Windows上の標準検証は本書の手順を使います。
 
-本書は公開リポジトリの `dev` を対象とします。リリースZIPではなく、アプリのソース一式、`BeMusicSeeker.sln`、`global.json`、`scripts/verify-refactor.ps1` を含むチェックアウトを使用します。
+本書は公開リポジトリの `dev` を対象とします。リリースZIPではなく、アプリのソース一式、`BeMusicSeeker.sln`、`global.json`、`tools/BeMusicSeeker.Verify` を含むチェックアウトを使用します。
 
 ```powershell
 git clone --branch dev https://github.com/Neeted/bemusicseeker-unofficial-fork.git
@@ -57,19 +57,19 @@ dotnet --version
 各コマンドが成功し、PowerShellが7系で、`dotnet`が`global.json`に対応するSDKを選択できることを確認します。その後、標準の検証入口を実行します。
 
 ```powershell
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
+dotnet run --project tools/BeMusicSeeker.Verify -- verify
 ```
 
-`Functional`は、ロックファイルに従ったパッケージ復元、未コミットの変更があるC#ファイルの自動整形と差分の空白検査、Release/x64ビルド、出力確認、通常の機能テストを行います。初回はパッケージの取得が発生します。別途同じ復元・ビルド・テストを重ねて実行する必要はありません。
+`verify`は、ロックファイルに従ったパッケージ復元、未コミットの変更があるC#ファイルの自動整形と差分の空白検査、Release/x64ビルド、出力確認、通常の機能テストを行います。初回はパッケージの取得が発生します。別途同じ復元・ビルド・テストを重ねて実行する必要はありません。
 
 成功・失敗の判定、実行期限、再実行の条件は[テストの実行と受入検証](spec/development/testing.md)を参照してください。失敗した場合は、表示された失敗段階と診断先を確認します。診断用の出力は`artifacts/verification/`に生成されます。
 
 ### 生成したアプリの実機確認（任意）
 
-`Functional`が成功すれば、通常開発を始められる状態です。初期設定や実環境での読込みを確認したい場合は、生成されたアプリを起動できます。実施と未実施の扱いは[検証方針](spec/development/testing.md#検証方針)に従い、AIエージェントによる実機確認はユーザーの明示依頼がある場合に行います。次の例は、出力フォルダを作業ディレクトリとして明示します。
+`verify`が成功すれば、通常開発を始められる状態です。初期設定や実環境での読込みを確認したい場合は、生成されたアプリを起動できます。実施と未実施の扱いは[検証方針](spec/development/testing.md#検証方針)に従い、AIエージェントによる実機確認はユーザーの明示依頼がある場合に行います。次の例は、出力フォルダを作業ディレクトリとして明示します。
 
 ```powershell
-$appDirectory = Join-Path (Get-Location).Path 'bin\x64\Release\net10.0-windows'
+$appDirectory = Join-Path (Get-Location).Path 'BeMusicSeeker\bin\x64\Release\net10.0-windows'
 $appProcess = Start-Process -FilePath (Join-Path $appDirectory 'BeMusicSeeker.exe') `
     -WorkingDirectory $appDirectory -PassThru
 ```
@@ -99,11 +99,11 @@ pwsh -NoProfile -File .\native\EverythingBridge\test-x64.ps1
 
 ### マニュアルのHTMLを生成する場合
 
-生成スクリプトはPython 3.12以上を要求します。既存の配布処理は`uv run`を使用しているため、[uv](https://docs.astral.sh/uv/getting-started/installation/)を導入し、[build-doc-html.py](../scripts/build-doc-html.py)に宣言されたPythonと依存パッケージを使います。通常のC#開発や`Functional`のためにPython環境を用意する必要はありません。
+生成スクリプトはPython 3.12以上を要求します。既存の配布処理は`uv run`を使用しているため、[uv](https://docs.astral.sh/uv/getting-started/installation/)を導入し、[build-doc-html.py](../scripts/build-doc-html.py)に宣言されたPythonと依存パッケージを使います。通常のC#開発や`verify`のためにPython環境を用意する必要はありません。
 
 ### 配布・更新に関わる場合
 
-[リリース手順](spec/development/release.md)と[テスト検証](spec/development/testing.md)を参照し、`Full`や作業対象に必要な準備を行います。初回構築の確認にリリース作成・タグ・送信・公開は含めません。
+[リリース手順](spec/development/release.md)と[テスト検証](spec/development/testing.md)を参照し、`full`や作業対象に必要な準備を行います。初回構築の確認にリリース作成・タグ・送信・公開は含めません。
 
 ## 初回構築でつまずいた場合
 

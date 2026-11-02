@@ -6,6 +6,7 @@ namespace BeMusicSeeker.Tests;
 
 /// <summary>表示や通信から独立した選択・検索・照合・入力の条件を検証します。</summary>
 [TestClass]
+[TestCategory("Windows.Shell")]
 public sealed class PlaylistImportDialogViewModelTests
 {
 

@@ -16,6 +16,7 @@ namespace BeMusicSeeker.Tests;
 
 /// <summary>標準構成の初期化・実走査保存・通知・通常一覧とプレイリスト表示の接続を検証します。</summary>
 [TestClass]
+[TestCategory("Windows.Shell")]
 [DoNotParallelize] // 標準構成の共有通知購読をshutdownで解放するまで所有します。
 public sealed class MainWindowCatalogProjectionTests
 {

@@ -12,6 +12,7 @@ namespace BeMusicSeeker.Tests;
 
 
 [TestClass]
+[TestCategory("Windows.Shell")]
 public sealed class MainWindowContextMenuResourceTests
 {
 

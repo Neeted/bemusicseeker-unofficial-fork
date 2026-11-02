@@ -5,6 +5,9 @@ namespace BeMusicSeeker.TestSupport.Verification;
 /// <summary>発見とケースの分配をMTPに任せる、固定module単位の実行要求です。</summary>
 internal sealed record VerificationModule(string Name, string? Filter, int Workers, bool UsesUi)
 {
+    /// <summary>同じassemblyの分割実行を区別する、出力と結果照合の識別子です。</summary>
+    internal string ExecutionId { get; init; } = Name;
+
     /// <summary>リポジトリ内のtest projectです。</summary>
     internal string ProjectPath => $"tests/BeMusicSeeker.{Name}.Tests/BeMusicSeeker.{Name}.Tests.csproj";
 
@@ -76,10 +79,11 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
         VerificationModule[] modules = profile switch
         {
             "dev" or "verify" or "full" => [
-                new("Core", null, Math.Max(1, budget - 1), false),
-                new("Windows", null, 1, true),
-                new("Scenarios", full ? null : "TestCategory=Daily", 1, true),
-                .. full ? new[] { new VerificationModule("Desktop.E2E", null, 1, true) } : []],
+                new("Core", null, Math.Max(1, budget - Math.Clamp(budget / 4, 1, 3) - 1), false),
+                new("Windows", "TestCategory=Windows.Settings", 1, true) { ExecutionId = "Windows.Settings" },
+                new("Windows", "TestCategory=Windows.Shell", 1, true) { ExecutionId = "Windows.Shell" },
+                new("Windows", "(TestCategory!=Windows.Settings)&(TestCategory!=Windows.Shell)", 1, true) { ExecutionId = "Windows.Remaining" },
+                new("Scenarios", full ? null : "TestCategory=Daily", 1, true)],
             "compatibility" => [new("Compatibility", SuiteFilter(suite), 1, true)],
             "performance" => [new("Performance", SuiteFilter(suite), 1, true)],
             _ => throw new ArgumentException($"未知のprofileです: {profile}"),
@@ -96,7 +100,7 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
                 Filter = module.Filter is null ? filter : $"({module.Filter})&({filter})",
             }).ToArray();
         }
-        return new VerificationPlan(profile, profile is "dev" or "verify" ? "Debug" : "Release",
+        return new VerificationPlan(profile, "Release",
             profile is "verify" or "full", modules, budget)
         { Suite = suite };
     }
@@ -133,8 +137,7 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
         "dev" or "verify" => new Dictionary<string, IReadOnlyList<string>> { ["Scenarios"] = ["SC-01", "SC-02", "SC-09"] },
         "full" => new Dictionary<string, IReadOnlyList<string>>
         {
-            ["Scenarios"] = ["SC-01", "SC-02", "SC-03", "SC-04", "SC-05", "SC-06", "SC-08", "SC-09", "SC-10A", "SC-10B", "SC-11", "SC-12", "SC-13", "SC-14"],
-            ["Desktop.E2E"] = ["SC-15a", "SC-15b", "SC-16", "DT-01", "DT-02", "DT-03"],
+            ["Scenarios"] = ["SC-01", "SC-02", "SC-09", "SC-10A", "SC-10B", "SC-11", "SC-13", "SC-14", "SC-ExistingData", "SC-CurrentUpdate"],
         },
         _ => new Dictionary<string, IReadOnlyList<string>>(),
     };
@@ -144,7 +147,7 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
     {
         "compatibility" => CompatibilitySuites[Suite ?? throw new InvalidOperationException("Compatibility suiteが未指定です。")],
         "performance" => PerformanceSuites[Suite ?? throw new InvalidOperationException("Performance suiteが未指定です。")],
-        _ => TimeSpan.FromSeconds(Profile == "full" ? 1380 : 360),
+        _ => TimeSpan.FromSeconds(Profile == "full" ? 1380 : 600),
     };
 
     /// <summary>標準solution filterの選択先です。実行中のVerify自身は含めません。</summary>

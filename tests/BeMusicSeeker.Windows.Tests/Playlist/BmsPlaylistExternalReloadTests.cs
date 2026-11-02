@@ -20,6 +20,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>実外部再取得のDB確定、UI置換、取消と必要出力の終端を確認します。</summary>
 /// <remarks>実JSON・SQLiteと必要なHTTP本文を使い、UI配送はWindowを作らず共有schedulerで保持します。メニューや実Windowの接続は上位が担い、失敗した正本・公開・出力を別々に観測します。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 public sealed class BmsPlaylistExternalReloadTests
 {
     // MSTestが各ケースの実行前に必ず注入します。

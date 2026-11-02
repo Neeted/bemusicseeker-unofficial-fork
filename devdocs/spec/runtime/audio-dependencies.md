@@ -45,7 +45,7 @@ DLLは `vendor/native/x64` で所有し、通常出力・配布とも `libs/x64`
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 読込み、PE・版・版の整数表現と実DLL | [`BassNativeRuntime`](../../../BeMusicSeeker/Ribbit/Media/Audio/BassNativeRuntime.cs)、[`BassVersionPacking`](../../../BeMusicSeeker/Ribbit/Media/Audio/BassVersionPacking.cs) | [`BassNativeRuntimeTests`](../../../tests/BeMusicSeeker.Windows.Tests/Playback/BassNativeRuntimeTests.cs)、[`BassCollectibleLoadContextTests`](../../../tests/BeMusicSeeker.Windows.Tests/Playback/BassCollectibleLoadContextTests.cs) |
-| 配布物、依存定義、DLLの版とハッシュ | プロジェクトの依存定義、固定済み依存ファイル、配布処理 | [`ManagedDependencyOutputPolicyTests`](../../../BeMusicSeeker.Tests/Verification/ManagedDependencyOutputPolicyTests.cs)、[配布検証](../development/testing.md) |
+| 配布物、依存定義、DLLの版とハッシュ | プロジェクトの依存定義、固定済み依存ファイル、配布処理 | [`ManagedDependencyOutputPolicyTests`](../../../tests/BeMusicSeeker.Core.Tests/Verification/ManagedDependencyOutputPolicyTests.cs)、[配布検証](../development/testing.md) |
 
 ## 関連資料
 

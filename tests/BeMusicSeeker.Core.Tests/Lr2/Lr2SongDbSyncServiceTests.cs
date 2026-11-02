@@ -155,14 +155,17 @@ public sealed class Lr2SongDbSyncServiceTests
     }
 
     /// <summary>
-    /// 小型の複数chunkを実更新し、順序回収・末尾・保存位置と利用者設定を保持する。
+    /// 小型の制御幅と本番既定幅で複数chunkを実更新し、順序回収・末尾・保存位置と利用者設定を保持する。
     /// </summary>
     /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
-    [DataRow(5)]
-    [DataRow(7)]
-    public void SyncService_RealSongUpdatesKeepFiniteRoleAcrossChunkCommits(int targetCount)
-        => AssertSongChunkCommits(databaseScope, targetCount, 2, new Lr2SongSyncExecutionOptions(2, 2, 2, 2, 4));
+    [DataRow(5, 2, false)]
+    [DataRow(7, 2, false)]
+    [DataRow(1001, 1000, true)]
+    [DataRow(10001, 1000, true)]
+    public void SyncService_RealSongUpdatesKeepFiniteRoleAcrossChunkCommits(int targetCount, int chunk, bool useProductionDefaults)
+        => AssertSongChunkCommits(databaseScope, targetCount, chunk,
+            useProductionDefaults ? null : new Lr2SongSyncExecutionOptions(2, 2, 2, 2, 4));
 
     /// <summary>容量ゼロ・負値で有限pipelineが停止する指定を、各実行幅の受付で拒否します。</summary>
     [TestMethod]

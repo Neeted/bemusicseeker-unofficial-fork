@@ -22,6 +22,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>設定候補の切替・破棄と導入先確定の接続を検証します。</summary>
 /// <remarks>共有 culture・theme・Bass 受付と composition 購読を使うため非並列にします。</remarks>
 [TestClass]
+[TestCategory("Windows.Settings")]
 [DoNotParallelize]
 public sealed class SettingDialogCandidateSwitchTests
 {
@@ -492,7 +493,8 @@ public sealed class SettingDialogCandidateSwitchTests
                 xml.AddBMSSearchDirectories([alternate]); xml.Save(xml.ConfigFilePath);
                 values.Save();
                 var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
-                owner = CreateViewModel(new SettingsEditSession(values), firstStartup: false, dialogs: dialogs);
+                var failures = new List<Exception>();
+                owner = CreateViewModel(new SettingsEditSession(values), firstStartup: false, dialogs: dialogs, reportSettingsApplyFailure: failures.Add);
                 SettingsDialogViewModel dialog = owner.SettingDialog;
                 window = new SettingsWindow(dialogs) { DataContext = dialog };
                 scope.ShowAndWaitForContentRendered(window);
@@ -515,7 +517,7 @@ public sealed class SettingDialogCandidateSwitchTests
                 Task originalCompletion = owner.SettingDialog.SettingsOperationCompletionTask;
                 combo.SetCurrentValue(Selector.SelectedItemProperty, alternate);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreEqual(rejected ? original : alternate, TestSettingsFactory.OpenSettings(path).BMSInstallDir);
+                Assert.AreEqual(rejected ? original : alternate, TestSettingsFactory.OpenSettings(path).BMSInstallDir, string.Join(Environment.NewLine, failures));
                 Assert.AreEqual(rejected ? original : alternate, combo.SelectedItem);
                 Assert.AreEqual(hasDraft && rejected, dialog.AvailableBMSDirectories.Contains(staged));
                 Assert.AreEqual(hasDraft && !rejected ? 1 : 0, dialogs.ConfirmationCount);
@@ -529,7 +531,7 @@ public sealed class SettingDialogCandidateSwitchTests
                     Assert.AreEqual(original, TestSettingsFactory.OpenSettings(path).BMSInstallDir);
                     combo.SetCurrentValue(Selector.SelectedItemProperty, alternate);
                     TestUiDispatcherHost.ProcessQueuedPresentation();
-                    Assert.AreEqual(alternate, TestSettingsFactory.OpenSettings(path).BMSInstallDir);
+                    Assert.AreEqual(alternate, TestSettingsFactory.OpenSettings(path).BMSInstallDir, string.Join(Environment.NewLine, failures));
                     Assert.AreEqual(3, TestSettingsFactory.OpenSettings(path).StartupSortCachePrewarmPriority);
                 }
                 if (busy == "window")
@@ -546,7 +548,7 @@ public sealed class SettingDialogCandidateSwitchTests
                         combo.SetCurrentValue(Selector.SelectedItemProperty, alternate);
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "independent-install-explicit-retry");
                         Assert.AreEqual(1, dialogs.ConfirmationCount);
-                        Assert.AreEqual(alternate, TestSettingsFactory.OpenSettings(path).BMSInstallDir);
+                        Assert.AreEqual(alternate, TestSettingsFactory.OpenSettings(path).BMSInstallDir, string.Join(Environment.NewLine, failures));
                         CollectionAssert.DoesNotContain(dialog.AvailableBMSDirectories, staged);
                     }
                 }

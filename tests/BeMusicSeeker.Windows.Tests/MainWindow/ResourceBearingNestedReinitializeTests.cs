@@ -10,6 +10,7 @@ namespace BeMusicSeeker.Tests;
 
 
 [TestClass]
+[TestCategory("Windows.Shell")]
 public sealed class ResourceBearingNestedReinitializeTests
 {
     /// <summary>実VMの同一起動中の再初期化で、修正済み入力を新しい元packageとして再捕捉します。管理入力でも修正完了時点のpath・bytes・install行を保ち、成功導入は要求しません。</summary>

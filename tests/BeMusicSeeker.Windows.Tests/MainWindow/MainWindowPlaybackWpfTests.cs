@@ -20,6 +20,7 @@ namespace BeMusicSeeker.Tests;
 
 
 [TestClass]
+[TestCategory("Windows.Shell")]
 // 構成済みMainWindowの共有Resourcesを表示待機と終了回収まで所有します。
 [DoNotParallelize]
 public sealed class MainWindowPlaybackWpfTests

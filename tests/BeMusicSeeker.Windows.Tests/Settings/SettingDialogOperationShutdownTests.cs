@@ -25,6 +25,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>受理済み設定操作と所有画面・アプリ終了の終端を検証します。</summary>
 /// <remarks>共有 culture・theme・Bass 受付と composition 購読を使うため非並列にします。</remarks>
 [TestClass]
+[TestCategory("Windows.Settings")]
 [DoNotParallelize]
 public sealed class SettingDialogOperationShutdownTests
 {

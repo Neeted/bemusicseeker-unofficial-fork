@@ -20,6 +20,7 @@ namespace BeMusicSeeker.Tests;
 
 /// <remarks>treeの判断・要求受理は各主体の下位ケースが担い、ここでは実MainWindowのcompiled Style・選択/クリックイベントから公開先への接続を確認します。共有Resourcesを所有して終了まで回収するため並列実行しません。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 [DoNotParallelize]
 public sealed class MainWindowTreePresentationWpfTests
 {

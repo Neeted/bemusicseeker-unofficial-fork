@@ -20,6 +20,7 @@ namespace BeMusicSeeker.Tests;
 
 
 [TestClass]
+[TestCategory("Windows.Shell")]
 // 標準compositionの購読と終端のBassAudioRuntime.Shutdownが共通資源へ到達するため、準備から解放まで並列化しません。
 [DoNotParallelize]
 public sealed partial class ShellShutdownWorkflowOwnerTests

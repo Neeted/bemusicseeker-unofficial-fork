@@ -31,6 +31,7 @@ namespace BeMusicSeeker.Tests;
 /// </summary>
 /// <remarks>条件網羅は設定・音声 owner が担当し、この系列は実 BAML の Binding とイベント配送を担当します。共有辞書・文化・テーマを変更するため非並列です。</remarks>
 [TestClass]
+[TestCategory("Windows.Settings")]
 [DoNotParallelize]
 public sealed class SettingsWindowCompiledBehaviorTests
 {

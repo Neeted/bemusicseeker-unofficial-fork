@@ -128,10 +128,12 @@ public sealed class TemporaryCopyFilesTests
         finally { if (Directory.Exists(root)) { Directory.Delete(root, recursive: true); } }
     }
 
-    /// <summary>8件の実コピーで二つの転送が同時に入場しても全件追跡され、回収後も入力bytesを保持します。</summary>
+    /// <summary>8件の実コピーの同時入場と256件の既定並列コピーで全件を追跡し、回収後も入力bytesを保持します。</summary>
     [TestMethod]
-    public Task Dispose_RemovesEveryFileTrackedDuringParallelCopy()
-        => AssertParallelCopyOwnership(8, observeWorkers: true);
+    [DataRow(8, true)]
+    [DataRow(256, false)]
+    public Task Dispose_RemovesEveryFileTrackedDuringParallelCopy(int count, bool observeWorkers)
+        => AssertParallelCopyOwnership(count, observeWorkers);
 
     /// <summary>
     /// 保証：Windowsの削除共有を許可しないowned fileだけを残し、他のowned fileと空ディレクトリを最後まで回収します。

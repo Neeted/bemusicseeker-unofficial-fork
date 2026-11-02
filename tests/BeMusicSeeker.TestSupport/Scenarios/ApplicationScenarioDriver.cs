@@ -121,7 +121,7 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
         }
     }
 
-    /// <summary>ContentRendered起点の実初期化結果を待ちます。正常Task完了だけでは成功にしません。</summary>
+    /// <summary>ContentRendered起点の実初期化結果を待ち、成功時は次の通常操作に先立ち起動追加仕事の実終端も待ちます。正常Task完了だけでは成功にしません。</summary>
     internal Task<ScenarioInitializationResult> WaitForStartupAsync(ProcessDeadline deadline)
         => AwaitOrExitAsync(startup.Task, deadline);
 
@@ -481,11 +481,11 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
         if (failures.Count > 0) { throw new AggregateException("製品processの診断保存に失敗しました。", failures); }
     }
 
-    /// <summary>未終了processを通常Close後に必要なら強制回収し、通信を回収します。case本体の失敗は呼出元で別に保持します。</summary>
+    /// <summary>現在peerの実退出を確認済みならCloseを再送せず、未終了processは通常Close後に必要なら強制回収して通信を回収します。case本体の失敗は呼出元で別に保持します。</summary>
     public async ValueTask DisposeAsync()
     {
         var cleanup = ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(10));
-        ProcessStopResult stopped = await process.StopAsync(_ => naturalExitExpected ? Task.CompletedTask : RequestCloseAsync(cleanup), cleanup).ConfigureAwait(false);
+        ProcessStopResult stopped = await process.StopAsync(_ => naturalExitExpected || peerExit.IsCompletedSuccessfully ? Task.CompletedTask : RequestCloseAsync(cleanup), cleanup).ConfigureAwait(false);
         stopping.Cancel();
         var failures = new List<Exception>();
         try

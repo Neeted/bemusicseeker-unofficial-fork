@@ -274,7 +274,34 @@ function New-ZipPackage($version, $packageSuffix, $metadataInfo) {
 
     if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
     Write-Host "  パッケージ作成中: $zipName"
-    Compress-Archive -Path "$targetStagingDir\*" -DestinationPath $zipPath -CompressionLevel Optimal
+    # Compress-Archive 1.2.6と同じ非hidden集合・階層を保ち、内容の転送と圧縮は.NETへ任せます。
+    $archive = [System.IO.Compression.ZipFile]::Open($zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($topLevel in Get-ChildItem -LiteralPath $targetStagingDir) {
+            if ($topLevel -is [System.IO.DirectoryInfo]) {
+                # 旧方式は直下directory自身を登録せず、子孫のうち直下fileがないdirectoryだけを明示登録します。
+                foreach ($item in Get-ChildItem -LiteralPath $topLevel.FullName -Recurse) {
+                    $relative = [System.IO.Path]::GetRelativePath($targetStagingDir, $item.FullName).Trim().Replace('\', '/')
+                    if ($item -is [System.IO.DirectoryInfo]) {
+                        if ($item.GetFiles().Count -eq 0) {
+                            [void]$archive.CreateEntry("$relative/", [System.IO.Compression.CompressionLevel]::Optimal)
+                        }
+                    }
+                    else {
+                        [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                            $archive, $item.FullName, $relative, [System.IO.Compression.CompressionLevel]::Optimal)
+                    }
+                }
+            }
+            else {
+                [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                    $archive, $topLevel.FullName, $topLevel.Name, [System.IO.Compression.CompressionLevel]::Optimal)
+            }
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
 
     Remove-Item $targetStagingDir -Recurse -Force
 

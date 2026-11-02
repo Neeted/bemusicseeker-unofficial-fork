@@ -14,6 +14,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>workspaceの表示状態確定・世代失効・通知とBMT順保存後の選択復元を確認します。</summary>
 /// <remarks>実VMケースはMainChartListとの操作mode接続を対象にし、共有composition資源のため非並列です。BMT保存失敗と復元要求は実DBと実workspaceを結び、WPF viewへの実接続はMainWindow側へ分担します。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 public sealed class PlaylistWorkspacePresentationStateTests
 {
 

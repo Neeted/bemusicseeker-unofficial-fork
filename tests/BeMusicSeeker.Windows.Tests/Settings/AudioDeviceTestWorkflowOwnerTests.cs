@@ -9,6 +9,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>音声テストの受付・解放と、再生進捗から成功／失敗を決める処理を検証します。</summary>
 /// <remarks>共有BASS受付を実際に占有し、停止・初期化の未開始と解放後の再受付を確認するため非並列にします。</remarks>
 [TestClass]
+[TestCategory("Windows.Settings")]
 public sealed class AudioDeviceTestWorkflowOwnerTests
 {
     /// <summary>共有音声要求が受付中ならテスト・照会・初期化を開始せず、解放後の明示テストを受理することを確認します。</summary>

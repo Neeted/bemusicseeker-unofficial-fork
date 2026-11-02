@@ -19,6 +19,14 @@ internal static class Program
         Console.OutputEncoding = new UTF8Encoding(false);
         switch (args[0])
         {
+            case "native-query":
+            case "format":
+                // 手動PS入口のliteral引数・作業場所・非zero透過だけを観測する固定modeです。
+                string output = Environment.GetEnvironmentVariable("BMS_TEST_FORMAT_ADAPTER_OUTPUT")
+                    ?? throw new InvalidOperationException("format adapter出力先がありません。");
+                File.WriteAllText(output, JsonSerializer.Serialize(new { Arguments = args, Directory = Environment.CurrentDirectory }));
+                Console.Error.Write("format-adapter-original-diagnostic");
+                return 37;
             case "audio-owner-cleanup":
                 return ObserveAudioOwnerCleanup(args[1], args[2]);
             case "--test-session":

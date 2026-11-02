@@ -18,6 +18,15 @@ public sealed class TestWorkspace : IDisposable
     /// <summary>このケースだけが変更するディレクトリです。</summary>
     public string RootDirectory { get; }
 
+    /// <summary>実行体のドライブ直下に、repository・OS一時領域から独立した専有run領域を作ります。</summary>
+    /// <remarks>親領域を一括回収せず、各ケースの所有者が終端後に回収または証跡保持を選びます。</remarks>
+    public static string CreateRunRoot()
+    {
+        string driveRoot = Path.GetPathRoot(AppContext.BaseDirectory)
+            ?? throw new InvalidOperationException("実行体のドライブを特定できません。");
+        return Directory.CreateDirectory(Path.Combine(driveRoot, "bms-tests", Guid.NewGuid().ToString("N")[..12])).FullName;
+    }
+
     /// <summary>指定した実行領域の下に新しいケース領域を作ります。</summary>
     public static TestWorkspace Create(string runRoot) => new(runRoot);
 
@@ -62,7 +71,7 @@ public static class TestRunDirectory
     private static string CreateRoot()
     {
         string root = Environment.GetEnvironmentVariable(EnvironmentVariable)
-            ?? Path.Combine(Path.GetTempPath(), "bms-tests", Guid.NewGuid().ToString("N")[..12]);
+            ?? TestWorkspace.CreateRunRoot();
         Directory.CreateDirectory(root);
         return Path.GetFullPath(root);
     }

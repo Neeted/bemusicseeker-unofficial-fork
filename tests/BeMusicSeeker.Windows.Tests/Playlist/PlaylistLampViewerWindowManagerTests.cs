@@ -9,6 +9,8 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Processes;
+using BeMusicSeeker.TestSupport.Ui;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -21,12 +23,17 @@ namespace BeMusicSeeker.Tests;
 /// <summary>ランプビューアの表示受付・対象別の終了・メイン終了時の取消を検証する。</summary>
 /// <remarks>実Windowの表示とClosedを観測するため既存MainWindow fixtureを使う。共有Application資源・実Window集合・native後片付けを扱うため直列実行し、集計・履歴復元は下位テストへ分担する。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 [DoNotParallelize]
 public sealed class PlaylistLampViewerWindowManagerTests
 {
+    private TestUiSessionLease? activationLease;
+
+    /// <summary>実Activateが共有画面へ作用する前に、非UI側でsession排他を取得します。</summary>
     [TestInitialize]
-    public void MaterializeCanonicalApplicationResources()
+    public async Task MaterializeCanonicalApplicationResources()
     {
+        activationLease = await TestUiSessionLease.AcquireAsync(ProcessDeadline.FromSuiteEnvironment(TimeSpan.FromMinutes(3)));
         TestUiDispatcherHost.Invoke(() =>
         {
             Application application = Application.Current
@@ -45,6 +52,14 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 });
             }
         });
+    }
+
+    /// <summary>ケースが所有するWindowと処理の回収後にsession排他を解放します。</summary>
+    [TestCleanup]
+    public void ReleaseActivationLease()
+    {
+        activationLease?.Dispose();
+        activationLease = null;
     }
 
     /// <summary>初回Deletedは所有者付き通知一回を維持し、未表示Windowの実Closed・両所有集合からの除去と開始済み処理を回収します。不可視Windowを回収済みとする誤りを検出します。</summary>

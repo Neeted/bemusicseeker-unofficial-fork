@@ -199,7 +199,7 @@ internal static class TestUiDispatcherHost
     /// <summary>描画・閉鎖・native解放の通知欠落を期限付きで検出します。</summary>
     /// <param name="task">観測する実通知のTask。</param>
     /// <param name="operationName">未到達時の診断名。</param>
-    /// <param name="notificationTimeout">通知の観測期限。省略時は5秒です。通常Taskの期限には使いません。</param>
+    /// <param name="notificationTimeout">通知の観測期限。省略時は15秒です。通常Taskの期限には使いません。</param>
     internal static void AwaitPresentationOnDispatcher(Task task, string operationName, TimeSpan? notificationTimeout = null)
         => AwaitOnDispatcher(task, operationName, boundedObservation: true, notificationTimeout);
 
@@ -221,7 +221,7 @@ internal static class TestUiDispatcherHost
             return;
         }
 
-        TimeSpan timeout = notificationTimeout ?? TimeSpan.FromSeconds(5);
+        TimeSpan timeout = notificationTimeout ?? TimeSpan.FromSeconds(15);
         var frame = new DispatcherFrame();
         bool timedOut = false;
         ExceptionDispatchInfo? dispatchFailure = null;

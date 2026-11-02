@@ -15,6 +15,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>LR2設定と実ライブラリ・出力ownerの接続を検証します。</summary>
 /// <remarks>共有 culture・theme・Bass 受付と composition 購読を使うため非並列にします。</remarks>
 [TestClass]
+[TestCategory("Windows.Settings")]
 [DoNotParallelize]
 public sealed class SettingDialogLr2OwnerTests
 {

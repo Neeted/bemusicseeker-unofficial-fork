@@ -11,6 +11,7 @@ namespace BeMusicSeeker.Tests;
 
 /// <summary>専用画面のBinding・picker・確定を代表操作で確認します。拒否条件の網羅はVMの通常テストへ分担します。</summary>
 [TestClass]
+[TestCategory("Windows.Shell")]
 [DoNotParallelize]
 public sealed class PlaylistJsonExportDialogTests
 {

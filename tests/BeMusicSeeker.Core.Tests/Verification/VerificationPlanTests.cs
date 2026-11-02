@@ -12,10 +12,12 @@ public sealed class VerificationPlanTests
     {
         const string filter = "FullyQualifiedName~A|TestCategory=Named";
         var plan = VerificationPlan.Parse(["verify", "--filter", filter], 2);
-        CollectionAssert.AreEqual(new[] { "Core", "Windows", "Scenarios" }, plan.Modules.Select(module => module.Name).ToArray());
+        CollectionAssert.AreEqual(new[] { "Core", "Windows", "Windows", "Windows", "Scenarios" }, plan.Modules.Select(module => module.Name).ToArray());
         Assert.AreEqual(filter, plan.Modules[0].Filter);
-        Assert.AreEqual(filter, plan.Modules[1].Filter);
-        Assert.AreEqual($"(TestCategory=Daily)&({filter})", plan.Modules[2].Filter);
+        Assert.AreEqual($"(TestCategory=Windows.Settings)&({filter})", plan.Modules[1].Filter);
+        Assert.AreEqual($"(TestCategory=Windows.Shell)&({filter})", plan.Modules[2].Filter);
+        Assert.AreEqual($"((TestCategory!=Windows.Settings)&(TestCategory!=Windows.Shell))&({filter})", plan.Modules[3].Filter);
+        Assert.AreEqual($"(TestCategory=Daily)&({filter})", plan.Modules[4].Filter);
         CollectionAssert.AreEqual(new[] { "SC-01", "SC-02", "SC-09" }, plan.RequiredScenarioIds["Scenarios"].ToArray());
         Assert.AreEqual($"(TestCategory=Suite.chart-info-edge)&({filter})",
             VerificationPlan.Parse(["compatibility", "--filter", filter, "--suite", "chart-info-edge"], 2).Modules.Single().Filter);
@@ -23,34 +25,42 @@ public sealed class VerificationPlanTests
         Assert.Throws<ArgumentException>(() => VerificationPlan.Parse(["dev", "--filter", filter, "--filter", filter], 2));
     }
 
-    /// <summary>CPU予算をCoreと一つのUI laneへ分け、単一CPUと上限超過でも過剰なworkerを要求しないことを保証します。</summary>
+    /// <summary>CPU予算をCore・有界Windows実行・Scenariosへ分け、単一CPUと上限超過でも過剰なworkerを要求しないことを保証します。</summary>
     [TestMethod]
     [DataRow(1, 1, 1)]
-    [DataRow(2, 2, 1)]
-    [DataRow(32, 16, 15)]
+    [DataRow(7, 7, 5)]
+    [DataRow(8, 8, 5)]
+    [DataRow(12, 12, 8)]
+    [DataRow(32, 16, 12)]
     public void DailyModulesShareFiniteBudget(int processors, int expectedBudget, int coreWorkers)
     {
         var plan = VerificationPlan.Create("dev", processors);
-        CollectionAssert.AreEqual(new[] { "Core", "Windows", "Scenarios" }, plan.Modules.Select(module => module.Name).ToArray());
+        CollectionAssert.AreEqual(new[] { "Core", "Windows", "Windows", "Windows", "Scenarios" }, plan.Modules.Select(module => module.Name).ToArray());
         Assert.AreEqual(expectedBudget, plan.Budget);
+        Assert.AreEqual("Release", plan.Configuration);
+        CollectionAssert.AreEqual(new[] { "Core", "Windows.Settings", "Windows.Shell", "Windows.Remaining", "Scenarios" }, plan.Modules.Select(module => module.ExecutionId).ToArray());
+        Assert.AreEqual(1, plan.Modules.Where(module => module.Name == "Windows").Select(module => module.ProjectPath).Distinct().Count());
         Assert.AreEqual(coreWorkers, plan.Modules[0].Workers);
-        Assert.AreEqual("TestCategory=Daily", plan.Modules[2].Filter);
+        Assert.AreEqual("TestCategory=Daily", plan.Modules[4].Filter);
         Assert.IsTrue(plan.Modules.Skip(1).All(module => module.UsesUi && module.Workers == 1));
         Assert.AreEqual(coreWorkers.ToString(), plan.Modules[0].CreateRunSettings().Descendants("Workers").Single().Value);
     }
 
-    /// <summary>FullはReleaseの和集合で日常moduleを重複せず、明示環境・性能suiteを混入させないことを保証します。</summary>
+    /// <summary>FullはReleaseの和集合で日常moduleを重複せず、明示環境・性能suiteを混入させず、日常とFullの運用上限を維持することを保証します。</summary>
     [TestMethod]
     public void FullAndExplicitSuitesKeepTheirOwnCoverage()
     {
         var full = VerificationPlan.Create("full", 8);
-        CollectionAssert.AreEqual(new[] { "Core", "Windows", "Scenarios", "Desktop.E2E" }, full.Modules.Select(module => module.Name).ToArray());
-        Assert.IsNull(full.Modules[2].Filter);
+        CollectionAssert.AreEqual(new[] { "Core", "Windows", "Windows", "Windows", "Scenarios" }, full.Modules.Select(module => module.Name).ToArray());
+        Assert.IsNull(full.Modules[4].Filter);
         Assert.AreEqual("Release", full.Configuration);
         Assert.IsTrue(full.Format);
         Assert.AreEqual(TimeSpan.FromSeconds(1380), full.TestTimeout);
-        CollectionAssert.AreEqual(new[] { "SC-01", "SC-02", "SC-03", "SC-04", "SC-05", "SC-06", "SC-08", "SC-09", "SC-10A", "SC-10B", "SC-11", "SC-12", "SC-13", "SC-14" }, full.RequiredScenarioIds["Scenarios"].ToArray());
-        CollectionAssert.AreEqual(new[] { "SC-15a", "SC-15b", "SC-16", "DT-01", "DT-02", "DT-03" }, full.RequiredScenarioIds["Desktop.E2E"].ToArray());
+        Assert.AreEqual(TimeSpan.FromSeconds(600), VerificationPlan.Create("dev", 8).TestTimeout);
+        Assert.AreEqual(TimeSpan.FromSeconds(600), VerificationPlan.Create("verify", 8).TestTimeout);
+        CollectionAssert.AreEqual(new[] { "SC-01", "SC-02", "SC-09", "SC-10A", "SC-10B", "SC-11", "SC-13", "SC-14", "SC-ExistingData", "SC-CurrentUpdate" }, full.RequiredScenarioIds["Scenarios"].ToArray());
+        Assert.AreEqual(1, full.RequiredScenarioIds.Count);
+        Assert.AreEqual("Release", VerificationPlan.Create("verify", 8).Configuration);
         Assert.IsTrue(VerificationPlan.Create("verify", 8).Format);
         Assert.IsFalse(VerificationPlan.Create("dev", 8).Format);
         Assert.AreEqual("Performance", VerificationPlan.Create("performance", 8, "scan-commit").Modules.Single().Name);

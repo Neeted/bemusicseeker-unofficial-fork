@@ -25,6 +25,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>保守操作の実ファイル・DB反映と、compiledメニューから管理主体への接続を検証します。</summary>
 /// <remarks>要求の可否とreceipt単体は下位へ任せ、ここでは実画面の選択・編集保持やクリックの配送先と非同期終端を観測します。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 // 実画面の共有Resourcesと音声資源を、終了まで同じfixtureで所有します。
 [DoNotParallelize]
 public sealed partial class MainWindowPackageMaintenanceWpfTests

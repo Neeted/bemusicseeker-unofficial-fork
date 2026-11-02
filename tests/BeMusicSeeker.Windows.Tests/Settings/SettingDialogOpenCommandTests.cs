@@ -10,6 +10,7 @@ namespace BeMusicSeeker.Tests;
 
 /// <remarks>実設定VMが共有ResourceServiceを購読するため、生成からDisposeまで非並列で確認します。</remarks>
 [TestClass]
+[TestCategory("Windows.Settings")]
 [DoNotParallelize]
 public sealed class SettingDialogOpenCommandTests
 {

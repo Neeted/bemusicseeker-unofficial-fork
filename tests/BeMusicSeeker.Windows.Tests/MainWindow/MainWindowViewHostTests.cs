@@ -6,6 +6,7 @@ using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -29,6 +30,7 @@ namespace BeMusicSeeker.Tests;
 
 /// <remarks>実Close・描画後host接続・設定確認と終了の競合はWindowのイベント接続を通して検査します。通知判断と保存失敗後の終端はShellShutdownWorkflowOwnerTests、L/PのBusy条件はApplicationCompositionAdmissionTestsが分担します。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 // 実WindowはApplication.Resourcesの画面VMを共有し、音声runtimeとログ構成も一時変更するため所有範囲を並列化しません。
 [DoNotParallelize]
 public sealed partial class MainWindowViewHostTests
@@ -980,6 +982,11 @@ public sealed partial class MainWindowViewHostTests
             var captionProbes = new List<Task>();
             var captionSubscriptions = new List<(Button Button, RoutedEventHandler Handler)>();
             var stateSubscriptions = new List<(MainWindow Window, EventHandler Handler)>();
+            var commandSubscriptions = new List<(MainWindow Window, ExecutedRoutedEventHandler Handler)>();
+            Button? captionButton = null;
+            string? captionOperation = null;
+            bool captionExecuted = false;
+            bool? captionExecutedHandled = null;
             var observedClose = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
             void InvokeCaption(MainWindow target, string role, string operationName)
             {
@@ -987,6 +994,22 @@ public sealed partial class MainWindowViewHostTests
                 // 表示役割から選び、Commandが誤配線でも正しいCommandを持つ別ボタンへ読み替えません。
                 Button button = captionPanel.Children.OfType<Button>().Single(candidate =>
                     candidate.IsVisible && string.Equals(candidate.Content as string, role, StringComparison.Ordinal));
+                captionButton = button;
+                captionOperation = operationName;
+                captionExecuted = false;
+                captionExecutedHandled = null;
+                ICommand? command = button.Command;
+                ExecutedRoutedEventHandler executed = (_, e) =>
+                {
+                    if (ReferenceEquals(captionButton, button) && ReferenceEquals(e.Command, command))
+                    {
+                        captionExecuted = true;
+                        captionExecutedHandled = e.Handled;
+                    }
+                };
+                // 実CommandBindingが処理済みにしたExecutedも観測し、Clickだけの到達と区別します。
+                target.AddHandler(CommandManager.ExecutedEvent, executed, handledEventsToo: true);
+                commandSubscriptions.Add((target, executed));
                 var clickedProbe = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
                 RoutedEventHandler clicked = (_, _) =>
                 {
@@ -1165,6 +1188,12 @@ public sealed partial class MainWindowViewHostTests
             catch (Exception exception)
             {
                 bodyFailure = exception;
+                // 元例外を保ち、後片付けが画面状態を変える前の診断をTRXの標準出力へ残します。
+                Console.WriteLine($"Caption failure: operation={captionOperation}, WindowState={window?.WindowState}, "
+                    + $"IsVisible={window?.IsVisible}, IsEnabled={window?.IsEnabled}, "
+                    + $"Command={(captionButton?.Command as RoutedCommand)?.Name ?? captionButton?.Command?.ToString() ?? "<null>"}, CommandTarget={captionButton?.CommandTarget?.ToString() ?? "<null: button>"}, "
+                    + $"ButtonIsVisible={captionButton?.IsVisible}, ButtonIsEnabled={captionButton?.IsEnabled}, "
+                    + $"Executed={captionExecuted}, ExecutedHandled={captionExecutedHandled}");
                 throw;
             }
             finally
@@ -1200,6 +1229,10 @@ public sealed partial class MainWindowViewHostTests
                 }
                 foreach ((Button button, RoutedEventHandler handler) in captionSubscriptions) { button.Click -= handler; }
                 foreach ((MainWindow target, EventHandler handler) in stateSubscriptions) { target.StateChanged -= handler; }
+                foreach ((MainWindow target, ExecutedRoutedEventHandler handler) in commandSubscriptions)
+                {
+                    target.RemoveHandler(CommandManager.ExecutedEvent, handler);
+                }
                 Recover(() => ownership?.DisposeAfterBodyFailure(bodyFailure ?? cleanupFailure), "CaptionWindowCleanupFailure");
                 Recover(Ribbit.Media.Audio.BassAudioRuntime.Shutdown, "CaptionAudioCleanupFailure");
                 if (bodyFailure == null && cleanupFailure != null) { ExceptionDispatchInfo.Capture(cleanupFailure).Throw(); }

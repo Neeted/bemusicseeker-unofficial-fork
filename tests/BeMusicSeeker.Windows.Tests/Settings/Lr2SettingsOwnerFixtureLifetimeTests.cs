@@ -8,6 +8,7 @@ namespace BeMusicSeeker.Tests;
 
 /// <summary>実LR2 ownerの終了receiptと本体・付加資源の失敗を媒体保全へ接続します。</summary>
 [TestClass]
+[TestCategory("Windows.Settings")]
 [DoNotParallelize]
 public sealed class Lr2SettingsOwnerFixtureLifetimeTests
 {

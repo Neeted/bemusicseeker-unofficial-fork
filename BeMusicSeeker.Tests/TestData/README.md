@@ -1,5 +1,7 @@
 # テスト用データ
 
+旧BeMusicSeeker.Testsプロジェクトは廃止し、この読み取り専用素材だけを現位置に保持しています。現在の実行・編集指針は[tests/AGENTS.md](../../tests/AGENTS.md)に従います。素材の参照先や内容は移管のために変更しません。
+
 合成入力だけでは確認しづらい互換性や実データ由来の挙動を確認するための固定入力を置きます。実行区分・環境変数・コマンドは[テスト検証](../../devdocs/spec/development/testing.md#解析大規模データ外部エンコーダー)、入力を追加する判断は[テスト作成](../../devdocs/spec/development/test-authoring.md)を正本とします。
 
 ## データの用途

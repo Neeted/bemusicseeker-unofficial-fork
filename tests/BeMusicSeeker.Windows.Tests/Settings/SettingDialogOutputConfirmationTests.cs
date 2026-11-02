@@ -17,6 +17,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>出力設定の保存・生成と失敗後の再操作を検証します。</summary>
 /// <remarks>共有 culture・theme・Bass 受付と composition 購読を使うため非並列にします。</remarks>
 [TestClass]
+[TestCategory("Windows.Settings")]
 [DoNotParallelize]
 public sealed class SettingDialogOutputConfirmationTests
 {

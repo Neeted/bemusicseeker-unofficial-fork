@@ -24,6 +24,7 @@ namespace BeMusicSeeker.Tests;
 
 /// <remarks>純粋な進捗判断はownerへ入力通知を渡して検査します。実起動・設定完了のケースはMainWindowのL/P解放・必須UI・後続scheduler接続の順序を検査するため実構成とDBを使い、Dispatcherでcallbackと終端を回収します。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 public sealed class MainWindowViewModelStartupProgressTests
 {
     // MSTestが各ケースの実行前に必ず注入します。

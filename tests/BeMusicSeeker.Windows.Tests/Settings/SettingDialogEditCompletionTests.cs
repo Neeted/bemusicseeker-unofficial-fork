@@ -28,6 +28,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>設定適用の保存・後続処理・失敗／取消・実 owner 接続を検証します。</summary>
 /// <remarks>共有 culture・theme・Bass 受付と composition 購読を使うため非並列にします。</remarks>
 [TestClass]
+[TestCategory("Windows.Settings")]
 [DoNotParallelize]
 public sealed class SettingDialogEditCompletionTests
 {
@@ -782,7 +783,7 @@ public sealed class SettingDialogEditCompletionTests
                 Assert.AreEqual(!adopted || !keepDisabled && !removeDisabled, reader.EnableBeatorajaBmtOutput);
                 Assert.AreEqual(adopted && !rootChange ? keepDisabled : originalKeep, reader.KeepBeatorajaBmtFilesWhenOutputDisabled);
                 Assert.AreEqual(!(adopted && scenario == "register-off"), reader.RegisterBeatorajaBmtUrls);
-                Assert.AreEqual(adopted && !rootChange ? "PreferSha256Only" : "Original", reader.BeatorajaBmtHashOutputMode);
+                Assert.AreEqual(adopted && !rootChange ? "PreferSha256Only" : "Original", reader.BeatorajaBmtHashOutputMode, string.Join(Environment.NewLine, failures));
                 Assert.IsTrue(dialog.UseExternalPanelImage);
                 Assert.IsFalse(reader.UseExternalPanelImage);
                 if (!rootChange) { Assert.AreEqual("invalid-score-draft", dialog.BeatorajaPlayerId); }

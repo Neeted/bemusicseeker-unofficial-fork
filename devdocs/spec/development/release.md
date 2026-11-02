@@ -113,7 +113,7 @@ pwsh -NoProfile -File scripts/publish.ps1 -IncludeMetadata
 
 appの通常restoreは `BeMusicSeeker/packages.lock.json`、配布profileのrestore/publishは `BeMusicSeeker/packages.publish.lock.json` を使います。後者はSingleFile analyzerのSDK依存を含み、通常版・実行限定版・metadata同梱版で共有します。依存更新時は `dotnet restore BeMusicSeeker/BeMusicSeeker.csproj --runtime win-x64 --force-evaluate -p:Platform=x64 -p:Configuration=Release -p:PublishProfile=WinX64SelfContained` で配布lockも明示更新し、解決版の差分を確認します。通常のpublish経路はlocked restoreを維持し、lock欠落は出力変更前に拒否し、不一致時に再生成へ切り替えません。
 
-新しいC#検証入口 `tools/BeMusicSeeker.Verify full` の配布準備では、Vは通常版、VnextはVの実バイナリから読んだ版の末尾をcheckedで1増やした版です。両variantを各一回publishし、各180秒の範囲内で成果物も検査します。移行中の標準入口 `scripts/verify-refactor.ps1 -Mode Full` は従来の通常版配布と受入を維持します。通常公開のreleaseは正本の版を使い、ローカルのVnextを公開対象にしません。`-SkipBuild` の通常利用でも、既存appの実版とパッケージ版の一致を確認します。
+新しいC#検証入口 `tools/BeMusicSeeker.Verify full` の配布準備では、Vは通常版、VnextはVの実バイナリから読んだ版の末尾をcheckedで1増やした版です。両variantを各一回publishし、各240秒の範囲内で成果物も検査します。標準FullはCore・Windows・Scenariosと既存データ起動・現行更新の実配布受入を接続します。環境suiteはCompatibilityで別に明示実行します。通常公開のreleaseは正本の版を使い、ローカルのVnextを公開対象にしません。`-SkipBuild` の通常利用でも、既存appの実版とパッケージ版の一致を確認します。
 
 正式リリース前の公開候補に対して `Full` を実行します。通常開発のコミット・`dev` への統合と、変更の影響に応じた追加検証は[実行範囲の選択](testing.md#実行範囲の選択)に従います。Fullは検証用の `SkipDocHtml` 配布物を隔離された出力先に生成・共有します。正式配布用のZIPは、検証済みのソースからHTMLを含めて生成し、ソースを変更した場合は再生成します。
 
@@ -131,7 +131,7 @@ git pull --ff-only
 git switch main
 git pull --ff-only
 git merge --no-ff dev
-pwsh -NoProfile -File scripts/verify-refactor.ps1 -Mode Full -AllowEnvironmentIntegration
+dotnet run --project tools/BeMusicSeeker.Verify -- full
 pwsh -NoProfile -File scripts/publish.ps1
 pwsh -NoProfile -File scripts/release.ps1 -CreateDraft
 ```
@@ -174,7 +174,7 @@ Releaseの公開に失敗したらmainを送信しません。mainへの送信�
 | --- | --- | --- |
 | ブランチと作業起点・コミット・統合方法 | [AGENTS.md](../../../AGENTS.md)、[CONTRIBUTING.md](../../../CONTRIBUTING.md)、[エージェント運用](agent-workflow.md)、[開発手順](../../setup.md)、GitHubのブランチ・タグ設定 | 文書と設定を照合する。統合手順は隔離したリポジトリの実Gitでfast-forward、分岐時の停止、作業ブランチのrebase、公開履歴のマージ、最新 `dev` からの次ブランチ作成と統合済み・全ワークツリー未使用の完了ブランチ削除を確認する。責任者による検証・独立レビュー後のローカルコミット、メイン作業ツリーの統合専用運用、準備済み単位からの統合、更新後の必要な検証・レビュー、統合引継ぎの版・根拠と全体ルートの確認は担当間の連絡と対象版を照合する。 |
 | バージョンの正本・互換ファイル不変・公開順序 | [release.ps1](../../../scripts/release.ps1) | [ReleaseScriptVersionSourceTests](../../../tests/BeMusicSeeker.Core.Tests/Verification/ReleaseScriptVersionSourceTests.cs): Coreの日常検証で17条件を実行する。実Gitと専有local remoteを使い、gh・文書生成のみ代替して実公開は行わず、本番スクリプトの入口から生成物・参照・失敗時の副作用を確認する。 |
-| 正式リリース前の配布物生成と引渡し | [publish.ps1](../../../scripts/publish.ps1)、[verify-refactor.ps1](../../../scripts/verify-refactor.ps1) | 公開候補のFullで配布物生成、既存データ利用、更新・起動を確認する。 |
+| 正式リリース前の配布物生成と引渡し | [publish.ps1](../../../scripts/publish.ps1)、[検証入口](../../../tools/BeMusicSeeker.Verify/README.md) | 公開候補のFullで配布物生成、既存データ利用、更新・起動を確認する。 |
 | 表示リソースの整合 | [Resources.resx](../../../BeMusicSeeker/Properties/Resources.resx)、[翻訳](../../../lang) | [LocalizationResourceParityTests](../../../tests/BeMusicSeeker.Core.Tests/Localization/LocalizationResourceParityTests.cs)。履歴内容は差分で確認する。 |
 | 実公開 | [release.ps1](../../../scripts/release.ps1) | 自動テストでは実GitHubを変更しない。許可された公開でタグ・資産・リモートブランチの照合結果を確認する。 |
 

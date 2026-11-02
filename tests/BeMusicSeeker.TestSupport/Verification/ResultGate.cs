@@ -3,11 +3,11 @@ using System.Xml.Linq;
 
 namespace BeMusicSeeker.TestSupport.Verification;
 
-/// <summary>一つのmoduleの実終了と、今回の標準reportの所在です。</summary>
+/// <summary>Nameを実行IDとして照合する、一実行の実終了と今回の標準reportの所在です。</summary>
 internal sealed record ModuleExecution(string Name, string ReportPath, int? ExitCode, bool Completed,
     string? PrimaryFailure = null, string? CleanupFailure = null, double? ElapsedMs = null);
 
-/// <summary>標準reportの件数・不成功理由と、起動から回収完了までのmodule時間です。未起動の時間はnullです。</summary>
+/// <summary>Nameを実行IDとして保持する標準reportの件数・不成功理由と、起動から回収完了までの時間です。未起動の時間はnullです。</summary>
 internal sealed record ModuleOutcome(string Name, int Cases, IReadOnlyList<string> Errors, double? ElapsedMs = null,
     IReadOnlyList<string>? ScenarioIds = null)
 {
@@ -20,7 +20,7 @@ internal static class ResultGate
 {
     private static readonly XNamespace Trx = "http://microsoft.com/schemas/VisualStudio/TeamTest/2010";
 
-    /// <summary>期待moduleを他moduleや以前の結果で補完せず検査します。</summary>
+    /// <summary>期待実行IDを別実行や以前の結果で補完せず検査します。</summary>
     internal static IReadOnlyList<ModuleOutcome> Evaluate(IReadOnlyList<string> expectedModules,
         IReadOnlyList<ModuleExecution> executions, IReadOnlyDictionary<string, IReadOnlyList<string>>? requiredScenarioIds = null)
     {

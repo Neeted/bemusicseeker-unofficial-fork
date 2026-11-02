@@ -4551,7 +4551,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     [source], CancellationToken.None, new RecordingPackageInstallProgressWriter());
 
                 Assert.IsTrue(result.HasDurableCommit);
-                Assert.IsFalse(result.HasRequiredFailure);
+                Assert.IsFalse(result.HasRequiredFailure,
+                    string.Join(Environment.NewLine, result.SessionReceipts.Select(receipt =>
+                        $"PhysicalFailure={receipt.PhysicalFailure}; ApplyFailure={receipt.ApplyFailure}; FinalizationFailure={receipt.FinalizationFailure}"
+                        + Environment.NewLine + string.Join(Environment.NewLine, receipt.ItemFailures.Select(failure => $"Target={failure.Target}; Failure={failure.Failure}"))))
+                    + $"{Environment.NewLine}EstimationFailure={result.EstimationFailure}; SynchronizationIncomplete={result.SynchronizationIncomplete}"
+                    + Environment.NewLine + string.Join(Environment.NewLine, result.WorkflowFailures)
+                    + Environment.NewLine + string.Join(Environment.NewLine, result.InputCleanupFailures.Select(failure => $"Path={failure.Path}; Failure={failure.Failure}")));
                 Assert.AreEqual(0, library.BmsCharts.Count);
                 Assert.AreEqual(soundExists ? 1 : 0, library.BmsonCharts.Count);
                 Assert.AreEqual(soundExists ? 1 : 0, library.ChartPackagesInstalled.Count);

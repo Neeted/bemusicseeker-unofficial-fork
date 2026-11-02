@@ -15,6 +15,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>実SQLiteの保存・復元と、それを所有するplaylist/workspaceの通知・受付・必須準備を検証します。</summary>
 /// <remarks>DBと出力の確定順は実SQLiteと必要なファイルで観測し、treeの実VM接続だけ共有UI構成を使います。画面操作は上位WPFケースが分担します。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 public sealed class BmsPlaylistPersistenceLifecycleTests
 {
     private readonly ApplicationDatabaseScope databaseScope = new();

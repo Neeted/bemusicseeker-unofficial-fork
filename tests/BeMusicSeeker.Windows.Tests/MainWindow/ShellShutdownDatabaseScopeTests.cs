@@ -15,6 +15,7 @@ namespace BeMusicSeeker.Tests;
 
 /// <summary>実compositionの終了準備が、同じDB所有者の接続寿命と累積close失敗だけを参照することを検査します。</summary>
 [TestClass]
+[TestCategory("Windows.Shell")]
 [DoNotParallelize]
 public sealed class ShellShutdownDatabaseScopeTests
 {

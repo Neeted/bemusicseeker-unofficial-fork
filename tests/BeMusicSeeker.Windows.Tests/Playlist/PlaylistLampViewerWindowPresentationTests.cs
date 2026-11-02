@@ -34,6 +34,7 @@ namespace BeMusicSeeker.Tests;
 /// </summary>
 /// <remarks>実測幅、仮想化、動的ブラシ、compiled binding は実 Window が必要です。共有 Application の辞書を補うため非並列にします。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 [DoNotParallelize]
 public sealed class PlaylistLampViewerWindowPresentationTests
 {
@@ -79,15 +80,19 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             var languageBackups = new Dictionary<string, byte[]?>();
             try
             {
-                // 追加JSONも本番の探索・言語選択へ通す。書込みはテスト出力配下だけに限定する。
+                // 追加JSONも本番の探索・言語選択へ通す。書込みは実行専有profileのlang配下だけに限定する。
                 string languageDirectory = ApplicationPathPolicy.Current.LanguageDirectory;
-                Assert.AreEqual(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "lang")), Path.GetFullPath(languageDirectory), true);
+                Assert.AreEqual(Path.GetFullPath(Path.Combine(ApplicationPathPolicy.Current.ProfileDirectory, "lang")), Path.GetFullPath(languageDirectory), true);
                 Directory.CreateDirectory(languageDirectory);
                 foreach (string language in new[] { "th-TH", "ar-SA" })
                 {
                     string path = Path.Combine(languageDirectory, language + ".json");
                     languageBackups.Add(path, File.Exists(path) ? File.ReadAllBytes(path) : null);
+                    string sharedPath = Path.Combine(AppContext.BaseDirectory, "lang", language + ".json");
+                    byte[]? sharedBytes = File.Exists(sharedPath) ? File.ReadAllBytes(sharedPath) : null;
                     File.WriteAllText(path, "{\"_language_name\":\"Date regression " + language + "\"}");
+                    Assert.AreEqual(sharedBytes is not null, File.Exists(sharedPath));
+                    if (sharedBytes is not null) { CollectionAssert.AreEqual(sharedBytes, File.ReadAllBytes(sharedPath)); }
                     JsonLanguageCatalog.Invalidate(language);
                 }
                 JsonLanguageCatalog.InvalidateLanguages();
@@ -1389,13 +1394,17 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             {
                 // 同梱言語ではカテゴリ名が共通なので、異なる有効な追加翻訳でLabelの固定を識別する。
                 string languageDirectory = ApplicationPathPolicy.Current.LanguageDirectory;
-                Assert.AreEqual(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "lang")), Path.GetFullPath(languageDirectory), true);
+                Assert.AreEqual(Path.GetFullPath(Path.Combine(ApplicationPathPolicy.Current.ProfileDirectory, "lang")), Path.GetFullPath(languageDirectory), true);
                 Directory.CreateDirectory(languageDirectory);
                 string languagePath = Path.Combine(languageDirectory, "de-DE.json");
                 languageBackups.Add(languagePath, File.Exists(languagePath) ? File.ReadAllBytes(languagePath) : null);
+                string sharedPath = Path.Combine(AppContext.BaseDirectory, "lang", "de-DE.json");
+                byte[]? sharedBytes = File.Exists(sharedPath) ? File.ReadAllBytes(sharedPath) : null;
                 File.WriteAllText(languagePath, """
                     {"_language_name":"Lamp regression", "PlaylistLampViewer_clear_max":"Maximum regression", "PlaylistLampViewer_rank_aaa":"Triple A regression"}
                     """);
+                Assert.AreEqual(sharedBytes is not null, File.Exists(sharedPath));
+                if (sharedBytes is not null) { CollectionAssert.AreEqual(sharedBytes, File.ReadAllBytes(sharedPath)); }
                 JsonLanguageCatalog.Invalidate("de-DE");
                 JsonLanguageCatalog.InvalidateLanguages();
                 CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("ja-JP");

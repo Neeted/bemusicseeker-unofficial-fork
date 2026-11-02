@@ -50,7 +50,10 @@ public sealed class ResultGateTests
         using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string path = workspace.GetPath("result.trx");
         CreateReport(Enumerable.Repeat("Passed", count).ToArray()).Save(path);
-        ModuleOutcome result = ResultGate.Evaluate(["Core"], [new("Core", path, 0, true)]).Single();
+        IReadOnlyList<ModuleOutcome> results = ResultGate.Evaluate(["Windows.Settings", "Windows.Shell", "Windows.Remaining"],
+            [new("Windows.Settings", path, 0, true), new("Windows.Shell", path, 0, true), new("Windows.Remaining", path, 0, true)]);
+        Assert.IsTrue(results.All(result => result.Passed));
+        ModuleOutcome result = results.Single(result => result.Name == "Windows.Settings");
         Assert.IsTrue(result.Passed, string.Join(";", result.Errors));
         Assert.AreEqual(count, result.Cases);
     }
@@ -125,10 +128,15 @@ public sealed class ResultGateTests
             File.WriteAllText(path, "<TestRun>");
         }
 
-        var execution = new ModuleExecution(condition == "wrong-module" ? "Windows" : "Core", path,
+        var execution = new ModuleExecution(condition == "wrong-module" ? "Windows.Unknown" : "Windows.Settings", path,
             condition == "exit" ? 1 : 0, condition != "incomplete",
             condition == "timeout" ? "期限超過" : null, condition == "cleanup" ? "回収失敗" : null);
-        IReadOnlyList<ModuleOutcome> results = ResultGate.Evaluate(["Core"], condition == "duplicate" ? [execution, execution] : [execution]);
+        string passed = workspace.GetPath("passed.trx");
+        CreateReport(["Passed"]).Save(passed);
+        ModuleExecution[] selected = condition == "duplicate" ? [execution, execution] : [execution];
+        IReadOnlyList<ModuleOutcome> results = ResultGate.Evaluate(["Windows.Settings", "Windows.Shell", "Windows.Remaining"],
+            [.. selected, new("Windows.Shell", passed, 0, true), new("Windows.Remaining", passed, 0, true)]);
+        Assert.IsTrue(results.Where(result => result.Name is "Windows.Shell" or "Windows.Remaining").All(result => result.Passed));
         Assert.IsTrue(results.Any(result => !result.Passed));
     }
 

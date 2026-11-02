@@ -1071,7 +1071,8 @@ public sealed class BmsPlaylistExternalReloadTests
         finally
         {
             releaseReceipt.TrySetResult();
-            if (operation != null) { try { await operation; } catch (Exception) { } }
+            // 本体で観測済みのfaultを再awaitして元の失敗位置を書き換えず、未終端だけを回収します。
+            if (operation is { IsCompleted: false }) { try { await operation; } catch (Exception) { } }
             blocker?.Dispose();
             if (workspace != null)
             {

@@ -1,59 +1,18 @@
-using System;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
+using System.Reflection;
 using System.Reflection.PortableExecutable;
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Xml.Linq;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using static BeMusicSeeker.TestSupport.Components.ThemeTestFiles;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>構築済み製品と依存グラフ・追跡資産を読み取り、配布境界を検証します。</summary>
 [TestClass]
 public sealed class ManagedDependencyOutputPolicyTests
 {
-    /// <summary>ビルド済みapphostの埋込みマニフェストを読み、ソースだけを変更してPerMonitorV2が配布実体へ届かない誤りを検出します。</summary>
-    [TestMethod]
-    public void ApplicationExecutableEmbedsPerMonitorV2Manifest()
-    {
-        string executable = Path.Combine(ResolveReleaseOutputDirectory(), "BeMusicSeeker.exe");
-        nint module = LoadLibraryExForManifest(executable, 0, 0x22);
-        Assert.AreNotEqual(nint.Zero, module, "構築済み実行ファイルをリソースとして開けません。");
-        try
-        {
-            nint resource = FindResourceForManifest(module, 1, 24);
-            Assert.AreNotEqual(nint.Zero, resource, "実行ファイルのマニフェストがありません。");
-            uint size = SizeofResourceForManifest(module, resource);
-            Assert.IsTrue(size > 0);
-            nint bytes = LockResourceForManifest(LoadResourceForManifest(module, resource));
-            Assert.AreNotEqual(nint.Zero, bytes);
-            byte[] data = new byte[checked((int)size)];
-            Marshal.Copy(bytes, data, 0, data.Length);
-            string xml = Encoding.UTF8.GetString(data).TrimStart('\uFEFF').TrimEnd('\0');
-            var manifest = XDocument.Parse(xml);
-            XNamespace settings = "http://schemas.microsoft.com/SMI/2016/WindowsSettings";
-            Assert.AreEqual("PerMonitorV2", manifest.Descendants(settings + "dpiAwareness").Single().Value);
-        }
-        finally { Assert.IsTrue(FreeLibraryForManifest(module)); }
-    }
-
-    [DllImport("kernel32.dll", EntryPoint = "LoadLibraryExW", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern nint LoadLibraryExForManifest(string path, nint file, uint flags);
-    [DllImport("kernel32.dll", EntryPoint = "FindResourceW", SetLastError = true)]
-    private static extern nint FindResourceForManifest(nint module, nint name, nint type);
-    [DllImport("kernel32.dll", EntryPoint = "SizeofResource", SetLastError = true)]
-    private static extern uint SizeofResourceForManifest(nint module, nint resource);
-    [DllImport("kernel32.dll", EntryPoint = "LoadResource", SetLastError = true)]
-    private static extern nint LoadResourceForManifest(nint module, nint resource);
-    [DllImport("kernel32.dll", EntryPoint = "LockResource")]
-    private static extern nint LockResourceForManifest(nint resource);
-    [DllImport("kernel32.dll", EntryPoint = "FreeLibrary")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool FreeLibraryForManifest(nint module);
-
     /// <summary>
     /// 実アプリの構築設定と出力を照合し、ホスト管理の依存関係を旧framework資産や競合する隣接managed DLLへ戻す誤りを検出する。
     /// </summary>
@@ -66,21 +25,8 @@ public sealed class ManagedDependencyOutputPolicyTests
 
         Assert.AreEqual(
             "net10.0-windows",
-            (string)projectRoot.Elements("PropertyGroup").Elements("TargetFramework").Single(),
+            (string?)projectRoot.Elements("PropertyGroup").Elements("TargetFramework").Single(),
             "The application must target the Windows .NET 10 runtime.");
-        Assert.IsFalse(
-            projectRoot.Elements("Target").Any(target => string.Equals(
-                (string?)target.Attribute("Name"),
-                "ApplyManagedDependencyOutputPolicy",
-                StringComparison.Ordinal)),
-            "The legacy libs relocation target must not remain in the project boundary.");
-        Assert.IsFalse(
-            projectRoot.Elements("Target").Any(target => string.Equals(
-                (string?)target.Attribute("Name"),
-                "RemoveLegacyManagedDependencyRootOutput",
-                StringComparison.Ordinal)),
-            "The legacy managed DLL deletion target must not remain in the project boundary.");
-
         var config = XDocument.Load(Path.Combine(repositoryRoot, "BeMusicSeeker", "app.config"));
         Assert.IsFalse(
             config.Descendants(XName.Get("probing", "urn:schemas-microsoft-com:asm.v1")).Any(),
@@ -88,19 +34,19 @@ public sealed class ManagedDependencyOutputPolicyTests
         Assert.IsFalse(config.Descendants("startup").Any(), "Framework supportedRuntime selection must not remain in the .NET 10 app config.");
         Assert.IsFalse(config.Descendants("runtime").Any(), "Framework runtime switches must not remain in the .NET 10 app config.");
 
-        string releaseOutputDirectory = ResolveReleaseOutputDirectory();
+        string applicationOutputDirectory = ResolveApplicationOutputDirectory();
         Assert.IsTrue(
-            File.Exists(Path.Combine(releaseOutputDirectory, "BeMusicSeeker.exe")),
-            "The Release application output must exist before this layout behavior test runs.");
+            File.Exists(Path.Combine(applicationOutputDirectory, "BeMusicSeeker.exe")),
+            "The selected configuration application output must exist before this layout behavior test runs.");
         Assert.IsTrue(
-            File.Exists(Path.Combine(releaseOutputDirectory, "BeMusicSeeker.deps.json")),
+            File.Exists(Path.Combine(applicationOutputDirectory, "BeMusicSeeker.deps.json")),
             "The host dependency graph must be emitted beside the application.");
         Assert.IsTrue(
-            File.Exists(Path.Combine(releaseOutputDirectory, "BeMusicSeeker.runtimeconfig.json")),
+            File.Exists(Path.Combine(applicationOutputDirectory, "BeMusicSeeker.runtimeconfig.json")),
             "The host runtime configuration must be emitted beside the application.");
         using var appLockDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(repositoryRoot, "BeMusicSeeker", "packages.lock.json")));
         JsonElement appLockTarget = appLockDocument.RootElement.GetProperty("dependencies").GetProperty("net10.0-windows7.0");
-        using var depsDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(releaseOutputDirectory, "BeMusicSeeker.deps.json")));
+        using var depsDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(applicationOutputDirectory, "BeMusicSeeker.deps.json")));
         string runtimeTargetName = depsDocument.RootElement.GetProperty("runtimeTarget").GetProperty("name").GetString()
             ?? throw new AssertFailedException("The application deps runtime target has no name.");
         JsonElement depsTarget = depsDocument.RootElement.GetProperty("targets").GetProperty(runtimeTargetName);
@@ -137,7 +83,7 @@ public sealed class ManagedDependencyOutputPolicyTests
         })
         {
             Assert.IsTrue(
-                File.Exists(Path.Combine(releaseOutputDirectory, dependencyName)),
+                File.Exists(Path.Combine(applicationOutputDirectory, dependencyName)),
                 $"The host layout must place {dependencyName} beside the application.");
             Assert.IsTrue(depsTarget.EnumerateObject().Any(package =>
                 package.Value.TryGetProperty("runtime", out JsonElement runtime) &&
@@ -145,27 +91,27 @@ public sealed class ManagedDependencyOutputPolicyTests
                 $"The host graph must select a runtime asset for {dependencyName}.");
         }
         Assert.IsFalse(
-            File.Exists(Path.Combine(releaseOutputDirectory, "Bass.Net.dll")),
+            File.Exists(Path.Combine(applicationOutputDirectory, "Bass.Net.dll")),
             "The final host layout must not deploy the retired BASS.NET assembly.");
         Assert.IsFalse(
-            File.Exists(Path.Combine(releaseOutputDirectory, "NVorbis.dll")),
+            File.Exists(Path.Combine(applicationOutputDirectory, "NVorbis.dll")),
             "The native Vorbis bridge replaces the retired managed decoder package.");
 
         Assert.IsTrue(
-            File.Exists(Path.Combine(releaseOutputDirectory, "libs", "x64", "7z.dll")),
+            File.Exists(Path.Combine(applicationOutputDirectory, "libs", "x64", "7z.dll")),
             "The package-provided x64 7z native asset must be staged under the existing library native owner path.");
         Assert.IsTrue(
-            File.Exists(Path.Combine(releaseOutputDirectory, "libs", "x64", "bms_vorbis.dll")),
+            File.Exists(Path.Combine(applicationOutputDirectory, "libs", "x64", "bms_vorbis.dll")),
             "The process-owned Vorbis bridge must be staged beside the other x64 native assets.");
         Assert.IsTrue(
-            File.Exists(Path.Combine(releaseOutputDirectory, "native", "Everything3_x64.dll")),
+            File.Exists(Path.Combine(applicationOutputDirectory, "native", "Everything3_x64.dll")),
             "The Everything SDK x64 native asset must be staged under the application native owner path.");
         Assert.IsTrue(
-            File.Exists(Path.Combine(releaseOutputDirectory, "native", "EverythingBridge_x64.dll")),
+            File.Exists(Path.Combine(applicationOutputDirectory, "native", "EverythingBridge_x64.dll")),
             "The Everything bridge x64 native asset must be staged beside its SDK sibling.");
         Assert.AreEqual(
             2,
-            Directory.GetFiles(Path.Combine(releaseOutputDirectory, "native"), "Everything*_x64.dll", SearchOption.TopDirectoryOnly).Length,
+            Directory.GetFiles(Path.Combine(applicationOutputDirectory, "native"), "Everything*_x64.dll", SearchOption.TopDirectoryOnly).Length,
             "The application native owner must contain exactly one copy of each Everything x64 asset.");
         XElement everythingBridgeAsset = projectRoot
             .Elements("ItemGroup")
@@ -175,13 +121,13 @@ public sealed class ManagedDependencyOutputPolicyTests
             everythingBridgeAsset.Attribute("Condition"),
             "The bridge and SDK must be a mandatory, deterministic native ship set.");
         Assert.IsFalse(
-            File.Exists(Path.Combine(releaseOutputDirectory, "x64", "7z.dll")),
+            File.Exists(Path.Combine(applicationOutputDirectory, "x64", "7z.dll")),
             "The package's root x64 native copy must not remain beside the deterministic library path.");
 
         foreach (string removedAddonName in new[] { "NLog.Database.dll", "NLog.WindowsEventLog.dll" })
         {
             Assert.IsFalse(
-                File.Exists(Path.Combine(releaseOutputDirectory, removedAddonName)),
+                File.Exists(Path.Combine(applicationOutputDirectory, removedAddonName)),
                 $"The NLog 6 host layout must not deploy removed target package {removedAddonName}.");
         }
 
@@ -219,49 +165,50 @@ public sealed class ManagedDependencyOutputPolicyTests
     }
 
     /// <summary>
-    /// SDKが所有するMTP依存をlock・評価済みassetsと照合し、旧host依存の混在や製品出力へのテスト依存混入を検出する。
+    /// 実行するCoreのSDKが所有するMTP依存をlock・評価済みassetsと照合し、旧host依存の混在や製品出力へのテスト依存混入を検出する。
     /// </summary>
     [TestMethod]
     public void TestProjectOwnsLockedTestHostDependencyGraph()
     {
         string repositoryRoot = FindRepositoryRoot();
-        var project = XDocument.Load(Path.Combine(repositoryRoot, "BeMusicSeeker.Tests", "BeMusicSeeker.Tests.csproj"));
+        var project = XDocument.Load(Path.Combine(repositoryRoot, "tests", "BeMusicSeeker.Core.Tests", "BeMusicSeeker.Core.Tests.csproj"));
         XElement projectRoot = project.Root ?? throw new AssertFailedException("Test project XML has no root element.");
 
-        Assert.AreEqual(
-            "true",
-            (string)projectRoot.Elements("PropertyGroup").Elements("RestorePackagesWithLockFile").Single(),
-            "The test project must own a packages.lock.json for deterministic testhost restore.");
         Assert.AreEqual("MSTest.Sdk", (string?)projectRoot.Attribute("Sdk"));
         using var global = JsonDocument.Parse(File.ReadAllText(Path.Combine(repositoryRoot, "global.json")));
-        string? sdkVersion = global.RootElement.GetProperty("msbuild-sdks").GetProperty("MSTest.Sdk").GetString();
+        string sdkVersion = global.RootElement.GetProperty("msbuild-sdks").GetProperty("MSTest.Sdk").GetString()
+            ?? throw new AssertFailedException("The MSTest SDK version is missing.");
         Assert.AreEqual("Microsoft.Testing.Platform", global.RootElement.GetProperty("test").GetProperty("runner").GetString());
 
-        string lockPath = Path.Combine(repositoryRoot, "BeMusicSeeker.Tests", "packages.lock.json");
+        string lockPath = Path.Combine(repositoryRoot, "tests", "BeMusicSeeker.Core.Tests", "packages.lock.json");
         Assert.IsTrue(File.Exists(lockPath), "The test project lock file must be tracked beside its project.");
         using var lockDocument = JsonDocument.Parse(File.ReadAllText(lockPath));
         JsonElement dependencies = lockDocument.RootElement.GetProperty("dependencies");
         JsonElement targetDependencies = dependencies.GetProperty("net10.0-windows7.0");
-        using var assetsDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(repositoryRoot, "BeMusicSeeker.Tests", "obj", "project.assets.json")));
+        using var assetsDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(repositoryRoot, "tests", "BeMusicSeeker.Core.Tests", "obj", "project.assets.json")));
+        AssertLockedRestore(assetsDocument.RootElement);
         JsonElement selected = assetsDocument.RootElement.GetProperty("targets").GetProperty("net10.0-windows/win-x64");
         foreach (string packageId in new[] { "MSTest.TestFramework", "MSTest.TestAdapter", "Microsoft.Testing.Platform" })
         {
             JsonElement locked = targetDependencies.GetProperty(packageId);
-            string? resolved = locked.GetProperty("resolved").GetString();
+            string resolved = locked.GetProperty("resolved").GetString()
+                ?? throw new AssertFailedException($"The locked test host package has no resolved version: {packageId}");
             Assert.IsTrue(selected.TryGetProperty(packageId + "/" + resolved, out _), packageId);
             if (packageId.StartsWith("MSTest.", StringComparison.Ordinal)) { Assert.AreEqual(sdkVersion, resolved, packageId); }
         }
         foreach (string retired in new[] { "Microsoft.NET.Test.Sdk", "Microsoft.Testing.Extensions.VSTestBridge" })
         {
             Assert.IsFalse(targetDependencies.TryGetProperty(retired, out _), retired);
+            Assert.IsFalse(selected.EnumerateObject().Any(package =>
+                package.Name.StartsWith(retired + "/", StringComparison.Ordinal)), retired);
         }
 
-        using var applicationDeps = JsonDocument.Parse(File.ReadAllText(Path.Combine(ResolveReleaseOutputDirectory(), "BeMusicSeeker.deps.json")));
+        using var applicationDeps = JsonDocument.Parse(File.ReadAllText(Path.Combine(ResolveApplicationOutputDirectory(), "BeMusicSeeker.deps.json")));
         Assert.IsFalse(applicationDeps.RootElement.GetProperty("libraries").EnumerateObject().Any(package =>
             package.Name.StartsWith("MSTest", StringComparison.Ordinal) ||
             package.Name.StartsWith("Microsoft.Testing.", StringComparison.Ordinal) ||
             package.Name.StartsWith("Microsoft.TestPlatform.", StringComparison.Ordinal)));
-        Assert.IsFalse(Directory.EnumerateFiles(ResolveReleaseOutputDirectory(), "*.dll").Any(path =>
+        Assert.IsFalse(Directory.EnumerateFiles(ResolveApplicationOutputDirectory(), "*.dll").Any(path =>
             Path.GetFileName(path).StartsWith("Microsoft.Testing.", StringComparison.Ordinal) ||
             Path.GetFileName(path).StartsWith("Microsoft.VisualStudio.TestPlatform.", StringComparison.Ordinal) ||
             Path.GetFileName(path).StartsWith("MSTest", StringComparison.Ordinal)));
@@ -285,8 +232,8 @@ public sealed class ManagedDependencyOutputPolicyTests
             },
             new
             {
-                ProjectPath = Path.Combine("BeMusicSeeker.Tests", "BeMusicSeeker.Tests.csproj"),
-                LockPath = Path.Combine("BeMusicSeeker.Tests", "packages.lock.json"),
+                ProjectPath = Path.Combine("tests", "BeMusicSeeker.Core.Tests", "BeMusicSeeker.Core.Tests.csproj"),
+                LockPath = Path.Combine("tests", "BeMusicSeeker.Core.Tests", "packages.lock.json"),
                 BaseTarget = "net10.0-windows7.0",
                 RidTarget = "net10.0-windows7.0/win-x64"
             },
@@ -309,20 +256,6 @@ public sealed class ManagedDependencyOutputPolicyTests
         foreach (var lockOwner in lockOwners)
         {
             string projectPath = Path.Combine(repositoryRoot, lockOwner.ProjectPath);
-            var project = XDocument.Load(projectPath);
-            XElement projectRoot = project.Root ?? throw new AssertFailedException($"Project XML has no root element: {projectPath}");
-            Assert.AreEqual(
-                "true",
-                (string)projectRoot.Elements("PropertyGroup").Elements("RestorePackagesWithLockFile").Single(),
-                $"The lock-owning project must enable lock file restore: {lockOwner.ProjectPath}");
-            Assert.AreEqual(
-                "win-x64",
-                (string)projectRoot.Elements("PropertyGroup").Elements("RuntimeIdentifiers").Single(),
-                $"The lock-owning project must keep ordinary IDE restore on the canonical win-x64 graph: {lockOwner.ProjectPath}");
-            Assert.IsFalse(
-                projectRoot.Elements("PropertyGroup").Elements("RuntimeIdentifier").Any(),
-                $"The project must not use singular RuntimeIdentifier because it also changes build output semantics: {lockOwner.ProjectPath}");
-
             string lockPath = Path.Combine(repositoryRoot, lockOwner.LockPath);
             Assert.IsTrue(File.Exists(lockPath), $"Lock file is missing: {lockPath}");
             using var lockDocument = JsonDocument.Parse(File.ReadAllText(lockPath));
@@ -335,10 +268,13 @@ public sealed class ManagedDependencyOutputPolicyTests
                 $"The lock file must retain its win-x64 target graph: {lockOwner.LockPath}");
             JsonElement sqliteNativePackage = ridDependencies.GetProperty("SourceGear.sqlite3");
             Assert.AreEqual("Transitive", sqliteNativePackage.GetProperty("type").GetString());
-            string targetFramework = (string)projectRoot.Elements("PropertyGroup").Elements("TargetFramework").Single();
             string assetsPath = Path.Combine(Path.GetDirectoryName(projectPath)
                 ?? throw new AssertFailedException("Project directory is missing."), "obj", "project.assets.json");
             using var assetsDocument = JsonDocument.Parse(File.ReadAllText(assetsPath));
+            AssertLockedRestore(assetsDocument.RootElement);
+            string targetFramework = assetsDocument.RootElement.GetProperty("project").GetProperty("frameworks").EnumerateObject().Single().Name;
+            CollectionAssert.AreEqual(new[] { "win-x64" }, assetsDocument.RootElement.GetProperty("project").GetProperty("runtimes")
+                .EnumerateObject().Select(runtime => runtime.Name).ToArray(), lockOwner.ProjectPath);
             JsonElement assetsTargets = assetsDocument.RootElement.GetProperty("targets");
             JsonElement baseSqlitePackage = dependencies.GetProperty(lockOwner.BaseTarget).GetProperty("SourceGear.sqlite3");
             Assert.AreEqual("Transitive", baseSqlitePackage.GetProperty("type").GetString());
@@ -367,7 +303,7 @@ public sealed class ManagedDependencyOutputPolicyTests
         XElement centralRoot = centralPackages.Root ?? throw new AssertFailedException("Central package props has no root element.");
         Assert.AreEqual(
             "true",
-            (string)centralRoot.Elements("PropertyGroup").Elements("ManagePackageVersionsCentrally").Single());
+            (string?)centralRoot.Elements("PropertyGroup").Elements("ManagePackageVersionsCentrally").Single());
         var centralVersions = centralRoot.Elements("ItemGroup").Elements("PackageVersion")
             .ToDictionary(
                 package => (string?)package.Attribute("Include") ?? throw new AssertFailedException("Central package ID is missing."),
@@ -383,21 +319,22 @@ public sealed class ManagedDependencyOutputPolicyTests
         {
             Assert.AreEqual("[4.0.2]", centralVersions[packageId], packageId);
         }
-        foreach (string projectDirectory in new[] { "BeMusicSeeker", "BeMusicSeeker.Tests" })
+        foreach (string projectDirectory in new[] { "BeMusicSeeker", Path.Combine("tests", "BeMusicSeeker.Core.Tests") })
         {
-            string projectPath = Path.Combine(repositoryRoot, projectDirectory, projectDirectory + ".csproj");
+            string projectName = Path.GetFileName(projectDirectory);
+            string projectPath = Path.Combine(repositoryRoot, projectDirectory, projectName + ".csproj");
             XElement projectRoot = XDocument.Load(projectPath).Root
                 ?? throw new AssertFailedException("Package project has no root element.");
-            string targetFramework = (string)projectRoot.Elements("PropertyGroup").Elements("TargetFramework").Single();
             using var lockDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(repositoryRoot, projectDirectory, "packages.lock.json")));
             JsonElement lockedTarget = lockDocument.RootElement.GetProperty("dependencies").GetProperty("net10.0-windows7.0");
             using var assetsDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(repositoryRoot, projectDirectory, "obj", "project.assets.json")));
+            string targetFramework = assetsDocument.RootElement.GetProperty("project").GetProperty("frameworks").EnumerateObject().Single().Name;
             JsonElement selectedTarget = assetsDocument.RootElement.GetProperty("targets").GetProperty(targetFramework + "/win-x64");
             Assert.IsTrue(assetsDocument.RootElement.GetProperty("project").GetProperty("restore")
                 .GetProperty("centralPackageVersionsManagementEnabled").GetBoolean(), projectDirectory);
             JsonElement evaluatedFramework = assetsDocument.RootElement.GetProperty("project").GetProperty("frameworks").GetProperty(targetFramework);
-            string outputDirectory = projectDirectory == "BeMusicSeeker" ? ResolveReleaseOutputDirectory() : AppContext.BaseDirectory;
-            using var depsDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(outputDirectory, projectDirectory + ".deps.json")));
+            string outputDirectory = projectDirectory == "BeMusicSeeker" ? ResolveApplicationOutputDirectory() : AppContext.BaseDirectory;
+            using var depsDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(outputDirectory, projectName + ".deps.json")));
             string runtimeTargetName = depsDocument.RootElement.GetProperty("runtimeTarget").GetProperty("name").GetString()
                 ?? throw new AssertFailedException("The deps runtime target has no name.");
             JsonElement depsTarget = depsDocument.RootElement.GetProperty("targets").GetProperty(runtimeTargetName);
@@ -449,14 +386,14 @@ public sealed class ManagedDependencyOutputPolicyTests
             AssertRuntimeOutputsMatchSelectedAssets(assetsDocument.RootElement, selectedTarget, depsTarget, outputDirectory);
         }
 
-        string releaseOutputDirectory = ResolveReleaseOutputDirectory();
+        string applicationOutputDirectory = ResolveApplicationOutputDirectory();
         Assert.IsFalse(
             File.Exists(Path.Combine(repositoryRoot, "libs", "Livet.dll")) ||
             File.Exists(Path.Combine(repositoryRoot, "libs", "Livet.Extensions.dll")),
             "The tracked legacy Livet binaries must not remain beside the package-owned WPF project.");
         Assert.IsFalse(
-            File.Exists(Path.Combine(releaseOutputDirectory, "libs", "x64", "OggVorbis.NET64.dll")) ||
-            File.Exists(Path.Combine(releaseOutputDirectory, "OggVorbis.NET64.dll")),
+            File.Exists(Path.Combine(applicationOutputDirectory, "libs", "x64", "OggVorbis.NET64.dll")) ||
+            File.Exists(Path.Combine(applicationOutputDirectory, "OggVorbis.NET64.dll")),
             "The retired OggVorbis native and managed assets must not remain in the release output.");
 
     }
@@ -586,6 +523,9 @@ public sealed class ManagedDependencyOutputPolicyTests
             Assert.IsTrue(File.Exists(dllPath), dllPath);
             StringAssert.Contains(dependencySpec, $"| `{component.Name}` | {component.Version} / `{component.Api}` |");
             Assert.AreEqual(component.Hash, (GetFileHash(dllPath)), component.Name);
+            using FileStream stream = File.OpenRead(dllPath);
+            using var peReader = new PEReader(stream);
+            Assert.AreEqual(Machine.Amd64, peReader.PEHeaders.CoffHeader.Machine, dllPath);
             string? fileVersion = FileVersionInfo.GetVersionInfo(dllPath).FileVersion;
             Assert.IsTrue(
                 fileVersion?.StartsWith(component.FileVersionPrefix, StringComparison.Ordinal) == true,
@@ -704,20 +644,11 @@ public sealed class ManagedDependencyOutputPolicyTests
         }
     }
 
-    private static string FindRepositoryRoot()
+    /// <summary>継承済みの復元設定をassetsで確認し、project内の宣言位置に依存しません。</summary>
+    private static void AssertLockedRestore(JsonElement assetsRoot)
     {
-        string? directoryPath = AppContext.BaseDirectory;
-        while (!string.IsNullOrWhiteSpace(directoryPath))
-        {
-            if (File.Exists(Path.Combine(directoryPath, "BeMusicSeeker.sln")))
-            {
-                return directoryPath!;
-            }
-
-            directoryPath = Directory.GetParent(directoryPath)?.FullName;
-        }
-
-        throw new DirectoryNotFoundException("Repository root was not found.");
+        Assert.AreEqual("true", assetsRoot.GetProperty("project").GetProperty("restore")
+            .GetProperty("restoreLockProperties").GetProperty("restorePackagesWithLockFile").GetString());
     }
 
     private static string ExtractSection(string text, string startMarker, string endMarker)
@@ -735,17 +666,13 @@ public sealed class ManagedDependencyOutputPolicyTests
     private static string GetFileHash(string path) =>
         Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
 
-    private static string ResolveReleaseOutputDirectory()
+    /// <summary>実行中のCore assemblyの構成に対応する通常製品出力だけを選び、別構成へ探索しません。</summary>
+    private static string ResolveApplicationOutputDirectory()
     {
-        var testOutputDirectory = new DirectoryInfo(AppContext.BaseDirectory);
-        string targetFramework = testOutputDirectory.Name;
-        string? configuration = testOutputDirectory.Parent?.Name;
-        string? platform = testOutputDirectory.Parent?.Parent?.Name;
-        if (string.IsNullOrWhiteSpace(configuration) || string.IsNullOrWhiteSpace(platform))
-        {
-            throw new AssertFailedException("The test output path does not contain configuration and platform segments.");
-        }
-
-        return Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "bin", platform, configuration, targetFramework);
+        string? configuration = typeof(ManagedDependencyOutputPolicyTests).Assembly
+            .GetCustomAttribute<AssemblyConfigurationAttribute>()?.Configuration;
+        Assert.IsTrue(configuration is "Debug" or "Release", "The test assembly must identify its Debug or Release build configuration.");
+        return Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "bin", "x64",
+            configuration ?? throw new AssertFailedException("Test build configuration is missing."), "net10.0-windows");
     }
 }

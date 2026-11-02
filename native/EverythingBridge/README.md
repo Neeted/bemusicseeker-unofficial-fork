@@ -98,7 +98,14 @@ Output:
 
 ## native取得の追加検証
 
-Windows / MSVC v145 / x64で実行します。
+Windows / MSVC v145 / x64で実行します。手動整形と同じ固定ReleaseのVerifyを事前に準備します。初回と関連source更新後は次を実行します。
+
+```powershell
+dotnet restore tools/BeMusicSeeker.Verify/BeMusicSeeker.Verify.csproj --locked-mode --disable-build-servers -p:Platform=x64
+dotnet build tools/BeMusicSeeker.Verify/BeMusicSeeker.Verify.csproj --no-restore --disable-build-servers -c Release -p:Platform=x64
+```
+
+`test-x64.ps1` はそのexeの `native-query` commandへ引数を渡します。tool不在は非成功となり、暗黙buildや別構成の探索はしません。外CWDからもscript所在repositoryを使い、終了後に元CWDへ戻します。
 
 ```powershell
 pwsh -NoProfile -File native/EverythingBridge/test-x64.ps1

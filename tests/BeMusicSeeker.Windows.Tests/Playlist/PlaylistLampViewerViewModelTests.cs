@@ -11,6 +11,7 @@ namespace BeMusicSeeker.Tests;
 
 /// <summary>Windowを作らず、実Dispatcher配送時の世代と閉鎖の境界を検証する。</summary>
 [TestClass]
+[TestCategory("Windows.Shell")]
 [DoNotParallelize]
 public sealed class PlaylistLampViewerViewModelTests
 {

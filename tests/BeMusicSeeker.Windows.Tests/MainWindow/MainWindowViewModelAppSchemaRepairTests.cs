@@ -10,6 +10,7 @@ namespace BeMusicSeeker.Tests;
 
 
 [TestClass]
+[TestCategory("Windows.Shell")]
 public sealed class MainWindowViewModelAppSchemaRepairTests
 {
     /// <summary>実旧DBの非同期検査・保留中の確認・取消を通り、schemaと保存行を変えず終了結果だけを返します。実Closeと受付解放はWindow接続の代表ケースへ分担します。</summary>

@@ -40,6 +40,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>実プレイリスト画面の編集・通知・所有モーダル・終了と、compiled操作の配送を検証します。</summary>
 /// <remarks>保存・候補・受付条件の網羅はPlaylistの管理主体へ分担し、ここでは実DB/HTTPからの表示反映とWindow所有、イベント接続を観測します。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 // 実MainWindowと所有モーダルがApplication資源・共通SQLite/native音声終端へ到達するため並列化しません。
 [DoNotParallelize]
 public sealed class MainWindowPlaylistWorkspaceWpfTests

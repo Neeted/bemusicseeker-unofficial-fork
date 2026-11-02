@@ -224,6 +224,18 @@ public sealed class DistributionArtifactTests
         Assert.IsFalse(File.Exists(legacy.PackagePath));
     }
 
+    /// <summary>正常catalogのLegacy候補ZIPだけが消失すると読取りを失敗させ、再取得や別候補で補いません。</summary>
+    [TestMethod]
+    public async Task CatalogRejectsMissingLegacyCandidateWithoutFetchingItAgain()
+    {
+        using var fixture = new DistributionFixture();
+        (string Path, DistributionCatalog Catalog) prepared = await fixture.PrepareCatalogAsync();
+        string candidate = prepared.Catalog.Legacy.PackagePath;
+        File.Delete(candidate);
+        await Assert.ThrowsAsync<FileNotFoundException>(() => DistributionCatalog.ReadAsync(prepared.Path, fixture.Root, Deadline()));
+        Assert.IsFalse(File.Exists(candidate));
+    }
+
     /// <summary>親環境を変えず子へcatalog環境変数とtrusted repositoryを渡し、直接module用wrapperが正例を受理し自己整合した別旧ZIPを拒否します。</summary>
     [TestMethod]
     [DataRow(false)]

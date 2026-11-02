@@ -27,6 +27,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>設定各項目の実Binding・保存と再表示を検証します。</summary>
 /// <remarks>共有 culture・theme・Bass 受付と composition 購読を使うため非並列にします。</remarks>
 [TestClass]
+[TestCategory("Windows.Settings")]
 [DoNotParallelize]
 public sealed class SettingDialogCategoryPersistenceTests
 {

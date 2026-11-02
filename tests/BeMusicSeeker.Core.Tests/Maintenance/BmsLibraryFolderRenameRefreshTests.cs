@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.IO;
 using System.Reflection;
 using System.Text;
 using BeMusicSeeker.Models;
@@ -15,6 +14,7 @@ using static BeMusicSeeker.TestSupport.Components.BmsLibraryFolderRenameRefreshT
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>実FS・DBの改名と通知時現在値・receiptを、共有Dispatcherを取得せず確認します。</summary>
 [TestClass]
 public sealed class BmsLibraryFolderRenameRefreshTests
 {
@@ -35,7 +35,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             ChartFile chart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(source)) with { Token = new OwnedChartToken() };
             using (LR2SongDBExtended db = databaseScope.OpenSongWrite(database)) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song)); }
             var dialogs = new RecordingDialogService();
-            var library = new TestBmsLibrary(databaseScope, database, null, null, new TestFileMutationService(), dialogs) { BmsCharts = [chart], BmsonCharts = [] };
+            var library = new TestBmsLibrary(databaseScope,
+                database,
+                null,
+                null,
+                new TestFileMutationService(),
+                dialogs,
+                new TestUiScheduler(() => null))
+            { BmsCharts = [chart], BmsonCharts = [] };
             ChartFile target = ChartFileProjection.WithPackageState(chart, destination, string.Empty, string.Empty, []);
             Directory.Move(destination, destination + "-renamed");
             try
@@ -75,7 +82,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             foreach (string path in new[] { nested, free, similar, sameName, install }) { Directory.CreateDirectory(path); }
             Settings settings = TestBmsFactory.CreateRootSettings([registered + Path.DirectorySeparatorChar, nested, install]);
             settings.BMSInstallDir = install;
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new RecordingDialogService(), settings: settings);
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                null,
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null),
+                settings: settings);
             ChartFile[] charts = new[] { registered, middle, free, similar, sameName, install }.Select(path =>
                 ChartTestValues.Empty() with { Path = Path.Combine(path, "chart.bms"), Title = "Renamed", RawTitle = "Renamed" }).ToArray();
             foreach (ChartFile chart in charts) { File.WriteAllText(chart.Path, "#TITLE Renamed\n#BPM 120\n"); }
@@ -130,7 +144,15 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             }
             settings.ScanBmsFilesOnStartup = false;
             settings.Save();
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(), settings: settings) { BmsCharts = charts };
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null),
+                settings: settings)
+            { BmsCharts = charts };
             var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             gateway.UpsertSongs(charts);
             string[] registrations = new BmsRootRegistrationStore(settings, () => library.FixtureLr2Owner).CaptureUserRoots().ToArray();
@@ -168,7 +190,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             }
             finally { library.RequestShutdown("registered-rename-apply"); }
             Settings loaded = TestSettingsFactory.OpenSettings(configPath);
-            var reloaded = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(), settings: loaded)
+            var reloaded = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null),
+                settings: loaded)
             { StartupBackgroundTaskScheduler = (_, _, _, _) => false };
             try
             {
@@ -188,10 +217,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     /// 背景Entryと同一親の譜面を別々に増やしても、必要祖先の取得・置換を譜面数倍にしません。
     /// </summary>
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void FolderMutation_RefreshesExistingAncestorsOnceFromFinalFilesystem(bool move)
-        => AssertFinalFilesystemAncestors(databaseScope, move, 16, 3);
+    [DataRow(false, 16, 3)]
+    [DataRow(true, 16, 3)]
+    [DataRow(false, 0, 1)]
+    [DataRow(true, 0, 1)]
+    [DataRow(true, 4096, 1)]
+    [DataRow(true, 0, 256)]
+    public void FolderMutation_RefreshesExistingAncestorsOnceFromFinalFilesystem(bool move, int backgroundEntries, int parentCharts)
+        => AssertFinalFilesystemAncestors(databaseScope, move, backgroundEntries, parentCharts, uiScheduler: new TestUiScheduler(() => null));
 
     /// <summary>必要祖先のfalse/incomplete/取得例外は必須反映失敗とし、成功FS・確定DB・成功集合と旧索引世代を同時に保持します。</summary>
     [TestMethod]
@@ -211,9 +244,16 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             ChartFile keep = LibraryResourceIndexTestSupport.CreateChart(sibling, "keep.bms");
             File.WriteAllText(Path.Combine(source, "sound.wav"), "resource");
             var port = new AncestorEnumerationPort(parent, failureKind);
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(),
-                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false },
-                settings: TestBmsFactory.CreateRootSettings([parent]), rootFileEnumerator: port)
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null),
+                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false },
+                settings: TestBmsFactory.CreateRootSettings([parent]),
+                rootFileEnumerator: port)
             { BmsCharts = [parentChart, target, keep] };
             new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs([parentChart, target, keep]);
             LibraryResourceIndexOwner owner = LibraryResourceIndexTestSupport.GetOwner(library);
@@ -262,8 +302,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             string source = Path.Combine(parent, "Child");
             ChartFile target = LibraryResourceIndexTestSupport.CreateChart(source, "target.bms");
             var port = new AncestorEnumerationPort(parent, 2);
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(),
-                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false },
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null),
+                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false },
                 rootFileEnumerator: port)
             { BmsCharts = [target] };
             new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs([target]);
@@ -298,7 +344,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             {
                 Directory.CreateDirectory(directory);
             }
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new RecordingDialogService(), settings: TestBmsFactory.CreateRootSettings([registered + Path.DirectorySeparatorChar, nested, destination]))
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                null,
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null),
+                settings: TestBmsFactory.CreateRootSettings([registered + Path.DirectorySeparatorChar, nested, destination]))
             { };
             try
             {
@@ -344,8 +397,15 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             Directory.CreateDirectory(destination);
             File.WriteAllText(Path.Combine(source, "chart.bms"), "registered root chart bytes");
             Lr2ConfigOwner? configOwner = lr2 ? new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(Path.Combine(root, "LR2"), source)) : null;
-            var library = new TestBmsLibrary(databaseScope, songDbPath, configOwner, null, null, new RecordingDialogService(),
-                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = lr2 }, settings: TestBmsFactory.CreateRootSettings(lr2 ? [] : [source, destination]));
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                configOwner,
+                null,
+                null,
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null),
+                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = lr2 },
+                settings: TestBmsFactory.CreateRootSettings(lr2 ? [] : [source, destination]));
             try
             {
                 FolderMoveBatch batch = library.PrepareLibraryRootMoveBatch(
@@ -378,8 +438,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 LR2CustomFolderAdditionalOutputBaseDirs = [managed[1]],
                 LR2CustomFolderOutputBaseDirRootType = managed[2]
             };
-            var library = new TestBmsLibrary(databaseScope, songDbPath, configOwner, null, null, new RecordingDialogService(),
-                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => options);
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                configOwner,
+                null,
+                null,
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null),
+                () => options);
             try
             {
                 options = options with { LR2CustomFolderOutputBaseDir = null, LR2CustomFolderAdditionalOutputBaseDirs = [], LR2CustomFolderOutputBaseDirRootType = null };
@@ -413,8 +479,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             }
             ChartFile[] charts = sources.Select((source, index) => (ChartTestValues.Empty() with { Path = Path.Combine(source, "chart.bms"), Md5 = index.ToString("x32"), Token = new OwnedChartToken() })).ToArray();
             var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2CustomFolderOutputBaseDir = managed };
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new FileDbReportRecordingDialogs(),
-                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => options)
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                null,
+                new FileDbReportRecordingDialogs(),
+                new TestUiScheduler(() => null),
+                () => options)
             { BmsCharts = charts };
             new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs(charts);
             var planningFailure = new IOException("rename planning failed");
@@ -484,7 +556,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     null,
                     null,
                     fileMutationService,
-                    dialogService);
+                    dialogService,
+                    new TestUiScheduler(() => null));
                 int baselineCatalogRevision = library.CatalogRevision;
 
                 LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(
@@ -531,8 +604,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             var mutations = new List<string>();
             try
             {
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null,
-                    new TestFileMutationService { OperationObserver = mutations.Add }, dialogs);
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService { OperationObserver = mutations.Add },
+                    dialogs,
+                    new TestUiScheduler(() => null));
                 LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(source, "destination", reportAtTerminal: reportAtTerminal);
                 Assert.IsNull(receipt);
                 Assert.AreEqual(1, dialogs.CallCount);
@@ -580,7 +658,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     null,
                     null,
                     new TestFileMutationService(),
-                    new RecordingDialogService());
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null));
                 OwnedChartCollectionTestSupport.SetLibraryFilesWithoutNotification(library, [bFile, pFile]);
                 int ownedCollectionPublicationCount = 0;
                 int normalRefreshPublicationCount = 0;
@@ -672,7 +751,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             var dialogs = new RecordingDialogService();
             try
             {
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, mutations, dialogs);
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    mutations,
+                    dialogs,
+                    new TestUiScheduler(() => null));
                 OwnedChartCollectionTestSupport.SetLibraryFilesWithoutNotification(library, [bFile, pFile]);
 
                 LibraryMutationSessionReceipt receipt = library.RenameBMSFilesExtensionsWithReceipt(
@@ -723,7 +808,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             File.WriteAllText(chartPath, "#PLAYER 1");
             try
             {
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null));
                 ChartFile file = ChartTestValues.Empty() with
                 {
                     Path = chartPath
@@ -848,7 +939,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     null,
                     null,
                     new TestFileMutationService(),
-                    new RecordingDialogService());
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null));
                 ChartFile file = (ChartTestValues.Empty() with { Path = chartPath });
                 file = file with { Token = new OwnedChartToken() };
                 file = file with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
@@ -926,7 +1018,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     null,
                     new TestFileMutationService(),
                     new RecordingDialogService(),
-                    new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    new TestUiScheduler(() => null),
                     () => new BmsLibraryOptionsSnapshot
                     {
                         OperationModeLR2DB = true,
@@ -1053,7 +1145,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     null,
                     new TestFileMutationService(),
                     new RecordingDialogService(),
-                    new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    new TestUiScheduler(() => null),
                     () => new BmsLibraryOptionsSnapshot
                     {
                         OperationModeLR2DB = true,
@@ -1255,7 +1347,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             File.WriteAllText(Path.Combine(firstDirectoryPath, "first.wav"), "audio");
             try
             {
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(), settings: TestBmsFactory.CreateRootSettings([libraryRootPath]))
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null),
+                    settings: TestBmsFactory.CreateRootSettings([libraryRootPath]))
                 {
 
                 };
@@ -1418,7 +1517,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             File.WriteAllText(secondChartPath, "#PLAYER 1");
             try
             {
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(), settings: TestBmsFactory.CreateRootSettings([libraryRootPath]))
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null),
+                    settings: TestBmsFactory.CreateRootSettings([libraryRootPath]))
                 {
 
                 };
@@ -1484,7 +1590,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             {
                 Directory.CreateDirectory(sourceDirectoryPath);
                 File.WriteAllText(chartPath, "#PLAYER 1");
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(), settings: TestBmsFactory.CreateRootSettings([libraryRootPath]))
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null),
+                    settings: TestBmsFactory.CreateRootSettings([libraryRootPath]))
                 {
 
                 };
@@ -1556,7 +1669,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     null,
                     new TestFileMutationService(),
                     new RecordingDialogService(),
-                    new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    new TestUiScheduler(() => null),
                     () => new BmsLibraryOptionsSnapshot
                     {
                         OperationModeLR2DB = true,
@@ -1665,7 +1778,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     MoveDirectoryFailureSourcePath = secondDirectoryPath
                 };
                 var dialogs = new FileDbReportRecordingDialogs();
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, fileMutationService, dialogs, settings: TestBmsFactory.CreateRootSettings([libraryRootPath]))
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    fileMutationService,
+                    dialogs,
+                    new TestUiScheduler(() => null),
+                    settings: TestBmsFactory.CreateRootSettings([libraryRootPath]))
                 {
 
                 };
@@ -1790,7 +1910,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     null,
                     null,
                     new TestFileMutationService(),
-                    new RecordingDialogService(), settings: TestBmsFactory.CreateRootSettings([libraryRootPath]))
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null),
+                    settings: TestBmsFactory.CreateRootSettings([libraryRootPath]))
                 {
 
                 };
@@ -1886,7 +2008,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             File.WriteAllText(chartPath, "#PLAYER 1");
             try
             {
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null));
                 ChartFile file = ChartTestValues.Empty() with
                 {
                     Path = chartPath
@@ -1951,7 +2079,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             File.WriteAllText(chartPath, "{}");
             try
             {
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null));
                 ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
                 {
                     Path = chartPath,
@@ -2035,7 +2169,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     null,
                     null,
                     new TestFileMutationService(),
-                    dialogs);
+                    dialogs,
+                    new TestUiScheduler(() => null));
                 ChartFile firstFile = (ChartTestValues.Empty() with { Path = firstChartPath });
                 firstFile = firstFile with { Token = new OwnedChartToken() };
                 firstFile = firstFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
@@ -2136,7 +2271,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     MoveDirectoryFailureSourcePath = secondSourceDirectoryPath
                 };
                 var dialogs = new RecordingDialogService();
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, fileMutationService, dialogs);
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    fileMutationService,
+                    dialogs,
+                    new TestUiScheduler(() => null));
                 ChartFile firstFile = (ChartTestValues.Empty() with { Path = firstChartPath });
                 firstFile = firstFile with { Token = new OwnedChartToken() };
                 firstFile = firstFile with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
@@ -2227,7 +2368,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             File.WriteAllText(chartPath, "{}");
             try
             {
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null));
                 ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
                 {
                     Path = chartPath,
@@ -2310,7 +2457,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             File.WriteAllText(bmsonPath, "{}");
             try
             {
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null));
                 ChartFile file = (ChartTestValues.Empty() with { Path = bmsPath });
                 file = file with { Token = new OwnedChartToken() };
                 file = file with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
@@ -2429,7 +2582,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                     songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(song), typeof(LR2SongDBExtended.bmson_song));
                 }
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null));
                 library.BmsonCharts = [song];
                 ChartFile repairTarget = ChartFileProjection.WithPackageState(
                     (song),
@@ -2523,7 +2682,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         + "' BEGIN SELECT RAISE(ABORT, 'repair-path-write-fault'); END;");
                 }
 
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null))
                 {
                     BmsCharts = bmsFile == null ? [] : [bmsFile],
                     BmsonCharts = bmsonSong == null ? [] : [bmsonSong]
@@ -2629,7 +2794,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         + "' BEGIN SELECT RAISE(ABORT, 'repair-batch-write-fault'); END;");
                 }
 
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null))
                 {
                     BmsonCharts = [firstSong, secondSong]
                 };
@@ -2729,7 +2900,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 }
 
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null))
                 {
                     BmsCharts = bmsFile == null ? [] : [bmsFile],
                     BmsonCharts = bmsonSong == null ? [] : [bmsonSong]
@@ -2844,7 +3021,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     db.Execute("CREATE TRIGGER repair_health_update BEFORE UPDATE ON maintenance WHEN NEW.wav_files_existing = 1 BEGIN SELECT RAISE(ABORT, 'repair-health-write-fault'); END;");
                 }
             }
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null))
             {
                 BmsCharts = bmsFile == null ? [] : [bmsFile],
                 BmsonCharts = bmsonSong == null ? [] : [bmsonSong]
@@ -2955,7 +3138,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existing), typeof(LR2SongDB.song));
                 }
 
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null));
                 library.BmsCharts = [file];
                 ChartFile repairTarget = ChartFileProjection.WithPackageState(
                     (file),
@@ -3006,7 +3195,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             File.WriteAllText(chartPath, "#PLAYER 1");
             try
             {
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null));
                 ChartFile file = ChartTestValues.Empty() with
                 {
                     Path = chartPath
@@ -3072,7 +3267,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             string chartPath = Path.Combine(chartDirectory, "chart.bms");
             Directory.CreateDirectory(chartDirectory);
             File.WriteAllText(chartPath, "#PLAYER 1");
-            var library = new TestBmsLibrary(databaseScope, songDbPath);
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                null,
+                null,
+                new TestUiScheduler(() => null));
             ChartFile file = ChartTestValues.Empty() with
             {
                 Path = chartPath
@@ -3135,7 +3336,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             string chartPath = Path.Combine(chartDirectory, "chart.bms");
             Directory.CreateDirectory(chartDirectory);
             File.WriteAllText(chartPath, "#PLAYER 1");
-            var library = new TestBmsLibrary(databaseScope, songDbPath);
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                null,
+                null,
+                new TestUiScheduler(() => null));
             ChartFile file = ChartTestValues.Empty() with
             {
                 Path = chartPath
@@ -3190,7 +3397,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             try
             {
                 string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null));
                 ChartFile file = ChartTestValues.Empty() with
                 {
                     Path = oldChartPath
@@ -3238,7 +3451,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             string secondDirectoryPath = Path.Combine("C:\\Installed", "Second");
             string firstHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             string secondHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null));
             ChartFile firstFile = ChartTestValues.Empty() with
             {
                 Path = Path.Combine(firstDirectoryPath, "chart.bms")
@@ -3303,7 +3522,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(first), typeof(LR2SongDB.song));
                     songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(second), typeof(LR2SongDB.song));
                 }
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null))
                 {
                     BmsCharts = [first, second]
                 };
@@ -3423,7 +3648,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                             + sourceChartPath.Replace("'", "''") + "' BEGIN SELECT RAISE(ABORT, 'repair-deletion-fault'); END;");
                     }
                 }
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null));
                 library.BmsonCharts = [sourceSong, installedSong, movedSong, siblingSong];
                 ChartFile repairTarget = ChartFileProjection.WithPackageState(
                     (sourceSong),
@@ -3515,7 +3746,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Encoding.GetEncoding("gb2312", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
             try
             {
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null));
                 ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
                 file = file with { Token = new OwnedChartToken() };
                 file = ChartFileProjection.WithMaintenance(file, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = file.Path, hash = file.Md5, encoding = "unknown", is_encoding_fixed = false }));
@@ -3596,7 +3833,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
         await WithTemporarySongDbAsync(async delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null));
             ChartFile file = ChartTestValues.Empty() with
             {
                 Path = @"C:\Library\chart.bms"
@@ -3654,7 +3897,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
         WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null));
             ChartFile file = ChartTestValues.Empty() with
             {
                 Path = @"C:\Library\chart.bms"
@@ -3686,7 +3935,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
         WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null));
             ChartFile file = ChartTestValues.Empty() with
             {
                 Path = @"C:\Library\chart.bms"
@@ -3726,7 +3981,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
         WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null));
             string matchingHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
             PackageChartEntry matchingBmsonEntry = CreateAdapterlessBmsonEntry(
                 @"C:\Pending\Package\matching.bmson",
@@ -3756,7 +4017,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
         WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null));
             string matchingHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
             ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
@@ -3786,7 +4053,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
         WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null));
             ChartFile file = ChartTestValues.Empty() with
             {
                 Path = @"C:\Library\chart.bms"
@@ -3811,7 +4084,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
         WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null));
             string matchingHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
             ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
@@ -3839,7 +4118,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
         WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null));
             string matchingHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
             PackageChartEntry matchingBmsonEntry = CreateAdapterlessBmsonEntry(
                 @"C:\Installed\Package\matching.bmson",
@@ -3867,7 +4152,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
         WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null));
             string oldHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             string newHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
             PackageChartEntry oldOnlyBmsonEntry = CreateAdapterlessBmsonEntry(
@@ -3896,7 +4187,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
         WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null));
             string sha256 = new string('d', 64);
             PackageChartEntry matchingBmsonEntry = CreateAdapterlessBmsonEntry(
                 @"C:\Pending\Package\sha.bmson",
@@ -3927,7 +4224,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
         WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null));
             ChartFile file = ChartTestValues.Empty() with
             {
                 Path = @"C:\Library\chart.bms"
@@ -4015,10 +4318,4 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         }
     }
 
-}
-
-internal sealed class RecordingFolderAutoRenameProgressWriter(
-    Action<FolderAutoRenameProgressUpdate>? onUpdate = null) : IFolderAutoRenameProgressWriter
-{
-    public void TryWrite(FolderAutoRenameProgressUpdate update) => onUpdate?.Invoke(update);
 }

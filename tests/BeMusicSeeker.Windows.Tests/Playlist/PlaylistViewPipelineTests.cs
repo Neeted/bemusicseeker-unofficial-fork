@@ -18,6 +18,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>詳細要求の失効・終端・表示変換と行操作Resolverの判断を確認します。</summary>
 /// <remarks>実VMを使う終端ケースはworkspaceとMainChartListの確定・通知接続、再生headerは実PlaybackPanelへの配送が対象です。共有構成資源のケースのみ非並列にします。画面menuの実接続はMainWindow側へ分担します。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 public sealed class PlaylistViewPipelineTests
 {
     private readonly ApplicationDatabaseScope databaseScope = new();

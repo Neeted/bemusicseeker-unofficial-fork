@@ -16,6 +16,7 @@ namespace BeMusicSeeker.Tests;
 
 /// <summary>実ownerの一覧取得と局所候補・照会・保存の境界を、workerのgateで順序制御します。</summary>
 [TestClass]
+[TestCategory("Windows.Settings")]
 [DoNotParallelize] // 共有音声runtimeの受付を準備から解放まで所有する。
 public sealed class AudioDeviceListRefreshTests
 {

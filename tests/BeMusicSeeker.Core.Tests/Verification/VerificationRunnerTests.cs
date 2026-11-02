@@ -12,6 +12,94 @@ namespace BeMusicSeeker.Core.Tests.Verification;
 [TestClass]
 public sealed class VerificationRunnerTests
 {
+    /// <summary>固定SDKを使うnative工程は共通180秒を引継ぎ、query失敗時は任意fixtureを生成・起動しません。</summary>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task NativeQueryKeepsFixedSequenceAndDeadline(bool buildFixture, bool failQuery)
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string sdk = workspace.GetPath("native/Everything3_x64.dll");
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(sdk) ?? throw new InvalidOperationException());
+        File.Copy(System.IO.Path.Combine(BeMusicSeeker.TestSupport.Components.ThemeTestFiles.FindRepositoryRoot(), "native", "Everything3_x64.dll"), sdk);
+        string output = workspace.GetPath("native/EverythingBridge/obj/query-tests");
+        var calls = new List<(string Executable, string[] Arguments)>();
+        var deadline = ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(180));
+        Task<ProcessCompletion> Execute(string executable, IReadOnlyList<string> arguments, ProcessDeadline actual)
+        {
+            Assert.AreSame(deadline, actual);
+            calls.Add((System.IO.Path.GetFileName(executable), arguments.ToArray()));
+            if (executable.EndsWith("vswhere.exe", StringComparison.Ordinal))
+            { return Task.FromResult(new ProcessCompletion(0, workspace.GetPath("MSBuild.exe") + "\n", "")); }
+            return Task.FromResult(new ProcessCompletion(failQuery && executable.EndsWith("EverythingBridgeQueryTests.exe", StringComparison.Ordinal) ? 17 : 0, "", "native-original-error"));
+        }
+        if (failQuery)
+        {
+            InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(() => NativeQueryVerification.ExecuteAsync(workspace.RootDirectory, buildFixture, Execute, deadline));
+            StringAssert.Contains(error.Message, "native-original-error");
+        }
+        else { await NativeQueryVerification.ExecuteAsync(workspace.RootDirectory, buildFixture, Execute, deadline); }
+        string[] expected = buildFixture && !failQuery ? ["vswhere.exe", "MSBuild.exe", "EverythingBridgeQueryTests.exe", "MSBuild.exe"]
+            : ["vswhere.exe", "MSBuild.exe", "EverythingBridgeQueryTests.exe"];
+        CollectionAssert.AreEqual(expected, calls.Select(call => call.Executable).ToArray());
+        CollectionAssert.AreEqual(new[] { sdk }, calls[2].Arguments);
+        foreach ((string Executable, string[] Arguments) compile in calls.Where(call => call.Executable == "MSBuild.exe"))
+        {
+            CollectionAssert.AreEqual(new[] { "/t:Rebuild", "/p:Configuration=Release", "/p:Platform=x64", "/nologo", "/verbosity:minimal" }, compile.Arguments.Skip(1).ToArray());
+        }
+        var query = XDocument.Load(System.IO.Path.Combine(output, "QueryTests.vcxproj"));
+        XNamespace ns = "http://schemas.microsoft.com/developer/msbuild/2003";
+        Assert.AreEqual("v145", query.Descendants(ns + "PlatformToolset").Single().Value);
+        string fixtureProject = System.IO.Path.Combine(output, "PathIdentityFixture.vcxproj");
+        Assert.AreEqual(buildFixture && !failQuery, File.Exists(fixtureProject));
+        if (buildFixture && !failQuery)
+        {
+            var fixture = XDocument.Load(fixtureProject);
+            Assert.AreEqual("DynamicLibrary", fixture.Descendants(ns + "ConfigurationType").Single().Value);
+            StringAssert.StartsWith(fixture.Descendants(ns + "PreprocessorDefinitions").Single().Value, "BMS_PATH_IDENTITY_FIXTURE;");
+            CollectionAssert.AreEqual(File.ReadAllBytes(sdk), File.ReadAllBytes(System.IO.Path.Combine(output, "path-identity-fixture", "native", "Everything3_x64.dll")));
+        }
+    }
+
+    /// <summary>固定SDKに一致しない入力はcompiler探索前に拒否し、生成物や代替SDKを作りません。</summary>
+    [TestMethod]
+    public async Task NativeQueryRejectsChangedSdkBeforeStartingCommands()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string sdk = workspace.GetPath("native/Everything3_x64.dll");
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(sdk) ?? throw new InvalidOperationException());
+        File.WriteAllText(sdk, "invalid SDK");
+        int calls = 0;
+        await Assert.ThrowsAsync<InvalidDataException>(() => NativeQueryVerification.ExecuteAsync(workspace.RootDirectory, true,
+            (_, _, _) => { calls++; return Task.FromResult(new ProcessCompletion(0, "", "")); }, ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(180))));
+        Assert.AreEqual(0, calls);
+        Assert.IsFalse(Directory.Exists(workspace.GetPath("native/EverythingBridge/obj/query-tests")));
+    }
+
+    /// <summary>手動formatも既存準備process境界を使い、任意restoreと二段の整形を接続して前段失敗で停止します。</summary>
+    [TestMethod]
+    [DataRow(false, false, false)]
+    [DataRow(true, true, false)]
+    [DataRow(false, false, true)]
+    public async Task ManualFormatUsesPreparationBoundaryAndStopsOnRestoreFailure(bool allSources, bool noRestore, bool failRestore)
+    {
+        using var fixture = new RunnerFixture
+        {
+            FormatInput = true,
+            Configure = (name, command) => failRestore && name == "restore" ? command with { ExitCode = 17 } : command,
+        };
+        int result = await VerificationRunner.FormatAsync(fixture.Run(), allSources, noRestore);
+        Assert.AreEqual(failRestore ? 1 : 0, result);
+        string[] expected = allSources ? ["style", "whitespace"]
+            : failRestore ? ["diff", "diff", "ls-files", "restore"] : ["diff", "diff", "ls-files", "restore", "style", "whitespace"];
+        CollectionAssert.AreEqual(expected, fixture.Requests.Select(item => item.Name).ToArray());
+        Assert.IsTrue(fixture.Requests.All(item => item.Request.OwnershipPolicy == ProcessOwnershipPolicy.Preparation));
+        Assert.IsTrue(fixture.Requests.All(item => item.Request.Environment.ContainsKey(ProcessDeadline.SuiteDeadlineEnvironmentVariable)
+            && item.Request.Environment[ProcessDeadline.SuiteDeadlineEnvironmentVariable] is null));
+        if (failRestore) { StringAssert.Contains(File.ReadAllText(fixture.Path("run/format-004.stderr.log")), "stderr"); }
+    }
+
     /// <summary>CPU予算によらず選択suiteを一回だけ起動し、標準filter・設定・reportと同じrunの証跡へ接続します。</summary>
     /// <remarks>固定参照・native・音声入力の継承を妨げる子環境上書きと親環境変更を検出します。実入力読取りは各正式suiteの受入で確認します。</remarks>
     [TestMethod]
@@ -66,7 +154,6 @@ public sealed class VerificationRunnerTests
             Assert.IsFalse(request.Environment.ContainsKey(inputVariable));
             Assert.AreEqual(originalInputs[inputVariable], Environment.GetEnvironmentVariable(inputVariable));
         }
-        Assert.AreEqual(fixture.Path($"run/{moduleName}/cases"), request.Environment[TestRunDirectory.EnvironmentVariable]);
         Assert.IsTrue(result.Commands.All(command => command.Passed));
         Assert.AreEqual(moduleName, result.Modules.Single().Name);
         Assert.AreEqual(1, result.Modules.Single().Cases);
@@ -74,6 +161,9 @@ public sealed class VerificationRunnerTests
         Assert.AreEqual("stdout", File.ReadAllText(fixture.Path($"run/{moduleName}/process.stdout.log")));
         Assert.AreEqual("stderr", File.ReadAllText(fixture.Path($"run/{moduleName}/process.stderr.log")));
         using var summary = JsonDocument.Parse(File.ReadAllText(fixture.Path("run/summary.json")));
+        string caseRoot = summary.RootElement.GetProperty("caseRoot").GetString() ?? throw new AssertFailedException();
+        Assert.AreEqual(Path.Combine(Path.GetPathRoot(AppContext.BaseDirectory) ?? throw new AssertFailedException(), "bms-tests"), Path.GetDirectoryName(caseRoot));
+        Assert.AreEqual(Path.Combine(caseRoot, moduleName), request.Environment[TestRunDirectory.EnvironmentVariable]);
         Assert.AreEqual(suite, summary.RootElement.GetProperty("suite").GetString());
         Assert.AreEqual(60d, summary.RootElement.GetProperty("testTimeoutSeconds").GetDouble());
         JsonElement selection = summary.RootElement.GetProperty("filters").EnumerateArray().Single();
@@ -153,7 +243,7 @@ public sealed class VerificationRunnerTests
         }
     }
 
-    /// <summary>Fullの実pipelineで配布準備を一度だけ完了し、同じcatalogをReleaseの4moduleへ渡し、短IDと標準reportを集約します。</summary>
+    /// <summary>Fullの実pipelineで配布準備を一度だけ完了し、同じcatalogをReleaseの3moduleへ渡し、短IDと標準reportを集約します。</summary>
     /// <remarks>commandのI/Oだけをfixtureへ向けます。実publishと公開候補のFull成功を代用する検査ではありません。</remarks>
     [TestMethod]
     public async Task FullPreparesSharedArtifactsBeforeRunningEachSelectedModuleOnce()
@@ -164,19 +254,31 @@ public sealed class VerificationRunnerTests
         using var fixture = new RunnerFixture(distribution)
         {
             FormatInput = true,
-            ScenarioIds = ["SC-01", "SC-02", "SC-03", "SC-04", "SC-05", "SC-06", "SC-08", "SC-09", "SC-10A", "SC-10B", "SC-11", "SC-12", "SC-13", "SC-14"],
+            ScenarioIds = ["SC-01", "SC-02", "SC-09", "SC-10A", "SC-10B", "SC-11", "SC-13", "SC-14", "SC-ExistingData", "SC-CurrentUpdate"],
         };
+        long firstModuleStart = 0;
+        fixture.BeforeStart = (name, _) => { if (name == "Core") { firstModuleStart = Stopwatch.GetTimestamp(); } };
         VerificationRunResult result = await VerificationRunner.ExecuteAsync(VerificationPlan.Create("full", 1),
             fixture.Run() with { TestTimeout = null });
         Assert.AreEqual(0, result.ExitCode, result.PrimaryFailure?.ToString());
         foreach ((string Name, ProcessStartRequest Request) observed in fixture.Requests)
         {
             Assert.IsTrue(observed.Request.Environment.ContainsKey(ProcessDeadline.SuiteDeadlineEnvironmentVariable));
-            Assert.IsNull(observed.Request.Environment[ProcessDeadline.SuiteDeadlineEnvironmentVariable]);
+            string? exported = observed.Request.Environment[ProcessDeadline.SuiteDeadlineEnvironmentVariable];
+            if (observed.Name == "Scenarios")
+            {
+                Assert.IsNotNull(exported);
+                string[] parts = exported.Split(';');
+                Assert.IsTrue(long.Parse(parts[0]["qpc:".Length..]) <= firstModuleStart,
+                    "Scenarios開始時に共通test段階の起算点を作り直しません。");
+                Assert.AreEqual(TimeSpan.FromSeconds(1380).Ticks, long.Parse(parts[1]["ticks:".Length..]));
+                Assert.IsTrue(ProcessDeadline.Import(exported).Remaining > TimeSpan.Zero);
+            }
+            else { Assert.IsNull(exported); }
         }
         Assert.AreEqual(originalDeadline, Environment.GetEnvironmentVariable(ProcessDeadline.SuiteDeadlineEnvironmentVariable));
-        CollectionAssert.AreEqual(new[] { "style", "whitespace", "build", "publish-v", "publish-next", "Core", "Windows", "Scenarios", "Desktop.E2E" }, fixture.Requests
-            .Where(item => item.Name is "style" or "whitespace" or "build" or "publish-v" or "publish-next" or "Core" or "Windows" or "Scenarios" or "Desktop.E2E")
+        CollectionAssert.AreEqual(new[] { "style", "whitespace", "build", "publish-v", "publish-next", "Core", "Windows.Settings", "Windows.Shell", "Windows.Remaining", "Scenarios" }, fixture.Requests
+            .Where(item => item.Name is "style" or "whitespace" or "build" or "publish-v" or "publish-next" or "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios")
             .Select(item => item.Name).ToArray());
         ProcessStartRequest style = fixture.Requests.Single(item => item.Name == "style").Request;
         ProcessStartRequest whitespace = fixture.Requests.Single(item => item.Name == "whitespace").Request;
@@ -186,16 +288,17 @@ public sealed class VerificationRunnerTests
         Assert.IsTrue(whitespace.Arguments.Contains("--folder"));
         Assert.IsFalse(whitespace.Arguments.Contains("--no-restore"));
         Assert.IsFalse(style.Arguments.Contains("--include") || whitespace.Arguments.Contains("--include"));
-        Assert.AreEqual(4, result.Modules.Count);
+        Assert.AreEqual(5, result.Modules.Count);
         string catalogPath = fixture.Path("run/distribution/catalog.json");
         Assert.IsTrue(File.Exists(catalogPath));
-        foreach ((string _, ProcessStartRequest request) in fixture.Requests.Where(item => item.Name is "Core" or "Windows" or "Scenarios" or "Desktop.E2E"))
+        foreach ((string _, ProcessStartRequest request) in fixture.Requests.Where(item => item.Name is "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios"))
         {
             Assert.AreEqual(catalogPath, request.Environment[DistributionCatalog.EnvironmentVariable]);
             StringAssert.Contains(request.FileName, "Release");
         }
         using var summary = JsonDocument.Parse(File.ReadAllText(fixture.Path("run/summary.json")));
         Assert.AreEqual(1380d, summary.RootElement.GetProperty("testTimeoutSeconds").GetDouble());
+        Assert.IsTrue(summary.RootElement.GetProperty("testStageStartTimestamp").GetInt64() <= firstModuleStart);
         Assert.IsTrue(summary.RootElement.GetProperty("distributionMs").GetDouble() > 0);
         Assert.IsTrue(summary.RootElement.GetProperty("executionMs").GetDouble() > 0);
     }
@@ -218,7 +321,7 @@ public sealed class VerificationRunnerTests
         Assert.IsNull(result.SummaryFailure);
         Assert.AreEqual(17, result.Commands.Single(command => command.Completion?.ExitCode == 17).Completion?.ExitCode);
         Assert.AreEqual(failure == "publish-v" ? 1 : 2, fixture.Requests.Count(item => item.Name is "publish-v" or "publish-next"));
-        Assert.IsFalse(fixture.Requests.Any(item => item.Name is "Core" or "Windows" or "Scenarios" or "Desktop.E2E"));
+        Assert.IsFalse(fixture.Requests.Any(item => item.Name is "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios"));
         Assert.IsFalse(File.Exists(fixture.Path("run/distribution/catalog.json")));
     }
 
@@ -233,7 +336,7 @@ public sealed class VerificationRunnerTests
         CollectionAssert.AreEqual(new[] { "style", "whitespace", "build" }, fixture.Requests
             .Where(item => item.Name is "style" or "whitespace" or "build").Select(item => item.Name).ToArray());
         Assert.IsTrue(result.Commands.All(command => command.Passed));
-        Assert.AreEqual(3, result.Modules.Count);
+        Assert.AreEqual(5, result.Modules.Count);
     }
 
     /// <summary>restore・各整形・buildの非ゼロ終了で実pipelineが止まり、後段の起動で前段失敗を隠さないことを保証します。</summary>
@@ -256,7 +359,7 @@ public sealed class VerificationRunnerTests
         Assert.AreEqual(17, result.Commands.Single(command => command.Completion?.ExitCode == 17).Completion?.ExitCode);
         Assert.IsFalse(fixture.Requests.Any(item => item.Name == next));
         Assert.AreEqual(fail, fixture.Requests.Last().Name);
-        Assert.IsFalse(fixture.Requests.Any(item => item.Name is "Windows" or "Scenarios"));
+        Assert.IsFalse(fixture.Requests.Any(item => item.Name is "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios"));
     }
 
     /// <summary>準備commandが実行期限近くで非ゼロ終了しても、期限を跨ぐ停止処理の後に共有回収猶予で両ログとsummaryを保存し、元の失敗を保つことを保証します。</summary>
@@ -326,7 +429,7 @@ public sealed class VerificationRunnerTests
             using var summary = JsonDocument.Parse(File.ReadAllText(fixture.Path("run/summary.json")));
             StringAssert.Contains(summary.RootElement.GetProperty("primaryFailure").GetString() ?? "", "17");
             Assert.IsTrue(Stopwatch.GetElapsedTime(failureObserved) < run.CleanupGrace);
-            Assert.IsFalse(fixture.Requests.Any(item => item.Name is "build" or "Core" or "Windows" or "Scenarios"));
+            Assert.IsFalse(fixture.Requests.Any(item => item.Name is "build" or "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios"));
         }
         finally
         {
@@ -336,19 +439,109 @@ public sealed class VerificationRunnerTests
         }
     }
 
+    /// <summary>B1では全体を逐次実行し、B8ではWindows3要求の優先と全child終端による枠解放を守り、空いた同じ幅でDailyを開始します。</summary>
+    [TestMethod]
+    [DataRow(1)]
+    [DataRow(8)]
+    public async Task WindowsExecutionsRespectBudgetAndStartDailyInTheNextAvailableSlot(int budget)
+    {
+        using var fixture = new RunnerFixture();
+        using var canceled = new CancellationTokenSource();
+        string[] gated = ["Core", "Windows.Settings", "Windows.Shell", "Windows.Remaining"];
+        var owned = new ConcurrentDictionary<string, OwnedProcess>();
+        fixture.Configure = (name, command) => gated.Contains(name) ? command with
+        {
+            Ready = fixture.Path(name + "-ready"),
+            Release = fixture.Path(name + "-release"),
+            ChildReady = fixture.Path(name + "-child-ready"),
+            ChildRelease = fixture.Path(name + "-child-release"),
+            ExitBeforeChild = name == "Windows.Settings",
+        } : name == "Scenarios" ? command with { Ready = fixture.Path("Scenarios-ready") } : command;
+        fixture.AfterStart = (name, process) => { if (gated.Contains(name)) { owned[name] = process; } };
+        fixture.BeforeStart = (name, _) =>
+        {
+            if (name == "Scenarios")
+            {
+                Assert.AreEqual(3, owned.Count(item => item.Key.StartsWith("Windows.", StringComparison.Ordinal)));
+                if (budget == 1) { Assert.IsTrue(owned.Values.All(process => process.Completion.IsCompletedSuccessfully)); }
+            }
+        };
+        void Release(string name)
+        {
+            File.WriteAllText(fixture.Path(name + "-release"), "release");
+            File.WriteAllText(fixture.Path(name + "-child-release"), "release");
+        }
+        Task<VerificationRunResult> execution = VerificationRunner.ExecuteAsync(VerificationPlan.Create("dev", budget),
+            fixture.Run() with { TestTimeout = TimeSpan.FromSeconds(30) }, canceled.Token);
+        try
+        {
+            if (budget == 1)
+            {
+                for (int index = 0; index < gated.Length; index++)
+                {
+                    string name = gated[index];
+                    await WaitForFileAsync(fixture.Path(name + "-child-ready"));
+                    CollectionAssert.AreEqual(gated.Take(index + 1).ToArray(), fixture.Requests.Where(item => gated.Contains(item.Name)).Select(item => item.Name).ToArray());
+                    Assert.IsFalse(fixture.Requests.Any(item => item.Name == "Scenarios"));
+                    Release(name);
+                }
+            }
+            else
+            {
+                foreach (string name in gated.Take(3)) { await WaitForFileAsync(fixture.Path(name + "-child-ready")); }
+                Assert.IsFalse(owned["Core"].Completion.IsCompleted);
+                Assert.IsFalse(fixture.Requests.Any(item => item.Name == "Windows.Remaining"));
+                File.WriteAllText(fixture.Path("Windows.Settings-release"), "release");
+                await owned["Windows.Settings"].RootExit.WaitAsync(TimeSpan.FromSeconds(10));
+                Assert.IsFalse(fixture.Requests.Any(item => item.Name == "Windows.Remaining"), "rootだけの終了でWindows枠を解放しません。");
+                File.WriteAllText(fixture.Path("Windows.Settings-child-release"), "release");
+                await WaitForFileAsync(fixture.Path("Windows.Remaining-child-ready"));
+                Assert.IsFalse(fixture.Requests.Any(item => item.Name == "Scenarios"));
+                Release("Windows.Shell");
+                await WaitForFileAsync(fixture.Path("Scenarios-ready"));
+                Assert.IsFalse(owned["Windows.Remaining"].Completion.IsCompleted);
+                Assert.IsFalse(owned["Core"].Completion.IsCompleted);
+                Release("Windows.Remaining");
+                Release("Core");
+            }
+            VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.AreEqual(0, result.ExitCode);
+            Assert.AreEqual(5, result.Modules.Count);
+            ProcessStartRequest[] windows = fixture.Requests.Where(item => item.Name.StartsWith("Windows.", StringComparison.Ordinal)).Select(item => item.Request).ToArray();
+            Assert.AreEqual(1, windows.Select(request => request.FileName).Distinct().Count());
+            Assert.AreEqual(3, windows.Select(request => request.Environment[TestRunDirectory.EnvironmentVariable]).Distinct().Count());
+            Assert.AreEqual(3, windows.Select(request => request.Arguments[request.Arguments.ToList().IndexOf("--settings") + 1]).Distinct().Count());
+            using var summary = JsonDocument.Parse(File.ReadAllText(fixture.Path("run/summary.json")));
+            string caseRoot = summary.RootElement.GetProperty("caseRoot").GetString() ?? throw new AssertFailedException();
+            Assert.AreEqual(Path.Combine(Path.GetPathRoot(AppContext.BaseDirectory) ?? throw new AssertFailedException(), "bms-tests"), Path.GetDirectoryName(caseRoot));
+            foreach ((string Name, ProcessStartRequest Request) observed in fixture.Requests.Where(item => item.Name.StartsWith("Windows.", StringComparison.Ordinal)))
+            {
+                Assert.AreEqual(Path.Combine(caseRoot, observed.Name), observed.Request.Environment[TestRunDirectory.EnvironmentVariable]);
+            }
+            long start = summary.RootElement.GetProperty("testStageStartTimestamp").GetInt64();
+            Assert.IsTrue(start > 0 && start <= Stopwatch.GetTimestamp());
+        }
+        finally
+        {
+            foreach (string name in gated) { Release(name); }
+            canceled.Cancel();
+            await execution.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
     /// <summary>所有対象が全終端した非ゼロmoduleの失敗を保ちながら、他のmoduleの結果を回収することを保証します。</summary>
     [TestMethod]
     public async Task CompletedNonzeroModuleDoesNotPreventOtherModules()
     {
-        using var fixture = new RunnerFixture { Configure = (name, command) => name == "Core" ? command with { ExitCode = 7 } : command };
+        using var fixture = new RunnerFixture { Configure = (name, command) => name == "Windows.Settings" ? command with { ExitCode = 7 } : command };
         VerificationRunResult result = await fixture.ExecuteAsync();
         Assert.AreEqual(1, result.ExitCode);
-        Assert.AreEqual(3, result.Modules.Count);
-        Assert.IsTrue(result.Modules.Where(module => module.Name != "Core").All(module => module.Passed));
-        VerificationCommandResult core = result.Commands.Single(command => command.Name == "Core");
-        Assert.AreEqual(7, core.Completion?.ExitCode);
-        Assert.IsNotNull(core.PrimaryFailure);
-        Assert.IsNull(core.CleanupFailure);
+        Assert.AreEqual(5, result.Modules.Count);
+        Assert.IsTrue(result.Modules.Where(module => module.Name != "Windows.Settings").All(module => module.Passed));
+        VerificationCommandResult windows = result.Commands.Single(command => command.Name == "Windows.Settings");
+        Assert.AreEqual(7, windows.Completion?.ExitCode);
+        Assert.IsNotNull(windows.PrimaryFailure);
+        Assert.IsNull(windows.CleanupFailure);
     }
 
     /// <summary>成功reportでもDaily必須IDの不足を拒否し、標準filterがmodule集合を減らさず各起動引数へ渡ることを保証します。</summary>
@@ -361,13 +554,13 @@ public sealed class VerificationRunnerTests
         VerificationRunResult result = await VerificationRunner.ExecuteAsync(plan, fixture.Run());
         Assert.AreEqual(1, result.ExitCode);
         Assert.IsTrue(result.Modules.Single(module => module.Name == "Scenarios").Errors.Any(error => error.Contains("SC-09", StringComparison.Ordinal)));
-        foreach ((string name, ProcessStartRequest request) in fixture.Requests.Where(item => item.Name is "Core" or "Windows" or "Scenarios"))
+        foreach ((string name, ProcessStartRequest request) in fixture.Requests.Where(item => item.Name is "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios"))
         {
             string[] arguments = request.Arguments.ToArray();
-            string expected = name == "Scenarios" ? $"(TestCategory=Daily)&({filter})" : filter;
+            string expected = plan.Modules.Single(module => module.ExecutionId == name).Filter ?? throw new InvalidOperationException();
             Assert.AreEqual(expected, arguments[Array.IndexOf(arguments, "--filter") + 1]);
         }
-        Assert.AreEqual(3, result.Modules.Count);
+        Assert.AreEqual(5, result.Modules.Count);
     }
 
     /// <summary>stdout保存だけが失敗してもstderrを保存し、成功processとreportだけでは入口全体を成功にしないことを保証します。</summary>
@@ -419,7 +612,7 @@ public sealed class VerificationRunnerTests
         Assert.IsNull(core.PrimaryFailure);
         Assert.IsNull(core.OutputFailure);
         Assert.AreSame(failure, core.CleanupFailure);
-        Assert.IsFalse(fixture.Requests.Any(item => item.Name is "Windows" or "Scenarios"));
+        Assert.IsFalse(fixture.Requests.Any(item => item.Name is "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios"));
     }
 
     /// <summary>root非成功・ログ保存失敗・正常終了要求失敗が重なってもすべてを保持し、Job内の生存childを回収することを保証します。</summary>
@@ -480,7 +673,7 @@ public sealed class VerificationRunnerTests
             StringAssert.Contains(core.CleanupFailure.ToString(), "graceful-failure");
             Assert.AreEqual("stderr", File.ReadAllText(fixture.Path("run/Core/process.stderr.log")));
             Assert.IsTrue(child.HasExited);
-            Assert.IsFalse(fixture.Requests.Any(item => item.Name is "Windows" or "Scenarios"));
+            Assert.IsFalse(fixture.Requests.Any(item => item.Name is "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios"));
         }
         finally
         {
@@ -547,7 +740,7 @@ public sealed class VerificationRunnerTests
         using var canceled = new CancellationTokenSource();
         var graceful = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         long graceStart = 0, graceEnd = 0;
-        fixture.Configure = (name, command) => name == "Windows" ? command with
+        fixture.Configure = (name, command) => name == "Windows.Settings" ? command with
         {
             Ready = fixture.Path("windows-ready"),
             Release = fixture.Path("windows-release"),
@@ -602,7 +795,7 @@ public sealed class VerificationRunnerTests
         var returnWindows = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var firstGraceEnded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var owned = new ConcurrentDictionary<string, OwnedProcess>();
-        fixture.Configure = (name, command) => name is "Core" or "Windows" ? command with
+        fixture.Configure = (name, command) => name is "Core" or "Windows.Settings" ? command with
         {
             Ready = fixture.Path(name + "-ready"),
             Release = fixture.Path(name + "-release"),
@@ -611,14 +804,14 @@ public sealed class VerificationRunnerTests
         } : command;
         fixture.AfterStart = (name, process) =>
         {
-            if (name is "Core" or "Windows") { owned[name] = process; }
+            if (name is "Core" or "Windows.Settings") { owned[name] = process; }
             // start要求は実processを返す前で止める。先行回収のtoken取消が、後行回収の開始gateになる。
-            if (name == "Windows") { returnWindows.Task.WaitAsync(TimeSpan.FromSeconds(15)).GetAwaiter().GetResult(); }
+            if (name == "Windows.Settings") { returnWindows.Task.WaitAsync(TimeSpan.FromSeconds(60)).GetAwaiter().GetResult(); }
         };
         VerificationRun run = fixture.Run() with
         {
-            TestTimeout = TimeSpan.FromSeconds(timeout ? 5 : 20),
-            CleanupGrace = TimeSpan.FromSeconds(2),
+            TestTimeout = TimeSpan.FromSeconds(timeout ? 20 : 60),
+            CleanupGrace = TimeSpan.FromSeconds(10),
             RequestGracefulExit = async (process, token) =>
             {
                 bool first = fixture.Names[process.ProcessId] == "Core";
@@ -637,26 +830,45 @@ public sealed class VerificationRunnerTests
         var observed = new List<Process>();
         try
         {
-            foreach (string name in new[] { "Core", "Windows" })
+            foreach (string name in new[] { "Core", "Windows.Settings" })
             {
                 foreach (string suffix in new[] { "-ready", "-child-ready" })
                 {
-                    await WaitForFileAsync(fixture.Path(name + suffix));
-                    observed.Add(Process.GetProcessById(int.Parse(File.ReadAllText(fixture.Path(name + suffix)))));
+                    await WaitForFileAsync(fixture.Path(name + suffix), TimeSpan.FromSeconds(30));
+                    int processId = int.Parse(File.ReadAllText(fixture.Path(name + suffix)));
+                    if (suffix == "-ready")
+                    {
+                        Assert.AreEqual(owned[name].ProcessId, processId);
+                    }
+                    else
+                    {
+                        try { observed.Add(Process.GetProcessById(processId)); }
+                        catch (ArgumentException)
+                        {
+                            // readyで出生済みのchildが回収済みでも、後段のJob・root・両pipe終端を必須にします。
+                        }
+                    }
                 }
             }
             if (!timeout) { canceled.Cancel(); }
-            await firstGraceEnded.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await firstGraceEnded.Task.WaitAsync(TimeSpan.FromSeconds(45));
             // Abort済みの境界だけを読む。callbackを先に呼んで失敗時刻を作らない。
             ProcessDeadline cutoff = fixture.FailureCleanup["Core"]();
-            Assert.AreSame(cutoff, fixture.FailureCleanup["Windows"](), "同じ段階に別の回収cutoffがあります。");
+            Assert.AreSame(cutoff, fixture.FailureCleanup["Windows.Settings"](), "同じ段階に別の回収cutoffがあります。");
             returnWindows.TrySetResult();
-            VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+            VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(30));
             Assert.AreEqual(1, result.ExitCode);
+            Exception? primary = result.Commands.Single(command => command.Name == "Core").PrimaryFailure;
+            if (timeout) { Assert.IsInstanceOfType<TimeoutException>(primary); }
+            else { Assert.IsInstanceOfType<OperationCanceledException>(primary); }
+            Assert.AreEqual(2, owned.Count);
+            Assert.IsTrue(owned.Values.All(process => process.RootExit.IsCompletedSuccessfully
+                && process.StandardOutput.IsCompletedSuccessfully && process.StandardError.IsCompletedSuccessfully
+                && process.Completion.IsCompletedSuccessfully), "PID観測時の不在だけでなく、所有Job全体とroot・両pipeの実終端を確認します。");
             Assert.IsTrue(observed.All(process => process.HasExited));
             Assert.IsFalse(fixture.Requests.Any(item => item.Name == "Scenarios"));
-            Assert.AreEqual(2, result.Commands.Count(command => command.Name is "Core" or "Windows"));
-            Assert.AreSame(cutoff, fixture.FailureCleanup["Windows"](), "後行回収がcutoffを更新しています。");
+            Assert.AreEqual(2, result.Commands.Count(command => command.Name is "Core" or "Windows.Settings"));
+            Assert.AreSame(cutoff, fixture.FailureCleanup["Windows.Settings"](), "後行回収がcutoffを更新しています。");
         }
         finally
         {
@@ -665,7 +877,7 @@ public sealed class VerificationRunnerTests
             bool resourcesTerminated = false;
             try
             {
-                VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+                VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(30));
                 await ConfirmOwnedTerminationAsync(owned, observed, result);
                 resourcesTerminated = true;
             }
@@ -690,7 +902,7 @@ public sealed class VerificationRunnerTests
         var firstStop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var owned = new ConcurrentDictionary<string, OwnedProcess>();
         var observed = new List<Process>();
-        fixture.Configure = (name, command) => name == "Core" || (name == "Windows" && keepWindowsAlive) ? command with
+        fixture.Configure = (name, command) => name == "Core" || (name == "Windows.Settings" && keepWindowsAlive) ? command with
         {
             Ready = fixture.Path(name + "-ready"),
             Release = fixture.Path(name + "-release"),
@@ -699,9 +911,9 @@ public sealed class VerificationRunnerTests
         } : command;
         fixture.AfterStart = (name, process) =>
         {
-            if (name is not ("Core" or "Windows")) { return; }
+            if (name is not ("Core" or "Windows.Settings")) { return; }
             owned[name] = process;
-            if (name == "Windows") { returnWindows.Task.WaitAsync(TimeSpan.FromSeconds(15)).GetAwaiter().GetResult(); }
+            if (name == "Windows.Settings") { returnWindows.Task.WaitAsync(TimeSpan.FromSeconds(15)).GetAwaiter().GetResult(); }
         };
         VerificationRun run = fixture.Run() with
         {
@@ -721,12 +933,12 @@ public sealed class VerificationRunnerTests
             await WaitForFileAsync(fixture.Path("Core-child-ready"));
             // WindowsのStart callbackに到達したことを、実所有対象で確認する。
             ProcessDeadline readyDeadline = Deadline();
-            while (!owned.ContainsKey("Windows"))
+            while (!owned.ContainsKey("Windows.Settings"))
             {
                 if (readyDeadline.Remaining == TimeSpan.Zero) { throw new TimeoutException("Windowsが起動しません。"); }
                 await Task.Delay(10);
             }
-            foreach (string name in keepWindowsAlive ? new[] { "Core", "Windows" } : new[] { "Core" })
+            foreach (string name in keepWindowsAlive ? new[] { "Core", "Windows.Settings" } : new[] { "Core" })
             {
                 foreach (string suffix in new[] { "-ready", "-child-ready" })
                 {
@@ -734,9 +946,9 @@ public sealed class VerificationRunnerTests
                     observed.Add(Process.GetProcessById(int.Parse(File.ReadAllText(fixture.Path(name + suffix)))));
                 }
             }
-            if (!keepWindowsAlive) { await owned["Windows"].Completion.WaitAsync(TimeSpan.FromSeconds(10)); }
-            string stdout = fixture.Path("run/Windows/process.stdout.log");
-            string stderr = fixture.Path("run/Windows/process.stderr.log");
+            if (!keepWindowsAlive) { await owned["Windows.Settings"].Completion.WaitAsync(TimeSpan.FromSeconds(10)); }
+            string stdout = fixture.Path("run/Windows.Settings/process.stdout.log");
+            string stderr = fixture.Path("run/Windows.Settings/process.stderr.log");
             File.WriteAllText(stdout, "sentinel");
             Assert.IsFalse(File.Exists(stderr));
             canceled.Cancel();
@@ -749,15 +961,15 @@ public sealed class VerificationRunnerTests
                 await Task.Delay(1).WaitAsync(readyDeadline.Remaining);
             }
             Assert.AreEqual(TimeSpan.Zero, cutoff.Remaining);
-            Assert.AreEqual(TimeSpan.Zero, fixture.FailureCleanup["Windows"]().Remaining);
+            Assert.AreEqual(TimeSpan.Zero, fixture.FailureCleanup["Windows.Settings"]().Remaining);
             if (keepWindowsAlive)
             {
-                Assert.IsFalse(owned["Windows"].Completion.IsCompleted);
+                Assert.IsFalse(owned["Windows.Settings"].Completion.IsCompleted);
                 Assert.IsTrue(observed.Skip(2).All(process => !process.HasExited));
             }
             returnWindows.TrySetResult();
             VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
-            VerificationCommandResult windows = result.Commands.Single(command => command.Name == "Windows");
+            VerificationCommandResult windows = result.Commands.Single(command => command.Name == "Windows.Settings");
             Assert.AreEqual(1, result.ExitCode);
             // 生存Jobの行はpipeが回収期限内に終端する保証がないため、保存拒否は完了済みの行で確認する。
             if (!keepWindowsAlive) { Assert.IsNotNull(windows.OutputFailure); }
@@ -766,7 +978,7 @@ public sealed class VerificationRunnerTests
             Assert.AreEqual("sentinel", File.ReadAllText(stdout));
             Assert.IsFalse(File.Exists(stderr));
             Assert.IsFalse(fixture.Requests.Any(item => item.Name == "Scenarios"));
-            Assert.AreEqual(2, result.Commands.Count(command => command.Name is "Core" or "Windows"));
+            Assert.AreEqual(2, result.Commands.Count(command => command.Name is "Core" or "Windows.Settings"));
         }
         finally
         {
@@ -854,9 +1066,9 @@ public sealed class VerificationRunnerTests
 
     private static ProcessDeadline Deadline() => ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(10));
 
-    private static async Task WaitForFileAsync(string path)
+    private static async Task WaitForFileAsync(string path, TimeSpan? timeout = null)
     {
-        ProcessDeadline deadline = Deadline();
+        ProcessDeadline deadline = timeout is { } budget ? ProcessDeadline.FromTimeout(budget) : Deadline();
         while (!File.Exists(path) || new FileInfo(path).Length == 0)
         {
             if (deadline.Remaining == TimeSpan.Zero) { throw new TimeoutException("fixtureのgateが開きません: " + path); }
@@ -902,7 +1114,7 @@ public sealed class VerificationRunnerTests
             string name = request.FileName == "pwsh" ? request.Arguments[^1].Contains(" -SkipDocHtml -ArtifactRoot ", StringComparison.Ordinal)
                 ? request.Arguments[^1].Contains(" -ApplicationVersion ", StringComparison.Ordinal) ? "publish-next" : "publish-v" : "layout"
                 : request.FileName is "dotnet" or "git" ? request.Arguments[0] :
-                System.IO.Path.GetFileName(request.FileName)["BeMusicSeeker.".Length..^".Tests.exe".Length];
+                System.IO.Path.GetFileName(request.Arguments[request.Arguments.ToList().IndexOf("--results-directory") + 1]);
             if (name == "format") { name = request.Arguments[1]; }
             Requests.Enqueue((name, request));
             FailureCleanup[name] = beginFailureCleanup;
@@ -919,7 +1131,7 @@ public sealed class VerificationRunnerTests
             if (name == "style") { command = command with { WritePath = Path("changed.cs"), WriteContent = "style" }; }
             if (name == "whitespace") { command = command with { RequirePath = Path("changed.cs"), RequireContent = "style", WritePath = Path("changed.cs"), WriteContent = "formatted" }; }
             if (name == "build" && FormatInput) { command = command with { RequirePath = Path("changed.cs"), RequireContent = "formatted" }; }
-            if (name is "Core" or "Windows" or "Scenarios" or "Desktop.E2E" or "Compatibility" or "Performance")
+            if (name is "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios" or "Compatibility" or "Performance")
             {
                 string[] arguments = request.Arguments.ToArray();
                 string reportDirectory = arguments[Array.IndexOf(arguments, "--results-directory") + 1];
@@ -929,7 +1141,6 @@ public sealed class VerificationRunnerTests
                     "Scenarios" => ScenarioIds.Select(id => $"[{id}] report fixture"),
                     "Compatibility" => CompatibilityNames,
                     "Performance" => PerformanceNames,
-                    "Desktop.E2E" => new[] { "SC-15a", "SC-15b", "SC-16", "DT-01", "DT-02", "DT-03" }.Select(id => $"[{id}] report fixture"),
                     _ => ["report fixture"],
                 };
                 WriteReport(report, names);

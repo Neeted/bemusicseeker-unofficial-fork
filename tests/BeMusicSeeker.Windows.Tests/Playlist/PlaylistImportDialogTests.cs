@@ -21,6 +21,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>URI入力の追記と実JSON picker接続・取消・応答性を検証する。</summary>
 /// <remarks>compiledボタンからpicker要求と入力へ渡す接続を実Controlで確認する。表示領域だけ実Window表示を使い、ダウンロード・登録は取込み所有者へ分担する。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 [DoNotParallelize]
 public sealed class PlaylistImportDialogTests
 {

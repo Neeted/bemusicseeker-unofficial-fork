@@ -16,6 +16,7 @@ namespace BeMusicSeeker.Tests;
 
 
 [TestClass]
+[TestCategory("Windows.Shell")]
 // MainWindowTestLifetimeが共有Application.Resourcesのvmを所有し、終了待機中も復元まで保持します。
 [DoNotParallelize]
 public sealed class MainWindowExternalShellTests

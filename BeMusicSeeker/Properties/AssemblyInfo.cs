@@ -13,7 +13,6 @@ using System.Windows;
 [assembly: ComVisible(false)]
 [assembly: ThemeInfo(ResourceDictionaryLocation.None, ResourceDictionaryLocation.SourceAssembly)]
 [assembly: AssemblyVersion("0.1.7374.5230")]
-[assembly: InternalsVisibleTo("BeMusicSeeker.Tests")]
 [assembly: InternalsVisibleTo("BeMusicSeeker.Core.Tests")]
 [assembly: InternalsVisibleTo("BeMusicSeeker.Windows.Tests")]
 [assembly: InternalsVisibleTo("BeMusicSeeker.Scenarios.Tests")]

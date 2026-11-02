@@ -1,0 +1,5 @@
+# 保留中の追加シナリオ
+
+`Install/MissingDestination*` の3ファイルは追加SC-05fの保留入力です。テストproject外に置き、通常・Fullの発見対象へ含めません。PassedやSkippedとして扱いません。
+
+初回DropがBusyになる未解消のテスト操作前提があります。required完了はadditional終端を意味しません。受付契約を見直した後、追加の操作列は段階3で再開します。共用の起動fixture・driver・製品と、既存MissingDSTのCore2メソッド・3行は維持します。

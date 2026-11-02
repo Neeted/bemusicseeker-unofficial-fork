@@ -16,6 +16,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>URLの取得判断と実workspaceから導入・表示への配送、受理されなかった入力の回収を確認します。</summary>
 /// <remarks>取得は応答portで固定し、転送とpath caseの代表では実HTTPも使います。実stagingを使い、Windowとcompiled購読の接続はMainWindowの代表へ分担します。所有移転の代表では実ownerを、保留の代表では実推定・SQLite・FSまで通します。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 public sealed partial class PlaylistUrlAcquisitionOwnershipTests
 {
     // MSTestが各ケースの実行前に必ず注入します。

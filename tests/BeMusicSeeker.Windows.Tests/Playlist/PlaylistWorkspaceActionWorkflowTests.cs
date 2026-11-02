@@ -17,6 +17,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>workspaceから保存・削除・browser・lamp遷移・reload cleanupへの実要求と失敗経路を検証します。</summary>
 /// <remarks>SQLiteの確定とlockは実資源を使い、lampのVM受信だけ共有dispatcherでbuild終端を観測します。実画面のBinding・modal・resizeは上位WPFケースが分担します。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 public sealed class PlaylistWorkspaceActionWorkflowTests
 {
     private readonly ApplicationDatabaseScope databaseScope = new();

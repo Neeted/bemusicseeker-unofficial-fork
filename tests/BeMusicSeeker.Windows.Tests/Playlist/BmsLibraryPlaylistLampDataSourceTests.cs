@@ -17,6 +17,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>ライブラリから集計入力を捕捉するハッシュ補完・履歴障害・取得元の一貫性・明示捕捉を検証する。</summary>
 /// <remarks>専用SQLiteと実メタデータ取込みで情報源の接続を確認し、カテゴリ計算はPlaylistLampAggregationTestsへ分担する。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 public sealed class BmsLibraryPlaylistLampDataSourceTests
 {
     private readonly ApplicationDatabaseScope databaseScope = new();

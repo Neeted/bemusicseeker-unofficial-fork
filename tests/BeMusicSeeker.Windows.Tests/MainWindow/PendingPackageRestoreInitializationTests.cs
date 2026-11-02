@@ -13,6 +13,7 @@ namespace BeMusicSeeker.Tests;
 
 
 [TestClass]
+[TestCategory("Windows.Shell")]
 // 実VMがprocess共通のライブラリ通知を購読し、同じDispatcher上の構成と終了寿命まで所有するため並列化しません。
 [DoNotParallelize]
 public sealed class PendingPackageRestoreInitializationTests

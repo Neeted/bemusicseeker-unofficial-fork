@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.ComponentModel;
 using System.IO;
 using System.IO.Pipes;
 using System.Linq;
@@ -96,6 +97,12 @@ internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
                 StartupInitializationResult result = await model.ShellActivationWorkflow.StartupCompletion.WaitAsync(stopping.Token).ConfigureAwait(false);
                 ScenarioInitializationResult snapshot = await dispatcher.InvokeAsync(() => CaptureInitialization(result, model),
                     DispatcherPriority.Normal, stopping.Token).Task.ConfigureAwait(false);
+                if (snapshot.Outcome == StartupInitializationOutcome.Succeeded && snapshot.CompletionPublished
+                    && snapshot.IsInitializationCompleted && snapshot.Failure is null)
+                {
+                    await dispatcher.InvokeAsync(() => WaitForStartupAdditionalCompletionAsync(model.ProgressHub),
+                        DispatcherPriority.Normal, stopping.Token).Task.Unwrap().ConfigureAwait(false);
+                }
                 response = new ScenarioStartupCompleted(snapshot);
             }
             catch (Exception failure) when (!stopping.IsCancellationRequested)
@@ -105,6 +112,29 @@ internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
         catch (OperationCanceledException) when (stopping.IsCancellationRequested) { }
         catch (IOException) when (stopping.IsCancellationRequested) { }
         catch (ObjectDisposedException) when (stopping.IsCancellationRequested) { }
+    }
+
+    /// <summary>成功した必須初期化の後、次の通常ライブラリ操作に先立ち、既存の起動追加仕事の実終端通知を待ちます。</summary>
+    /// <remarks>必須初期化Taskは追加仕事の登録・開始後に返ります。実終端の投影だけを待ち、製品の操作可能時機や追加仕事の失敗結果は変更しません。</remarks>
+    private async Task WaitForStartupAdditionalCompletionAsync(OperationProgressHubViewModel progress)
+    {
+        dispatcher.VerifyAccess();
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        PropertyChangedEventHandler changed = (_, args) =>
+        {
+            if (args.PropertyName == nameof(OperationProgressHubViewModel.IsStartupBackgroundInitializationActive)
+                && !progress.IsStartupBackgroundInitializationActive)
+            {
+                completed.TrySetResult();
+            }
+        };
+        progress.PropertyChanged += changed;
+        try
+        {
+            if (!progress.IsStartupBackgroundInitializationActive) { completed.TrySetResult(); }
+            await completed.Task.WaitAsync(stopping.Token);
+        }
+        finally { progress.PropertyChanged -= changed; }
     }
 
     private async Task ReadAsync()

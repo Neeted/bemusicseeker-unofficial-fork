@@ -37,6 +37,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>compiled 設定画面の操作・通知・保存 owner・終了への実接続を検証します。</summary>
 /// <remarks>実 WPF は BAML のクリック配送、native Close、modal 復帰、表示寸法、Automation、live binding の観測に必要です。保存形式・判断条件は Settings の下位ケースが分担し、Application 辞書・culture・native 音声受付・ログを共有するため非並列にします。</remarks>
 [TestClass]
+[TestCategory("Windows.Settings")]
 [DoNotParallelize]
 public sealed class SettingsWindowPresentationTests
 {

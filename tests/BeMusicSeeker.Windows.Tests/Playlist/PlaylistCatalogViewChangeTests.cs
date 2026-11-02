@@ -12,6 +12,7 @@ namespace BeMusicSeeker.Tests;
 
 /// <summary>実譜面・SQLite・保守確定・単一配送から実 playlist source/view までを検証します。候補条件の網羅は model 系列へ分担します。</summary>
 [TestClass]
+[TestCategory("Windows.Shell")]
 public sealed class PlaylistCatalogViewChangeTests
 {
     public TestContext? TestContext { get; set; }

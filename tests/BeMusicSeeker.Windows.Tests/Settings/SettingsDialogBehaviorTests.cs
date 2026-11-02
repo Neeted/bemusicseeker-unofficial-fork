@@ -25,6 +25,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>項目・record・BMSの確定値と局所候補を実媒体で検証します。</summary>
 /// <remarks>実 XML／LR2 config の失敗と境界差替えを併用し、保存済み値と draft の分離を確認します。実 Window は presentation、実 mode 保存と終了の構成接続は Admission／Shell が分担します。取消・Reset・適用が共有 theme／culture を変更するケースは非並列です。</remarks>
 [TestClass]
+[TestCategory("Windows.Settings")]
 [DoNotParallelize]
 public sealed class SettingsDialogBehaviorTests
 {

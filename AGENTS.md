@@ -4,7 +4,7 @@
 
 開発の起点・通常のPR先は `dev`、正式公開済みのコードと配信データは `main` です。`dev` から分岐した通常の作業ブランチは、個々のコミットを残して原則 `git merge --ff-only` で `dev` へ統合します。`dev` と `main` の間は履歴を保つマージを使います。通常作業の統合と例外、`main` への反映、緊急修正、配信データの更新は[ブランチ運用とリリース手順](devdocs/spec/development/release.md)に従います。
 
-単独開発はメインの作業ツリーで行えます。並列開発中はメインの作業ツリーを `dev` の統合専用として原則クリーンに保ち、新しい実装・テスト・仕様・計画は各作業ワークツリーの別ブランチで完結させます。複数の独立した実装単位を並行開発する場合だけ、全体ルートと単位責任者を分けます。単位責任者は範囲内の調査から検証・独立レビュー・ブランチ内コミットまで完結させ、全体ルートが利用者への質問、単位間の依存・共有契約、ワークツリー割当、`Functional` と性能測定の開始調整、`dev` への統合を担います。作業ワークツリーは他のチャット分も含め、メイン以外に暫定最大5本とします。[所有と独立性・追加と回収の判断](devdocs/spec/development/agent-workflow.md#並列作業)、[重い検証の調整](devdocs/spec/development/testing.md#複数ワークツリーの検証)、[準備が揃った単位からの一件ずつの統合](devdocs/spec/development/release.md#通常の作業ブランチの統合)に従います。
+単独開発はメインの作業ツリーで行えます。並列開発中はメインの作業ツリーを `dev` の統合専用として原則クリーンに保ち、新しい実装・テスト・仕様・計画は各作業ワークツリーの別ブランチで完結させます。複数の独立した実装単位を並行開発する場合だけ、全体ルートと単位責任者を分けます。単位責任者は範囲内の調査から検証・独立レビュー・ブランチ内コミットまで完結させ、全体ルートが利用者への質問、単位間の依存・共有契約、ワークツリー割当、`verify` と性能測定の開始調整、`dev` への統合を担います。作業ワークツリーは他のチャット分も含め、メイン以外に暫定最大5本とします。[所有と独立性・追加と回収の判断](devdocs/spec/development/agent-workflow.md#並列作業)、[重い検証の調整](devdocs/spec/development/testing.md#複数ワークツリーの検証)、[準備が揃った単位からの一件ずつの統合](devdocs/spec/development/release.md#通常の作業ブランチの統合)に従います。
 
 ## 変更の原則
 
@@ -30,11 +30,13 @@
 | 譜面・フォルダ・パッケージの変更 | [ライブラリ変更](devdocs/spec/library/mutations.md)、[ファイルとDBの整合性](devdocs/spec/library/file-db-consistency.md) |
 | 複数段階の作業、委譲、統合、レビュー | [エージェント運用](devdocs/spec/development/agent-workflow.md) |
 | リリースノート、ユーザーマニュアルなど利用者向け文書 | [利用者向け文書の編集方針](devdocs/README.md#利用者向け文書の編集方針) |
-| テストの追加・変更・削除、保証の分担 | [テスト設計](devdocs/spec/development/test-authoring.md)、[テスト配下の指針](BeMusicSeeker.Tests/AGENTS.md) |
+| テストの追加・変更・削除、保証の分担 | [テスト設計](devdocs/spec/development/test-authoring.md)、[テスト配下の指針](tests/AGENTS.md) |
 | 検証の実行範囲・環境・結果判定 | [テスト検証](devdocs/spec/development/testing.md) |
 | ビルド・検証・配布スクリプト | [スクリプト配下の指針](scripts/AGENTS.md) |
 
 委譲した実装の不備は、まず元の実装担当へ差し戻します。不備の発見だけで障害解決担当を呼ばず、[差し戻しと呼出し条件](devdocs/spec/development/agent-workflow.md#不備の差し戻し)で判断します。
+
+静的レビューと実行検証は独立して進めます。必要な整形・ビルドと変更テスト・変更箇所の局所検証が成功し、対象差分・共有依存を凍結できれば、全体テストの完了を待たず予備レビューを開始します。予備合格後は全体検証の進行状況によらず最終レビューへ進み、統合・完了時に最終差分へ適用できる両方の合格を要求します。凍結対象を書き換えないテスト・ビルドとの並行、実行失敗の共有と影響範囲だけの再確認は[レビューの進行と結果](devdocs/spec/development/agent-workflow.md#レビューの進行と結果)に従います。
 
 ## 実装で守る境界
 
@@ -62,8 +64,8 @@
 
 変更ごとに[テスト設計](devdocs/spec/development/test-authoring.md)で必要な保証と既存テストの扱いを決め、[検証仕様](devdocs/spec/development/testing.md)で実行範囲を選びます。新しいテストを作らない判断は、既存の回帰検証を省略する理由にはなりません。
 
-標準入口は PowerShell 7 の `scripts/verify-refactor.ps1` です。反復中は対象を絞った `Quick`、通常開発のコミット・`dev` への統合は `Functional`、正式リリース前の公開候補は `Full` を使います。作業段階による区分の選択と、変更の影響に応じた追加検証は[実行範囲の選択](devdocs/spec/development/testing.md#実行範囲の選択)、実行回数、時間制限、失敗時の扱いは同じ検証仕様に従います。Markdown・TOMLのみの変更は、構文・参照・UTF-8・LF・`git diff --check` を確認します。実行手順や設定の挙動を変える場合は、その影響に応じた検証も行います。
+標準入口は `dotnet run --project tools/BeMusicSeeker.Verify -- <profile>` です。反復中は対象を絞った 対象moduleの局所MTP実行、通常開発のコミット・`dev` への統合は `verify`、正式リリース前の公開候補は `full` を使います。作業段階による区分の選択と、変更の影響に応じた追加検証は[実行範囲の選択](devdocs/spec/development/testing.md#実行範囲の選択)、実行回数、時間制限、失敗時の扱いは同じ検証仕様に従います。Markdown・TOMLのみの変更は、構文・参照・UTF-8・LF・`git diff --check` を確認します。実行手順や設定の挙動を変える場合は、その影響に応じた検証も行います。
 
-Linuxでの編集・クロスビルド・既存テストの局所検証は[Linuxの構築手順](devdocs/setup-linux.md)に従います。Linuxの確認をWindowsの `Functional` / `Full` の成功として扱わず、未実施のWindows検証を引き継ぎます。
+Linuxでの編集・クロスビルド・既存テストの局所検証は[Linuxの構築手順](devdocs/setup-linux.md)に従います。Linuxの確認をWindowsの `verify` / `full` の成功として扱わず、未実施のWindows検証を引き継ぎます。
 
 実機確認の実施・推奨・未実施の扱いは[検証方針](devdocs/spec/development/testing.md#検証方針)に従います。エージェントは原則自動検証を使い、ユーザーの明示依頼がある場合に実機確認を行います。起動する実行ファイル・利用データの確認から、中断・終了・後片付けまでは[画面確認の手順](devdocs/spec/development/testing.md#画面確認)に従います。

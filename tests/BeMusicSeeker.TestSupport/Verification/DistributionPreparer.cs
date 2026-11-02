@@ -4,7 +4,7 @@ using BeMusicSeeker.TestSupport.Processes;
 
 namespace BeMusicSeeker.TestSupport.Verification;
 
-/// <summary>親runnerが所有する180秒段階の中で、準備と検査を同じ絶対期限へ接続します。</summary>
+/// <summary>親runnerが所有する240秒段階の中で、準備と検査を同じ絶対期限へ接続します。</summary>
 internal delegate Task RunDistributionStage(string name, Func<ExecuteCommand, ProcessDeadline, CancellationToken, Task> action);
 
 /// <summary>Fullの前段で固定旧ZIP、現行版、次版を一度ずつ準備します。</summary>

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Processes;
 using BeMusicSeeker.TestSupport.Verification;
@@ -115,6 +116,88 @@ public sealed class RepositoryFormatterTests
             Assert.AreEqual(styleCount * 2, repository.Formats.Count);
             Assert.IsTrue(repository.Formats.Skip(styleCount).All(arguments => arguments[1] == "whitespace"));
             Assert.AreEqual(180, repository.Formats.Take(styleCount).Sum(arguments => Includes(arguments).Length));
+        }
+    }
+
+    /// <summary>手動入口のrestore要否・対象ゼロ・Allを照合し、Gitから最後のbatchまで同一期限であることを保証します。</summary>
+    [TestMethod]
+    [DataRow(false, true, true)]
+    [DataRow(false, false, true)]
+    [DataRow(false, true, false)]
+    [DataRow(true, true, false)]
+    public async Task ManualRestoreSharesSelectionAndFormattingDeadline(bool allSources, bool restore, bool changed)
+    {
+        using var repository = new Repository();
+        await repository.InitializeAsync();
+        if (changed) { repository.Write("日本語 [対象].cs"); }
+        var calls = new List<(string Executable, string[] Arguments, ProcessDeadline Deadline)>();
+        ProcessDeadline deadline = Deadline();
+        await RepositoryFormatter.FormatAsync(repository.Root, async (executable, arguments, actual) =>
+        {
+            calls.Add((executable, arguments.ToArray(), actual));
+            return arguments[0] == "restore" ? new ProcessCompletion(0, "", "")
+                : await repository.ExecuteAsync(executable, arguments, actual);
+        }, deadline, allSources, restore);
+        Assert.IsTrue(calls.All(call => ReferenceEquals(deadline, call.Deadline)));
+        string[] expected = allSources ? ["restore", "format", "format"]
+            : !changed ? ["diff", "diff", "ls-files"]
+            : restore ? ["diff", "diff", "ls-files", "restore", "format", "format"]
+            : ["diff", "diff", "ls-files", "format", "format"];
+        CollectionAssert.AreEqual(expected, calls.Select(call => call.Arguments[0]).ToArray());
+        if (restore && (allSources || changed))
+        {
+            CollectionAssert.AreEqual(new[] { "restore", repository.Path("BeMusicSeeker.sln"), "--locked-mode", "--disable-build-servers", "-p:Platform=x64" },
+                calls.Single(call => call.Arguments[0] == "restore").Arguments);
+        }
+    }
+
+    /// <summary>手動format/nativeの実PowerShell入口を外CWDから呼び、固定Release未準備の拒否とliteral引数・元診断・非zero・CWD復元を確認します。</summary>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public async Task ManualPowerShellAdapterRequiresFixedRunnerAndPreservesArgumentsAndExit(bool prepared, bool nativeQuery)
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string repository = workspace.GetPath("日本語 [repository]");
+        string scriptRelative = nativeQuery ? "native/EverythingBridge/test-x64.ps1" : "scripts/format-code.ps1";
+        string script = System.IO.Path.Combine(repository, scriptRelative);
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(script) ?? throw new InvalidOperationException());
+        File.Copy(System.IO.Path.Combine(BeMusicSeeker.TestSupport.Components.ThemeTestFiles.FindRepositoryRoot(), scriptRelative), script);
+        string runnerDirectory = System.IO.Path.Combine(repository, "tools", "BeMusicSeeker.Verify", "bin", "x64", "Release", "net10.0-windows");
+        string receipt = workspace.GetPath("adapter.json");
+        if (prepared)
+        {
+            Directory.CreateDirectory(runnerDirectory);
+            foreach (string source in Directory.EnumerateFiles(System.IO.Path.Combine(AppContext.BaseDirectory, "ProcessFixture")))
+            {
+                File.Copy(source, System.IO.Path.Combine(runnerDirectory, System.IO.Path.GetFileName(source)));
+            }
+            File.Move(System.IO.Path.Combine(runnerDirectory, "ProcessFixture.exe"), System.IO.Path.Combine(runnerDirectory, "BeMusicSeeker.Verify.exe"));
+        }
+        string scriptArguments = nativeQuery ? "-BuildPathIdentityFixture" : prepared ? "-Scope All -NoRestore" : "-Scope Changed -NoRestore";
+        string command = "$ErrorActionPreference='Stop'; & '" + script.Replace("'", "''", StringComparison.Ordinal)
+            + $"' {scriptArguments}; $result=$LASTEXITCODE; [Console]::WriteLine('after=' + (Get-Location).Path); exit $result";
+        await using var process = OwnedProcess.Start(new ProcessStartRequest("pwsh", ["-NoProfile", "-Command", command], workspace.RootDirectory,
+            new Dictionary<string, string?> { ["BMS_TEST_FORMAT_ADAPTER_OUTPUT"] = receipt }, ownershipPolicy: ProcessOwnershipPolicy.Preparation));
+        ProcessCompletion result = await process.WaitForExitAsync(Deadline());
+        Assert.AreNotEqual(0, result.ExitCode);
+        if (prepared)
+        {
+            Assert.AreEqual(37, result.ExitCode);
+            StringAssert.Contains(result.StandardError, "format-adapter-original-diagnostic");
+            StringAssert.Contains(result.StandardOutput, "after=" + workspace.RootDirectory);
+            using var observed = JsonDocument.Parse(File.ReadAllText(receipt));
+            string[] expectedArguments = nativeQuery ? ["native-query", "--build-path-identity-fixture"] : ["format", "--scope", "All", "--no-restore"];
+            CollectionAssert.AreEqual(expectedArguments,
+                observed.RootElement.GetProperty("Arguments").EnumerateArray().Select(argument => argument.GetString()).ToArray());
+            Assert.AreEqual(repository, observed.RootElement.GetProperty("Directory").GetString());
+        }
+        else
+        {
+            Assert.IsFalse(File.Exists(receipt));
+            Assert.IsFalse(Directory.Exists(runnerDirectory));
         }
     }
 

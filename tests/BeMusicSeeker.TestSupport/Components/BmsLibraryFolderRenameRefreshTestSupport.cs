@@ -17,7 +17,8 @@ internal static class BmsLibraryFolderRenameRefreshTestSupport
 {
     /// <summary>日常と大規模条件で同じ実移転後の祖先資源反映を観測します。</summary>
     /// <param name="reportOperationElapsed">指定時だけ準備・表明・回収を除く実操作の経過を終端後に通知します。省略時は時計を追加しません。</param>
-    internal static void AssertFinalFilesystemAncestors(ApplicationDatabaseScope databaseScope, bool move, int backgroundEntries, int parentCharts, Action<TimeSpan>? reportOperationElapsed = null)
+    /// <param name="uiScheduler">日常のheadless検査で明示する通知境界。省略時は既存の共有Dispatcherを使います。</param>
+    internal static void AssertFinalFilesystemAncestors(ApplicationDatabaseScope databaseScope, bool move, int backgroundEntries, int parentCharts, Action<TimeSpan>? reportOperationElapsed = null, IUiScheduler? uiScheduler = null)
     {
         WithTemporarySongDb(databaseScope, songDbPath =>
         {
@@ -43,7 +44,7 @@ internal static class BmsLibraryFolderRenameRefreshTestSupport
             File.WriteAllText(Path.Combine(sibling, "keep.wav"), "sibling resource");
             var port = new AncestorEnumerationPort(common);
             var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(),
-                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false },
+                uiScheduler ?? new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false },
                 settings: TestBmsFactory.CreateRootSettings([common]), rootFileEnumerator: port)
             { BmsCharts = charts };
             LibraryResourceIndexOwner owner = LibraryResourceIndexTestSupport.GetOwner(library);
@@ -372,4 +373,11 @@ internal static class BmsLibraryFolderRenameRefreshTestSupport
         }
     }
 
+}
+
+/// <summary>CoreとWindowsの既存改名ケースが実進捗を任意の観測先へ渡す共通writerです。</summary>
+internal sealed class RecordingFolderAutoRenameProgressWriter(
+    Action<FolderAutoRenameProgressUpdate>? onUpdate = null) : IFolderAutoRenameProgressWriter
+{
+    public void TryWrite(FolderAutoRenameProgressUpdate update) => onUpdate?.Invoke(update);
 }

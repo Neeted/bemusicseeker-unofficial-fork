@@ -17,6 +17,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>内蔵難度表・推薦表の生成と、選択スコアの読取り・保存・通知接続を検証する。</summary>
 /// <remarks>数学の独立期待値はWalkureRecommendationMathTestsが担う。ここではURI方針と実DB・共通登録・再読込みを通し、生成結果の所属や保存・取消時の状態を観測する。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 public sealed class PlaylistRecommendedTableOwnerTests
 {
     private TestWorkspace? ownedCaseWorkspace;

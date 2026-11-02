@@ -16,6 +16,7 @@ namespace BeMusicSeeker.Tests;
 
 /// <remarks>実root・設定VMの共有ResourceService購読と実LR2 XML・出力窓口の配送を非並列で確認します。描画接続はcompiled category/Window系列が分担します。</remarks>
 [TestClass]
+[TestCategory("Windows.Settings")]
 [DoNotParallelize]
 public sealed class SettingDialogCustomFolderOutputBaseTests
 {

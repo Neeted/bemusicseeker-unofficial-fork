@@ -13,6 +13,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>外部表取込みの実受付・登録・通知とsettingsへのcatalog配送を確認します。</summary>
 /// <remarks>通信中の受付と実DB・BMT・configの一括反映はplaylistとworkspaceの実接続が対象です。個別JSON・BMT内容は下位parser/exportケース、実Window配送はMainWindowケースへ分担します。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 public sealed class PlaylistWorkspaceExternalSourceTests
 {
     // MSTestが各ケースの実行前に必ず注入します。

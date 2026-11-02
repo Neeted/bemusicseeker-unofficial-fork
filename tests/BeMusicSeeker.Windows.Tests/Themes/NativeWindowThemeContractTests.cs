@@ -297,4 +297,72 @@ public sealed class NativeWindowThemeContractTests
         dictionary.Source = new Uri(source, UriKind.RelativeOrAbsolute);
         return dictionary;
     }
+
+    /// <summary>本番のXAML rootを実Window型と照合し、共通継承の抜けとprogressのClose抑制・Closing接続の欠落を検出します。</summary>
+    /// <remarks>MainWindowとProgressDialogへの到達も要求し、空列挙や全件skipを成功にしません。Windowは生成しません。</remarks>
+    [TestMethod]
+    public void AuthoredWindowXaml_UsesSharedRootExceptCustomChromeMainWindow()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        Assembly productionAssembly = typeof(ThemedWindow).Assembly;
+        XNamespace xamlNamespace = "http://schemas.microsoft.com/winfx/2006/xaml";
+
+        var visitedWindows = new HashSet<Type>();
+        foreach (string path in EnumerateProductionXaml(repositoryRoot))
+        {
+            var document = XDocument.Load(path, LoadOptions.SetLineInfo);
+            XElement root = document.Root ?? throw new AssertFailedException($"XAML root is missing: {path}");
+            string? className = (string?)root.Attribute(xamlNamespace + "Class");
+            if (className == null)
+            {
+                continue;
+            }
+
+            Type? viewType = productionAssembly.GetType(className, throwOnError: false);
+            if (viewType == null || !typeof(Window).IsAssignableFrom(viewType))
+            {
+                continue;
+            }
+
+            visitedWindows.Add(viewType);
+            string relativePath = Path.GetRelativePath(repositoryRoot, path);
+            if (viewType == typeof(MainWindow))
+            {
+                Assert.AreEqual("Window", root.Name.LocalName, relativePath);
+                Assert.IsTrue(
+                    root.Descendants().Any(element => element.Name.LocalName == "WindowChrome.WindowChrome"),
+                    $"{relativePath} must retain its custom WindowChrome contract.");
+                continue;
+            }
+
+            Assert.IsTrue(typeof(ThemedWindow).IsAssignableFrom(viewType), relativePath);
+            Assert.AreEqual("ThemedWindow", root.Name.LocalName, $"{relativePath} must use ThemedWindow as its XAML root.");
+            StringAssert.StartsWith(
+                root.Name.NamespaceName,
+                "clr-namespace:BeMusicSeeker.Views",
+                $"{relativePath} must resolve its root to BeMusicSeeker.Views.ThemedWindow.");
+
+            if (string.Equals(className, "Parago.Windows.ProgressDialog", StringComparison.Ordinal))
+            {
+                Assert.AreEqual("True", root.Attributes().Single(attribute => attribute.Name.LocalName == "WindowSettings.HideCloseButton").Value);
+                Assert.AreEqual("OnClosing", (string?)root.Attribute("Closing"));
+            }
+        }
+        Assert.IsTrue(visitedWindows.Contains(typeof(MainWindow)), "MainWindow XAML must be inspected.");
+        Assert.IsTrue(visitedWindows.Contains(typeof(Parago.Windows.ProgressDialog)), "ProgressDialog XAML must be inspected.");
+    }
+
+    private static IEnumerable<string> EnumerateProductionXaml(string repositoryRoot)
+    {
+        return new[] { "BeMusicSeeker" }
+            .SelectMany(directory => Directory.EnumerateFiles(Path.Combine(repositoryRoot, directory), "*.xaml", SearchOption.AllDirectories))
+            .Where(path => !HasDirectorySegment(path, "bin") && !HasDirectorySegment(path, "obj"))
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static bool HasDirectorySegment(string path, string segment)
+    {
+        return path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .Any(part => string.Equals(part, segment, StringComparison.OrdinalIgnoreCase));
+    }
 }

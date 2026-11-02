@@ -29,6 +29,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>一括編集の混在・保存互換・実保存失敗と、property/settingsの出力種別接続を検証します。</summary>
 /// <remarks>判断とSQLiteの失敗回復は画面なしで検証し、compiled Binding、Automation、resizeとスクロールの到達は実WPFで観測します。WPFの共通資源を使うケースだけ非並列です。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 public sealed class PlaylistSummaryBulkEditTests
 {
     private readonly ApplicationDatabaseScope databaseScope = new();

@@ -1118,9 +1118,11 @@ public sealed class BmsLibraryInitializationFileScanTests
     /// 複数commitとdetail batchを跨ぐBMSを全件保存し、DB準備進捗をcommit終端より先に通知して末尾を欠かさない。
     /// </summary>
     [TestMethod]
-    public void ApplyFileScanDiff_CommitsChunksThroughPostParseWriter()
-        => AssertFileScanChunkCommits(databaseScope, 5, 2, new BmsLibraryInitializationService(
-            fileDiffParserDegreeOverride: 1, inlineChartInfoBatchSizeOverride: 2, fileDiffCommitChunkSizeOverride: 2));
+    [DataRow(5, 2, 2)]
+    [DataRow(120, 50, 32)]
+    public void ApplyFileScanDiff_CommitsChunksThroughPostParseWriter(int count, int chunk, int inline)
+        => AssertFileScanChunkCommits(databaseScope, count, chunk, new BmsLibraryInitializationService(
+            fileDiffParserDegreeOverride: 1, inlineChartInfoBatchSizeOverride: inline, fileDiffCommitChunkSizeOverride: chunk));
 
     /// <summary>
     /// 並列post-parse workerで新規とcached detailを集約し、全件のsong・detail・maintenanceをDBへ一度ずつ保存する。

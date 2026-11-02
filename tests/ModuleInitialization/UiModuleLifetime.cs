@@ -10,18 +10,19 @@ using BeMusicSeeker.TestSupport.Wpf;
 
 namespace BeMusicSeeker.Tests.Infrastructure;
 
-/// <summary>直接実行を含め、画面資源の初期化前から全ケースの終端までsession排他を所有します。</summary>
+/// <summary>直接実行を含め専有profileを準備し、Windows以外はmodule全体のsession排他を所有します。</summary>
 [TestClass]
 public sealed class UiModuleLifetime
 {
     private static TestUiSessionLease? lease;
 
-    /// <summary>共有画面資源を作る前に実行領域とsession排他を準備します。</summary>
+    /// <summary>共有画面資源を作る前に専有配置を確定し、Windows以外はsession排他を取得します。</summary>
     [AssemblyInitialize]
     public static async Task Initialize(TestContext context)
     {
         string runRoot = TestRunDirectory.RootDirectory;
-        TestUiSessionLease acquiredLease = await TestUiSessionLease.AcquireAsync(ProcessDeadline.FromSuiteEnvironment(TimeSpan.FromMinutes(3)));
+        bool windows = typeof(UiModuleLifetime).Assembly.GetName().Name == "BeMusicSeeker.Windows.Tests";
+        TestUiSessionLease? acquiredLease = windows ? null : await TestUiSessionLease.AcquireAsync(ProcessDeadline.FromSuiteEnvironment(TimeSpan.FromMinutes(3)));
         lease = acquiredLease;
         try
         {
@@ -33,13 +34,23 @@ public sealed class UiModuleLifetime
                 throw new FileNotFoundException("同じbuildの実行体と日本語辞書が必要です。", executable);
             }
             string profile = Path.Combine(runRoot, typeof(UiModuleLifetime).Assembly.GetName().Name + "-profile");
+            if (windows)
+            {
+                string privateLanguage = Path.Combine(profile, "lang");
+                Directory.CreateDirectory(privateLanguage);
+                foreach (string dictionary in Directory.EnumerateFiles(language, "*.json"))
+                {
+                    File.Copy(dictionary, Path.Combine(privateLanguage, Path.GetFileName(dictionary)));
+                }
+                language = privateLanguage;
+            }
             ApplicationPathPolicy.Configure(ApplicationPathSnapshot.FromLayout(executable, assets, profile,
                 language, Path.Combine(profile, "temp"), Path.Combine(profile, "legacy")));
             Resources.Culture = CultureInfo.GetCultureInfo("ja-JP");
         }
         catch (Exception primary)
         {
-            try { acquiredLease.Dispose(); }
+            try { acquiredLease?.Dispose(); }
             catch (Exception cleanup) { primary.Data["UiModuleLifetime.LeaseCleanupFailure"] = cleanup; }
             finally { lease = null; }
             throw;

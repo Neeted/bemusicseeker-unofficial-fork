@@ -24,6 +24,7 @@ namespace BeMusicSeeker.Tests;
 
 /// <remarks>行能力の条件網羅はPlaylistViewPipelineTestsへ分担し、この境界はcompiledメニューの実イベント配送・右クリックと選択の区別・実ファイル存在・受付時刻を検査します。関連文書のasync void入口の非適用分岐だけは既存のconsumer Taskを直接回収します。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 // 実MainWindowはApplication.ResourcesのVMとcompiledメニューを共有するため、所有Windowの解放まで並列化しません。
 [DoNotParallelize]
 public sealed class MainWindowSelectedChartContextMenuWpfTests

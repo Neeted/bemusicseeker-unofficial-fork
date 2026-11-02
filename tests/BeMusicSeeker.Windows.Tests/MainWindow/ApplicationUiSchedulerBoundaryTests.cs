@@ -6,6 +6,7 @@ namespace BeMusicSeeker.Tests;
 
 
 [TestClass]
+[TestCategory("Windows.Shell")]
 public sealed class ApplicationUiSchedulerBoundaryTests
 {
     /// <summary>構成時のUI Dispatcherを一回取得し、worker固有のDispatcherではUI所属と判定しないことを確認し、操作するスレッドごとに配送先を取り直す誤りを検出します。</summary>

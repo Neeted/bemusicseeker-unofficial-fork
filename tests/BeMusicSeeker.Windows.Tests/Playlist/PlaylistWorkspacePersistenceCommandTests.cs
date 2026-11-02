@@ -20,6 +20,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>backup・復元・export・BMT順序・dropの実確定と、summary buildの世代・取消・終端を検証します。</summary>
 /// <remarks>実SQLite、出力、configの確定順と失敗後の事実は実資源を用い、UIは既存schedulerの受理・実行・完了を制御します。画面の所有modalと入力操作はWPF代表が分担し、process DB lock競争だけ非並列です。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 public sealed class PlaylistWorkspacePersistenceCommandTests
 {
     private readonly ApplicationDatabaseScope databaseScope = new();

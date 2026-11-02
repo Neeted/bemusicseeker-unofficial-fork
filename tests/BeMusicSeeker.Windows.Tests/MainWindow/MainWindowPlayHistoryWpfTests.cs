@@ -19,6 +19,7 @@ namespace BeMusicSeeker.Tests;
 
 /// <remarks>検索・能力・表示対象の判断は履歴主体の下位ケースが担います。ここではLoadedのcompiled表・toolbar・メニューから行文脈と操作が届く境界を検証し、共有Resourcesの復元まで所有します。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 [DoNotParallelize]
 public sealed class MainWindowPlayHistoryWpfTests
 {

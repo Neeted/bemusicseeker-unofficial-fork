@@ -19,6 +19,7 @@ namespace BeMusicSeeker.Tests;
 
 /// <remarks>実 hit-test、Automation、template の表示と共有テーマ切替は native Window が必要です。共有 Application の辞書を退避・復元するため非並列です。</remarks>
 [TestClass]
+[TestCategory("Windows.Settings")]
 [DoNotParallelize]
 public sealed class SettingsControlPresentationTests
 {

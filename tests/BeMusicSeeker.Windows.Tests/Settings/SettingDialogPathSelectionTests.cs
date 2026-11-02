@@ -9,6 +9,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>LR2パス候補の採用・由来表示・拒否状態の復旧を検証します。</summary>
 /// <remarks>実設定VMと専用FS・XMLでパス候補を検証します。VMが共有ResourceServiceを購読するため非並列にします。</remarks>
 [TestClass]
+[TestCategory("Windows.Settings")]
 [DoNotParallelize]
 public sealed class SettingDialogPathSelectionTests
 {

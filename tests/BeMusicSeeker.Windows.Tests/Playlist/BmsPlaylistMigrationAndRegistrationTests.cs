@@ -14,6 +14,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>保存済み表の出力先移行、実登録公開とBMT終端の確定状態を確認します。</summary>
 /// <remarks>削除範囲と旧配置、SQL保存順は実ファイル・SQLiteで観測します。Windowを作らず実ownerまで接続し、描画・ダイアログ所有は上位の代表へ分担します。</remarks>
 [TestClass]
+[TestCategory("Windows.Shell")]
 public sealed class BmsPlaylistMigrationAndRegistrationTests
 {
     private readonly ApplicationDatabaseScope databaseScope = new();

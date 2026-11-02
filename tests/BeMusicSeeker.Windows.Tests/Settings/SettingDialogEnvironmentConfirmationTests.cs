@@ -24,6 +24,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>環境候補の確認・保存と初期化への接続を検証します。</summary>
 /// <remarks>共有 culture・theme・Bass 受付と composition 購読を使うため非並列にします。</remarks>
 [TestClass]
+[TestCategory("Windows.Settings")]
 [DoNotParallelize]
 public sealed class SettingDialogEnvironmentConfirmationTests
 {

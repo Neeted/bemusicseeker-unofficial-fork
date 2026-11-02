@@ -16,6 +16,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>実設定VMと音声ownerを局所portsへ接続し、要求・表示・編集値と終端の契約を検証します。</summary>
 /// <remarks>ResourceServiceの購読と文化圏を使うため直列化します。画面入力・本番起動・実機器の接続は保証しません。</remarks>
 [TestClass]
+[TestCategory("Windows.Settings")]
 [DoNotParallelize]
 public sealed class SettingsDialogAudioTests
 {
