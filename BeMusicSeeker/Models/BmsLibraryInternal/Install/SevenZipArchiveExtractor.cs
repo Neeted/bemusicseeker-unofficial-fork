@@ -38,8 +38,9 @@ internal static class SevenZipArchiveExtractor
         }
     }
 
-    /// <summary>指定ライブラリで借用元を一括展開します。取得した入力Streamと書庫を所有し、通常の失敗でも解放します。</summary>
-    /// <remarks>返らないコンストラクター内部のnative資源回収は依存の保証範囲に従います。捕捉したOOMは入力失敗として呼出元へ渡しません。</remarks>
+    /// <summary>指定ライブラリで借用元を検査済みの宛先へ一括展開し、同じ相対配置を日時復元へ返します。取得した入力Streamと書庫は通常の失敗でも解放します。</summary>
+    /// <remarks>ファイル／ディレクトリ種別は同梱7zが返すEntry.IsFolderに従い、元書庫の属性を再解析して分類し直しません。
+    /// 返らないコンストラクター内部のnative資源回収は依存の保証範囲に従います。捕捉したOOMは入力失敗として呼出元へ渡しません。</remarks>
     public static List<ArchiveEntryMetadata> ExtractArchiveEntries(string archivePath, string nativeLibraryPath, string extractedTempDirectoryPath)
     {
         try
@@ -58,8 +59,13 @@ internal static class SevenZipArchiveExtractor
                 };
                 using (var archiveFile = new ArchiveFile(source, format, nativeLibraryPath))
                 {
-                    ValidateArchiveEntries(archiveFile.Entries, extractedTempDirectoryPath);
-                    archiveFile.Extract(extractedTempDirectoryPath, false, null);
+                    Dictionary<Entry, string> destinations = ResolveArchiveDestinations(archiveFile.Entries, extractedTempDirectoryPath);
+                    archiveFile.Extract(entry =>
+                    {
+                        string destination = destinations[entry];
+                        // 既存の上書き禁止を保ち、検査済みの絶対宛先だけをnativeへ渡します。
+                        return entry.IsFolder || !File.Exists(destination) ? destination : null;
+                    }, null);
                     RejectReparsePoints(extractedTempDirectoryPath);
                     if (archiveFile.Entries == null)
                     {
@@ -70,7 +76,7 @@ internal static class SevenZipArchiveExtractor
                     {
                         archiveEntries.Add(new ArchiveEntryMetadata
                         {
-                            FileName = entry.FileName,
+                            FileName = Path.GetRelativePath(extractedTempDirectoryPath, destinations[entry]),
                             IsFolder = entry.IsFolder,
                             CreationTime = entry.CreationTime,
                             LastAccessTime = entry.LastAccessTime,
@@ -122,16 +128,15 @@ internal static class SevenZipArchiveExtractor
         }
     }
 
-    private static void ValidateArchiveEntries(IEnumerable<Entry> entries, string extractedTempDirectoryPath)
+    private static Dictionary<Entry, string> ResolveArchiveDestinations(IEnumerable<Entry> entries, string extractedTempDirectoryPath)
     {
         if (string.IsNullOrWhiteSpace(extractedTempDirectoryPath))
         {
             throw new ArgumentException("An archive extraction directory is required.", nameof(extractedTempDirectoryPath));
         }
 
-        string extractionRoot = Path.GetFullPath(extractedTempDirectoryPath)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            + Path.DirectorySeparatorChar;
+        string extractionRoot = Path.GetFullPath(extractedTempDirectoryPath);
+        var destinations = new Dictionary<Entry, string>();
         foreach (Entry entry in entries ?? [])
         {
             string entryName = entry?.FileName;
@@ -151,15 +156,26 @@ internal static class SevenZipArchiveExtractor
             }
 
             string fullEntryPath = Path.GetFullPath(Path.Combine(extractionRoot, normalizedEntryName.Replace('/', Path.DirectorySeparatorChar)));
-            if (!fullEntryPath.StartsWith(extractionRoot, StringComparison.OrdinalIgnoreCase))
+            string relativePath = Path.GetRelativePath(extractionRoot, fullEntryPath);
+            // 現在位置を解決しても種別は変えず、展開ルートへのファイル書込みを拒否します。
+            if (Path.IsPathRooted(relativePath)
+                || relativePath == ".."
+                || relativePath.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                || (relativePath == "." && !entry.IsFolder))
             {
                 throw new InvalidDataException("Archive entry escapes the extraction directory: " + entryName);
             }
+            destinations.Add(entry, fullEntryPath);
         }
+        return destinations;
     }
 
     private static bool IsWindowsPathTraversalOrAmbiguousSegment(string segment)
     {
+        if (segment == ".")
+        {
+            return false;
+        }
         string windowsStableSegment = segment.TrimEnd(' ', '.');
         return !string.Equals(segment, windowsStableSegment, StringComparison.Ordinal)
             || string.Equals(windowsStableSegment, ".", StringComparison.Ordinal)

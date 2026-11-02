@@ -243,23 +243,27 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
     }
 
-    /// <summary>入れ子ZIPを実native展開と導入へ通し、展開entry名と譜面からの音源相対構造・bytes、実DBと所持正本、借用元を確認します。</summary>
+    /// <summary>入れ子と現在位置成分・通常分類でdirectoryとなる ./ を持つ実ZIPを展開・導入し、固定した相対配置と音源構造・bytes、実DBと所持正本、借用元を確認します。</summary>
     /// <remarks>実アーカイブのnative展開、実FSとSQLiteへの確定を通す。管理入力の消費と借用元の保持は、展開portの成功応答だけでは確認できない。</remarks>
     [TestMethod]
     [DoNotParallelize]
-    public async Task AutoInstall_NestedZipPreservesChartRelativeResourceStructureThroughRealInstall()
+    [DataRow("wrapper/work/chart.bms", "wrapper/work")]
+    [DataRow("chart.bms", "")]
+    [DataRow("./chart.bms", "")]
+    [DataRow("sub/./chart.bms", "sub")]
+    public async Task AutoInstall_NestedZipPreservesChartRelativeResourceStructureThroughRealInstall(string entryName, string expectedDirectory)
     {
         using var fixture = new ManagedArchiveInstallFixture();
-        string source = Path.Combine(fixture.Root, "nested-source");
-        string chartRoot = Path.Combine(source, "wrapper", "work");
-        string resource = Path.Combine(chartRoot, "sound", "sub", "tone.wav");
-        Directory.CreateDirectory(Path.GetDirectoryName(resource) ?? throw new AssertFailedException());
         byte[] chartBytes = Encoding.ASCII.GetBytes("#PLAYER 1\r\n#TITLE Nested\r\n#BPM 120\r\n#WAV01 sound/sub/tone.wav\r\n#00111:01\r\n");
-        File.WriteAllBytes(Path.Combine(chartRoot, "chart.bms"), chartBytes);
         byte[] resourceBytes = [1, 9, 7, 3];
-        File.WriteAllBytes(resource, resourceBytes);
         string archive = Path.Combine(fixture.Root, "nested.zip");
-        ZipFile.CreateFromDirectory(source, archive);
+        string resourceName = expectedDirectory.Length == 0 ? "sound/sub/tone.wav" : expectedDirectory + "/sound/sub/tone.wav";
+        using (ZipArchive zip = ZipFile.Open(archive, ZipArchiveMode.Create))
+        {
+            zip.CreateEntry("./");
+            using (Stream output = zip.CreateEntry(entryName).Open()) { output.Write(chartBytes); }
+            using (Stream output = zip.CreateEntry(resourceName).Open()) { output.Write(resourceBytes); }
+        }
         byte[] archiveBytes = File.ReadAllBytes(archive);
         var extracted = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         fixture.Files.BeforeTimestamp = path => extracted.Add(path, File.ReadAllBytes(path));
@@ -273,8 +277,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         string destination = result.RegisteredPackages.Single().ChartEntries.Single().Chart.Path;
         CollectionAssert.AreEqual(chartBytes, File.ReadAllBytes(destination));
         CollectionAssert.AreEqual(resourceBytes, File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(destination) ?? throw new AssertFailedException(), "sound", "sub", "tone.wav")));
-        Assert.IsTrue(extracted.Keys.Any(path => path.EndsWith(Path.Combine("wrapper", "work", "chart.bms"), StringComparison.OrdinalIgnoreCase)));
-        Assert.IsTrue(extracted.Keys.Any(path => path.EndsWith(Path.Combine("wrapper", "work", "sound", "sub", "tone.wav"), StringComparison.OrdinalIgnoreCase)));
+        string extractedRoot = fixture.ExtractedRoots.Single();
+        expectedDirectory = expectedDirectory.Replace('/', Path.DirectorySeparatorChar);
+        string expectedChart = Path.Combine(extractedRoot, expectedDirectory, "chart.bms");
+        string expectedResource = Path.Combine(extractedRoot, expectedDirectory, "sound", "sub", "tone.wav");
+        CollectionAssert.AreEquivalent(new[] { expectedChart, expectedResource }, extracted.Keys.ToArray());
+        CollectionAssert.AreEqual(chartBytes, extracted[expectedChart]);
+        CollectionAssert.AreEqual(resourceBytes, extracted[expectedResource]);
         using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
         Assert.IsNotNull(db.Find<LR2SongDB.song>(destination));
         Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());

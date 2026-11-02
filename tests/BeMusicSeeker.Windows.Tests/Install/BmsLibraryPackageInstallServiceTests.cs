@@ -1666,29 +1666,53 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// dot-dotと空白を含む実ZIPエントリは展開ルート外へ出る前に拒否し、準備フォルダや外部ファイルを残す経路逸脱を検出する。
+    /// 親参照・絶対/drive/UNC・ADS・末尾dot/space・通常分類でfileとなる . の実ZIPを拒否し、展開先外の専有sentinelとpath集合を保つことを確認する。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     [DataRow("../outside.txt")]
     [DataRow(".. /outside.txt")]
     [DataRow(" ../outside.txt")]
+    [DataRow("sub/../outside.txt")]
+    [DataRow("absolute")]
+    [DataRow("drive-relative")]
+    [DataRow(@"\\ingress-invalid-host\share\outside.txt")]
+    [DataRow("chart.bms:stream")]
+    [DataRow("name./outside.txt")]
+    [DataRow("name /outside.txt")]
+    [DataRow(".")]
     public void SevenZipArchiveExtractor_RejectsEntryOutsideExtractionDirectory(string entryName)
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
+            string outside = Path.Combine(tempDirectoryPath, "outside.txt");
+            File.WriteAllText(outside, "owned-sentinel");
+            entryName = entryName switch
+            {
+                "absolute" => outside,
+                "drive-relative" => outside[..2] + "outside.txt",
+                _ => entryName
+            };
             string archivePath = Path.Combine(tempDirectoryPath, "unsafe.zip");
             using (ZipArchive archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
             {
                 archive.CreateEntry(entryName);
             }
-
+            string nativeLibrary = SevenZipArchiveExtractor.ResolveBundledSevenZipLibraryPath();
+            if (entryName == ".")
+            {
+                using var reference = new SevenZipExtractor.ArchiveFile(archivePath, nativeLibrary);
+                Assert.AreEqual(".", reference.Entries.Single().FileName);
+                Assert.IsFalse(reference.Entries.Single().IsFolder, "directoryとしての解釈をfile拒否の保証へ読み替えません。");
+            }
+            string[] originalPaths = Directory.GetFileSystemEntries(tempDirectoryPath, "*", System.IO.SearchOption.AllDirectories);
+            byte[] archiveBytes = File.ReadAllBytes(archivePath);
             string extractionDirectoryPath = Path.Combine(tempDirectoryPath, "extracted");
             Assert.ThrowsExactly<InvalidDataException>(() => SevenZipArchiveExtractor.ExtractArchiveEntries(
-                archivePath,
-                SevenZipArchiveExtractor.ResolveBundledSevenZipLibraryPath(),
-                extractionDirectoryPath));
-            Assert.IsFalse(File.Exists(Path.Combine(tempDirectoryPath, "outside.txt")));
+                archivePath, nativeLibrary, extractionDirectoryPath));
+            Assert.AreEqual("owned-sentinel", File.ReadAllText(outside));
+            CollectionAssert.AreEqual(archiveBytes, File.ReadAllBytes(archivePath));
+            CollectionAssert.AreEquivalent(originalPaths, Directory.GetFileSystemEntries(tempDirectoryPath, "*", System.IO.SearchOption.AllDirectories));
             Assert.IsFalse(Directory.Exists(extractionDirectoryPath));
         });
     }
