@@ -3053,10 +3053,15 @@ public partial class MainWindowViewModel : ViewModel,
         return await CompleteAcceptedDuplicateInputAsync(operationResult, capability);
     }
 
-    /// <summary>全再初期化の必須処理を同じL/Pで終え、解放後の共通UI・通知・後続へ合流します。</summary>
+    /// <summary>修復候補の読取り前にL/Pを事前検査し、確認中は予約せず、実受付後の全再初期化と解放後の通知・後続を終えます。</summary>
     internal async Task ReinitializeLibraryAsync()
     {
         if (IsRequiredInitializationShutdownRequested || !initializationCompleted) { return; }
+        if (!chartFileOperations.CanEnter || !applicationComposition.PlaylistOperationAdmission.CanEnter)
+        {
+            await FileDbMutationDialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, BeMusicSeeker.Properties.Resources.Warning));
+            return;
+        }
         LeapYearFolderRepairNotification notification = null;
         LeapYearFolderRepairApproval approval = await startupLibraryInitializationWorkflowOwner.PrepareLeapYearFolderRepairAsync(
             files.InitializationSongDbPath, FileDbMutationDialogs, () => IsRequiredInitializationShutdownRequested);
@@ -3534,7 +3539,7 @@ public partial class MainWindowViewModel : ViewModel,
             RaiseLibraryOperationAvailabilityChanged();
         }
         _ = string.Empty;
-        string text = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? string.Empty;
+        string text = BeMusicSeeker.Models.Update.UpdateCheckService.GetCurrentVersionText();
         WindowTitle = "BeMusicSeeker Unofficial Fork - " + text;
         StartupSettingsSnapshot startupSettings = null;
         Lr2ConfigOwner startupLr2Config;

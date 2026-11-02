@@ -291,6 +291,7 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
         throw new UpdaterLaunchFailureException("Updater process did not publish its ready handshake within 10 seconds.");
     }
 
+    /// <summary>cancel公開後は既存停止期限で正常終端を待ち、公開失敗・無応答だけを強制停止して元失敗を保持します。</summary>
     private void AbortUpdaterProcess(Process process, string decisionFilePath)
     {
         Exception decisionFailure = null;
@@ -306,7 +307,14 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
         Exception terminationFailure = null;
         try
         {
-            StopProcess(process);
+            if (decisionFailure != null || !process.WaitForExit((int)terminationTimeout.TotalMilliseconds))
+            {
+                StopProcess(process);
+            }
+            else if (process.ExitCode != 0)
+            {
+                throw new UpdaterLaunchFailureException("Updater cancellation did not complete successfully. exitCode=" + process.ExitCode);
+            }
         }
         catch (Exception exception)
         {

@@ -58,6 +58,9 @@ internal sealed class UpdaterPackageProbe
                 case nameof(WindowsGatewayAcceptsDriveRootReadyReceiptAndCancelsWithoutApplying):
                     WindowsGatewayAcceptsDriveRootReadyReceiptAndCancelsWithoutApplying();
                     break;
+                case nameof(WindowsGatewayCancelsAndPreparesNextUpdate):
+                    WindowsGatewayCancelsAndPreparesNextUpdate();
+                    break;
                 case nameof(RecoverCommandDefersWhenTheApplicationExecutableIsStillRunning):
                     Assert.IsFalse(request.Restarting);
                     RecoverCommandDefersWhenTheApplicationExecutableIsStillRunning();
@@ -139,6 +142,51 @@ internal sealed class UpdaterPackageProbe
     }
 
 
+    private void WindowsGatewayCancelsAndPreparesNextUpdate()
+    {
+        Directory.CreateDirectory(Path.Combine(request.RootDirectory, "app", "update_work", "downloads"));
+        (string app, string package, string backup) = PrepareCleanupFailurePackage(request.RootDirectory);
+        WriteTextFile(app, "config/user.config", "user-settings");
+        WriteTextFile(backup, "previous/retained.txt", "previous-generation");
+        string current = Directory.CreateDirectory(Path.Combine(app, "update_work", "current")).FullName;
+        string updater = Path.Combine(current, "BeMusicSeeker.Updater.exe");
+        string ready = Path.Combine(current, "updater-ready.txt");
+        string decision = Path.Combine(current, "updater-decision.txt");
+        string canonical = ComputeCanonicalTreeHash(app);
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            // 再配置が成功すること自体も、前回のwatchdogが同じ実行体を保持していない独立した確認です。
+            File.Copy(request.UpdaterPath, updater, overwrite: true);
+            File.Delete(ready);
+            File.Delete(decision);
+            Process? process = null;
+            var gateway = new WindowsUpdaterProcessGateway(info =>
+            {
+                info.RedirectStandardOutput = true;
+                info.RedirectStandardError = true;
+                process = StartDirectProcess(info);
+                return process;
+            });
+            UpdaterLaunchReceipt receipt = gateway.Prepare(UpdaterProcessLaunchRequest.Create(updater, current,
+                app, package, backup, ready, decision, Path.Combine(app, "restart.exe"))).Start();
+            Assert.IsNotNull(process);
+            Assert.IsTrue(File.Exists(Path.Combine(app, "update_work", "update-transaction.json")));
+            receipt.Abort();
+            WaitForDirectExit(process, deadline);
+            Assert.AreEqual(0, process.ExitCode);
+            Assert.IsFalse(File.Exists(Path.Combine(app, "update_work", "update-transaction.json")));
+            Assert.AreEqual(0, GetRecoveryRunOnceValues(app).Count);
+            Assert.AreEqual(0, GetRecoverySupervisorValues(app).Count);
+            Assert.AreEqual(canonical, ComputeCanonicalTreeHash(app));
+            Assert.IsTrue(File.Exists(package));
+            Assert.AreEqual("user-settings", File.ReadAllText(Path.Combine(app, "config", "user.config")));
+            Assert.AreEqual("previous-generation", File.ReadAllText(Path.Combine(backup, "previous", "retained.txt")));
+            Assert.IsFalse(File.Exists(Path.Combine(app, "old.marker")));
+            using FileStream releasedImage = new(updater, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            Assert.IsTrue(releasedImage.Length > 0, "所有watchdogを含む実行体の解放はfixtureのKillより前に確認します。");
+        }
+    }
+
     private Process StartDirectProcess(ProcessStartInfo info, bool waitForReady = false)
     {
         DistributionValidation.CheckDeadline(deadline, CancellationToken.None);
@@ -216,7 +264,8 @@ internal sealed class UpdaterPackageProbe
                 JsonSerializer.Serialize(new
                 {
                     Version = 1,
-                    Phase = "applying",
+                    Phase = request.Phase,
+                    Preflight = request.Preflight,
                     AppDirectory = appDirectoryPath,
                     PackagePath = packagePath,
                     ApplicationProcessId = Environment.ProcessId,
@@ -224,7 +273,7 @@ internal sealed class UpdaterPackageProbe
                     PreviousDirectory = previousDirectoryPath,
                     ExtractDirectory = extractDirectoryPath,
                     RestartExecutablePath = restartExecutablePath,
-                    BackupComplete = true,
+                    BackupComplete = request.Phase == "applying",
                     NewPackagePaths = new[] { "BeMusicSeeker.exe" }
                 }));
 
@@ -233,6 +282,36 @@ internal sealed class UpdaterPackageProbe
                 restartExecutablePath);
             try
             {
+                if (request.Phase == "prepared")
+                {
+                    string source = Path.Combine(tempDirectoryPath, "package-source");
+                    WriteTextFile(source, "BeMusicSeeker.exe", "next-app");
+                    Directory.CreateDirectory(Path.GetDirectoryName(packagePath) ?? throw new InvalidOperationException());
+                    System.IO.Compression.ZipFile.CreateFromDirectory(source, packagePath);
+                    string journal = File.ReadAllText(journalPath);
+                    string canonical = ComputeCanonicalTreeHash(appDirectoryPath);
+                    Commands.RunUpdaterRecovery(appDirectoryPath);
+                    Assert.IsFalse(File.Exists(journalPath));
+                    Assert.AreEqual(0, GetRecoveryRunOnceValues(appDirectoryPath).Count);
+                    Assert.AreEqual(0, GetRecoverySupervisorValues(appDirectoryPath).Count);
+                    Assert.IsFalse(liveApplication.HasExited);
+                    Assert.AreEqual(canonical, ComputeCanonicalTreeHash(appDirectoryPath));
+                    Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(previousDirectoryPath, "BeMusicSeeker.exe")));
+                    File.WriteAllText(journalPath, journal);
+                    OwnedProcess prepared = Commands.StartUpdater(appDirectoryPath, packagePath, backupDirectoryPath,
+                        restartExecutablePath, liveApplication.Id.ToString(), publishProceed: false);
+                    Assert.IsFalse(prepared.RootExit.IsCompleted, "通常入口は古いpreparedを回収して次のreadyへ進みます。");
+                    PublishUpdaterDecision(Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt"), "cancel");
+                    Commands.WaitForExit(prepared);
+                    Assert.AreEqual(0, prepared.RootExit.GetAwaiter().GetResult());
+                    Assert.IsFalse(File.Exists(journalPath));
+                    Assert.AreEqual(0, GetRecoveryRunOnceValues(appDirectoryPath).Count);
+                    Assert.AreEqual(0, GetRecoverySupervisorValues(appDirectoryPath).Count);
+                    Assert.AreEqual(canonical, ComputeCanonicalTreeHash(appDirectoryPath));
+                    Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(previousDirectoryPath, "BeMusicSeeker.exe")));
+                    Assert.IsFalse(liveApplication.HasExited);
+                    return;
+                }
                 OwnedProcess normalUpdater = Commands.StartUpdater(
                     appDirectoryPath,
                     packagePath,

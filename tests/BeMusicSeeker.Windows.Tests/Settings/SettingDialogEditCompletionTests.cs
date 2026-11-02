@@ -3211,31 +3211,38 @@ public sealed class SettingDialogEditCompletionTests
                     }
                     return;
                 }
-                if (entry == 0)
+                if (entry is 0 or 3)
                 {
                     // どちらのBusyでも候補確認・保存・修復はなく、解放後の新しい明示要求を受け付ける。
                     foreach (ChartFileOperationSynchronizer admission in new[] { composition.OperationAdmission, composition.PlaylistOperationAdmission })
                     {
                         Assert.IsTrue(admission.TryEnter(out IDisposable held));
-                        using (held) { TestUiDispatcherHost.AwaitTaskOnDispatcher(activeOwner.SettingDialog.StartConfirmedEnvironmentAsync(), "leap-settings-busy"); }
+                        using (held) { TestUiDispatcherHost.AwaitTaskOnDispatcher(entry == 0 ? activeOwner.SettingDialog.StartConfirmedEnvironmentAsync() : activeOwner.ReinitializeLibraryAsync(), "leap-settings-busy"); }
                         Assert.AreEqual(0, settingsSession.SaveCount);
                         Assert.AreEqual(0, dialogs.ConfirmationCount);
                         Assert.AreEqual(0, mutation.TimestampCalls.Count);
                     }
                     // 確認中に他操作が先着した場合も予約を持たず、副作用前に拒否する。
                     Action<UiConfirmationRequest>? assertConfirmation = dialogs.ConfirmationObserved;
-                    dialogs.ConfirmationObserved = request =>
+                    foreach (ChartFileOperationSynchronizer admission in new[] { composition.OperationAdmission, composition.PlaylistOperationAdmission })
                     {
-                        assertConfirmation?.Invoke(request);
-                        Assert.IsTrue(composition.OperationAdmission.TryEnter(out competing));
-                    };
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(activeOwner.SettingDialog.StartConfirmedEnvironmentAsync(), "leap-settings-lost-admission");
-                    Assert.AreEqual(0, settingsSession.SaveCount);
-                    Assert.AreEqual(0, mutation.TimestampCalls.Count);
-                    competing?.Dispose(); competing = null;
+                        dialogs.ConfirmationObserved = request =>
+                        {
+                            assertConfirmation?.Invoke(request);
+                            Assert.IsTrue(admission.TryEnter(out competing));
+                        };
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(entry == 0 ? activeOwner.SettingDialog.StartConfirmedEnvironmentAsync() : activeOwner.ReinitializeLibraryAsync(), "leap-lost-admission");
+                        Assert.AreEqual(0, settingsSession.SaveCount);
+                        Assert.AreEqual(0, mutation.TimestampCalls.Count);
+                        if (ReferenceEquals(admission, composition.PlaylistOperationAdmission))
+                        {
+                            Assert.IsFalse(composition.OperationAdmission.IsActive, "P先着で要求側が取得したLを解放します。");
+                        }
+                        competing?.Dispose(); competing = null;
+                    }
                     dialogs.ConfirmationObserved = assertConfirmation;
                     beforeAcceptedConfirmations = dialogs.ConfirmationCount;
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(activeOwner.SettingDialog.StartConfirmedEnvironmentAsync(), "leap-settings-accepted");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(entry == 0 ? activeOwner.SettingDialog.StartConfirmedEnvironmentAsync() : activeOwner.ReinitializeLibraryAsync(), "leap-settings-accepted");
                     Assert.AreEqual(0, settingsSession.SaveCount);
                 }
                 else if (entry == 2)
@@ -3243,6 +3250,8 @@ public sealed class SettingDialogEditCompletionTests
                     Task<bool> operation = activeOwner.InitializeAsync();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "leap-normal-startup");
                     Assert.IsTrue(operation.GetAwaiter().GetResult());
+                    Assert.AreEqual("BeMusicSeeker Unofficial Fork - " + typeof(MainWindowViewModel).Assembly
+                        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion, activeOwner.WindowTitle);
                 }
                 else { TestUiDispatcherHost.AwaitTaskOnDispatcher(activeOwner.ReinitializeLibraryAsync(), "leap-tree-reinitialize"); }
                 Assert.IsTrue(changed);

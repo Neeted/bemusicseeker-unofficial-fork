@@ -372,6 +372,13 @@ function New-ReleasePackage {
         $metadataPackage = New-ZipPackage $version $MetadataPackageSuffix $metadataInfo
         $packages += $metadataPackage
     }
+    else {
+        # 通常版の完成後にだけ、同版の古い標準metadata同梱ZIPを退役します。
+        $obsoleteMetadataPackage = Join-Path $distDir "bemusicseeker-unofficial-fork-v$version-with-metadata.zip"
+        if (Test-Path -LiteralPath $obsoleteMetadataPackage -PathType Leaf) {
+            Remove-Item -LiteralPath $obsoleteMetadataPackage
+        }
+    }
 
     return $packages
 }

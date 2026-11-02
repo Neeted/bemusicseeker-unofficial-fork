@@ -668,12 +668,16 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         Assert.AreEqual(0, aborted);
     }
 
-    /// <summary>モード再起動の受理後に更新起動handshakeが戻っても更新継続を中止し、再起動用保存と終端保存・明示終了を各一回実行します。</summary>
+    /// <summary>Closeまたはモード再起動の先着後は更新を続行せず、Abortの実終端までCloseを待ち、成立した保存・再起動・明示終了を各一回実行します。</summary>
     [TestMethod]
-    public async Task AcceptedOperationModeRestartInvalidatesLaterStartupUpdateContinuation()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task AcceptedOperationModeRestartInvalidatesLaterStartupUpdateContinuation(bool modeRestart)
     {
         var launchEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var launchRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var abortEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var abortRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         int downloadCount = 0;
         int launchStartCount = 0;
         int launchProceedCount = 0;
@@ -691,7 +695,12 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
                 launchEntered.TrySetResult(true);
                 launchRelease.Task.GetAwaiter().GetResult();
                 return new UpdaterLaunchReceipt(
-                    () => Interlocked.Increment(ref launchAbortCount),
+                    () =>
+                    {
+                        Interlocked.Increment(ref launchAbortCount);
+                        abortEntered.TrySetResult(true);
+                        abortRelease.Task.GetAwaiter().GetResult();
+                    },
                     () => Interlocked.Increment(ref launchProceedCount));
             }),
             () => { },
@@ -720,13 +729,24 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         {
             Assert.IsTrue(startupUpdate.Start());
             await TestUiDispatcherHost.AwaitNotificationAsync(launchEntered.Task, startupUpdate.WaitForIdleAsync(), "shell-shutdown.update-launch");
-            Assert.IsTrue(await owner.RequestOperationModeRestartAsync(
-                new OperationModeRestartRequest(EnvironmentSettingsChange.Capture(settingsSession.Values) with { OperationModeLR2DB = true }, "history-mode-wins")));
+            if (modeRestart)
+            {
+                Assert.IsTrue(await owner.RequestOperationModeRestartAsync(
+                    new OperationModeRestartRequest(EnvironmentSettingsChange.Capture(settingsSession.Values) with { OperationModeLR2DB = true }, "history-mode-wins")));
+            }
+            else { close = owner.RequestWindowCloseAsync(); }
             Assert.IsNotNull(close);
+            // 起動callbackは別worker上で待っているため、解除後もこの継続からAbortのgateを観測・解放できます。
+            launchRelease.TrySetResult(true);
+            await TestUiDispatcherHost.AwaitNotificationAsync(abortEntered.Task, startupUpdate.WaitForIdleAsync(), "shell-shutdown.update-abort");
+            Assert.IsFalse(close.IsCompleted, "Abortの実終端前にCloseを完了してはいけません。");
+            Assert.AreEqual(0, launchProceedCount);
+            Assert.AreEqual(1, launchAbortCount);
         }
         finally
         {
             launchRelease.TrySetResult(true);
+            abortRelease.TrySetResult(true);
             await startupUpdate.WaitForTerminalAsync();
         }
         await startupUpdate.WaitForTerminalAsync();
@@ -739,8 +759,8 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         Assert.AreEqual(1, launchStartCount);
         Assert.AreEqual(0, launchProceedCount);
         Assert.AreEqual(1, launchAbortCount);
-        Assert.AreEqual(2, settingsSession.SaveCount);
-        Assert.AreEqual(1, restartCount);
+        Assert.AreEqual(modeRestart ? 2 : 1, settingsSession.SaveCount);
+        Assert.AreEqual(modeRestart ? 1 : 0, restartCount);
         Assert.AreEqual(1, applicationShutdownCount);
     }
 

@@ -5,4 +5,6 @@ namespace BeMusicSeeker.TestSupport.Components.Update;
 /// <param name="UpdaterPath">catalog Currentの専有コピー、または環境caseが明示指定・通常buildから選んだ実updaterです。</param>
 /// <param name="Restarting">元DataRowのjournal中断状態です。結果でも同じ値を照合します。</param>
 /// <param name="RemainingTicks">親の単調180秒期限の残時間です。親自身も同じ元期限でprobeを監視します。</param>
-internal sealed record UpdaterPackageProbeRequest(string RootDirectory, string UpdaterPath, bool Restarting, long RemainingTicks);
+/// <param name="Phase">生存アプリの回復で観測する既存journal phaseです。</param>
+/// <param name="Preflight">preparedの既存入力準備段階です。</param>
+internal sealed record UpdaterPackageProbeRequest(string RootDirectory, string UpdaterPath, bool Restarting, long RemainingTicks, string Phase = "applying", bool Preflight = false);

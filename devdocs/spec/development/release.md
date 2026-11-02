@@ -109,6 +109,8 @@ pwsh -NoProfile -File scripts/publish.ps1
 pwsh -NoProfile -File scripts/publish.ps1 -IncludeMetadata
 ```
 
+通常ZIPのみの生成が正常完了した時点で、同版・標準名の `-with-metadata.zip` 一つを退役します。他版ZIPとmetadata元データは保持します。`-IncludeMetadata` では同じ今回の出力から両ZIPを生成し、通常ZIPの生成失敗より先に旧metadata ZIPを削除しません。
+
 更新検証用の実行限定版は `-ApplicationVersion` に四成分の数値版を渡します。専有 `-ArtifactRoot` を必須とし、`-SkipBuild` との併用は拒否します。app/updaterそれぞれのrestore・build中間出力は指定root内のproject別 `obj/`・`bin/` に分離し、配布出力は `app/`・`updater/`・`dist/` へ置きます。既存の通常 `obj/`・`bin/` をsourceとして再取り込みません。版変更時には生成属性も更新し、正本の版値やAssemblyVersionを書き換えません。
 
 appの通常restoreは `BeMusicSeeker/packages.lock.json`、配布profileのrestore/publishは `BeMusicSeeker/packages.publish.lock.json` を使います。後者はSingleFile analyzerのSDK依存を含み、通常版・実行限定版・metadata同梱版で共有します。依存更新時は `dotnet restore BeMusicSeeker/BeMusicSeeker.csproj --runtime win-x64 --force-evaluate -p:Platform=x64 -p:Configuration=Release -p:PublishProfile=WinX64SelfContained` で配布lockも明示更新し、解決版の差分を確認します。通常のpublish経路はlocked restoreを維持し、lock欠落は出力変更前に拒否し、不一致時に再生成へ切り替えません。

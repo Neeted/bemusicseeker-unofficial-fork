@@ -128,6 +128,10 @@ internal sealed class UpdaterProcessGatewayProbe
                 CollectionAssert.AreEqual(new byte[] { (byte)'1' }, File.ReadAllBytes(readyFilePath));
                 using FileStream exclusiveReader = new(readyFilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
                 Assert.AreEqual(1L, exclusiveReader.Length, "Publication must close the writer before the normal reader can accept it.");
+                receipt.Abort();
+                await Task.WhenAll(exitTask, outputTask, errorTask);
+                Assert.IsTrue(ownedProcess.HasExited, "Gateway Abort must terminate the unresponsive updater before fixture cleanup.");
+                Assert.AreEqual("cancel", File.ReadAllText(decisionPath).Trim());
             }
         }
         catch (Exception exception)

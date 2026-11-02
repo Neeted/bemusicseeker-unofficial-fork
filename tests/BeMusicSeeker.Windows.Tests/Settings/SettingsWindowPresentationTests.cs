@@ -1775,8 +1775,8 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreNotEqual(englishBuild, build.Text);
                 var entryAssembly = Assembly.GetEntryAssembly();
                 string assemblyVersion = entryAssembly?.GetName().Version?.ToString() ?? string.Empty;
-                string? informationalVersion = entryAssembly?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-                string displayedVersion = string.IsNullOrWhiteSpace(informationalVersion) ? assemblyVersion : informationalVersion;
+                string displayedVersion = typeof(MainWindowViewModel).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                    ?? throw new AssertFailedException("製品版属性がありません。");
                 Assert.AreEqual(string.Format(Resources.About_version_format, displayedVersion), version.Text);
                 Assert.AreEqual(string.Format(Resources.About_build_format, assemblyVersion), build.Text);
                 Assert.IsTrue(FindDescendants<Button>(page).Any(button =>

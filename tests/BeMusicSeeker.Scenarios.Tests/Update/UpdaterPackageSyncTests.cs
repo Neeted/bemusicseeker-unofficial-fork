@@ -275,13 +275,24 @@ public sealed class UpdaterPackageSyncTests
     }
 
     /// <summary>
-    /// 同じ実行ファイルが実際に生存すると更新・復旧を延期して旧世代と新しい復旧登録を保ち、稼働中のアプリを上書きする誤りを検出する。
+    /// 生存アプリを保持し、preparedは両入口で回収し、backing-up/applyingは延期する。旧世代や起動数を変更する誤りを検出する。
     /// </summary>
     /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
-    public void RecoverCommandDefersWhenTheApplicationExecutableIsStillRunning()
+    [DataRow("applying", false)]
+    [DataRow("backing-up", false)]
+    [DataRow("prepared", false)]
+    [DataRow("prepared", true)]
+    public void RecoverCommandDefersWhenTheApplicationExecutableIsStillRunning(string phase, bool preflight)
     {
-        WithTemporaryDirectory(tempDirectoryPath => RunProbe(nameof(RecoverCommandDefersWhenTheApplicationExecutableIsStillRunning), tempDirectoryPath, false));
+        WithTemporaryDirectory(tempDirectoryPath => RunProbe(nameof(RecoverCommandDefersWhenTheApplicationExecutableIsStillRunning), tempDirectoryPath, false, phase, preflight));
+    }
+
+    /// <summary>実Gatewayのcancelでjournal・回復登録・watchdogが終端し、currentを再配置して次のreadyへ進めることを保証します。</summary>
+    [TestMethod]
+    public void WindowsGatewayCancelsAndPreparesNextUpdate()
+    {
+        WithTemporaryDirectory(tempDirectoryPath => RunProbe(nameof(WindowsGatewayCancelsAndPreparesNextUpdate), tempDirectoryPath, false));
     }
 
     /// <summary>
@@ -1322,11 +1333,11 @@ public sealed class UpdaterPackageSyncTests
             Assert.AreEqual("blocking-file", File.ReadAllText(Path.Combine(appDirectoryPath, "zz")));
         });
     }
-    private void RunProbe(string caseName, string rootDirectory, bool restarting)
+    private void RunProbe(string caseName, string rootDirectory, bool restarting, string phase = "applying", bool preflight = false)
     {
         ProcessDeadline deadline = operationDeadline ?? throw new InvalidOperationException("case期限がありません。");
         string requestPath = Path.Combine(rootDirectory, "update-probe.json");
-        var request = new UpdaterPackageProbeRequest(rootDirectory, Path.Combine(rootDirectory, "published-updater", "BeMusicSeeker.Updater.exe"), restarting, deadline.Remaining.Ticks);
+        var request = new UpdaterPackageProbeRequest(rootDirectory, Path.Combine(rootDirectory, "published-updater", "BeMusicSeeker.Updater.exe"), restarting, deadline.Remaining.Ticks, phase, preflight);
         File.WriteAllText(requestPath, JsonSerializer.Serialize(request));
         try
         {

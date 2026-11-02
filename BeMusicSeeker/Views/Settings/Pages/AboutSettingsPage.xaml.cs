@@ -29,12 +29,7 @@ public partial class AboutSettingsPage : UserControl
 
         var entryAssembly = Assembly.GetEntryAssembly();
         assemblyVersion = entryAssembly?.GetName().Version?.ToString() ?? string.Empty;
-        string informationalVersion = entryAssembly?
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-            .InformationalVersion;
-        displayedVersion = string.IsNullOrWhiteSpace(informationalVersion)
-            ? assemblyVersion
-            : informationalVersion;
+        displayedVersion = BeMusicSeeker.Models.Update.UpdateCheckService.GetCurrentVersionText();
         Loaded += AboutSettingsPageLoaded;
         Unloaded += AboutSettingsPageUnloaded;
         RefreshLocalizedVersionPresentation();

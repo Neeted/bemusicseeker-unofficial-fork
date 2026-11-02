@@ -150,7 +150,8 @@ internal sealed class UpdateCheckService
         };
     }
 
-    private static string GetCurrentVersionText()
+    /// <summary>更新比較と製品表示で共用する、製品assemblyのInformationalVersionを取得します。</summary>
+    internal static string GetCurrentVersionText()
     {
         return Assembly.GetExecutingAssembly()
             .GetCustomAttributes(typeof(AssemblyInformationalVersionAttribute), false)

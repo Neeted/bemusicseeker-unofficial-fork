@@ -157,12 +157,13 @@ internal static partial class Program
             ClearRecoveryStartup(request.AppDirectory);
             RegisterRecoveryStartup(request.AppDirectory);
             WritePreparedTransactionJournal(request);
-            StartTransactionWatchdog(request.AppDirectory);
+            using Process watchdog = StartTransactionWatchdog(request.AppDirectory);
             PublishReadyHandshake(request);
             if (!WaitForLaunchDecision(request))
             {
                 DiscardPreparedTransactionJournal(request.AppDirectory);
                 ClearRecoveryStartup(request.AppDirectory);
+                StopTransactionWatchdog(watchdog);
                 return 0;
             }
             PrepareFullTransactionJournal(request);
@@ -246,7 +247,8 @@ internal static partial class Program
                     || IsProcessRunningForExecutable(journal.RestartExecutablePath)));
         if (applicationStillRunning
             && journal != null
-            && !string.Equals(journal.Phase, TransactionPhase.Committed, StringComparison.Ordinal))
+            && !string.Equals(journal.Phase, TransactionPhase.Committed, StringComparison.Ordinal)
+            && !string.Equals(journal.Phase, TransactionPhase.Prepared, StringComparison.Ordinal))
         {
             // Startup cleanup must never mutate a live application tree. Leave the
             // journal and handoff in place for the watchdog or a later logon.
@@ -597,7 +599,8 @@ internal static partial class Program
         }
     }
 
-    private static void StartTransactionWatchdog(string appDirectory)
+    /// <summary>親終了後の回復を担当するwatchdogを起動し、取消時の終端責任を持つMainへhandleを返します。</summary>
+    private static Process StartTransactionWatchdog(string appDirectory)
     {
         string updaterPath = NormalizeExistingFile(Environment.ProcessPath);
         ProcessStartInfo startInfo = new(updaterPath)
@@ -617,7 +620,18 @@ internal static partial class Program
         {
             throw new InvalidOperationException("The updater transaction watchdog could not be started.");
         }
-        watchdog.Dispose();
+        return watchdog;
+    }
+
+    /// <summary>正常取消のjournal・登録退役後、取引leaseを保持したまま所有watchdogを停止して実終端を確認します。</summary>
+    private static void StopTransactionWatchdog(Process watchdog)
+    {
+        // watchdogは親終了を待つため、ここで自然終了を待つと循環します。
+        if (!watchdog.HasExited) { watchdog.Kill(); }
+        if (!watchdog.WaitForExit(10000))
+        {
+            throw new TimeoutException("The updater transaction watchdog did not terminate after cancellation.");
+        }
     }
 
     private static void RegisterRecoveryStartup(string appDirectory)
@@ -1180,6 +1194,7 @@ internal static partial class Program
         TransactionJournalRecord journal = ReadTransactionJournal(journalPath);
         ValidateTransactionJournal(journal, normalizedAppDirectory);
         if (!string.Equals(journal.Phase, TransactionPhase.Committed, StringComparison.Ordinal)
+            && !string.Equals(journal.Phase, TransactionPhase.Prepared, StringComparison.Ordinal)
             && IsProcessRunningForExecutable(journal.RestartExecutablePath))
         {
             TryRearmRecoveryStartup(normalizedAppDirectory);
