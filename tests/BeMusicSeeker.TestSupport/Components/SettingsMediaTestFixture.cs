@@ -8,6 +8,7 @@ namespace BeMusicSeeker.TestSupport.Components;
 internal static class SettingsMediaTestFixture
 {
     /// <summary>LR2の実標準配置と検索登録を作り、各出力基点を専用rootへ隔離します。</summary>
+    /// <remarks>root配下のSongsに正常な空catalogを作ります。呼出元は専有rootを所有し、全利用Taskの終端後に回収します。</remarks>
     internal static Settings CreateValidCustomFolderSettings(string root, IEnumerable<string> registeredRoots, Settings? ownedValues = null)
     {
         string songs = Path.Combine(root, "Songs");
@@ -48,8 +49,11 @@ internal static class SettingsMediaTestFixture
     }
 
     /// <summary>外部通信・自動走査を使わない、専用rootの単独動作設定を作ります。</summary>
+    /// <remarks>rootは既に存在するケース専有領域です。固定名の空catalogを所有し、利用する全Taskの終端後に呼出元が回収します。欠損rootは作成しません。</remarks>
     internal static Settings CreateValidStandaloneSettings(string root, Settings? ownedValues = null)
     {
+        string tableList = Path.Combine(root, "table-list.json");
+        File.WriteAllText(tableList, "[]");
         Settings settings = ownedValues ?? TestSettingsFactory.CreateIsolatedSettings();
         void Configure(Settings values)
         {
@@ -57,7 +61,7 @@ internal static class SettingsMediaTestFixture
             values.BMSRootPath = root;
             values.StandaloneBmsRootPaths = root;
             values.BMSInstallDir = root;
-            values.TableListURL = new Uri("http://127.0.0.1:1/table-list.json");
+            values.TableListURL = new Uri(Path.GetFullPath(tableList), UriKind.Absolute);
             values.EnablePlaylistUrlCompletion = false;
             values.ScanBmsFilesOnStartup = false;
             values.SkipInitPlaylistLoad = true;

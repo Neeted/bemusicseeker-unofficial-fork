@@ -66,6 +66,9 @@ internal sealed class OwnedTestDrive(string device, string target, Semaphore res
         finally { reservation.Release(); reservation.Dispose(); }
     }
 
+    /// <summary>未回収時に所有する別名と実targetを照合するための診断です。</summary>
+    public override string ToString() => $"alias={device}, target={target}";
+
     private static string[] ReadTargets(string device)
     {
         char[] buffer = new char[32768];

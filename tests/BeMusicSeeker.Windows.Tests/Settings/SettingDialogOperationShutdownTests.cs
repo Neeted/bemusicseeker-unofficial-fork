@@ -74,7 +74,7 @@ public sealed class SettingDialogOperationShutdownTests
             var failures = new List<Exception>();
             var composition = new ApplicationComposition(settingsEditSession: session, uiScheduler: ui, applicationLifetime: lifetime,
                 reportSettingsApplyFailure: failures.Add, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                settingsDialogService: dialogs, fileDbMutationDialogService: dialogs, runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.MissingEverythingBridge),
+                settingsDialogService: new SettingsOperationDialogs(dialogs), fileDbMutationDialogService: dialogs, runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.MissingEverythingBridge),
                 rootFileEnumerator: new FastRootFileEnumerator(), audioDeviceCatalog: new TestAudioDeviceCatalog());
             MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
             Window? previousMain = Application.Current.MainWindow;
@@ -321,6 +321,42 @@ public sealed class SettingDialogOperationShutdownTests
                 }
             }
         });
+    }
+
+    /// <summary>この終了検査の設定モーダルだけを実表示し、確認待機などの既存観測は同じ記録窓口に残します。</summary>
+    private sealed class SettingsOperationDialogs(RecordingRootDialogService recorded) : IUiDialogService
+    {
+        /// <summary>設定Windowと終了理由の型組だけを実owner・モーダル寿命へ接続します。</summary>
+        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
+            UiWindowDialogRequest<TWindow, TResult> request, CancellationToken cancellationToken = default) where TWindow : Window
+            => typeof(TWindow) == typeof(SettingsWindow) && typeof(TResult) == typeof(SettingsWindowCloseReason)
+                ? new UiDialogCoordinator().ShowWindowAsync(request, cancellationToken)
+                : recorded.ShowWindowAsync(request, cancellationToken);
+
+        /// <summary>通知の記録と固定応答を既存窓口へ渡します。</summary>
+        public Task<UiDialogResult?> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
+            => recorded.ShowMessageAsync(request, cancellationToken);
+
+        /// <summary>確認要求を既存の受理済み操作gateへ渡します。</summary>
+        public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
+            => recorded.ConfirmAsync(request, cancellationToken);
+
+        /// <summary>ファイル選択の既存応答契約を維持します。</summary>
+        public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default)
+            => recorded.PickFileAsync(request, cancellationToken);
+
+        /// <summary>フォルダ選択の既存記録と応答契約を維持します。</summary>
+        public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default)
+            => recorded.PickFolderAsync(request, cancellationToken);
+
+        /// <summary>保存先選択の既存非対応契約を維持します。</summary>
+        public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default)
+            => recorded.PickSaveFileAsync(request, cancellationToken);
+
+        /// <summary>進捗表示の既存非対応契約を維持します。</summary>
+        public Task<UiProgressResult> RunWithProgressAsync(UiProgressRequest request, Func<UiProgressContext, Task> operation,
+            CancellationToken cancellationToken = default)
+            => recorded.RunWithProgressAsync(request, operation, cancellationToken);
     }
 
     /// <summary>実LR2処理と両受付の解放を終えた後の返却Taskだけを保持し、Shellが独立に所有するSettings Taskの待機を識別します。</summary>

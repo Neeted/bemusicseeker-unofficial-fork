@@ -182,7 +182,7 @@ public sealed class SettingDialogLr2OwnerTests
                 using LR2SongDBExtended db = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).OpenSongDbReadOnly();
                 Assert.AreEqual(installedChart, db.Table<LR2SongDB.song>().Single().path);
             }
-        }, ownedResource: root => drive = OwnedTestDrive.Create(root));
+        }, ownedResource: root => drive = OwnedTestDrive.Create(root, 'Z'));
     }
 
     /// <summary>導入の進捗通知だけを終端判定から切り離し、実導入Taskを待つ代表用の受信先です。</summary>
