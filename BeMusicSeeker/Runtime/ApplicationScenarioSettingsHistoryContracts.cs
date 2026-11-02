@@ -26,7 +26,7 @@ internal enum ScenarioHistoryAction { ReloadScores, PeriodDay, Keyword, Library,
 internal sealed record ScenarioHistoryCommand(long RequestId, ScenarioHistoryAction Action, string Text = "", int TableId = 0) : ScenarioCommand(RequestId);
 /// <summary>実表示Taskの要求識別と採用後の履歴・集計、実Windowのランプ結果です。</summary>
 internal sealed record ScenarioHistoryCompleted(long RequestId, long ViewRequestId, long KeywordRevision,
-    string Provider, ImmutableArray<ScenarioHistoryRow> Rows, int SummaryRows, long FinalizedRows, int SummaryEligibleCount,
+    string Provider, ImmutableArray<ScenarioHistoryRow> Rows, long FinalizedRows, int ClearUpdateCount,
     bool PlayCountAvailable, bool PlaytimeAvailable, long PlaytimeSeconds, ImmutableArray<string> Paths,
     string LampState, int LampTotal, int? LampPlayed, ImmutableArray<ScenarioLampSegment> LampSegments) : ScenarioMessage(RequestId);
 /// <summary>実履歴行のraw identity、所持解決と成績差分です。</summary>

@@ -140,7 +140,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                     ResourceService.Current.ChangeCulture(language);
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.AreEqual("2", vm.PlayHistory.SummaryCards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
-                    StringAssert.Contains(vm.MainChartList.SummaryText, Resources.Play_history_period_all);
+                    Assert.AreEqual(string.Empty, vm.MainChartList.SummaryText);
                     Assert.AreSame(rows, vm.MainChartList.Rows);
                     Assert.AreSame(adoptedRequest, vm.PlayHistory.SnapshotActiveRequest());
                     Assert.AreSame(first, ((PlayHistoryRow)table.GetSelectedRowsSnapshot().Single()).Raw);
@@ -840,9 +840,9 @@ public sealed class MainWindowPlayHistoryWpfTests
             }, selectedChartContextMenuTerminals: CreateHistoryTerminals(settings, (input, kind, id) => calls.Add((input, kind, id))));
     }
 
-    /// <summary>未解決beatorajaは全kindのSHA256 Web操作だけを表示し、実クリックでもMD5空/SHA正値を維持します。未知kindの推測、copy専用項目の残留と不正なseparatorを検出します。</summary>
+    /// <summary>未解決beatorajaは三設定形式のSHA256 Web操作を表示し、実クリックでもMD5空/SHA正値を維持します。未知kindの推測、copy専用項目の残留と不正なseparatorを検出します。</summary>
     [TestMethod]
-    public void PlayHistoryUnresolvedBeatorajaRowOffersOnlyWebActionsForBothChartKinds()
+    public void PlayHistoryUnresolvedBeatorajaRowOffersWebActionsForEveryChartKind()
     {
         const string allKindsName = "All kinds";
         var calls = new List<(RightClickActionResolutionInput Input, string Id)>();
@@ -886,17 +886,19 @@ public sealed class MainWindowPlayHistoryWpfTests
                 RaiseMenuOpened(playHistoryMenu, table, unresolved, 0);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
-                Assert.IsFalse(playHistoryMenu.Items.OfType<MenuItem>().Any(item =>
-                    string.Equals(item.Name, "configuredWebAction_bms_only", StringComparison.Ordinal)));
-                Assert.IsFalse(playHistoryMenu.Items.OfType<MenuItem>().Any(item =>
-                    string.Equals(item.Name, "configuredWebAction_bmson_only", StringComparison.Ordinal)));
-                MenuItem allKinds = FindMenuItem(playHistoryMenu, "configuredWebAction_all_kinds");
-                Assert.AreEqual(allKindsName, allKinds.Header);
-                Assert.AreEqual(Visibility.Visible, allKinds.Visibility);
                 AssertHistoryMenuShape(playHistoryMenu);
-                allKinds.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, allKinds));
-                Assert.AreEqual(1, calls.Count); Assert.AreEqual("all-kinds", calls[0].Id);
-                Assert.AreEqual(string.Empty, calls[0].Input.Md5); Assert.AreEqual(unresolved.Sha256, calls[0].Input.Sha256); Assert.IsNull(calls[0].Input.LocalFilePath);
+                foreach (string id in new[] { "bms-only", "bmson-only", "all-kinds" })
+                {
+                    MenuItem item = FindMenuItem(playHistoryMenu, "configuredWebAction_" + id.Replace('-', '_'));
+                    Assert.AreEqual(Visibility.Visible, item.Visibility);
+                    item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, item));
+                    Assert.AreEqual(id, calls[^1].Id);
+                    Assert.AreEqual(string.Empty, calls[^1].Input.Md5);
+                    Assert.AreEqual(unresolved.Sha256, calls[^1].Input.Sha256);
+                    Assert.IsNull(calls[^1].Input.LocalFilePath);
+                    Assert.IsNull(calls[^1].Input.ChartKind);
+                }
+                Assert.AreEqual(3, calls.Count);
                 RaiseMenuClosed(playHistoryMenu);
             }, selectedChartContextMenuTerminals: CreateHistoryTerminals(settings, (input, _, id) => calls.Add((input, id))));
     }

@@ -1635,9 +1635,6 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   <data name="Play_history_period_diagnostics" xml:space="preserve">
     <value>未確定 / 診断</value>
   </data>
-  <data name="Play_history_summary_format" xml:space="preserve">
-    <value>{0}: {1} 件 / スコア更新 {2} / クリア更新 {3} / FC {4} / PLAYTIME {5} / 診断 {6}</value>
-  </data>
   <data name="Play_history_summary_judge_count" xml:space="preserve">
     <value>判定数</value>
   </data>

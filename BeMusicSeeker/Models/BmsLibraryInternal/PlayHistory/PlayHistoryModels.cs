@@ -10,15 +10,6 @@ internal enum PlayHistoryProvider
     Beatoraja
 }
 
-internal enum PlayHistoryHashKind
-{
-    Chart,
-    ExpertCourse,
-    NonstopCourse,
-    GradeCourse,
-    Unknown
-}
-
 internal enum PlayHistoryDiagnosticSeverity
 {
     Info,

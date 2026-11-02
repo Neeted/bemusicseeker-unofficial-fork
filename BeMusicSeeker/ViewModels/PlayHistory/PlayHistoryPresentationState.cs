@@ -131,9 +131,9 @@ internal sealed class PlayHistoryPresentationState
 
             CurrentView = request.ViewState;
             AdoptedSummary = request.ViewState == null
-                ? new PlayHistoryAdoptedSummary(null, null, default, [], true)
-                : new PlayHistoryAdoptedSummary(request.ViewState.PeriodRequest,
-                    request.PeriodSummary ?? PlayHistoryPeriodSummary.FromRows(request.ViewState.PeriodRequest.Label,
+                ? new PlayHistoryAdoptedSummary(null, default, [], true)
+                : new PlayHistoryAdoptedSummary(
+                    request.PeriodSummary ?? PlayHistoryPeriodSummary.FromRows(
                         request.ViewState.ProjectedRows, request.ViewState.SummaryOverride),
                     request.ViewState.Provider, request.SummaryDiagnostics ?? request.ViewState.Diagnostics, false);
             result.Applied = true;
@@ -216,44 +216,13 @@ internal sealed class PlayHistoryPresentationState
             && left.FinalizationFilter == right.FinalizationFilter;
     }
 
-    internal static string FormatGridSummaryText(
-        PlayHistoryPeriodRequest request,
-        PlayHistoryPeriodSummary summary,
-        IReadOnlyList<PlayHistoryDiagnostic> diagnostics)
-    {
-        return FormatGridSummaryText(request, summary, diagnostics, FormatDiagnosticSummary(diagnostics));
-    }
-
-    internal static string FormatGridSummaryText(
-        PlayHistoryPeriodRequest request,
-        PlayHistoryPeriodSummary summary,
-        IReadOnlyList<PlayHistoryDiagnostic> diagnostics,
-        string diagnosticSummary)
-    {
-        summary ??= PlayHistoryPeriodSummary.FromRows(request?.Label ?? string.Empty, []);
-        int diagnosticsCount = diagnostics?.Count ?? 0;
-        string baseText = string.Format(
-            CultureInfo.InvariantCulture,
-            BeMusicSeeker.Properties.Resources.Play_history_summary_format,
-            request?.Label ?? string.Empty,
-            summary.RowCount,
-            summary.ScoreUpdateCount,
-            summary.ClearUpdateCount,
-            summary.NewFullComboCount,
-            FormatDuration(summary),
-            diagnosticsCount);
-        return string.IsNullOrWhiteSpace(diagnosticSummary)
-            ? baseText
-            : baseText + " / " + diagnosticSummary;
-    }
-
     /// <summary>期間集計を既存カードへ渡し、FCカードにはFC・PERFECT・MAXへのクリア更新を対応付けます。</summary>
     internal static IReadOnlyList<PlayHistorySummaryCard> CreateSummaryCards(
         PlayHistoryPeriodSummary summary,
         PlayHistoryProvider provider,
         HashSet<string> selectedFilterKeys = null)
     {
-        summary ??= PlayHistoryPeriodSummary.FromRows(string.Empty, []);
+        summary ??= PlayHistoryPeriodSummary.FromRows([]);
         selectedFilterKeys ??= [];
         List<PlayHistorySummaryCard> cards =
         [
@@ -413,8 +382,7 @@ internal sealed class PlayHistoryTerminalRequest
 }
 
 /// <summary>採用成功後だけ保持する表示集計です。未採用CurrentViewからの整形を防ぎます。</summary>
-internal sealed record PlayHistoryAdoptedSummary(PlayHistoryPeriodRequest Period,
-    PlayHistoryPeriodSummary Summary, PlayHistoryProvider Provider,
+internal sealed record PlayHistoryAdoptedSummary(PlayHistoryPeriodSummary Summary, PlayHistoryProvider Provider,
     IReadOnlyList<PlayHistoryDiagnostic> Diagnostics, bool Failed);
 
 internal sealed class PlayHistoryTerminalCommitResult

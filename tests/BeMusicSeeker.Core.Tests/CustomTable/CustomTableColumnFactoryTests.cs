@@ -22,7 +22,7 @@ public sealed class CustomTableColumnFactoryTests
     [DataRow("lr2-unresolved")]
     [DataRow("beatoraja-unresolved")]
     [DataRow("beatoraja-sha-only")]
-    public void PlayHistoryHashColumns_UseProjectedHashKindsWithoutFallback(string scenario)
+    public void PlayHistoryHashColumns_UseProjectedHashesWithoutFallback(string scenario)
     {
         string md5 = new string('b', 32);
         string sha256 = new string('c', 64);
@@ -51,7 +51,6 @@ public sealed class CustomTableColumnFactoryTests
         {
             Assert.IsNull(row.ResolvedChart);
             Assert.AreEqual(1, metadataRequests);
-            Assert.AreEqual(PlayHistoryHashKind.Chart, row.HashKind, "所持譜面なしでもmatching metadataの取得を反映する必要があります。");
         }
         string expectedMd5 = lr2 || resolved ? md5 : string.Empty;
         string expectedSha = !lr2 || resolved ? sha256 : string.Empty;

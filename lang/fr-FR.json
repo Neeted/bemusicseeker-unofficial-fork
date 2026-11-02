@@ -226,7 +226,6 @@
   "Play_history_period_recent_30_days": "30 derniers jours",
   "Play_history_period_archive": "Par date",
   "Play_history_period_diagnostics": "Non finalisé / Diagnostic",
-  "Play_history_summary_format": "{0} : {1} parties / mises à jour des scores {2} / mises à jour des statuts de clear {3} / FC {4} / temps de jeu {5} / diagnostics {6}",
   "Play_history_summary_judge_count": "Jugements",
   "Play_history_summary_play_count": "Nombre de parties",
   "Play_history_summary_playtime": "Temps de jeu",

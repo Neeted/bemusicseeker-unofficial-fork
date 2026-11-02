@@ -210,7 +210,6 @@
   "Play_history_period_recent_30_days": "Recent 30 Days",
   "Play_history_period_archive": "By Date",
   "Play_history_period_diagnostics": "Unfinalized / Diagnostics",
-  "Play_history_summary_format": "{0}: {1} plays / score updates {2} / clear updates {3} / FC {4} / playtime {5} / diagnostics {6}",
   "Play_history_summary_judge_count": "Judgment count",
   "Play_history_summary_play_count": "Play count",
   "Play_history_summary_playtime": "Playtime",

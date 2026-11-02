@@ -960,7 +960,7 @@ public sealed class ChartListVirtualViewTests
             keywordIdentity: string.Empty,
             PlayHistoryDisplayTargetItem.All.Identity,
             displayTargetRevision: 0);
-        var table = new MainChartListViewModel { Rows = new List<object>() };
+        var table = new MainChartListViewModel { Rows = new List<object>(), SummaryText = "normal counts" };
         var detailBuildState = new PlaylistDetailBuildState();
         bool detailLockHeldDuringRelatedOwnerCommit = false;
         bool playHistoryLockHeldDuringRelatedOwnerCommit = false;
@@ -1036,7 +1036,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreSame(state, workflowOwner.PresentationState.CurrentView);
         Assert.IsInstanceOfType<PlayHistoryVirtualView>(table.Rows);
         Assert.AreEqual(-1, table.SelectedIndex);
-        Assert.IsFalse(string.IsNullOrWhiteSpace(table.SummaryText));
+        Assert.AreEqual(string.Empty, table.SummaryText);
         Assert.IsFalse(workflowOwner.SnapshotSummaryFilterKeys().Contains("exhard"));
         Assert.IsFalse(detailLockHeldDuringRelatedOwnerCommit);
         Assert.IsFalse(playHistoryLockHeldDuringRelatedOwnerCommit);
@@ -1209,7 +1209,7 @@ public sealed class ChartListVirtualViewTests
             rows, rows, rows, [], PlayHistoryProvider.Lr2, default, rows.Count,
             new SortSnapshot(null, null, revision: 0L), string.Empty, 0, PlayHistoryDisplayTargetItem.All, 0);
         var oldRow = new CountingDisposable();
-        var table = new MainChartListViewModel { Rows = new List<object> { oldRow } };
+        var table = new MainChartListViewModel { Rows = new List<object> { oldRow }, SummaryText = "normal counts" };
         var detailState = new PlaylistDetailViewState();
         detailState.Source.CurrentTable = new BMSTable { name = "retired source" };
         int diagnosticAttempts = 0;
@@ -3650,7 +3650,7 @@ public sealed class ChartListVirtualViewTests
     private static void SelectSummaryFilter(PlayHistoryWorkflowOwner owner, string filterKey)
     {
         PlayHistorySummaryCard card = PlayHistoryPresentationState.CreateSummaryCards(
-                PlayHistoryPeriodSummary.FromRows("All", []),
+                PlayHistoryPeriodSummary.FromRows([]),
                 PlayHistoryProvider.Beatoraja)
             .Single(item => item.FilterKey == filterKey);
         owner.PresentationState.SetSummaryCards([card]);

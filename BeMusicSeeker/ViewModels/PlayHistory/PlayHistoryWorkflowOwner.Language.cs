@@ -4,13 +4,10 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlayHistoryWorkflowOwner
 {
-    private MainChartListViewModel languageChartList;
-
     /// <summary>画面の購読寿命に従い、採用済み集計の言語変更だけを接続します。</summary>
-    internal void AttachLanguagePresentation(MainChartListViewModel chartList)
+    internal void AttachLanguagePresentation()
     {
         DetachLanguagePresentation();
-        languageChartList = chartList;
         ResourceService.Current.PropertyChanged += LanguageResourcesChanged;
         RefreshLanguagePresentation();
     }
@@ -19,7 +16,6 @@ public sealed partial class PlayHistoryWorkflowOwner
     internal void DetachLanguagePresentation()
     {
         ResourceService.Current.PropertyChanged -= LanguageResourcesChanged;
-        languageChartList = null;
     }
 
     private void LanguageResourcesChanged(object sender, PropertyChangedEventArgs args)
@@ -33,7 +29,6 @@ public sealed partial class PlayHistoryWorkflowOwner
         RefreshDisplayTargetLabels();
         bool cardsChanged = false;
         bool diagnosticChanged = false;
-        string summaryText = null;
         lock (PresentationState.SyncRoot)
         {
             PlayHistoryAdoptedSummary adopted = PresentationState.AdoptedSummary;
@@ -45,15 +40,10 @@ public sealed partial class PlayHistoryWorkflowOwner
                     : PlayHistoryPresentationState.CreateSummaryCards(adopted.Summary, adopted.Provider,
                         SnapshotSummaryFilterKeys(adopted.Provider)));
                 diagnosticChanged = PresentationState.SetDiagnosticText(diagnostic);
-                summaryText = adopted.Failed ? diagnostic
-                    : PlayHistoryPresentationState.FormatGridSummaryText(adopted.Period,
-                        adopted.Summary, adopted.Diagnostics, diagnostic);
             }
         }
         if (cardsChanged) { RaisePropertyChanged(nameof(SummaryCards)); }
         if (diagnosticChanged) { RaisePropertyChanged(nameof(SummaryDiagnosticText)); }
-        if (IsViewActive && summaryText != null && languageChartList != null)
-        { languageChartList.SummaryText = summaryText; }
     }
 
     private void RefreshDisplayTargetLabels()

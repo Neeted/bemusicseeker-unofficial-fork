@@ -29,8 +29,7 @@ internal sealed class PlayHistoryRow
         string sha256,
         LibraryChartRef chartRef,
         ChartFile chart,
-        PlaylistReferenceDisplay playlistReference,
-        PlayHistoryHashKind hashKind)
+        PlaylistReferenceDisplay playlistReference)
     {
         Raw = raw ?? throw new ArgumentNullException(nameof(raw));
         BeatorajaRaw = null;
@@ -50,8 +49,6 @@ internal sealed class PlayHistoryRow
         Sha256 = sha256 ?? string.Empty;
         ResolvedChart = chart;
         ResolvedChartRef = chartRef;
-        HashKind = hashKind;
-        IsSummaryEligible = HashKind is PlayHistoryHashKind.Chart or PlayHistoryHashKind.NonstopCourse;
         Title = chart?.Title ?? string.Empty;
         Artist = chart?.Artist ?? string.Empty;
         Path = chart?.Path ?? string.Empty;
@@ -89,8 +86,7 @@ internal sealed class PlayHistoryRow
         string sha256,
         LibraryChartRef chartRef,
         ChartFile chart,
-        PlaylistReferenceDisplay playlistReference,
-        PlayHistoryHashKind hashKind)
+        PlaylistReferenceDisplay playlistReference)
     {
         BeatorajaRaw = raw ?? throw new ArgumentNullException(nameof(raw));
         Raw = null;
@@ -110,8 +106,6 @@ internal sealed class PlayHistoryRow
         Sha256 = sha256 ?? string.Empty;
         ResolvedChart = chart;
         ResolvedChartRef = chartRef;
-        HashKind = hashKind;
-        IsSummaryEligible = HashKind is PlayHistoryHashKind.Chart or PlayHistoryHashKind.NonstopCourse;
         Title = chart?.Title ?? string.Empty;
         Artist = chart?.Artist ?? string.Empty;
         Path = chart?.Path ?? string.Empty;
@@ -180,10 +174,6 @@ internal sealed class PlayHistoryRow
     public string Md5 { get; }
 
     public string Sha256 { get; }
-
-    public PlayHistoryHashKind HashKind { get; }
-
-    public bool IsSummaryEligible { get; }
 
     public string Title { get; }
 
@@ -305,8 +295,7 @@ internal sealed class PlayHistoryRow
                 resolvedSha256,
                 chartRef,
                 chart,
-                playlistReference,
-                chartRef != null ? PlayHistoryHashKind.Chart : PlayHistoryHashKind.Unknown));
+                playlistReference));
         }
 
         return new PlayHistoryProjectionResult(rows, diagnostics);
@@ -343,8 +332,7 @@ internal sealed class PlayHistoryRow
                 sha256,
                 chartRef,
                 chart,
-                playlistReference,
-                chartRef != null || chartInfo != null ? PlayHistoryHashKind.Chart : PlayHistoryHashKind.Unknown));
+                playlistReference));
         }
 
         return new PlayHistoryProjectionResult(rows, diagnostics);

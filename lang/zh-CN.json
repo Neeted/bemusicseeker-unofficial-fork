@@ -226,7 +226,6 @@
   "Play_history_period_recent_30_days": "最近 30 天",
   "Play_history_period_archive": "按日期",
   "Play_history_period_diagnostics": "未确定 / 诊断",
-  "Play_history_summary_format": "{0}: {1} 次 / 成绩更新 {2} / 通关更新 {3} / FC {4} / 游玩时间 {5} / 诊断 {6}",
   "Play_history_summary_judge_count": "判定数",
   "Play_history_summary_play_count": "游玩次数",
   "Play_history_summary_playtime": "演奏时间",

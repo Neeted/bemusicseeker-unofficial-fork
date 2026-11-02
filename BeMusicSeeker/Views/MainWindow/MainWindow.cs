@@ -672,7 +672,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         UnsubscribeViewModelUiInteractions();
         subscribedViewModel = viewModel;
-        viewModel.PlayHistory.AttachLanguagePresentation(viewModel.MainChartList);
+        viewModel.PlayHistory.AttachLanguagePresentation();
         viewModel.MainChartList.AttachLanguagePresentation();
         viewModel.ChartFilters.AttachKeywordSearchPresentation();
         viewModel.PlaylistWorkspace.AttachPlaylistSummaryKeywordSearchPresentation();

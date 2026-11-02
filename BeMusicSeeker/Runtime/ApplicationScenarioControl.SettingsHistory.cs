@@ -87,7 +87,7 @@ internal sealed partial class ApplicationScenarioControl
                     row.Provider.ToString(), row.SourcePath, row.HistoryId, row.PlayedAtUnix, row.RawHash, row.Path,
                     row.Finalized, row.PlaycountDelta, row.NewBestExscore, row.NewBestBp, row.NewBestClear?.ToString())).ToImmutableArray();
                 return new(command.RequestId, current.RequestId, current.KeywordFilterRevision, current.Provider.ToString(), rows,
-                    summary.RowCount, summary.FinalizedCount, summary.SummaryEligibleCount, summary.PlayCountAvailable, summary.PlaytimeAvailable, summary.PlaytimeSeconds,
+                    summary.FinalizedCount, summary.ClearUpdateCount, summary.PlayCountAvailable, summary.PlaytimeAvailable, summary.PlaytimeSeconds,
                     [], "", 0, null, []);
             }
         }
@@ -95,5 +95,5 @@ internal sealed partial class ApplicationScenarioControl
     }
 
     private static ScenarioHistoryCompleted EmptyHistory(long requestId, ImmutableArray<string> paths)
-        => new(requestId, 0, 0, "", [], 0, 0, 0, false, false, 0, paths, "", 0, null, []);
+        => new(requestId, 0, 0, "", [], 0, 0, false, false, 0, paths, "", 0, null, []);
 }

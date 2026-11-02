@@ -330,8 +330,10 @@ public sealed class PlayHistoryReadModelTests
                 owner.ConfigureViewExecution(dependencies);
                 owner.ConfigureDisplayTargetPersistence(_ => { });
                 owner.ReplaceDisplayTargetSets([], [], false);
+                dependencies.MainChartList.SummaryText = "normal counts";
                 Assert.AreEqual(PlayHistoryViewExecutionStatus.Applied, ExecuteHistoryRead(owner, dependencies).Status);
-                owner.AttachLanguagePresentation(dependencies.MainChartList);
+                Assert.AreEqual(string.Empty, dependencies.MainChartList.SummaryText);
+                owner.AttachLanguagePresentation();
                 try
                 {
                     PlayHistoryViewRequest request = owner.SnapshotActiveRequest();
@@ -348,7 +350,7 @@ public sealed class PlayHistoryReadModelTests
                     {
                         ResourceService.Current.ChangeCulture(language);
                         Assert.AreEqual("1", owner.SummaryCards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
-                        StringAssert.Contains(dependencies.MainChartList.SummaryText, Resources.Play_history_period_all);
+                        Assert.AreEqual(string.Empty, dependencies.MainChartList.SummaryText);
                         Assert.AreEqual(Resources.Play_history_period_all, owner.SelectedDisplayTarget.DisplayName);
                         Assert.AreSame(rows, dependencies.MainChartList.Rows);
                         Assert.AreSame(request, owner.SnapshotActiveRequest());
@@ -458,7 +460,7 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(0, dependencies.MainChartList.Rows.Count);
             Assert.AreEqual(-1, dependencies.MainChartList.SelectedIndex);
             Assert.AreEqual(0, owner.SummaryCards.Count);
-            Assert.AreEqual(Resources.Play_history_read_failed, dependencies.MainChartList.SummaryText);
+            Assert.AreEqual(string.Empty, dependencies.MainChartList.SummaryText);
             Assert.AreEqual(Resources.Play_history_read_failed, owner.SummaryDiagnosticText);
             Assert.IsTrue(owner.IsViewActive);
             AssertAdoptedHistoryLanguage(owner, dependencies.MainChartList, failed: true);
@@ -472,7 +474,7 @@ public sealed class PlayHistoryReadModelTests
             Assert.IsTrue(recovered.ReadResult.Read.CacheHit);
             Assert.AreEqual(0, dependencies.MainChartList.Rows.Count);
             Assert.AreEqual("0", owner.SummaryCards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
-            Assert.AreNotEqual(Resources.Play_history_read_failed, dependencies.MainChartList.SummaryText);
+            Assert.AreEqual(string.Empty, dependencies.MainChartList.SummaryText);
             Assert.AreNotEqual(Resources.Play_history_read_failed, owner.SummaryDiagnosticText);
             AssertAdoptedHistoryLanguage(owner, dependencies.MainChartList, failed: false);
         });
@@ -484,7 +486,7 @@ public sealed class PlayHistoryReadModelTests
         string culture = Resources.Culture?.Name ?? CultureInfo.CurrentUICulture.Name;
         PlayHistoryViewRequest request = owner.SnapshotActiveRequest();
         object rows = chartList.Rows;
-        owner.AttachLanguagePresentation(chartList);
+        owner.AttachLanguagePresentation();
         try
         {
             foreach (string language in new[] { "en-US", "ja-JP" })
@@ -492,13 +494,14 @@ public sealed class PlayHistoryReadModelTests
                 ResourceService.Current.ChangeCulture(language);
                 if (failed)
                 {
-                    Assert.AreEqual(Resources.Play_history_read_failed, chartList.SummaryText);
+                    Assert.AreEqual(string.Empty, chartList.SummaryText);
                     Assert.AreEqual(0, owner.SummaryCards.Count);
+                    Assert.AreEqual(Resources.Play_history_read_failed, owner.SummaryDiagnosticText);
                 }
                 else
                 {
                     Assert.AreEqual("0", owner.SummaryCards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
-                    StringAssert.Contains(chartList.SummaryText, Resources.Play_history_period_all);
+                    Assert.AreEqual(string.Empty, chartList.SummaryText);
                 }
                 Assert.AreSame(request, owner.SnapshotActiveRequest());
                 Assert.AreSame(rows, chartList.Rows);

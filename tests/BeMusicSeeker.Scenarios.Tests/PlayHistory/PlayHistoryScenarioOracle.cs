@@ -58,11 +58,11 @@ internal static class PlayHistoryScenarioOracle
         Assert.IsTrue(actual.ViewRequestId > 0);
         string[] expected = keyword ? [fixture.Md5] : [fixture.Md5, PlayHistoryScenarioFixture.UnownedMd5];
         CollectionAssert.AreEquivalent(expected, actual.Rows.Select(row => row.Hash).ToArray());
-        Assert.AreEqual(expected.Length, actual.SummaryRows);
+        Assert.AreEqual(expected.Length, actual.Rows.Length);
         Assert.AreEqual((long)expected.Length, actual.FinalizedRows);
-        Assert.AreEqual(1, actual.SummaryEligibleCount, "未所持のUnknown行は表示と確定件数へ残し、実績集計へ加えません。");
+        Assert.AreEqual(expected.Length, actual.ClearUpdateCount, "所持状態にかかわらず対象行のクリア更新を数えます。");
         Assert.IsTrue(actual.PlayCountAvailable); Assert.IsTrue(actual.PlaytimeAvailable);
-        Assert.AreEqual(30L, actual.PlaytimeSeconds);
+        Assert.AreEqual(keyword ? 30L : 45L, actual.PlaytimeSeconds);
         foreach (ScenarioHistoryRow row in actual.Rows)
         {
             RawHistory source = raw.Single(item => item.hash == row.Hash);
@@ -83,9 +83,9 @@ internal static class PlayHistoryScenarioOracle
         Assert.IsTrue(actual.ViewRequestId > 0);
         string[] expected = keyword ? [fixture.Sha256] : [fixture.Sha256, PlayHistoryScenarioFixture.UnownedSha];
         CollectionAssert.AreEquivalent(expected, actual.Rows.Select(row => row.Hash).ToArray());
-        Assert.AreEqual(expected.Length, actual.SummaryRows);
+        Assert.AreEqual(expected.Length, actual.Rows.Length);
         Assert.IsFalse(actual.PlayCountAvailable); Assert.IsFalse(actual.PlaytimeAvailable);
-        Assert.AreEqual(1, actual.SummaryEligibleCount, "所持譜面だけが更新集計の対象です。期間全体のplayer実績の可用性とは分けます。");
+        Assert.AreEqual(expected.Length, actual.ClearUpdateCount, "所持状態にかかわらず対象行のクリア更新を数えます。");
         using var db = new SQLiteConnection(fixture.BeatLog, SQLiteOpenFlags.ReadOnly);
         foreach (ScenarioHistoryRow row in actual.Rows)
         {

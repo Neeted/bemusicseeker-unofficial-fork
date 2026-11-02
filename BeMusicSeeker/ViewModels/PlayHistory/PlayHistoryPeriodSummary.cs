@@ -8,15 +8,7 @@ internal sealed class PlayHistoryPeriodSummary
     {
     }
 
-    public string Label { get; private set; }
-
-    public int RowCount { get; private set; }
-
     public long FinalizedCount { get; private set; }
-
-    public long UnfinalizedCount => RowCount - FinalizedCount;
-
-    public int SummaryEligibleCount { get; private set; }
 
     public long PlaytimeSeconds { get; private set; }
 
@@ -49,43 +41,24 @@ internal sealed class PlayHistoryPeriodSummary
     /// <summary>FC・PERFECTとbeatorajaのMAXへのクリア更新数を取得します。</summary>
     public int FullComboClearUpdateCount { get; private set; }
 
-    public int NewClearCount { get; private set; }
-
-    public int NewFullComboCount { get; private set; }
-
-    public int NewPerfectCount { get; private set; }
-
-    /// <summary>確定した集計対象行から更新数とクリア内訳を作成し、取得元の期間実績があれば適用します。</summary>
+    /// <summary>所持・確定状態によらず更新値を数え、実績は確定行または取得元の期間実績から作成します。</summary>
     internal static PlayHistoryPeriodSummary FromRows(
-        string label,
         IEnumerable<PlayHistoryRow> rows,
         PlayHistoryPeriodSummaryOverride summaryOverride = null)
     {
-        var summary = new PlayHistoryPeriodSummary
-        {
-            Label = label ?? string.Empty
-        };
+        var summary = new PlayHistoryPeriodSummary();
         foreach (PlayHistoryRow row in rows ?? [])
         {
             if (row == null)
             {
                 continue;
             }
-            summary.RowCount++;
-            if (!row.Finalized)
+            if (row.Finalized)
             {
-                continue;
+                summary.FinalizedCount++;
+                summary.PlaytimeSeconds += row.PlaytimeSeconds ?? 0;
+                summary.JudgeCount += row.JudgeTotal ?? 0;
             }
-
-            summary.FinalizedCount++;
-            if (!row.IsSummaryEligible)
-            {
-                continue;
-            }
-
-            summary.SummaryEligibleCount++;
-            summary.PlaytimeSeconds += row.PlaytimeSeconds ?? 0;
-            summary.JudgeCount += row.JudgeTotal ?? 0;
             if (row.BestScoreUpdated)
             {
                 summary.ScoreUpdateCount++;
@@ -102,18 +75,6 @@ internal sealed class PlayHistoryPeriodSummary
             if (row.BestComboUpdated)
             {
                 summary.ComboUpdateCount++;
-            }
-            if (IsNewClear(row))
-            {
-                summary.NewClearCount++;
-            }
-            if (row.OldBestClear != Models.LR2.ClearType.FC && row.NewBestClear == Models.LR2.ClearType.FC)
-            {
-                summary.NewFullComboCount++;
-            }
-            if (row.OldBestClear != Models.LR2.ClearType.PA && row.NewBestClear == Models.LR2.ClearType.PA)
-            {
-                summary.NewPerfectCount++;
             }
         }
         if (summaryOverride != null)
@@ -155,15 +116,6 @@ internal sealed class PlayHistoryPeriodSummary
                 FullComboClearUpdateCount++;
                 break;
         }
-    }
-
-    private static bool IsNewClear(PlayHistoryRow row)
-    {
-        if (row?.NewBestClear == null || row.NewBestClear < Models.LR2.ClearType.EASY)
-        {
-            return false;
-        }
-        return row.OldBestClear == null || row.OldBestClear < Models.LR2.ClearType.EASY;
     }
 }
 

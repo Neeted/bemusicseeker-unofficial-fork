@@ -201,6 +201,8 @@ public sealed class MainWindowCatalogProjectionTests
                 PlayHistoryRow history = owner.MainChartList.Rows.Cast<PlayHistoryRow>().Single();
                 Assert.IsNotNull(history.ResolvedChart);
                 Assert.AreEqual(added, history.Path);
+                string[] historyCards = owner.PlayHistory.SummaryCards.Select(card => card.Value).ToArray();
+                Assert.AreEqual("1", owner.PlayHistory.SummaryCards.Single(card => card.FilterKey == "score").Value);
                 BMSLibrary library = Field<BMSLibrary>(owner, "files");
                 ScorePlayHistorySnapshot acquisition = library.CaptureScoreSnapshotForView().PlayHistorySnapshot;
                 File.Delete(added);
@@ -208,6 +210,7 @@ public sealed class MainWindowCatalogProjectionTests
                 Reload();
                 PlayHistoryRow missingHistory = owner.MainChartList.Rows.Cast<PlayHistoryRow>().Single();
                 Assert.IsNull(missingHistory.ResolvedChart);
+                CollectionAssert.AreEqual(historyCards, owner.PlayHistory.SummaryCards.Select(card => card.Value).ToArray());
                 Assert.AreSame(history.BeatorajaRaw, missingHistory.BeatorajaRaw);
                 Assert.AreSame(acquisition, library.CaptureScoreSnapshotForView().PlayHistorySnapshot);
 
@@ -216,6 +219,7 @@ public sealed class MainWindowCatalogProjectionTests
                 Reload();
                 PlayHistoryRow restoredHistory = owner.MainChartList.Rows.Cast<PlayHistoryRow>().Single();
                 Assert.IsNotNull(restoredHistory.ResolvedChart);
+                CollectionAssert.AreEqual(historyCards, owner.PlayHistory.SummaryCards.Select(card => card.Value).ToArray());
                 Assert.AreSame(history.BeatorajaRaw, restoredHistory.BeatorajaRaw);
                 Assert.AreSame(acquisition, library.CaptureScoreSnapshotForView().PlayHistorySnapshot);
 

@@ -954,7 +954,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
 
         IReadOnlyList<PlayHistoryDiagnostic> diagnostics = CreateViewDiagnostics(state.Diagnostics, sortSucceeded, sortProfile);
         var summary = PlayHistoryPeriodSummary.FromRows(
-            state.PeriodRequest.Label,
             sortedRows,
             state.SummaryOverride);
         PlayHistoryViewRequest activeRequest = SnapshotActiveRequest();
@@ -968,11 +967,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 request.Mode,
                 request.ColumnFilterMode);
             string diagnosticSummaryText = PlayHistoryPresentationState.FormatDiagnosticSummary(diagnostics);
-            string gridSummaryText = PlayHistoryPresentationState.FormatGridSummaryText(
-                state.PeriodRequest,
-                summary,
-                diagnostics,
-                diagnosticSummaryText);
             IReadOnlyList<PlayHistorySummaryCard> summaryCards = PlayHistoryPresentationState.CreateSummaryCards(
                 summary,
                 state.Provider,
@@ -994,7 +988,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                         ColumnsSettings = columnSelection.ColumnsSettings,
                         SelectionPolicy = activeRequest?.PreserveSelection == true
                             ? MainChartListSelectionPolicy.Preserve : MainChartListSelectionPolicy.Reset,
-                        Summary = MainChartListSummaryUpdate.Explicit(gridSummaryText),
+                        Summary = MainChartListSummaryUpdate.Explicit(string.Empty),
                         ColumnSettingReuse = columnSelection.Reused,
                         ColumnPreparationMs = columnSelection.ElapsedMs,
                         TerminalStageStartMs = columnSettingStartMs,

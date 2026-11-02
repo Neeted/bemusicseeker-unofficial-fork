@@ -1389,7 +1389,6 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(1, projected.Rows.Count);
             PlayHistoryRow row = projected.Rows[0];
             Assert.AreEqual(PlayHistoryProvider.Lr2, row.Provider);
-            Assert.AreEqual(PlayHistoryHashKind.Chart, row.HashKind);
             Assert.AreEqual("Resolved Title", row.Title);
             Assert.AreEqual("Resolved Artist", row.Artist);
             Assert.AreEqual(ShaA, row.Sha256);
@@ -1784,7 +1783,6 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(1, projected.Rows.Count);
         PlayHistoryRow row = projected.Rows[0];
         Assert.AreEqual(HashC, row.RawHash);
-        Assert.AreEqual(PlayHistoryHashKind.Unknown, row.HashKind);
         Assert.AreEqual(string.Empty, row.Title);
         Assert.IsFalse(row.Finalized);
         Assert.IsNull(row.PlayExscore);
@@ -1867,12 +1865,12 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsTrue(row.BestClearUpdated);
         Assert.AreEqual("FC -> PA", row.BestClear);
 
-        var summary = PlayHistoryPeriodSummary.FromRows("all", projected.Rows);
-        Assert.AreEqual(1, summary.NewPerfectCount);
+        var summary = PlayHistoryPeriodSummary.FromRows(projected.Rows);
+        Assert.AreEqual(1, summary.FullComboClearUpdateCount);
     }
 
     /// <summary>
-    /// 確定/未確定を行数で区別し、演奏時間・判定・更新集計には確定した解決済み行だけを加える。
+    /// 確定/未確定とも記録済み更新を数え、演奏時間・判定・プレイ数は確定行だけを加える。
     /// </summary>
     [TestMethod]
     public void SummaryCountsOnlyFinalizedRowsForPlaytimeAndJudges()
@@ -1888,34 +1886,73 @@ public sealed class PlayHistoryReadModelTests
                 Lr2PlayHistorySchemaStatus.Installed),
             CreateProjectionIndex());
 
-        var summary = PlayHistoryPeriodSummary.FromRows("today", projected.Rows);
+        var summary = PlayHistoryPeriodSummary.FromRows(projected.Rows);
 
-        Assert.AreEqual("today", summary.Label);
-        Assert.AreEqual(2, summary.RowCount);
         Assert.AreEqual(1L, summary.FinalizedCount);
-        Assert.AreEqual(1L, summary.UnfinalizedCount);
-        Assert.AreEqual(1, summary.SummaryEligibleCount);
         Assert.AreEqual(60L, summary.PlaytimeSeconds);
         Assert.AreEqual(80L, summary.JudgeCount);
-        Assert.AreEqual(1, summary.ScoreUpdateCount);
-        Assert.AreEqual(1, summary.NewClearCount);
+        Assert.AreEqual(2, summary.ScoreUpdateCount);
+        PlayHistorySummaryCard score = PlayHistoryPresentationState.CreateSummaryCards(summary, PlayHistoryProvider.Lr2).Single(card => card.FilterKey == "score");
+        Assert.AreEqual("2", score.Value);
+        Assert.AreEqual(2, projected.Rows.Count(GridKeywordSearchQuery.Parse(score.FilterText).MatchesPlayHistoryRow));
+        var unfinalized = PlayHistoryPeriodSummary.FromRows(projected.Rows.Where(row => !row.Finalized));
+        Assert.AreEqual(1, unfinalized.ScoreUpdateCount);
+        Assert.AreEqual(0L, unfinalized.FinalizedCount);
+        Assert.AreEqual(0L, unfinalized.JudgeCount);
+        Assert.AreEqual(0L, unfinalized.PlaytimeSeconds);
+    }
+
+    /// <summary>同じbeatoraja更新記録は所持・metadataのみ・未解決で同じカード件数と検索集合を保ち、player実績がなくても更新を失いません。</summary>
+    [TestMethod]
+    [DataRow("owned")]
+    [DataRow("metadata")]
+    [DataRow("unresolved")]
+    public void BeatorajaSummaryCountsUpdatesRegardlessOfChartResolution(string resolution)
+    {
+        var raw = new BeatorajaPlayHistoryRecord
+        {
+            history_id = 1,
+            sha256 = ShaA,
+            played_at = 1000,
+            old_exscore = 100,
+            new_exscore = 120,
+            old_minbp = 20,
+            new_minbp = 10,
+            old_maxcombo = 50,
+            new_maxcombo = 70,
+            old_clear = 4,
+            new_clear = 10
+        };
+        PlayHistoryProjectionIndex index = resolution == "owned" ? CreateProjectionIndex()
+            : resolution == "metadata" ? PlayHistoryCatalogTestSupport.Create([], chartInfoResolver: (_, _) => new ChartDetails { sha256 = ShaA, md5 = HashA })
+            : PlayHistoryProjectionIndex.Empty;
+        PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectBeatorajaRows(
+            new BeatorajaPlayHistoryReadResult(PlayHistorySourceProfile.Beatoraja("score.db"), [raw], [], Lr2PlayHistorySchemaStatus.Installed), index);
+        PlayHistoryRow row = projected.Rows.Single();
+        Assert.AreSame(raw, row.BeatorajaRaw);
+        Assert.AreEqual(ShaA, row.RawHash);
+        Assert.AreEqual(resolution == "owned", row.ResolvedChart != null);
+        Assert.IsNull(row.PlaytimeSeconds);
+        var summary = PlayHistoryPeriodSummary.FromRows(projected.Rows, new PlayHistoryPeriodSummaryOverride(null, null, null));
+        IReadOnlyList<PlayHistorySummaryCard> cards = PlayHistoryPresentationState.CreateSummaryCards(summary, PlayHistoryProvider.Beatoraja);
+        foreach (string key in new[] { "score", "bp", "combo", "clear", "fc" })
+        {
+            PlayHistorySummaryCard card = cards.Single(card => card.FilterKey == key);
+            Assert.AreEqual("1", card.Value);
+            Assert.IsTrue(GridKeywordSearchQuery.Parse(card.FilterText).MatchesPlayHistoryRow(row));
+        }
+        Assert.IsFalse(summary.PlayCountAvailable);
+        Assert.IsFalse(summary.JudgeCountAvailable);
+        Assert.IsFalse(summary.PlaytimeAvailable);
     }
 
     /// <summary>
-    /// 履歴の集約テキストへ診断code・詳細・対象DBを含め、利用者が原因と対象を識別できる。
+    /// 可視の履歴診断へ診断code・詳細・対象DBを含め、利用者が原因と対象を識別できる。
     /// </summary>
     [TestMethod]
-    public void SummaryTextIncludesDiagnosticDetailWhenPresent()
+    public void SummaryDiagnosticIncludesDetailAndSourcePath()
     {
-        var request = PlayHistoryPeriodRequest.Create(
-            PlayHistoryPeriodKind.All,
-            new DateTimeOffset(2026, 6, 19, 15, 30, 0, TimeSpan.Zero),
-            TimeZoneInfo.Utc);
-        var summary = PlayHistoryPeriodSummary.FromRows("all", []);
-
-        string text = PlayHistoryPresentationState.FormatGridSummaryText(
-            request,
-            summary,
+        string text = PlayHistoryPresentationState.FormatDiagnosticSummary(
             [
                 new PlayHistoryDiagnostic
                 {
@@ -1960,7 +1997,7 @@ public sealed class PlayHistoryReadModelTests
                     [],
                     Lr2PlayHistorySchemaStatus.Installed),
                 CreateProjectionIndex());
-            var summary = PlayHistoryPeriodSummary.FromRows("today", projected.Rows);
+            var summary = PlayHistoryPeriodSummary.FromRows(projected.Rows);
 
             IReadOnlyList<PlayHistorySummaryCard> cards = PlayHistoryPresentationState.CreateSummaryCards(summary, PlayHistoryProvider.Lr2);
 
@@ -2008,7 +2045,7 @@ public sealed class PlayHistoryReadModelTests
     public void PresentationOwnerMapsSelectedSummaryFiltersAndDiagnosticPriority()
     {
         var selectedKeys = new HashSet<string>(StringComparer.Ordinal) { "score", "fc" };
-        var summary = PlayHistoryPeriodSummary.FromRows("all", []);
+        var summary = PlayHistoryPeriodSummary.FromRows([]);
 
         IReadOnlyList<PlayHistorySummaryCard> cards = PlayHistoryPresentationState.CreateSummaryCards(
             summary,
@@ -2038,7 +2075,7 @@ public sealed class PlayHistoryReadModelTests
     {
         var owner = new PlayHistoryWorkflowOwner();
         PlayHistorySummaryCard scoreCard = PlayHistoryPresentationState.CreateSummaryCards(
-            PlayHistoryPeriodSummary.FromRows("All", []),
+            PlayHistoryPeriodSummary.FromRows([]),
             PlayHistoryProvider.Lr2).Single(card => card.FilterKey == "score");
         owner.PresentationState.SetSummaryCards([scoreCard]);
         var propertyNames = new List<string>();
@@ -2087,9 +2124,7 @@ public sealed class PlayHistoryReadModelTests
             ],
             [],
             Lr2PlayHistorySchemaStatus.Installed);
-        var summary = PlayHistoryPeriodSummary.FromRows(
-            "today",
-            PlayHistoryRow.ProjectBeatorajaRows(readResult, CreateProjectionIndex()).Rows);
+        var summary = PlayHistoryPeriodSummary.FromRows(PlayHistoryRow.ProjectBeatorajaRows(readResult, CreateProjectionIndex()).Rows);
 
         IReadOnlyList<PlayHistorySummaryCard> beatorajaCards = PlayHistoryPresentationState.CreateSummaryCards(summary, PlayHistoryProvider.Beatoraja);
         IReadOnlyList<PlayHistorySummaryCard> lr2Cards = PlayHistoryPresentationState.CreateSummaryCards(summary, PlayHistoryProvider.Lr2);
@@ -2105,9 +2140,7 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void SummaryCardsShowDashWhenSnapshotValuesAreUnavailable()
     {
-        var summary = PlayHistoryPeriodSummary.FromRows(
-            "summary",
-            [],
+        var summary = PlayHistoryPeriodSummary.FromRows([],
             new PlayHistoryPeriodSummaryOverride(null, null, null));
 
         IReadOnlyList<PlayHistorySummaryCard> cards = PlayHistoryPresentationState.CreateSummaryCards(summary, PlayHistoryProvider.Beatoraja);
@@ -2190,7 +2223,7 @@ public sealed class PlayHistoryReadModelTests
             CreateProjectionIndex());
 
         PlayHistoryRow row = projected.Rows.Single();
-        var summary = PlayHistoryPeriodSummary.FromRows("assist-to-easy", projected.Rows);
+        var summary = PlayHistoryPeriodSummary.FromRows(projected.Rows);
 
         Assert.AreEqual(ClearType.INVALID, row.OldBestClear);
         Assert.AreEqual(ClearType.EASY, row.NewBestClear);
@@ -2228,7 +2261,7 @@ public sealed class PlayHistoryReadModelTests
             CreateProjectionIndex());
 
         PlayHistoryRow row = projected.Rows.Single();
-        var summary = PlayHistoryPeriodSummary.FromRows("assist-update", projected.Rows);
+        var summary = PlayHistoryPeriodSummary.FromRows(projected.Rows);
         PlayHistorySummaryCard assistCard = PlayHistoryPresentationState.CreateSummaryCards(summary, PlayHistoryProvider.Lr2).Single(card => card.Label == "ASSIST");
 
         Assert.AreEqual(ClearType.NO_PLAY, row.OldBestClear);
@@ -2274,7 +2307,7 @@ public sealed class PlayHistoryReadModelTests
             CreateProjectionIndex());
 
         PlayHistoryRow row = projected.Rows.Single();
-        var summary = PlayHistoryPeriodSummary.FromRows("force-easy", projected.Rows);
+        var summary = PlayHistoryPeriodSummary.FromRows(projected.Rows);
 
         Assert.AreEqual(ClearType.NO_PLAY, row.OldBestClear);
         Assert.AreEqual(ClearType.INVALID, row.NewBestClear);
@@ -2327,7 +2360,7 @@ public sealed class PlayHistoryReadModelTests
             CreateProjectionIndex());
 
         PlayHistoryRow row = projected.Rows.Single();
-        var summary = PlayHistoryPeriodSummary.FromRows("same-easy", projected.Rows);
+        var summary = PlayHistoryPeriodSummary.FromRows(projected.Rows);
 
         Assert.AreEqual(ClearType.EASY, row.OldBestClear);
         Assert.AreEqual(ClearType.EASY, row.NewBestClear);
@@ -2339,10 +2372,10 @@ public sealed class PlayHistoryReadModelTests
     }
 
     /// <summary>
-    /// NP→FAILEDはclear更新として数えるが新クリア/FC/PAへ加えず、失敗をクリア実績と誤認しない。
+    /// NP→FAILEDも保存済みのCLEAR更新として数え、失敗したプレイの更新記録を落とさない。
     /// </summary>
     [TestMethod]
-    public void SummaryDoesNotCountFailedAsNewClear()
+    public void SummaryCountsFailedClearUpdate()
     {
         PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
             new Lr2PlayHistoryReadResult(
@@ -2352,19 +2385,16 @@ public sealed class PlayHistoryReadModelTests
                 Lr2PlayHistorySchemaStatus.Installed),
             CreateProjectionIndex());
 
-        var summary = PlayHistoryPeriodSummary.FromRows("failed", projected.Rows);
+        var summary = PlayHistoryPeriodSummary.FromRows(projected.Rows);
 
         Assert.AreEqual(1, summary.ClearUpdateCount);
-        Assert.AreEqual(0, summary.NewClearCount);
-        Assert.AreEqual(0, summary.NewFullComboCount);
-        Assert.AreEqual(0, summary.NewPerfectCount);
     }
 
     /// <summary>
-    /// 確定していても未解決ハッシュ行は行数だけに残し、演奏時間・判定・スコア更新へ加えない。
+    /// 未所持の確定履歴も実績と更新数へ含め、カードから同じ行へ到達できる。
     /// </summary>
     [TestMethod]
-    public void SummaryExcludesFinalizedUnknownHashFromAggregates()
+    public void SummaryIncludesFinalizedUnownedHistory()
     {
         PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
             new Lr2PlayHistoryReadResult(
@@ -2374,14 +2404,22 @@ public sealed class PlayHistoryReadModelTests
                 Lr2PlayHistorySchemaStatus.Installed),
             PlayHistoryProjectionIndex.Empty);
 
-        var summary = PlayHistoryPeriodSummary.FromRows("diagnostic", projected.Rows);
+        var summary = PlayHistoryPeriodSummary.FromRows(projected.Rows);
 
-        Assert.AreEqual(1, summary.RowCount);
         Assert.AreEqual(1L, summary.FinalizedCount);
-        Assert.AreEqual(0, summary.SummaryEligibleCount);
-        Assert.AreEqual(0L, summary.PlaytimeSeconds);
-        Assert.AreEqual(0L, summary.JudgeCount);
-        Assert.AreEqual(0, summary.ScoreUpdateCount);
+        Assert.AreEqual(60L, summary.PlaytimeSeconds);
+        Assert.AreEqual(80L, summary.JudgeCount);
+        Assert.AreEqual(1, projected.Rows.Count);
+        Assert.AreEqual(1, summary.ScoreUpdateCount);
+        Assert.AreEqual(1, summary.ClearUpdateCount);
+        IReadOnlyList<PlayHistorySummaryCard> cards = PlayHistoryPresentationState.CreateSummaryCards(summary, PlayHistoryProvider.Lr2);
+        Assert.AreEqual("1:00", cards.Single(card => card.Label == Resources.Play_history_summary_playtime).Value);
+        foreach (string key in new[] { "score", "clear" })
+        {
+            PlayHistorySummaryCard card = cards.Single(card => card.FilterKey == key);
+            Assert.AreEqual("1", card.Value);
+            CollectionAssert.AreEqual(projected.Rows.ToArray(), projected.Rows.Where(GridKeywordSearchQuery.Parse(card.FilterText).MatchesPlayHistoryRow).ToArray());
+        }
     }
 
     /// <summary>
@@ -2596,7 +2634,7 @@ public sealed class PlayHistoryReadModelTests
             });
             PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectBeatorajaRows(read, CreateProjectionIndex());
             PlayHistoryRow row = projected.Rows.Single();
-            var summary = PlayHistoryPeriodSummary.FromRows("beatoraja", projected.Rows);
+            var summary = PlayHistoryPeriodSummary.FromRows(projected.Rows);
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, read.SchemaStatus);
             Assert.IsFalse(read.HasErrors);
@@ -2622,8 +2660,6 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual("C -> B", row.BestDjLevelText);
             Assert.AreEqual("50.00 -> 66.50", row.BestRateText);
             Assert.IsNull(row.PlaytimeSeconds);
-            Assert.AreEqual(1, summary.RowCount);
-            Assert.AreEqual(1, summary.SummaryEligibleCount);
             Assert.AreEqual(1, summary.ScoreUpdateCount);
             Assert.AreEqual(1, summary.ClearUpdateCount);
             Assert.AreEqual(0L, summary.PlaytimeSeconds);
@@ -2675,14 +2711,13 @@ public sealed class PlayHistoryReadModelTests
                 ScoresBySha256 = CreateBeatorajaScoreSnapshot((ShaA, 100))
             });
             PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectBeatorajaRows(read, CreateProjectionIndex());
-            var summary = PlayHistoryPeriodSummary.FromRows("beatoraja", projected.Rows);
+            var summary = PlayHistoryPeriodSummary.FromRows(projected.Rows);
             PlayHistorySummaryCard fcCard = PlayHistoryPresentationState.CreateSummaryCards(summary, PlayHistoryProvider.Beatoraja)
                 .Single(card => card.FilterKey == "fc");
             string selectedFcFilter = PlayHistoryPresentationState.GetSummaryFilterTexts(new HashSet<string> { "fc" }).Single();
 
             Assert.IsFalse(read.HasErrors);
             Assert.AreEqual(6, projected.Rows.Count);
-            Assert.AreEqual(6, summary.SummaryEligibleCount);
             foreach ((long Date, int OldClear, int NewClear, int Score) input in inputs)
             {
                 BeatorajaPlayHistoryRecord record = read.Rows.Single(row => row.played_at == input.Date);
@@ -2744,11 +2779,15 @@ public sealed class PlayHistoryReadModelTests
                 PlayHistoryPeriodRequest.Create(PlayHistoryPeriodKind.All, new DateTimeOffset(2026, 1, 3, 12, 0, 0, TimeSpan.Zero), TimeZoneInfo.Utc),
                 read);
             PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectBeatorajaRows(read, PlayHistoryProjectionIndex.Empty);
-            var summary = PlayHistoryPeriodSummary.FromRows(
-                "beatoraja",
-                [],
+            var summary = PlayHistoryPeriodSummary.FromRows([],
                 day2SummaryOverride);
 
+            var beforeFilter = PlayHistoryPeriodSummary.FromRows(projected.Rows, day2SummaryOverride);
+            Assert.AreEqual(1, beforeFilter.ScoreUpdateCount);
+            Assert.AreEqual(0, summary.ScoreUpdateCount);
+            Assert.AreEqual(beforeFilter.FinalizedCount, summary.FinalizedCount);
+            Assert.AreEqual(beforeFilter.JudgeCount, summary.JudgeCount);
+            Assert.AreEqual(beforeFilter.PlaytimeSeconds, summary.PlaytimeSeconds);
             Assert.IsTrue(read.PlayerSnapshotsAvailable);
             Assert.AreEqual(3, read.PlayerSnapshots.Count);
             Assert.AreEqual(2L, day2SummaryOverride.PlayCount);
@@ -2758,7 +2797,6 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(1220L, allSummaryOverride.JudgeCount);
             Assert.AreEqual(220L, allSummaryOverride.PlaytimeSeconds);
             Assert.IsNull(projected.Rows.Single().PlaytimeSeconds);
-            Assert.AreEqual(0, summary.RowCount);
             Assert.AreEqual(2L, summary.FinalizedCount);
             Assert.AreEqual(160L, summary.JudgeCount);
             Assert.AreEqual(60L, summary.PlaytimeSeconds);
@@ -4401,7 +4439,7 @@ public sealed class PlayHistoryReadModelTests
             StringAssert.Contains(owner.SummaryDiagnosticText, "play_history_lr2_skipped_profile");
             Assert.AreEqual(0, dependencies.MainChartList.Rows.Count);
             Assert.AreEqual(0, owner.ArchivePeriodTree.Count);
-            Assert.AreNotEqual(Resources.Play_history_read_failed, dependencies.MainChartList.SummaryText);
+            Assert.AreEqual(string.Empty, dependencies.MainChartList.SummaryText);
             Assert.AreNotEqual(Resources.Play_history_read_failed, owner.SummaryDiagnosticText);
             Assert.IsFalse(File.Exists(scoreDbPath));
 
@@ -4419,7 +4457,7 @@ public sealed class PlayHistoryReadModelTests
             PlayHistoryViewExecutionResult unreadable = ExecuteHistoryRead(owner, dependencies);
             Assert.AreEqual(PlayHistoryViewExecutionStatus.ReadFailed, unreadable.Status);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Unreadable, unreadable.ReadResult.Read.SchemaStatus);
-            Assert.AreEqual(Resources.Play_history_read_failed, dependencies.MainChartList.SummaryText);
+            Assert.AreEqual(string.Empty, dependencies.MainChartList.SummaryText);
             Assert.AreEqual(Resources.Play_history_read_failed, owner.SummaryDiagnosticText);
             Assert.IsFalse(File.Exists(scoreDbPath));
         });

@@ -441,7 +441,7 @@ Edit `Open web pages` and `Open with a program` entries shared by normal lists, 
 
 #### Registering Web Pages
 
-Specify an absolute HTTP/HTTPS URL template and target chart type: BMS, bmson, or both. Include at least one `{md5}` or `{sha256}` placeholder; placeholders are case-sensitive. Entries are hidden for rows without a required hash. The six default entries below are all ON.
+Specify an absolute HTTP/HTTPS URL template and target chart type: BMS, bmson, or both. Include at least one `{md5}` or `{sha256}` placeholder; placeholders are case-sensitive. Rows with an unknown format, such as unowned playlist entries and unresolved beatoraja history, can use entries for any target chart type. LR2 history is treated as BMS. Entries are hidden for rows without a required hash. The six default entries below are all ON.
 
 | Order | Name | URL template | Target |
 | --- | --- | --- | --- |

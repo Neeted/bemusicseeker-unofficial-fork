@@ -123,6 +123,35 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Assert.AreEqual("https://kaleidir.com/charts/" + chartInfoSha256, kaleid.Url);
     }
 
+    /// <summary>未所持プレイリストの実投影は形式不明と元hashを渡し、三設定形式のWeb操作を設定順で起動します。</summary>
+    [TestMethod]
+    public void MissingPlaylistProjectionAllowsEveryWebChartKind()
+    {
+        var entry = new BeMusicSeeker.TestSupport.Components.TestablePlaylistEntry(new string('d', 32), "Missing");
+        entry.SetSha256(new string('a', 64));
+        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, null).CreateViewRow();
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
+        Assert.IsTrue(target.IsPlaylistMissing);
+        var launched = new List<string>();
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings();
+        settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(new RightClickActionSettings(
+            new[] { ExternalChartKind.BmsOnly, ExternalChartKind.BmsonOnly, ExternalChartKind.All }.Select((kind, index) =>
+                new RightClickWebActionDefinition("web" + index, "Web", "https://example.test/" + index + "/{md5}/{sha256}", true, kind)), []));
+        SelectedChartExternalActionWorkflowOwner owner = CreateOwner(urlLauncher: launched.Add, settingsProvider: () => settings);
+        Assert.IsTrue(owner.TryCreateResolutionInput(target, out RightClickActionResolutionInput input));
+        Assert.IsNull(input.ChartKind);
+        Assert.IsNull(input.LocalFilePath);
+        Assert.AreEqual(new string('d', 32), input.Md5);
+        Assert.AreEqual(new string('a', 64), input.Sha256);
+        RightClickActionResolution actions = owner.ResolveConfiguredActions(input);
+        CollectionAssert.AreEqual(new[] { "web0", "web1", "web2" }, actions.WebActions.Select(action => action.Id).ToArray());
+        foreach (ResolvedRightClickWebAction action in actions.WebActions)
+        {
+            Assert.IsTrue(owner.ExecuteConfiguredAction(input, ConfiguredExternalActionKind.Web, action.Id).Succeeded);
+        }
+        CollectionAssert.AreEqual(Enumerable.Range(0, 3).Select(index => "https://example.test/" + index + "/" + new string('d', 32) + "/" + new string('a', 64)).ToArray(), launched);
+    }
+
     /// <summary>URL起動の例外をWebLaunchFailedとして返し、成功扱いや元の例外欠落を検出します。</summary>
     [TestMethod]
     public void Execute_UrlLauncherFailureReturnsTypedResult()
@@ -184,6 +213,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Assert.AreSame(row.PackageEntry, target.PackageEntry);
 
         Assert.IsTrue(owner.TryCreateResolutionInput(target, out RightClickActionResolutionInput input));
+        Assert.AreEqual(bmson ? ExternalChartKind.BmsonOnly : ExternalChartKind.BmsOnly, input.ChartKind);
         RightClickActionResolution resolution = owner.ResolveConfiguredActions(input);
         Assert.AreEqual(1, resolution.ProgramActions.Count);
         CollectionAssert.AreEqual(

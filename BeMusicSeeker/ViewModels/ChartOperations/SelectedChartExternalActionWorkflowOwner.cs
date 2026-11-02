@@ -228,7 +228,7 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
     /// <summary>
     /// 正確な一行の対象を、共通の右クリック操作解決に使う変更不能な入力へ変換します。
     /// 所持状態にかかわらず、ファイルを開く権限と実在する譜面パスがある場合にパスを渡します。
-    /// 未所持のプレイリスト行とパスのない対象にはパスを渡しません。
+    /// 未所持のプレイリスト行は形式不明とし、パスも渡しません。保留行は実形式を維持します。
     /// </summary>
     /// <param name="target">メニューまたはクリック時点の正確な対象行。</param>
     /// <param name="input">ハッシュ・形式と、条件を満たすローカルパスを持つ解決入力。</param>
@@ -251,7 +251,7 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
             target.Chart.Md5,
             GetExternalActionSha256(target),
             localFilePath,
-            target.Chart.Kind == ChartFileKind.Bmson
+            target.IsPlaylistMissing ? null : target.Chart.Kind == ChartFileKind.Bmson
                 ? ExternalChartKind.BmsonOnly
                 : ExternalChartKind.BmsOnly);
         return true;

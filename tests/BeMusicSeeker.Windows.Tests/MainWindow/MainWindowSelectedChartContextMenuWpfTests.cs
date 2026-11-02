@@ -715,6 +715,71 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             selectedChartContextMenuTerminals: CreateTerminals());
     }
 
+    /// <summary>実未所持行のメニューは三形式を表示し、所持化では実形式へ絞ります。クリックは選択差替えに追従せず元行と最新の有効設定を使います。</summary>
+    [TestMethod]
+    public void MissingPlaylistWebMenuRechecksSettingsAndKeepsOriginalTarget()
+    {
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings();
+        RightClickWebActionDefinition[] definitions = new[] { ExternalChartKind.BmsOnly, ExternalChartKind.BmsonOnly, ExternalChartKind.All }
+            .Select((kind, index) => new RightClickWebActionDefinition("web" + index, "Web " + index, "https://example.test/" + index + "/{sha256}", true, kind)).ToArray();
+        settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(new RightClickActionSettings(definitions, []));
+        var owner = new SelectedChartExternalActionWorkflowOwner(_ => false, ExternalShellGatewayPolicy.Current, settingsProvider: () => settings);
+        var calls = new List<RightClickActionResolutionInput>();
+        var external = new MainWindowSelectedChartExternalActionsTerminal(owner.CanExecute, owner.Execute,
+            _ => false, (_, _) => Task.FromResult(RelatedDocumentQueryReceipt.Unavailable), _ => { },
+            owner.CreateResolutionInput, owner.ResolveConfiguredActions,
+            (input, _, id) =>
+            {
+                if (!owner.ResolveConfiguredActions(input).WebActions.Any(action => action.Id == id))
+                { return owner.ExecuteConfiguredAction(input, ConfiguredExternalActionKind.Web, id); }
+                calls.Add(input);
+                return ExternalConfiguredActionResult.Success;
+            });
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(settings, (viewModel, window) =>
+        {
+            var table = (CustomTableView)window.FindName("customTableView");
+            PlaylistDetailRow missing = CreateMissingPlaylistRow(new string('d', 32));
+            LibraryChartRow other = CreateChartRow(ChartFileKind.Bms, new string('e', 32), @"C:\Other\chart.bms");
+            table.ItemsSource = new List<object> { missing, other };
+            table.SelectRowsByPredicate(row => ReferenceEquals(row, missing));
+            viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PlaylistNotOwnedFilterSelected);
+            var menu = (ContextMenu)window.FindResource("tableContextMenuPlaylistMissing");
+            menu.PlacementTarget = new FrameworkElement { DataContext = missing };
+            OpenContextMenu(menu);
+            CollectionAssert.AreEqual(new[] { "configuredWebAction_web0", "configuredWebAction_web1", "configuredWebAction_web2" },
+                EnumerateMenuItems(menu).Where(item => item.Name.StartsWith("configuredWebAction_", StringComparison.Ordinal)).Select(item => item.Name).ToArray());
+            table.SelectRowsByPredicate(row => ReferenceEquals(row, other));
+            foreach (string id in new[] { "web0", "web1", "web2" })
+            { Assert.IsTrue(RaiseMenuClick(FindMenuItem(menu, "configuredWebAction_" + id)).Handled); }
+            Assert.AreEqual(3, calls.Count);
+            Assert.IsTrue(calls.All(input => input.Md5 == new string('d', 32) && input.Sha256 == new string('b', 64) && input.ChartKind == null && input.LocalFilePath == null));
+            settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(new RightClickActionSettings(
+                [new RightClickWebActionDefinition("web0", "Disabled", "https://example.test/{sha256}", false, ExternalChartKind.BmsOnly)], []));
+            Assert.IsTrue(RaiseMenuClick(FindMenuItem(menu, "configuredWebAction_web0")).Handled);
+            Assert.IsTrue(RaiseMenuClick(FindMenuItem(menu, "configuredWebAction_web1")).Handled);
+            Assert.AreEqual(3, calls.Count);
+            settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(new RightClickActionSettings(definitions, []));
+            foreach (ChartFileKind kind in new[] { ChartFileKind.Bms, ChartFileKind.Bmson })
+            {
+                LibraryChartRow owned = CreateChartRow(kind, new string('d', 32), @"C:\Owned\chart.bms");
+                table.ItemsSource = new List<object> { owned };
+                table.SelectRowsByPredicate(_ => true);
+                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                var ownedMenu = (ContextMenu)window.FindResource("tableContextMenu");
+                ownedMenu.PlacementTarget = new FrameworkElement { DataContext = owned };
+                OpenContextMenu(ownedMenu);
+                CollectionAssert.AreEqual(new[] { kind == ChartFileKind.Bms ? "configuredWebAction_web0" : "configuredWebAction_web1", "configuredWebAction_web2" },
+                    EnumerateMenuItems(ownedMenu).Where(item => item.Name.StartsWith("configuredWebAction_", StringComparison.Ordinal)).Select(item => item.Name).ToArray());
+            }
+            table.ItemsSource = new List<object> { missing };
+            table.SelectRowsByPredicate(_ => true);
+            viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PlaylistNotOwnedFilterSelected);
+            menu.PlacementTarget = new FrameworkElement { DataContext = missing };
+            OpenContextMenu(menu);
+            Assert.AreEqual(3, EnumerateMenuItems(menu).Count(item => item.Name.StartsWith("configuredWebAction_", StringComparison.Ordinal)));
+        }, selectedChartContextMenuTerminals: CreateTerminals(selectedChartExternalActions: external));
+    }
+
     /// <summary>BMS・bmson保留の複数選択でも設定プログラムClickは右クリック行を使い、メニューを開いた後の導入path変更を捕捉して現pathを一回起動します。</summary>
     [TestMethod]
     [DataRow(false)]

@@ -248,7 +248,7 @@ public sealed partial class PlayHistoryWorkflowOwner
                     Rows = Array.Empty<PlayHistoryRow>(),
                     ColumnsSettings = columns.ColumnsSettings,
                     SelectionPolicy = MainChartListSelectionPolicy.Reset,
-                    Summary = MainChartListSummaryUpdate.Explicit(diagnosticText),
+                    Summary = MainChartListSummaryUpdate.Explicit(string.Empty),
                     Stopwatch = request.Stopwatch,
                     OperationContextMode = columns.AppliedMode
                 }

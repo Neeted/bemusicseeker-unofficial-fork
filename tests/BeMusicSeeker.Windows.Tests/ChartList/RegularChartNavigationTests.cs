@@ -394,7 +394,7 @@ public sealed class RegularChartNavigationTests
                     Assert.AreEqual(historyTargetIdentity, vm.PlayHistory.SelectedDisplayTargetIdentity);
                     Assert.AreEqual(historyTargetIdentity, vm.PlayHistory.CurrentDisplayTargetIdentity);
                     Assert.AreEqual(vm.PlayHistory.DisplayTargetRevision, current.DisplayTargetRevision);
-                    Assert.AreEqual(Resources.Play_history_read_failed, vm.MainChartList.SummaryText);
+                    Assert.AreEqual(string.Empty, vm.MainChartList.SummaryText);
                     Assert.AreEqual(Resources.Play_history_read_failed, vm.PlayHistory.SummaryDiagnosticText);
                     Assert.AreEqual(0, vm.PlayHistory.SummaryCards.Count);
                     Assert.AreEqual(0, vm.MainChartList.Rows.Count);

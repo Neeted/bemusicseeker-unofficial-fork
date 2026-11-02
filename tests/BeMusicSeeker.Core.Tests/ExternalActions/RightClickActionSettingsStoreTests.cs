@@ -242,12 +242,25 @@ public sealed class RightClickActionSettingsStoreTests
         RightClickActionResolution unknownKindResult = RightClickActionResolver.Resolve(
             parsed.Settings,
             new RightClickActionResolutionInput(new string('A', 32), new string('B', 64), null, null));
-        CollectionAssert.AreEqual(new[] { "both" }, unknownKindResult.WebActions.Select(action => action.Id).ToArray());
+        CollectionAssert.AreEqual(new[] { "md5", "sha", "both" }, unknownKindResult.WebActions.Select(action => action.Id).ToArray());
 
         RightClickActionResolution missingHashResult = RightClickActionResolver.Resolve(
             parsed.Settings,
             new RightClickActionResolutionInput("not-md5", new string('B', 64), null, ExternalChartKind.BmsOnly));
         Assert.AreEqual(0, missingHashResult.WebActions.Count);
+        foreach ((string? Md5, string? Sha, string[] Ids) input in new (string?, string?, string[])[]
+        {
+            (new string('A', 32), null, ["md5"]),
+            (null, new string('B', 64), ["sha"]),
+            (new string('g', 32), new string('B', 64), ["sha"]),
+            (new string('A', 31), new string('b', 63), [])
+        })
+        {
+            RightClickActionResolution result = RightClickActionResolver.Resolve(parsed.Settings,
+                new RightClickActionResolutionInput(input.Md5, input.Sha, null, null));
+            CollectionAssert.AreEqual(input.Ids, result.WebActions.Select(action => action.Id).ToArray());
+        }
+
     }
 
     /// <summary>絶対パスだけを有効programの引数へ展開し、解決時に存在確認を要求せず相対pathと無効定義を除きます。</summary>

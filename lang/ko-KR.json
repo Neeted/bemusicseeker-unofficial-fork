@@ -226,7 +226,6 @@
   "Play_history_period_recent_30_days": "최근 30일",
   "Play_history_period_archive": "날짜별",
   "Play_history_period_diagnostics": "미확정 / 진단",
-  "Play_history_summary_format": "{0}: {1}회 / 스코어 갱신 {2} / 클리어 갱신 {3} / FC {4} / 플레이 시간 {5} / 진단 {6}",
   "Play_history_summary_judge_count": "판정 수",
   "Play_history_summary_play_count": "플레이 횟수",
   "Play_history_summary_playtime": "플레이 시간",
