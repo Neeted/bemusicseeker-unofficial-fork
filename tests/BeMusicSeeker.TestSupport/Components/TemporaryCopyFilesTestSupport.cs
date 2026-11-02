@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.ViewModels;
 
@@ -7,7 +8,8 @@ namespace BeMusicSeeker.TestSupport.Components;
 internal static class TemporaryCopyFilesTestSupport
 {
     /// <summary>日常と大規模条件で同じ並列コピーの所有権と終端後の回収を表明します。</summary>
-    internal static async Task AssertParallelCopyOwnership(int count, bool observeWorkers)
+    /// <param name="reportOperationElapsed">指定時だけ準備・表明・回収を除く実操作の経過を終端後に通知します。省略時は時計を追加しません。</param>
+    internal static async Task AssertParallelCopyOwnership(int count, bool observeWorkers, Action<TimeSpan>? reportOperationElapsed = null)
     {
         using var caseWorkspace1 = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string root = Path.Combine(caseWorkspace1.RootDirectory, "BeMusicSeeker_TemporaryCopy_" + Guid.NewGuid().ToString("N"));
@@ -40,8 +42,14 @@ internal static class TemporaryCopyFilesTestSupport
         try
         {
             foreach (string source in sourceFiles) { File.WriteAllText(source, Path.GetFileName(source)); }
-            operation = Task.Run(() => copies.CopyFiles(sourceFiles, sourceDirectory, destinationDirectory,
-                parallelDegree: observeWorkers ? 2 : null));
+            Stopwatch? operationClock = null;
+            operation = Task.Run(() =>
+            {
+                if (reportOperationElapsed != null) { operationClock = Stopwatch.StartNew(); }
+                copies.CopyFiles(sourceFiles, sourceDirectory, destinationDirectory,
+                    parallelDegree: observeWorkers ? 2 : null);
+                operationClock?.Stop();
+            });
             if (observeWorkers)
             {
                 Task first = await Task.WhenAny(bothEntered.Task, operation);
@@ -52,6 +60,7 @@ internal static class TemporaryCopyFilesTestSupport
                 release.Set();
             }
             await operation;
+            if (operationClock != null) { reportOperationElapsed?.Invoke(operationClock.Elapsed); }
             Assert.AreEqual(0, Volatile.Read(ref active));
             foreach (string source in sourceFiles)
             {

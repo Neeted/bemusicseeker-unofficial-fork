@@ -1,14 +1,10 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using ManagedBass;
 using ManagedBass.Mix;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.BMS;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
@@ -29,7 +25,7 @@ public sealed class AudioMixerPerformanceTests
     /// </summary>
     /// <remarks>本番の実BASS/BASSmix・無音機器graphを使う明示性能測定。共有native sessionと静的音声設定の所有のため非並列とし、生成・初期化を測定外へ保つ。固定時間の合否は設けない。</remarks>
     [TestMethod]
-    [TestCategory("Performance")]
+    [TestCategory("Suite.audio")]
     public void SyntheticAudioWorkloads_ReportLoadRenderWallTimeAndManagedAllocation()
     {
         PerformanceWorkload[] workloads =
@@ -88,7 +84,7 @@ public sealed class AudioMixerPerformanceTests
     /// </summary>
     /// <remarks>本番の実BASS/BASSmix・無音機器graphを使う明示性能測定。共有native sessionと静的音声設定の所有のため非並列とし、生成・初期化を測定外へ保つ。固定時間の合否は設けない。</remarks>
     [TestMethod]
-    [TestCategory("Performance")]
+    [TestCategory("Suite.audio")]
     public void MixedRateManyVoiceDefaultSrcWorkload_ReportsColdLoadPlayRenderAndCleanup()
     {
         const int sourcesPerRate = 64;
@@ -195,7 +191,7 @@ public sealed class AudioMixerPerformanceTests
     /// </summary>
     /// <remarks>本番の実BASS/BASSmix・無音機器graphを使う明示性能測定。共有native sessionと静的音声設定の所有のため非並列とし、生成・初期化を測定外へ保つ。固定時間の合否は設けない。</remarks>
     [TestMethod]
-    [TestCategory("Performance")]
+    [TestCategory("Suite.audio")]
     public void BmsRealtimeLookAheadWorkload_ReportsMarginTimingVoiceAndSharedPcmMetrics()
     {
         const int pullFrames = 1024;
@@ -212,6 +208,7 @@ public sealed class AudioMixerPerformanceTests
         int originalMixer = 0;
         bool tempoChangeRequested = false;
         ExceptionDispatchInfo? failure = null;
+        var directory = TestWorkspace.Create(TestRunDirectory.RootDirectory);
 
         try
         {
@@ -226,17 +223,16 @@ public sealed class AudioMixerPerformanceTests
             BassAudioPlayer.DeviceVolume = 1f;
 
             originalMixer = ownedSession.MixerHandle;
-            using var directory = new TemporaryDirectory();
             using var shortWave = AudioMixerSignalFixture.TemporaryFloatWave.Create(48000, 240, _ => 0.0625f);
             using var longWave = AudioMixerSignalFixture.TemporaryFloatWave.Create(44100, 44100L * 2, _ => 0.03125f);
             using var mediumWave = AudioMixerSignalFixture.TemporaryFloatWave.Create(48000, 4800, _ => 0.125f);
             using var retriggerWave = AudioMixerSignalFixture.TemporaryFloatWave.Create(48000, 48000, _ => 0.015625f);
-            File.Copy(shortWave.Path, directory.File("short.wav"));
-            File.Copy(longWave.Path, directory.File("long.wav"));
-            File.Copy(mediumWave.Path, directory.File("medium.wav"));
-            File.Copy(retriggerWave.Path, directory.File("retrigger.wav"));
+            File.Copy(shortWave.Path, directory.GetPath("short.wav"));
+            File.Copy(longWave.Path, directory.GetPath("long.wav"));
+            File.Copy(mediumWave.Path, directory.GetPath("medium.wav"));
+            File.Copy(retriggerWave.Path, directory.GetPath("retrigger.wav"));
 
-            string chartPath = directory.File("performance-chart.bms");
+            string chartPath = directory.GetPath("performance-chart.bms");
             var chart = new StringBuilder(
                 "#PLAYER 1\n#TITLE realtime schedule performance\n#BPM 120\n"
                 + "#WAV01 short.wav\n#WAV02 long.wav\n#WAV03 medium.wav\n"
@@ -533,6 +529,9 @@ public sealed class AudioMixerPerformanceTests
             CaptureCleanup(ref failure, () => BassAudioPlayer.DefaultVolume = previousDefaultVolume);
             CaptureCleanup(ref failure, () => BassAudioPlayer.Frequency = previousFrequency);
             CaptureCleanup(ref failure, () => BassAudioPlayer.Format = previousFormat);
+            // native回収に失敗したときは入力領域を成功回収として消さず、診断に残します。
+            if (failure != null) { directory.PreserveArtifacts(); }
+            CaptureCleanup(ref failure, directory.Dispose);
         }
 
         failure?.Throw();
@@ -543,7 +542,7 @@ public sealed class AudioMixerPerformanceTests
     /// </summary>
     /// <remarks>本番の実BASS/BASSmix・無音機器graphを使う明示性能測定。共有native sessionと静的音声設定の所有のため非並列とし、生成・初期化を測定外へ保つ。固定時間の合否は設けない。</remarks>
     [TestMethod]
-    [TestCategory("Performance")]
+    [TestCategory("Suite.audio")]
     public void DefaultSrcFrequencyResponse_RecordsAllThirtyFiveConditions()
     {
         const int quality = AudioResamplingQuality.Default;
@@ -739,21 +738,10 @@ public sealed class AudioMixerPerformanceTests
         }
         catch (Exception exception)
         {
-            primaryFailure ??= ExceptionDispatchInfo.Capture(exception);
+            primaryFailure = primaryFailure == null
+                ? ExceptionDispatchInfo.Capture(exception)
+                : ExceptionDispatchInfo.Capture(new AggregateException(primaryFailure.SourceException, exception));
         }
-    }
-
-    private sealed class TemporaryDirectory : IDisposable
-    {
-        private readonly string path = Path.Combine(
-            Path.GetTempPath(),
-            "BeMusicSeeker.AudioMixerPerformance." + Guid.NewGuid().ToString("N"));
-
-        internal TemporaryDirectory() => Directory.CreateDirectory(path);
-
-        internal string File(string name) => Path.Combine(path, name);
-
-        public void Dispose() => Directory.Delete(path, recursive: true);
     }
 
     private readonly record struct PerformanceWorkload(string Name, int SourceCount, long FramesPerSource);

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -11,7 +12,8 @@ namespace BeMusicSeeker.TestSupport.Components;
 internal static class BmsLibraryInitializationFileScanTestSupport
 {
     /// <summary>日常と大規模条件で同じ走査chunkの確定件数と保存結果を表明します。</summary>
-    internal static void AssertFileScanChunkCommits(ApplicationDatabaseScope databaseScope, int count, int chunkSize, BmsLibraryInitializationService service)
+    /// <param name="reportOperationElapsed">指定時だけ準備・表明・回収を除く実操作の経過を終端後に通知します。省略時は時計を追加しません。</param>
+    internal static void AssertFileScanChunkCommits(ApplicationDatabaseScope databaseScope, int count, int chunkSize, BmsLibraryInitializationService service, Action<TimeSpan>? reportOperationElapsed = null)
     {
 
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
@@ -33,41 +35,42 @@ internal static class BmsLibraryInitializationFileScanTestSupport
 
             List<string> events = [];
             object eventLock = new();
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            var everything = new EverythingNative(ApplicationPathPolicy.Current);
+            var options = new BmsLibraryOptionsSnapshot();
+            var scan = new ChartScanExecutionResult
+            {
+                Success = true,
+                Result = CreateScanResult(paths,
+                    new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        { chartDirectoryPath, Array.Empty<string>() }
+                    })
+            };
+            Action<string> log = delegate (string message)
+            {
+                lock (eventLock)
+                {
+                    if (message.Contains("song_tbl_file_check db_commit_chunk_done"))
+                    {
+                        events.Add(message);
+                    }
+                }
+            };
+            Action<int, int, string> progress = delegate (int total, int processed, string path)
+            {
+                lock (eventLock)
+                {
+                    events.Add("progress " + processed + "/" + total);
+                }
+            };
+            Stopwatch? operationClock = reportOperationElapsed == null ? null : Stopwatch.StartNew();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
-                new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
-                new EverythingNative(ApplicationPathPolicy.Current),
-                new BmsLibraryOptionsSnapshot(),
-                [],
-                new ChartScanExecutionResult
-                {
-                    Success = true,
-                    Result = CreateScanResult(
-                        paths,
-                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
-                        {
-                            { chartDirectoryPath, Array.Empty<string>() }
-                        })
-                },
-                0L,
-                () => null,
-                null,
-                logInstallPerformance: delegate (string message)
-                {
-                    lock (eventLock)
-                    {
-                        if (message.Contains("song_tbl_file_check db_commit_chunk_done"))
-                        {
-                            events.Add(message);
-                        }
-                    }
-                },
-                reportParseProgress: delegate (int total, int processed, string path)
-                {
-                    lock (eventLock)
-                    {
-                        events.Add("progress " + processed + "/" + total);
-                    }
-                });
+                gateway, everything, options, [], scan, 0L, () => null, null,
+                logInstallPerformance: log, reportParseProgress: progress);
+
+            operationClock?.Stop();
+            if (operationClock != null) { reportOperationElapsed?.Invoke(operationClock.Elapsed); }
 
             Assert.AreEqual(count, result.AddedFiles.Count);
             Assert.AreEqual(count, result.DbCommitBmsChangedCount);

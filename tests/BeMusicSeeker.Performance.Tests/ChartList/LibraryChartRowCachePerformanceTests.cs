@@ -1,17 +1,14 @@
-using System;
 using System.Diagnostics;
-using System.Linq;
 using System.Runtime.InteropServices;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests.Performance;
 
 /// <summary>外側行cacheのwarm列読取りと一行更新を同条件で測り、全体表示や代表規模の測定とは分けます。</summary>
-[TestClass, TestCategory("Net10Performance"), DoNotParallelize]
+[TestClass, TestCategory("Suite.row-cache"), DoNotParallelize]
 public sealed class LibraryChartRowCachePerformanceTests
 {
     /// <summary>明示性能区分の各標本と比較条件を標準TRXへ記録します。</summary>

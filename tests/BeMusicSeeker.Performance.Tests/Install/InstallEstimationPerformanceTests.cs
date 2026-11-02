@@ -1,23 +1,17 @@
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
-using System.Linq;
 using System.Reflection;
-using System.Threading;
-using System.Threading.Tasks;
+using System.Runtime.ExceptionServices;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests.Performance;
 
 /// <summary>通常の機能検証から分離し、同じ合成入力の初回プロフィール構築と再利用を明示計測します。</summary>
 [TestClass]
-[TestCategory("Net10Performance")]
-[TestCategory("estimation")]
+[TestCategory("Suite.install-estimation")]
 // プロセス全体の割当と実時間を測るため、別ケースの計測を重ねません。製品内の有界並列は測定対象です。
 [DoNotParallelize]
 public sealed class InstallEstimationPerformanceTests
@@ -37,69 +31,92 @@ public sealed class InstallEstimationPerformanceTests
     public void CatalogProfiles_MeasureColdSharingAcrossTwentyRequests()
     {
         var databaseScope = new ApplicationDatabaseScope();
-        string root = Path.Combine(Path.GetTempPath(), "BmsEstimationProfiles-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
+        var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = workspace.RootDirectory;
+        ExceptionDispatchInfo? failure = null;
         try
         {
-            foreach (Net10PerformanceCorpusScale scale in Net10PerformanceCorpus.GetConfiguredScales())
+            foreach (InputScale scale in Enum.GetValues<InputScale>())
             {
-                int count = scale == Net10PerformanceCorpusScale.Large ? 20_001 : 3_000;
-                int maxPairs = scale switch { Net10PerformanceCorpusScale.Small => 1, Net10PerformanceCorpusScale.Medium => 1_000, _ => 4 };
+                int count = scale == InputScale.Large ? 20_001 : 3_000;
+                int maxPairs = scale switch { InputScale.Small => 1, InputScale.Medium => 1_000, _ => 4 };
                 string databaseDirectory = Path.Combine(root, scale.ToString());
                 Directory.CreateDirectory(databaseDirectory);
                 string database = Path.Combine(databaseDirectory, "song.db");
                 File.WriteAllBytes(database, []);
                 var library = new TestBmsLibrary(databaseScope, database);
-                string[] directories = [.. Enumerable.Range(0, count).Select(index => $@"C:\Library\Profile{index:D5}")];
-                library.BmsCharts = [.. directories.SelectMany((path, index) => Enumerable.Range(0, index == count - 1 ? maxPairs : 1)
-                    .Select(pair => ChartTestValues.Empty() with
-                    {
-                        Token = new OwnedChartToken(),
-                        Md5 = (index * 1_001 + pair + 1).ToString("x32", CultureInfo.InvariantCulture),
-                        Sha256 = (index * 1_001 + pair + 1).ToString("x64", CultureInfo.InvariantCulture),
-                        Path = $"{path}\\chart{pair:D4}.bms", RawTitle = $"Title {index} {pair}",
-                        Title = $"Title {index} {pair}",
-                        RawArtist = $"Artist {index}", Artist = $"Artist {index}"
-                    }))];
-                MethodInfo method = typeof(BMSLibrary).GetMethod("ResolveInstallDestinationMetadataProfileThreadSafe", BindingFlags.NonPublic | BindingFlags.Instance)
-                    ?? throw new InvalidOperationException("プロフィール計測の既存解決境界が見つかりません。");
-                Func<string, InstallEstimationMetadataProfile> resolve = method.CreateDelegate<Func<string, InstallEstimationMetadataProfile>>(library);
-                Assert.IsTrue(resolve(directories[0]).HasPair, "計測前の実カタログ準備を確認します。");
-                FieldInfo field = typeof(BMSLibrary).GetField("catalogOwnedCollectionOwner", BindingFlags.NonPublic | BindingFlags.Instance)
-                    ?? throw new InvalidOperationException("プロフィール計測の既存所有者が見つかりません。");
-                CatalogOwnedCollectionOwner owner = field.GetValue(library) as CatalogOwnedCollectionOwner
-                    ?? throw new InvalidOperationException("プロフィール計測の所有者を取得できません。");
-                foreach (int batch in new[] { 1, 20 })
+                Exception? bodyFailure = null;
+                try
                 {
-                    foreach (bool cold in new[] { true, false })
-                    {
-                        var samples = new List<double>();
-                        for (int repetition = 0; repetition < 5; repetition++)
+                    string[] directories = [.. Enumerable.Range(0, count).Select(index => $@"C:\Library\Profile{index:D5}")];
+                    library.BmsCharts = [.. directories.SelectMany((path, index) => Enumerable.Range(0, index == count - 1 ? maxPairs : 1)
+                        .Select(pair => ChartTestValues.Empty() with
                         {
-                            lock (owner.MetadataProfileGate) { owner.MetadataProfiles.Clear(); }
-                            if (!cold) { foreach (string directory in directories) { resolve(directory); } }
-                            long builds = owner.MetadataProfileBuildCount, reused = owner.MetadataProfileReuseCount, records = owner.MetadataProfileRecordCount;
-                            var watch = Stopwatch.StartNew();
-                            Parallel.For(0, batch, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) }, _ =>
+                            Token = new OwnedChartToken(),
+                            Md5 = (index * 1_001 + pair + 1).ToString("x32", CultureInfo.InvariantCulture),
+                            Sha256 = (index * 1_001 + pair + 1).ToString("x64", CultureInfo.InvariantCulture),
+                            Path = $"{path}\\chart{pair:D4}.bms", RawTitle = $"Title {index} {pair}",
+                            Title = $"Title {index} {pair}",
+                            RawArtist = $"Artist {index}", Artist = $"Artist {index}"
+                        }))];
+                    MethodInfo method = typeof(BMSLibrary).GetMethod("ResolveInstallDestinationMetadataProfileThreadSafe", BindingFlags.NonPublic | BindingFlags.Instance)
+                        ?? throw new InvalidOperationException("プロフィール計測の既存解決境界が見つかりません。");
+                    Func<string, InstallEstimationMetadataProfile> resolve = method.CreateDelegate<Func<string, InstallEstimationMetadataProfile>>(library);
+                    Assert.IsTrue(resolve(directories[0]).HasPair, "計測前の実カタログ準備を確認します。");
+                    FieldInfo field = typeof(BMSLibrary).GetField("catalogOwnedCollectionOwner", BindingFlags.NonPublic | BindingFlags.Instance)
+                        ?? throw new InvalidOperationException("プロフィール計測の既存所有者が見つかりません。");
+                    CatalogOwnedCollectionOwner owner = field.GetValue(library) as CatalogOwnedCollectionOwner
+                        ?? throw new InvalidOperationException("プロフィール計測の所有者を取得できません。");
+                    foreach (int batch in new[] { 1, 20 })
+                    {
+                        foreach (bool cold in new[] { true, false })
+                        {
+                            var samples = new List<double>();
+                            for (int repetition = 0; repetition < 5; repetition++)
                             {
-                                foreach (string directory in directories) { Assert.IsTrue(resolve(directory).HasPair); }
-                            });
-                            watch.Stop();
-                            long built = owner.MetadataProfileBuildCount - builds;
-                            Assert.AreEqual(cold ? count : 0L, built);
-                            samples.Add(watch.Elapsed.TotalMilliseconds);
-                            TestContext.WriteLine($"route=install_estimation_catalog_profiles scale={scale} folders={count} maxPairs={maxPairs} batch={batch} cold={cold} repetition={repetition + 1} elapsedMs={watch.Elapsed.TotalMilliseconds.ToString("F3", CultureInfo.InvariantCulture)} builds={built} reused={owner.MetadataProfileReuseCount - reused} inputRecords={owner.MetadataProfileRecordCount - records}");
+                                lock (owner.MetadataProfileGate) { owner.MetadataProfiles.Clear(); }
+                                if (!cold) { foreach (string directory in directories) { resolve(directory); } }
+                                long builds = owner.MetadataProfileBuildCount, reused = owner.MetadataProfileReuseCount, records = owner.MetadataProfileRecordCount;
+                                var watch = Stopwatch.StartNew();
+                                Parallel.For(0, batch, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) }, _ =>
+                                {
+                                    foreach (string directory in directories) { Assert.IsTrue(resolve(directory).HasPair); }
+                                });
+                                watch.Stop();
+                                long built = owner.MetadataProfileBuildCount - builds;
+                                Assert.AreEqual(cold ? count : 0L, built);
+                                samples.Add(watch.Elapsed.TotalMilliseconds);
+                                TestContext.WriteLine($"route=install_estimation_catalog_profiles scale={scale} folders={count} maxPairs={maxPairs} batch={batch} cold={cold} repetition={repetition + 1} elapsedMs={watch.Elapsed.TotalMilliseconds.ToString("F3", CultureInfo.InvariantCulture)} builds={built} reused={owner.MetadataProfileReuseCount - reused} inputRecords={owner.MetadataProfileRecordCount - records}");
+                            }
+                            double[] ordered = [.. samples.Order()];
+                            TestContext.WriteLine($"route=install_estimation_catalog_summary scale={scale} folders={count} maxPairs={maxPairs} batch={batch} cold={cold} samplesMs={string.Join(",", samples.Select(value => value.ToString("F3", CultureInfo.InvariantCulture)))} medianMs={ordered[2].ToString("F3", CultureInfo.InvariantCulture)} minMs={ordered[0].ToString("F3", CultureInfo.InvariantCulture)} maxMs={ordered[^1].ToString("F3", CultureInfo.InvariantCulture)}");
                         }
-                        double[] ordered = [.. samples.Order()];
-                        TestContext.WriteLine($"route=install_estimation_catalog_summary scale={scale} folders={count} maxPairs={maxPairs} batch={batch} cold={cold} samplesMs={string.Join(",", samples.Select(value => value.ToString("F3", CultureInfo.InvariantCulture)))} medianMs={ordered[2].ToString("F3", CultureInfo.InvariantCulture)} minMs={ordered[0].ToString("F3", CultureInfo.InvariantCulture)} maxMs={ordered[^1].ToString("F3", CultureInfo.InvariantCulture)}");
+                    }
+                }
+                catch (Exception exception) { bodyFailure = exception; throw; }
+                finally
+                {
+                    try { library.RequestShutdown("install-estimation-performance"); }
+                    catch (Exception cleanup)
+                    {
+                        if (bodyFailure != null) { throw new AggregateException(bodyFailure, cleanup); }
+                        throw;
                     }
                 }
             }
         }
+        catch (Exception exception) { failure = ExceptionDispatchInfo.Capture(exception); }
         finally
         {
-            Directory.Delete(root, recursive: true);
+            if (failure != null) { workspace.PreserveArtifacts(); }
+            try { workspace.Dispose(); }
+            catch (Exception cleanup)
+            {
+                failure = ExceptionDispatchInfo.Capture(failure == null
+                    ? cleanup : new AggregateException(failure.SourceException, cleanup));
+            }
         }
+        failure?.Throw();
     }
 
     /// <summary>
@@ -113,12 +130,12 @@ public sealed class InstallEstimationPerformanceTests
     [TestMethod]
     public void CapturedInputs_MeasureFullCandidateEvaluationAndProfileReuse()
     {
-        foreach (Net10PerformanceCorpusScale scale in Net10PerformanceCorpus.GetConfiguredScales())
+        foreach (InputScale scale in Enum.GetValues<InputScale>())
         {
             Scenario[] scenarios = scale switch
             {
-                Net10PerformanceCorpusScale.Small => [new(100, 3_000, 0, 1), new(300, 3_000, 80, 4)],
-                Net10PerformanceCorpusScale.Medium => [new(500, 3_000, 100, 1), new(1_000, 3_000, 0, 4), new(500, 3_000, 80, 1_000)],
+                InputScale.Small => [new(100, 3_000, 0, 1), new(300, 3_000, 80, 4)],
+                InputScale.Medium => [new(500, 3_000, 100, 1), new(1_000, 3_000, 0, 4), new(500, 3_000, 80, 1_000)],
                 _ => [new(500, 20_001, 80, 1), new(1_000, 20_001, 100, 4)]
             };
             foreach (Scenario scenario in scenarios)
@@ -128,7 +145,7 @@ public sealed class InstallEstimationPerformanceTests
         }
     }
 
-    private void MeasureScenario(Net10PerformanceCorpusScale scale, Scenario scenario)
+    private void MeasureScenario(InputScale scale, Scenario scenario)
     {
         string[] names = [.. Enumerable.Range(0, scenario.Required).Select(index => $"tone{index:D4}.wav")];
         ChartFile chart = ChartTestValues.Empty() with

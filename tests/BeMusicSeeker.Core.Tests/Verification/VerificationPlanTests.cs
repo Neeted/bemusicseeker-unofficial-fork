@@ -53,7 +53,7 @@ public sealed class VerificationPlanTests
         CollectionAssert.AreEqual(new[] { "SC-15a", "SC-15b", "SC-16", "DT-01", "DT-02", "DT-03" }, full.RequiredScenarioIds["Desktop.E2E"].ToArray());
         Assert.IsTrue(VerificationPlan.Create("verify", 8).Format);
         Assert.IsFalse(VerificationPlan.Create("dev", 8).Format);
-        Assert.AreEqual("Performance", VerificationPlan.Create("performance", 8, "Scan").Modules.Single().Name);
+        Assert.AreEqual("Performance", VerificationPlan.Create("performance", 8, "scan-commit").Modules.Single().Name);
         Assert.Throws<ArgumentException>(() => VerificationPlan.Create("compatibility", 8));
     }
 
@@ -107,4 +107,49 @@ public sealed class VerificationPlanTests
     public void UnregisteredCompatibilitySuiteCannotCreatePlan(string? suite)
         => Assert.Throws<ArgumentException>(() => VerificationPlan.Parse(
             suite is null ? ["compatibility"] : ["compatibility", "--suite", suite], 8));
+    /// <summary>正式性能suiteは全仕事量をRelease・UI排他・単一workerへ渡し、suite固有の監視上限を一回だけ設定します。</summary>
+    [TestMethod]
+    [DataRow("scan-commit", 180)]
+    [DataRow("lr2-sync", 180)]
+    [DataRow("folder-mutation", 180)]
+    [DataRow("copy-tracking", 60)]
+    [DataRow("bmson-continuation", 60)]
+    [DataRow("row-cache", 180)]
+    [DataRow("playlist-summary", 300)]
+    [DataRow("install-estimation", 600)]
+    [DataRow("audio", 300)]
+    public void RegisteredPerformanceSuiteKeepsFixedWorkloadAndExecutionBoundary(string suite, int timeoutSeconds)
+    {
+        var plan = VerificationPlan.Parse(["performance", "--suite", suite], 16);
+        VerificationModule module = plan.Modules.Single();
+        Assert.AreEqual(suite, plan.Suite);
+        Assert.AreEqual("Performance", module.Name);
+        Assert.AreEqual($"TestCategory=Suite.{suite}", module.Filter);
+        Assert.AreEqual("Release", plan.Configuration);
+        Assert.IsFalse(plan.Format);
+        Assert.IsTrue(module.UsesUi);
+        Assert.AreEqual(1, module.Workers);
+        Assert.AreEqual("1", module.CreateRunSettings().Descendants("Workers").Single().Value);
+        Assert.AreEqual("MethodLevel", module.CreateRunSettings().Descendants("Scope").Single().Value);
+        Assert.AreEqual(TimeSpan.FromSeconds(timeoutSeconds), plan.TestTimeout);
+        Assert.AreEqual("tests/verification-performance.slnf", plan.SolutionFilter);
+        Assert.AreEqual(0, plan.RequiredScenarioIds.Count);
+    }
+
+    /// <summary>未指定・未知suiteと部分filterを準備前に拒否し、全負荷を実行しない正式成功を作りません。</summary>
+    [TestMethod]
+    public void PerformanceRejectsMissingUnknownSuiteAndPartialFilter()
+    {
+        foreach (string? suite in new string?[] { null, "", " ", "all", "Scan", "Audio" })
+        {
+            Assert.Throws<ArgumentException>(() => VerificationPlan.Parse(
+                suite is null ? ["performance"] : ["performance", "--suite", suite], 8));
+        }
+        foreach (string filter in new[] { "", "FullyQualifiedName~Single", "TestCategory=Suite.audio" })
+        {
+            Assert.Throws<ArgumentException>(() => VerificationPlan.Parse(
+                ["performance", "--suite", "audio", "--filter", filter], 8));
+        }
+    }
+
 }

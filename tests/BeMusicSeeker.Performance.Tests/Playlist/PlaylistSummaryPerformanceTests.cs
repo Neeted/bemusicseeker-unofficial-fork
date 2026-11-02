@@ -1,19 +1,14 @@
-using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
-using System.Linq;
-using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests.Performance;
 
 /// <summary>summaryの実Dispatcher区間と所有処理全体を、機能検証とは別に同一合成入力で明示測定します。</summary>
-[TestClass, TestCategory("Net10Performance"), TestCategory("playlist_summary"), DoNotParallelize]
+[TestClass, TestCategory("Suite.playlist-summary"), DoNotParallelize]
 public sealed class PlaylistSummaryPerformanceTests
 {
     // MSTestが実行前に注入する結果出力先です。

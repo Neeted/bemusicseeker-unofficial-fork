@@ -12,45 +12,38 @@ namespace BeMusicSeeker.Core.Tests.Verification;
 [TestClass]
 public sealed class VerificationRunnerTests
 {
-    /// <summary>Compatibilityの接続で未実装Performanceまで有効化せず、準備process前に不成功を返します。</summary>
-    [TestMethod]
-    public async Task PerformanceRemainsUnavailableBeforePreparation()
-    {
-        using var fixture = new RunnerFixture();
-        VerificationRunResult result = await VerificationRunner.ExecuteAsync(
-            VerificationPlan.Parse(["performance", "--suite", "Scan"], 8), fixture.Run());
-        Assert.AreEqual(1, result.ExitCode);
-        Assert.IsNotNull(result.PrimaryFailure);
-        Assert.AreEqual(0, fixture.Requests.Count);
-    }
-
     /// <summary>CPU予算によらず選択suiteを一回だけ起動し、標準filter・設定・reportと同じrunの証跡へ接続します。</summary>
     /// <remarks>Java入力の継承を妨げる子環境上書きと親環境の変更を検出します。実Javaの入力読取りは正式suiteの受入で確認します。</remarks>
     [TestMethod]
-    [DataRow(1)]
-    [DataRow(8)]
-    public async Task CompatibilityRunsOnlySelectedModuleAndRecordsAppliedContract(int processors)
+    [DataRow("compatibility", 1)]
+    [DataRow("compatibility", 8)]
+    [DataRow("performance", 8)]
+    public async Task ExplicitSuiteRunsOnlySelectedModuleAndRecordsAppliedContract(string profile, int processors)
     {
         const string inputVariable = "BMS_TEST_CHARTSTRING_REFERENCE_JSON";
         string? originalInput = Environment.GetEnvironmentVariable(inputVariable);
         string? originalDeadline = Environment.GetEnvironmentVariable(ProcessDeadline.SuiteDeadlineEnvironmentVariable);
         const string filter = "FullyQualifiedName~Reference|TestCategory=OtherSuite";
+        string moduleName = profile == "compatibility" ? "Compatibility" : "Performance";
+        string suite = profile == "compatibility" ? "chartstring-java" : "copy-tracking";
+        string expectedFilter = profile == "compatibility" ? $"(TestCategory=Suite.{suite})&({filter})" : $"TestCategory=Suite.{suite}";
         using var fixture = new RunnerFixture();
-        var plan = VerificationPlan.Parse(["compatibility", "--suite", "chartstring-java", "--filter", filter], processors);
+        var plan = VerificationPlan.Parse(profile == "compatibility"
+            ? [profile, "--suite", suite, "--filter", filter] : [profile, "--suite", suite], processors);
         VerificationRunResult result = await VerificationRunner.ExecuteAsync(plan, fixture.Run() with { TestTimeout = null });
         Assert.AreEqual(0, result.ExitCode, result.PrimaryFailure?.ToString());
-        CollectionAssert.AreEqual(new[] { "rev-parse", "status", "--version", "restore", "build", "Compatibility" },
+        CollectionAssert.AreEqual(new[] { "rev-parse", "status", "--version", "restore", "build", moduleName },
             fixture.Requests.Select(item => item.Name).ToArray());
         ProcessStartRequest restore = fixture.Requests.Single(item => item.Name == "restore").Request;
-        Assert.IsTrue(restore.Arguments.Contains("tests/verification-compatibility.slnf"));
+        Assert.IsTrue(restore.Arguments.Contains($"tests/verification-{profile}.slnf"));
         Assert.IsTrue(restore.Arguments.Contains("--locked-mode"));
         ProcessStartRequest build = fixture.Requests.Single(item => item.Name == "build").Request;
-        Assert.IsTrue(build.Arguments.Contains("tests/verification-compatibility.slnf") && build.Arguments.Contains("--no-restore"));
+        Assert.IsTrue(build.Arguments.Contains($"tests/verification-{profile}.slnf") && build.Arguments.Contains("--no-restore"));
         Assert.IsTrue(build.Arguments.Contains("Release"));
-        ProcessStartRequest request = fixture.Requests.Single(item => item.Name == "Compatibility").Request;
+        ProcessStartRequest request = fixture.Requests.Single(item => item.Name == moduleName).Request;
         StringAssert.Contains(request.FileName, "Release");
         string[] arguments = request.Arguments.ToArray();
-        Assert.AreEqual($"(TestCategory=Suite.chartstring-java)&({filter})", arguments[Array.IndexOf(arguments, "--filter") + 1]);
+        Assert.AreEqual(expectedFilter, arguments[Array.IndexOf(arguments, "--filter") + 1]);
         Assert.AreEqual("1", arguments[Array.IndexOf(arguments, "--minimum-expected-tests") + 1]);
         var settings = XDocument.Load(arguments[Array.IndexOf(arguments, "--settings") + 1]);
         Assert.AreEqual("1", settings.Descendants("Workers").Single().Value);
@@ -58,7 +51,7 @@ public sealed class VerificationRunnerTests
         Assert.IsNotNull(request.Environment[ProcessDeadline.SuiteDeadlineEnvironmentVariable]);
         var imported = ProcessDeadline.Import(request.Environment[ProcessDeadline.SuiteDeadlineEnvironmentVariable] ?? throw new AssertFailedException());
         Assert.IsTrue(imported.Remaining > TimeSpan.Zero && imported.Remaining <= plan.TestTimeout);
-        foreach ((string Name, ProcessStartRequest Request) preparation in fixture.Requests.Where(item => item.Name != "Compatibility"))
+        foreach ((string Name, ProcessStartRequest Request) preparation in fixture.Requests.Where(item => item.Name != moduleName))
         {
             Assert.IsTrue(preparation.Request.Environment.ContainsKey(ProcessDeadline.SuiteDeadlineEnvironmentVariable));
             Assert.IsNull(preparation.Request.Environment[ProcessDeadline.SuiteDeadlineEnvironmentVariable]);
@@ -66,30 +59,34 @@ public sealed class VerificationRunnerTests
         Assert.AreEqual(originalDeadline, Environment.GetEnvironmentVariable(ProcessDeadline.SuiteDeadlineEnvironmentVariable));
         Assert.IsFalse(request.Environment.ContainsKey(inputVariable));
         Assert.AreEqual(originalInput, Environment.GetEnvironmentVariable(inputVariable));
-        Assert.AreEqual(fixture.Path("run/Compatibility/cases"), request.Environment[TestRunDirectory.EnvironmentVariable]);
+        Assert.AreEqual(fixture.Path($"run/{moduleName}/cases"), request.Environment[TestRunDirectory.EnvironmentVariable]);
         Assert.IsTrue(result.Commands.All(command => command.Passed));
-        Assert.AreEqual("Compatibility", result.Modules.Single().Name);
+        Assert.AreEqual(moduleName, result.Modules.Single().Name);
         Assert.AreEqual(1, result.Modules.Single().Cases);
-        Assert.IsTrue(File.Exists(fixture.Path("run/Compatibility/results.trx")));
-        Assert.AreEqual("stdout", File.ReadAllText(fixture.Path("run/Compatibility/process.stdout.log")));
-        Assert.AreEqual("stderr", File.ReadAllText(fixture.Path("run/Compatibility/process.stderr.log")));
+        Assert.IsTrue(File.Exists(fixture.Path($"run/{moduleName}/results.trx")));
+        Assert.AreEqual("stdout", File.ReadAllText(fixture.Path($"run/{moduleName}/process.stdout.log")));
+        Assert.AreEqual("stderr", File.ReadAllText(fixture.Path($"run/{moduleName}/process.stderr.log")));
         using var summary = JsonDocument.Parse(File.ReadAllText(fixture.Path("run/summary.json")));
-        Assert.AreEqual("chartstring-java", summary.RootElement.GetProperty("suite").GetString());
+        Assert.AreEqual(suite, summary.RootElement.GetProperty("suite").GetString());
         Assert.AreEqual(60d, summary.RootElement.GetProperty("testTimeoutSeconds").GetDouble());
         JsonElement selection = summary.RootElement.GetProperty("filters").EnumerateArray().Single();
-        Assert.AreEqual("Compatibility", selection.GetProperty("Name").GetString());
+        Assert.AreEqual(moduleName, selection.GetProperty("Name").GetString());
         Assert.AreEqual(plan.Modules.Single().Filter, selection.GetProperty("Filter").GetString());
     }
 
     /// <summary>単一suiteの標準reportが空なら、process成功でも選択ゼロを成功へ変えません。</summary>
     [TestMethod]
-    public async Task CompatibilityRejectsEmptySelectedResults()
+    [DataRow("compatibility")]
+    [DataRow("performance")]
+    public async Task ExplicitSuiteRejectsEmptySelectedResults(string profile)
     {
-        using var fixture = new RunnerFixture { CompatibilityNames = [] };
+        using var fixture = new RunnerFixture { CompatibilityNames = [], PerformanceNames = [] };
         VerificationRunResult result = await VerificationRunner.ExecuteAsync(
-            VerificationPlan.Parse(["compatibility", "--suite", "chart-info-edge", "--filter", "FullyQualifiedName~Absent"], 8), fixture.Run());
+            VerificationPlan.Parse(profile == "compatibility"
+                ? [profile, "--suite", "chart-info-edge", "--filter", "FullyQualifiedName~Absent"]
+                : [profile, "--suite", "copy-tracking"], 8), fixture.Run());
         Assert.AreEqual(1, result.ExitCode);
-        Assert.IsTrue(result.Commands.Single(command => command.Name == "Compatibility").Passed);
+        Assert.IsTrue(result.Commands.Single(command => command.Name == (profile == "compatibility" ? "Compatibility" : "Performance")).Passed);
         Assert.IsFalse(result.Modules.Single().Passed);
         Assert.AreEqual(0, result.Modules.Single().Cases);
     }
@@ -867,6 +864,7 @@ public sealed class VerificationRunnerTests
         internal bool FormatInput { get; init; }
         internal string[] ScenarioIds { get; init; } = ["SC-01", "SC-02", "SC-09"];
         internal string[] CompatibilityNames { get; init; } = ["report fixture"];
+        internal string[] PerformanceNames { get; init; } = ["report fixture"];
         internal Func<string, Command, Command>? Configure { get; set; }
         internal Action<string, ProcessStartRequest>? BeforeStart { get; set; }
         internal Action<string, OwnedProcess>? AfterStart { get; set; }
@@ -914,7 +912,7 @@ public sealed class VerificationRunnerTests
             if (name == "style") { command = command with { WritePath = Path("changed.cs"), WriteContent = "style" }; }
             if (name == "whitespace") { command = command with { RequirePath = Path("changed.cs"), RequireContent = "style", WritePath = Path("changed.cs"), WriteContent = "formatted" }; }
             if (name == "build" && FormatInput) { command = command with { RequirePath = Path("changed.cs"), RequireContent = "formatted" }; }
-            if (name is "Core" or "Windows" or "Scenarios" or "Desktop.E2E" or "Compatibility")
+            if (name is "Core" or "Windows" or "Scenarios" or "Desktop.E2E" or "Compatibility" or "Performance")
             {
                 string[] arguments = request.Arguments.ToArray();
                 string reportDirectory = arguments[Array.IndexOf(arguments, "--results-directory") + 1];
@@ -923,6 +921,7 @@ public sealed class VerificationRunnerTests
                 {
                     "Scenarios" => ScenarioIds.Select(id => $"[{id}] report fixture"),
                     "Compatibility" => CompatibilityNames,
+                    "Performance" => PerformanceNames,
                     "Desktop.E2E" => new[] { "SC-15a", "SC-15b", "SC-16", "DT-01", "DT-02", "DT-03" }.Select(id => $"[{id}] report fixture"),
                     _ => ["report fixture"],
                 };

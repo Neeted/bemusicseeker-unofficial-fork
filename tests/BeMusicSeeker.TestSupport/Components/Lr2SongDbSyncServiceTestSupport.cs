@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -12,7 +13,8 @@ internal static class Lr2SongDbSyncServiceTestSupport
 {
     /// <summary>日常と大規模条件で同じ同期chunkの確定件数・順序・保存結果を表明します。</summary>
     /// <param name="databaseScope">観測接続に使う、呼出元ケースのDB所有者です。</param>
-    internal static void AssertSongChunkCommits(ApplicationDatabaseScope databaseScope, int targetCount, int chunkSize, Lr2SongSyncExecutionOptions? options)
+    /// <param name="reportOperationElapsed">指定時だけ準備・表明・回収を除く実操作の経過を終端後に通知します。省略時は時計を追加しません。</param>
+    internal static void AssertSongChunkCommits(ApplicationDatabaseScope databaseScope, int targetCount, int chunkSize, Lr2SongSyncExecutionOptions? options, Action<TimeSpan>? reportOperationElapsed = null)
     {
         using var scope = TestDatabaseScope.Create();
         string directory = Path.Combine(scope.DirectoryPath, "ChunkProgress");
@@ -43,7 +45,7 @@ internal static class Lr2SongDbSyncServiceTestSupport
         var afterCommit = new List<Lr2SongDbSyncProgress?>();
         var logs = new ConcurrentQueue<string>();
         Func<CatalogChartInfoWriteRequest, CatalogChartInfoWriteReceipt> writer = CreateDirectChartInfoWriter(songDb);
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        var syncRequest = new Lr2SongDbSyncRequest
         {
             LogInstallPerformance = logs.Enqueue,
             RunId = "real-chunk-progress",
@@ -64,7 +66,11 @@ internal static class Lr2SongDbSyncServiceTestSupport
                 events.Enqueue(progress);
                 Volatile.Write(ref latest, progress);
             }
-        });
+        };
+        Stopwatch? operationClock = reportOperationElapsed == null ? null : Stopwatch.StartNew();
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, syncRequest);
+        operationClock?.Stop();
+        if (operationClock != null) { reportOperationElapsed?.Invoke(operationClock.Elapsed); }
 
         Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(targetCount, result.SongRowProcessedCount);

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -15,7 +16,8 @@ namespace BeMusicSeeker.TestSupport.Components;
 internal static class BmsLibraryFolderRenameRefreshTestSupport
 {
     /// <summary>日常と大規模条件で同じ実移転後の祖先資源反映を観測します。</summary>
-    internal static void AssertFinalFilesystemAncestors(ApplicationDatabaseScope databaseScope, bool move, int backgroundEntries, int parentCharts)
+    /// <param name="reportOperationElapsed">指定時だけ準備・表明・回収を除く実操作の経過を終端後に通知します。省略時は時計を追加しません。</param>
+    internal static void AssertFinalFilesystemAncestors(ApplicationDatabaseScope databaseScope, bool move, int backgroundEntries, int parentCharts, Action<TimeSpan>? reportOperationElapsed = null)
     {
         WithTemporarySongDb(databaseScope, songDbPath =>
         {
@@ -56,9 +58,13 @@ internal static class BmsLibraryFolderRenameRefreshTestSupport
             new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs(charts);
             try
             {
+                Stopwatch? operationClock = reportOperationElapsed == null ? null : Stopwatch.StartNew();
                 LibraryMutationSessionReceipt receipt = move
                     ? library.MoveLibraryRootFolderWithReceipt([LibraryChartRef.FromChartFile(target)], newParent, reportAtTerminal: true)
                     : library.RenameChartFolderWithReceipt(source, "Renamed", reportAtTerminal: true);
+
+                operationClock?.Stop();
+                if (operationClock != null) { reportOperationElapsed?.Invoke(operationClock.Elapsed); }
 
                 LibraryResourceIndexSnapshot after = owner.CaptureSnapshot();
                 before.DirectoryLookupCache.EntryStoreMutationObserver = null;

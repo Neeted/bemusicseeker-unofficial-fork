@@ -1,5 +1,6 @@
 <Project Sdk="MSTest.Sdk">
   <PropertyGroup>
+    <UseWPF>true</UseWPF>
     <EnableMicrosoftTestingExtensionsTrxReport>true</EnableMicrosoftTestingExtensionsTrxReport>
     <EnableMicrosoftTestingExtensionsCrashDump>true</EnableMicrosoftTestingExtensionsCrashDump>
     <EnableMicrosoftTestingExtensionsHangDump>true</EnableMicrosoftTestingExtensionsHangDump>
@@ -9,7 +10,7 @@
     <ProjectReference Include="../../BeMusicSeeker/BeMusicSeeker.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="../ModuleInitialization/ModuleLifetime.cs" Link="Infrastructure/ModuleLifetime.cs" />
+    <Compile Include="../ModuleInitialization/UiModuleLifetime.cs" Link="Infrastructure/ModuleLifetime.cs" />
     <Compile Include="../ModuleInitialization/AssemblySettings.cs" Link="Infrastructure/AssemblySettings.cs" />
   </ItemGroup>
 </Project>

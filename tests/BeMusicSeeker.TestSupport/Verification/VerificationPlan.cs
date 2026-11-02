@@ -32,6 +32,19 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
         ["chartstring-java"] = TimeSpan.FromSeconds(60),
     };
 
+    private static readonly IReadOnlyDictionary<string, TimeSpan> PerformanceSuites = new Dictionary<string, TimeSpan>(StringComparer.Ordinal)
+    {
+        ["scan-commit"] = TimeSpan.FromSeconds(180),
+        ["lr2-sync"] = TimeSpan.FromSeconds(180),
+        ["folder-mutation"] = TimeSpan.FromSeconds(180),
+        ["copy-tracking"] = TimeSpan.FromSeconds(60),
+        ["bmson-continuation"] = TimeSpan.FromSeconds(60),
+        ["row-cache"] = TimeSpan.FromSeconds(180),
+        ["playlist-summary"] = TimeSpan.FromSeconds(300),
+        ["install-estimation"] = TimeSpan.FromSeconds(600),
+        ["audio"] = TimeSpan.FromSeconds(300),
+    };
+
     /// <summary>明示選択されたsuite名です。日常・Fullでは指定しません。</summary>
     internal string? Suite { get; private init; }
 
@@ -43,6 +56,14 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
         if (profile == "compatibility" && (suite is null || !CompatibilitySuites.ContainsKey(suite)))
         {
             throw new ArgumentException($"--suite に登録済みのCompatibility suite名を指定してください: {suite}");
+        }
+        if (profile == "performance" && (suite is null || !PerformanceSuites.ContainsKey(suite)))
+        {
+            throw new ArgumentException($"--suite に登録済みのPerformance suite名を指定してください: {suite}");
+        }
+        if (profile == "performance" && filter is not null)
+        {
+            throw new ArgumentException("正式performanceでは --filter を指定できません。局所検証は対象projectを直接実行してください。");
         }
         if (full && filter is not null)
         {
@@ -56,7 +77,7 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
                 new("Scenarios", full ? null : "TestCategory=Daily", 1, true),
                 .. full ? new[] { new VerificationModule("Desktop.E2E", null, 1, true) } : []],
             "compatibility" => [new("Compatibility", SuiteFilter(suite), 1, true)],
-            "performance" => [new("Performance", SuiteFilter(suite), 1, false)],
+            "performance" => [new("Performance", SuiteFilter(suite), 1, true)],
             _ => throw new ArgumentException($"未知のprofileです: {profile}"),
         };
         if (suite is not null && profile is not ("compatibility" or "performance"))
@@ -114,10 +135,13 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
         _ => new Dictionary<string, IReadOnlyList<string>>(),
     };
 
-    /// <summary>全test moduleに一度だけ与える上限です。Compatibilityは選択suiteの起動・前提検査・通常回収を含み、内側の期限では延長しません。</summary>
-    internal TimeSpan TestTimeout => Profile == "compatibility"
-        ? CompatibilitySuites[Suite ?? throw new InvalidOperationException("Compatibility suiteが未指定です。")]
-        : TimeSpan.FromSeconds(Profile == "full" ? 1380 : 360);
+    /// <summary>全test moduleに一度だけ与える上限です。明示suiteは起動・前提検査・通常回収まで共有し、速度の合否閾値とは区別します。</summary>
+    internal TimeSpan TestTimeout => Profile switch
+    {
+        "compatibility" => CompatibilitySuites[Suite ?? throw new InvalidOperationException("Compatibility suiteが未指定です。")],
+        "performance" => PerformanceSuites[Suite ?? throw new InvalidOperationException("Performance suiteが未指定です。")],
+        _ => TimeSpan.FromSeconds(Profile == "full" ? 1380 : 360),
+    };
 
     /// <summary>標準solution filterの選択先です。実行中のVerify自身は含めません。</summary>
     internal string SolutionFilter => $"tests/verification-{(Profile is "dev" or "verify" ? "dev" : Profile)}.slnf";

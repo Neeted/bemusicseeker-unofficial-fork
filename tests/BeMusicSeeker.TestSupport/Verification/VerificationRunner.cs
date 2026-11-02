@@ -117,10 +117,6 @@ internal static class VerificationRunner
             Console.WriteLine("選択: " + string.Join(", ", plan.Modules.Select(module => module.Name)));
             Console.WriteLine("対象外: " + string.Join(", ", new[] { "Core", "Windows", "Scenarios", "Desktop.E2E", "Compatibility", "Performance" }.Except(plan.Modules.Select(module => module.Name))));
             Console.WriteLine("結果: " + run.RunRoot);
-            if (plan.Profile == "performance")
-            {
-                throw new InvalidOperationException("このprofileの配布物・環境preflight・期限は後続移行で接続します。未実施を成功として扱いません。");
-            }
             preparation.Start();
             source = (await Metadata("git", ["rev-parse", "HEAD"])).StandardOutput.Trim();
             dirty = (await Metadata("git", ["status", "--porcelain"])).StandardOutput.Length != 0;
@@ -190,7 +186,7 @@ internal static class VerificationRunner
                         {
                             [TestRunDirectory.EnvironmentVariable] = Path.Combine(directory, "cases"),
                             [DistributionCatalog.EnvironmentVariable] = distributionCatalog,
-                            [ProcessDeadline.SuiteDeadlineEnvironmentVariable] = module.Name == "Compatibility" ? testing.ExecutionDeadline.Export() : null,
+                            [ProcessDeadline.SuiteDeadlineEnvironmentVariable] = module.Name is "Compatibility" or "Performance" ? testing.ExecutionDeadline.Export() : null,
                         }),
                         directory, "process", started => Interlocked.CompareExchange(ref executionStart, started, 0), cleanupIntervals);
                 }

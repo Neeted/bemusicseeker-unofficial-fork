@@ -8,6 +8,7 @@ dotnet run --project tools/BeMusicSeeker.Verify -- verify
 dotnet run --project tools/BeMusicSeeker.Verify -- full
 dotnet run --project tools/BeMusicSeeker.Verify -- dev --filter "FullyQualifiedName~対象名"
 dotnet run --project tools/BeMusicSeeker.Verify -- compatibility --suite chart-info-bms
+dotnet run --project tools/BeMusicSeeker.Verify -- performance --suite scan-commit
 dotnet run --project tests/BeMusicSeeker.Core.Tests -- --filter "FullyQualifiedName~ResultGateTests" --minimum-expected-tests 1 --report-trx
 ```
 
@@ -29,9 +30,31 @@ Fullは全C# sourceの整形・build後、固定旧ZIP、現行V、次版Vnext�
 
 DriveRootとDirectorySymbolicLinkは180秒、CrossVolume・Junctionと既存の固定参照8suiteは60秒を、起動・前提検査・本体・通常回収・実exitで共有します。これは初期運用上限であり、corpus全体の完了時間保証ではありません。失敗回収は共通の10秒を一度だけ確定します。Java準備JSONなどの入力は子環境へ継承し、実caseで検査します。必要なtoolや固定入力の取得・展開・権限設定は事前に済ませ、通常runの準備処理へ追加しません。
 
-環境条件のDriveRoot（8メソッド・10行）、DirectorySymbolicLink（6・6、file linkを含む）、CrossVolume（4・4）、Junction（3・7）は明示suiteとして実行します。実能力・必要入力の不足をskipや代用品へ変えません。`performance` は未実装の非成功を維持し、未登録suiteは準備前に拒否します。一つのCompatibility suiteの成功を、全suiteや正式Fullの成功とは扱いません。直接module実行と旧標準入口も引き続き利用できます。
+環境条件のDriveRoot（8メソッド・10行）、DirectorySymbolicLink（6・6、file linkを含む）、CrossVolume（4・4）、Junction（3・7）は明示suiteとして実行します。実能力・必要入力の不足をskipや代用品へ変えません。未登録suiteは準備前に拒否します。一つのCompatibility suiteの成功を、全suiteや正式Fullの成功とは扱いません。直接module実行と旧標準入口も引き続き利用できます。
 
-正式Compatibility runnerはQPC始点とTimeSpan ticksの期限を `BMS_TEST_SUITE_DEADLINE` で子だけへ渡し、lease・updater・probe・junction・外部toolの既存小上限との早い方を使います。他moduleと準備processは同変数を明示除去し、親環境は変更しません。未指定の直接MTPだけ有限の局所既定を使い、明示空・不正・期限切れは失敗です。直接MTPの局所成功を正式runnerの共有期限内成功とは扱いません。
+正式Compatibility runnerはQPC始点とTimeSpan ticksの期限を `BMS_TEST_SUITE_DEADLINE` で子だけへ渡し、lease・updater・probe・junction・外部toolの既存小上限との早い方を使います。Compatibility/Performance以外のmoduleと準備processは同変数を明示除去し、親環境は変更しません。未指定の直接MTPだけ有限の局所既定を使い、明示空・不正・期限切れは失敗です。直接MTPの局所成功を正式runnerの共有期限内成功とは扱いません。
+
+## 明示性能suite
+
+`dotnet run --project tools/BeMusicSeeker.Verify -- performance --suite NAME` はReleaseのPerformance moduleだけを単一workerで実行します。全suiteが既存UiModuleLifetimeのsession排他を使い、他の検証・build・publish・測定と重ねません。正式入口の `--filter` は準備前に拒否し、局所の調査はmoduleの直接MTP実行へ分担します。
+
+| suite | 固定仕事量 | 監視上限 |
+| --- | --- | ---: |
+| scan-commit | 10,001実BMSの既定commit | 180秒 |
+| lr2-sync | 10,001行の既定同期chunk | 180秒 |
+| folder-mutation | 背景Entry4,096／親譜面256の2行 | 180秒 |
+| copy-tracking | 256実fileの転送と回収 | 60秒 |
+| bmson-continuation | 1,000／4,000／16,000noteの全位置探索 | 60秒 |
+| row-cache | ChartFile／PackageChartEntry各5反復 | 180秒 |
+| playlist-summary | 500表・58万entry・21万所持、全5route各5反復 | 300秒 |
+| install-estimation | 全3規模・全policy・cold/warm・既存全反復 | 600秒 |
+| audio | 実NULL_DEVICEの4負荷と先読み切替18条件 | 300秒 |
+
+全14メソッド・16 MTP行の内部規模・route・35周波数条件を維持します。`BMS_NET10_PERF_SCALES` による縮小はなく、正式suiteは全3規模固定です。秒数は運用watchdogで、速度の合否閾値や改善目標ではありません。既存保証の移管であり、新しい業務期待や負荷は追加しません。
+
+起動・前提・本文・通常回収・実exitにsuiteの一期限を共有し、Compatibilityと同じ子環境の共有cutoffを渡します。親の失敗検知から一回だけ開始する回収10秒は既存runnerが担当します。子が失敗した瞬間を親へ通知する追加IPC保証はありません。直接MTPのPredecodeは300秒の有限既定を使い、明示された不正・期限切れのsuite期限を既定へ置換しません。失敗後の回収期限は一回だけ確定し、Close/開始済みTaskの実終端を確認します。回収期限後も実Taskが未終端の場合だけ、診断とworkspaceを保持して専有MTPをFailFastで非成功終了し、後続caseや通常のmodule回収へ未終端nativeを渡しません。fault/cancelでも実終端したTaskは通常の原因集約・回収を行います。同期nativeの中断を保証する変更ではありません。
+
+scan/LR2/Folder/Copy/Bmsonは準備・表明・回収と対象操作の経過を分けて記録します。既存の時計・割当・cold/warm区間は維持し、旧hostのThreadPool下限を移植しないため旧値との同条件baselineとは扱いません。実native・必要assets・writable workspace等の能力不足は非成功です。suiteの成功は選択した固定仕事量の完了を示し、性能改善の証明とは区別します。
 
 ## 配布物の受渡し
 
@@ -53,11 +76,11 @@ test/appは共通 `OwnedProcess` がsuspended起動からJob割当を確立し�
 
 各moduleは直接実行でも専有run rootを準備します。runner経由ではmoduleごとに異なる `cases` 領域を子環境の `BMS_TEST_RUN_ROOT` へ渡し、各caseが `TestWorkspace.Create(runRoot)` で独立した可変領域を作ります。DB・Window・processの所有者が先に終端してからworkspaceを破棄します。証跡を残す `PreserveArtifacts()` は他の資源の回収を省略しません。
 
-Windows、Scenarios、Desktop、Compatibilityは既存UiModuleLifetimeで初期化前に同一ユーザー・Windows sessionのfile leaseを取得します。Compatibilityも専有profile・日本語辞書を使い、実WPF hostは必要なcaseで遅延生成します。module内の全Window・子processを回収した後に解放します。runnerと子appは同じleaseを二重取得しません。
+Windows、Scenarios、Desktop、Compatibility、Performanceは既存UiModuleLifetimeで初期化前に同一ユーザー・Windows sessionのfile leaseを取得します。Compatibilityも専有profile・日本語辞書を使い、実WPF hostは必要なcaseで遅延生成します。module内の全Window・子processを回収した後に解放します。runnerと子appは同じleaseを二重取得しません。
 
 期待moduleごとの今回のTRX、process終了コード、全終端を照合し、選択結果が全件Passedの場合だけ成功します。部分skip、全skip、ゼロ件、report欠落・不正、timeout、回収失敗も不成功です。未選択moduleは「対象外」として区別します。
 
-`full` 以外の `--filter` は標準MTP条件を各moduleへ渡し、module集合を変更しません。Dailyやsuiteの条件があるmoduleでは括弧で囲んだAND条件にします。`dev/verify` はScenariosの `[SC-01]`、`[SC-02]`、`[SC-09]` というtestName先頭の必須IDを照合し、filter指定時にも不足を成功として扱いません。
+`dev/verify/compatibility` の `--filter` は標準MTP条件を各moduleへ渡し、module集合を変更しません。Dailyやsuiteの条件があるmoduleでは括弧で囲んだAND条件にします。`dev/verify` はScenariosの `[SC-01]`、`[SC-02]`、`[SC-09]` というtestName先頭の必須IDを照合し、filter指定時にも不足を成功として扱いません。
 
 同じIDのDataRowが一つのmodule内で複数行になることは許可しますが、選択された全行のPassedが必要です。同じIDを別moduleへ重複配置することは許可しません。IDの後ろは空白・DataRowの括弧・文字列末尾で区切り、ケース全体のFQN一覧や独自DataRow展開は使いません。
 
