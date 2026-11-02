@@ -41,7 +41,7 @@ internal sealed partial class ApplicationScenarioDialogs : IUiDialogService
     }
     private void Arm(object input)
     {
-        if (pending is not null) { throw new InvalidOperationException("A dialog input is already armed."); }
+        if (pending is not null || installReport is not null) { throw new InvalidOperationException("A dialog input is already armed."); }
         pending = input;
     }
 
@@ -178,7 +178,9 @@ internal sealed partial class ApplicationScenarioDialogs : IUiDialogService
     }
     /// <inheritdoc />
     public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
-        => ShowRecoveryMessageAsync(request, cancellationToken);
+        => installReport is not null
+            && TryAnswerInstallReport(request, new UiDialogOwnerResolver().ResolveOwner(request.Owner), out Task<UiDialogResult>? answer)
+            ? answer : ShowRecoveryMessageAsync(request, cancellationToken);
     /// <inheritdoc />
     public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
         => ConfirmRecoveryAsync(request, cancellationToken);

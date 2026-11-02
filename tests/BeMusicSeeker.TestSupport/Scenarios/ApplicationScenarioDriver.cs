@@ -161,10 +161,10 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
     internal Task<ScenarioPackageViewCompleted> NavigatePackagesAsync(bool pending, ProcessDeadline deadline)
         => RequestAsync<ScenarioPackageViewCompleted>(id => new ScenarioPackageViewCommand(id, pending), deadline);
 
-    /// <summary>実保留行を対象に既存操作を行い、操作結果とその後の一覧移動結果を返します。</summary>
+    /// <summary>実保留行を対象に既存操作を行い、元の結果と一覧移動を返します。明示した場合だけ消失先の実報告へ一回OKを入力します。</summary>
     internal Task<ScenarioPendingCompleted> ApplyPendingAsync(ScenarioPendingAction action, IEnumerable<string> chartPaths,
-        ProcessDeadline deadline, string? destination = null)
-        => RequestAsync<ScenarioPendingCompleted>(id => new ScenarioPendingCommand(id, action, [.. chartPaths], destination), deadline);
+        ProcessDeadline deadline, string? destination = null, bool expectInstallFailureReport = false)
+        => RequestAsync<ScenarioPendingCompleted>(id => new ScenarioPendingCommand(id, action, [.. chartPaths], destination, expectInstallFailureReport), deadline);
 
     /// <summary>既存の外部表インポートの実Task終端と対象別結果を取得します。</summary>
     internal Task<ScenarioPlaylistCompleted> ImportPlaylistAsync(string url, ProcessDeadline deadline)

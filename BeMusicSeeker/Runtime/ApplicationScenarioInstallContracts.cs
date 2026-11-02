@@ -8,9 +8,9 @@ namespace BeMusicSeeker.Runtime;
 internal sealed record ScenarioDropCommand(long RequestId, ImmutableArray<string> Paths) : ScenarioCommand(RequestId);
 /// <summary>通常の保留または新規導入一覧へ移動し、実表示を取得します。</summary>
 internal sealed record ScenarioPackageViewCommand(long RequestId, bool Pending) : ScenarioCommand(RequestId);
-/// <summary>実保留行から選ぶ対象と既存の導入先操作です。</summary>
+/// <summary>実保留行から選ぶ対象と既存の導入先操作です。ExpectInstallFailureReportは消失した明示先の実報告に限る一回OK入力です。</summary>
 internal sealed record ScenarioPendingCommand(long RequestId, ScenarioPendingAction Action,
-    ImmutableArray<string> ChartPaths, string? Destination = null) : ScenarioCommand(RequestId);
+    ImmutableArray<string> ChartPaths, string? Destination = null, bool ExpectInstallFailureReport = false) : ScenarioCommand(RequestId);
 /// <summary>保留一覧で提供する固定操作だけを列挙します。</summary>
 internal enum ScenarioPendingAction
 {

@@ -68,6 +68,8 @@ internal sealed partial class ApplicationScenarioControl
 
     private async Task<ScenarioPendingCompleted> ApplyPendingAsync(MainWindowViewModel model, ScenarioPendingCommand request)
     {
+        if (request.ExpectInstallFailureReport && request.Action != ScenarioPendingAction.Install)
+        { throw new InvalidDataException("The missing-destination report input requires manual install."); }
         await NavigatePackagesAsync(model, request.RequestId, true);
         var targets = new List<ChartOperationTarget>();
         foreach (string path in request.ChartPaths)
@@ -106,9 +108,32 @@ internal sealed partial class ApplicationScenarioControl
             case ScenarioPendingAction.Install:
             case ScenarioPendingAction.InstallAsNew:
                 MainWindow mainWindow = window ?? throw new InvalidOperationException("The main window is unavailable.");
-                PendingPackageMutationResult result = await (request.Action == ScenarioPendingAction.InstallAsNew
-                    ? mainWindow.ForceInstallSelectedPendingChartsAsync(targets)
-                    : mainWindow.ManualInstallSelectedPendingChartsAsync(targets)).WaitAsync(stopping.Token);
+                if (request.ExpectInstallFailureReport)
+                {
+                    if (targets.Count != 1 || string.IsNullOrWhiteSpace(targets[0].Chart.InstallDestination))
+                    { throw new InvalidOperationException("The missing-destination report requires one explicitly selected destination."); }
+                    Dialogs.ArmInstallFailureReport(request.RequestId, mainWindow, targets[0].Chart.InstallDestination);
+                }
+                PendingPackageMutationResult result;
+                Exception? operationFailure = null;
+                try
+                {
+                    // 固定入力の寿命は実Task終端までです。制御待機の取消だけで先に回答権限を解放しません。
+                    Task<PendingPackageMutationResult> operation = request.Action == ScenarioPendingAction.InstallAsNew
+                        ? mainWindow.ForceInstallSelectedPendingChartsAsync(targets)
+                        : mainWindow.ManualInstallSelectedPendingChartsAsync(targets);
+                    result = request.ExpectInstallFailureReport ? await operation : await operation.WaitAsync(stopping.Token);
+                }
+                catch (Exception failure) { operationFailure = failure; throw; }
+                finally
+                {
+                    if (request.ExpectInstallFailureReport)
+                    {
+                        try { Dialogs.CompleteInstallFailureReport(request.RequestId); }
+                        catch (Exception inputFailure) when (operationFailure is not null)
+                        { operationFailure.Data["ScenarioInstallReportFailure"] = inputFailure; }
+                    }
+                }
                 mutation = new(result.Succeeded, result.HasInstallRefusal,
                     result.Failure is null ? null : ScenarioFailure.FromException(result.Failure), CaptureMutation(result.SessionReceipt));
                 break;
