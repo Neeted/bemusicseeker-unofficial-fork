@@ -994,7 +994,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(query.MatchesPlaylistSummary(negative));
     }
 
-    /// <summary>予約構文で始まる表名候補を適用して実検索へ渡し、大小文字・引用途中・エスケープにかかわらず通常名として一致させ、否定と前後句・区切り・caretを保ちます。</summary>
+    /// <summary>予約構文・空白・引用符・バックスラッシュ・縦棒を持つ表名候補を実検索へ渡し、通常名としての一致、否定・前後句・OR選択肢・caretを保ちます。</summary>
     /// <remarks>候補生成からparserのsource行評価までを接続し、re:を落とした名前への誤一致や後続条件の欠落を検出します。</remarks>
     [TestMethod]
     [DataRow("playlist:r", " title:x", "re:mix", "playlist:\"re:mix\" title:x", false)]
@@ -1003,6 +1003,11 @@ public sealed class GridKeywordSearchQueryTests
     [DataRow("table:\"Re:", "\" title:x", "Re:mix", "table:\"Re:mix\" title:x", false)]
     [DataRow("playlist:\"re:", "", "re:\"Mix\\A|B", "playlist:\"re:\\\"Mix\\\\A|B\" ", false)]
     [DataRow("artist:artistx -playlist:r", "   title:x", "re:mix", "artist:artistx -playlist:\"re:mix\" title:x", true)]
+    [DataRow("playlist:", "\"re:old\"|Beta title:x", "re:mix", "playlist:\"re:mix\"|Beta title:x", false)]
+    [DataRow("playlist:Beta|\"Al", "pha\" title:x", "Alpha One", "playlist:Beta|\"Alpha One\" title:x", false)]
+    [DataRow("playlist:\"Al", "pha\"|Beta title:x", "Alpha\"Mix", "playlist:\"Alpha\\\"Mix\"|Beta title:x", false)]
+    [DataRow("playlist:\"Al", "pha\"|Beta title:x", "Alpha\\Mix", "playlist:\"Alpha\\\\Mix\"|Beta title:x", false)]
+    [DataRow("playlist:\"Al", "pha\"|Beta title:x", "Alpha|Mix", "playlist:\"Alpha|Mix\"|Beta title:x", false)]
     public void KeywordSearchAssistance_ReservedPrefixCandidatesRemainLiteralThroughParser(
         string beforeCaret, string suffix, string candidateName, string expectedText, bool negated)
     {
@@ -1020,7 +1025,8 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsTrue(result.Succeeded);
         Assert.AreEqual(expectedText, result.Text);
         int followingClause = expectedText.IndexOf(" title:x", StringComparison.Ordinal);
-        Assert.AreEqual(followingClause < 0 ? expectedText.Length : followingClause + 1, result.CaretIndex);
+        int followingAlternative = expectedText.IndexOf("|Beta", StringComparison.Ordinal);
+        Assert.AreEqual(followingAlternative >= 0 ? followingAlternative : followingClause < 0 ? expectedText.Length : followingClause + 1, result.CaretIndex);
         var query = GridKeywordSearchQuery.Parse(result.Text);
         Assert.AreEqual(0, query.GetDiagnostics(GridKeywordSearchContext.ChartList).Count);
 
@@ -1029,12 +1035,73 @@ public sealed class GridKeywordSearchQueryTests
         PlaylistReferenceIndex bareIndex = CreatePlaylistReferenceIndex(matchingFile, CreateTable(candidateName[3..], "B"));
         Assert.AreEqual(!negated, query.MatchesChartListSourceRow(CreateSourceRow(matchingFile, row => literalIndex.Find(row.Chart))));
         Assert.AreEqual(negated, query.MatchesChartListSourceRow(CreateSourceRow(matchingFile, row => bareIndex.Find(row.Chart))));
+        if (expectedText.Contains("|Beta", StringComparison.Ordinal) || expectedText.Contains("Beta|", StringComparison.Ordinal))
+        {
+            PlaylistReferenceIndex retainedIndex = CreatePlaylistReferenceIndex(matchingFile, CreateTable("Beta", "R"));
+            Assert.IsTrue(query.MatchesChartListSourceRow(CreateSourceRow(matchingFile, row => retainedIndex.Find(row.Chart))),
+                "置換対象外のOR選択肢も同じ結果集合へ残る。");
+        }
         if (followingClause >= 0)
         {
             ChartFile wrongTitle = matchingFile with { Title = "other", RawTitle = "other" };
             PlaylistReferenceIndex matchingIndex = negated ? bareIndex : literalIndex;
             Assert.IsFalse(query.MatchesChartListSourceRow(CreateSourceRow(wrongTitle, row => matchingIndex.Find(row.Chart))),
                 "後続title条件は表名が一致していても評価する。");
+        }
+    }
+
+    /// <summary>ORの途中補完から実検索・履歴とお気に入り・空入力への再適用・再編集まで原文と結果集合を確認し、保存往復で補完した条件が変質する誤りを検出します。</summary>
+    [TestMethod]
+    public void KeywordSearchAssistance_CompletionSurvivesSavedQueryRoundTripAndReediting()
+    {
+        SearchAssistanceSettingsStore store = new();
+        KeywordSearchSavedQueryOwner savedQueries = new(KeywordSearchSavedQueryScope.Normal, store, store);
+        KeywordSearchAssistanceOwner assistance = new(savedQueries, GridKeywordSearchContext.ChartList,
+            new KeywordSearchCatalogSnapshot(55L, ["Alpha One", "Alpine", "Beta"]));
+        const string input = "playlist:aXYZ|Beta title:x";
+        int caret = "playlist:a".Length;
+        KeywordSearchPresentationItem candidate = assistance.Focus(input, caret).VisibleItems.Single(item => item.DisplayText == "Alpha One");
+        KeywordSearchApplyResult completed = assistance.TryApply(candidate, input, caret, GridKeywordSearchContext.ChartList, 55L);
+        const string expected = "playlist:\"Alpha One\"|Beta title:x";
+        Assert.IsTrue(completed.Succeeded);
+        Assert.AreEqual(expected, completed.Text);
+        AssertResults(completed.Text, ["Alpha One", "Beta"]);
+        Assert.IsTrue(savedQueries.TryCommitHistory(completed.Text).Succeeded);
+        Assert.IsTrue(assistance.TryAddFavorite(completed.Text).Succeeded);
+        CollectionAssert.AreEqual(new[] { expected }, KeywordSearchHistoryStore.Deserialize(store.KeywordSearchHistory).ToArray());
+        CollectionAssert.AreEqual(new[] { expected }, KeywordSearchFavoritesStore.Deserialize(store.KeywordSearchFavorites).ToArray());
+
+        KeywordSearchPresentationItem favorite = assistance.Refresh(string.Empty, 0).VisibleItems.Single(item => item.Kind == KeywordSearchPresentationItemKind.Favorite);
+        KeywordSearchApplyResult restored = assistance.TryApply(favorite, string.Empty, 0, GridKeywordSearchContext.ChartList, 55L);
+        Assert.IsTrue(restored.Succeeded);
+        Assert.AreEqual(expected, restored.Text);
+        AssertResults(restored.Text, ["Alpha One", "Beta"]);
+        int editCaret = "playlist:\"Al".Length;
+        KeywordSearchPresentationItem alternative = assistance.Refresh(restored.Text, editCaret).VisibleItems.Single(item => item.DisplayText == "Alpine");
+        KeywordSearchApplyResult edited = assistance.TryApply(alternative, restored.Text, editCaret, GridKeywordSearchContext.ChartList, 55L);
+        Assert.IsTrue(edited.Succeeded);
+        Assert.AreEqual("playlist:\"Alpine\"|Beta title:x", edited.Text);
+        Assert.AreEqual("playlist:\"Alpine\"".Length, edited.CaretIndex);
+        AssertResults(edited.Text, ["Alpine", "Beta"]);
+        CollectionAssert.AreEqual(new[] { expected }, savedQueries.Favorites.ToArray());
+        CollectionAssert.AreEqual(new[] { expected }, savedQueries.History.ToArray());
+
+        static void AssertResults(string text, string[] expectedNames)
+        {
+            var query = GridKeywordSearchQuery.Parse(text);
+            List<string> matched = [];
+            foreach (string name in new[] { "Alpha One", "Alpine", "Beta", "aXYZ" })
+            {
+                ChartFile file = CreateFile() with { Title = "x", RawTitle = "x" };
+                PlaylistReferenceIndex index = CreatePlaylistReferenceIndex(file, CreateTable(name, "L"));
+                if (query.MatchesChartListSourceRow(CreateSourceRow(file, row => index.Find(row.Chart))))
+                {
+                    matched.Add(name);
+                }
+                ChartFile wrongTitle = file with { Title = "other", RawTitle = "other" };
+                Assert.IsFalse(query.MatchesChartListSourceRow(CreateSourceRow(wrongTitle, row => index.Find(row.Chart))));
+            }
+            CollectionAssert.AreEqual(expectedNames, matched.ToArray());
         }
     }
 

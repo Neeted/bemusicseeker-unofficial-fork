@@ -143,33 +143,27 @@ public sealed class KeywordSearchPresentationTests
         Assert.IsTrue(valuesSection.IsScrollable);
     }
 
-    /// <summary>大小文字の混じる否定付き項目接頭辞を補完すると否定を保持してカーソルが末尾へ移ることを確認し、項目補完で検索の否定を失う誤りを検出します。</summary>
+    /// <summary>項目の先頭・途中・コロン直前と未完入力を全体置換し、否定・値・前後条件を保ちます。caret左だけの置換による項目やコロンの重複を検出します。</summary>
     [TestMethod]
-    public void KsaFieldPresentation_CompletesCaseInsensitivePrefixAndPreservesNegation()
+    [DataRow("-Ti¦", "title:", "-title:¦")]
+    [DataRow("¦title:foo", "artist:", "artist:¦foo")]
+    [DataRow("title¦:foo", "title:", "title:¦foo")]
+    [DataRow("title:before -t¦itle:foo artist:after", "table:", "title:before -table:¦foo artist:after")]
+    [DataRow("ti¦tle", "title:", "title:¦")]
+    [DataRow("ti¦tle:re:^foo$", "title:", "title:¦re:^foo$")]
+    public void KsaFieldPresentation_CompletesCaseInsensitivePrefixAndPreservesNegation(
+        string input, string insertion, string expected)
     {
         PresentationSettingsStore store = new();
-        KeywordSearchSavedQueryOwner savedQueries = new(
-            KeywordSearchSavedQueryScope.Normal,
-            store,
-            store);
-        KeywordSearchAssistanceOwner assistance = new(
-            savedQueries,
-            GridKeywordSearchContext.ChartList,
-            new KeywordSearchCatalogSnapshot(3L, []));
-
-        KeywordSearchPresentationState state = assistance.Focus("-Ti", 3);
-        KeywordSearchPresentationItem title = state.VisibleItems.Single(item => item.DisplayText == "-title:");
-
-        KeywordSearchApplyResult result = assistance.TryApply(
-            title,
-            "-Ti",
-            3,
-            GridKeywordSearchContext.ChartList,
-            3L);
-
+        KeywordSearchSavedQueryOwner savedQueries = new(KeywordSearchSavedQueryScope.Normal, store, store);
+        KeywordSearchAssistanceOwner assistance = new(savedQueries, GridKeywordSearchContext.ChartList);
+        int caret = input.IndexOf('¦');
+        string text = input.Replace("¦", string.Empty);
+        KeywordSearchPresentationItem candidate = assistance.Focus(text, caret).VisibleItems.Single(item => item.InsertionText == insertion);
+        KeywordSearchApplyResult result = assistance.TryApply(candidate, text, caret, GridKeywordSearchContext.ChartList, 0L);
         Assert.IsTrue(result.Succeeded);
-        Assert.AreEqual("-title:", result.Text);
-        Assert.AreEqual("-title:".Length, result.CaretIndex);
+        Assert.AreEqual(expected.Replace("¦", string.Empty), result.Text);
+        Assert.AreEqual(expected.IndexOf('¦'), result.CaretIndex);
     }
 
     /// <summary>空白入り表名候補を重複除去して引用符付きで適用し、一つの空白の後へカーソルを置いて次の項目候補を出すことを確認し、値補完の境界や引用の誤りを検出します。</summary>
@@ -208,140 +202,53 @@ public sealed class KeywordSearchPresentationTests
         Assert.AreEqual(KeywordSearchPresentationSectionKind.Fields, nextFields.Sections.Single().Kind);
     }
 
-    /// <summary>語の途中で表名を補完すると後続文字を保持して一つの空白を挟み、その直後へカーソルを置くことを確認し、補完による後続文字の削除や語の連結を検出します。</summary>
+    /// <summary>通常値とORの各選択肢を先頭・途中・末尾・引用直前から全体置換します。他の選択肢と後続条件を保持し、途中ORへの空白挿入やsuffixの別語化を検出します。</summary>
     [TestMethod]
-    public void KsaValueApply_NormalizesSeparatorBeforeExistingSuffix()
+    [DataRow("playlist:a¦XYZ", "Alpha", "playlist:Alpha ¦")]
+    [DataRow("clear:E¦XH", "EC", "clear:EC ¦")]
+    [DataRow("playlist:¦Alpha title:x", "Alpha", "playlist:Alpha ¦title:x")]
+    [DataRow("playlist:Alpha¦   title:x", "Alpha", "playlist:Alpha ¦title:x")]
+    [DataRow("playlist:¦\"Alpha\" title:x", "Alpine", "playlist:\"Alpine\" ¦title:x")]
+    [DataRow("playlist:\"Al¦pha\" title:x", "Alpha", "playlist:\"Alpha\" ¦title:x")]
+    [DataRow("clear:\"N¦\" title:x", "NP", "clear:\"NP\" ¦title:x")]
+    [DataRow("playlist:Al¦pha|Beta|Gamma title:x", "Alpine", "playlist:Alpine¦|Beta|Gamma title:x")]
+    [DataRow("playlist:Alpha¦|Beta|Gamma title:x", "Alpha", "playlist:Alpha¦|Beta|Gamma title:x")]
+    [DataRow("playlist:Alpha|B¦eta|Gamma title:x", "Bravo", "playlist:Alpha|Bravo¦|Gamma title:x")]
+    [DataRow("playlist:Alpha|Beta¦|Gamma title:x", "Beta", "playlist:Alpha|Beta¦|Gamma title:x")]
+    [DataRow("playlist:Alpha|Beta|G¦amma title:x", "Gold", "playlist:Alpha|Beta|Gold ¦title:x")]
+    [DataRow("playlist:Alpha|Beta|Gamma¦", "Gamma", "playlist:Alpha|Beta|Gamma ¦")]
+    [DataRow("playlist:Alpha|¦\"Beta\"|Gamma title:x", "Bravo", "playlist:Alpha|\"Bravo\"¦|Gamma title:x")]
+    [DataRow("playlist:Alpha|\"B¦eta\"|Gamma title:x", "Beta", "playlist:Alpha|\"Beta\"¦|Gamma title:x")]
+    [DataRow("playlist:Alpha|¦|Gamma", "Beta", "playlist:Alpha|Beta¦|Gamma")]
+    public void KsaValueApply_ReplacesWholeAlternativeAndPreservesSeparators(string input, string value, string expected)
     {
         PresentationSettingsStore store = new();
-        KeywordSearchSavedQueryOwner savedQueries = new(
-            KeywordSearchSavedQueryScope.Normal,
-            store,
-            store);
-        KeywordSearchAssistanceOwner assistance = new(
-            savedQueries,
-            GridKeywordSearchContext.ChartList,
-            new KeywordSearchCatalogSnapshot(13L, ["Alpha", "Alpine"]));
-
-        const string text = "playlist:aXYZ";
-        KeywordSearchPresentationState state = assistance.Focus(text, "playlist:a".Length);
-        KeywordSearchPresentationItem value = state.VisibleItems.Single(item => item.DisplayText == "Alpha");
-
-        KeywordSearchApplyResult result = assistance.TryApply(
-            value,
-            text,
-            "playlist:a".Length,
-            GridKeywordSearchContext.ChartList,
-            13L);
-
+        KeywordSearchSavedQueryOwner savedQueries = new(KeywordSearchSavedQueryScope.Normal, store, store);
+        KeywordSearchAssistanceOwner assistance = new(savedQueries, GridKeywordSearchContext.ChartList,
+            new KeywordSearchCatalogSnapshot(13L, [value]));
+        int caret = input.IndexOf('¦');
+        string text = input.Replace("¦", string.Empty);
+        KeywordSearchPresentationItem candidate = assistance.Focus(text, caret).VisibleItems.Single(item => item.DisplayText == value);
+        KeywordSearchApplyResult result = assistance.TryApply(candidate, text, caret, GridKeywordSearchContext.ChartList, 13L);
         Assert.IsTrue(result.Succeeded);
-        Assert.AreEqual("playlist:Alpha XYZ", result.Text);
-        Assert.AreEqual("playlist:Alpha ".Length, result.CaretIndex);
+        Assert.AreEqual(expected.Replace("¦", string.Empty), result.Text);
+        Assert.AreEqual(expected.IndexOf('¦'), result.CaretIndex);
     }
 
-    /// <summary>引用句の途中で表名を補完すると既存の閉じ引用符を置換範囲へ含めて後続titleを保持することを確認し、閉じ引用符の重複や後続条件の破壊を検出します。</summary>
+    /// <summary>正規表現の値先頭・予約prefix途中・本文中で通常候補を抑止し、caret左だけから通常値と誤判定する経路を検出します。</summary>
     [TestMethod]
-    public void KsaValueApply_QuotedCaretInMiddleReplacesClosingQuoteAndPreservesFollowingClause()
+    [DataRow("playlist:¦re:^Alpha$")]
+    [DataRow("playlist:r¦e:^Alpha$")]
+    [DataRow("playlist:re¦:^Alpha$")]
+    [DataRow("playlist:re:^¦Alpha$")]
+    [DataRow("playlist:re:^Alpha$|¦Beta")]
+    public void KsaValuePresentation_RegexSuppressesCandidatesAcrossWholeValue(string input)
     {
         PresentationSettingsStore store = new();
-        KeywordSearchSavedQueryOwner savedQueries = new(
-            KeywordSearchSavedQueryScope.Normal,
-            store,
-            store);
-        KeywordSearchAssistanceOwner assistance = new(
-            savedQueries,
-            GridKeywordSearchContext.ChartList,
-            new KeywordSearchCatalogSnapshot(14L, ["Alpha", "Alpine"]));
-
-        const string text = "playlist:\"Al\" title:x";
-        int caretIndex = "playlist:\"Al".Length;
-        KeywordSearchPresentationState state = assistance.Focus(text, caretIndex);
-        KeywordSearchPresentationItem value = state.VisibleItems.Single(
-            item => item.DisplayText == "Alpha");
-
-        KeywordSearchApplyResult result = assistance.TryApply(
-            value,
-            text,
-            caretIndex,
-            GridKeywordSearchContext.ChartList,
-            14L);
-
-        Assert.IsTrue(result.Succeeded);
-        Assert.AreEqual("playlist:\"Alpha\" title:x", result.Text);
-        Assert.AreEqual("playlist:\"Alpha\" ".Length, result.CaretIndex);
-    }
-
-    /// <summary>引用符・バックスラッシュ・縦棒を持つ表名を引用句の途中へ適用し、必要なエスケープと後続条件を保持することを確認し、値の文字を検索演算子へ変える誤りを検出します。</summary>
-    [TestMethod]
-    public void KsaValueApply_QuotedCaretInMiddleEscapesQuoteBackslashAndPipeValues()
-    {
-        (string value, string expectedText)[] cases =
-        [
-            ("Alpha\"Mix", "playlist:\"Alpha\\\"Mix\" title:x"),
-            ("Alpha\\Mix", "playlist:\"Alpha\\\\Mix\" title:x"),
-            ("Alpha|Mix", "playlist:\"Alpha|Mix\" title:x")
-        ];
-
-        foreach ((string value, string expectedText) in cases)
-        {
-            PresentationSettingsStore store = new();
-            KeywordSearchSavedQueryOwner savedQueries = new(
-                KeywordSearchSavedQueryScope.Normal,
-                store,
-                store);
-            KeywordSearchAssistanceOwner assistance = new(
-                savedQueries,
-                GridKeywordSearchContext.ChartList,
-                new KeywordSearchCatalogSnapshot(15L, [value]));
-
-            const string text = "playlist:\"Al\" title:x";
-            int caretIndex = "playlist:\"Al".Length;
-            KeywordSearchPresentationState state = assistance.Focus(text, caretIndex);
-            KeywordSearchPresentationItem candidate = state.VisibleItems.Single(
-                item => item.DisplayText == value);
-
-            KeywordSearchApplyResult result = assistance.TryApply(
-                candidate,
-                text,
-                caretIndex,
-                GridKeywordSearchContext.ChartList,
-                15L);
-
-            Assert.IsTrue(result.Succeeded);
-            Assert.AreEqual(expectedText, result.Text);
-            Assert.AreEqual(expectedText.IndexOf(" title:x", StringComparison.Ordinal) + 1, result.CaretIndex);
-        }
-    }
-
-    /// <summary>引用されたクリア分類の途中でNPを補完して閉じ引用符と次の条件を保持することを確認し、動的表名以外の分類値に異なる置換範囲を使う誤りを検出します。</summary>
-    [TestMethod]
-    public void KsaValueApply_FiniteQuotedCaretInMiddlePreservesClosingQuoteAndSuffix()
-    {
-        PresentationSettingsStore store = new();
-        KeywordSearchSavedQueryOwner savedQueries = new(
-            KeywordSearchSavedQueryScope.Normal,
-            store,
-            store);
-        KeywordSearchAssistanceOwner assistance = new(
-            savedQueries,
-            GridKeywordSearchContext.ChartList,
-            KeywordSearchCatalogSnapshot.Empty);
-
-        const string text = "clear:\"N\" title:x";
-        int caretIndex = "clear:\"N".Length;
-        KeywordSearchPresentationState state = assistance.Focus(text, caretIndex);
-        KeywordSearchPresentationItem candidate = state.VisibleItems.Single(
-            item => item.DisplayText == "NP");
-
-        KeywordSearchApplyResult result = assistance.TryApply(
-            candidate,
-            text,
-            caretIndex,
-            GridKeywordSearchContext.ChartList,
-            0L);
-
-        Assert.IsTrue(result.Succeeded);
-        Assert.AreEqual("clear:\"NP\" title:x", result.Text);
-        Assert.AreEqual("clear:\"NP\" ".Length, result.CaretIndex);
+        KeywordSearchSavedQueryOwner savedQueries = new(KeywordSearchSavedQueryScope.Normal, store, store);
+        KeywordSearchAssistanceOwner assistance = new(savedQueries, GridKeywordSearchContext.ChartList,
+            new KeywordSearchCatalogSnapshot(1L, ["Alpha", "re:mix", "Beta"]));
+        Assert.IsFalse(assistance.Focus(input.Replace("¦", string.Empty), input.IndexOf('¦')).IsOpen);
     }
 
     /// <summary>引用されないクリア値を補完した後も後続語を保持し、空白後の項目候補へ移ることを確認し、値候補の状態を次の条件まで持ち越す誤りを検出します。</summary>
@@ -531,6 +438,28 @@ public sealed class KeywordSearchPresentationTests
         Assert.AreEqual(KeywordSearchApplyFailure.StaleCandidate, textResult.Failure);
         Assert.AreEqual(KeywordSearchApplyFailure.StaleCandidate, caretResult.Failure);
         Assert.AreEqual(KeywordSearchApplyFailure.StaleCandidate, contextResult.Failure);
+    }
+
+    /// <summary>右側の文字数が変わった入力へ旧候補を適用せず本文とcaretを保持し、再計算後は新しい選択肢全体を置換します。</summary>
+    [TestMethod]
+    public void KsaRevisionCandidate_RejectsChangedSuffixAndRecalculatesReplacement()
+    {
+        PresentationSettingsStore store = new();
+        KeywordSearchSavedQueryOwner savedQueries = new(KeywordSearchSavedQueryScope.Normal, store, store);
+        KeywordSearchAssistanceOwner assistance = new(savedQueries, GridKeywordSearchContext.ChartList,
+            new KeywordSearchCatalogSnapshot(22L, ["Alpha"]));
+        int caret = "playlist:a".Length;
+        KeywordSearchPresentationItem old = assistance.Focus("playlist:aX|Beta", caret).VisibleItems.Single();
+        const string changed = "playlist:aLonger|Beta";
+        KeywordSearchApplyResult stale = assistance.TryApply(old, changed, caret, GridKeywordSearchContext.ChartList, 22L);
+        Assert.AreEqual(KeywordSearchApplyFailure.StaleCandidate, stale.Failure);
+        Assert.AreEqual(changed, stale.Text);
+        Assert.AreEqual(caret, stale.CaretIndex);
+        KeywordSearchPresentationItem current = assistance.Presentation.VisibleItems.Single();
+        KeywordSearchApplyResult result = assistance.TryApply(current, changed, caret, GridKeywordSearchContext.ChartList, 22L);
+        Assert.IsTrue(result.Succeeded);
+        Assert.AreEqual("playlist:Alpha|Beta", result.Text);
+        Assert.AreEqual("playlist:Alpha".Length, result.CaretIndex);
     }
 
     /// <summary>抑制中の同じ状態は再表示せず、本文・カーソル・表示先・版・明示更新で再開しblurは一回だけ通知することを確認し、候補抑制の解除条件や重複通知の誤りを検出します。</summary>

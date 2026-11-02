@@ -1932,23 +1932,29 @@ public sealed class MainWindowChartPresentationWpfTests
                         Assert.AreEqual(textBeforeComposition + "title", chrome.TextBox.Text);
                         Assert.AreEqual(historyCountBefore, owner.SavedQueryOwner.History.Count);
 
-                        // IME確定を通した後、新しいprefixでEnter・Tabの抑止解除を確認します。
-                        chrome.TextBox.Text = "tit";
-                        chrome.TextBox.CaretIndex = chrome.TextBox.Text.Length;
+                        // IME確定後は途中編集からEnter・Tabを適用し、実TextBoxのcaretとBinding先まで確認します。
+                        chrome.TextBox.SetCurrentValue(TextBox.TextProperty, "title:alpha");
+                        chrome.TextBox.CaretIndex = 3;
                         TestUiDispatcherHost.ProcessQueuedPresentation();
                         RaiseSearchKey(chrome.Editor, Key.Enter);
                         TestUiDispatcherHost.ProcessQueuedPresentation();
-                        Assert.AreEqual("title:", chrome.TextBox.Text);
-                        Assert.AreEqual(chrome.TextBox.Text.Length, chrome.TextBox.CaretIndex);
+                        Assert.AreEqual("title:alpha", chrome.TextBox.Text);
+                        Assert.AreEqual("title:".Length, chrome.TextBox.CaretIndex);
+                        // 外側の500ms遅延Bindingを既存接続テストと同じ方法で確定します。
+                        BindingOperations.GetBindingExpression(chrome.Editor, KeywordSearchEditor.TextProperty)?.UpdateSource();
+                        Assert.AreEqual(chrome.TextBox.Text, viewModel.ChartFilters.KeywordFilter);
 
-                        chrome.TextBox.Text = "tit";
-                        chrome.TextBox.CaretIndex = chrome.TextBox.Text.Length;
+                        chrome.TextBox.SetCurrentValue(TextBox.TextProperty, "clear:F|EXH|NP title:x");
+                        chrome.TextBox.CaretIndex = "clear:F|E".Length;
                         TestUiDispatcherHost.ProcessQueuedPresentation();
                         RaiseSearchKey(chrome.Editor, Key.Down);
                         RaiseSearchKey(chrome.Editor, Key.Tab);
                         TestUiDispatcherHost.ProcessQueuedPresentation();
-                        Assert.AreEqual("title:", chrome.TextBox.Text);
-                        Assert.AreEqual(chrome.TextBox.Text.Length, chrome.TextBox.CaretIndex);
+                        Assert.AreEqual("clear:F|EC|NP title:x", chrome.TextBox.Text);
+                        Assert.AreEqual("clear:F|EC".Length, chrome.TextBox.CaretIndex);
+                        // 外側の500ms遅延Bindingを既存接続テストと同じ方法で確定します。
+                        BindingOperations.GetBindingExpression(chrome.Editor, KeywordSearchEditor.TextProperty)?.UpdateSource();
+                        Assert.AreEqual(chrome.TextBox.Text, viewModel.ChartFilters.KeywordFilter);
                     });
                 });
         });

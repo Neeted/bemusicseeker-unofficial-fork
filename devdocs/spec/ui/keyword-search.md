@@ -66,9 +66,11 @@
 
 ### 候補の適用と古い候補の拒否
 
-検索項目の適用は、現在入力中の項目名だけを `field:` の形へ置換します。先頭の否定記号と前後の文字列を残し、末尾の空白は追加しません。
+検索項目の適用は、カーソルを含む項目名全体と既存のコロン一つを `field:` の形へ置換します。項目名の先頭・途中・コロン直前、コロン未入力でも、先頭の否定記号・値・前後の条件を残し、末尾の空白は追加しません。
 
-値の適用は現在入力中の値だけを置換します。引用符、エスケープ、後続の検索式を維持し、直後の区切りを一つのASCII空白へ整えて、その後ろへカーソルを移します。履歴・お気に入りの適用は検索欄全体を置換し、その検索式を履歴へ保存します。
+値の適用は引用の有無によらず現在の値全体を置換します。ORではカーソルを含む選択肢全体だけを置換し、他の選択肢と前後の条件を維持します。引用開始直前も同じ範囲を使い、必要な引用符とエスケープを挿入します。後ろにOR選択肢が続く場合は空白を足さず、置換値末尾へカーソルを移します。通常値または最後のOR選択肢では、直後の区切りを一つのASCII空白へ整えて、その後ろへカーソルを移します。`playlist:aXYZ` の `a` 直後で `Alpha` を選ぶと `XYZ` は残さず、`clear:EXH` の `E` 直後で `EC` を選ぶと値全体を `EC` にします。
+
+構造の判断にはparser・保存式と共通のトークン全体の走査を使い、カーソル左側は候補の前方一致に使います。正規表現の値は先頭や `re:` の途中でも通常候補を出しません。正規表現を持つ項目名の補完と、引用された通常値 `"re:mix"` の補完は利用できます。履歴・お気に入りの適用は検索欄全体を置換し、その検索式を履歴へ保存します。
 
 候補は、文字列、カーソル位置、表示先、候補集合の版、置換範囲に対応します。適用時にいずれかが異なる場合は適用を拒否して再計算します。古い置換範囲を新しい文字列へ使いません。
 
@@ -111,7 +113,7 @@
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 表示先ごとの候補、入力と適用、古い候補の拒否 | [`KeywordSearchAssistanceOwner`](../../../BeMusicSeeker/ViewModels/Search/KeywordSearchAssistance.cs) | [`KeywordSearchPresentationTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Search/KeywordSearchPresentationTests.cs) / [`KeywordSearchPresentationTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Search/KeywordSearchPresentationTests.cs)、[`GridKeywordSearchQueryTests`](../../../tests/BeMusicSeeker.Core.Tests/Search/GridKeywordSearchQueryTests.cs)、[`ChartListFilterViewModelTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/ChartList/ChartListFilterViewModelTests.cs)、[`ChartListFilterViewModelTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/ChartList/ChartListFilterViewModelTests.cs)、[`PlaylistWorkspacePresentationStateTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspacePresentationStateTests.cs) / [`PlaylistWorkspacePresentationStateTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/PlaylistWorkspacePresentationStateTests.cs) |
-| 予約構文で始まる候補名の引用、引用途中・エスケープ・前後句・caret | 同上 | `GridKeywordSearchQueryTests.KeywordSearchAssistance_ReservedPrefixCandidatesRemainLiteralThroughParser` が実候補の適用結果をparserへ渡し、通常名としての一致と予約prefixを除いた名前への不一致、後続条件を確認する。 |
+| 値全体とOR選択肢の置換、特殊文字の引用・エスケープ・前後句・caret | 同上 | `GridKeywordSearchQueryTests.KeywordSearchAssistance_ReservedPrefixCandidatesRemainLiteralThroughParser` が実候補の適用結果をparserへ渡し、通常名としての一致と予約prefixを除いた名前への不一致、後続条件と保持したOR選択肢を確認する。`KeywordSearchAssistance_CompletionSurvivesSavedQueryRoundTripAndReediting` は補完から実検索・保存・空入力・再適用・再編集まで原文と結果集合を確認する。 |
 | 正規表現の意味を保持した詳細要求、初回と局所更新の一致 | [`PlaylistRequestFactory`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistRequestFactory.cs)、[`PlaylistDetailVirtualView`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistDetailVirtualView.cs) | `GridKeywordSearchQueryTests.MatchesChartList_RegexCharacterClassCasePreservesMeaning` は通常一覧の表示行とsource行で単一バックスラッシュの6式を評価する。`PlaylistViewPipelineTests.PlaylistRegexRequest_CharacterClassSwitchBuildsDistinctInitialViews` は実factoryから要求合流と初回表示を確認し、実DBへのMEMO保存・譜面TITLE確定後の集合は `PlaylistCatalogViewChangeTests.TitleRegex_EntryMemoCommitsPreserveMembershipAndMetadataChangesReevaluate` が分担する。 |
 | 空欄と候補不存在の正規表現、表示日時、BP投影 | [`GridKeywordSearchQuery`](../../../BeMusicSeeker/ViewModels/Search/GridKeywordSearchQuery.cs)、[`DateTimeDisplayFormatter`](../../../BeMusicSeeker/ViewModels/DateTimeDisplayFormatter.cs)、`CustomTableColumnFactory` | `GridKeywordSearchQueryTests.MatchesRegex_DisplayBlankCandidatesAreEvaluated` と `MatchesRegex_BlankCandidateDiffersFromAbsentCandidates` が各入口の空欄・空白・非空と0候補を区別する。`MatchesPlayHistoryRow_DateRegexIncludesDisplayedTimestamp` はLR2/beatorajaの実投影とDATE列の秒表示、旧日付候補を確認する。`MatchesScore_MinBpProjectionPreservesMissingAndRecordedValues` は共通投影のBP欠損・0・正数から3入口の検索を確認し、取得元の欠損変換はスコア取得側へ分担する。`PlaylistCatalogViewChangeTests.MemoBlankRegex_InitialAndCommittedUpdatesUseSamePredicate` は実MEMO保存による同じ一覧への離脱・再加入とDB確定を確認する。 |
 | 保存の成功順序、失敗時の不変性、履歴とお気に入り | [`KeywordSearchSavedQueryOwner`](../../../BeMusicSeeker/ViewModels/Search/KeywordSearchSavedQuery.cs) | [`KeywordSearchSavedQueryStoreTests`](../../../tests/BeMusicSeeker.Core.Tests/Search/KeywordSearchSavedQueryStoreTests.cs)、[`ApplicationCompositionTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/MainWindow/ApplicationCompositionTests.cs) / [`ApplicationCompositionTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/ApplicationCompositionTests.cs) |
