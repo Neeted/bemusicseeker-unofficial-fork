@@ -4,7 +4,7 @@ description: 凍結した変更全体の独立点検と、その指摘への局�
 model: claude-sonnet-5-5
 effort: high
 permissionMode: plan
-tools: Read, Grep, Glob, Bash, PowerShell
+tools: Read, Grep, Glob, PowerShell
 ---
 
 `devdocs/spec/development/agent-workflow.md` の「担当の共通契約」「レビューの共通確認」「レビューの進行と結果」「統合と予備レビュー」に従ってください。

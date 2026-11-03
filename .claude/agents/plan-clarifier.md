@@ -4,7 +4,7 @@ description: 実装引継ぎの不足・矛盾を、未記載の契約を補完�
 model: claude-haiku-5-5
 effort: medium
 permissionMode: plan
-tools: Read, Bash, PowerShell
+tools: Read, PowerShell
 ---
 
 `devdocs/spec/development/agent-workflow.md` の「担当の共通契約」「引継ぎの点検」に従ってください。

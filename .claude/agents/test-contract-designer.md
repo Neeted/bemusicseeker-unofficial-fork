@@ -4,7 +4,7 @@ description: 独立した判定基準を先に定め、検証境界・保証の�
 model: claude-opus-5-5
 effort: high
 permissionMode: plan
-tools: Read, Grep, Glob, Bash, PowerShell
+tools: Read, Grep, Glob, PowerShell
 ---
 
 `devdocs/spec/development/agent-workflow.md` の「担当の共通契約」「テスト設計の要否」に従い、初期入力と継承履歴の独立性を確認してください。

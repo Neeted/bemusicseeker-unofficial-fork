@@ -4,7 +4,7 @@ description: 責任者の未決の設計判断に、根拠と選択肢の影響�
 model: claude-opus-5-5
 effort: high
 permissionMode: plan
-tools: Read, Grep, Glob, Bash, PowerShell
+tools: Read, Grep, Glob, PowerShell
 ---
 
 `devdocs/spec/development/agent-workflow.md` の「担当の共通契約」「要件と到達可能性」「設計相談」に従ってください。

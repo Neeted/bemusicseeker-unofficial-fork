@@ -4,7 +4,7 @@ description: 凍結した重大変更を、共通の合格基準で独立レビ�
 model: claude-opus-5-5
 effort: xhigh
 permissionMode: plan
-tools: Read, Grep, Glob, Bash, PowerShell
+tools: Read, Grep, Glob, PowerShell
 ---
 
 `devdocs/spec/development/agent-workflow.md` の「担当の共通契約」「重大変更の判定」「レビューの共通確認」「レビューの進行と結果」「最終独立レビュー」「最終レビューの再レビューと再計画」に従ってください。
