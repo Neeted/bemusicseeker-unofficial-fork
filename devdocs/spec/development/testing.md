@@ -32,7 +32,7 @@ SQLの固定入力では、実modalの帰還と実handlerの終端を分けま�
 
 検証区分は作業段階で選びます。反復中は対象moduleの直接MTP実行または `dev`、通常開発の最終検証は `verify` を使います。必要な実行検証の成功と独立した最終静的レビューの合格を揃えて、通常開発のコミット・`dev` への統合を行えます。文書のみの変更は[文書と検証](../../../AGENTS.md#文書と検証)に従います。
 
-`full` は正式リリース前の公開候補に対して必須とします。コード・依存関係・配布設定を確定して実行し、成功後にこれらを変更した場合は、新しい候補で再実行します。文書だけを修正した場合は、その影響に応じた文書・生成物の検証を行います。公開までの順序は[リリース手順](release.md#正式リリースの準備)に従います。
+`full` は正式リリース前の公開候補に対して必須とします。`prepare-candidate` で公開可能なZIPを先に生成し、`full --distribution-catalog <absolute catalog>` で指定した候補を検証します。テストだけの変更で製品・依存関係・配布設定・同梱資料や内容が変わらない場合は、通常のGit差分を確認して候補を再利用できます。それらが変わった場合は新しい候補で再実行します。Fullの整形による変更も同じ判断の対象です。公開時には合格summaryと同じZIPを照合し、後の再生成物へ差し替えません。公開までの順序は[リリース手順](release.md#正式リリースの準備)に従います。
 
 配布スクリプトや更新処理を開発中に変更する場合も、通常の最終検証は `verify` とし、変更した契約を確認できる関連テスト・受入検証を対象に絞って追加します。必要と判断した場合は開発中にも `full` を実行できますが、変更ファイルの種類や将来リリースされることだけを理由に、コミット前の `full` 全体を必須にはしません。次版のリリースノート作成や、配布物に含まれる実行時設定の変更だけでも同様です。レビューでは作業段階と変更の影響を確認し、変更固有の検証が不足する場合は、その対象と確認すべき契約を具体的に示します。
 
@@ -57,7 +57,9 @@ WindowsのPowerShell 7からリポジトリルートで実行します。標準�
 ```powershell
 dotnet run --project tools/BeMusicSeeker.Verify -- dev
 dotnet run --project tools/BeMusicSeeker.Verify -- verify
-dotnet run --project tools/BeMusicSeeker.Verify -- full
+$candidate = Join-Path (Get-Location) 'artifacts/candidates/release-1'
+dotnet run --project tools/BeMusicSeeker.Verify -- prepare-candidate --output $candidate
+dotnet run --project tools/BeMusicSeeker.Verify -- full --distribution-catalog "$candidate/catalog.json"
 dotnet run --project tools/BeMusicSeeker.Verify -- compatibility --suite chart-info-bms
 dotnet run --project tools/BeMusicSeeker.Verify -- performance --suite scan-commit
 ```
@@ -66,7 +68,7 @@ dotnet run --project tools/BeMusicSeeker.Verify -- performance --suite scan-comm
 | --- | --- |
 | `dev` | ReleaseのCore・Windows・Daily Scenarios。整形を省いた反復。 |
 | `verify` | 変更C#の整形、Releaseの同3module。通常コミット・dev統合の標準。 |
-| `full` | 全体整形・Release・配布準備・Core・Scenarios・Desktop各一回、Windows3分類。公開候補の受入。 |
+| `full` | 全体整形・Release・明示候補の検査と展開・Core・Scenarios・Desktop各一回、Windows3分類。公開候補の受入。 |
 | `compatibility` | 登録済み16suiteの一つ。専用入力・環境を準備して明示実行する。 |
 | `performance` | 登録済み9suiteの一つ。全仕事量の計測を他の重い検証と分離する。 |
 
@@ -112,7 +114,7 @@ C# の正規形は [`.editorconfig`](../../../.editorconfig) を正本とし、�
 
 ### 実行期限と失敗分類
 
-dev/verifyのtest段階の運用上限は600秒、Fullは1380秒を全moduleで共有します。起動前の一つのQPC始点をScenarios・Desktopにも渡し、後発moduleや局所待機で延長しません。summaryの `testStageStartTimestamp` にtest段階開始のQPCを一度保存し、受入側が同machineでrunner実復帰直後のQPCとの差を記録します。lang copy、起動、Gate、summary保存、回収を含みます。`executionMs` は最初のtest起動からGate後・summary保存前までの補助値、`cleanupMs` はその内数です。準備・build・配布準備は別段階です。Fullの600秒は後段で測定する速度目標であり、実行上限ではありません。監視上限を速度合格の閾値にしません。
+dev/verifyのtest段階の運用上限は600秒、Fullは1380秒を全moduleで共有します。起動前の一つのQPC始点をScenarios・Desktopにも渡し、後発moduleや局所待機で延長しません。summaryの `testStageStartTimestamp` にtest段階開始のQPCを一度保存し、受入側が同machineでrunner実復帰直後のQPCとの差を記録します。lang copy、起動、Gate、summary保存、回収を含みます。`executionMs` は最初のtest起動からGate後・summary保存前までの補助値、`cleanupMs` はその内数です。準備・build・候補の検査と展開は別段階です。Fullの600秒は後段で測定する速度目標であり、実行上限ではありません。監視上限を速度合格の閾値にしません。
 
 致命失敗の回収は、検出時刻+10秒と実行期限+10秒の早い方を一度だけ確定します。期限後の遅い正常終了を成功に戻しません。時間内の決定的失敗は初回から原因を調べます。
 
@@ -245,7 +247,7 @@ constructor-only harnessは `PrepareConstructorOnlyShell` で既存のshell acti
 
 ### Fullの処理順と期限
 
-全体整形・Release build後に固定Legacy ZIP、Current、Nextを準備し、Core・Scenarios・Desktopを各一回、Windowsを重複のない3分類で実行します。明示環境/性能suiteは含めません。Scenariosの必須11IDは `SC-01, SC-02, SC-05, SC-09, SC-10A, SC-10B, SC-11, SC-13, SC-14, SC-ExistingData, SC-CurrentUpdate`、Desktopの必須IDは `DT-01, DT-02, DT-03` です。同じmodule内の同じIDに複数行を許し、全行Passedを要求します。
+`prepare-candidate` が公開可能なHTML付きCurrent、固定Legacy、試験Nextとcatalogを先に生成します。Fullは全体整形・Release build後に、絶対パスで明示したcatalogの検査と候補の展開・接続を行い、Core・Scenarios・Desktopを各一回、Windowsを重複のない3分類で実行します。製品publishやZIP再生成は行いません。明示環境/性能suiteは含めません。Scenariosの必須11IDは `SC-01, SC-02, SC-05, SC-09, SC-10A, SC-10B, SC-11, SC-13, SC-14, SC-ExistingData, SC-CurrentUpdate`、Desktopの必須IDは `DT-01, DT-02, DT-03` です。同じmodule内の同じIDに複数行を許し、全行Passedを要求します。
 
 Desktopは既存のsession leaseと単一workerで実入力を専有し、Scenariosの後に実行します。各caseは共有suite期限と3分の早い方を外側期限とし、所有入力と資源の回収に10秒を先取りした操作期限を使います。残時間が回収余裕以下なら新入力を開始しません。実入力後の失敗では最初の検出時刻+10秒と外側期限の早い方を一度だけ確定し、所有Up・source STA・返却済みapp session・fixtureの回収へ渡します。通常回収は操作期限内で行い、遅い完了や回収失敗を成功へ変えません。起動接続の返却前失敗は既存driverの回収を維持します。
 
@@ -253,12 +255,13 @@ Desktopは既存のsession leaseと単一workerで実入力を専有し、Scenar
 | --- | ---: |
 | 全体整形 | 180秒 |
 | restore / build | 各300秒 |
-| 固定旧ZIPの取得・検査 | 240秒 |
-| Current / Nextのpublish・検査 | 各240秒 |
+| 候補生成: 固定旧ZIPの取得・検査 | 240秒 |
+| 候補生成: Current / Nextのpublish・検査 | 各240秒 |
+| Full: 指定候補の検査・Current展開 | 240秒 |
 | 全test moduleの共有段階 | 1380秒 |
 | 既存データ起動 / 現行更新の局所上限 | 180秒 / 240秒（共有期限を延長しない） |
 
-[VerificationPlan](../../../tests/BeMusicSeeker.TestSupport/Verification/VerificationPlan.cs)と[Runner](../../../tests/BeMusicSeeker.TestSupport/Verification/VerificationRunner.cs)が期限・選択を所有します。配布物は各variantの専有ArtifactRootで一回だけ生成し、検査済み `distribution/catalog.json` を子へ渡します。consumerはcatalogと追跡された旧版identityを照合し、所有TestWorkspaceへ展開します。再publish、別catalog探索、欠落入力の自動代替は行いません。詳細は[配布物の受渡し](../../../tools/BeMusicSeeker.Verify/README.md#配布物の受渡し)を参照します。
+[VerificationPlan](../../../tests/BeMusicSeeker.TestSupport/Verification/VerificationPlan.cs)と[Runner](../../../tests/BeMusicSeeker.TestSupport/Verification/VerificationRunner.cs)が期限・選択を所有します。候補生成は存在しない専有絶対出力先の `v/`・`next/` に分離し、完成後だけ直下へ `catalog.json` を保存します。任意のmetadata同梱Currentも同じcatalogで保持します。Fullは検査済Currentをrun専有 `application/` に展開し、catalogとそのrootを子へ明示します。通常起動の実行体・assets・lang・nativeを同じinstallationへ揃え、profileはケース専有のままです。更新・故障fixtureの明示installationは維持します。候補指定が片方だけの場合は日常buildへ代替せず失敗します。consumerはcatalogと追跡された旧版identityを照合し、必要なケースでは所有TestWorkspaceへ展開します。再publish、別catalog探索、欠落入力の自動代替は行いません。詳細は[配布物の受渡し](../../../tools/BeMusicSeeker.Verify/README.md#配布物の受渡し)を参照します。
 
 ### 公開旧版からの移行とリリース判定
 
@@ -270,7 +273,7 @@ C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2
 
 指定のHTTPSリリースURL、メタデータ、サイズ、ハッシュの不一致は失敗です。キャッシュがない場合だけ同じディレクトリの一時ファイルへ期限付きで取得し、検証後に原子的に公開します。既存の不正キャッシュの自動修復、再取得による隠蔽、別版やソースからの代替ビルドはしません。
 
-旧版からの適用はC#の `ReleaseAcceptance` テストで、固定ZIP内の実際のprotocol-1更新プログラムを直接起動します。現行の実配布ZIPを入力とし、期限内の正常終了と出力回収に加え、全管理ファイルの相対位置・内容、新版から除かれた旧管理ファイルの正規配置からの除去を確認します。更新プログラムが再生成する管理一覧は記載されたパス集合を比較し、改行・列挙順のバイト一致は要求しません。`data/`・`config/` と利用者追加ファイルは、更新プログラムの起動前に採取したパス集合・バイト内容と比較します。退避・作業領域を含めた全ツリー一致は要求しません。旧更新プログラムは入力ZIPを消費するため、Fullの生成物を変更せず、同じ内容の検証用コピーを渡します。
+旧版からの適用はC#の `ReleaseAcceptance` テストで、固定ZIP内の実際のprotocol-1更新プログラムを直接起動します。現行の実配布ZIPを入力とし、期限内の正常終了と出力回収に加え、全管理ファイルの相対位置・内容、新版から除かれた旧管理ファイルの正規配置からの除去を確認します。更新プログラムが再生成する管理一覧は記載されたパス集合を比較し、改行・列挙順のバイト一致は要求しません。`data/`・`config/` と利用者追加ファイルは、更新プログラムの起動前に採取したパス集合・バイト内容と比較します。退避・作業領域を含めた全ツリー一致は要求しません。旧更新プログラムは入力ZIPを消費するため、指定候補を変更せず、同じ内容の検証用コピーを渡します。
 
 旧アプリの画面起動、起動ログ待ち、更新通知や所有モーダルの有無、旧アプリの通常終了、旧版の終了待ちと管理ファイルロック時の特性は、この受入から除きます。別枠の旧GUI受入も設けません。旧更新プログラムが子プロセスを作る場合は所有・回収しますが、画面内容を合格条件にはしません。現行更新プログラムの失敗・復元・終了待ちの検査は維持し、現行配布物の起動とDB・設定の意味上の移行は既存データ起動および現行更新の受入で検証します。
 

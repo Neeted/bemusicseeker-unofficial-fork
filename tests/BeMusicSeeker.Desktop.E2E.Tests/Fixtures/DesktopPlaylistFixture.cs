@@ -17,6 +17,7 @@ using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Processes;
+using BeMusicSeeker.TestSupport.Scenarios;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Desktop.E2E.Tests.Fixtures;
@@ -94,8 +95,8 @@ internal sealed class DesktopPlaylistFixture : IAsyncDisposable
     internal const string FolderName = "Desktop";
     /// <summary>既存の通常更新確認へ渡すNoUpdate応答です。</summary>
     internal string UpdateManifestUrl => endpoint.ManifestUrl;
-    /// <summary>同じbuildの実製品を参照します。別buildを探索しません。</summary>
-    internal static string ExecutablePath => Path.Combine(AppContext.BaseDirectory, "fixtures", "application", "BeMusicSeeker.exe");
+    /// <summary>Fullでは指定候補、日常・局所では同じbuildの実製品を参照し、起動前資産と揃えます。</summary>
+    internal static string ExecutablePath => ScenarioApplicationPaths.ExecutablePath;
 
     /// <summary>起動前入力を完成させます。グローバルSettings/DB/実利用者profileは変更しません。</summary>
     internal static DesktopPlaylistFixture Create(TestWorkspace workspace) => new(workspace, InputKind.VirtualRows);

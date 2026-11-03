@@ -126,6 +126,50 @@ public sealed class DistributionArtifactTests
         StringAssert.Contains(error.Message, name);
     }
 
+    /// <summary>manifestまで自己整合したZIPでも、公開用の代表HTMLが欠落・空ならconsumerが拒否します。</summary>
+    [TestMethod]
+    [DataRow("README.html", false)]
+    [DataRow("README.ja.html", true)]
+    public async Task CatalogRejectsMissingOrEmptyPublicHtml(string name, bool empty)
+    {
+        using var fixture = new DistributionFixture();
+        (string Path, DistributionCatalog Catalog) prepared = await fixture.PrepareCatalogAsync();
+        DistributionArtifact current = prepared.Catalog.Current;
+        string[] managed = empty ? current.ManagedFiles.ToArray() : current.ManagedFiles.Where(file => file != name).ToArray();
+        using (ZipArchive archive = ZipFile.Open(current.PackagePath, ZipArchiveMode.Update))
+        {
+            (archive.GetEntry(name) ?? throw new InvalidDataException()).Delete();
+            if (empty) { archive.CreateEntry(name); }
+            (archive.GetEntry("update-managed-files.txt") ?? throw new InvalidDataException()).Delete();
+            using var writer = new StreamWriter(archive.CreateEntry("update-managed-files.txt").Open());
+            writer.Write(string.Join("\n", managed));
+        }
+        var changed = new DistributionArtifact(current.Version, current.AppPublishRoot, current.UpdaterPublishRoot, current.PackagePath,
+            new FileInfo(current.PackagePath).Length, Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(current.PackagePath))), managed);
+        File.WriteAllText(prepared.Path, JsonSerializer.Serialize(prepared.Catalog with { Current = changed }));
+        InvalidDataException error = await Assert.ThrowsExactlyAsync<InvalidDataException>(() => DistributionCatalog.ReadAsync(prepared.Path, fixture.Root, Deadline()));
+        StringAssert.Contains(error.Message, name);
+    }
+
+    /// <summary>metadataだけの追加を受理し、同じ版と正しいmanifestでも通常fileの内容・集合が変われば同梱版を拒否します。</summary>
+    [TestMethod]
+    [DataRow("none")]
+    [DataRow("content")]
+    [DataRow("extra")]
+    public async Task MetadataVariantAllowsOnlyTheMetadataAddition(string mutation)
+    {
+        using var fixture = new DistributionFixture();
+        (string Path, DistributionCatalog Catalog) prepared = await fixture.PrepareCatalogAsync();
+        DistributionArtifact metadata = fixture.CreateMetadataVariant(prepared.Catalog.Current, mutation);
+        File.WriteAllText(prepared.Path, JsonSerializer.Serialize(prepared.Catalog with { CurrentWithMetadata = metadata }));
+        if (mutation == "none")
+        {
+            DistributionCatalog catalog = await DistributionCatalog.ReadAsync(prepared.Path, fixture.Root, Deadline());
+            Assert.AreEqual(metadata.PackagePath, catalog.CurrentWithMetadata?.PackagePath);
+        }
+        else { await Assert.ThrowsExactlyAsync<InvalidDataException>(() => DistributionCatalog.ReadAsync(prepared.Path, fixture.Root, Deadline())); }
+    }
+
     /// <summary>ZIPは正常なままpublish updaterだけが欠落・置換された場合も、consumerがcatalogを受理しないことを保証します。</summary>
     [TestMethod]
     [DataRow(false)]
@@ -316,18 +360,18 @@ internal sealed class DistributionFixture : IDisposable
     internal string App(string variant) => PathFor(variant + "/app");
 
     /// <summary>mockはcommand内の動的値を再解釈せず、既知の段階に対応する専有publish出力を作ります。引数の接続は実pwshの正例で検査します。</summary>
-    internal DistributionArtifact CreatePublishedVariant(bool next) => Create(next ? "run/distribution/next" : "run/distribution/v",
-        next ? DistributionValidation.IncrementVersion(DistributionValidation.ReadVersion(System.IO.Path.Combine(App("run/distribution/v"), "BeMusicSeeker.exe"))) : null);
+    internal DistributionArtifact CreatePublishedVariant(bool next) => Create(next ? "candidate/next" : "candidate/v",
+        next ? DistributionValidation.IncrementVersion(DistributionValidation.ReadVersion(System.IO.Path.Combine(App("candidate/v"), "BeMusicSeeker.exe"))) : null);
 
     /// <summary>command出力だけを専有fixtureへ向け、全producer段階と正しいconsumer読取りを完了してからreader改変試験へ渡します。</summary>
     internal async Task<(string Path, DistributionCatalog Catalog)> PrepareCatalogAsync()
     {
         CreateLegacy();
-        string path = await DistributionPreparer.PrepareAsync(Root, PathFor("run"), async (stage, action) =>
+        string path = await DistributionPreparer.PrepareAsync(Root, PathFor("candidate"), async (stage, action) =>
         {
             await action((_, arguments, _) =>
             {
-                if (arguments[^1].Contains(" -SkipDocHtml -ArtifactRoot ", StringComparison.Ordinal))
+                if (arguments[^1].Contains(" -ArtifactRoot ", StringComparison.Ordinal))
                 {
                     CreatePublishedVariant(stage == "publish-next");
                 }
@@ -396,6 +440,8 @@ internal sealed class DistributionFixture : IDisposable
             File.Copy(System.IO.Path.Combine(repo, "native", name), System.IO.Path.Combine(everything, name));
         }
         File.WriteAllText(System.IO.Path.Combine(app, "payload.txt"), "payload");
+        File.WriteAllText(System.IO.Path.Combine(app, "README.html"), "<html>Readme</html>");
+        File.WriteAllText(System.IO.Path.Combine(app, "README.ja.html"), "<html>説明</html>");
         string updater = PathFor(variant + "/updater");
         Directory.CreateDirectory(updater);
         File.WriteAllText(System.IO.Path.Combine(updater, "BeMusicSeeker.Updater.exe"), "updater fixture");
@@ -414,6 +460,35 @@ internal sealed class DistributionFixture : IDisposable
             writer.Write(string.Join("\r\n", files.Reverse()));
         }
         return new(version, app, updater, zip, new FileInfo(zip).Length, Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(zip))), files);
+    }
+
+    /// <summary>通常ZIPをそのまま基にmetadataと対応するmanifestだけを追加し、指定時だけ独立した改変を混ぜます。</summary>
+    internal DistributionArtifact CreateMetadataVariant(DistributionArtifact current, string mutation = "none")
+    {
+        string package = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(current.PackagePath) ?? throw new InvalidDataException(),
+            $"bemusicseeker-unofficial-fork-v{current.Version}-with-metadata.zip");
+        File.Copy(current.PackagePath, package);
+        string[] managed = current.ManagedFiles.Append("chart-info-metadata.7z").Concat(mutation == "extra" ? new[] { "extra.txt" } : []).ToArray();
+        using (ZipArchive archive = ZipFile.Open(package, ZipArchiveMode.Update))
+        {
+            using (var writer = new StreamWriter(archive.CreateEntry("chart-info-metadata.7z").Open())) { writer.Write("metadata fixture"); }
+            if (mutation == "content")
+            {
+                (archive.GetEntry("payload.txt") ?? throw new InvalidDataException()).Delete();
+                using var writer = new StreamWriter(archive.CreateEntry("payload.txt").Open());
+                writer.Write("changed");
+            }
+            if (mutation == "extra")
+            {
+                using var writer = new StreamWriter(archive.CreateEntry("extra.txt").Open());
+                writer.Write("extra");
+            }
+            (archive.GetEntry("update-managed-files.txt") ?? throw new InvalidDataException()).Delete();
+            using var manifest = new StreamWriter(archive.CreateEntry("update-managed-files.txt").Open());
+            manifest.Write(string.Join("\n", managed));
+        }
+        return new(current.Version, current.AppPublishRoot, current.UpdaterPublishRoot, package, new FileInfo(package).Length,
+            Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(package))), managed);
     }
 
     private static string FindRepository()

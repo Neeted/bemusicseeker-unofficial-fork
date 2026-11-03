@@ -6,6 +6,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Scenarios.Tests.Fixtures;
 using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Scenarios;
 
 namespace BeMusicSeeker.Scenarios.Tests.Install;
 
@@ -33,10 +34,10 @@ internal sealed class MissingDestinationFixture : IAsyncDisposable
         Write(Path.Combine(Library, "Sentinel"), SentinelFiles);
         Write(Source, DifferenceFiles);
         var scope = new ApplicationDatabaseScope();
-        string executable = Path.Combine(AppContext.BaseDirectory, "fixtures", "application", "BeMusicSeeker.exe");
+        string executable = ScenarioApplicationPaths.ExecutablePath;
         var paths = ApplicationPathSnapshot.FromLayout(executable, Path.GetDirectoryName(executable)
             ?? throw new InvalidOperationException("実行体の親がありません。"), Profile,
-            Path.Combine(AppContext.BaseDirectory, "fixtures", "application", "lang"), workspace.GetPath("temp"), workspace.GetPath("legacy"));
+            ScenarioApplicationPaths.LanguageDirectory, workspace.GetPath("temp"), workspace.GetPath("legacy"));
         StandaloneLibraryDatabase.EnsurePortableSongDb(scope, paths);
         using (LR2SongDBExtended db = scope.OpenSongWrite(Database))
         {

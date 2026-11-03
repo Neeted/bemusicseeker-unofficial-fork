@@ -101,23 +101,28 @@ uv run scripts/build-doc-html.py --source-root . --output-root docs --site --sit
 
 ### 配布物の生成と検証
 
-[publish.ps1](../../../scripts/publish.ps1) はスクリプトの所在するリポジトリからビルドし、既定では `dist/` にZIPを生成します。生成対象は配布物だけです。
+公開候補は `prepare-candidate` で先に生成し、そのcatalogをFullへ渡します。候補の出力先は存在しない専有の絶対パスを指定します。
 
 ```powershell
-pwsh -NoProfile -File scripts/publish.ps1
+$candidate = Join-Path (Get-Location) 'artifacts/candidates/release-1'
+dotnet run --project tools/BeMusicSeeker.Verify -- prepare-candidate --output $candidate
 # メタデータ同梱版も生成する場合
-pwsh -NoProfile -File scripts/publish.ps1 -IncludeMetadata
+dotnet run --project tools/BeMusicSeeker.Verify -- prepare-candidate --output "$candidate-with-metadata" --include-metadata
 ```
 
-通常ZIPのみの生成が正常完了した時点で、同版・標準名の `-with-metadata.zip` 一つを退役します。他版ZIPとmetadata元データは保持します。`-IncludeMetadata` では同じ今回の出力から両ZIPを生成し、通常ZIPの生成失敗より先に旧metadata ZIPを削除しません。
+候補にはHTML付き通常Current ZIP、固定Legacy、試験Nextを含め、完成後だけ出力直下へ `catalog.json` を保存します。`--include-metadata` はCurrentの同じpublish出力から同梱版も生成し、通常版と追加metadata以外の内容が同じことを確認します。元データの指定には `--metadata-source <path>` を使います。
+
+内部で呼ぶ [publish.ps1](../../../scripts/publish.ps1) は単独でも利用でき、既定では `dist/` へZIPだけを生成します。通常ZIPのみの生成が正常完了した時点で、同版・標準名の `-with-metadata.zip` 一つを退役します。他版ZIPとmetadata元データは保持します。`-IncludeMetadata` は同じ今回の出力から両ZIPを生成します。単独publishの成功はFull合格の代わりにはなりません。
 
 更新検証用の実行限定版は `-ApplicationVersion` に四成分の数値版を渡します。専有 `-ArtifactRoot` を必須とし、`-SkipBuild` との併用は拒否します。app/updaterそれぞれのrestore・build中間出力は指定root内のproject別 `obj/`・`bin/` に分離し、配布出力は `app/`・`updater/`・`dist/` へ置きます。既存の通常 `obj/`・`bin/` をsourceとして再取り込みません。版変更時には生成属性も更新し、正本の版値やAssemblyVersionを書き換えません。
 
 appの通常restoreは `BeMusicSeeker/packages.lock.json`、配布profileのrestore/publishは `BeMusicSeeker/packages.publish.lock.json` を使います。後者はSingleFile analyzerのSDK依存を含み、通常版・実行限定版・metadata同梱版で共有します。依存更新時は `dotnet restore BeMusicSeeker/BeMusicSeeker.csproj --runtime win-x64 --force-evaluate -p:Platform=x64 -p:Configuration=Release -p:PublishProfile=WinX64SelfContained` で配布lockも明示更新し、解決版の差分を確認します。通常のpublish経路はlocked restoreを維持し、lock欠落は出力変更前に拒否し、不一致時に再生成へ切り替えません。
 
-新しいC#検証入口 `tools/BeMusicSeeker.Verify full` の配布準備では、Vは通常版、VnextはVの実バイナリから読んだ版の末尾をcheckedで1増やした版です。両variantを各一回publishし、各240秒の範囲内で成果物も検査します。標準FullはCore・Windows・Scenariosと既存データ起動・現行更新の実配布受入を接続します。環境suiteはCompatibilityで別に明示実行します。通常公開のreleaseは正本の版を使い、ローカルのVnextを公開対象にしません。`-SkipBuild` の通常利用でも、既存appの実版とパッケージ版の一致を確認します。
+候補生成ではCurrentは通常版、NextはCurrentの実バイナリから読んだ版の末尾をcheckedで1増やした版です。両variantを各一回publishし、各240秒の範囲内で成果物も検査します。Fullは指定候補へCore・Windows・Scenarios・Desktopと既存データ起動・現行更新の実配布受入を接続し、製品publishやZIP生成を繰り返しません。環境suiteはCompatibilityで別に明示実行します。releaseは正本の版を使い、試験Nextを公開対象にしません。単独publishの `-SkipBuild` 利用でも、既存appの実版とパッケージ版の一致を確認します。
 
-正式リリース前の公開候補に対して `Full` を実行します。通常開発のコミット・`dev` への統合と、変更の影響に応じた追加検証は[実行範囲の選択](testing.md#実行範囲の選択)に従います。Fullは検証用の `SkipDocHtml` 配布物を隔離された出力先に生成・共有します。正式配布用のZIPは、検証済みのソースからHTMLを含めて生成し、ソースを変更した場合は再生成します。
+正式リリース前は `full --distribution-catalog <absolute catalog>` で公開予定の候補を検証し、合格した同じZIPを公開します。Fullの既存summaryに記録する `passed` と `releaseArtifacts` を、公開時にcatalogおよび実ZIPの版・パス・サイズ・SHA-256と照合します。合格後の再buildやZIP再生成を同一候補の検証済みとして扱いません。
+
+テストだけを変更し、製品・依存・配布設定・同梱資料や内容が変わらない場合は、通常のGit差分を確認して候補を再利用できます。それらが変わった場合は新しい候補を生成しFullを再実行します。Fullの整形による変更も同じ判断の対象です。通常開発のコミット・`dev` への統合と影響に応じた検証は[実行範囲の選択](testing.md#実行範囲の選択)に従います。
 
 実機確認の推奨と未実施の扱いは[検証方針](testing.md#検証方針)に従います。実機確認の結果待ちをリリース完了の条件にはしません。Fullの必須自動検証と、公開時のタグ・資産・リモートブランチの照合は維持します。
 
@@ -133,16 +138,19 @@ git pull --ff-only
 git switch main
 git pull --ff-only
 git merge --no-ff dev
-dotnet run --project tools/BeMusicSeeker.Verify -- full
-pwsh -NoProfile -File scripts/publish.ps1
-pwsh -NoProfile -File scripts/release.ps1 -CreateDraft
+$candidate = Join-Path (Get-Location) 'artifacts/candidates/release-1'
+dotnet run --project tools/BeMusicSeeker.Verify -- prepare-candidate --output $candidate
+dotnet run --project tools/BeMusicSeeker.Verify -- full --distribution-catalog "$candidate/catalog.json"
+# Fullが表示した結果ディレクトリの合格summaryを指定する
+$fullSummary = 'C:/path/to/full-run/summary.json'
+pwsh -NoProfile -File scripts/release.ps1 -CreateDraft -DistributionCatalog "$candidate/catalog.json" -FullSummary $fullSummary
 ```
 
 公開 `main` への反映はRelease公開後に行います。準備中のHEADは公開 `main` を祖先に持つことが必要です。緊急修正では、上記の `dev` の代わりに `main` から分岐した修正ブランチをマージします。
 
 ### 下書きと公開
 
-[release.ps1](../../../scripts/release.ps1) は `dist/` と版別リリースノートを使います。正式版の準備・公開は、作業ツリーがクリーンな `main` 上で実行します。
+[release.ps1](../../../scripts/release.ps1) は明示したcatalogのCurrentと任意のmetadata同梱版、合格Full summary、版別リリースノートを使います。すべてのモードで `-DistributionCatalog` と `-FullSummary` に絶対パスが必要です。候補・summary・ZIPの公開集合が一致しない場合は公開準備に進みません。正式版の準備・公開は、作業ツリーがクリーンな `main` 上で実行します。
 
 | 操作 | 処理と照合 |
 | --- | --- |
@@ -152,7 +160,7 @@ pwsh -NoProfile -File scripts/release.ps1 -CreateDraft
 下書きのタイトル・本文はGitHub上で編集できます。確認した内容で公開し、`main` を `dev` へマージして生成物・修正を引き継ぎます。
 
 ```powershell
-pwsh -NoProfile -File scripts/release.ps1 -PublishDraft
+pwsh -NoProfile -File scripts/release.ps1 -PublishDraft -DistributionCatalog "$candidate/catalog.json" -FullSummary $fullSummary
 git switch dev
 git merge main
 git push origin dev
@@ -166,7 +174,7 @@ Releaseの公開に失敗したらmainを送信しません。mainへの送信�
 
 ### プレビュー版
 
-`dev` の確定したソースからパッケージを作り、`release.ps1 -CreatePrereleaseDraft -PreviewSuffix preview.1` を実行します。HEADにプレビュータグを付け、prereleaseの下書きを作成します。内容を確認し、GitHub上で公開します。追跡中の公開メタデータと公開mainは変更しません。
+`dev` の確定したソースから候補を生成しFull合格後、`release.ps1 -CreatePrereleaseDraft -PreviewSuffix preview.1 -DistributionCatalog <absolute catalog> -FullSummary <absolute summary>` を実行します。HEADにプレビュータグを付け、prereleaseの下書きを作成します。内容を確認し、GitHub上で公開します。追跡中の公開メタデータと公開mainは変更しません。
 
 次の候補では `preview.2` など新しい接尾辞を使います。`-PublishDraft` は正式版専用です。
 
@@ -176,7 +184,7 @@ Releaseの公開に失敗したらmainを送信しません。mainへの送信�
 | --- | --- | --- |
 | ブランチと作業起点・コミット・統合方法 | [AGENTS.md](../../../AGENTS.md)、[CONTRIBUTING.md](../../../CONTRIBUTING.md)、[エージェント運用](agent-workflow.md)、[開発手順](../../setup.md)、GitHubのブランチ・タグ設定 | 文書と設定を照合する。統合手順は隔離したリポジトリの実Gitでfast-forward、分岐時の停止、作業ブランチのrebase、公開履歴のマージ、最新 `dev` からの次ブランチ作成と統合済み・全ワークツリー未使用の完了ブランチ削除を確認する。責任者による検証・独立レビュー後のローカルコミット、メイン作業ツリーの統合専用運用、準備済み単位からの統合、更新後の必要な検証・レビュー、統合引継ぎの版・根拠と全体ルートの確認は担当間の連絡と対象版を照合する。 |
 | バージョンの正本・互換ファイル不変・公開順序 | [release.ps1](../../../scripts/release.ps1) | [ReleaseScriptVersionSourceTests](../../../tests/BeMusicSeeker.Core.Tests/Verification/ReleaseScriptVersionSourceTests.cs): Coreの日常検証で17条件を実行する。実Gitと専有local remoteを使い、gh・文書生成のみ代替して実公開は行わず、本番スクリプトの入口から生成物・参照・失敗時の副作用を確認する。 |
-| 正式リリース前の配布物生成と引渡し | [publish.ps1](../../../scripts/publish.ps1)、[検証入口](../../../tools/BeMusicSeeker.Verify/README.md) | 公開候補のFullで配布物生成、既存データ利用、更新・起動を確認する。 |
+| 正式リリース前の配布物生成と引渡し | [publish.ps1](../../../scripts/publish.ps1)、[検証入口](../../../tools/BeMusicSeeker.Verify/README.md) | prepare-candidateで生成・構成検査し、指定した同じ候補のFullで既存データ利用、更新・起動を確認する。公開scriptが合格summaryと同一ZIP集合を照合する。 |
 | 表示リソースの整合 | [Resources.resx](../../../BeMusicSeeker/Properties/Resources.resx)、[翻訳](../../../lang) | [LocalizationResourceParityTests](../../../tests/BeMusicSeeker.Core.Tests/Localization/LocalizationResourceParityTests.cs)。履歴内容は差分で確認する。 |
 | 実公開 | [release.ps1](../../../scripts/release.ps1) | 自動テストでは実GitHubを変更しない。許可された公開でタグ・資産・リモートブランチの照合結果を確認する。 |
 

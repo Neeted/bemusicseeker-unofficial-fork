@@ -55,11 +55,18 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
     /// <summary>明示選択されたsuite名です。日常・Fullでは指定しません。</summary>
     internal string? Suite { get; private init; }
 
+    /// <summary>Fullが検査して利用する既存catalogの絶対パスです。</summary>
+    internal string? DistributionCatalogPath { get; private init; }
+
     /// <summary>固定profileを解決します。空moduleや環境不足を除外するfallbackは設けません。</summary>
-    internal static VerificationPlan Create(string profile, int processors, string? suite = null, string? filter = null)
+    internal static VerificationPlan Create(string profile, int processors, string? suite = null, string? filter = null, string? distributionCatalog = null)
     {
         int budget = Math.Clamp(processors, 1, 16);
         bool full = profile == "full";
+        if (full ? distributionCatalog is null || !Path.IsPathFullyQualified(distributionCatalog) : distributionCatalog is not null)
+        {
+            throw new ArgumentException("fullには --distribution-catalog の絶対パスが必要です。他profileでは指定できません。");
+        }
         if (profile == "compatibility" && (suite is null || !CompatibilitySuites.ContainsKey(suite)))
         {
             throw new ArgumentException($"--suite に登録済みのCompatibility suite名を指定してください: {suite}");
@@ -103,24 +110,28 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
         }
         return new VerificationPlan(profile, "Release",
             profile is "verify" or "full", modules, budget)
-        { Suite = suite };
+        { Suite = suite, DistributionCatalogPath = distributionCatalog };
     }
 
-    /// <summary>module集合を変えず、suiteと標準MTP filterの文字列を受け取ります。filter自体の文法はMTPへ委譲します。</summary>
+    /// <summary>module集合を変えず、suite・標準MTP filter・Full専用の絶対catalogを受け取ります。filter自体の文法はMTPへ委譲します。</summary>
     internal static VerificationPlan Parse(string[] args, int processors)
     {
         if (args.Length == 0 || args.Length % 2 == 0)
         {
-            throw new ArgumentException("利用方法: <profile> [--suite 対象名] [--filter 標準MTP条件]");
+            throw new ArgumentException("利用方法: <profile> [--suite 対象名] [--filter 標準MTP条件] [--distribution-catalog 絶対パス]");
         }
         string? suite = null;
         string? filter = null;
+        string? distributionCatalog = null;
         for (int index = 1; index < args.Length; index += 2)
         {
             switch (args[index])
             {
                 case "--suite" when suite is null:
                     suite = args[index + 1];
+                    break;
+                case "--distribution-catalog" when distributionCatalog is null:
+                    distributionCatalog = args[index + 1];
                     break;
                 case "--filter" when filter is null:
                     filter = args[index + 1];
@@ -129,7 +140,7 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
                     throw new ArgumentException($"未知または重複したoptionです: {args[index]}");
             }
         }
-        return Create(args[0], processors, suite, filter);
+        return Create(args[0], processors, suite, filter, distributionCatalog);
     }
 
     /// <summary>選択した利用フローの短IDです。SC-07はCompatibilityに所属し、DataRowや全FQNへ展開しません。</summary>

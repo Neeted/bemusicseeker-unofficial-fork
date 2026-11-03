@@ -1,4 +1,3 @@
-using System.IO;
 using BeMusicSeeker.Runtime;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Processes;
@@ -23,7 +22,7 @@ public sealed class PlayHistoryScenarioTests
             await using var fixture = new PlayHistoryScenarioFixture(workspace);
             var deadline = ProcessDeadline.FromTimeout(TimeSpan.FromMinutes(3));
             ApplicationScenarioDriver app = await ApplicationScenarioDriver.StartAsync(
-                Path.Combine(AppContext.BaseDirectory, "fixtures", "application", "BeMusicSeeker.exe"), fixture.Profile,
+                ScenarioApplicationPaths.ExecutablePath, fixture.Profile,
                 workspace.GetPath("session.json"), workspace.CaseId, fixture.UpdateUrl, deadline);
             Exception? primary = null;
             try

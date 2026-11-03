@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Processes;
+using BeMusicSeeker.TestSupport.Scenarios;
 
 namespace BeMusicSeeker.TestSupport.Verification;
 
@@ -21,7 +22,7 @@ internal sealed record VerificationRun(string Repository, string RunRoot)
     internal TimeSpan FormatTimeout { get; init; } = TimeSpan.FromSeconds(180);
     /// <summary>接続検査で短い期限を使う場合の上書きです。通常実行はprofileの共通test期限を使います。</summary>
     internal TimeSpan? TestTimeout { get; init; }
-    /// <summary>固定旧ZIP取得と、V・Vnext各publish＋検査にそれぞれ与える期限です。</summary>
+    /// <summary>候補生成の旧ZIP取得・各publishと、Fullの候補検査・展開にそれぞれ与える期限です。</summary>
     /// <remarks>専有出力のcold生成・圧縮・全検査を含む固定上限であり、実行中に延長しません。</remarks>
     internal TimeSpan DistributionTimeout { get; init; } = TimeSpan.FromSeconds(240);
     /// <summary>段階の致命失敗時に一度だけ確定する回収猶予です。</summary>
@@ -52,19 +53,36 @@ internal static class VerificationRunner
         if (args.Length == 0 || args[0] is "--help" or "-h")
         {
             Console.WriteLine("<dev|verify|full|compatibility|performance> [--suite 対象名] [--filter 標準MTP条件]");
+            Console.WriteLine("full --distribution-catalog <絶対catalogパス>");
+            Console.WriteLine("prepare-candidate --output <新規絶対dir> [--include-metadata] [--metadata-source <path>]");
             Console.WriteLine("format [--scope Changed|All] [--no-restore]");
             Console.WriteLine("native-query [--build-path-identity-fixture]");
             return 0;
         }
         try
         {
+            bool prepareCandidate = args[0] == "prepare-candidate";
             bool nativeQuery = args[0] == "native-query";
             bool buildPathIdentityFixture = nativeQuery && args.Length == 2 && args[1] == "--build-path-identity-fixture";
             if (nativeQuery && args.Length != 1 && !buildPathIdentityFixture)
             { throw new ArgumentException("利用方法: native-query [--build-path-identity-fixture]"); }
-            VerificationPlan? plan = args[0] == "format" || nativeQuery ? null : VerificationPlan.Parse(args, Environment.ProcessorCount);
+            VerificationPlan? plan = args[0] == "format" || nativeQuery || prepareCandidate ? null : VerificationPlan.Parse(args, Environment.ProcessorCount);
             bool allSources = false, noRestore = false, scopeSeen = false;
-            if (plan is null && !nativeQuery)
+            string? output = null, metadataSource = null;
+            bool includeMetadata = false;
+            if (prepareCandidate)
+            {
+                for (int index = 1; index < args.Length; index++)
+                {
+                    if (args[index] == "--output" && output is null && index + 1 < args.Length) { output = args[++index]; }
+                    else if (args[index] == "--include-metadata" && !includeMetadata) { includeMetadata = true; }
+                    else if (args[index] == "--metadata-source" && metadataSource is null && index + 1 < args.Length) { metadataSource = args[++index]; }
+                    else { throw new ArgumentException($"未知または重複した候補optionです: {args[index]}"); }
+                }
+                if (output is null || !Path.IsPathFullyQualified(output) || (metadataSource is not null && !includeMetadata))
+                { throw new ArgumentException("prepare-candidateには絶対outputが必要です。metadata-sourceはinclude-metadataと併用します。"); }
+            }
+            if (plan is null && !nativeQuery && !prepareCandidate)
             {
                 for (int index = 1; index < args.Length; index++)
                 {
@@ -83,7 +101,8 @@ internal static class VerificationRunner
             try
             {
                 var run = new VerificationRun(repository, runRoot);
-                return nativeQuery ? await NativeQueryAsync(run, buildPathIdentityFixture, canceled.Token)
+                return prepareCandidate ? await PrepareCandidateAsync(run, output ?? throw new ArgumentException("outputがありません。"), includeMetadata, metadataSource, canceled.Token)
+                    : nativeQuery ? await NativeQueryAsync(run, buildPathIdentityFixture, canceled.Token)
                     : plan is null ? await FormatAsync(run, allSources, noRestore, canceled.Token)
                     : (await ExecuteAsync(plan, run, canceled.Token)).ExitCode;
             }
@@ -94,6 +113,33 @@ internal static class VerificationRunner
             Console.Error.WriteLine(error);
             return 1;
         }
+    }
+
+    /// <summary>候補生成だけを既存の段階期限・所有process・回収境界で実行します。Fullのtest実行は行いません。</summary>
+    internal static async Task<int> PrepareCandidateAsync(VerificationRun run, string output, bool includeMetadata = false,
+        string? metadataSource = null, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            Directory.CreateDirectory(run.RunRoot);
+            int index = 0;
+            string catalog = await DistributionPreparer.PrepareAsync(run.Repository, output, async (name, action) =>
+            {
+                using var stage = new RunnerStage(run.DistributionTimeout, run.CleanupGrace, cancellationToken);
+                Console.WriteLine("候補生成: " + name);
+                try
+                {
+                    stage.ThrowIfCannotStart();
+                    await action((executable, arguments, _) => ExecuteToolCommandAsync(run, stage, executable, arguments, $"candidate-{++index:D3}"),
+                        stage.ExecutionDeadline, stage.CancellationToken);
+                    stage.ThrowIfCannotStart();
+                }
+                catch { stage.Abort(); throw; }
+            }, includeMetadata, metadataSource);
+            Console.WriteLine("配布catalog: " + catalog);
+            return 0;
+        }
+        catch (Exception error) { Console.Error.WriteLine(error); return 1; }
     }
 
     /// <summary>手動整形を既存の準備process所有境界で実行し、Git・復元・全batchに一つの期限を与えます。</summary>
@@ -171,7 +217,9 @@ internal static class VerificationRunner
         Exception? primary = null;
         Exception? summaryFailure = null;
         string? source = null, sdk = null;
-        string? distributionCatalog = null;
+        string? distributionCatalog = plan.DistributionCatalogPath;
+        DistributionCatalog? catalog = null;
+        string? applicationRoot = null;
         string? caseRoot = null;
         bool? dirty = null;
         long executionStart = 0;
@@ -231,24 +279,24 @@ internal static class VerificationRunner
             if (plan.Profile == "full")
             {
                 distribution.Start();
-                distributionCatalog = await DistributionPreparer.PrepareAsync(run.Repository, run.RunRoot, async (name, action) =>
+                using var stage = new RunnerStage(run.DistributionTimeout, run.CleanupGrace, cancellationToken);
+                try
                 {
-                    using var stage = new RunnerStage(run.DistributionTimeout, run.CleanupGrace, cancellationToken);
-                    Console.WriteLine("配布準備: " + name);
-                    try
+                    stage.ThrowIfCannotStart();
+                    catalog = await DistributionCatalog.ReadAsync(distributionCatalog ?? throw new InvalidOperationException("Fullのcatalogがありません。"),
+                        run.Repository, stage.ExecutionDeadline, stage.CancellationToken);
+                    foreach (DistributionArtifact artifact in new[] { catalog.Current, catalog.Next, catalog.CurrentWithMetadata }.OfType<DistributionArtifact>())
                     {
-                        stage.ThrowIfCannotStart();
-                        await action((executable, arguments, _) => ExecutePreparation(executable, arguments, stage),
+                        await DistributionPreparer.ValidatePackageLayoutAsync(run.Repository, artifact.PackagePath,
+                            (executable, arguments, _) => ExecutePreparation(executable, arguments, stage),
                             stage.ExecutionDeadline, stage.CancellationToken);
-                        stage.ThrowIfCannotStart();
                     }
-                    catch
-                    {
-                        stage.Abort();
-                        throw;
-                    }
-                    finally { summaryDeadline = stage.CleanupDeadline; }
-                });
+                    applicationRoot = await catalog.Current.ExtractInstallationAsync(Path.Combine(run.RunRoot, "application"),
+                        stage.ExecutionDeadline, stage.CancellationToken);
+                    stage.ThrowIfCannotStart();
+                }
+                catch { stage.Abort(); throw; }
+                finally { summaryDeadline = stage.CleanupDeadline; }
                 distribution.Stop();
             }
 
@@ -275,6 +323,7 @@ internal static class VerificationRunner
                         {
                             [TestRunDirectory.EnvironmentVariable] = Path.Combine(caseRoot, module.ExecutionId),
                             [DistributionCatalog.EnvironmentVariable] = distributionCatalog,
+                            [ScenarioApplicationPaths.EnvironmentVariable] = applicationRoot,
                             [ProcessDeadline.SuiteDeadlineEnvironmentVariable] = module.Name is "Compatibility" or "Performance" or "Scenarios" or "Desktop.E2E" ? testing.ExecutionDeadline.Export() : null,
                         }),
                         directory, "process", started => Interlocked.CompareExchange(ref executionStart, started, 0), cleanupIntervals);
@@ -338,10 +387,16 @@ internal static class VerificationRunner
         {
             Console.WriteLine($"{outcome.Name}: {(outcome.Passed ? "Passed" : "Failed")} {outcome.Cases} cases {string.Join(" / ", outcome.Errors)}");
         }
+        bool passed = primary is null && outcomes.Count == plan.Modules.Count && outcomes.All(outcome => outcome.Passed)
+            && commands.All(command => command.Passed);
         try
         {
             var summary = new
             {
+                passed,
+                distributionCatalog,
+                releaseArtifacts = new[] { catalog?.Current, catalog?.CurrentWithMetadata }.OfType<DistributionArtifact>()
+                    .Select(artifact => new { version = artifact.Version, packagePath = artifact.PackagePath, sizeBytes = artifact.SizeBytes, sha256 = artifact.Sha256 }),
                 profile = plan.Profile,
                 suite = plan.Suite,
                 filters = plan.Modules.Select(module => new { module.Name, module.ExecutionId, module.Filter }),
@@ -373,8 +428,11 @@ internal static class VerificationRunner
                 }),
                 modules = outcomes.Select(outcome => new { outcome.Name, outcome.Cases, outcome.Passed, outcome.ElapsedMs, outcome.Errors }),
             };
-            await WriteTextAsync(Path.Combine(run.RunRoot, "summary.json"), JsonSerializer.Serialize(summary,
+            // 書込み後の期限検査まで成功した結果だけを完成名へ公開する。失敗した一時fileはrunの診断として残す。
+            string temporarySummary = Path.Combine(run.RunRoot, "summary.json.tmp");
+            await WriteTextAsync(temporarySummary, JsonSerializer.Serialize(summary,
                 new JsonSerializerOptions { WriteIndented = true }), summaryDeadline);
+            File.Move(temporarySummary, Path.Combine(run.RunRoot, "summary.json"));
         }
         catch (Exception error)
         {
@@ -382,7 +440,7 @@ internal static class VerificationRunner
             Console.Error.WriteLine("summary保存失敗: " + error);
         }
         Console.WriteLine($"test wall={executionTime.TotalSeconds:F3}s（cleanup内数={cleanupMs / 1000:F3}s）total={total.Elapsed.TotalSeconds:F3}s");
-        bool passed = primary is null && summaryFailure is null && outcomes.Count == plan.Modules.Count && outcomes.All(outcome => outcome.Passed);
+        passed = passed && summaryFailure is null;
         return new(passed ? 0 : 1, outcomes, commands.ToArray(), primary, summaryFailure);
     }
 

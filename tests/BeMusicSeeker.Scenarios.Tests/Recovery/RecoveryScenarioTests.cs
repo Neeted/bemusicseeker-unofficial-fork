@@ -227,7 +227,7 @@ public sealed class RecoveryScenarioTests
     private static async Task RunAsync(RecoveryScenarioFixture fixture, TestWorkspace workspace, ProcessDeadline deadline,
         Func<ApplicationScenarioDriver, Task> body, bool pendingSchema = false)
     {
-        string executable = Path.Combine(AppContext.BaseDirectory, "fixtures", "application", "BeMusicSeeker.exe");
+        string executable = ScenarioApplicationPaths.ExecutablePath;
         ApplicationScenarioDriver app = await ApplicationScenarioDriver.StartAsync(executable, fixture.Profile,
             workspace.GetPath("session.json"), workspace.CaseId, fixture.UpdateUrl, deadline, pendingSchema);
         Exception? primary = null;

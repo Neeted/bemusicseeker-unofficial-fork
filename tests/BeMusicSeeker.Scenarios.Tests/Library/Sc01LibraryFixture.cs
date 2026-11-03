@@ -6,6 +6,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Scenarios.Tests.Fixtures;
 using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Scenarios;
 
 namespace BeMusicSeeker.Scenarios.Tests.Library;
 
@@ -116,10 +117,10 @@ internal sealed class Sc01LibraryFixture : IAsyncDisposable
     private void SeedDatabase(TestWorkspace workspace)
     {
         var scope = new ApplicationDatabaseScope();
-        string executable = Path.Combine(AppContext.BaseDirectory, "fixtures", "application", "BeMusicSeeker.exe");
+        string executable = ScenarioApplicationPaths.ExecutablePath;
         var paths = ApplicationPathSnapshot.FromLayout(executable, Path.GetDirectoryName(executable)
             ?? throw new InvalidOperationException("実行体の親がありません。"), ProfileDirectory,
-            Path.Combine(AppContext.BaseDirectory, "fixtures", "application", "lang"), workspace.GetPath("temp"), workspace.GetPath("legacy"));
+            ScenarioApplicationPaths.LanguageDirectory, workspace.GetPath("temp"), workspace.GetPath("legacy"));
         StandaloneLibraryDatabase.EnsurePortableSongDb(scope, paths);
         using LR2SongDBExtended db = scope.OpenSongWrite(SongDatabasePath);
         if (!Lr2SongFolderParentNormalizer.TryComputeExpectedHashes(B.Path, out string folder, out string parent))

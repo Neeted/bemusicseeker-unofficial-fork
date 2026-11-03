@@ -45,9 +45,14 @@ public sealed class DistributionArtifact
     /// <summary>共有ZIPを変更せず、ケースが所有する新規installationへ展開します。</summary>
     public async Task<string> ExtractInstallationAsync(TestWorkspace workspace, string relativePath,
         ProcessDeadline deadline, CancellationToken cancellationToken = default)
+        => await ExtractInstallationAsync(workspace.GetPath(relativePath), deadline, cancellationToken);
+
+    /// <summary>runnerが所有する新規絶対パスへ、ケースと同じ検査・展開処理でinstallationを作ります。</summary>
+    internal async Task<string> ExtractInstallationAsync(string root, ProcessDeadline deadline, CancellationToken cancellationToken = default)
     {
+        if (!Path.IsPathFullyQualified(root)) { throw new ArgumentException("installationには絶対パスが必要です。", nameof(root)); }
+        root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
         await DistributionValidation.AssertIdentityAsync(PackagePath, SizeBytes, Sha256, deadline, cancellationToken);
-        string root = workspace.GetPath(relativePath);
         if (Directory.Exists(root) || File.Exists(root)) { throw new IOException("installationは新しいケース専有パスが必要です。"); }
         DistributionValidation.CheckDeadline(deadline, cancellationToken);
         Directory.CreateDirectory(root);
@@ -73,9 +78,12 @@ public sealed class DistributionArtifact
     }
 }
 
-/// <summary>一回のFull前段で揃えた三つの配布入力です。未完成のcatalogは公開しません。</summary>
+/// <summary>候補生成で揃えた固定旧版・現行・次版と任意のmetadata同梱配布入力です。未完成のcatalogは公開しません。</summary>
 public sealed record DistributionCatalog(DistributionArtifact Legacy, DistributionArtifact Current, DistributionArtifact Next)
 {
+    /// <summary>通常Currentと同一のpublish出力・版を持つmetadata同梱ZIPです。</summary>
+    public DistributionArtifact? CurrentWithMetadata { get; init; }
+
     /// <summary>runnerと直接module実行で共用するcatalogの環境変数名です。</summary>
     public const string EnvironmentVariable = "BMS_TEST_DISTRIBUTION_CATALOG";
 
@@ -88,6 +96,7 @@ public sealed record DistributionCatalog(DistributionArtifact Legacy, Distributi
     }
 
     /// <summary>catalogの旧版を信頼するrepositoryの追跡descriptorと照合し、全ZIPの同一性・管理対象を検査してから利用側へ渡します。旧ZIPのコピー先はcacheと同じでなくても構いません。</summary>
+    /// <remarks>ここでは配布layout全体を検査しません。Fullは読取り後に既存PowerShellのlayout検査を各現行・次版ZIPへ適用します。</remarks>
     public static async Task<DistributionCatalog> ReadAsync(string path, string repository, ProcessDeadline deadline, CancellationToken cancellationToken = default)
     {
         if (!Path.IsPathFullyQualified(path)) { throw new InvalidDataException("catalogには絶対パスが必要です。"); }
@@ -107,12 +116,12 @@ public sealed record DistributionCatalog(DistributionArtifact Legacy, Distributi
         {
             throw new InvalidDataException("catalogの固定旧版identityが追跡descriptorと一致しません。");
         }
-        foreach (DistributionArtifact artifact in new[] { catalog.Legacy, catalog.Current, catalog.Next })
+        foreach (DistributionArtifact artifact in new[] { catalog.Legacy, catalog.Current, catalog.Next, catalog.CurrentWithMetadata }.OfType<DistributionArtifact>())
         {
             if (!Path.IsPathFullyQualified(artifact.PackagePath)) { throw new InvalidDataException("ZIPには絶対パスが必要です。"); }
             await DistributionValidation.AssertIdentityAsync(artifact.PackagePath, artifact.SizeBytes, artifact.Sha256, deadline, cancellationToken);
         }
-        foreach (DistributionArtifact artifact in new[] { catalog.Current, catalog.Next })
+        foreach (DistributionArtifact artifact in new[] { catalog.Current, catalog.Next, catalog.CurrentWithMetadata }.OfType<DistributionArtifact>())
         {
             if (artifact.AppPublishRoot is not { } app || !Path.IsPathFullyQualified(app)
                 || artifact.UpdaterPublishRoot is not { } updater || !Path.IsPathFullyQualified(updater)
@@ -129,6 +138,10 @@ public sealed record DistributionCatalog(DistributionArtifact Legacy, Distributi
             || string.Equals(catalog.Current.PackagePath, catalog.Next.PackagePath, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidDataException("現行版と次版が独立していません。");
+        }
+        if (catalog.CurrentWithMetadata is { } metadata)
+        {
+            await DistributionValidation.ValidateMetadataVariantAsync(catalog.Current, metadata, deadline, cancellationToken);
         }
         DistributionValidation.CheckDeadline(deadline, cancellationToken);
         return catalog;
@@ -240,6 +253,11 @@ internal static class DistributionValidation
                 throw new InvalidDataException("ZIP内のfile pathが重複しています。");
             }
         }
+        foreach (string html in new[] { "README.html", "README.ja.html" })
+        {
+            if (!entries.TryGetValue(html, out ZipArchiveEntry? document) || document.Length == 0)
+            { throw new InvalidDataException("公開用HTMLが欠落または空です: " + html); }
+        }
         if (!entries.TryGetValue(ManifestName, out ZipArchiveEntry? manifest)) { throw new InvalidDataException("ZIPに管理対象manifestがありません。"); }
         using CancellationTokenSource budget = CreateBudget(deadline, cancellationToken);
         using var reader = new StreamReader(manifest.Open());
@@ -286,6 +304,41 @@ internal static class DistributionValidation
         foreach (string file in Directory.EnumerateFiles(appRoot, "*", SearchOption.AllDirectories)) { AssertNoTestDependency(file); }
         CheckDeadline(deadline, cancellationToken);
         return Array.AsReadOnly(managed.ToArray());
+    }
+
+    /// <summary>metadataの追加と対応する管理集合以外は、通常版と全fileの内容が同一であることを検査します。</summary>
+    internal static async Task ValidateMetadataVariantAsync(DistributionArtifact current, DistributionArtifact metadata,
+        ProcessDeadline deadline, CancellationToken cancellationToken)
+    {
+        const string metadataName = "chart-info-metadata.7z";
+        if (metadata.Version != current.Version
+            || !string.Equals(metadata.AppPublishRoot, current.AppPublishRoot, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(metadata.UpdaterPublishRoot, current.UpdaterPublishRoot, StringComparison.OrdinalIgnoreCase)
+            || current.ManagedFiles.Contains(metadataName, StringComparer.OrdinalIgnoreCase)
+            || !new HashSet<string>(current.ManagedFiles.Append(metadataName), StringComparer.OrdinalIgnoreCase).SetEquals(metadata.ManagedFiles))
+        { throw new InvalidDataException("metadata同梱版の版・publish出力・追加管理対象が通常版と一致しません。"); }
+        using ZipArchive original = ZipFile.OpenRead(current.PackagePath);
+        using ZipArchive bundled = ZipFile.OpenRead(metadata.PackagePath);
+        var entries = bundled.Entries.Where(entry => !entry.FullName.EndsWith('/') && !entry.FullName.EndsWith('\\'))
+            .ToDictionary(entry => NormalizePath(entry.FullName), StringComparer.OrdinalIgnoreCase);
+        if (!entries.TryGetValue(metadataName, out ZipArchiveEntry? added) || added.Length == 0)
+        { throw new InvalidDataException("metadata同梱fileが欠落または空です。"); }
+        using CancellationTokenSource budget = CreateBudget(deadline, cancellationToken);
+        foreach (ZipArchiveEntry entry in original.Entries)
+        {
+            if (entry.FullName.EndsWith('/') || entry.FullName.EndsWith('\\')) { continue; }
+            string name = NormalizePath(entry.FullName);
+            if (name.Equals(ManifestName, StringComparison.OrdinalIgnoreCase)) { continue; }
+            if (!entries.TryGetValue(name, out ZipArchiveEntry? other) || entry.Length != other.Length)
+            { throw new InvalidDataException("metadata同梱版のfileが通常版と一致しません: " + name); }
+            await using Stream left = entry.Open();
+            await using Stream right = other.Open();
+            byte[] leftHash = await SHA256.HashDataAsync(left, budget.Token);
+            byte[] rightHash = await SHA256.HashDataAsync(right, budget.Token);
+            if (!leftHash.AsSpan().SequenceEqual(rightHash))
+            { throw new InvalidDataException("metadata同梱版のfile内容が通常版と一致しません: " + name); }
+        }
+        CheckDeadline(deadline, cancellationToken);
     }
 
     /// <summary>配布物へtest runner/support依存が混入することを検出します。</summary>

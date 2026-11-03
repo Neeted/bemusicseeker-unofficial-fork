@@ -5,7 +5,9 @@
 ```powershell
 dotnet run --project tools/BeMusicSeeker.Verify -- dev
 dotnet run --project tools/BeMusicSeeker.Verify -- verify
-dotnet run --project tools/BeMusicSeeker.Verify -- full
+$candidate = Join-Path (Get-Location) 'artifacts/candidates/release-1'
+dotnet run --project tools/BeMusicSeeker.Verify -- prepare-candidate --output $candidate
+dotnet run --project tools/BeMusicSeeker.Verify -- full --distribution-catalog "$candidate/catalog.json"
 dotnet run --project tools/BeMusicSeeker.Verify -- dev --filter "FullyQualifiedName~対象名"
 dotnet run --project tools/BeMusicSeeker.Verify -- compatibility --suite chart-info-bms
 dotnet run --project tools/BeMusicSeeker.Verify -- performance --suite scan-commit
@@ -14,7 +16,7 @@ dotnet run --project tests/BeMusicSeeker.Core.Tests -- --filter "FullyQualifiedN
 
 `dev` はReleaseのCore、Windows、Daily Scenariosを選びます。`verify` は変更C#の自動整形後に同じ対象を実行します。復元後、全style batch、全whitespace batch、build、testの順に進み、前段失敗で後段を開始しません。変更C#ゼロではformatterを起動しません。
 
-Windowsの日常検証には外部プレイヤーの実起動2件、更新Gatewayの実プロセス5件、公開関数のrestore/publish引数3行を含みます。更新マーカー2件は旧入口の `ProcessIntegration` から日常へ含める保証です。実起動7件とfresh playback3件は既存Windows probeと同じ全終端360秒・独立回収10秒を共用します。公開引数は単一60秒・独立回収5秒で実PowerShellを所有し、実R2R生成の保証はFullの実publishに残します。
+Windowsの日常検証には外部プレイヤーの実起動2件、更新Gatewayの実プロセス5件、公開関数のrestore/publish引数3行を含みます。更新マーカー2件は旧入口の `ProcessIntegration` から日常へ含める保証です。実起動7件とfresh playback3件は既存Windows probeと同じ全終端360秒・独立回収10秒を共用します。公開引数は単一60秒・独立回収5秒で実PowerShellを所有し、実R2R生成は候補生成の実publish、生成物の利用はFullが担います。
 
 ## 標準の実行範囲
 
@@ -77,9 +79,15 @@ scan/LR2/Folder/Copy/Bmsonは準備・表明・回収と対象操作の経過を
 
 固定旧ZIPのidentityは追跡された `devdocs/acceptance/v216-first-hop/artifact.json` を正本とします。有効cacheは取得せず、不正cacheは変更・再取得せず失敗します。不在時だけ一度取得し、size/hash検査済みの一時fileをatomicに公開します。
 
-VとVnextはrun内の別のArtifactRootへ各1回publishします。生成ZIPは実publishのapp/updaterと照合し、`update-managed-files.txt` 自身を除く全fileとの集合一致、既存layout、採用済nativeのhash/AMD64、test依存の混入を検査します。manifestの列挙順・改行は契約にしません。最上位config/data/log/logs/update_work/update_backupの6保護領域を含めません。imported_metadataはapp管理領域ですが、既存の配布layout禁止は維持します。この受入検査は製品updaterの入力受理を変更しません。bundle内の依存は既存の製品依存検査と分担し、一般依存の新しいhash台帳を作りません。
+`prepare-candidate --output <専有絶対dir>` は存在しない専有出力先に Current と Next を各1回publishし、HTMLを含む公開可能なZIPを作ります。生成ZIPは実publishのapp/updaterと照合し、`update-managed-files.txt` 自身を除く全fileとの集合一致、既存layout、代表HTMLの `README.html` / `README.ja.html` の存在と非空、採用済nativeのhash/AMD64、test依存の混入を検査します。manifestの列挙順・改行は契約にしません。最上位config/data/log/logs/update_work/update_backupの6保護領域を含めません。imported_metadataはapp管理領域ですが、既存の配布layout禁止は維持します。この受入検査は製品updaterの入力受理を変更しません。bundle内の依存は既存の製品依存検査と分担し、一般依存の新しいhash台帳を作りません。
 
-全配布物の完成後だけ `distribution/catalog.json` をatomicに公開し、子環境の `BMS_TEST_DISTRIBUTION_CATALOG` で渡します。`DistributionCatalog.ReadFromEnvironmentAsync(repository, deadline)` は呼出元が明示したrepositoryの追跡manifestを正本としてcatalogの旧版identityを照合し、未指定・不正を失敗にします。catalogの自己申告や所在から正本を選ばず、自動探索・再取得は行いません。直接module実行でも検査済みcatalogを明示指定し、moduleからの自動publishは行いません。caseは `ExtractInstallationAsync` でTestWorkspace内の新しいinstallationへZIPを展開し、共有publish/ZIPを変更しません。段階1のconsumerはCurrentを使い、Nextも同じFull runで生成・配布検査します。
+全配布物の完成後だけ出力直下の `catalog.json` をatomicに公開します。Current は `v/`、Next は `next/` に分離します。`--include-metadata` を付けると Current の同じpublish出力から同梱版も生成し、任意の `CurrentWithMetadata` としてcatalogへ記録します。元データは `--metadata-source <path>` で指定でき、省略時はpublishの既定元データを使います。同梱版は `chart-info-metadata.7z` と管理一覧へのその追加以外、通常版と全fileの内容が同じであることを確認します。
+
+`full --distribution-catalog <absolute catalog>` は指定済み候補を検査して使います。catalogはFullで必須とし、他profileでは指定しません。Fullは製品publish・ZIP再生成・固定旧版の再取得を行いません。テストとその依存componentのbuildは行います。`DistributionCatalog.ReadFromEnvironmentAsync(repository, deadline)` は呼出元が明示したrepositoryの追跡manifestを正本として旧版identityを照合し、全ZIPの実体を検査します。未指定・不正・欠落は失敗とし、別catalog探索や代替生成を行いません。作成したproducerの世代にかかわらず、同じ実体条件を満たすcatalogを受理します。Nextは独立生成・版・配布構成を検査し、現行更新受入はCurrent installationへCurrent ZIPを適用する既存保証を維持します。
+
+FullはCurrent ZIPをrun専有の `application/` へ一回展開し、`BMS_TEST_APPLICATION_ROOT` と `BMS_TEST_DISTRIBUTION_CATALOG` を子へ渡します。通常シナリオの実アプリと事前fixtureのexe/assets/lang/nativeは同じ展開先を使い、可変profileはケース専有のままです。日常・局所で両変数が未指定の場合だけ同じbuildのfixtureを使います。片方だけの指定は失敗です。直接moduleへcatalogを渡す場合は、そのCurrent ZIPを専有領域へ展開した絶対rootも `BMS_TEST_APPLICATION_ROOT` に指定します。更新・故障検査の明示installationはこの選択で上書きせず、既存の `ExtractInstallationAsync` でケース専有に展開します。
+
+テストだけの変更で製品・依存・配布設定・同梱資料や内容が変わらない場合、通常のGit差分を確認して同じ候補を再利用できます。これらが変わった場合は新しい出力先で候補を生成します。Fullの整形で製品等が変わった場合も同じ判断を行います。公開にはFull合格時の既存summaryに記録された通常ZIPと任意metadata ZIPをそのまま使い、後の再build品を同一検証済みと扱いません。[公開手順](../../devdocs/spec/development/release.md#正式リリースの準備)を参照してください。
 
 更新の実配布境界は `Scenarios/Update` の非Daily 30メソッド・32行で検査します。旧 `UpdaterPackageSyncTests` の27メソッド・29行と公開受入3件を移し、元のFQN・属性・故障入力・表明を維持します。ドライブルート4件とreparse1件の専用保証はCompatibilityのDriveRoot/DirectorySymbolicLinkへ所属します。これらのCLIは明示した `BMS_SCD_UPDATER_PUBLISH_ROOT`、または未指定時の通常buildを使い、managed callbackは既存build fixtureを使います。短いSC-IDを代用して必須ID不足を解消したことにはしません。選択moduleの空結果・skipは引き続き非成功です。
 
@@ -109,9 +117,9 @@ Windowsはmodule全体のsession leaseを取得せず、実Activateを使うPlay
 
 各runは `artifacts/verification/mtp-*` に独立した結果領域を作ります。TRX、stdout/stderr、`summary.json` を保存します。summaryにsource SHA、dirty、実SDK、OS、論理CPU数、worker数、configuration、選択suite、module別filter、適用test期限を記録し、computer nameや準備JSONの内容・個人pathを新たに転載しません。標準TRXの生データはローカル診断として扱います。
 
-`preparationMs` は復元・整形・実行条件取得、`buildMs` はbuild、`distributionMs` はFull配布準備です。主時計はsummaryの `testStageStartTimestamp`（test段階開始QPC）から同machineでrunner実復帰直後までを受入側で測定します。lang copy・Gate・summary保存・回収を含みます。`executionMs` は最初のtest起動からGate後・summary保存前までの補助wall timeです。module別の `ElapsedMs` はそのmoduleの起動から出力・所有childの回収までで、未起動ならnullです。`cleanupMs` は重なりを除いた回収区間で、`executionMs` の内数です。`totalMs` は入口全体のwall timeで、cleanupを重複加算しません。ケースdurationや並行moduleの時間の合計をwall timeと比較しません。
+`preparationMs` は復元・整形・実行条件取得、`buildMs` はbuild、`distributionMs` はFullの指定候補検査・展開です。summaryの `passed` は全選択moduleと必須IDを含む最終判定、`distributionCatalog` と `releaseArtifacts` は公開時に同じZIPを照合する入力です。主時計はsummaryの `testStageStartTimestamp`（test段階開始QPC）から同machineでrunner実復帰直後までを受入側で測定します。lang copy・Gate・summary保存・回収を含みます。`executionMs` は最初のtest起動からGate後・summary保存前までの補助wall timeです。module別の `ElapsedMs` はそのmoduleの起動から出力・所有childの回収までで、未起動ならnullです。`cleanupMs` は重なりを除いた回収区間で、`executionMs` の内数です。`totalMs` は入口全体のwall timeで、cleanupを重複加算しません。ケースdurationや並行moduleの時間の合計をwall timeと比較しません。
 
-dev/verifyのtest段階の運用上限は600秒、Fullは全testで共有する1380秒です。Fullの600秒は後段の速度目標であり実行上限とは区別し、整形・build・配布準備をtest時間へ含めません。個々のscenarioの180秒・updateの240秒も共通期限を延長しません。formatは180秒、restore/buildは各300秒、固定旧ZIP取得とV/Vnextのpublish＋検査は各段階独立240秒、回収は10秒です。実行中の各待機で段階期限を作り直しません。速度目標の判定と期限変更は後段で判断しますが、旧基盤からの切替には既存保証と旧約305秒からの非退行が必要です。[受入条件](../../devdocs/spec/development/testing.md#通常テストの分割と並列実行)に従い、運用上限延長だけで完了にはしません。
+dev/verifyのtest段階の運用上限は600秒、Fullは全testで共有する1380秒です。Fullの600秒は後段の速度目標であり実行上限とは区別し、整形・build・候補検査と展開をtest時間へ含めません。個々のscenarioの180秒・updateの240秒も共通期限を延長しません。formatは180秒、restore/buildは各300秒、候補生成の固定旧ZIP取得とCurrent/Nextのpublish＋検査、Fullの指定候補検査・展開は各段階独立240秒、回収は10秒です。実行中の各待機で段階期限を作り直しません。速度目標の判定と期限変更は後段で判断しますが、旧基盤からの切替には既存保証と旧約305秒からの非退行が必要です。[受入条件](../../devdocs/spec/development/testing.md#通常テストの分割と並列実行)に従い、運用上限延長だけで完了にはしません。
 
 全format batchは一つの段階期限を共有し、restore/buildはそれぞれ別の段階です。test段階はCore・Windows各実行・Scenarios・Desktopで期限を共有します。正常Core終了時には致命失敗用の回収期限を確定しません。致命失敗を検出した時に、検出時刻+10秒と段階実行期限+10秒の早い方を一度だけ確定し、同段階の停止・出力保存で共有します。processごとの新しい10秒は与えません。
 

@@ -3,6 +3,7 @@ using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Processes;
 
@@ -58,7 +59,7 @@ public sealed class ReleaseScriptVersionSourceTests
     }
 
     /// <summary>
-    /// 互換versionファイルがない通常packageだけの入力でdraftを作成し、退役した版取得経路を必須にする誤りを検出する。
+    /// 互換versionファイルと任意metadataプロパティがない通常packageだけの入力でdraftを作成し、不要な入力を必須にする誤りを検出する。
     /// </summary>
     /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
     [TestMethod]
@@ -66,6 +67,11 @@ public sealed class ReleaseScriptVersionSourceTests
     {
         await RunCaseAsync(false, false, async fixture =>
         {
+            JsonObject catalog = JsonNode.Parse(File.ReadAllText(fixture.CatalogPath))?.AsObject()
+                ?? throw new InvalidDataException("catalog がありません。");
+            catalog.Remove("CurrentWithMetadata");
+            File.WriteAllText(fixture.CatalogPath, catalog.ToJsonString());
+
             ProcessResult result = await fixture.RunReleaseAsync("-CreateDraft");
 
             AssertSuccess(result);
@@ -146,6 +152,41 @@ public sealed class ReleaseScriptVersionSourceTests
     }
 
     /// <summary>
+    /// Full未実行・不合格・別候補・公開集合や実体の不一致を各公開入口で拒否し、生成物・タグ・外部操作を残す誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow("missing", "-CreateDraft")]
+    [DataRow("profile", "-CreatePrereleaseDraft")]
+    [DataRow("failed", "-PublishDraft")]
+    [DataRow("catalog", "-CreateDraft")]
+    [DataRow("set", "-CreateDraft")]
+    [DataRow("hash", "-CreateDraft")]
+    [DataRow("size", "-CreateDraft")]
+    [DataRow("version", "-CreateDraft")]
+    [DataRow("path", "-CreateDraft")]
+    [DataRow("zip", "-CreateDraft")]
+    public async Task ReleaseRequiresMatchingSuccessfulFullBeforeSideEffects(string mismatch, string mode)
+    {
+        await RunCaseAsync(true, false, async fixture =>
+        {
+            byte[] manifestBefore = File.ReadAllBytes(fixture.UpdateManifestPath);
+            string remoteBefore = await fixture.RemoteMainCommitAsync();
+            fixture.InvalidateFullEvidence(mismatch);
+
+            ProcessResult result = await fixture.RunReleaseAsync(mode);
+
+            AssertFailure(result);
+            Assert.AreEqual(fixture.InitialHead, await fixture.HeadCommitAsync());
+            Assert.AreEqual(remoteBefore, await fixture.RemoteMainCommitAsync());
+            Assert.IsNull(await fixture.LocalTagCommitAsync(Tag));
+            Assert.IsNull(await fixture.LocalTagCommitAsync(Tag + "-preview.1"));
+            CollectionAssert.AreEqual(manifestBefore, File.ReadAllBytes(fixture.UpdateManifestPath));
+            Assert.AreEqual("source", File.ReadAllText(Path.Combine(fixture.Root, "docs", "index.html")));
+            Assert.AreEqual(0, fixture.GhLogLines().Count, result.CombinedOutput);
+        });
+    }
+
+    /// <summary>
     /// draft公開成功時の公開状態・remote mainのHEAD一致と編集引数を確認し、本文や題名を再指定する誤りを検出する。
     /// </summary>
     /// <remarks>一時領域の実git履歴とremoteを実スクリプトへ渡す。gh/文書生成は局所fixtureに差し替える。</remarks>
@@ -207,6 +248,8 @@ public sealed class ReleaseScriptVersionSourceTests
                     string packageHash = Convert.ToHexString(
                         SHA256.HashData(File.ReadAllBytes(fixture.NormalPackagePath)));
                     fixture.RewriteNormalPackageContent();
+                    // 合格した新候補でも追跡中のmanifestと異なれば公開できないことを分けて確認します。
+                    fixture.WriteFullEvidence();
                     Assert.AreEqual(packageLength, new FileInfo(fixture.NormalPackagePath).Length);
                     CollectionAssert.AreEqual(packageEntries, fixture.ZipEntryNames(fixture.NormalPackagePath));
                     Assert.AreNotEqual(
@@ -474,7 +517,7 @@ public sealed class ReleaseScriptVersionSourceTests
             this.failureCleanup = failureCleanup;
             this.cancellationToken = cancellationToken;
             Root = workspace.GetPath("repo");
-            DistRoot = Path.Combine(Root, "dist");
+            DistRoot = workspace.GetPath("candidate");
             NormalPackagePath = Path.Combine(DistRoot, $"bemusicseeker-unofficial-fork-v{Version}.zip");
             MetadataPackagePath = Path.Combine(DistRoot, $"bemusicseeker-unofficial-fork-v{Version}-with-metadata.zip");
             ScriptPath = Path.Combine(Root, "scripts", "release.ps1");
@@ -490,6 +533,10 @@ public sealed class ReleaseScriptVersionSourceTests
         public string Root { get; }
 
         public string DistRoot { get; }
+
+        public string CatalogPath => Path.Combine(DistRoot, "catalog.json");
+
+        public string SummaryPath => workspace.GetPath("full-summary.json");
 
         public string NormalPackagePath { get; }
 
@@ -601,6 +648,30 @@ public sealed class ReleaseScriptVersionSourceTests
             File.WriteAllText(GhAssetsPath, json, Encoding.ASCII);
         }
 
+        /// <summary>指定した合格根拠だけを壊し、公開副作用前の拒否を観測します。</summary>
+        public void InvalidateFullEvidence(string mismatch)
+        {
+            if (mismatch == "missing") { File.Delete(SummaryPath); return; }
+            if (mismatch == "zip") { RewriteNormalPackageContent(); return; }
+            JsonNode summary = JsonNode.Parse(File.ReadAllText(SummaryPath))
+                ?? throw new InvalidDataException("summary がありません。");
+            JsonNode artifact = summary["releaseArtifacts"]?[0]
+                ?? throw new InvalidDataException("公開 ZIP がありません。");
+            switch (mismatch)
+            {
+                case "profile": summary["profile"] = "verify"; break;
+                case "failed": summary["passed"] = false; break;
+                case "catalog": summary["distributionCatalog"] = workspace.GetPath("other-catalog.json"); break;
+                case "set": summary["releaseArtifacts"] = new JsonArray(artifact.DeepClone()); break;
+                case "hash": artifact["sha256"] = new string('0', 64); break;
+                case "size": artifact["sizeBytes"] = new FileInfo(NormalPackagePath).Length + 1; break;
+                case "version": artifact["version"] = "1.0.0.0"; break;
+                case "path": artifact["packagePath"] = MetadataPackagePath; break;
+                default: throw new ArgumentException("不明な不一致条件です。", nameof(mismatch));
+            }
+            File.WriteAllText(SummaryPath, summary.ToJsonString());
+        }
+
         public void RewriteNormalPackageContent()
         {
             using ZipArchive archive = ZipFile.Open(NormalPackagePath, ZipArchiveMode.Update);
@@ -630,7 +701,8 @@ public sealed class ReleaseScriptVersionSourceTests
             {
                 ["GH_FAIL_EDIT"] = FailReleasePublication ? "1" : null
             };
-            return RunProcessAsync(pwshPath, new[] { "-NoProfile", "-NonInteractive", "-File", ScriptPath }.Concat(arguments), Root, additions);
+            return RunProcessAsync(pwshPath, new[] { "-NoProfile", "-NonInteractive", "-File", ScriptPath,
+                "-DistributionCatalog", CatalogPath, "-FullSummary", SummaryPath }.Concat(arguments), Root, additions);
         }
 
         public async Task AdvanceRemoteMainOnIndependentCloneAsync()
@@ -726,11 +798,39 @@ public sealed class ReleaseScriptVersionSourceTests
                 CreateZip(MetadataPackagePath, includeMetadata: true);
             }
 
+            WriteFullEvidence();
+
             File.Delete(GhStatePath);
             File.WriteAllText(GhAssetsPath, BuildAssetJson(includeMetadata), Encoding.ASCII);
             File.WriteAllText(GhLogPath, string.Empty, Encoding.UTF8);
             File.WriteAllText(Path.Combine(FakeBinRoot, "gh.cmd"), FakeGhScript, Encoding.ASCII);
             File.WriteAllText(Path.Combine(FakeBinRoot, "uv.cmd"), FakeUvScript, Encoding.ASCII);
+        }
+
+        /// <summary>現在のfixture ZIPに合格記録を接続し、公開時の入力照合を通す前提を用意します。</summary>
+        public void WriteFullEvidence()
+        {
+            object Artifact(string path) => new
+            {
+                version = Version,
+                packagePath = path,
+                sizeBytes = new FileInfo(path).Length,
+                sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant()
+            };
+            object normal = Artifact(NormalPackagePath);
+            object? metadata = File.Exists(MetadataPackagePath) ? Artifact(MetadataPackagePath) : null;
+            File.WriteAllText(CatalogPath, JsonSerializer.Serialize(new
+            {
+                Current = normal,
+                CurrentWithMetadata = metadata
+            }));
+            File.WriteAllText(SummaryPath, JsonSerializer.Serialize(new
+            {
+                profile = "full",
+                passed = true,
+                distributionCatalog = CatalogPath,
+                releaseArtifacts = metadata is null ? new[] { normal } : new[] { normal, metadata }
+            }));
         }
 
         private async Task InitializeGitAsync()

@@ -1,4 +1,3 @@
-using System.IO;
 using BeMusicSeeker.Runtime;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Processes;
@@ -67,7 +66,7 @@ public sealed class LibraryReloadScenarioTests
     private static async Task RunApplicationAsync(Sc01LibraryFixture fixture, TestWorkspace workspace, ProcessDeadline deadline,
         Func<ApplicationScenarioDriver, Task> body)
     {
-        string executable = Path.Combine(AppContext.BaseDirectory, "fixtures", "application", "BeMusicSeeker.exe");
+        string executable = ScenarioApplicationPaths.ExecutablePath;
         ApplicationScenarioDriver app = await ApplicationScenarioDriver.StartAsync(executable, fixture.ProfileDirectory,
             workspace.GetPath("session.json"), workspace.CaseId, fixture.UpdateManifestUrl, deadline);
         Exception? primary = null;

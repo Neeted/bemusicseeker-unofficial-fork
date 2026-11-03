@@ -7,14 +7,21 @@ namespace BeMusicSeeker.TestSupport.Verification;
 /// <summary>親runnerが所有する240秒段階の中で、準備と検査を同じ絶対期限へ接続します。</summary>
 internal delegate Task RunDistributionStage(string name, Func<ExecuteCommand, ProcessDeadline, CancellationToken, Task> action);
 
-/// <summary>Fullの前段で固定旧ZIP、現行版、次版を一度ずつ準備します。</summary>
+/// <summary>公開候補生成で固定旧ZIP、現行版、次版を一度ずつ準備します。</summary>
 internal static class DistributionPreparer
 {
-    /// <summary>全配布物の完成後だけ、run専有catalogをatomicに公開します。</summary>
-    internal static async Task<string> PrepareAsync(string repository, string runRoot, RunDistributionStage runStage)
+    // UTF-8固定のpipe readerへ合わせるため、子の起動時に出力encodingを確定する。
+    private const string PowerShellUtf8 = "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); ";
+
+    /// <summary>存在しない専有絶対出力へ配布物を生成し、全検査の完成後だけ直下のcatalogをatomicに公開します。metadata-sourceは同梱指定時だけ受け付けます。</summary>
+    internal static async Task<string> PrepareAsync(string repository, string outputRoot, RunDistributionStage runStage,
+        bool includeMetadata = false, string? metadataSource = null)
     {
-        DistributionArtifact? legacy = null, current = null;
-        string root = Path.Combine(Path.GetFullPath(runRoot), "distribution");
+        if (!Path.IsPathFullyQualified(outputRoot)) { throw new ArgumentException("候補出力には絶対パスが必要です。", nameof(outputRoot)); }
+        if (metadataSource is not null && !includeMetadata) { throw new ArgumentException("metadata-sourceにはinclude-metadataが必要です。"); }
+        string root = Path.GetFullPath(outputRoot);
+        if (Directory.Exists(root) || File.Exists(root)) { throw new IOException("候補出力は存在しない専有パスが必要です。"); }
+        DistributionArtifact? legacy = null, current = null, metadata = null;
         Directory.CreateDirectory(root);
         await runStage("legacy-artifact", async (_, deadline, token) =>
         {
@@ -22,7 +29,17 @@ internal static class DistributionPreparer
         });
         await runStage("publish-v", async (execute, deadline, token) =>
         {
-            current = await PublishAsync(repository, Path.Combine(root, "v"), null, execute, deadline, token);
+            current = await PublishAsync(repository, Path.Combine(root, "v"), null, execute, deadline, token, includeMetadata, metadataSource);
+            if (includeMetadata)
+            {
+                string package = Path.Combine(root, "v", "dist", $"bemusicseeker-unofficial-fork-v{current.Version}-with-metadata.zip");
+                string app = current.AppPublishRoot ?? throw new InvalidDataException("現行publish出力がありません。");
+                string updater = current.UpdaterPublishRoot ?? throw new InvalidDataException("updater publish出力がありません。");
+                IReadOnlyList<string> managed = await DistributionValidation.ValidateZipAsync(package, app, updater, current.Version, deadline, token);
+                metadata = new(current.Version, app, updater, package, new FileInfo(package).Length,
+                    await DistributionValidation.HashAsync(package, deadline, token), managed);
+                await DistributionValidation.ValidateMetadataVariantAsync(current, metadata, deadline, token);
+            }
         });
         DistributionArtifact completedCurrent = current ?? throw new InvalidOperationException("現行配布の準備が完了していません。");
         string nextVersion = DistributionValidation.IncrementVersion(completedCurrent.Version);
@@ -30,7 +47,8 @@ internal static class DistributionPreparer
         {
             DistributionArtifact next = await PublishAsync(repository, Path.Combine(root, "next"), nextVersion, execute, deadline, token);
             var catalog = new DistributionCatalog(legacy ?? throw new InvalidOperationException("固定旧版の準備が完了していません。"),
-                completedCurrent, next);
+                completedCurrent, next)
+            { CurrentWithMetadata = metadata };
             string temporary = Path.Combine(root, "catalog.json.tmp");
             Exception? primary = null;
             try
@@ -55,13 +73,13 @@ internal static class DistributionPreparer
     }
 
     private static async Task<DistributionArtifact> PublishAsync(string repository, string root, string? version,
-        ExecuteCommand execute, ProcessDeadline deadline, CancellationToken token)
+        ExecuteCommand execute, ProcessDeadline deadline, CancellationToken token, bool includeMetadata = false, string? metadataSource = null)
     {
         DistributionValidation.CheckDeadline(deadline, token);
-        // UTF-8固定のpipe readerへ合わせるため、子の起動時に出力encodingを確定する。
-        const string utf8 = "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); ";
-        string publish = utf8 + "& " + Quote(Path.Combine(repository, "scripts", "publish.ps1"))
-            + " -SkipDocHtml -ArtifactRoot " + Quote(root)
+        string publish = PowerShellUtf8 + "& " + Quote(Path.Combine(repository, "scripts", "publish.ps1"))
+            + " -ArtifactRoot " + Quote(root)
+            + (includeMetadata ? " -IncludeMetadata" : "")
+            + (metadataSource is null ? "" : " -MetadataSource " + Quote(metadataSource))
             + (version is null ? "" : " -ApplicationVersion " + Quote(version));
         string[] arguments = ["-NoProfile", "-NonInteractive", "-Command", publish];
         RequireSuccess(await execute("pwsh", arguments, deadline));
@@ -71,15 +89,24 @@ internal static class DistributionPreparer
         if (version is not null && actualVersion != version) { throw new InvalidDataException("次版publishへ版指定が反映されていません。"); }
         string package = Path.Combine(root, "dist", $"bemusicseeker-unofficial-fork-v{actualVersion}.zip");
         if (!File.Exists(Path.Combine(updater, "BeMusicSeeker.Updater.exe"))) { throw new InvalidDataException("updater publishがありません。"); }
-        // required/forbidden layoutは配布スクリプトの正本へ委ね、C#に同じ一覧を複製しない。
-        string layout = ". " + Quote(Path.Combine(repository, "scripts", "portable-package-layout.ps1"))
-            + "; Assert-PortableReleasePackageLayout " + Quote(package);
-        RequireSuccess(await execute("pwsh", ["-NoProfile", "-NonInteractive", "-Command", utf8 + "$ErrorActionPreference='Stop'; " + layout], deadline));
+        await ValidatePackageLayoutAsync(repository, package, execute, deadline, token);
         foreach (string file in Directory.EnumerateFiles(updater, "*", SearchOption.AllDirectories)) { DistributionValidation.AssertNoTestDependency(file); }
         IReadOnlyList<string> managed = await DistributionValidation.ValidateZipAsync(package, app, updater, actualVersion, deadline, token);
         string hash = await DistributionValidation.HashAsync(package, deadline, token);
         DistributionValidation.CheckDeadline(deadline, token);
         return new(actualVersion, app, updater, package, new FileInfo(package).Length, hash, managed);
+    }
+
+    /// <summary>生成時とFullの候補検査で配布layoutの正本を実行し、同じ段階期限内で成功を要求します。ZIPの再生成は行いません。</summary>
+    internal static async Task ValidatePackageLayoutAsync(string repository, string package, ExecuteCommand execute,
+        ProcessDeadline deadline, CancellationToken token)
+    {
+        DistributionValidation.CheckDeadline(deadline, token);
+        // 必須・禁止file一覧はPowerShellの正本へ委ね、consumer側へ複製しない。
+        string layout = ". " + Quote(Path.Combine(repository, "scripts", "portable-package-layout.ps1"))
+            + "; Assert-PortableReleasePackageLayout " + Quote(package);
+        RequireSuccess(await execute("pwsh", ["-NoProfile", "-NonInteractive", "-Command", PowerShellUtf8 + "$ErrorActionPreference='Stop'; " + layout], deadline));
+        DistributionValidation.CheckDeadline(deadline, token);
     }
 
     /// <summary>追跡metadataだけをidentityの正本として、既存cacheの検査または一回だけの取得へ進みます。</summary>

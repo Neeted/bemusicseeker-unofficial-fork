@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Xml.Linq;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Processes;
+using BeMusicSeeker.TestSupport.Scenarios;
 using BeMusicSeeker.TestSupport.Verification;
 
 namespace BeMusicSeeker.Core.Tests.Verification;
@@ -243,14 +244,16 @@ public sealed class VerificationRunnerTests
         }
     }
 
-    /// <summary>Fullの実pipelineで配布準備を一度だけ完了し、同じcatalogと共有期限をReleaseの選択moduleへ渡し、短IDと標準reportを集約します。</summary>
+    /// <summary>Fullは準備済候補を一回展開し、同じcatalog・installation・共有期限をReleaseの選択moduleへ渡して短IDと標準reportを集約します。</summary>
     /// <remarks>commandのI/Oだけをfixtureへ向けます。実publishと公開候補のFull成功を代用する検査ではありません。</remarks>
     [TestMethod]
-    public async Task FullPreparesSharedArtifactsBeforeRunningEachSelectedModuleOnce()
+    public async Task FullUsesPreparedArtifactsBeforeRunningEachSelectedModuleOnce()
     {
         string? originalDeadline = Environment.GetEnvironmentVariable(ProcessDeadline.SuiteDeadlineEnvironmentVariable);
         using var distribution = new DistributionFixture();
-        distribution.CreateLegacy();
+        (string Path, DistributionCatalog Catalog) prepared = await distribution.PrepareCatalogAsync();
+        DistributionArtifact metadata = distribution.CreateMetadataVariant(prepared.Catalog.Current);
+        File.WriteAllText(prepared.Path, JsonSerializer.Serialize(prepared.Catalog with { CurrentWithMetadata = metadata }));
         using var fixture = new RunnerFixture(distribution)
         {
             FormatInput = true,
@@ -258,7 +261,7 @@ public sealed class VerificationRunnerTests
         };
         long firstModuleStart = 0;
         fixture.BeforeStart = (name, _) => { if (name == "Core") { firstModuleStart = Stopwatch.GetTimestamp(); } };
-        VerificationRunResult result = await VerificationRunner.ExecuteAsync(VerificationPlan.Create("full", 1),
+        VerificationRunResult result = await VerificationRunner.ExecuteAsync(VerificationPlan.Create("full", 1, distributionCatalog: prepared.Path),
             fixture.Run() with { TestTimeout = null });
         Assert.AreEqual(0, result.ExitCode, result.PrimaryFailure?.ToString());
         foreach ((string Name, ProcessStartRequest Request) observed in fixture.Requests)
@@ -277,8 +280,8 @@ public sealed class VerificationRunnerTests
             else { Assert.IsNull(exported); }
         }
         Assert.AreEqual(originalDeadline, Environment.GetEnvironmentVariable(ProcessDeadline.SuiteDeadlineEnvironmentVariable));
-        CollectionAssert.AreEqual(new[] { "style", "whitespace", "build", "publish-v", "publish-next", "Core", "Windows.Settings", "Windows.Shell", "Windows.Remaining", "Scenarios", "Desktop.E2E" }, fixture.Requests
-            .Where(item => item.Name is "style" or "whitespace" or "build" or "publish-v" or "publish-next" or "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios" or "Desktop.E2E")
+        CollectionAssert.AreEqual(new[] { "style", "whitespace", "build", "layout", "layout", "layout", "Core", "Windows.Settings", "Windows.Shell", "Windows.Remaining", "Scenarios", "Desktop.E2E" }, fixture.Requests
+            .Where(item => item.Name is "style" or "whitespace" or "build" or "layout" or "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios" or "Desktop.E2E")
             .Select(item => item.Name).ToArray());
         ProcessStartRequest style = fixture.Requests.Single(item => item.Name == "style").Request;
         ProcessStartRequest whitespace = fixture.Requests.Single(item => item.Name == "whitespace").Request;
@@ -289,40 +292,88 @@ public sealed class VerificationRunnerTests
         Assert.IsFalse(whitespace.Arguments.Contains("--no-restore"));
         Assert.IsFalse(style.Arguments.Contains("--include") || whitespace.Arguments.Contains("--include"));
         Assert.AreEqual(6, result.Modules.Count);
-        string catalogPath = fixture.Path("run/distribution/catalog.json");
+        string catalogPath = prepared.Path;
+        string[] layoutCommands = fixture.Requests.Where(item => item.Name == "layout").Select(item => item.Request.Arguments[^1]).ToArray();
+        string[] expectedPackages = [prepared.Catalog.Current.PackagePath, prepared.Catalog.Next.PackagePath, metadata.PackagePath];
+        Assert.AreEqual(expectedPackages.Length, layoutCommands.Length);
+        for (int index = 0; index < expectedPackages.Length; index++)
+        {
+            StringAssert.Contains(layoutCommands[index], "Assert-PortableReleasePackageLayout '" + expectedPackages[index].Replace("'", "''") + "'");
+            StringAssert.Contains(layoutCommands[index], "portable-package-layout.ps1");
+            Assert.IsFalse(layoutCommands[index].Contains("publish.ps1", StringComparison.Ordinal));
+        }
+        Assert.AreEqual("payload", File.ReadAllText(fixture.Path("run/application/payload.txt")));
         Assert.IsTrue(File.Exists(catalogPath));
         foreach ((string _, ProcessStartRequest request) in fixture.Requests.Where(item => item.Name is "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios" or "Desktop.E2E"))
         {
             Assert.AreEqual(catalogPath, request.Environment[DistributionCatalog.EnvironmentVariable]);
+            Assert.AreEqual(fixture.Path("run/application"), request.Environment[ScenarioApplicationPaths.EnvironmentVariable]);
             StringAssert.Contains(request.FileName, "Release");
         }
         using var summary = JsonDocument.Parse(File.ReadAllText(fixture.Path("run/summary.json")));
+        Assert.IsTrue(summary.RootElement.GetProperty("passed").GetBoolean());
+        Assert.AreEqual(catalogPath, summary.RootElement.GetProperty("distributionCatalog").GetString());
+        JsonElement[] releases = summary.RootElement.GetProperty("releaseArtifacts").EnumerateArray().ToArray();
+        Assert.AreEqual(2, releases.Length);
+        JsonElement release = releases.Single(value => value.GetProperty("packagePath").GetString() == prepared.Catalog.Current.PackagePath);
+        JsonElement bundled = releases.Single(value => value.GetProperty("packagePath").GetString() == metadata.PackagePath);
+        Assert.AreEqual(metadata.Version, bundled.GetProperty("version").GetString());
+        Assert.AreEqual(metadata.SizeBytes, bundled.GetProperty("sizeBytes").GetInt64());
+        Assert.AreEqual(metadata.Sha256, bundled.GetProperty("sha256").GetString());
+        Assert.AreEqual(prepared.Catalog.Current.PackagePath, release.GetProperty("packagePath").GetString());
+        Assert.AreEqual(prepared.Catalog.Current.Sha256, release.GetProperty("sha256").GetString());
+        Assert.AreEqual(prepared.Catalog.Current.SizeBytes, release.GetProperty("sizeBytes").GetInt64());
+        Assert.AreEqual(prepared.Catalog.Current.Version, release.GetProperty("version").GetString());
         Assert.AreEqual(1380d, summary.RootElement.GetProperty("testTimeoutSeconds").GetDouble());
         Assert.IsTrue(summary.RootElement.GetProperty("testStageStartTimestamp").GetInt64() <= firstModuleStart);
         Assert.IsTrue(summary.RootElement.GetProperty("distributionMs").GetDouble() > 0);
         Assert.IsTrue(summary.RootElement.GetProperty("executionMs").GetDouble() > 0);
     }
 
-    /// <summary>Fullの配布前段が失敗すると、残るvariantとtestを起動せず、元の非成功とログを同じrunner結果へ残します。</summary>
+    /// <summary>Fullの候補検査が失敗するとtestを起動せず、publishや再取得で補わず、summaryにも非成功を残します。</summary>
     [TestMethod]
-    [DataRow("publish-v")]
-    [DataRow("publish-next")]
-    public async Task FailedFullPublicationDoesNotStartAnyTestModule(string failure)
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task InvalidFullCandidateDoesNotStartAnyTestModule(bool missing)
     {
         using var distribution = new DistributionFixture();
-        distribution.CreateLegacy();
-        using var fixture = new RunnerFixture(distribution)
-        {
-            Configure = (name, command) => name == failure ? command with { ExitCode = 17 } : command,
-        };
+        (string Path, DistributionCatalog Catalog) prepared = await distribution.PrepareCatalogAsync();
+        if (missing) { File.Delete(prepared.Path); }
+        else { File.AppendAllText(prepared.Catalog.Current.PackagePath, "changed"); }
+        using var fixture = new RunnerFixture(distribution);
         VerificationRunResult result = await fixture.ExecuteAsync("full");
         Assert.AreEqual(1, result.ExitCode);
         Assert.IsNotNull(result.PrimaryFailure);
         Assert.IsNull(result.SummaryFailure);
-        Assert.AreEqual(17, result.Commands.Single(command => command.Completion?.ExitCode == 17).Completion?.ExitCode);
-        Assert.AreEqual(failure == "publish-v" ? 1 : 2, fixture.Requests.Count(item => item.Name is "publish-v" or "publish-next"));
+        Assert.IsFalse(fixture.Requests.Any(item => item.Request.FileName == "pwsh"));
         Assert.IsFalse(fixture.Requests.Any(item => item.Name is "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios"));
-        Assert.IsFalse(File.Exists(fixture.Path("run/distribution/catalog.json")));
+        Assert.IsFalse(Directory.Exists(fixture.Path("run/application")));
+        using var summary = JsonDocument.Parse(File.ReadAllText(fixture.Path("run/summary.json")));
+        Assert.IsFalse(summary.RootElement.GetProperty("passed").GetBoolean());
+    }
+
+    /// <summary>Nextのlayout検査が非成功なら、Fullは再publishせずinstallation展開・module開始を止め、合格summaryを作りません。</summary>
+    /// <remarks>既存scriptの必須file判断はscript側の検査へ委ね、ここではその失敗がFullの成否へ接続されることをcommand境界で検査します。</remarks>
+    [TestMethod]
+    public async Task FailedNextLayoutStopsFullBeforeInstallationAndModules()
+    {
+        using var distribution = new DistributionFixture();
+        (string Path, DistributionCatalog Catalog) prepared = await distribution.PrepareCatalogAsync();
+        using var fixture = new RunnerFixture(distribution);
+        int layouts = 0;
+        fixture.Configure = (name, command) => name == "layout" && ++layouts == 2 ? command with { ExitCode = 17 } : command;
+        VerificationRunResult result = await fixture.ExecuteAsync("full");
+        Assert.AreEqual(1, result.ExitCode);
+        Assert.IsNotNull(result.PrimaryFailure);
+        Assert.IsNull(result.SummaryFailure);
+        ProcessStartRequest[] layoutRequests = fixture.Requests.Where(item => item.Name == "layout").Select(item => item.Request).ToArray();
+        Assert.AreEqual(2, layoutRequests.Length);
+        StringAssert.Contains(layoutRequests[1].Arguments[^1], "Assert-PortableReleasePackageLayout '" + prepared.Catalog.Next.PackagePath.Replace("'", "''") + "'");
+        Assert.IsFalse(layoutRequests.Any(request => request.Arguments[^1].Contains("publish.ps1", StringComparison.Ordinal)));
+        Assert.IsFalse(fixture.Requests.Any(item => item.Name is "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios" or "Desktop.E2E"));
+        Assert.IsFalse(Directory.Exists(fixture.Path("run/application")));
+        using var summary = JsonDocument.Parse(File.ReadAllText(fixture.Path("run/summary.json")));
+        Assert.IsFalse(summary.RootElement.GetProperty("passed").GetBoolean());
     }
 
     /// <summary>全style・whitespaceの変更を後続buildが受け取り、同一pipeline内で準備からreport判定まで接続することを保証します。</summary>
@@ -714,20 +765,22 @@ public sealed class VerificationRunnerTests
         Assert.IsFalse(fixture.Requests.Any(item => item.Name == "build"));
     }
 
-    /// <summary>summary保存だけの失敗も非成功とし、moduleの主失敗がある場合はそれも結果に残すことを保証します。</summary>
+    /// <summary>summaryの書込み・完成名への公開失敗を非成功とし、合格summaryを公開せず、moduleの主失敗も結果に残すことを保証します。</summary>
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task SummaryFailureNeverTurnsTheRunIntoSuccessOrLosesTheOriginal(bool failModule)
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    public async Task SummaryFailureNeverTurnsTheRunIntoSuccessOrLosesTheOriginal(bool failModule, bool failWrite)
     {
         using var fixture = new RunnerFixture
         {
             Configure = (name, command) => failModule && name == "Core" ? command with { ExitCode = 7 } : command,
         };
-        Directory.CreateDirectory(fixture.Path("run/summary.json"));
+        Directory.CreateDirectory(fixture.Path(failWrite ? "run/summary.json.tmp" : "run/summary.json"));
         VerificationRunResult result = await fixture.ExecuteAsync();
         Assert.AreEqual(1, result.ExitCode);
         Assert.IsNotNull(result.SummaryFailure);
+        Assert.IsFalse(File.Exists(fixture.Path("run/summary.json")));
         Assert.AreEqual(!failModule, result.Modules.All(module => module.Passed));
         Assert.AreEqual(failModule, result.Commands.Single(command => command.Name == "Core").PrimaryFailure is not null);
     }
@@ -973,6 +1026,7 @@ public sealed class VerificationRunnerTests
             // 生存Jobの行はpipeが回収期限内に終端する保証がないため、保存拒否は完了済みの行で確認する。
             if (!keepWindowsAlive) { Assert.IsNotNull(windows.OutputFailure); }
             Assert.IsNotNull(result.SummaryFailure);
+            Assert.IsFalse(File.Exists(fixture.Path("run/summary.json")));
             if (keepWindowsAlive) { Assert.IsNotNull(windows.CleanupFailure); }
             Assert.AreEqual("sentinel", File.ReadAllText(stdout));
             Assert.IsFalse(File.Exists(stderr));
@@ -1120,12 +1174,10 @@ public sealed class VerificationRunnerTests
                 CleanupGrace = TimeSpan.FromSeconds(10),
             };
         }
-        internal Task<VerificationRunResult> ExecuteAsync(string profile = "dev") => VerificationRunner.ExecuteAsync(VerificationPlan.Parse([profile], 1), Run());
+        internal Task<VerificationRunResult> ExecuteAsync(string profile = "dev") => VerificationRunner.ExecuteAsync(VerificationPlan.Parse(profile == "full" ? [profile, "--distribution-catalog", Path("candidate/catalog.json")] : [profile], 1), Run());
         private OwnedProcess Start(ProcessStartRequest request, Func<ProcessDeadline> beginFailureCleanup)
         {
-            string name = request.FileName == "pwsh" ? request.Arguments[^1].Contains(" -SkipDocHtml -ArtifactRoot ", StringComparison.Ordinal)
-                ? request.Arguments[^1].Contains(" -ApplicationVersion ", StringComparison.Ordinal) ? "publish-next" : "publish-v" : "layout"
-                : request.FileName is "dotnet" or "git" ? request.Arguments[0] :
+            string name = request.FileName == "pwsh" ? "layout" : request.FileName is "dotnet" or "git" ? request.Arguments[0] :
                 System.IO.Path.GetFileName(request.Arguments[request.Arguments.ToList().IndexOf("--results-directory") + 1]);
             if (name == "format") { name = request.Arguments[1]; }
             Requests.Enqueue((name, request));
@@ -1160,11 +1212,6 @@ public sealed class VerificationRunnerTests
                 command = command with { ReportSource = report, ReportDestination = System.IO.Path.Combine(reportDirectory, "results.trx") };
             }
             command = Configure?.Invoke(name, command) ?? command;
-            if (command.ExitCode == 0 && name is "publish-v" or "publish-next")
-            {
-                DistributionFixture input = distribution ?? throw new InvalidOperationException("配布入力fixtureがありません。");
-                input.CreatePublishedVariant(name == "publish-next");
-            }
             string specification = Path($"command-{Interlocked.Increment(ref commandIndex)}.json");
             File.WriteAllText(specification, JsonSerializer.Serialize(command));
             var process = OwnedProcess.Start(new ProcessStartRequest(System.IO.Path.Combine(AppContext.BaseDirectory, "ProcessFixture", "ProcessFixture.exe"),

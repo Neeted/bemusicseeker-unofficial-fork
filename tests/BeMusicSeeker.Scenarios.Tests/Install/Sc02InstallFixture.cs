@@ -7,6 +7,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Scenarios.Tests.Fixtures;
 using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Scenarios;
 
 namespace BeMusicSeeker.Scenarios.Tests.Install;
 
@@ -155,7 +156,7 @@ internal sealed class Sc02InstallFixture : IAsyncDisposable
     private void SeedPendingRegistration(TestWorkspace workspace)
     {
         var scope = new ApplicationDatabaseScope();
-        string assets = Path.Combine(AppContext.BaseDirectory, "fixtures", "application");
+        string assets = ScenarioApplicationPaths.RootDirectory;
         var paths = ApplicationPathSnapshot.FromLayout(Path.Combine(assets, "BeMusicSeeker.exe"),
             assets, ProfileDirectory, Path.Combine(assets, "lang"), workspace.GetPath("temp"), workspace.GetPath("legacy"));
         StandaloneLibraryDatabase.EnsurePortableSongDb(scope, paths);

@@ -6,6 +6,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Scenarios.Tests.Fixtures;
 using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Scenarios;
 
 namespace BeMusicSeeker.Scenarios.Tests.Playlist;
 
@@ -40,10 +41,10 @@ internal sealed class Sc09PlaylistFixture : IAsyncDisposable
         B = WriteChart(workspace.GetPath("library/B/chart.bms"), "SC09 B", "SC09 Artist B", 3);
         U = new("11111111111111111111111111111111", new string('2', 64), "SC09 Unowned", "SC09 Artist U", 4);
         var scope = new ApplicationDatabaseScope();
-        string executable = Path.Combine(AppContext.BaseDirectory, "fixtures", "application", "BeMusicSeeker.exe");
+        string executable = ScenarioApplicationPaths.ExecutablePath;
         var paths = ApplicationPathSnapshot.FromLayout(executable, Path.GetDirectoryName(executable)
             ?? throw new InvalidOperationException("実行体の親がありません。"), ProfileDirectory,
-            Path.Combine(AppContext.BaseDirectory, "fixtures", "application", "lang"), workspace.GetPath("temp"), workspace.GetPath("legacy"));
+            ScenarioApplicationPaths.LanguageDirectory, workspace.GetPath("temp"), workspace.GetPath("legacy"));
         StandaloneLibraryDatabase.EnsurePortableSongDb(scope, paths);
         var responses = new Dictionary<string, string>
         {

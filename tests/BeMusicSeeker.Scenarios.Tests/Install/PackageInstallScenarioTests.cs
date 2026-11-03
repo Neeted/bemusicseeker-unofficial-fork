@@ -99,7 +99,7 @@ public sealed class PackageInstallScenarioTests
     private static async Task RunAsync(Sc02InstallFixture fixture, TestWorkspace workspace, ProcessDeadline deadline,
         Func<ApplicationScenarioDriver, Task> body)
     {
-        string executable = Path.Combine(AppContext.BaseDirectory, "fixtures", "application", "BeMusicSeeker.exe");
+        string executable = ScenarioApplicationPaths.ExecutablePath;
         ApplicationScenarioDriver app = await ApplicationScenarioDriver.StartAsync(executable, fixture.ProfileDirectory,
             workspace.GetPath("session.json"), workspace.CaseId, fixture.UpdateManifestUrl, deadline);
         Exception? primary = null;

@@ -96,7 +96,7 @@ public sealed class MissingDestinationScenarioTests
     private static async Task RunAsync(MissingDestinationFixture fixture, TestWorkspace workspace, ProcessDeadline deadline,
         Func<ApplicationScenarioDriver, Task> body)
     {
-        string executable = Path.Combine(AppContext.BaseDirectory, "fixtures", "application", "BeMusicSeeker.exe");
+        string executable = ScenarioApplicationPaths.ExecutablePath;
         ApplicationScenarioDriver app = await ApplicationScenarioDriver.StartAsync(executable, fixture.Profile,
             workspace.GetPath("session.json"), workspace.CaseId, fixture.UpdateManifestUrl, deadline);
         Exception? primary = null;

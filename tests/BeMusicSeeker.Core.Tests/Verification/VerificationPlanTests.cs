@@ -50,7 +50,7 @@ public sealed class VerificationPlanTests
     [TestMethod]
     public void FullAndExplicitSuitesKeepTheirOwnCoverage()
     {
-        var full = VerificationPlan.Create("full", 8);
+        var full = VerificationPlan.Create("full", 8, distributionCatalog: Path.GetFullPath("catalog.json"));
         CollectionAssert.AreEqual(new[] { "Core", "Windows", "Windows", "Windows", "Scenarios", "Desktop.E2E" }, full.Modules.Select(module => module.Name).ToArray());
         Assert.IsNull(full.Modules[4].Filter);
         Assert.IsNull(full.Modules[5].Filter);
@@ -76,7 +76,18 @@ public sealed class VerificationPlanTests
     [DataRow("TestCategory=Daily")]
     [DataRow("")]
     public void FullRejectsFilterBeforeCreatingAnExecutionPlan(string filter)
-        => Assert.Throws<ArgumentException>(() => VerificationPlan.Parse(["full", "--filter", filter], 8));
+        => Assert.Throws<ArgumentException>(() => VerificationPlan.Parse(["full", "--distribution-catalog", Path.GetFullPath("catalog.json"), "--filter", filter], 8));
+
+    /// <summary>Fullは明示した絶対catalogだけを受け取り、欠指定・相対パス・他profileへの候補指定を準備前に拒否します。</summary>
+    [TestMethod]
+    public void DistributionCatalogIsRequiredOnlyForFull()
+    {
+        string path = Path.GetFullPath("catalog.json");
+        Assert.AreEqual(path, VerificationPlan.Parse(["full", "--distribution-catalog", path], 8).DistributionCatalogPath);
+        Assert.Throws<ArgumentException>(() => VerificationPlan.Parse(["full"], 8));
+        Assert.Throws<ArgumentException>(() => VerificationPlan.Parse(["full", "--distribution-catalog", "catalog.json"], 8));
+        Assert.Throws<ArgumentException>(() => VerificationPlan.Parse(["verify", "--distribution-catalog", path], 8));
+    }
 
     /// <summary>登録suiteだけをRelease・単一workerの標準MTPへ渡し、起動から回収までのsuite別上限を適用します。</summary>
     [TestMethod]
