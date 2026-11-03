@@ -268,7 +268,7 @@ internal sealed class PublishedApplicationSession
         {
             if (GetWindow(window, 4) != 0 || !IsWindowVisible(window)) { continue; }
             var element = AutomationElement.FromHandle(window);
-            if (element.Current.AutomationId == "window")
+            if (element.Current.AutomationId == "BeMusicSeekerMainWindow")
             {
                 Assert.AreEqual((nint)0, found, "MainWindowが複数あります。");
                 found = window;
