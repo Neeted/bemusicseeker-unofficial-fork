@@ -51,15 +51,19 @@ public sealed class VerificationPlanTests
     public void FullAndExplicitSuitesKeepTheirOwnCoverage()
     {
         var full = VerificationPlan.Create("full", 8);
-        CollectionAssert.AreEqual(new[] { "Core", "Windows", "Windows", "Windows", "Scenarios" }, full.Modules.Select(module => module.Name).ToArray());
+        CollectionAssert.AreEqual(new[] { "Core", "Windows", "Windows", "Windows", "Scenarios", "Desktop.E2E" }, full.Modules.Select(module => module.Name).ToArray());
         Assert.IsNull(full.Modules[4].Filter);
+        Assert.IsNull(full.Modules[5].Filter);
+        Assert.AreEqual(1, full.Modules[5].Workers);
+        Assert.IsTrue(full.Modules[5].UsesUi);
         Assert.AreEqual("Release", full.Configuration);
         Assert.IsTrue(full.Format);
         Assert.AreEqual(TimeSpan.FromSeconds(1380), full.TestTimeout);
         Assert.AreEqual(TimeSpan.FromSeconds(600), VerificationPlan.Create("dev", 8).TestTimeout);
         Assert.AreEqual(TimeSpan.FromSeconds(600), VerificationPlan.Create("verify", 8).TestTimeout);
         CollectionAssert.AreEqual(new[] { "SC-01", "SC-02", "SC-05", "SC-09", "SC-10A", "SC-10B", "SC-11", "SC-13", "SC-14", "SC-ExistingData", "SC-CurrentUpdate" }, full.RequiredScenarioIds["Scenarios"].ToArray());
-        Assert.AreEqual(1, full.RequiredScenarioIds.Count);
+        CollectionAssert.AreEqual(new[] { "DT-01", "DT-02", "DT-03" }, full.RequiredScenarioIds["Desktop.E2E"].ToArray());
+        Assert.AreEqual(2, full.RequiredScenarioIds.Count);
         Assert.AreEqual("Release", VerificationPlan.Create("verify", 8).Configuration);
         Assert.IsTrue(VerificationPlan.Create("verify", 8).Format);
         Assert.IsFalse(VerificationPlan.Create("dev", 8).Format);

@@ -482,15 +482,17 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
     }
 
     /// <summary>現在peerの実退出を確認済みならCloseを再送せず、未終了processは通常Close後に必要なら強制回収して通信を回収します。case本体の失敗は呼出元で別に保持します。</summary>
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync() => DisposeAsync(ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(10)));
+
+    /// <summary>呼出元が一度確定した回収期限をprocess停止と通信回収へ渡し、期限を延長しません。</summary>
+    internal async ValueTask DisposeAsync(ProcessDeadline cleanup)
     {
-        var cleanup = ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(10));
         ProcessStopResult stopped = await process.StopAsync(_ => naturalExitExpected || peerExit.IsCompletedSuccessfully ? Task.CompletedTask : RequestCloseAsync(cleanup), cleanup).ConfigureAwait(false);
         stopping.Cancel();
         var failures = new List<Exception>();
         try
         {
-            try { await reading.ConfigureAwait(false); }
+            try { await reading.WaitAsync(cleanup.Remaining).ConfigureAwait(false); }
             finally
             {
                 reader.Dispose();

@@ -20,7 +20,7 @@ Windowsの日常検証には外部プレイヤーの実起動2件、更新Gatewa
 
 通常コミット・dev統合は `verify`、整形を省く反復は `dev`、公開候補は `full` を使います。旧単一TestsとPowerShell検証runnerは廃止し、読み取り専用TestDataだけを現位置へ保持します。
 
-`full` はReleaseのCore・Scenariosを各1回、Windowsを重複のない3分類で実行します。必須11IDは `SC-01, SC-02, SC-05, SC-09, SC-10A, SC-10B, SC-11, SC-13, SC-14, SC-ExistingData, SC-CurrentUpdate` です。明示導入先消失後の再読込・再選択を `SC-05` で確認します。追加Desktopは[再開計画](../../devdocs/plan/test-platform-migration.md)の対象で、標準入口へ含めません。正式Fullの `--filter` は準備前に拒否し、局所検証は対象projectを直接実行します。
+`full` はReleaseのCore・Scenarios・Desktopを各1回、Windowsを重複のない3分類で実行します。Scenariosの必須11IDは `SC-01, SC-02, SC-05, SC-09, SC-10A, SC-10B, SC-11, SC-13, SC-14, SC-ExistingData, SC-CurrentUpdate`、Desktopの必須IDは `DT-01, DT-02, DT-03` です。明示導入先消失後の再読込・再選択を `SC-05` で確認します。DesktopはScenariosの後に単一workerで実入力を専有し、同じIDの複数行を含め全行Passedを要求します。正式Fullの `--filter` は準備前に拒否し、局所検証は対象projectを直接実行します。
 
 Fullは全C#の整形・build後、固定Legacy、Current、Nextを準備してtest段階へ進みます。NextはCurrentの実バイナリ版の末尾をcheckedで1増やした実行限定の版です。通常公開版とAssemblyVersionは変えず、publishの `-ApplicationVersion` とvariant別ArtifactRootで分離します。fixtureの成功を実publish・Full成功の代わりにはしません。
 
@@ -49,7 +49,7 @@ DriveRootとDirectorySymbolicLinkは180秒、CrossVolume・Junction、固定参�
 
 環境条件のDriveRoot（8メソッド・10行）、DirectorySymbolicLink（6・6、file linkを含む）、CrossVolume（4・4）、Junction（3・7）は明示suiteとして実行します。実能力・必要入力の不足をskipや代用品へ変えません。未登録suiteは準備前に拒否します。ACL（2行）、固定Everything native（2行）、実外部encoder（1行）、BASSenc/WSH子（2行）はそれぞれ `install-acl`、`everything-native-path-identity`、`audio-encoders`、`audio-encoder-child` を指定します。固定nativeには `BMS_EVERYTHING_PATH_IDENTITY_FIXTURE`、実外部encoderには `BMS_TEST_AUDIO_ENCODERS=1` と実exeの準備が必要です。入力不足は未成功とし、WSH子の成功で実外部encoderを代用しません。固定nativeも実IPC/indexのSC-07を代替しません。詳細な入力と後継sourceは[互換検査](../../tests/BeMusicSeeker.Compatibility.Tests/README.md#acl固定native外部音声)を参照します。一つのCompatibility suiteの成功を、全suiteや正式Fullの成功とは扱いません。直接module実行の局所結果は、正式suiteの共有期限内成功と区別します。
 
-正式runnerはScenariosにもtest段階を通じて同じ期限を渡します。Compatibility/PerformanceもQPC始点とTimeSpan ticksの期限を `BMS_TEST_SUITE_DEADLINE` で子だけへ渡し、lease・updater・probe・junction・外部toolの既存小上限との早い方を使います。Compatibility/Performance/Scenarios以外のmoduleと準備processは同変数を明示除去し、親環境は変更しません。未指定の直接MTPだけ有限の局所既定を使い、明示空・不正・期限切れは失敗です。直接MTPの局所成功を正式runnerの共有期限内成功とは扱いません。
+正式runnerはScenarios・Desktopにもtest段階を通じて同じ期限を渡します。Compatibility/PerformanceもQPC始点とTimeSpan ticksの期限を `BMS_TEST_SUITE_DEADLINE` で子だけへ渡し、lease・updater・probe・junction・外部toolの既存小上限との早い方を使います。Compatibility/Performance/Scenarios/Desktop以外のmoduleと準備processは同変数を明示除去し、親環境は変更しません。未指定の直接MTPだけ有限の局所既定を使い、明示空・不正・期限切れは失敗です。直接MTPの局所成功を正式runnerの共有期限内成功とは扱いません。
 
 ## 明示性能suite
 
@@ -113,7 +113,7 @@ Windowsはmodule全体のsession leaseを取得せず、実Activateを使うPlay
 
 dev/verifyのtest段階の運用上限は600秒、Fullは全testで共有する1380秒です。Fullの600秒は後段の速度目標であり実行上限とは区別し、整形・build・配布準備をtest時間へ含めません。個々のscenarioの180秒・updateの240秒も共通期限を延長しません。formatは180秒、restore/buildは各300秒、固定旧ZIP取得とV/Vnextのpublish＋検査は各段階独立240秒、回収は10秒です。実行中の各待機で段階期限を作り直しません。速度目標の判定と期限変更は後段で判断しますが、旧基盤からの切替には既存保証と旧約305秒からの非退行が必要です。[受入条件](../../devdocs/spec/development/testing.md#通常テストの分割と並列実行)に従い、運用上限延長だけで完了にはしません。
 
-全format batchは一つの段階期限を共有し、restore/buildはそれぞれ別の段階です。test段階はCore・Windows各実行・Scenariosで期限を共有します。正常Core終了時には致命失敗用の回収期限を確定しません。致命失敗を検出した時に、検出時刻+10秒と段階実行期限+10秒の早い方を一度だけ確定し、同段階の停止・出力保存で共有します。processごとの新しい10秒は与えません。
+全format batchは一つの段階期限を共有し、restore/buildはそれぞれ別の段階です。test段階はCore・Windows各実行・Scenarios・Desktopで期限を共有します。正常Core終了時には致命失敗用の回収期限を確定しません。致命失敗を検出した時に、検出時刻+10秒と段階実行期限+10秒の早い方を一度だけ確定し、同段階の停止・出力保存で共有します。processごとの新しい10秒は与えません。
 
 起動途中のnative割当・再開失敗も、低位の停止・回収を始める前にrunnerへ通知して同じcutoffを使います。独立した `OwnedProcess.Start` の利用では、従来どおり最初の起動失敗から有限10秒の回収期限を使います。
 

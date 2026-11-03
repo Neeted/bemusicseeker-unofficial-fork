@@ -9,10 +9,17 @@
   <StackPanel>
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme, Mode=OneWay}"
                               Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_appearance_theme_description, Mode=OneWay}">
-      <ComboBox AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme, Mode=OneWay}" x:Name="appearanceThemeComboBox" HorizontalAlignment="Stretch"
+      <ComboBox AutomationProperties.AutomationId="SettingsTheme" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme, Mode=OneWay}" x:Name="appearanceThemeComboBox" HorizontalAlignment="Stretch"
                   ItemsSource="{Binding AppearanceThemeOptions}"
                   DisplayMemberPath="DisplayName" SelectedValuePath="Key"
-                  SelectedValue="{Binding AppearanceTheme, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                  SelectedValue="{Binding AppearanceTheme, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
+        <ComboBox.ItemContainerStyle>
+          <Style TargetType="{x:Type ComboBoxItem}" BasedOn="{StaticResource SettingsComboBoxItemStyle}">
+            <!-- DisplayMemberPathは候補のUIA Nameを指定しないため、同じ表示名を明示して接続する。 -->
+            <Setter Property="AutomationProperties.Name" Value="{Binding DisplayName}" />
+          </Style>
+        </ComboBox.ItemContainerStyle>
+      </ComboBox>
     </settings:SettingsSection>
 
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table, Mode=OneWay}"

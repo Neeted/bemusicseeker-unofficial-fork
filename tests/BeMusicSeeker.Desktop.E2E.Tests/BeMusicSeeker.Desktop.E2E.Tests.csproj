@@ -16,4 +16,26 @@
   <ItemGroup>
     <PackageReference Include="FlaUI.UIA3" />
   </ItemGroup>
+  <Target Name="CopyApplicationFixture" AfterTargets="Build">
+    <Error Condition="'$(TargetDir)' == '' Or !$([System.IO.Path]::IsPathFullyQualified('$(TargetDir)'))" Text="Test output directory must be absolute and nonempty." />
+    <PropertyGroup>
+      <_DesktopApplicationDestination>$([System.IO.Path]::GetFullPath($([System.IO.Path]::Combine('$(TargetDir)', 'fixtures/application'))))</_DesktopApplicationDestination>
+      <_DesktopApplicationDestinationRoot>$([System.IO.Path]::GetPathRoot('$(_DesktopApplicationDestination)'))</_DesktopApplicationDestinationRoot>
+      <_DesktopApplicationOutputRoot>$([System.IO.Path]::GetFullPath('$(TargetDir)'))</_DesktopApplicationOutputRoot>
+    </PropertyGroup>
+    <Error Condition="'$(_DesktopApplicationDestination)' == '$(_DesktopApplicationDestinationRoot)' Or '$(_DesktopApplicationDestination)' == '$(_DesktopApplicationOutputRoot)'" Text="Application fixture must be a dedicated child of the test output directory." />
+    <MSBuild Projects="../../BeMusicSeeker/BeMusicSeeker.csproj" Targets="GetTargetPath" Properties="Configuration=$(Configuration);Platform=$(Platform)">
+      <Output TaskParameter="TargetOutputs" ItemName="_DesktopApplicationTarget" />
+    </MSBuild>
+    <PropertyGroup>
+      <_DesktopApplicationSource>@(_DesktopApplicationTarget->'%(RootDir)%(Directory)')</_DesktopApplicationSource>
+    </PropertyGroup>
+    <Error Condition="'$(_DesktopApplicationSource)' == ''" Text="Application output directory is unavailable." />
+    <ItemGroup>
+      <_DesktopApplicationFiles Include="$(_DesktopApplicationSource)**/*" />
+    </ItemGroup>
+    <!-- 同じbuildの製品と依存を渡し、可変profileは各TestWorkspaceが所有します。 -->
+    <RemoveDir Directories="$(_DesktopApplicationDestination)" />
+    <Copy SourceFiles="@(_DesktopApplicationFiles)" DestinationFiles="@(_DesktopApplicationFiles->'$(_DesktopApplicationDestination)/%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
 </Project>

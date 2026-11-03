@@ -217,6 +217,7 @@
   </UserControl.Resources>
   <Grid x:Name="editorSurface" Width="390" Height="22" Background="Transparent">
     <TextBox x:Name="InputTextBox"
+             AutomationProperties.AutomationId="KeywordSearchInput"
              Width="390"
              BorderThickness="0"
            Style="{DynamicResource searchKeywordTextBoxStyle}"

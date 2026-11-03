@@ -83,7 +83,8 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
                 new("Windows", "TestCategory=Windows.Settings", 1, true) { ExecutionId = "Windows.Settings" },
                 new("Windows", "TestCategory=Windows.Shell", 1, true) { ExecutionId = "Windows.Shell" },
                 new("Windows", "(TestCategory!=Windows.Settings)&(TestCategory!=Windows.Shell)", 1, true) { ExecutionId = "Windows.Remaining" },
-                new("Scenarios", full ? null : "TestCategory=Daily", 1, true)],
+                new("Scenarios", full ? null : "TestCategory=Daily", 1, true),
+                .. full ? new VerificationModule[] { new("Desktop.E2E", null, 1, true) } : []],
             "compatibility" => [new("Compatibility", SuiteFilter(suite), 1, true)],
             "performance" => [new("Performance", SuiteFilter(suite), 1, true)],
             _ => throw new ArgumentException($"未知のprofileです: {profile}"),
@@ -138,6 +139,7 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
         "full" => new Dictionary<string, IReadOnlyList<string>>
         {
             ["Scenarios"] = ["SC-01", "SC-02", "SC-05", "SC-09", "SC-10A", "SC-10B", "SC-11", "SC-13", "SC-14", "SC-ExistingData", "SC-CurrentUpdate"],
+            ["Desktop.E2E"] = ["DT-01", "DT-02", "DT-03"],
         },
         _ => new Dictionary<string, IReadOnlyList<string>>(),
     };

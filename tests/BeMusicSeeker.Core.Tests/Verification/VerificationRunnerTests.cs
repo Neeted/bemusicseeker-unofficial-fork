@@ -243,7 +243,7 @@ public sealed class VerificationRunnerTests
         }
     }
 
-    /// <summary>Fullの実pipelineで配布準備を一度だけ完了し、同じcatalogをReleaseの3moduleへ渡し、短IDと標準reportを集約します。</summary>
+    /// <summary>Fullの実pipelineで配布準備を一度だけ完了し、同じcatalogと共有期限をReleaseの選択moduleへ渡し、短IDと標準reportを集約します。</summary>
     /// <remarks>commandのI/Oだけをfixtureへ向けます。実publishと公開候補のFull成功を代用する検査ではありません。</remarks>
     [TestMethod]
     public async Task FullPreparesSharedArtifactsBeforeRunningEachSelectedModuleOnce()
@@ -265,20 +265,20 @@ public sealed class VerificationRunnerTests
         {
             Assert.IsTrue(observed.Request.Environment.ContainsKey(ProcessDeadline.SuiteDeadlineEnvironmentVariable));
             string? exported = observed.Request.Environment[ProcessDeadline.SuiteDeadlineEnvironmentVariable];
-            if (observed.Name == "Scenarios")
+            if (observed.Name is "Scenarios" or "Desktop.E2E")
             {
                 Assert.IsNotNull(exported);
                 string[] parts = exported.Split(';');
                 Assert.IsTrue(long.Parse(parts[0]["qpc:".Length..]) <= firstModuleStart,
-                    "Scenarios開始時に共通test段階の起算点を作り直しません。");
+                    "後発UI module開始時に共通test段階の起算点を作り直しません。");
                 Assert.AreEqual(TimeSpan.FromSeconds(1380).Ticks, long.Parse(parts[1]["ticks:".Length..]));
                 Assert.IsTrue(ProcessDeadline.Import(exported).Remaining > TimeSpan.Zero);
             }
             else { Assert.IsNull(exported); }
         }
         Assert.AreEqual(originalDeadline, Environment.GetEnvironmentVariable(ProcessDeadline.SuiteDeadlineEnvironmentVariable));
-        CollectionAssert.AreEqual(new[] { "style", "whitespace", "build", "publish-v", "publish-next", "Core", "Windows.Settings", "Windows.Shell", "Windows.Remaining", "Scenarios" }, fixture.Requests
-            .Where(item => item.Name is "style" or "whitespace" or "build" or "publish-v" or "publish-next" or "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios")
+        CollectionAssert.AreEqual(new[] { "style", "whitespace", "build", "publish-v", "publish-next", "Core", "Windows.Settings", "Windows.Shell", "Windows.Remaining", "Scenarios", "Desktop.E2E" }, fixture.Requests
+            .Where(item => item.Name is "style" or "whitespace" or "build" or "publish-v" or "publish-next" or "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios" or "Desktop.E2E")
             .Select(item => item.Name).ToArray());
         ProcessStartRequest style = fixture.Requests.Single(item => item.Name == "style").Request;
         ProcessStartRequest whitespace = fixture.Requests.Single(item => item.Name == "whitespace").Request;
@@ -288,10 +288,10 @@ public sealed class VerificationRunnerTests
         Assert.IsTrue(whitespace.Arguments.Contains("--folder"));
         Assert.IsFalse(whitespace.Arguments.Contains("--no-restore"));
         Assert.IsFalse(style.Arguments.Contains("--include") || whitespace.Arguments.Contains("--include"));
-        Assert.AreEqual(5, result.Modules.Count);
+        Assert.AreEqual(6, result.Modules.Count);
         string catalogPath = fixture.Path("run/distribution/catalog.json");
         Assert.IsTrue(File.Exists(catalogPath));
-        foreach ((string _, ProcessStartRequest request) in fixture.Requests.Where(item => item.Name is "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios"))
+        foreach ((string _, ProcessStartRequest request) in fixture.Requests.Where(item => item.Name is "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios" or "Desktop.E2E"))
         {
             Assert.AreEqual(catalogPath, request.Environment[DistributionCatalog.EnvironmentVariable]);
             StringAssert.Contains(request.FileName, "Release");
@@ -1143,7 +1143,7 @@ public sealed class VerificationRunnerTests
             if (name == "style") { command = command with { WritePath = Path("changed.cs"), WriteContent = "style" }; }
             if (name == "whitespace") { command = command with { RequirePath = Path("changed.cs"), RequireContent = "style", WritePath = Path("changed.cs"), WriteContent = "formatted" }; }
             if (name == "build" && FormatInput) { command = command with { RequirePath = Path("changed.cs"), RequireContent = "formatted" }; }
-            if (name is "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios" or "Compatibility" or "Performance")
+            if (name is "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios" or "Desktop.E2E" or "Compatibility" or "Performance")
             {
                 string[] arguments = request.Arguments.ToArray();
                 string reportDirectory = arguments[Array.IndexOf(arguments, "--results-directory") + 1];
@@ -1151,6 +1151,7 @@ public sealed class VerificationRunnerTests
                 IEnumerable<string> names = name switch
                 {
                     "Scenarios" => ScenarioIds.Select(id => $"[{id}] report fixture"),
+                    "Desktop.E2E" => new[] { "[DT-01] search", "[DT-02] drop", "[DT-02] schema", "[DT-03] virtual row" },
                     "Compatibility" => CompatibilityNames,
                     "Performance" => PerformanceNames,
                     _ => ["report fixture"],

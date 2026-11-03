@@ -6,7 +6,7 @@
   <UserControl.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries><ResourceDictionary Source="../SettingsControls.xaml" /></ResourceDictionary.MergedDictionaries><BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" /></ResourceDictionary></UserControl.Resources>
   <StackPanel>
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Language, Mode=OneWay}">
-      <ComboBox AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Language, Mode=OneWay}" x:Name="languageComboBox" ItemsSource="{Binding Languages}" SelectedItem="{Binding Language}" />
+      <ComboBox AutomationProperties.AutomationId="SettingsLanguage" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Language, Mode=OneWay}" x:Name="languageComboBox" ItemsSource="{Binding Languages}" SelectedItem="{Binding Language}" />
     </settings:SettingsSection>
 
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_environment, Mode=OneWay}"

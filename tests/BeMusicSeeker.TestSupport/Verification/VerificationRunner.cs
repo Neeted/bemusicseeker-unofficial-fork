@@ -275,7 +275,7 @@ internal static class VerificationRunner
                         {
                             [TestRunDirectory.EnvironmentVariable] = Path.Combine(caseRoot, module.ExecutionId),
                             [DistributionCatalog.EnvironmentVariable] = distributionCatalog,
-                            [ProcessDeadline.SuiteDeadlineEnvironmentVariable] = module.Name is "Compatibility" or "Performance" or "Scenarios" ? testing.ExecutionDeadline.Export() : null,
+                            [ProcessDeadline.SuiteDeadlineEnvironmentVariable] = module.Name is "Compatibility" or "Performance" or "Scenarios" or "Desktop.E2E" ? testing.ExecutionDeadline.Export() : null,
                         }),
                         directory, "process", started => Interlocked.CompareExchange(ref executionStart, started, 0), cleanupIntervals);
                 }

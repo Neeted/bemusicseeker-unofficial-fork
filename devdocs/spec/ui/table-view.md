@@ -343,11 +343,19 @@ DPIは変更コールバックと描画開始時の環境確認で追従しま�
 
 削除等で失効した row／cell は、自作のプロパティ取得と pattern 操作で利用不可を返します。WPF が管理する `Parent` や `RuntimeId` まで、すべての raw fragment 呼出しが失敗する保証には広げません。
 
+失効の検証は境界で分担します。Windowsの `CustomTableAutomationPeerTests.RetainedProviders_FollowIdentityAcrossSortAndFailAfterRemovalReplacementOrScopeChange` は、直接保持した `IValueProvider.Value`／`SetValue` の厳密な `ElementNotAvailableException` と近傍の不変を確認します。Desktopでは、同じ旧 row／cell の現在 `Name` が `ElementNotAvailable`（HRESULT `0x80040201`）となり、旧cellのnative `GetCurrentPattern(ValuePatternId)` がnullまたは同HRESULTとなることを確認します。他の例外・非nullのpattern・timeoutは成功としません。保持済みclient側ValuePatternの `CurrentValue` がどの例外へ変換されるかは保証せず、空値を失効の証拠にも使いません。削除前の確定Value、実保存・件数・通知と近傍の確認は独立に維持します。
+
 セルの `Value` は表示値と読取り専用状態を公開します。編集可否の問い合わせは編集を開始・予約せず、既存の編集許可判定を使います。セルの `SetValue` は既存の開始判定、実際の TextBox、確定処理を一回通し、モデルへ直接代入しません。TAG 等の読取り専用列、通常譜面に MEMO 編集を持たないこと、外部同期中のプレイリスト詳細で MEMO だけを編集できる条件を維持します。`SetValue` の復帰は非同期保存の成功を意味せず、確定値・保存終端を別に観測します。
 
 通常入力で開いた子 TextBox の `Value` 変更は編集中の候補です。Enter による確定、Escape による取消し、候補一覧がある場合に最初の Escape で候補だけを閉じる動作は既存の編集仕様に従います。選択・値・構造の変更は UIA 通知へ反映します。通知の細かな順序や件数を操作結果の代わりにしません。
 
 局所 WPF 検証は識別情報の生産、実 control／editor への接続、仮想化と旧 provider の失効を担当します。外部 UIA client による通知受信、本番構成の保存・正常終了・再起動は別の受入境界で確認し、局所 provider 呼出しの成功だけで確認済みにはしません。
+
+外部 UIA 検証は専有データで起動した本番実行ファイルへ接続し、検索欄の実入力、表の pattern、実 editor、ドラッグ、確認画面を操作します。対象は所有するプロセスと親の範囲、既存の意味キーで一意に選び、同名要素の先頭一致で代用しません。編集などの非同期操作は入力前に対象を限定して観測を登録し、登録応答後に入力して、既存の実 Task の終端と独立した保存値を確認します。UIA 呼出しの復帰や通知の到着だけでは保存成功と判定しません。
+
+プレイリスト詳細の実 entry 削除では、削除前の対象行から取得した `RuntimeId` の配列を保持し、同じ表の `TreeScope.Children` 範囲で `StructureChanged` を購読します。通知の種類が `ChildRemoved` で、payload が保持した配列と長さ・順序・全要素で一致する場合だけ対象の削除通知とします。callback 内で sender や旧 row へ追加照会せず、入力中や業務 Task の終端前に届いた通知も保持します。実 Task・保存値・旧 row／cell の失効・近傍行の利用可能性は、通知とは独立して確認します。
+
+仮想行の外部検証では一覧全体の snapshot を取得せず、既存の世代・件数・投影済み件数と対象 provider を照合します。外部からの通知受信は選択・値・構造を対象とし、通知の厳密な回数・順序は固定しません。全行を先行投影しない代表経路は外部検証、要求前後の投影 identity 集合の厳密な一致は局所 WPF 検証へ分担します。
 
 ### 外観の更新
 
@@ -363,6 +371,9 @@ DPIは変更コールバックと描画開始時の環境確認で追従しま�
 | 画面外検索・選択取得、placeholder の親接続、Realize、両軸スクロール、削除後の失効 | `CustomTableView.Automation.cs` | `CustomTableAutomationPeerTests` は所有 Window の標準 automation root と実 provider を使い、行集合・選択・offset・実体化数・旧 provider の拒否を確認する。内部 GC 時機や cache 個数は固定しない。 |
 | 編集可否照会、実 editor、確定・取消、読取り専用 | 同 peer と `MainChartListViewModel.CanBeginCellEdit`、既存編集イベント | 同テストの編集ケースは実 TextBox と開始・確定イベント、draft の取消、TAG・同期中 MEMO の許可を確認する。validation と保存終端の条件差は既存 Editing／Playlist 系列へ分担する。 |
 | compiled 画面の ID・Name・pattern と編集受付接続 | `MainWindow.xaml`、既存 main chart 編集端末 | `MainWindowChartPresentationWpfTests.CompiledTables_ExposeAutomationPatternsAndPureOwnerEditAvailability` は実 compiled 表から確認する。外部 client の通知受信・本番保存・再起動は別の受入境界とする。 |
+| 実検索入力、二行選択、並べ替え後の同一対象、同期 ON の MEMO 保存・再起動 | 同 compiled 表・検索欄と既存 playlist 編集端末 | Desktop の `SearchAndMemoDesktopTests` は遅延 Binding を通る keyboard 入力、外部 UIA の選択・値通知、実保存後の raw DB、同 profile の次プロセスでの読戻しを確認する。代表テーマの実変更・保存・再起動後の選択値も同ケースで確認する。 |
+| 実 FileDrop・内部行 drag、物理 folder 改名、削除確認、旧 schema 確認 | 既存 Drop・編集・削除・起動端末 | Desktop の `FileOperationsDesktopTests` は専有 STA の実 FileDrop と mouse drag、実 F2／Escape／Enter、空 playlist folder 削除の拒否・承認を通し、元入力と FS／DB を照合する。別ケースで旧 schema の実取消後の自然退出・DB 不変と、次プロセスでの承認・修復を確認する。 |
+| 画面外の標準 provider、実 editor、削除後の旧 provider、表示言語・テーマ | 同 peer と設定画面 | Desktop の `VirtualPlaylistRowDesktopTests` は非投影検索、Realize／Scroll、同期 OFF の実 F2 編集・保存、確認画面を伴わない entry 削除・旧 row／cell の失効と近傍保持を確認する。削除通知は同じ表の `TreeScope.Children` で購読し、削除前の対象行の `RuntimeId` と完全一致する `ChildRemoved` を照合する。言語・テーマの同一ウィンドウ内の更新・設定再表示と保存を担当し、色・辞書の条件差は既存 Windows 検証へ分担する。 |
 
 | ツリードロップ・ホバーの条件 | 実装 | 検証の分担 |
 | --- | --- | --- |

@@ -66,7 +66,7 @@ dotnet run --project tools/BeMusicSeeker.Verify -- performance --suite scan-comm
 | --- | --- |
 | `dev` | ReleaseのCore・Windows・Daily Scenarios。整形を省いた反復。 |
 | `verify` | 変更C#の整形、Releaseの同3module。通常コミット・dev統合の標準。 |
-| `full` | 全体整形・Release・配布準備・Core・Scenarios各一回、Windows3分類。公開候補の受入。 |
+| `full` | 全体整形・Release・配布準備・Core・Scenarios・Desktop各一回、Windows3分類。公開候補の受入。 |
 | `compatibility` | 登録済み16suiteの一つ。専用入力・環境を準備して明示実行する。 |
 | `performance` | 登録済み9suiteの一つ。全仕事量の計測を他の重い検証と分離する。 |
 
@@ -112,7 +112,7 @@ C# の正規形は [`.editorconfig`](../../../.editorconfig) を正本とし、�
 
 ### 実行期限と失敗分類
 
-dev/verifyのtest段階の運用上限は600秒、Fullは1380秒を全moduleで共有します。起動前の一つのQPC始点をScenariosにも渡し、後発moduleや局所待機で延長しません。summaryの `testStageStartTimestamp` にtest段階開始のQPCを一度保存し、受入側が同machineでrunner実復帰直後のQPCとの差を記録します。lang copy、起動、Gate、summary保存、回収を含みます。`executionMs` は最初のtest起動からGate後・summary保存前までの補助値、`cleanupMs` はその内数です。準備・build・配布準備は別段階です。Fullの600秒は後段で測定する速度目標であり、実行上限ではありません。監視上限を速度合格の閾値にしません。
+dev/verifyのtest段階の運用上限は600秒、Fullは1380秒を全moduleで共有します。起動前の一つのQPC始点をScenarios・Desktopにも渡し、後発moduleや局所待機で延長しません。summaryの `testStageStartTimestamp` にtest段階開始のQPCを一度保存し、受入側が同machineでrunner実復帰直後のQPCとの差を記録します。lang copy、起動、Gate、summary保存、回収を含みます。`executionMs` は最初のtest起動からGate後・summary保存前までの補助値、`cleanupMs` はその内数です。準備・build・配布準備は別段階です。Fullの600秒は後段で測定する速度目標であり、実行上限ではありません。監視上限を速度合格の閾値にしません。
 
 致命失敗の回収は、検出時刻+10秒と実行期限+10秒の早い方を一度だけ確定します。期限後の遅い正常終了を成功に戻しません。時間内の決定的失敗は初回から原因を調べます。
 
@@ -144,7 +144,7 @@ LR2同期・フォルダ改名・重複統合の実DB/FS、rollback、receipt、
 
 ### テスト区分
 
-実行集合はmoduleとprofileで決めます。Core/Windowsの通常ケース、ScenariosのDaily/Full、Compatibility/Performanceの明示 `Suite.*` を区別します。旧 `ProcessIntegration` 等の属性が残っていても新入口の除外規則には使いません。明示導入先消失後の再読込・再選択はScenariosのFullで確認します。追加Desktopは[再開計画](../../plan/test-platform-migration.md)に従い、標準入口の必須集合へ含めません。
+実行集合はmoduleとprofileで決めます。Core/Windowsの通常ケース、ScenariosのDaily/Full、FullのDesktop、Compatibility/Performanceの明示 `Suite.*` を区別します。旧 `ProcessIntegration` 等の属性が残っていても新入口の除外規則には使いません。明示導入先消失後の再読込・再選択はScenariosのFull、実入力と外部UIAの接続はDesktopで確認します。
 
 環境不足を `Ignore` / `Inconclusive` で飛ばさず失敗にし、未実施を成功として扱いません。[BMS譜面位置の比較ツール](chart-parse-audit.md)は簡易開発用です。変更確認は対象RunnerのReleaseビルドと差分点検に限定し、恒常toolテストは設けません。
 
@@ -245,7 +245,9 @@ constructor-only harnessは `PrepareConstructorOnlyShell` で既存のshell acti
 
 ### Fullの処理順と期限
 
-全体整形・Release build後に固定Legacy ZIP、Current、Nextを準備し、Core・Scenariosを各一回、Windowsを重複のない3分類で実行します。Desktopと明示環境/性能suiteは含めません。必須11IDは `SC-01, SC-02, SC-05, SC-09, SC-10A, SC-10B, SC-11, SC-13, SC-14, SC-ExistingData, SC-CurrentUpdate` です。同じIDの複数DataRowを許し、全行Passedを要求します。
+全体整形・Release build後に固定Legacy ZIP、Current、Nextを準備し、Core・Scenarios・Desktopを各一回、Windowsを重複のない3分類で実行します。明示環境/性能suiteは含めません。Scenariosの必須11IDは `SC-01, SC-02, SC-05, SC-09, SC-10A, SC-10B, SC-11, SC-13, SC-14, SC-ExistingData, SC-CurrentUpdate`、Desktopの必須IDは `DT-01, DT-02, DT-03` です。同じmodule内の同じIDに複数行を許し、全行Passedを要求します。
+
+Desktopは既存のsession leaseと単一workerで実入力を専有し、Scenariosの後に実行します。各caseは共有suite期限と3分の早い方を外側期限とし、所有入力と資源の回収に10秒を先取りした操作期限を使います。残時間が回収余裕以下なら新入力を開始しません。実入力後の失敗では最初の検出時刻+10秒と外側期限の早い方を一度だけ確定し、所有Up・source STA・返却済みapp session・fixtureの回収へ渡します。通常回収は操作期限内で行い、遅い完了や回収失敗を成功へ変えません。起動接続の返却前失敗は既存driverの回収を維持します。
 
 | 段階 | 制限時間 |
 | --- | ---: |
@@ -280,7 +282,7 @@ C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2
 
 現行配布物の画面起動受入では、予期しない所有ダイアログが可視・有効なら失敗とし、自動で閉じて成功にしません。初回構築通知も自動操作せず、利用済み入力の不備や起動の問題として扱います。初期設定自体の検証を更新受入へ混ぜません。この判定を、画面を起動しない旧更新プログラムのファイル適用検査には適用しません。
 
-`ResultGate` は選択moduleの非空TRX、全行Passed、run-level結果、正常exit、所有終端を確認します。部分skip・不正report・timeout・cleanup失敗を拒否します。必須SC-IDはtestNameの先頭から読み、同一module内の複数行は許可し、別moduleへの重複と必須ID欠落は拒否します。FQN全表や独自DataRow展開は保持しません。
+`ResultGate` は選択moduleの非空TRX、全行Passed、run-level結果、正常exit、所有終端を確認します。部分skip・不正report・timeout・cleanup失敗を拒否します。必須SC/DT-IDはtestNameの先頭から読み、同一module内の複数行は許可し、別moduleへの重複と必須ID欠落は拒否します。FQN全表や独自DataRow展開は保持しません。
 
 ### 解析・大規模データ・外部エンコーダー
 
@@ -298,7 +300,7 @@ suiteの起動・前提・本文・通常回収・実exitは共通ProcessDeadlin
 
 生成した短いステレオPCM/WAVを本番の `BassAudioWriter` とエンコード・停止・後片付けへ通し、ファイルの形式識別と採番を確認します。実行ファイル、ライセンス、生成音声をリポジトリの固定入力へ追加しません。
 
-環境条件のDriveRoot（8methods/10rows）、DirectorySymbolicLink（6/6、file linkを含む）、CrossVolume（4/4）、Junction（3/7）はCompatibilityの明示suiteへ所属します。実能力不足をskipや代用入力へ変えません。全Compatibilityは既存UiModuleLifetimeでsession排他・専有profile・日本語辞書を準備し、実hostは遅延生成します。正式runnerは `BMS_TEST_SUITE_DEADLINE` のQPC始点とTimeSpan ticksを子だけへ渡し、lease・updater・probe・junctionの局所期限が元cutoffを延長しないよう制限します。未指定の直接MTPだけ有限既定を使い、明示不正・期限切れは失敗です。Compatibility/Performance/Scenarios以外のmoduleと準備processは同変数を明示除去し、親環境は変更しません。親の失敗回収は既存の `min(suite cutoff + 10秒, 検出時刻 + 10秒)` を維持します。期限の再読・不正拒否・gate後の実子importとrunner接続はCore/Verificationの契約testで分担します。
+環境条件のDriveRoot（8methods/10rows）、DirectorySymbolicLink（6/6、file linkを含む）、CrossVolume（4/4）、Junction（3/7）はCompatibilityの明示suiteへ所属します。実能力不足をskipや代用入力へ変えません。全Compatibilityは既存UiModuleLifetimeでsession排他・専有profile・日本語辞書を準備し、実hostは遅延生成します。正式runnerは `BMS_TEST_SUITE_DEADLINE` のQPC始点とTimeSpan ticksを子だけへ渡し、lease・updater・probe・junctionの局所期限が元cutoffを延長しないよう制限します。未指定の直接MTPだけ有限既定を使い、明示不正・期限切れは失敗です。Compatibility/Performance/Scenarios/Desktop以外のmoduleと準備processは同変数を明示除去し、親環境は変更しません。親の失敗回収は既存の `min(suite cutoff + 10秒, 検出時刻 + 10秒)` を維持します。期限の再読・不正拒否・gate後の実子importとrunner接続はCore/Verificationの契約testで分担します。
 
 ACLは `compatibility --suite install-acl`（2行）、固定Everythingの実pack/decodeは `compatibility --suite everything-native-path-identity`（2行）、BASSencの実WSH子終了値は `compatibility --suite audio-encoder-child`（2行）を使います。実外部encoderの1行と合わせた4suiteは各60秒・共通失敗回収10秒の初期上限であり、全種類・入力の実測完走保証ではありません。decoderの旧30秒は親suite残とのmin、回収は `min(suite cutoff + 10秒, 失敗検出時刻 + 10秒)` とし、root・両pipe・Jobの終端を確認します。未回収媒体と未解放encoder/sessionを保全し、主失敗とcleanup失敗を残します。
 
@@ -335,7 +337,7 @@ ACLは専有領域の実操作終端後に両DACLを復旧してからworkspace�
 | --- | --- | --- |
 | 通常開発と正式リリース前の検証区分、変更に応じた追加検証 | 本書の[実行範囲の選択](#実行範囲の選択)、[開発指針](../../../AGENTS.md#文書と検証)、[リリース手順](release.md#配布物の生成と検証)、[エージェント運用](agent-workflow.md#統合と予備レビュー) | 作業段階・公開候補の確定と各文書の案内を照合する。運用文言を固定する自動テストは設けない。 |
 | 複数ワークツリーの検証と結果の再利用 | 本書の[複数ワークツリーの検証](#複数ワークツリーの検証)、[並列作業](agent-workflow.md#並列作業)、[通常の統合手順](release.md#通常の作業ブランチの統合) | 全体ルートによる `verify`・性能測定の開始調整と単位責任者の 局所MTP実行 自主管理、別ワークツリーの必要ビルドとの並行、資源衝突と実測負荷、対象版・共有依存、移管時の結果引継ぎ、検証版と統合版の一致を照合する。運用文言を固定する自動テストは設けない。 |
-| module選択・共有期限・全Passed | [VerificationRunner](../../../tests/BeMusicSeeker.TestSupport/Verification/VerificationRunner.cs) | CoreのVerificationPlanTests / VerificationRunnerTests / ResultGateTestsが3module・必須ID・filter・非空結果・全行Passed・元期限の継承を確認する。 |
+| module選択・共有期限・全Passed | [VerificationRunner](../../../tests/BeMusicSeeker.TestSupport/Verification/VerificationRunner.cs) | CoreのVerificationPlanTests / VerificationRunnerTests / ResultGateTestsが選択module・必須ID・filter・非空結果・全行Passed・元期限の継承を確認する。 |
 | テスト整理前後の比較 | [検証入口](../../../tools/BeMusicSeeker.Verify/README.md)、本書 | 同条件のwall time、全終端、結果件数を比較し、移管と速度目標を区別する。 |
 | 手動・標準の整形、前段失敗 | [RepositoryFormatter](../../../tests/BeMusicSeeker.TestSupport/Verification/RepositoryFormatter.cs)、[手動PS](../../../scripts/format-code.ps1) | CoreのRepositoryFormatterTests / VerificationRunnerTestsがGit三集合、All、NoRestore、同期限、実adapter、元診断・非zeroと停止を確認する。 |
 | 各段階の期限・診断・停止 | [検証スクリプト群](../../../scripts) | 実行に使う期限とプロセス所有情報、失敗時の診断・残留を確認する。 |
