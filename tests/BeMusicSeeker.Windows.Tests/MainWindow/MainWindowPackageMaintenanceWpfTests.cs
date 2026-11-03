@@ -450,8 +450,9 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         Directory.CreateDirectory(root);
         Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false);
         settings.StartupSelectInstallPending = false;
+        Action<Task> projectionTerminal = _ => { };
         var presentationTasks = new RegularChartNavigationTestFixture.ProjectionTaskCollector(
-            new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
+            new ProjectionTerminalObservingScheduler(new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), terminal => projectionTerminal(terminal)));
         try
         {
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
@@ -615,13 +616,42 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         Assert.IsNotNull(readback.Find<LR2SongDBExtended.bmson_song>(second.Chart.Path));
                         table.HandleKeyDown(Key.Escape, ModifierKeys.None);
                         refreshApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                        Task<Task> removalPresentation = presentationTasks.ObserveNext();
-                        LibraryChartRemovalOutcome removed = library.RemoveLibraryCharts(
-                            library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(first.Chart)]), false, []);
-                        Assert.IsFalse(removed.HasError);
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(refreshApplied.Task, "installed partial membership removal");
-                        // 削除通知だけでは投影Taskが未登録の場合があるため、Dispatcherで先行Action配送を進めながら実投影の登録を待ちます。
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(removalPresentation, "削除後の自動表示更新の登録");
+                        // 削除通知が要求する再投影は、通知後にworkerから遅れて登録されます。最初に観測した投影Taskは削除前から進行中の別要求でもあるため、
+                        // 削除後の結果は実際のRows公開で待ちます。公開前に投影が失敗・取消・公開失敗した場合は同じ待合せを失敗させ、来ないRows公開を待ち続けません。
+                        var rowsReplaced = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        System.ComponentModel.PropertyChangedEventHandler removalRowsChanged = (_, args) =>
+                        {
+                            if (args.PropertyName == nameof(MainChartListViewModel.Rows)) { rowsReplaced.TrySetResult(); }
+                        };
+                        EventHandler removalReplacementCanceled = (_, _) =>
+                            rowsReplaced.TrySetException(new AssertFailedException("削除後のRows差替えがRows公開前に取り消されました。"));
+                        EventHandler removalReplacementPublishFailed = (_, _) =>
+                            rowsReplaced.TrySetException(new AssertFailedException("削除後のRows公開が失敗しました。"));
+                        projectionTerminal = terminal => terminal.ContinueWith(
+                            completed =>
+                            {
+                                if (completed.IsCanceled) { rowsReplaced.TrySetCanceled(); }
+                                else if (completed.IsFaulted) { rowsReplaced.TrySetException(completed.Exception!.InnerExceptions); }
+                            },
+                            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                        viewModel.MainChartList.PropertyChanged += removalRowsChanged;
+                        viewModel.MainChartList.RowsReplacementCanceled += removalReplacementCanceled;
+                        viewModel.MainChartList.RowsReplacementPublishFailed += removalReplacementPublishFailed;
+                        try
+                        {
+                            LibraryChartRemovalOutcome removed = library.RemoveLibraryCharts(
+                                library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(first.Chart)]), false, []);
+                            Assert.IsFalse(removed.HasError);
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(refreshApplied.Task, "installed partial membership removal");
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(rowsReplaced.Task, "削除後のRows公開");
+                        }
+                        finally
+                        {
+                            projectionTerminal = _ => { };
+                            viewModel.MainChartList.PropertyChanged -= removalRowsChanged;
+                            viewModel.MainChartList.RowsReplacementCanceled -= removalReplacementCanceled;
+                            viewModel.MainChartList.RowsReplacementPublishFailed -= removalReplacementPublishFailed;
+                        }
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(presentationTasks.DrainPriorAsync(), "削除後の自動表示更新の終端");
                         TestUiDispatcherHost.ProcessQueuedPresentation();
                         Assert.AreSame(packageNode, installedTree.ItemContainerGenerator.ContainerFromItem(package));
@@ -2717,6 +2747,24 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             if (paths.Length == expectedPaths.Length
                 && paths.OrderBy(path => path, StringComparer.Ordinal).SequenceEqual(expectedPaths.OrderBy(path => path, StringComparer.Ordinal)))
             { bound.TrySetResult(); }
+        }
+    }
+
+    /// <summary>UI配送した投影Taskの終端を、collectorとは別に呼出し側へ通知します。結果は変えず、配送もそのまま委譲します。</summary>
+    private sealed class ProjectionTerminalObservingScheduler(IUiScheduler inner, Action<Task> observe) : IUiScheduler
+    {
+        public bool IsAvailable => inner.IsAvailable;
+        public bool CanExecuteInline => inner.CanExecuteInline;
+        public bool CheckAccess() => inner.CheckAccess();
+        public IUiScheduledOperation Schedule(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal) => inner.Schedule(action, priority);
+        public void Invoke(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal) => inner.Invoke(action, priority);
+        public T Invoke<T>(Func<T> action, UiSchedulePriority priority = UiSchedulePriority.Normal) => inner.Invoke(action, priority);
+        public Task InvokeAsync(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal) => inner.InvokeAsync(action, priority);
+        public Task InvokeAsync(Func<Task> action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            Task terminal = inner.InvokeAsync(action, priority);
+            observe(terminal);
+            return terminal;
         }
     }
 
