@@ -652,8 +652,21 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             File.WriteAllText(config, configDocument.ToString());
             var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: httpSettings);
             acceptedLibrary = library;
+            // 実UIと同じく構築結果の採用とheader配送をAction単位で直列化します。
+            // 同期通知の再入を許し、別Taskを待たずにActionの終端を完了Taskへ渡します。
+            object presentationLock = new();
+            void DispatchPresentation(Action action)
+            {
+                lock (presentationLock) { action(); }
+            }
+            Task ApplyPresentationAsync(Action action)
+            {
+                DispatchPresentation(action);
+                return Task.CompletedTask;
+            }
             workspace = CreateDetailWorkspace(out _,
                 playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library,
+                dispatchPresentation: DispatchPresentation, restoreUiApplyScheduler: ApplyPresentationAsync,
                 playlistSummaryBmtSort: new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables));
             workspace.RefreshPlaylistTreeTables(playlist, library);
             workspace.IsPlaylistSummaryMode = true;
