@@ -450,6 +450,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         Directory.CreateDirectory(root);
         Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false);
         settings.StartupSelectInstallPending = false;
+        var presentationTasks = new RegularChartNavigationTestFixture.ProjectionTaskCollector(
+            new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
         try
         {
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
@@ -579,6 +581,9 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         library.RenameChartFolder(source, "moved");
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(entryPublished.Task, "installed entry publication");
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(refreshApplied.Task, "installed current refresh");
+                        // 純移転はRowsを保持するため、新しい投影を要求せず、予約済みのUI配送と開始済み処理を完了させます。
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(presentationTasks.DrainPriorAsync(), "移転後の自動表示更新の終端");
                         TestUiDispatcherHost.ProcessQueuedPresentation();
                         string moved = Path.Combine(root, "moved");
                         Assert.AreEqual(0, rowsReplacing);
@@ -610,10 +615,14 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         Assert.IsNotNull(readback.Find<LR2SongDBExtended.bmson_song>(second.Chart.Path));
                         table.HandleKeyDown(Key.Escape, ModifierKeys.None);
                         refreshApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        Task<Task> removalPresentation = presentationTasks.ObserveNext();
                         LibraryChartRemovalOutcome removed = library.RemoveLibraryCharts(
                             library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(first.Chart)]), false, []);
                         Assert.IsFalse(removed.HasError);
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(refreshApplied.Task, "installed partial membership removal");
+                        // 削除通知だけでは投影Taskが未登録の場合があるため、Dispatcherで先行Action配送を進めながら実投影の登録を待ちます。
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(removalPresentation, "削除後の自動表示更新の登録");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(presentationTasks.DrainPriorAsync(), "削除後の自動表示更新の終端");
                         TestUiDispatcherHost.ProcessQueuedPresentation();
                         Assert.AreSame(packageNode, installedTree.ItemContainerGenerator.ContainerFromItem(package));
                         Assert.AreEqual("B survivor [solo]", packageNode.Header);
@@ -629,7 +638,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         viewModel.MainChartList.CellEditBeginningRequested -= allowEdit;
                         library.ChartPackagesInstalled.Clear();
                     }
-                });
+                },
+                uiScheduler: presentationTasks);
         }
         finally
         {
