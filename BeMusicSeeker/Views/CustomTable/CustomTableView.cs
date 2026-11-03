@@ -67,6 +67,8 @@ public sealed partial class CustomTableView : Grid
     private const double ColumnResizeHitTestMargin = 4d;
     // 共通ScrollBarの固定ヒット領域と、末尾を露出するための計算を揃える。
     private const double ScrollBarThickness = 16d;
+    // 背景を細い状態から不透明に表示する一覧用ScrollBar Styleの資源キー。
+    private const string ListScrollBarStyleKey = "App.Canonical.ListScrollBarStyle";
     private const double CellEditorBorderThickness = 1d;
     private const int RowSubscriptionOverscan = 5;
     private const long RowSubscriptionSlowLogThresholdMs = 100L;
@@ -228,6 +230,9 @@ public sealed partial class CustomTableView : Grid
             Minimum = 0d,
             SmallChange = 16d
         };
+        // 本体の2本だけ一覧用Styleを明示する。暗黙Styleにしないため、編集候補Popupなど同じ資源範囲の他のバーへは波及しない。
+        verticalScrollBar.SetResourceReference(StyleProperty, ListScrollBarStyleKey);
+        horizontalScrollBar.SetResourceReference(StyleProperty, ListScrollBarStyleKey);
         cellToolTip = new ToolTip
         {
             PlacementTarget = this,

@@ -40,34 +40,39 @@
       <v:folderPathWhenColumnsHiddenVisibilityConverter x:Key="folderPathWhenColumnsHiddenVisibilityConverter" />
       <v:folderPathWhenColumnsVisibleVisibilityConverter x:Key="folderPathWhenColumnsVisibleVisibilityConverter" />
       <v:playHistorySummaryVisibilityConverter x:Key="playHistorySummaryVisibilityConverter" />
-      <!-- 右端の外枠・サイドバー区切り線1 DIPを避け、可視線の内側に2 DIPを残す。 -->
+      <!-- 外枠・サイドバー区切り線1 DIPの内縁へ背景とつまみの外端を合わせる外枠補正を、Paddingで共通に渡す。 -->
       <Style x:Key="MainWindowScrollBarStyle" TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource App.Canonical.ScrollBarStyle}">
         <Style.Triggers>
-          <!-- Popupは資源検索とFindAncestorの両方で配置先へつながるため、Popup内は共通2 DIPのままにする。 -->
-          <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType={x:Type Popup}}, FallbackValue={x:Null}}" Value="{x:Null}">
-            <Setter Property="Padding" Value="0,0,3,0" />
-          </DataTrigger>
+          <!-- Popupは資源検索とFindAncestorの両方で配置先へつながるため、Popup内は補正0のままにする。 -->
+          <MultiDataTrigger>
+            <MultiDataTrigger.Conditions>
+              <Condition Binding="{Binding Orientation, RelativeSource={RelativeSource Self}}" Value="Vertical" />
+              <Condition Binding="{Binding RelativeSource={RelativeSource AncestorType={x:Type Popup}}, FallbackValue={x:Null}}" Value="{x:Null}" />
+            </MultiDataTrigger.Conditions>
+            <Setter Property="Padding" Value="0,0,1,0" />
+          </MultiDataTrigger>
+          <!-- MainWindow祖先なしは外枠に接しないため補正0へ戻す。 -->
           <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType={x:Type v:MainWindow}}, FallbackValue={x:Null}}" Value="{x:Null}">
-            <Setter Property="Padding" Value="0,0,2,0" />
+            <Setter Property="Padding" Value="0" />
           </DataTrigger>
-          <!-- 縦用余白より後に方向を適用し、Popupの横バーも下2 DIPを保つ。 -->
-          <Trigger Property="Orientation" Value="Horizontal">
-            <Setter Property="Padding" Value="0,0,0,2" />
-          </Trigger>
         </Style.Triggers>
       </Style>
       <Style x:Key="MainWindowBottomEdgeScrollBarStyle" TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource MainWindowScrollBarStyle}">
         <Style.Triggers>
-          <!-- 実Windowの進捗行なしだけ下枠に接する。祖先なしをFalseへ代替せず、基底の下2 DIPを保つ。 -->
+          <!-- 実Windowの進捗行なしだけ下枠に接する。祖先なしをFalseへ代替せず、それ以外の下端は補正0のままにする。 -->
           <MultiDataTrigger>
             <MultiDataTrigger.Conditions>
               <Condition Binding="{Binding Orientation, RelativeSource={RelativeSource Self}}" Value="Horizontal" />
               <Condition Binding="{Binding DataContext.ProgressHub.HasRows, RelativeSource={RelativeSource AncestorType={x:Type v:MainWindow}}, FallbackValue={x:Null}}" Value="False" />
               <Condition Binding="{Binding RelativeSource={RelativeSource AncestorType={x:Type Popup}}, FallbackValue={x:Null}}" Value="{x:Null}" />
             </MultiDataTrigger.Conditions>
-            <Setter Property="Padding" Value="0,0,0,3" />
+            <Setter Property="Padding" Value="0,0,0,1" />
           </MultiDataTrigger>
         </Style.Triggers>
+      </Style>
+      <!-- 2表の本体だけが使う一覧用。外枠補正は下端Styleと共通で、背景種別だけを加える。 -->
+      <Style x:Key="MainWindowListScrollBarStyle" TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource MainWindowBottomEdgeScrollBarStyle}">
+        <Setter Property="v:ScrollBarChrome.IsOpaqueBackground" Value="True" />
       </Style>
       <ControlTemplate x:Key="templateDropmenuButtonFilter" TargetType="{x:Type ToggleButton}">
         <Grid Background="Transparent">
@@ -963,12 +968,12 @@
               </Style>
             </v:CustomTableView.Style>
             <v:CustomTableView.Resources>
-              <Style TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource MainWindowBottomEdgeScrollBarStyle}" />
+              <Style x:Key="App.Canonical.ListScrollBarStyle" TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource MainWindowListScrollBarStyle}" />
             </v:CustomTableView.Resources>
           </v:CustomTableView>
           <v:CustomTableView x:Name="customTablePlaylistSummary" AutomationProperties.AutomationId="PlaylistSummaryTable" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist, Mode=OneWay}" Grid.Row="3" Grid.ColumnSpan="1" Grid.Column="1" DataContext="{Binding PlaylistWorkspace}" RowHeight="{Binding DataContext.ViewSettings.CustomTableRowHeight, ElementName=window, Mode=OneWay}" HeaderHeight="{Binding DataContext.ViewSettings.CustomTableHeaderHeight, ElementName=window, Mode=OneWay}" TextFontSize="{Binding DataContext.ViewSettings.CustomTableFontSize, ElementName=window, Mode=OneWay}" RowDragKind="PlaylistSummaryRows" AllowDrop="True" ItemsSource="{Binding PlaylistSummaryView, Mode=OneWay}" PlaylistSummaryColumnsSettings="{Binding PlaylistSummaryColumnsSettings, Mode=OneWay}" SortColumnName="{Binding PlaylistSummarySortParameters.ColumnsName, Mode=OneWay}" SortDirection="{Binding PlaylistSummarySortParameters.Direction, Mode=OneWay}" FirstRenderCompleted="customTablePlaylistSummary_FirstRenderCompleted" SortRequested="customTablePlaylistSummary_SortRequested" RowActivated="customTablePlaylistSummary_RowActivated" RowContextMenuRequested="customTablePlaylistSummary_RowContextMenuRequested" HeaderContextMenuRequested="customTablePlaylistSummary_HeaderContextMenuRequested" CellEditBeginning="customTablePlaylistSummary_CellEditBeginning" CellActionRequested="customTablePlaylistSummary_CellActionRequested" CellEditEnded="customTablePlaylistSummary_CellEditEnded" PreviewDragOver="customTablePlaylistSummary_PreviewDragOver" PreviewDragLeave="customTablePlaylistSummary_PreviewDragLeave" Drop="customTablePlaylistSummary_Drop" Visibility="{Binding IsPlaylistSummaryMode, Converter={StaticResource booleanToVisibilityCollapsedConverter}}">
             <v:CustomTableView.Resources>
-              <Style TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource MainWindowBottomEdgeScrollBarStyle}" />
+              <Style x:Key="App.Canonical.ListScrollBarStyle" TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource MainWindowListScrollBarStyle}" />
             </v:CustomTableView.Resources>
           </v:CustomTableView>
           <Grid Name="gridTreePane" Margin="0" Grid.Row="1" Grid.RowSpan="3" Background="{DynamicResource App.BackgroundBrush}" TreeViewItem.Selected="gridTreePane_TreeViewItemSelected">

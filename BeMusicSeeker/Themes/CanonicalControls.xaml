@@ -482,9 +482,12 @@
   <!-- 透明な16 DIPの入力領域は固定し、hover/dragでは内部の描画だけを広げる。 -->
   <ControlTemplate x:Key="App.Canonical.VerticalScrollBarTemplate" TargetType="{x:Type ScrollBar}">
     <Grid x:Name="ScrollBarRoot" Background="Transparent" SnapsToDevicePixels="True" ClipToBounds="True">
-      <Border x:Name="TrackChrome" Background="{DynamicResource ScrollBar.TrackBackgroundBrush}" Opacity="0" IsHitTestVisible="False" />
+      <!-- 背景は長手方向の帯で、外端を固定して内側へ広げる。Paddingは外枠補正として背景とつまみへ一回だけ渡す。 -->
+      <Border x:Name="TrackChrome" Width="7" HorizontalAlignment="Right"
+              Margin="{TemplateBinding Padding}"
+              Background="{DynamicResource ScrollBar.TrackBackgroundBrush}" Opacity="0" IsHitTestVisible="False" />
       <!-- 最短28 DIPのTrackを極小時だけ縮め、WPF標準Trackの最小サム計算とドラッグを保つ。 -->
-      <Viewbox Stretch="Fill" StretchDirection="DownOnly">
+      <Viewbox x:Name="TrackHost" Stretch="Fill" StretchDirection="DownOnly">
         <Track x:Name="PART_Track" Width="16" MinHeight="28"
                Height="{Binding ActualHeight, RelativeSource={RelativeSource TemplatedParent}}" Orientation="Vertical" IsDirectionReversed="True" ClipToBounds="True">
           <Track.Resources>
@@ -500,12 +503,20 @@
               <Thumb.Template>
                 <ControlTemplate TargetType="{x:Type Thumb}">
                   <Grid Background="Transparent" ClipToBounds="True">
-                    <Border x:Name="ThumbChrome" Width="3" HorizontalAlignment="Right"
-                            Margin="{Binding Padding, RelativeSource={RelativeSource AncestorType={x:Type ScrollBar}}}"
-                            Background="{DynamicResource ScrollBar.ThumbBackgroundBrush}" />
+                    <!-- 外枠補正を背景と同じ基準で適用し、背景内の両側2 DIPはつまみの外側Marginで確保する。 -->
+                    <Grid Margin="{Binding Padding, RelativeSource={RelativeSource AncestorType={x:Type ScrollBar}}}">
+                      <Border x:Name="ThumbChrome" Width="3" HorizontalAlignment="Right"
+                              Margin="0,0,2,0"
+                              Background="{DynamicResource ScrollBar.ThumbBackgroundBrush}" />
+                    </Grid>
                   </Grid>
                   <ControlTemplate.Triggers>
+                    <!-- 背景の拡大条件と同じhover/Track内captureで拡大し、drag色を最後に適用して優先する。 -->
                     <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType={x:Type ScrollBar}}}" Value="True">
+                      <Setter TargetName="ThumbChrome" Property="Width" Value="8" />
+                      <Setter TargetName="ThumbChrome" Property="Background" Value="{DynamicResource ScrollBar.ThumbHoverBackgroundBrush}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding IsMouseCaptureWithin, RelativeSource={RelativeSource AncestorType={x:Type Track}}}" Value="True">
                       <Setter TargetName="ThumbChrome" Property="Width" Value="8" />
                       <Setter TargetName="ThumbChrome" Property="Background" Value="{DynamicResource ScrollBar.ThumbHoverBackgroundBrush}" />
                     </DataTrigger>
@@ -531,19 +542,43 @@
     </Grid>
     <ControlTemplate.Triggers>
       <Trigger Property="IsMouseOver" Value="True">
+        <Setter TargetName="TrackChrome" Property="Width" Value="12" />
         <Setter TargetName="TrackChrome" Property="Opacity" Value="0.35" />
       </Trigger>
       <Trigger SourceName="PART_Track" Property="IsMouseCaptureWithin" Value="True">
+        <Setter TargetName="TrackChrome" Property="Width" Value="12" />
         <Setter TargetName="TrackChrome" Property="Opacity" Value="0.35" />
       </Trigger>
+      <!-- 一覧用は状態によらず背景を不透明に保つため、半透明化より後に適用する。 -->
+      <Trigger Property="v:ScrollBarChrome.IsOpaqueBackground" Value="True">
+        <Setter TargetName="TrackChrome" Property="Opacity" Value="1" />
+      </Trigger>
+      <!-- 無効表示は既存用では全体、一覧用では背景を除くつまみ側だけへ掛ける。 -->
+      <MultiTrigger>
+        <MultiTrigger.Conditions>
+          <Condition Property="IsEnabled" Value="False" />
+          <Condition Property="v:ScrollBarChrome.IsOpaqueBackground" Value="False" />
+        </MultiTrigger.Conditions>
+        <Setter TargetName="ScrollBarRoot" Property="Opacity" Value="0.55" />
+      </MultiTrigger>
+      <MultiTrigger>
+        <MultiTrigger.Conditions>
+          <Condition Property="IsEnabled" Value="False" />
+          <Condition Property="v:ScrollBarChrome.IsOpaqueBackground" Value="True" />
+        </MultiTrigger.Conditions>
+        <Setter TargetName="TrackHost" Property="Opacity" Value="0.55" />
+      </MultiTrigger>
     </ControlTemplate.Triggers>
   </ControlTemplate>
 
   <ControlTemplate x:Key="App.Canonical.HorizontalScrollBarTemplate" TargetType="{x:Type ScrollBar}">
     <Grid x:Name="ScrollBarRoot" Background="Transparent" SnapsToDevicePixels="True" ClipToBounds="True">
-      <Border x:Name="TrackChrome" Background="{DynamicResource ScrollBar.TrackBackgroundBrush}" Opacity="0" IsHitTestVisible="False" />
+      <!-- 背景は長手方向の帯で、外端を固定して内側へ広げる。Paddingは外枠補正として背景とつまみへ一回だけ渡す。 -->
+      <Border x:Name="TrackChrome" Height="7" VerticalAlignment="Bottom"
+              Margin="{TemplateBinding Padding}"
+              Background="{DynamicResource ScrollBar.TrackBackgroundBrush}" Opacity="0" IsHitTestVisible="False" />
       <!-- 最短28 DIPのTrackを極小時だけ縮め、WPF標準Trackの最小サム計算とドラッグを保つ。 -->
-      <Viewbox Stretch="Fill" StretchDirection="DownOnly">
+      <Viewbox x:Name="TrackHost" Stretch="Fill" StretchDirection="DownOnly">
         <Track x:Name="PART_Track" Height="16" MinWidth="28"
                Width="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}" Orientation="Horizontal" ClipToBounds="True">
           <Track.Resources>
@@ -559,12 +594,20 @@
               <Thumb.Template>
                 <ControlTemplate TargetType="{x:Type Thumb}">
                   <Grid Background="Transparent" ClipToBounds="True">
-                    <Border x:Name="ThumbChrome" Height="3" VerticalAlignment="Bottom"
-                            Margin="{Binding Padding, RelativeSource={RelativeSource AncestorType={x:Type ScrollBar}}}"
-                            Background="{DynamicResource ScrollBar.ThumbBackgroundBrush}" />
+                    <!-- 外枠補正を背景と同じ基準で適用し、背景内の両側2 DIPはつまみの外側Marginで確保する。 -->
+                    <Grid Margin="{Binding Padding, RelativeSource={RelativeSource AncestorType={x:Type ScrollBar}}}">
+                      <Border x:Name="ThumbChrome" Height="3" VerticalAlignment="Bottom"
+                              Margin="0,0,0,2"
+                              Background="{DynamicResource ScrollBar.ThumbBackgroundBrush}" />
+                    </Grid>
                   </Grid>
                   <ControlTemplate.Triggers>
+                    <!-- 背景の拡大条件と同じhover/Track内captureで拡大し、drag色を最後に適用して優先する。 -->
                     <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType={x:Type ScrollBar}}}" Value="True">
+                      <Setter TargetName="ThumbChrome" Property="Height" Value="8" />
+                      <Setter TargetName="ThumbChrome" Property="Background" Value="{DynamicResource ScrollBar.ThumbHoverBackgroundBrush}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding IsMouseCaptureWithin, RelativeSource={RelativeSource AncestorType={x:Type Track}}}" Value="True">
                       <Setter TargetName="ThumbChrome" Property="Height" Value="8" />
                       <Setter TargetName="ThumbChrome" Property="Background" Value="{DynamicResource ScrollBar.ThumbHoverBackgroundBrush}" />
                     </DataTrigger>
@@ -590,11 +633,32 @@
     </Grid>
     <ControlTemplate.Triggers>
       <Trigger Property="IsMouseOver" Value="True">
+        <Setter TargetName="TrackChrome" Property="Height" Value="12" />
         <Setter TargetName="TrackChrome" Property="Opacity" Value="0.35" />
       </Trigger>
       <Trigger SourceName="PART_Track" Property="IsMouseCaptureWithin" Value="True">
+        <Setter TargetName="TrackChrome" Property="Height" Value="12" />
         <Setter TargetName="TrackChrome" Property="Opacity" Value="0.35" />
       </Trigger>
+      <!-- 一覧用は状態によらず背景を不透明に保つため、半透明化より後に適用する。 -->
+      <Trigger Property="v:ScrollBarChrome.IsOpaqueBackground" Value="True">
+        <Setter TargetName="TrackChrome" Property="Opacity" Value="1" />
+      </Trigger>
+      <!-- 無効表示は既存用では全体、一覧用では背景を除くつまみ側だけへ掛ける。 -->
+      <MultiTrigger>
+        <MultiTrigger.Conditions>
+          <Condition Property="IsEnabled" Value="False" />
+          <Condition Property="v:ScrollBarChrome.IsOpaqueBackground" Value="False" />
+        </MultiTrigger.Conditions>
+        <Setter TargetName="ScrollBarRoot" Property="Opacity" Value="0.55" />
+      </MultiTrigger>
+      <MultiTrigger>
+        <MultiTrigger.Conditions>
+          <Condition Property="IsEnabled" Value="False" />
+          <Condition Property="v:ScrollBarChrome.IsOpaqueBackground" Value="True" />
+        </MultiTrigger.Conditions>
+        <Setter TargetName="TrackHost" Property="Opacity" Value="0.55" />
+      </MultiTrigger>
     </ControlTemplate.Triggers>
   </ControlTemplate>
 
@@ -1204,8 +1268,8 @@
     <Setter Property="MinHeight" Value="0" />
     <Setter Property="Stylus.IsFlicksEnabled" Value="False" />
     <Setter Property="Width" Value="16" />
-    <!-- Paddingはつまみ描画の横断方向だけに使い、入力領域とTrackの測定寸法は変えない。 -->
-    <Setter Property="Padding" Value="0,0,2,0" />
+    <!-- Paddingは背景とつまみの描画だけに渡す外枠補正で、入力領域とTrackの測定寸法は変えない。 -->
+    <Setter Property="Padding" Value="0" />
     <Setter Property="Background" Value="{DynamicResource ScrollBar.TrackBackgroundBrush}" />
     <Setter Property="Foreground" Value="{DynamicResource ScrollBar.ArrowBrush}" />
     <Setter Property="Template" Value="{StaticResource App.Canonical.VerticalScrollBarTemplate}" />
@@ -1213,13 +1277,14 @@
       <Trigger Property="Orientation" Value="Horizontal">
         <Setter Property="Width" Value="Auto" />
         <Setter Property="Height" Value="16" />
-        <Setter Property="Padding" Value="0,0,0,2" />
         <Setter Property="Template" Value="{StaticResource App.Canonical.HorizontalScrollBarTemplate}" />
       </Trigger>
-      <Trigger Property="IsEnabled" Value="False">
-        <Setter Property="Opacity" Value="0.55" />
-      </Trigger>
     </Style.Triggers>
+  </Style>
+
+  <!-- 一覧本体用。背景を細い状態から不透明に表示し、テンプレートとTrackは既存用と共有する。 -->
+  <Style x:Key="App.Canonical.ListScrollBarStyle" TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource App.Canonical.ScrollBarStyle}">
+    <Setter Property="v:ScrollBarChrome.IsOpaqueBackground" Value="True" />
   </Style>
 
   <Style x:Key="App.Canonical.ScrollViewerStyle" TargetType="{x:Type ScrollViewer}" BasedOn="{x:Null}">

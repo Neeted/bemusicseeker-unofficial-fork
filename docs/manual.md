@@ -527,6 +527,8 @@ You can use field specifiers such as `title:`, `artist:`, `playlist:`, and `rate
 
 Click a column header to sort. Many columns can be displayed, including `TITLE`, `ARTIST`, `PATH`, `LEVEL`, and `CLEAR`. Column visibility and order can be changed from the header context menu.
 
+The scroll bars of every list (library list, pending list, playlist detail, play log, and playlist summary) show the scroll thumb on an opaque background even in the thin state. When you hover over or drag the bar, the background and thumb widen inward while keeping the outer edge fixed, leaving equal margins on both sides of the thumb.
+
 ### Selecting and Editing Rows
 
 Click for one row, `Ctrl + click` to toggle individual rows, `Shift + click` for a range, and `Ctrl + A` for all rows. Use Up / Down to move between rows and `Shift + Up / Down` to extend the range. While not editing, Left / Right moves to the previous or next visible cell in the same row without changing the selected rows. Movement stops at the first or last column and scrolls horizontally to reveal an off-screen destination. Up / Down keeps the same column. Press F2 or type to edit the current editable cell; while editing, Left / Right remains available in the text box. At the minimum width of 40 DIPs, click the icon in a URL column to retrieve its linked content. Widen the column to display the URL as text; editable cells support another click, F2, or typing to edit, just like other cells.

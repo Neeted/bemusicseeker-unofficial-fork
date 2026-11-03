@@ -533,7 +533,8 @@ public sealed class SettingsControlPresentationTests
                     "Representative ScrollViewer horizontal content");
                 verticalScrollBar.IsEnabled = false;
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.IsTrue(verticalScrollBar.Opacity < 1d);
+                verticalScrollBar.ApplyTemplate();
+                Assert.IsTrue(((FrameworkElement)verticalScrollBar.Template.FindName("ScrollBarRoot", verticalScrollBar)).Opacity < 1d);
 
                 textBox.ApplyTemplate();
                 var textContentHost = (ScrollViewer)textBox.Template.FindName("PART_ContentHost", textBox);

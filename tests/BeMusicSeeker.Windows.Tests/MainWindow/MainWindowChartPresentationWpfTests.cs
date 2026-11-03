@@ -661,7 +661,60 @@ public sealed class MainWindowChartPresentationWpfTests
                     track.Thumb.ApplyTemplate();
                     var thumbChrome = (Border)track.Thumb.Template.FindName("ThumbChrome", track.Thumb);
                     Assert.AreSame(table.FindResource("ScrollBar.ThumbBackgroundBrush"), thumbChrome.Background);
+                    AssertListScrollBarGeometry(table, bar, trackChrome, thumbChrome, tableWidth, tableHeight);
                 }
+                AssertListScrollBarHitTesting(table, verticalScrollBar, horizontalScrollBar);
+
+                // 無効時も背景の実効Opacityは1のまま、無効表示はつまみ側だけに掛かる。
+                foreach (ScrollBar bar in new[] { verticalScrollBar, horizontalScrollBar })
+                {
+                    var trackChrome = (Border)bar.Template.FindName("TrackChrome", bar);
+                    var track = (Track)bar.Template.FindName("PART_Track", bar);
+                    var thumbChrome = (Border)track.Thumb.Template.FindName("ThumbChrome", track.Thumb);
+                    double enabledThumbOpacity = GetEffectiveOpacity(thumbChrome, table);
+                    bar.IsEnabled = false;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(1d, GetEffectiveOpacity(trackChrome, table), 0.0001d, "無効時も一覧の背景は不透明のまま。");
+                    Assert.IsTrue(GetEffectiveOpacity(thumbChrome, table) < enabledThumbOpacity, "無効表示はつまみ側へ限定する。");
+                    Assert.AreNotSame(table.FindResource("ScrollBar.ThumbBackgroundBrush"), thumbChrome.Background);
+                    bar.IsEnabled = true;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                }
+
+                // テーマを戻しても背景とつまみが追随し、選択・スクロール位置は表を作り直さず保たれる。
+                table.SelectedIndex = 3;
+                verticalScrollBar.Value = 2d;
+                horizontalScrollBar.Value = 10d;
+                // 本番の編集入口（F2）で編集を始め、入力途中のdraftがテーマ切替後も同じeditorに残ることを確認する。
+                RaiseKey(table, Key.F2);
+                TextBox editorBefore = GetInstalledEditor(table) ?? throw new AssertFailedException("編集controlへ到達しませんでした。");
+                editorBefore.Text = "draft-before-theme-switch";
+                CustomTableColumn contractColumn = table.Columns.Single();
+                Assert.IsTrue(table.IsCurrentCell(3, contractColumn));
+                int selectedBefore = table.SelectedIndex;
+                int firstRowBefore = table.FirstVisibleRowIndex;
+                double horizontalOffsetBefore = table.HorizontalOffset;
+                Settings.Default.AppearanceTheme = previousTheme;
+                application.Resources.Remove(trackBackgroundResourceKey);
+                AppThemeService.ApplyTheme(previousTheme);
+                FlushResourceUpdates(table);
+                object restoredTrackBackground = table.FindResource(trackBackgroundResourceKey);
+                Assert.AreNotSame(switchedThemeTrackBackground, restoredTrackBackground);
+                foreach (ScrollBar bar in new[] { verticalScrollBar, horizontalScrollBar })
+                {
+                    var trackChrome = (Border)bar.Template.FindName("TrackChrome", bar);
+                    var track = (Track)bar.Template.FindName("PART_Track", bar);
+                    var thumbChrome = (Border)track.Thumb.Template.FindName("ThumbChrome", track.Thumb);
+                    Assert.AreSame(restoredTrackBackground, trackChrome.Background);
+                    Assert.AreSame(table.FindResource("ScrollBar.ThumbBackgroundBrush"), thumbChrome.Background);
+                }
+                Assert.AreEqual(selectedBefore, table.SelectedIndex);
+                Assert.AreEqual(firstRowBefore, table.FirstVisibleRowIndex);
+                Assert.AreEqual(horizontalOffsetBefore, table.HorizontalOffset, 0.0001d);
+                Assert.IsTrue(table.IsCurrentCell(3, contractColumn));
+                Assert.AreSame(editorBefore, GetInstalledEditor(table));
+                Assert.AreEqual("draft-before-theme-switch", editorBefore.Text);
+                RaiseKey(table, Key.Escape);
             }
             finally
             {
@@ -683,6 +736,272 @@ public sealed class MainWindowChartPresentationWpfTests
                 }
             }
         });
+    }
+
+    /// <summary>
+    /// 実MainWindowの一覧2表で、背景とつまみが可視外枠の内縁から同じ補正で配置され、進捗行の有無で下端だけが変わることを確認します。
+    /// ツリーのバーは同じ外枠補正を受けます。候補Popupへの非波及は、起動中の操作受付に依存しない別ケースで確認します。
+    /// </summary>
+    [TestMethod]
+    public void MainWindowListScrollBars_AlignBothTablesToVisibleFrameAndKeepPopupOnSharedStyle()
+    {
+        WithSimpleTextBoxStyles(() => MainWindowPresentationTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(), (scope, viewModel, window) =>
+            {
+                WithPresentedMainWindow(scope, window, () =>
+                {
+                    var frame = (Border)window.FindName("windowChromeFrame");
+                    var mainTable = (CustomTableView)window.FindName("customTableView");
+                    var summaryTable = (CustomTableView)window.FindName("customTablePlaylistSummary");
+                    foreach (CustomTableView table in new[] { mainTable, summaryTable })
+                    {
+                        table.HeaderHeight = 0d;
+                        table.RowHeight = 20d;
+                        table.Columns = [CreateScrollBarContractColumn(6000d)];
+                        table.ItemsSource = Enumerable.Range(0, 400).Select(_ => new object()).ToList();
+                    }
+
+                    // 進捗行なし: 右端と下端の双方が外枠の内縁へ接する。
+                    Assert.IsFalse(viewModel.ProgressHub.HasRows);
+                    AssertTableBarsAlignedToFrame(window, frame, mainTable, bottomCorrection: true);
+                    viewModel.PlaylistWorkspace.SetPlaylistSummaryMode(true);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    AssertTableBarsAlignedToFrame(window, frame, summaryTable, bottomCorrection: true);
+
+                    // 進捗行あり: 表の下に行が入り、横バーの下端補正は0に戻る。縦バーの右端補正は変わらない。
+                    viewModel.ProgressHub.BeginStartupBackgroundInitializationPresentation(1, 1);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsTrue(viewModel.ProgressHub.HasRows);
+                    AssertTableBarsAlignedToFrame(window, frame, summaryTable, bottomCorrection: false);
+                    viewModel.PlaylistWorkspace.SetPlaylistSummaryMode(false);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    AssertTableBarsAlignedToFrame(window, frame, mainTable, bottomCorrection: false);
+                    viewModel.ProgressHub.ResetStartupBackgroundInitializationPresentation();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsFalse(viewModel.ProgressHub.HasRows);
+                    AssertTableBarsAlignedToFrame(window, frame, mainTable, bottomCorrection: true);
+
+                    // Style未指定のバーが表の資源範囲から暗黙解決されても、一覧用にも外枠補正にもならない（暗黙Styleの再導入を検出する）。
+                    foreach (CustomTableView table in new[] { mainTable, summaryTable })
+                    {
+                        // Style未指定と、共通キーを参照するバー（表Resourcesに同名の別名があれば一覧用が漏れる）の双方を確認する。
+                        var implicitBar = new ScrollBar { Orientation = Orientation.Vertical };
+                        var keyedBar = new ScrollBar { Orientation = Orientation.Vertical };
+                        keyedBar.SetResourceReference(FrameworkElement.StyleProperty, "App.Canonical.ScrollBarStyle");
+                        table.Children.Add(implicitBar);
+                        table.Children.Add(keyedBar);
+                        try
+                        {
+                            window.UpdateLayout();
+                            foreach (ScrollBar bar in new[] { implicitBar, keyedBar })
+                            {
+                                Assert.IsFalse(ScrollBarChrome.GetIsOpaqueBackground(bar), $"{table.Name}: 表以外のバーへ一覧用を波及させない。");
+                                Assert.AreEqual(new Thickness(0d), bar.Padding, $"{table.Name}: 表以外のバーへ外枠補正を波及させない。");
+                            }
+                        }
+                        finally
+                        {
+                            table.Children.Remove(implicitBar);
+                            table.Children.Remove(keyedBar);
+                        }
+                    }
+
+                    // ツリーのStyleを当てたprobeで、外枠補正の各分岐をPaddingと背景の実矩形で確認する。
+                    var upperStyle = (Style)((TreeView)window.FindName("treeViewPlaylist")).Resources["App.Canonical.ScrollBarStyle"];
+                    var lowerStyle = (Style)((TreeView)window.FindName("treeView")).Resources["App.Canonical.ScrollBarStyle"];
+                    var treePane = (Grid)window.FindName("gridTreePane");
+
+                    // 1. MainWindow内・Popup外: 縦は右1。横の下端は上側0、下側は進捗行なしで1。
+                    AssertProbe(treePane, window, upperStyle, Orientation.Vertical, 1d, "上側ツリー縦");
+                    AssertProbe(treePane, window, upperStyle, Orientation.Horizontal, 0d, "上側ツリー横");
+                    AssertProbe(treePane, window, lowerStyle, Orientation.Vertical, 1d, "下側ツリー縦");
+                    AssertProbe(treePane, window, lowerStyle, Orientation.Horizontal, 1d, "下側ツリー横・進捗行なし");
+
+                    // 4. 進捗行あり: 下側ツリーの下端は0に戻り、縦の右端1は変わらない。
+                    viewModel.ProgressHub.BeginStartupBackgroundInitializationPresentation(1, 1);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    AssertProbe(treePane, window, lowerStyle, Orientation.Horizontal, 0d, "下側ツリー横・進捗行あり");
+                    AssertProbe(treePane, window, lowerStyle, Orientation.Vertical, 1d, "下側ツリー縦・進捗行あり");
+                    viewModel.ProgressHub.ResetStartupBackgroundInitializationPresentation();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                    // 2. Popup内: MainWindowの論理木へ接続していても縦横とも補正0。
+                    // Popup分岐がなければ、同じ位置・条件（右端、進捗行なしの下端）で補正1になる。
+                    var popupHost = new StackPanel();
+                    var popup = new Popup { PlacementTarget = treePane, Child = popupHost };
+                    treePane.Children.Add(popup);
+                    try
+                    {
+                        DependencyObject? logicalAncestor = popupHost;
+                        while (logicalAncestor is not null and not MainWindow) { logicalAncestor = LogicalTreeHelper.GetParent(logicalAncestor); }
+                        Assert.AreSame(window, logicalAncestor, "Popup内のprobeがMainWindowへ論理的に到達する。");
+                        foreach (Orientation orientation in new[] { Orientation.Vertical, Orientation.Horizontal })
+                        {
+                            popupHost.Children.Clear();
+                            AssertProbeIn(popupHost, lowerStyle, orientation, 0d, $"Popup内{orientation}");
+                        }
+                    }
+                    finally
+                    {
+                        treePane.Children.Remove(popup);
+                    }
+
+                    // 3. MainWindow祖先なし: 別Windowの配置では縦横とも補正0（進捗行なし扱いにしない）。
+                    var otherWindow = new Window { Resources = window.Resources };
+                    var otherHost = new Grid();
+                    otherWindow.Content = otherHost;
+                    foreach (Orientation orientation in new[] { Orientation.Vertical, Orientation.Horizontal })
+                    {
+                        otherHost.Children.Clear();
+                        AssertProbeIn(otherHost, lowerStyle, orientation, 0d, $"祖先なし{orientation}");
+                    }
+                });
+            }));
+    }
+
+    /// <summary>
+    /// 本番の編集入口が生成した候補Popup内のバーが、一覧用にも外枠補正にもならず、通常背景を表示せず枠内2 DIPにつまみを置くことを確認します。
+    /// 実MainWindowのF2は操作受付と実モーダル警告に依存するため、同じ編集入口を持つ表単体で確認し、MainWindowの補正は別ケースが担います。
+    /// </summary>
+    [TestMethod]
+    public void CustomTableEditSuggestionPopup_KeepsSharedScrollBarStyle()
+    {
+        WithSimpleTextBoxStyles(() => TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ChartFile chart = ChartFileProjection.WithPackageState(
+                ChartTestValues.Empty(), string.Empty, string.Empty, string.Empty,
+                [.. Enumerable.Range(0, 40).Select(index => $@"C:\scrollbar-popup\candidate{index}")], []);
+            var row = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(chart));
+            var settings = new CustomTableColumnSettings();
+            settings.InstallDst.Visibility = Visibility.Visible;
+            CustomTableColumn[] columns = [.. CustomTableColumnFactory.CreateMainColumns(settings).Where(column => column.Id == "InstallDst")];
+            var table = new CustomTableView { Width = 480, Height = 110, HeaderHeight = 20, RowHeight = 40, ColumnsSettings = settings, Columns = columns, ItemsSource = new[] { row } };
+            var popup = (Popup)(typeof(CustomTableView).GetField("editSuggestionPopup", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.GetValue(table)
+                ?? throw new InvalidOperationException("候補Popupが見つかりません。"));
+            scope.TrackPopup(popup);
+            try
+            {
+                scope.ShowAndWaitForContentRendered(new Window { Width = 520, Height = 160, Content = table });
+                var point = new Point(15d, 35d);
+                Assert.IsTrue(table.HandleCellMouseDown(table.HitTestTable(point), MouseButton.Left, ModifierKeys.None, 1, point));
+                Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                Assert.IsTrue(table.HandleKeyDown(Key.Down, ModifierKeys.None));
+                Assert.IsTrue(popup.IsOpen);
+                var popupFrame = (Border)popup.Child;
+                FindVisualDescendants<ListBox>(popupFrame).Single().MaxHeight = 80d;
+                popupFrame.Measure(new Size(400d, 400d));
+                popupFrame.Arrange(new Rect(0d, 0d, 400d, popupFrame.DesiredSize.Height));
+                popupFrame.UpdateLayout();
+                ScrollBar bar = FindVisualDescendants<ScrollBar>(popupFrame).Single(candidate => candidate.Orientation == Orientation.Vertical && candidate.Visibility == Visibility.Visible);
+                Assert.IsFalse(ScrollBarChrome.GetIsOpaqueBackground(bar), "候補Popupへ一覧用の背景を波及させない。");
+                Assert.AreEqual(new Thickness(0d), bar.Padding);
+                bar.ApplyTemplate();
+                Assert.AreEqual(0d, ((Border)bar.Template.FindName("TrackChrome", bar)).Opacity, "通常背景は非表示。");
+                var track = (Track)bar.Template.FindName("PART_Track", bar);
+                track.Thumb.ApplyTemplate();
+                var thumb = (Border)track.Thumb.Template.FindName("ThumbChrome", track.Thumb);
+                Rect thumbBounds = thumb.TransformToAncestor(popupFrame).TransformBounds(new Rect(thumb.RenderSize));
+                Assert.AreEqual(2d, popupFrame.ActualWidth - popupFrame.BorderThickness.Right - thumbBounds.Right, 0.25d, "枠内2 DIP。");
+            }
+            finally { table.HandleKeyDown(Key.Escape, ModifierKeys.None); table.ItemsSource = null; }
+        }));
+    }
+
+    /// <summary>ツリー用StyleのバーをMainWindow内の配置先へ置き、外枠補正と背景の外端の位置を実矩形で確認します。</summary>
+    private static void AssertProbe(Panel host, MainWindow window, Style style, Orientation orientation, double expectedCorrection, string description)
+    {
+        var probe = new ScrollBar { Orientation = orientation, Style = style, VerticalAlignment = VerticalAlignment.Top, HorizontalAlignment = HorizontalAlignment.Left };
+        if (orientation == Orientation.Vertical) { probe.Height = 100d; } else { probe.Width = 100d; }
+        host.Children.Add(probe);
+        try
+        {
+            window.UpdateLayout();
+            AssertProbeGeometry(probe, expectedCorrection, description);
+        }
+        finally
+        {
+            host.Children.Remove(probe);
+        }
+    }
+
+    /// <summary>MainWindow外（Popup・別Window）の配置先へ置いたバーを手動で配置し、外枠補正と背景の外端の位置を確認します。</summary>
+    private static void AssertProbeIn(Panel host, Style style, Orientation orientation, double expectedCorrection, string description)
+    {
+        var probe = new ScrollBar { Orientation = orientation, Style = style };
+        if (orientation == Orientation.Vertical) { probe.Height = 100d; } else { probe.Width = 100d; }
+        host.Children.Add(probe);
+        host.Measure(new Size(200d, 200d));
+        host.Arrange(new Rect(0d, 0d, 200d, 200d));
+        host.UpdateLayout();
+        AssertProbeGeometry(probe, expectedCorrection, description);
+    }
+
+    private static void AssertProbeGeometry(ScrollBar probe, double expectedCorrection, string description)
+    {
+        Assert.IsFalse(ScrollBarChrome.GetIsOpaqueBackground(probe), $"{description}: ツリー用は既存用の背景種別。");
+        bool isVertical = probe.Orientation == Orientation.Vertical;
+        Assert.AreEqual(expectedCorrection, isVertical ? probe.Padding.Right : probe.Padding.Bottom, 0.0001d, $"{description}: Padding");
+        probe.ApplyTemplate();
+        var background = (Border)probe.Template.FindName("TrackChrome", probe);
+        Rect bounds = background.TransformToAncestor(probe).TransformBounds(new Rect(background.RenderSize));
+        Assert.AreEqual(isVertical ? probe.ActualWidth - expectedCorrection : probe.ActualHeight - expectedCorrection,
+            isVertical ? bounds.Right : bounds.Bottom, 0.25d, $"{description}: 背景の外端");
+    }
+
+    /// <summary>
+    /// 表の縦横バーの背景とつまみを実矩形で測り、背景の外端が可視外枠の内縁と一致すること、下端だけが進捗行の有無で補正されることを確認します。
+    /// 右端は常に外枠へ接し、背景7 DIP・つまみ3 DIP・両側各2 DIPが成立します。
+    /// </summary>
+    private static void AssertTableBarsAlignedToFrame(MainWindow window, Border frame, CustomTableView table, bool bottomCorrection)
+    {
+        window.UpdateLayout();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
+        ScrollBar vertical = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == Orientation.Vertical);
+        ScrollBar horizontal = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == Orientation.Horizontal);
+        Assert.AreEqual(Visibility.Visible, vertical.Visibility);
+        Assert.AreEqual(Visibility.Visible, horizontal.Visibility);
+        Assert.IsTrue(ScrollBarChrome.GetIsOpaqueBackground(vertical) && ScrollBarChrome.GetIsOpaqueBackground(horizontal),
+            $"{table.Name}の縦横とも一覧用。");
+        // 外枠は表の祖先ではない兄弟なので、Window座標で可視枠の内縁を求める。
+        Rect frameBounds = frame.TransformToAncestor(window).TransformBounds(new Rect(frame.RenderSize));
+        double frameRight = frameBounds.Right - frame.BorderThickness.Right;
+        double frameBottom = frameBounds.Bottom - frame.BorderThickness.Bottom;
+        foreach (ScrollBar bar in new[] { vertical, horizontal })
+        {
+            bar.ApplyTemplate();
+            var background = (Border)bar.Template.FindName("TrackChrome", bar);
+            var track = (Track)bar.Template.FindName("PART_Track", bar);
+            track.Thumb.ApplyTemplate();
+            var thumb = (Border)track.Thumb.Template.FindName("ThumbChrome", track.Thumb);
+            Rect backgroundBounds = background.TransformToAncestor(window).TransformBounds(new Rect(background.RenderSize));
+            Rect thumbBounds = thumb.TransformToAncestor(window).TransformBounds(new Rect(thumb.RenderSize));
+            Assert.AreEqual(1d, GetEffectiveOpacity(background, window), 0.0001d, $"{table.Name}: 背景は不透明。");
+            if (bar.Orientation == Orientation.Vertical)
+            {
+                Assert.AreEqual(frameRight, backgroundBounds.Right, 0.25d, $"{table.Name}: 縦バーの背景は可視枠の右内縁。");
+                Assert.AreEqual(7d, backgroundBounds.Width, 0.25d);
+                Assert.AreEqual(3d, thumbBounds.Width, 0.25d);
+                Assert.AreEqual(2d, backgroundBounds.Right - thumbBounds.Right, 0.25d);
+                Assert.AreEqual(2d, thumbBounds.Left - backgroundBounds.Left, 0.25d);
+            }
+            else
+            {
+                if (bottomCorrection)
+                {
+                    Assert.AreEqual(frameBottom, backgroundBounds.Bottom, 0.25d, $"{table.Name}: 進捗行なしの横バー背景は可視枠の下内縁。");
+                }
+                else
+                {
+                    Assert.IsTrue(backgroundBounds.Bottom < frameBottom - 0.5d, $"{table.Name}: 進捗行ありは下枠に接しない。");
+                    Rect barBounds = bar.TransformToAncestor(window).TransformBounds(new Rect(bar.RenderSize));
+                    Assert.AreEqual(barBounds.Bottom, backgroundBounds.Bottom, 0.25d, $"{table.Name}: 補正0。");
+                }
+                Assert.AreEqual(7d, backgroundBounds.Height, 0.25d);
+                Assert.AreEqual(3d, thumbBounds.Height, 0.25d);
+                Assert.AreEqual(2d, backgroundBounds.Bottom - thumbBounds.Bottom, 0.25d);
+                Assert.AreEqual(2d, thumbBounds.Top - backgroundBounds.Top, 0.25d);
+            }
+        }
     }
 
     /// <summary>compiled検索TextBoxの編集を通常譜面のfilterへ配送し、editor内の値だけを更新して一覧検索へ届かない接続漏れを検出します。</summary>
@@ -2523,7 +2842,90 @@ public sealed class MainWindowChartPresentationWpfTests
             fallbackOrder: 0,
             sortMemberPath: null,
             alignment: TextAlignment.Left,
-            textSelector: _ => string.Empty);
+            textSelector: _ => string.Empty,
+            editPropertyName: "Contract");
+    }
+
+    /// <summary>
+    /// 一覧用の通常状態を実矩形で確認します。背景は不透明な7 DIPの長手帯で外端を表の内縁に固定し、つまみ3 DIPの両側に各2 DIPを残します。
+    /// </summary>
+    private static void AssertListScrollBarGeometry(
+        CustomTableView table,
+        ScrollBar bar,
+        Border background,
+        Border thumb,
+        double tableWidth,
+        double tableHeight)
+    {
+        Assert.IsInstanceOfType<SolidColorBrush>(background.Background);
+        Assert.AreEqual((byte)255, ((SolidColorBrush)background.Background).Color.A, "背景の色自体が不透明。");
+        Assert.AreEqual(1d, GetEffectiveOpacity(background, table), 0.0001d, "祖先を含む実効Opacityが1。");
+        Rect barBounds = bar.TransformToAncestor(table).TransformBounds(new Rect(bar.RenderSize));
+        Rect backgroundBounds = background.TransformToAncestor(table).TransformBounds(new Rect(background.RenderSize));
+        Rect thumbBounds = thumb.TransformToAncestor(table).TransformBounds(new Rect(thumb.RenderSize));
+        if (bar.Orientation == Orientation.Vertical)
+        {
+            Assert.AreEqual(16d, barBounds.Width, 0.01d, "入力領域は16 DIPのまま。");
+            Assert.AreEqual(7d, backgroundBounds.Width, 0.25d);
+            Assert.AreEqual(3d, thumbBounds.Width, 0.25d);
+            Assert.AreEqual(tableWidth, backgroundBounds.Right, 0.25d, "Windowなしでは外枠補正0で、背景は表の内縁に接する。");
+            Assert.AreEqual(barBounds.Height, backgroundBounds.Height, 0.25d, "背景は長手方向の帯。");
+            Assert.AreEqual(2d, thumbBounds.Left - backgroundBounds.Left, 0.25d);
+            Assert.AreEqual(2d, backgroundBounds.Right - thumbBounds.Right, 0.25d);
+        }
+        else
+        {
+            Assert.AreEqual(16d, barBounds.Height, 0.01d, "入力領域は16 DIPのまま。");
+            Assert.AreEqual(7d, backgroundBounds.Height, 0.25d);
+            Assert.AreEqual(3d, thumbBounds.Height, 0.25d);
+            Assert.AreEqual(tableHeight, backgroundBounds.Bottom, 0.25d, "Windowなしでは外枠補正0で、背景は表の内縁に接する。");
+            Assert.AreEqual(barBounds.Width, backgroundBounds.Width, 0.25d, "背景は長手方向の帯。");
+            Assert.AreEqual(2d, thumbBounds.Top - backgroundBounds.Top, 0.25d);
+            Assert.AreEqual(2d, backgroundBounds.Bottom - thumbBounds.Bottom, 0.25d);
+        }
+    }
+
+    /// <summary>透明な入力領域の実hit-testがバー自身へ届き、縦横の交点が縦バーへ属することを確認します。</summary>
+    private static void AssertListScrollBarHitTesting(CustomTableView table, ScrollBar vertical, ScrollBar horizontal)
+    {
+        Rect verticalBounds = vertical.TransformToAncestor(table).TransformBounds(new Rect(vertical.RenderSize));
+        Rect horizontalBounds = horizontal.TransformToAncestor(table).TransformBounds(new Rect(horizontal.RenderSize));
+        // 縦バーの背景左側にある透明部分と、横バーの背景上側にある透明部分。
+        Assert.AreSame(vertical, FindScrollBarAt(table, new Point(verticalBounds.Left + 1d, verticalBounds.Top + 8d)));
+        Assert.AreSame(horizontal, FindScrollBarAt(table, new Point(horizontalBounds.Left + 8d, horizontalBounds.Top + 1d)));
+        // 横バーの右端は縦バーと重ならず、交点は縦バーへ割り当てる。
+        Assert.AreEqual(verticalBounds.Left, horizontalBounds.Right, 0.01d);
+        Assert.AreSame(vertical, FindScrollBarAt(table, new Point(verticalBounds.Left + 8d, verticalBounds.Bottom - 8d)));
+    }
+
+    private static ScrollBar? FindScrollBarAt(UIElement root, Point point)
+    {
+        HitTestResult? result = VisualTreeHelper.HitTest(root, point);
+        for (DependencyObject? current = result?.VisualHit; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (current is ScrollBar bar)
+            {
+                return bar;
+            }
+        }
+        return null;
+    }
+
+    private static double GetEffectiveOpacity(UIElement element, UIElement ancestor)
+    {
+        double opacity = 1d;
+        for (DependencyObject? current = element; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (current is UIElement visual)
+            {
+                opacity *= visual.Opacity;
+            }
+            if (ReferenceEquals(current, ancestor))
+            {
+                break;
+            }
+        }
+        return opacity;
     }
 
     private static void MaterializeScrollBarContractTable(CustomTableView table, double width, double height)

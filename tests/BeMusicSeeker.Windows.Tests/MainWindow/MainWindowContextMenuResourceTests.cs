@@ -91,6 +91,7 @@ public sealed class MainWindowContextMenuResourceTests
                 Assert.AreEqual(2d, track.Orientation == Orientation.Vertical
                     ? scroller.ActualWidth - chromeBounds.Right
                     : scroller.ActualHeight - chromeBounds.Bottom, 0.25d, "つまみは所属枠の内側2 DIPに配置する。");
+                AssertRestingBackgroundAndThumb(scroller, track.Orientation == Orientation.Vertical ? vertical : horizontal, track);
                 Assert.AreEqual(track.Orientation == Orientation.Vertical ? HorizontalAlignment.Right : HorizontalAlignment.Stretch,
                     chrome.HorizontalAlignment);
                 if (track.Orientation == Orientation.Horizontal) { Assert.AreEqual(VerticalAlignment.Bottom, chrome.VerticalAlignment); }
@@ -102,18 +103,6 @@ public sealed class MainWindowContextMenuResourceTests
                     Assert.AreEqual((byte)0, ((SolidColorBrush)pageChrome.Background).Color.A);
                 }
                 Assert.IsTrue((track.Orientation == Orientation.Vertical ? track.Thumb.ActualHeight : track.Thumb.ActualWidth) >= 28d);
-                // hoverはScrollBar全体、dragはThumb自身から取り、外端を固定して内側だけへ拡張する。
-                TriggerBase[] triggers = track.Thumb.Template.Triggers.Cast<TriggerBase>().ToArray();
-                DataTrigger hover = triggers.OfType<DataTrigger>().Single();
-                var hoverBinding = (System.Windows.Data.Binding)hover.Binding;
-                Assert.AreEqual("IsMouseOver", hoverBinding.Path.Path);
-                Assert.AreEqual(typeof(ScrollBar), hoverBinding.RelativeSource.AncestorType);
-                Trigger drag = triggers.OfType<Trigger>().Single(trigger => trigger.Property == Thumb.IsDraggingProperty);
-                DependencyProperty thickness = track.Orientation == Orientation.Vertical ? FrameworkElement.WidthProperty : FrameworkElement.HeightProperty;
-                foreach (SetterBaseCollection setters in new[] { hover.Setters, drag.Setters })
-                {
-                    Assert.AreEqual(true, setters.Cast<Setter>().Any(setter => setter.TargetName == "ThumbChrome" && setter.Property == thickness && Equals(setter.Value, 8d)));
-                }
                 Assert.IsFalse(FindVisualDescendants<RepeatButton>(scroller).Any(button =>
                     ReferenceEquals(button.Command, ScrollBar.LineUpCommand) || ReferenceEquals(button.Command, ScrollBar.LineDownCommand)
                     || ReferenceEquals(button.Command, ScrollBar.LineLeftCommand) || ReferenceEquals(button.Command, ScrollBar.LineRightCommand)));
@@ -146,9 +135,12 @@ public sealed class MainWindowContextMenuResourceTests
                 Orientation.Horizontal,
                 "Canonical context horizontal scrollbar");
 
+            // 既存用は無効時にバー全体を減光し、通常時の背景は非表示のまま保つ。
             vertical.IsEnabled = false;
             TestUiDispatcherHost.ProcessQueuedPresentation();
-            Assert.IsTrue(vertical.Opacity < 1d);
+            Assert.IsTrue(((FrameworkElement)vertical.Template.FindName("ScrollBarRoot", vertical)).Opacity < 1d);
+            Assert.AreEqual(0d, ((Border)vertical.Template.FindName("TrackChrome", vertical)).Opacity);
+            vertical.IsEnabled = true;
 
             var content = (Border)scroller.Content;
             var presenter = (ScrollContentPresenter)scroller.Template.FindName("PART_ScrollContentPresenter", scroller);
@@ -212,9 +204,17 @@ public sealed class MainWindowContextMenuResourceTests
             var simpleVertical = (ScrollBar)scroller.Template.FindName("PART_VerticalScrollBar", scroller);
             Assert.AreEqual(180d, simplePresenter.ActualWidth, 0.01d);
             Assert.AreEqual(120d, simplePresenter.ActualHeight, 0.01d);
+            var simpleHorizontal = (ScrollBar)scroller.Template.FindName("PART_HorizontalScrollBar", scroller);
             Assert.AreEqual(16d, simpleVertical.ActualWidth, 0.01d);
-            simpleVertical.ApplyTemplate();
-            Assert.IsNotNull(simpleVertical.Template.FindName("PART_Track", simpleVertical));
+            Assert.AreEqual(16d, simpleHorizontal.ActualHeight, 0.01d);
+            // Simple辞書を共通定義より先に読んでも、遅延解決された同じテンプレートが両軸へ実体化される。
+            foreach (ScrollBar simpleBar in new[] { simpleVertical, simpleHorizontal })
+            {
+                simpleBar.ApplyTemplate();
+                var simpleTrack = (Track)simpleBar.Template.FindName("PART_Track", simpleBar);
+                Assert.IsNotNull(simpleTrack);
+                AssertRestingBackgroundAndThumb(scroller, simpleBar, simpleTrack);
+            }
 
             scroller.Visibility = Visibility.Collapsed;
             var list = new ListBox
@@ -275,6 +275,40 @@ public sealed class MainWindowContextMenuResourceTests
             AssertFrameThumbInset(submenuFrame, FindVisualDescendants<ScrollViewer>(submenuFrame).Single());
 
         });
+    }
+
+    /// <summary>
+    /// 通常状態の背景が非表示のまま7 DIPの長手帯として外端に固定され、つまみ3 DIPの両側に各2 DIPが残ることを実矩形で確認します。
+    /// 外枠補正は0のため、背景の外端は所属ScrollViewerの内縁と一致します。
+    /// </summary>
+    private static void AssertRestingBackgroundAndThumb(ScrollViewer owner, ScrollBar bar, Track track)
+    {
+        bool isVertical = bar.Orientation == Orientation.Vertical;
+        var background = (Border)bar.Template.FindName("TrackChrome", bar);
+        track.Thumb.ApplyTemplate();
+        var thumb = (Border)track.Thumb.Template.FindName("ThumbChrome", track.Thumb);
+        Assert.AreEqual(0d, background.Opacity, "既存用の通常背景は非表示。");
+        Rect barBounds = bar.TransformToAncestor(owner).TransformBounds(new Rect(bar.RenderSize));
+        Rect backgroundBounds = background.TransformToAncestor(owner).TransformBounds(new Rect(background.RenderSize));
+        Rect thumbBounds = thumb.TransformToAncestor(owner).TransformBounds(new Rect(thumb.RenderSize));
+        if (isVertical)
+        {
+            Assert.AreEqual(7d, backgroundBounds.Width, 0.25d);
+            Assert.AreEqual(3d, thumbBounds.Width, 0.25d);
+            Assert.AreEqual(owner.ActualWidth, backgroundBounds.Right, 0.25d, "背景の外端は所属枠の内縁に固定する。");
+            Assert.AreEqual(barBounds.Height, backgroundBounds.Height, 0.25d, "背景は長手方向の帯で、つまみの長さだけを囲わない。");
+            Assert.AreEqual(2d, thumbBounds.Left - backgroundBounds.Left, 0.25d);
+            Assert.AreEqual(2d, backgroundBounds.Right - thumbBounds.Right, 0.25d);
+        }
+        else
+        {
+            Assert.AreEqual(7d, backgroundBounds.Height, 0.25d);
+            Assert.AreEqual(3d, thumbBounds.Height, 0.25d);
+            Assert.AreEqual(owner.ActualHeight, backgroundBounds.Bottom, 0.25d, "背景の外端は所属枠の内縁に固定する。");
+            Assert.AreEqual(barBounds.Width, backgroundBounds.Width, 0.25d, "背景は長手方向の帯で、つまみの長さだけを囲わない。");
+            Assert.AreEqual(2d, thumbBounds.Top - backgroundBounds.Top, 0.25d);
+            Assert.AreEqual(2d, backgroundBounds.Bottom - thumbBounds.Bottom, 0.25d);
+        }
     }
 
     private static void AssertFrameThumbInset(Border frame, ScrollViewer viewer)
