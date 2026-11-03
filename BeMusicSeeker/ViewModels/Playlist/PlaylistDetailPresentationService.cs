@@ -9,6 +9,7 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal static class PlaylistDetailPresentationService
 {
+    /// <summary>元行へ検索・共通モード判定・整列を適用し、各段階の件数と所要時間を返します。</summary>
     internal static List<PlaylistDetailSourceRow> ApplySourceRows(
         IReadOnlyList<PlaylistDetailSourceRow> sourceRows,
         string keywordFilter,
@@ -40,28 +41,7 @@ internal static class PlaylistDetailPresentationService
         List<PlaylistDetailSourceRow> modeRows;
         if (modeFilter != ChartModeFilter.All)
         {
-            List<int?> modeFlag = [null];
-            if ((modeFilter & ChartModeFilter._5KEYS) == ChartModeFilter._5KEYS)
-            {
-                modeFlag.Add(5);
-            }
-            if ((modeFilter & ChartModeFilter._7KEYS) == ChartModeFilter._7KEYS)
-            {
-                modeFlag.Add(7);
-            }
-            if ((modeFilter & ChartModeFilter._9KEYS) == ChartModeFilter._9KEYS)
-            {
-                modeFlag.Add(9);
-            }
-            if ((modeFilter & ChartModeFilter._10KEYS) == ChartModeFilter._10KEYS)
-            {
-                modeFlag.Add(10);
-            }
-            if ((modeFilter & ChartModeFilter._14KEYS) == ChartModeFilter._14KEYS)
-            {
-                modeFlag.Add(14);
-            }
-            modeRows = [.. keywordRows.Where(file => modeFlag.Contains(file.mode))];
+            modeRows = [.. keywordRows.Where(row => modeFilter.Matches(row.mode))];
         }
         else
         {

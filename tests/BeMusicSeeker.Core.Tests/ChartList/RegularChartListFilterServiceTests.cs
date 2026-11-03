@@ -26,30 +26,34 @@ public sealed class RegularChartListFilterServiceTests
         Assert.AreEqual("Alpha Song", filtered[0].Title);
     }
 
-    /// <summary>7鍵盤指定では5鍵盤を除き、鍵盤不明の旧譜面を7鍵盤とともに元順で表示します。</summary>
+    /// <summary>7種・null・未列挙値の入力をAll、各単独、複合と5解除で絞り、元順と詳細25/50との区別を確認します。</summary>
     [TestMethod]
-    public void ApplyModeFilter_IncludesUnknownAndSelectedModes()
+    [DataRow(ChartModeFilter.All, new int[] { 5, 7, 9, 10, 14, 24, 48, 25, 50, 99 })]
+    [DataRow(ChartModeFilter._5KEYS, new int[] { 5 })]
+    [DataRow(ChartModeFilter._7KEYS, new int[] { 7 })]
+    [DataRow(ChartModeFilter._9KEYS, new int[] { 9 })]
+    [DataRow(ChartModeFilter._10KEYS, new int[] { 10 })]
+    [DataRow(ChartModeFilter._14KEYS, new int[] { 14 })]
+    [DataRow(ChartModeFilter._24KEYS, new int[] { 24 })]
+    [DataRow(ChartModeFilter._48KEYS, new int[] { 48 })]
+    [DataRow(ChartModeFilter._24KEYS | ChartModeFilter._48KEYS, new int[] { 24, 48 })]
+    [DataRow(ChartModeFilter.All & ~ChartModeFilter._5KEYS, new int[] { 7, 9, 10, 14, 24, 48 })]
+    public void ApplyModeFilter_IncludesUnknownAndSelectedModes(ChartModeFilter filter, int[] expected)
     {
-        LibraryChartRow unknown = CreateRow("unknown.bms", "Unknown", null);
-        LibraryChartRow fiveKeys = CreateRow("five.bms", "Five", 5);
-        LibraryChartRow sevenKeys = CreateRow("seven.bms", "Seven", 7);
-        List<LibraryChartRow> rows = [unknown, fiveKeys, sevenKeys];
-
-        var filtered = RegularChartListFilterService
-            .ApplyModeFilter(rows, ChartModeFilter._7KEYS)
-            .ToList();
-
-        CollectionAssert.AreEqual(new[] { unknown, sevenKeys }, filtered);
+        int?[] modes = [null, 5, 7, 9, 10, 14, 24, 48, 25, 50, 99];
+        LibraryChartRow[] rows = modes.Select((mode, index) => CreateRow(index + ".bms", "Mode " + mode, mode)).ToArray();
+        LibraryChartRow[] filtered = RegularChartListFilterService.ApplyModeFilter(rows, filter).ToArray();
+        CollectionAssert.AreEqual(new int?[] { null }.Concat(expected.Select(mode => (int?)mode)).ToArray(), filtered.Select(row => row.mode).ToArray());
+        if (filter == ChartModeFilter.All) { Assert.AreSame(rows, RegularChartListFilterService.ApplyModeFilter(rows, filter)); }
     }
 
-    /// <summary>5・14鍵盤の複合指定へ旧譜面の鍵盤不明値も含め、旧データをフィルターで消さず未選択鍵盤を混ぜません。</summary>
+    /// <summary>差分用の集合も5・14・24・48の複合選択とnullを保ち、未選択モードを混ぜません。</summary>
     [TestMethod]
     public void CreateModeFilterValueSet_PreservesLegacyUnknownMode()
     {
         HashSet<int?> values = RegularChartListFilterService.CreateModeFilterValueSet(
-            ChartModeFilter._5KEYS | ChartModeFilter._14KEYS);
-
-        CollectionAssert.AreEquivalent(new int?[] { null, 5, 14 }, values.ToArray());
+            ChartModeFilter._5KEYS | ChartModeFilter._14KEYS | ChartModeFilter._24KEYS | ChartModeFilter._48KEYS);
+        CollectionAssert.AreEquivalent(new int?[] { null, 5, 14, 24, 48 }, values.ToArray());
     }
 
     /// <summary>元一覧が欠損したキーワード・鍵盤絞込みを例外で拒否し、空一覧成功へ置き換えて呼出し誤りを隠しません。</summary>

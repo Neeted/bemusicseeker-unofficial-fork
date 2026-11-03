@@ -433,7 +433,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.AreEqual(System.ComponentModel.ListSortDirection.Descending, workspace.PlaylistDetailSortParameters.Direction);
     }
 
-    /// <summary>filterを通知前に確定し、同値要求とNone鍵数を省く一方、次世代要求で旧要求を失効させて古いfilterを適用しません。</summary>
+    /// <summary>24/48の複合filterを通知前に確定し、同値要求とNone鍵数を省く一方、次世代要求で旧要求を失効させて古いfilterを適用しません。</summary>
     [TestMethod]
     public void PlaylistWorkspaceDetailFilterRequestCommitsOwnerStateBeforeEventAndRejectsNone()
     {
@@ -508,7 +508,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
 
         workspace.RequestPlaylistDetailFilter(
             MainViewUpdateMode.ModeFilterUpdated,
-            new ChartListFilterSnapshot("  title:Beta  ", ChartModeFilter._7KEYS));
+            new ChartListFilterSnapshot("  title:Beta  ", ChartModeFilter._24KEYS | ChartModeFilter._48KEYS));
 
         Assert.AreEqual(2, raisedCount);
         Assert.IsNotNull(secondRequest);
@@ -516,14 +516,14 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.IsTrue(secondRequest.OwnerRevision > firstRequest.OwnerRevision);
         Assert.IsFalse(workspace.IsCurrentPlaylistDetailFilterRequest(firstRequest));
         Assert.IsTrue(workspace.IsCurrentPlaylistDetailFilterRequest(secondRequest));
-        Assert.AreEqual(ChartModeFilter._7KEYS, workspace.PlaylistDetailFilterSnapshot.ModeFilter);
+        Assert.AreEqual(ChartModeFilter._24KEYS | ChartModeFilter._48KEYS, workspace.PlaylistDetailFilterSnapshot.ModeFilter);
 
         workspace.RequestPlaylistDetailFilter(
             MainViewUpdateMode.ModeFilterUpdated,
             new ChartListFilterSnapshot("  title:Beta  ", ChartModeFilter.None));
 
         Assert.AreEqual(2, raisedCount);
-        Assert.AreEqual(ChartModeFilter._7KEYS, workspace.PlaylistDetailFilterSnapshot.ModeFilter);
+        Assert.AreEqual(ChartModeFilter._24KEYS | ChartModeFilter._48KEYS, workspace.PlaylistDetailFilterSnapshot.ModeFilter);
     }
 
     /// <summary>共通filterは詳細中だけ受けてsummary・退出中は拒否し、詳細中のNoneも既存filterと通知回数を変えません。</summary>
@@ -566,7 +566,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             new ChartListFilterSnapshot("after-detail", ChartModeFilter.All)));
     }
 
-    /// <summary>詳細再入時は新しいkeywordと鍵数へ再同期し、同値の再初期化は通知せず旧画面のfilterを持ち越しません。</summary>
+    /// <summary>詳細再入時は新しいkeywordと24/48の複合選択へ再同期し、同値の再初期化は通知せず旧画面のfilterを持ち越しません。</summary>
     [TestMethod]
     public void PlaylistWorkspaceDetailFilterInitializationResynchronizesAcrossDetailEntries()
     {
@@ -618,13 +618,13 @@ public sealed class PlaylistWorkspacePresentationStateTests
         workspace.InitializePlaylistDetailFilter(
             new ChartListFilterSnapshot("title:Alpha", ChartModeFilter.All));
         workspace.InitializePlaylistDetailFilter(
-            new ChartListFilterSnapshot("title:Beta", ChartModeFilter._7KEYS));
+            new ChartListFilterSnapshot("title:Beta", ChartModeFilter._24KEYS | ChartModeFilter._48KEYS));
         workspace.InitializePlaylistDetailFilter(
-            new ChartListFilterSnapshot("title:Beta", ChartModeFilter._7KEYS));
+            new ChartListFilterSnapshot("title:Beta", ChartModeFilter._24KEYS | ChartModeFilter._48KEYS));
 
         Assert.AreEqual(2, raisedCount);
         Assert.AreEqual("title:Beta", workspace.PlaylistDetailFilterSnapshot.KeywordFilter);
-        Assert.AreEqual(ChartModeFilter._7KEYS, workspace.PlaylistDetailFilterSnapshot.ModeFilter);
+        Assert.AreEqual(ChartModeFilter._24KEYS | ChartModeFilter._48KEYS, workspace.PlaylistDetailFilterSnapshot.ModeFilter);
     }
 
     /// <summary>summaryで利用できないmemo fieldを指定すると警告本文と表示flagを通知し、無効な検索条件を無警告で受理しません。</summary>

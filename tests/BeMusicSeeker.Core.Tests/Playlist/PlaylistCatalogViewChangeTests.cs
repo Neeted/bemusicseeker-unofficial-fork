@@ -547,18 +547,34 @@ public sealed class PlaylistCatalogViewChangeTests
         TestContext?.WriteLine("playlist count={0} bmson={1} warm_commit_delivery_ms={2:F3}", count, bmson, watch.Elapsed.TotalMilliseconds);
     }
 
-    /// <summary>文字列更新で依存filterとsortだけを再評価し、非表示のentryも検索へ入れます。表固有level・memo・DBは保持します。</summary>
+    /// <summary>文字列更新と24/48・5の実カタログ確定を配送し、検索とmodeによる非表示からの加入・離脱を確認します。表固有level・memo・DBは保持します。</summary>
     [TestMethod]
     public async Task MetadataCommit_ReevaluatesHiddenDependenciesAndKeepsEntryValues()
     {
-        await using var fixture = new Fixture(3, modelUiScheduler: new TestUiScheduler(() => null));
-        fixture.Workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot("changed", ChartModeFilter.All));
+        await using var fixture = new Fixture(3, regularDelivery: true, modelUiScheduler: new TestUiScheduler(() => null));
+        await fixture.DrainLibraryChanges();
+        fixture.Workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot("changed", ChartModeFilter._24KEYS | ChartModeFilter._48KEYS));
         await fixture.Refresh();
         var rows = (PlaylistDetailVirtualView)fixture.Workspace.DetailViewState.View.Rows;
         Assert.AreEqual(0, rows.Count);
         PlaylistDetailSourceRow target = fixture.Workspace.DetailViewState.Source.Rows[0];
         fixture.WriteFirst("Z changed");
         fixture.Library.SetBMSFilesEncoding([target.OwnedCurrent], "utf-8");
+        await fixture.DrainLibraryChanges();
+        Assert.AreEqual(0, rows.Count, "検索に一致しても未選択modeの間は非表示を保ちます。");
+        CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(fixture.Library);
+        var gateway = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb);
+        ChartFile current = fixture.Library.BmsCharts.Single(chart => ReferenceEquals(chart.Token, target.OwnedCurrent.Token));
+        foreach (int mode in new[] { 24, 5, 48, 5, 24 })
+        {
+            current = current with { Mode = mode };
+            gateway.UpsertSongs([current]);
+            Assert.IsTrue(catalog.ApplyCommittedChartUpsert([current], out _));
+            await fixture.DrainLibraryChanges();
+            Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
+            Assert.AreEqual(mode == 5 ? 0 : 1, rows.Count);
+            if (mode != 5) { Assert.AreEqual(mode, ((PlaylistDetailRow)rows[0]).mode); }
+        }
         Assert.AreSame(rows, fixture.Workspace.DetailViewState.View.Rows);
         Assert.AreEqual(1, rows.Count);
         var row = (PlaylistDetailRow)rows[0];
@@ -566,7 +582,8 @@ public sealed class PlaylistCatalogViewChangeTests
         Assert.AreEqual("fixture artist", row.Artist);
         Assert.AreEqual("2.5", row.Level);
         Assert.AreEqual("entry memo", row.memo);
-        Assert.AreSame(target.OwnedCurrent.Token, row.Chart.Token);
+        // 追加・差替えの確定は識別を発行し直すため、最後に確定した現在値のtokenを採用していることを確認します。
+        Assert.AreSame(fixture.Library.BmsCharts.Single(chart => chart.Path == current.Path).Token, row.Chart.Token);
         using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
         Assert.AreEqual("entry memo", db.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE title = 'entry 0';"));
         Assert.AreEqual(2.5, db.ExecuteScalar<double>("SELECT level FROM playlist_entry WHERE title = 'entry 0';"));

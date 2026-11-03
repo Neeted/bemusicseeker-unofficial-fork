@@ -655,7 +655,7 @@ From the column-header context menu, you can toggle visible columns or reset col
 Some menus are opened from buttons at the top of the screen rather than by right-clicking.
 
 - Playback control menu: See [Playback Panel Controls](#playback-panel-controls).
-- Mode filter: Switches display targets for `5KEYS`, `7KEYS`, `9KEYS`, `10KEYS`, and `14KEYS`.
+- Mode filter: Switches display targets for `5KEYS`, `7KEYS`, `9KEYS`, `10KEYS`, `14KEYS`, `24KEYS`, and `48KEYS`.
 - Playlist summary ownership filter: Switches between `All`, `OWNED=100%`, and `OWNED<100%`.
 
 ## Search

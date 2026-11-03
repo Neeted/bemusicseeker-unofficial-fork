@@ -763,7 +763,7 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
-    /// <summary>compiled検索filterメニューの実描画と選択操作を通常譜面・サマリー別に接続し、片側の選択が他方のfilterを変えません。</summary>
+    /// <summary>compiledメニューの7種と5解除後の24/48保持、最後の解除拒否を確認し、通常とサマリーの条件を独立させます。</summary>
     [TestMethod]
     public void SearchVariants_FilterMenusChangeOnlyCorrespondingOwner()
     {
@@ -779,11 +779,29 @@ public sealed class MainWindowChartPresentationWpfTests
                     AssertFilterAffordanceMaterialized(summary);
                     MaterializeMainWindow(window);
                     AssertFilterAffordanceRendered(normal);
-                    ChartModeFilter modeBeforeInteraction = viewModel.ChartFilters.ModeFilter;
                     PlaylistOwnedFilter ownedFilterBeforeInteraction = viewModel.PlaylistWorkspace.PlaylistSummaryOwnedFilter;
-                    MenuItem normalFilterItem = GetFilterMenuItem(normal.FilterButton.DropDownContextMenu!, true);
-                    SetFilterMenuItemChecked(normalFilterItem, false);
-                    Assert.AreNotEqual(modeBeforeInteraction, viewModel.ChartFilters.ModeFilter);
+                    MenuItem[] modeItems = normal.FilterButton.DropDownContextMenu!.Items.OfType<MenuItem>().ToArray();
+                    CollectionAssert.AreEquivalent(new[] { "5KEYS", "7KEYS", "9KEYS", "10KEYS", "14KEYS", "24KEYS", "48KEYS" },
+                        modeItems.Select(item => ((string)item.Header).Trim()).ToArray());
+                    foreach (MenuItem item in modeItems)
+                    {
+                        BindingOperations.GetBindingExpression(item, MenuItem.IsCheckedProperty)?.UpdateTarget();
+                        Assert.IsTrue(item.IsChecked);
+                    }
+                    Dictionary<string, MenuItem> modeItemsByName = modeItems.ToDictionary(item => ((string)item.Header).Trim());
+                    SetFilterMenuItemChecked(modeItemsByName["5KEYS"], false);
+                    Assert.AreEqual(ChartModeFilter._7KEYS | ChartModeFilter._9KEYS | ChartModeFilter._10KEYS
+                        | ChartModeFilter._14KEYS | ChartModeFilter._24KEYS | ChartModeFilter._48KEYS, viewModel.ChartFilters.ModeFilter);
+                    Assert.IsTrue(modeItemsByName["24KEYS"].IsChecked);
+                    Assert.IsTrue(modeItemsByName["48KEYS"].IsChecked);
+                    foreach (string modeName in new[] { "7KEYS", "9KEYS", "10KEYS", "14KEYS", "24KEYS" })
+                    {
+                        SetFilterMenuItemChecked(modeItemsByName[modeName], false);
+                    }
+                    Assert.AreEqual(ChartModeFilter._48KEYS, viewModel.ChartFilters.ModeFilter);
+                    SetFilterMenuItemChecked(modeItemsByName["48KEYS"], false);
+                    Assert.AreEqual(ChartModeFilter._48KEYS, viewModel.ChartFilters.ModeFilter);
+                    Assert.IsTrue(modeItemsByName["48KEYS"].IsChecked);
                     Assert.AreEqual(ownedFilterBeforeInteraction, viewModel.PlaylistWorkspace.PlaylistSummaryOwnedFilter);
                     ChartModeFilter modeAfterNormalInteraction = viewModel.ChartFilters.ModeFilter;
 

@@ -175,7 +175,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
         });
     }
 
-    /// <summary>新規・保留の全体/単一packageについて警告順、BMS/BMSON、検索・modeとfolder件数を実ownerで確認します。背景所持数だけを増やしてもpackage投影は対象entry数に限られます。</summary>
+    /// <summary>新規・保留の全体/単一packageについて警告順、BMS/BMSON、検索・24/48選択と5除外・folder件数を実ownerで確認します。背景所持数だけを増やしてもpackage投影は対象entry数に限られます。</summary>
     [TestMethod]
     [DataRow(true, false, 16)]
     [DataRow(true, false, 128)]
@@ -194,7 +194,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
         string root = Path.GetDirectoryName(songDbPath)!;
         string missingPath = Path.Combine(root, "warning.bms");
         File.WriteAllText(missingPath, "#PLAYER 1\r\n#TITLE Keep Warning\r\n#WAV01 missing.wav\r\n#00111:01\r\n");
-        ChartFile warning = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(missingPath)) with { Folder = "Warning", Mode = 7 };
+        ChartFile warning = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(missingPath)) with { Folder = "Warning", Mode = 24 };
         warning = ChartFileProjection.WithMaintenance(warning,
             MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance
             { path = warning.Path, hash = warning.Md5, wav_files_defined = 1, wav_files_existing = 0 }));
@@ -203,10 +203,10 @@ public sealed class RegularChartViewBuildAndOrderingTests
             warning = ChartFileProjection.WithWarnings(warning,
                 [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "pending estimation warning")]);
         }
-        ChartFile clean = CreateSourceRow("Clean", "Keep Clean", 7).Chart with { Kind = ChartFileKind.Bmson };
-        ChartFile keywordExcluded = CreateSourceRow("Keyword excluded", "Drop", 7).Chart;
-        ChartFile modeExcluded = CreateSourceRow("Mode excluded", "Keep Nine", 9).Chart;
-        ChartFile other = CreateSourceRow("Other", "Keep Other", 7).Chart;
+        ChartFile clean = CreateSourceRow("Clean", "Keep Clean", 48).Chart with { Kind = ChartFileKind.Bmson };
+        ChartFile keywordExcluded = CreateSourceRow("Keyword excluded", "Drop", 24).Chart;
+        ChartFile modeExcluded = CreateSourceRow("Mode excluded", "Keep Five", 5).Chart;
+        ChartFile other = CreateSourceRow("Other", "Keep Other", 48).Chart;
         ChartPackage selected = ChartPackageTestExtensions.CreatePackage(warning, clean, keywordExcluded, modeExcluded);
         ChartPackage second = ChartPackageTestExtensions.CreatePackage(other);
         var library = new TestBmsLibrary(databaseScope, songDbPath);
@@ -225,7 +225,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
         owner.QueueSort(new MainChartListSortRequestedEventArgs(nameof(LibraryChartRow.WarningDigestText),
             ListSortDirection.Descending, MainChartListSortTarget.Regular));
         MainViewUpdateMode mode = installed ? MainViewUpdateMode.NewlyInstalledFolderSelected : MainViewUpdateMode.PendingInstallFolderSelected;
-        var filters = new ChartListFilterSnapshot("Keep", ChartModeFilter._7KEYS);
+        var filters = new ChartListFilterSnapshot("Keep", ChartModeFilter._24KEYS | ChartModeFilter._48KEYS);
         try
         {
             RegularChartListEntryResult result = await ApplyPackageViewAsync(owner, library, mode,
@@ -240,7 +240,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
             Assert.AreEqual("Keep Warning", warningRow.Title);
             Assert.IsTrue(warningRow.WarningDigestText.Length > 0);
             Assert.IsTrue(view.Cast<LibraryChartRow>().Any(row => row.Chart.Kind == ChartFileKind.Bmson));
-            Assert.IsFalse(view.Cast<LibraryChartRow>().Any(row => row.Title is "Drop" or "Keep Nine"));
+            Assert.IsFalse(view.Cast<LibraryChartRow>().Any(row => row.Title is "Drop" or "Keep Five"));
             if (installed)
             {
                 StringAssert.Contains(warningRow.WarningDigestText, Resources.WarningDigest_ResourceMissing);

@@ -836,7 +836,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
         owner.InvalidatePendingRequest();
     }
 
-    /// <summary>owner入口の7keys条件で9keysを除外してSevenだけ確定し、mode条件の適用漏れを検出します。</summary>
+    /// <summary>owner入口の24/48条件で5を除外し、選択した2種の確定によってmode条件の適用漏れを検出します。</summary>
     [TestMethod]
     public void RegularEntry_AppliesOwnerModeFilterState()
     {
@@ -853,14 +853,13 @@ public sealed class RegularChartViewBuildAndOrderingTests
             var table = new MainChartListViewModel();
             using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
             SeedCatalog(
-                [CreateSourceRow("Folder A", "Seven", mode: 7), CreateSourceRow("Folder B", "Nine", mode: 9)]);
-            RegularChartListEntryRequest entry = CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected, string.Empty, ChartModeFilter._7KEYS);
+                [CreateSourceRow("Folder A", "TwentyFour", mode: 24), CreateSourceRow("Folder B", "FortyEight", mode: 48), CreateSourceRow("Folder C", "Five", mode: 5)]);
+            RegularChartListEntryRequest entry = CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected, string.Empty, ChartModeFilter._24KEYS | ChartModeFilter._48KEYS);
             entry.Library = library;
             RegularChartListEntryResult result = owner.ApplyRegularView(entry);
 
             Assert.IsTrue(result.WasCommitted);
-            Assert.AreEqual(1, table.Rows.Count);
-            Assert.AreEqual("Seven", ((LibraryChartRow)table.Rows[0]!).Title);
+            CollectionAssert.AreEquivalent(new[] { "TwentyFour", "FortyEight" }, table.Rows.Cast<LibraryChartRow>().Select(row => row.Title).ToArray());
 
         });
     }

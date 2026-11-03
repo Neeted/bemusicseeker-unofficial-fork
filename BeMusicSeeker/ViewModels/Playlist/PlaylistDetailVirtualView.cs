@@ -229,21 +229,13 @@ internal sealed class PlaylistDetailVirtualView : IList, IChartListViewMetadata,
     private static bool SameSortInput(PlaylistDetailSourceRow before, PlaylistDetailSourceRow after, PlaylistRequestIdentity identity)
         => PlaylistDetailSortEngine.HaveSameSortInput(before, after, identity);
 
+    /// <summary>差分行が確定済みの所持・検索・共通モード条件に一致するかを返します。</summary>
     internal static bool Matches(PlaylistDetailSourceRow row, PlaylistRequestIdentity identity)
     {
         if (identity.FilterType == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected && row.IsOwned) { return false; }
         if (!string.IsNullOrWhiteSpace(identity.KeywordFilter)
             && !GridKeywordSearchQuery.Parse(identity.KeywordFilter).MatchesPlaylistDetail(row)) { return false; }
-        ChartModeFilter mode = identity.ModeFilter;
-        return mode == ChartModeFilter.All || row.mode == null || row.mode switch
-        {
-            5 => (mode & ChartModeFilter._5KEYS) != 0,
-            7 => (mode & ChartModeFilter._7KEYS) != 0,
-            9 => (mode & ChartModeFilter._9KEYS) != 0,
-            10 => (mode & ChartModeFilter._10KEYS) != 0,
-            14 => (mode & ChartModeFilter._14KEYS) != 0,
-            _ => false
-        };
+        return identity.ModeFilter.Matches(row.mode);
     }
 
     private void ChangeFolderCount(PlaylistDetailSourceRow row, int delta)

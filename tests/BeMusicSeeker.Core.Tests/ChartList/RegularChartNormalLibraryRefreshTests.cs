@@ -484,7 +484,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
         });
     }
 
-    /// <summary>実SQLiteの追加・同folder内/別folderへの移転・削除から正規commitと実配送を通し、形式範囲とkeywordの各表示件数・folder数・生存選択を独立値で確認します。</summary>
+    /// <summary>実SQLiteの追加・同folder内/別folderへの移転・削除から正規commitと実配送を通し、形式範囲・検索・24/48選択の各表示件数、mode変更による加入/離脱、folder数と生存選択を確認します。</summary>
     [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
@@ -507,9 +507,9 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 return bmson ? ChartTestValues.ReadBmson(file)
                     : BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(file));
             }
-            ChartFile first = CreateChart("Shared", "a", "Keep A");
-            ChartFile background = CreateChart("Shared", "b", "Drop B");
-            ChartFile bmson = CreateChart("Other", "z", "Keep Z", bmson: true);
+            ChartFile first = CreateChart("Shared", "a", "Keep A") with { Mode = 24 };
+            ChartFile background = CreateChart("Shared", "b", "Drop B") with { Mode = 48 };
+            ChartFile bmson = CreateChart("Other", "z", "Keep Z", bmson: true) with { Mode = 48 };
             var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), path);
             gateway.UpsertSongs([first, background]);
             gateway.UpsertBmsonSongs([bmson]);
@@ -519,7 +519,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
             var queue = new Queue<Action>();
             var table = new MainChartListViewModel();
             using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner(table), action => action(), new ActionQueueUiScheduler(queue.Enqueue));
-            var filters = new ChartListFilterSnapshot(filtered ? "Keep" : string.Empty, ChartModeFilter.All);
+            var filters = new ChartListFilterSnapshot(filtered ? "Keep" : string.Empty, ChartModeFilter._24KEYS | ChartModeFilter._48KEYS);
             owner.NormalLibraryRefreshApplied += (_, args) => owner.ApplyNotificationPresentation(library, args.NotificationBatch,
                 MainViewUpdateMode.FullScanAllChartsFilterSelected, null, filters, false);
             void Deliver()
@@ -559,7 +559,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                     Library = library,
                     IncludeBmsonRows = includeBmson,
                     KeywordFilter = filters.KeywordFilter,
-                    ModeFilter = ChartModeFilter.All,
+                    ModeFilter = ChartModeFilter._24KEYS | ChartModeFilter._48KEYS,
                     SortColumnName = nameof(LibraryChartRow.Title),
                     SortDirection = System.ComponentModel.ListSortDirection.Ascending,
                     ColumnSelection = new MainChartListColumnSelection(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD), false, 0,
@@ -570,11 +570,22 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 }).WasCommitted);
                 int initialCount = (filtered ? 1 : 2) + (includeBmson ? 1 : 0);
                 Check(initialCount, 1 + (includeBmson ? 1 : 0));
+                ChartFile modeTarget = library.CaptureNormalLibraryChartSnapshot().BmsRows.Single(chart => chart.Path == first.Path);
+                foreach (int mode in new[] { 5, 48, 5, 24 })
+                {
+                    modeTarget = modeTarget with { Mode = mode };
+                    gateway.UpsertSongs([modeTarget]);
+                    Assert.IsTrue(catalog.ApplyCommittedChartUpsert([modeTarget], out _));
+                    Deliver();
+                    Check(initialCount - (mode == 5 ? 1 : 0), (mode == 5 && filtered ? 0 : 1) + (includeBmson ? 1 : 0));
+                    CollectionAssert.AreEqual(mode == 5 ? new string[0] : new[] { "Keep A" },
+                        table.Rows.Cast<LibraryChartRow>().Where(row => row.Chart.Path == first.Path).Select(row => row.Title).ToArray());
+                }
                 var originalRows = (ChartListVirtualView)table.Rows;
                 ChartFile ownedFirst = library.CaptureNormalLibraryChartSnapshot().BmsRows.Single(chart => chart.Path == first.Path);
                 var selected = (LibraryChartRow)originalRows[originalRows.IndexOfNormalToken(ownedFirst.Token)];
                 table.SelectedIndex = originalRows.IndexOf(selected);
-                ChartFile added = CreateChart("New", "c", "Keep C");
+                ChartFile added = CreateChart("New", "c", "Keep C") with { Mode = 24 };
                 gateway.UpsertSongs([added]);
                 Assert.IsTrue(catalog.ApplyCommittedChartUpsert([added], out _));
                 Deliver();

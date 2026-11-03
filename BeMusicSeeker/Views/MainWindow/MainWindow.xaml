@@ -701,6 +701,8 @@
                         <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header=" 9KEYS" IsChecked="{Binding ChartFilters.ModeFilter, Source={StaticResource vm}, ConverterParameter=_9KEYS, Converter={StaticResource modeFilterConverter}}" />
                         <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header="10KEYS" IsChecked="{Binding ChartFilters.ModeFilter, Source={StaticResource vm}, ConverterParameter=_10KEYS, Converter={StaticResource modeFilterConverter}}" />
                         <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header="14KEYS" IsChecked="{Binding ChartFilters.ModeFilter, Source={StaticResource vm}, ConverterParameter=_14KEYS, Converter={StaticResource modeFilterConverter}}" />
+                        <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header="24KEYS" IsChecked="{Binding ChartFilters.ModeFilter, Source={StaticResource vm}, ConverterParameter=_24KEYS, Converter={StaticResource modeFilterConverter}}" />
+                        <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header="48KEYS" IsChecked="{Binding ChartFilters.ModeFilter, Source={StaticResource vm}, ConverterParameter=_48KEYS, Converter={StaticResource modeFilterConverter}}" />
                       </ContextMenu>
                     </v:DropDownMenuButton.DropDownContextMenu>
                   </v:DropDownMenuButton>

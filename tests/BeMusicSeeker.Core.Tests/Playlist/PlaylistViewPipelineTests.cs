@@ -635,36 +635,32 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(1, modeCount);
     }
 
-    /// <summary>7鍵・14鍵のsourceから14鍵だけを選び、keyword段階の二件とmode段階の一件を区別して返します。</summary>
+    /// <summary>24/48・非選択5・null・未列挙値の同じ元行から、実体と仮想が選択2種とnullだけを返し、段階件数も一致します。</summary>
     [TestMethod]
     public void PlaylistDetailPresentationService_ModeFilterRecomputesFromSourceRows()
     {
-        PlaylistDetailSourceRow sevenKeysRow = CreateSourceRow("55555555555555555555555555555555", "SevenKeys", 7);
-        PlaylistDetailSourceRow fourteenKeysRow = CreateSourceRow("66666666666666666666666666666666", "FourteenKeys", 14);
-        var sourceRows = new PlaylistDetailSourceRow[] { sevenKeysRow, fourteenKeysRow };
+        int?[] modes = [24, 48, 5, null, 25, 50];
+        PlaylistDetailSourceRow[] sourceRows = modes.Select((mode, index) =>
+            CreateSourceRow(index.ToString("x32"), "Row " + index, mode)).ToArray();
         var sortParameters = new ChartListSortParameters
         {
             ColumnsName = nameof(ChartFile.Title),
             Direction = ListSortDirection.Ascending
         };
-
+        const ChartModeFilter filter = ChartModeFilter._24KEYS | ChartModeFilter._48KEYS;
         List<PlaylistDetailRow> result = PlaylistDetailPresentationService.ApplyViewFromSource(
-            sourceRows,
-            keywordFilter: null,
-            modeFilter: ChartModeFilter._14KEYS,
-            sortParameters: sortParameters,
-            out string _,
-            out int keywordCount,
-            out int modeCount,
-            out long _,
-            out long _,
-            out long _,
-            out long _);
-
-        Assert.AreEqual(1, result.Count);
-        Assert.AreEqual("FourteenKeys", result[0].Title);
-        Assert.AreEqual(2, keywordCount);
-        Assert.AreEqual(1, modeCount);
+            sourceRows, string.Empty, filter, sortParameters, out _, out int keywordCount, out int modeCount,
+            out _, out _, out _, out _);
+        PlaylistDetailVirtualView virtualResult = PlaylistDetailPresentationService.ApplyVirtualViewFromSource(
+            sourceRows, string.Empty, filter, sortParameters, out _, out int virtualKeywordCount, out int virtualModeCount,
+            out _, out _, out _, out _);
+        string[] expected = ["Row 0", "Row 1", "Row 3"];
+        CollectionAssert.AreEqual(expected, result.Select(row => row.Title).ToArray());
+        CollectionAssert.AreEqual(expected, virtualResult.Cast<PlaylistDetailRow>().Select(row => row.Title).ToArray());
+        Assert.AreEqual(6, keywordCount);
+        Assert.AreEqual(3, modeCount);
+        Assert.AreEqual(6, virtualKeywordCount);
+        Assert.AreEqual(3, virtualModeCount);
     }
 
     /// <summary>明示的な再表示で同じ不変入力を共有し、前回の短命 draft を次の表示へ漏らしません。</summary>

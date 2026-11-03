@@ -27,21 +27,25 @@ public sealed class ChartListFilterViewModelTests
         Assert.AreEqual(nameof(ChartListFilterViewModel.ModeFilter), propertyNames[1]);
     }
 
-    /// <summary>空白を含む検索文字列と複合鍵盤区分を同じsnapshotへ保持し、検索受付時に文字列を勝手に正規化しません。</summary>
+    /// <summary>初期・既定snapshotは7種を選択し、24/48を含む複合選択と空白を含む検索文字列をsnapshotへ保持します。</summary>
     [TestMethod]
     public void CaptureSnapshot_PreservesRawKeywordAndCanonicalModeTogether()
     {
         ChartListFilterViewModel filters = CreateFilters();
+        ChartModeFilter allSeven = ChartModeFilter._5KEYS | ChartModeFilter._7KEYS | ChartModeFilter._9KEYS
+            | ChartModeFilter._10KEYS | ChartModeFilter._14KEYS | ChartModeFilter._24KEYS | ChartModeFilter._48KEYS;
+        Assert.AreEqual(allSeven, filters.ModeFilter);
+        Assert.AreEqual(allSeven, ChartListFilterSnapshot.Default.ModeFilter);
         int changeCount = 0;
         filters.KeywordFilterChanged += (_, _) => changeCount++;
 
         filters.KeywordFilter = "  title:Alpha  ";
-        filters.ModeFilter = ChartModeFilter._5KEYS | ChartModeFilter._14KEYS;
+        filters.ModeFilter = ChartModeFilter._5KEYS | ChartModeFilter._14KEYS | ChartModeFilter._24KEYS | ChartModeFilter._48KEYS;
         ChartListFilterSnapshot snapshot = filters.CaptureSnapshot();
 
         Assert.AreEqual(1, changeCount);
         Assert.AreEqual("  title:Alpha  ", snapshot.KeywordFilter);
-        Assert.AreEqual(ChartModeFilter._5KEYS | ChartModeFilter._14KEYS, snapshot.ModeFilter);
+        Assert.AreEqual(ChartModeFilter._5KEYS | ChartModeFilter._14KEYS | ChartModeFilter._24KEYS | ChartModeFilter._48KEYS, snapshot.ModeFilter);
     }
 
     /// <summary>通常とplaylistで検索語の警告・helpを切り替え、playlist候補を大小文字で重複除去し、保存履歴の読込みと新規履歴の保存を補助ownerへ接続します。</summary>
