@@ -50,6 +50,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     private long playbackGeneration;
 
+    // 明示停止の前後だけを区別します。通常選曲の世代更新では受理済み入力を失効させません。
+    private long playbackStopEpoch;
+
     private volatile bool shutdownStarted;
 
     private ChartFile nowPlayingBmsFile;
@@ -171,11 +174,15 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         InitializePlayer(player);
     }
 
-    public ViewModelCommand NextCommand => nextCommand ??= CreateBackgroundCommand(() => Next(), "PlaybackPanel.Next");
-    public ViewModelCommand PreviousCommand => previousCommand ??= CreateBackgroundCommand(() => Previous(), "PlaybackPanel.Previous");
+    /// <summary>次曲入力をUIで受け付け、捕捉した停止境界で背景処理へ渡します。</summary>
+    public ViewModelCommand NextCommand => nextCommand ??= CreateAcceptedPlaybackCommand(() => AcceptNextPlayback(), "PlaybackPanel.Next");
+    /// <summary>前曲入力をUIで受け付け、捕捉した停止境界で背景処理へ渡します。</summary>
+    public ViewModelCommand PreviousCommand => previousCommand ??= CreateAcceptedPlaybackCommand(() => AcceptPreviousPlayback(), "PlaybackPanel.Previous");
     public ViewModelCommand RestartCommand => restartCommand ??= CreateBackgroundCommand(RestartPlayingBmsFile, "PlaybackPanel.Restart");
-    public ViewModelCommand StartCommand => startCommand ??= CreateBackgroundCommand(() => Start(forceNewPlay: false), "PlaybackPanel.Start");
-    public ViewModelCommand StopCommand => stopCommand ??= CreateBackgroundCommand(() => StopPlayback(closeProcess: true), "PlaybackPanel.Stop");
+    /// <summary>再生入力の停止境界と面要求をUIで受け付け、背景処理へ渡します。</summary>
+    public ViewModelCommand StartCommand => startCommand ??= CreateAcceptedPlaybackCommand(() => AcceptStartPlayback(forceNewPlay: false), "PlaybackPanel.Start");
+    /// <summary>UIで現在曲と停止前の未開始入力を失効させ、捕捉した停止処理を背景へ渡します。</summary>
+    public ViewModelCommand StopCommand => stopCommand ??= CreateAcceptedPlaybackCommand(() => AcceptStopPlayback(closeProcess: true), "PlaybackPanel.Stop");
     public ViewModelCommand FastForwardStartCommand => fastForwardStartCommand ??= CreateBackgroundCommand(FastForwardStart, "PlaybackPanel.FastForwardStart");
     public ViewModelCommand FastForwardEndCommand => fastForwardEndCommand ??= CreateBackgroundCommand(FastForwardEnd, "PlaybackPanel.FastForwardEnd");
     public ViewModelCommand FastBackwardStartCommand => fastBackwardStartCommand ??= CreateBackgroundCommand(FastBackwardStart, "PlaybackPanel.FastBackwardStart");
@@ -186,8 +193,13 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     public ViewModelCommand IncreaseHighSpeedCommand => increaseHighSpeedCommand ??= CreateBackgroundCommand(IncreaseHighSpeed, "PlaybackPanel.IncreaseHighSpeed");
     public ViewModelCommand DecreaseHighSpeedCommand => decreaseHighSpeedCommand ??= CreateBackgroundCommand(DecreaseHighSpeed, "PlaybackPanel.DecreaseHighSpeed");
 
-    private ViewModelCommand CreateBackgroundCommand(Func<Task> action, string routeName) =>
-        new(() => StartBackgroundPlaybackAction(action, routeName).ObserveFault(routeName), () => !shutdownStarted);
+    private ViewModelCommand CreateAcceptedPlaybackCommand(Func<Func<Task>> accept, string routeName) =>
+        new(() => StartBackgroundPlaybackAction(accept(), routeName).ObserveFault(routeName), () => !shutdownStarted);
+
+    private long CapturePlaybackStopEpoch()
+    {
+        lock (sessionGate) { return playbackStopEpoch; }
+    }
 
     private Task StartBackgroundPlaybackAction(Func<Task> action, string routeName, PlaybackInputReceipt receipt = null) =>
         shutdownStarted ? Task.CompletedTask : Task.Run(() => ObservePlaybackActionAsync(action, routeName, receipt));
@@ -225,20 +237,28 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     private sealed record NextPlaybackPlayerRequest(Func<IBMSPlayer> CreatePlayer, bool SupportsBmson);
 
     /// <summary>試聴同士の受理済み開始は順次実行し、推定・変更中の新しい開始は副作用前に拒否します。</summary>
-    private async Task RunPlaybackSelectionAsync(Func<long, Task> selectAndStart, bool stopIfBusy = false,
+    private async Task RunPlaybackSelectionAsync(long acceptedStopEpoch, Func<long, Task> selectAndStart, bool stopIfBusy = false,
         (long Generation, IBMSPlayer Player, ChartFile File)? naturalExit = null)
     {
         // 変更中の入力を予約して後から再生しません。受付済みの開始は変更側の停止が待ちます。
-        if (shutdownStarted) { return; }
+        lock (sessionGate)
+        {
+            if (shutdownStarted || acceptedStopEpoch != playbackStopEpoch) { return; }
+        }
         if (!naturalExit.HasValue && chartFileOperations.IsActive)
         {
-            if (stopIfBusy) { await StopPlayback(closeProcess: true).ConfigureAwait(false); }
+            if (stopIfBusy) { await CaptureStopPlayback(closeProcess: true, invalidateInputs: false)().ConfigureAwait(false); }
             return;
         }
         await playbackInputGate.WaitAsync().ConfigureAwait(false);
         try
         {
-            if (shutdownStarted) { return; }
+            long previousGeneration;
+            lock (sessionGate)
+            {
+                if (shutdownStarted || acceptedStopEpoch != playbackStopEpoch) { return; }
+                previousGeneration = playbackGeneration;
+            }
             if (naturalExit is { } acceptedExit)
             {
                 lock (sessionGate)
@@ -254,11 +274,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 {
                     await TryStopPlaybackForGeneration(busyExit.Generation, busyExit.File).ConfigureAwait(false);
                 }
-                else if (stopIfBusy) { await StopPlayback(closeProcess: true).ConfigureAwait(false); }
+                else if (stopIfBusy) { await CaptureStopPlayback(closeProcess: true, invalidateInputs: false)().ConfigureAwait(false); }
                 return;
             }
-            long previousGeneration;
-            lock (sessionGate) { previousGeneration = playbackGeneration; }
             await selectAndStart(previousGeneration).ConfigureAwait(false);
             bool started;
             lock (sessionGate) { started = previousGeneration != playbackGeneration; }
@@ -355,23 +373,35 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     /// <param name="receipt">当該入力だけの受取先。通常入力では省略し、再生・通知・停止の所有は変えません。</param>
     internal Task HandleTableRowActivation(int rowIndex, object row, Action requestPlayerSurface = null, PlaybackInputReceipt receipt = null)
     {
+        Func<Task> action = AcceptTableRowActivation(rowIndex, row, requestPlayerSurface, receipt);
+        return action == null ? Task.CompletedTask : StartBackgroundPlaybackAction(action, "PlaybackPanel.ActivateRow", receipt);
+    }
+
+    /// <summary>UI入力時に行と停止境界を受け付け、一回実行する短命な開始処理を返します。workerで再受付しません。</summary>
+    /// <returns>受理した開始処理。入力を拒否した場合はnullで、業務Taskと開始receiptを作りません。</returns>
+#nullable enable annotations
+    internal Func<Task>? AcceptTableRowActivation(int rowIndex, object row, Action requestPlayerSurface = null, PlaybackInputReceipt receipt = null)
+    {
+        long acceptedStopEpoch = CapturePlaybackStopEpoch();
         if (shutdownStarted || chartFileOperations.IsActive || rowIndex < 0
             || rowIndex >= playbackQueue.Count
             || !GridRowResolver.TryGetPlaybackChart(row, out ChartFile bmsFile)
             || (bmsFile.Kind == ChartFileKind.Bmson && !SupportsBmsonForNextPlayback()))
         {
-            return Task.CompletedTask;
+            return null;
         }
-
         Action acceptedSurfaceRequest = IsStoppedOrPaused ? requestPlayerSurface : null;
-        return StartBackgroundPlaybackAction(
-            () => ExecuteTableRowActivation(rowIndex, row, acceptedSurfaceRequest, receipt),
-            "PlaybackPanel.ActivateRow", receipt);
+        return () => ExecuteTableRowActivationCore(acceptedStopEpoch, rowIndex, row, acceptedSurfaceRequest, receipt);
     }
 
-    /// <summary>受付後に同一行と次回要求の形式能力を再検査して再生します。拒否した明示行を別行へ読み替えず、終了受付後の待機済み要求は破棄します。</summary>
+#nullable restore annotations
+
+    /// <summary>直接の行起動も停止境界を捕捉し、受理済みの面要求と同一行の再検査を維持して実行します。</summary>
     internal Task ExecuteTableRowActivation(int rowIndex, object expectedRow, Action acceptedSurfaceRequest = null, PlaybackInputReceipt receipt = null) =>
-        RunPlaybackSelectionAsync(async generation =>
+        ExecuteTableRowActivationCore(CapturePlaybackStopEpoch(), rowIndex, expectedRow, acceptedSurfaceRequest, receipt);
+
+    private Task ExecuteTableRowActivationCore(long acceptedStopEpoch, int rowIndex, object expectedRow, Action acceptedSurfaceRequest, PlaybackInputReceipt receipt) =>
+        RunPlaybackSelectionAsync(acceptedStopEpoch, async generation =>
         {
             if (rowIndex < 0 || rowIndex >= playbackQueue.Count)
             {
@@ -912,6 +942,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     private async Task CloseProcessCore(bool forShutdown)
     {
         IBMSPlayer player;
+        long stoppedGeneration;
         lock (sessionGate)
         {
             if (bmsPlayer == null)
@@ -919,10 +950,10 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 return;
             }
 
-            playbackGeneration++;
+            stoppedGeneration = ++playbackGeneration;
             player = bmsPlayer;
         }
-        await CloseCapturedPlayer(player, forShutdown).ConfigureAwait(false);
+        await CloseCapturedPlayer(player, stoppedGeneration, forShutdown).ConfigureAwait(false);
     }
 
     /// <summary>現行 session の player 開始を試みる。終了受付後や失効済みの要求は false を返す。</summary>
@@ -1326,6 +1357,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     private async Task<bool> TryStopPlaybackForGeneration(long generation, ChartFile file)
     {
         IBMSPlayer playerToClose;
+        long stoppedGeneration;
         lock (sessionGate)
         {
             if (shutdownStarted || generation != playbackGeneration || !ReferenceEquals(file, NowPlayingChart))
@@ -1333,8 +1365,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 return false;
             }
             playerToClose = ClearPlaybackStateWithoutExternalCall(closeProcess: true);
+            stoppedGeneration = playbackGeneration;
         }
-        await CloseCapturedPlayer(playerToClose).ConfigureAwait(false);
+        await CloseCapturedPlayer(playerToClose, stoppedGeneration).ConfigureAwait(false);
         return true;
     }
 
@@ -1362,18 +1395,23 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     /// <summary>選択譜面の再生または一時停止を行う。終了受付後は操作しない。</summary>
     internal Task Start(bool forceNewPlay = true, Action requestPlayerSurface = null) =>
-        StartCore(forceNewPlay, IsStoppedOrPaused ? requestPlayerSurface : null);
+        AcceptStartPlayback(forceNewPlay, requestPlayerSurface)();
 
     /// <summary>再生ボタンの入力時条件を保持して既存選曲へ渡し、故障を既存の通知経路で終端します。</summary>
     /// <returns>既存のbackground再生要求の実終端。UIへの面要求の配送完了は待ちません。</returns>
-    internal Task HandlePlayButton(Action requestPlayerSurface, PlaybackInputReceipt receipt = null)
+    internal Task HandlePlayButton(Action requestPlayerSurface, PlaybackInputReceipt receipt = null) =>
+        StartBackgroundPlaybackAction(AcceptStartPlayback(false, requestPlayerSurface, receipt), "PlaybackPanel.PlayButton", receipt);
+
+    /// <summary>再生入力時の停止境界と面要求を捕捉し、一回実行する業務処理を返します。</summary>
+    internal Func<Task> AcceptStartPlayback(bool forceNewPlay = true, Action requestPlayerSurface = null, PlaybackInputReceipt receipt = null)
     {
+        long acceptedStopEpoch = CapturePlaybackStopEpoch();
         Action acceptedSurfaceRequest = IsStoppedOrPaused ? requestPlayerSurface : null;
-        return StartBackgroundPlaybackAction(() => StartCore(false, acceptedSurfaceRequest, receipt), "PlaybackPanel.PlayButton", receipt);
+        return () => StartCore(acceptedStopEpoch, forceNewPlay, acceptedSurfaceRequest, receipt);
     }
 
-    private Task StartCore(bool forceNewPlay, Action acceptedSurfaceRequest, PlaybackInputReceipt receipt = null) =>
-        RunPlaybackSelectionAsync(async generation =>
+    private Task StartCore(long acceptedStopEpoch, bool forceNewPlay, Action acceptedSurfaceRequest, PlaybackInputReceipt receipt) =>
+        RunPlaybackSelectionAsync(acceptedStopEpoch, async generation =>
         {
             if (!forceNewPlay && NowPlayingChart != null)
             {
@@ -1390,31 +1428,53 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             {
                 // 競合と無関係な空選択でも、入力時の面選択意図を維持します。
                 PostPlayerSurfaceRequest(acceptedSurfaceRequest);
-                lock (sessionGate) { ClearPlaybackStateWithoutExternalCall(closeProcess: false); }
+                lock (sessionGate)
+                {
+                    // 空選択は現曲が残る同じ世代だけを解除します。停止済みなら捕捉Closeの世代を保ちます。
+                    if (IsCurrentPlaybackGeneration(generation) && NowPlayingChart != null)
+                    {
+                        ClearPlaybackStateWithoutExternalCall(closeProcess: false);
+                    }
+                }
             }
         });
 
     /// <summary>次の有効な譜面へ前方向に進み、手動の初回候補ゼロは現在曲を維持します。開始時入力不良後も同方向で探索し、終了受付後は操作しません。</summary>
-    internal Task Next(object sender = null, EventArgs e = null) => NextCore(sender, e);
+    internal Task Next(object sender = null, EventArgs e = null) => AcceptNextPlayback(sender, e)();
 
     private Task NextCore(object sender, EventArgs e,
         (long Generation, IBMSPlayer Player, ChartFile File)? naturalExit = null, PlaybackInputReceipt receipt = null) =>
-        NavigatePlayback(sender, direction: 1, naturalExit, receipt);
+        AcceptNextPlayback(sender, e, naturalExit, receipt)();
+
+    /// <summary>次曲入力の停止境界を受付時に捕捉します。自然終了は元曲の識別も保持します。</summary>
+    internal Func<Task> AcceptNextPlayback(object sender = null, EventArgs e = null,
+        (long Generation, IBMSPlayer Player, ChartFile File)? naturalExit = null, PlaybackInputReceipt receipt = null)
+    {
+        long acceptedStopEpoch = CapturePlaybackStopEpoch();
+        return () => NavigatePlayback(acceptedStopEpoch, sender, direction: 1, naturalExit, receipt);
+    }
 
     /// <summary>次ボタンの通常workerを起動し、呼出し元だけに当該業務Taskと開始を返します。</summary>
     internal Task HandleNextButton(PlaybackInputReceipt receipt = null) =>
-        StartBackgroundPlaybackAction(() => NextCore(null, null, receipt: receipt), "PlaybackPanel.Next", receipt);
+        StartBackgroundPlaybackAction(AcceptNextPlayback(receipt: receipt), "PlaybackPanel.Next", receipt);
 
     /// <summary>停止ボタンの通常workerを起動し、実停止Taskを当該入力へ返します。</summary>
     internal Task HandleStopButton(PlaybackInputReceipt receipt = null) =>
-        StartBackgroundPlaybackAction(() => StopPlayback(closeProcess: true), "PlaybackPanel.Stop", receipt);
+        StartBackgroundPlaybackAction(AcceptStopPlayback(closeProcess: true), "PlaybackPanel.Stop", receipt);
 
     /// <summary>前の有効な譜面へ後方向に戻り、初回候補ゼロは現在曲を維持します。開始時入力不良後も同方向で探索し、終了受付後は操作しません。</summary>
-    internal Task Previous(object sender = null, EventArgs e = null) => NavigatePlayback(sender, direction: -1);
+    internal Task Previous(object sender = null, EventArgs e = null) => AcceptPreviousPlayback(sender, e)();
 
-    private Task NavigatePlayback(object sender, int direction,
+    /// <summary>前曲入力の停止境界を受付時に捕捉し、一回実行する業務処理を返します。</summary>
+    internal Func<Task> AcceptPreviousPlayback(object sender = null, EventArgs e = null)
+    {
+        long acceptedStopEpoch = CapturePlaybackStopEpoch();
+        return () => NavigatePlayback(acceptedStopEpoch, sender, direction: -1);
+    }
+
+    private Task NavigatePlayback(long acceptedStopEpoch, object sender, int direction,
         (long Generation, IBMSPlayer Player, ChartFile File)? naturalExit = null, PlaybackInputReceipt receipt = null) =>
-        RunPlaybackSelectionAsync(async generation =>
+        RunPlaybackSelectionAsync(acceptedStopEpoch, async generation =>
         {
             ChartFile currentFile;
             object locator;
@@ -1431,7 +1491,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             {
                 if (!modes.RepeatPlay)
                 {
-                    await StopPlayback(closeProcess: true).ConfigureAwait(false);
+                    await CaptureStopPlayback(closeProcess: true, invalidateInputs: false)().ConfigureAwait(false);
                     return;
                 }
                 var current = new PlaybackQueueItem(currentIndex, currentFile, locator);
@@ -1441,7 +1501,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             }
             if (currentIndex < 0)
             {
-                if (sender != null) { await StopPlayback(closeProcess: true).ConfigureAwait(false); }
+                if (sender != null) { await CaptureStopPlayback(closeProcess: true, invalidateInputs: false)().ConfigureAwait(false); }
                 return;
             }
             int count = playbackQueue.Count;
@@ -1453,7 +1513,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 await StartAtIndex(index, null, false, generation, cursor: cursor, capturedModes: modes,
                     preserveCurrentOnInitialEmpty: sender == null, receipt: receipt).ConfigureAwait(false);
             }
-            else if (sender != null) { await StopPlayback(closeProcess: true).ConfigureAwait(false); }
+            else if (sender != null) { await CaptureStopPlayback(closeProcess: true, invalidateInputs: false)().ConfigureAwait(false); }
         }, stopIfBusy: direction > 0 && sender != null, naturalExit: naturalExit);
 
     private static string GetPlaybackFolderIdentity(ChartFile file) =>
@@ -1510,9 +1570,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         return default;
     }
 
-    /// <summary>曲選択の受付内で次回player要求と形式能力を一回捕捉し、その能力で指定行以降の候補を再生します。</summary>
+    /// <summary>呼出時に停止境界を捕捉し、曲選択ゲート取得後に次回player要求と形式能力を一回採用して指定行以降を再生します。</summary>
     internal Task StartAtIndex(int index) =>
-        RunPlaybackSelectionAsync(generation => StartAtIndex(index, initialRow: null, useInitialRow: false, generation));
+        RunPlaybackSelectionAsync(CapturePlaybackStopEpoch(), generation => StartAtIndex(index, initialRow: null, useInitialRow: false, generation));
 
     /// <summary>一要求のcursorで開始し、手動送りの初回候補ゼロだけは元曲を維持します。ロード入力不良後の枯渇は停止します。</summary>
     private async Task StartAtIndex(int index, object initialRow, bool useInitialRow, long generation, Action acceptedSurfaceRequest = null,
@@ -1538,7 +1598,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         PlaybackQueueItem candidate = FindNextPlaybackCandidate(cursor, supportsBmson);
         if (candidate.Chart == null)
         {
-            if (!preserveCurrentOnInitialEmpty) { await StopPlayback(closeProcess: true).ConfigureAwait(false); }
+            if (!preserveCurrentOnInitialEmpty) { await CaptureStopPlayback(closeProcess: true, invalidateInputs: false)().ConfigureAwait(false); }
             return;
         }
         index = candidate.Index;
@@ -1824,10 +1884,11 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     /// <remarks>変更側がChartFileOperationSynchronizerを保持する間、新しい選曲は受け付けません。別の入力scopeは返しません。</remarks>
     internal async Task StopPlaybackForMutationAsync()
     {
+        Func<Task> stop = AcceptStopPlayback(closeProcess: true);
         await playbackInputGate.WaitAsync().ConfigureAwait(false);
         try
         {
-            await StopPlayback(closeProcess: true).ConfigureAwait(false);
+            await stop().ConfigureAwait(false);
             // terminal側へ停止を委ねた場合は、変更側を成功として物理書込みへ進めません。
             if (shutdownStarted) { throw new OperationCanceledException(); }
         }
@@ -1878,18 +1939,23 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     }
 
     /// <summary>通常の停止を行う。再開可能な受付を維持し、終了受付後は terminal に解放を委ねる。</summary>
-    internal async Task StopPlayback(bool closeProcess = false)
+    internal Task StopPlayback(bool closeProcess = false) => AcceptStopPlayback(closeProcess)();
+
+    /// <summary>停止を同期受付して未開始入力と現曲を失効させ、捕捉したplayerだけを停止する処理を返します。</summary>
+    internal Func<Task> AcceptStopPlayback(bool closeProcess = false) => CaptureStopPlayback(closeProcess, invalidateInputs: true);
+
+    private Func<Task> CaptureStopPlayback(bool closeProcess, bool invalidateInputs)
     {
         IBMSPlayer playerToClose;
+        long stoppedGeneration;
         lock (sessionGate)
         {
-            if (shutdownStarted)
-            {
-                return;
-            }
+            if (shutdownStarted) { return () => Task.CompletedTask; }
+            if (invalidateInputs) { playbackStopEpoch++; }
             playerToClose = ClearPlaybackStateWithoutExternalCall(closeProcess || bmsPlayer is INextSongPreloadPlayer);
+            stoppedGeneration = playbackGeneration;
         }
-        await CloseCapturedPlayer(playerToClose).ConfigureAwait(false);
+        return () => CloseCapturedPlayer(playerToClose, stoppedGeneration);
     }
 
     private IBMSPlayer ClearPlaybackStateWithoutExternalCall(bool closeProcess)
@@ -1904,7 +1970,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         return playerToClose;
     }
 
-    private async Task CloseCapturedPlayer(IBMSPlayer player, bool forShutdown = false)
+    private async Task CloseCapturedPlayer(IBMSPlayer player, long stoppedGeneration, bool forShutdown = false)
     {
         if (player == null)
         {
@@ -1914,9 +1980,10 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         try
         {
             // capture 済みの通常停止が terminal close 後に player を再度操作しない。
-            if (shutdownStarted && !forShutdown)
+            lock (sessionGate)
             {
-                return;
+                if ((shutdownStarted && !forShutdown) || !ReferenceEquals(player, bmsPlayer)
+                    || stoppedGeneration != playbackGeneration) { return; }
             }
             if (player is INextSongPreloadPlayer preloadPlayer) { await preloadPlayer.CloseAsync().ConfigureAwait(false); }
             else { await Task.Run(player.CloseProcess).ConfigureAwait(false); }
@@ -1926,7 +1993,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         {
             lock (sessionGate)
             {
-                if (ReferenceEquals(player, bmsPlayer))
+                if (ReferenceEquals(player, bmsPlayer) && stoppedGeneration == playbackGeneration)
                 {
                     RefreshPlayerState(player);
                 }

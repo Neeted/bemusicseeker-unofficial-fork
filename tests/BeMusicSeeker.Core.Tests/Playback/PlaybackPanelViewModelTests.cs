@@ -961,6 +961,266 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>Ready待ち中に実UI入口で受け付けた二行をStopで取り消し、全Task終端後も停止を保ちます。次回factoryは取消で消費せず、停止後の明示入力だけが採用します。</summary>
+    [TestMethod]
+    public async Task QueuedRowActivation_StopCancelsAcceptedRowsAndPreservesNextPlayer()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string[] paths = Enumerable.Range(0, 4).Select(index => workspace.GetPath($"{index}.bms")).ToArray();
+        foreach (string path in paths) { File.WriteAllBytes(path, []); }
+        object[] charts = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToArray();
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var player = new PreloadBmsPlayer { Ready = ready.Task, Completion = completion.Task };
+        var replacement = new PreloadBmsPlayer { Completion = completion.Task };
+        var rows = new MainChartListViewModel { Rows = charts.ToList() };
+        var dialogs = new FakePlaybackDialogService();
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+            new InMemoryPlaybackSettingsStore(), dialogs, _ => Assert.Fail("取消から入力不良通知を出しません。"), new ChartFileOperationSynchronizer());
+        Task start = panel.StartAtIndex(0);
+        Task second = Task.CompletedTask;
+        Task third = Task.CompletedTask;
+        Task stop = Task.CompletedTask;
+        int created = 0;
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(player.StartObserved.Task, start, "stop-queued-ready");
+            second = panel.HandleTableRowActivation(1, charts[1]);
+            third = panel.HandleTableRowActivation(2, charts[2]);
+            ((ISettingsDialogPlaybackRuntimePort)panel).UsePlayerForNextPlayback(() => { created++; return replacement; }, true);
+            stop = panel.HandleStopButton();
+            Assert.IsNull(panel.NowPlayingChart, "StopのUI受付で現在曲を解除します。");
+            ready.SetResult();
+            await Task.WhenAll(start, second, third, stop);
+            CollectionAssert.AreEqual(new[] { paths[0] }, player.Starts.ToArray());
+            Assert.AreEqual(0, replacement.Starts.Count);
+            Assert.AreEqual(0, created);
+            Assert.IsNull(panel.NowPlayingChart);
+            Assert.IsFalse(panel.IsPlaying);
+            Assert.IsFalse(panel.IsPaused);
+            Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
+            await panel.HandleTableRowActivation(3, charts[3]);
+            Assert.AreEqual(1, created);
+            CollectionAssert.AreEqual(new[] { paths[3] }, replacement.Starts.ToArray());
+            Assert.AreEqual(paths[3], panel.NowPlayingChart?.Path);
+        }
+        finally
+        {
+            ready.TrySetResult();
+            completion.TrySetResult();
+            try { await Task.WhenAll(start, second, third, stop); }
+            finally { panel.BeginShutdown(); await panel.CloseForShutdown(); }
+        }
+    }
+
+    /// <summary>停止なしの行activationは先行Ready後に全行を順次開始し、通常選曲の世代更新を入力取消へ読み替えません。</summary>
+    [TestMethod]
+    public async Task AcceptedRowActivations_KeepEachStartWithoutStop()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string[] paths = Enumerable.Range(0, 3).Select(index => workspace.GetPath($"{index}.bms")).ToArray();
+        foreach (string path in paths) { File.WriteAllBytes(path, []); }
+        object[] charts = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToArray();
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var player = new PreloadBmsPlayer { Ready = ready.Task, Completion = completion.Task };
+        var rows = new MainChartListViewModel { Rows = charts.ToList() };
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("入力不良"), new ChartFileOperationSynchronizer());
+        Task start = panel.StartAtIndex(0);
+        Task second = Task.CompletedTask;
+        Task third = Task.CompletedTask;
+        try
+        {
+            Func<Task>? secondAction = panel.AcceptTableRowActivation(1, charts[1]);
+            Func<Task>? thirdAction = panel.AcceptTableRowActivation(2, charts[2]);
+            Assert.IsNotNull(secondAction);
+            Assert.IsNotNull(thirdAction);
+            second = secondAction();
+            third = thirdAction();
+            CollectionAssert.AreEqual(new[] { paths[0] }, player.Starts.ToArray());
+            Assert.IsFalse(second.IsCompleted);
+            Assert.IsFalse(third.IsCompleted);
+            ready.SetResult();
+            await Task.WhenAll(start, second, third);
+            CollectionAssert.AreEqual(paths, player.Starts.ToArray());
+            Assert.AreEqual(paths[2], panel.NowPlayingChart?.Path);
+        }
+        finally
+        {
+            ready.TrySetResult();
+            completion.TrySetResult();
+            try { await Task.WhenAll(start, second, third); }
+            finally { panel.BeginShutdown(); await panel.CloseForShutdown(); }
+        }
+    }
+
+    /// <summary>本番受付のB/C→Stop→Dをworkerと異なる順に実行してもA/Dだけを開始します。D先行では旧Closeを呼ばず、Close先行ではDのBeginStartが解放を待ちます。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task AcceptedStop_DoesNotCloseLaterStart(bool closeFirst)
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string[] paths = Enumerable.Range(0, 4).Select(index => workspace.GetPath($"{index}.bms")).ToArray();
+        foreach (string path in paths) { File.WriteAllBytes(path, []); }
+        object[] charts = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToArray();
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var closeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseClose = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var player = new PreloadBmsPlayer { Completion = completion.Task };
+        var rows = new MainChartListViewModel { Rows = charts.ToList() };
+        var dialogs = new FakePlaybackDialogService();
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+            new InMemoryPlaybackSettingsStore(), dialogs, _ => Assert.Fail("入力不良"), new ChartFileOperationSynchronizer());
+        Task stopTask = Task.CompletedTask;
+        Task newStart = Task.CompletedTask;
+        int closes = 0;
+        int closeCompletions = 0;
+        try
+        {
+            await panel.StartAtIndex(0);
+            Func<Task>? second = panel.AcceptTableRowActivation(1, charts[1]);
+            Func<Task>? third = panel.AcceptTableRowActivation(2, charts[2]);
+            Func<Task> stop = panel.AcceptStopPlayback(closeProcess: true);
+            Func<Task>? last = panel.AcceptTableRowActivation(3, charts[3]);
+            Assert.IsNotNull(second);
+            Assert.IsNotNull(third);
+            Assert.IsNotNull(last);
+            player.BeforeClose = () => closes++;
+            player.CloseCompletion = () => { closeCompletions++; closeEntered.TrySetResult(); return releaseClose.Task; };
+            if (closeFirst)
+            {
+                stopTask = stop();
+                await TestUiDispatcherHost.AwaitNotificationAsync(closeEntered.Task, stopTask, "accepted-stop-close");
+                newStart = last();
+                CollectionAssert.AreEqual(new[] { paths[0] }, player.Starts.ToArray());
+                Assert.IsFalse(newStart.IsCompleted);
+                releaseClose.SetResult();
+                await Task.WhenAll(stopTask, newStart);
+            }
+            else
+            {
+                newStart = last();
+                await newStart;
+                stopTask = stop();
+                await stopTask;
+            }
+            await second();
+            await third();
+            CollectionAssert.AreEqual(new[] { paths[0], paths[3] }, player.Starts.ToArray());
+            Assert.AreEqual(closeFirst ? 1 : 0, closes, "D開始後の旧StopはplayerをCloseしません。");
+            Assert.AreEqual(closeFirst ? 1 : 0, closeCompletions);
+            Assert.AreEqual(paths[3], panel.NowPlayingChart?.Path);
+            Assert.IsTrue(panel.IsPlaying);
+            Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
+        }
+        finally
+        {
+            releaseClose.TrySetResult();
+            completion.TrySetResult();
+            try { await Task.WhenAll(stopTask, newStart); }
+            finally
+            {
+                player.BeforeClose = null;
+                player.CloseCompletion = null;
+                panel.BeginShutdown();
+                await panel.CloseForShutdown();
+            }
+        }
+    }
+
+    /// <summary>通常開始AのStop受付後、後続の空選択Playは停止世代を上書きせずAの実Closeと終端を保ちます。空選択判定中の再Stopでも同じ停止所有を維持します。</summary>
+    /// <remarks>単一Stopが世代捕捉と現在曲判定の間へ入る到達はsourceの排他順で確認し、このケースは同じ空選択clearの競合を既存queue境界で固定します。</remarks>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task EmptySelectionStart_AfterStopDoesNotInvalidateCapturedClose(bool stopAgain)
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string path = workspace.GetPath("playing.bms");
+        File.WriteAllBytes(path, []);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var selectionEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseSelection = new ManualResetEventSlim();
+        var closeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseClose = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var player = new PreloadBmsPlayer { Completion = completion.Task };
+        var rows = new MainChartListViewModel { Rows = new List<object> { ChartTestValues.Empty() with { Path = path } } };
+        var queue = new GatedPlaybackChartQueue(new MainChartListPlaybackQueue(rows), selectionEntered, releaseSelection);
+        var dialogs = new FakePlaybackDialogService();
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), queue,
+            new InMemoryPlaybackSettingsStore(), dialogs, _ => Assert.Fail("空選択と停止で入力不良を通知しません。"), new ChartFileOperationSynchronizer());
+        Func<Task>? firstStop = null;
+        Task play = Task.CompletedTask;
+        Task stop = Task.CompletedTask;
+        bool closeFinished = false;
+        int surfaces = 0;
+        try
+        {
+            await panel.StartAtIndex(0);
+            CollectionAssert.AreEqual(new[] { path }, player.Starts.ToArray());
+            firstStop = panel.AcceptStopPlayback(closeProcess: true);
+            Assert.IsNull(panel.NowPlayingChart);
+            Assert.AreEqual(0, player.CloseProcessCount, "最初のStopは受付だけで、AのCloseは未実行です。");
+            rows.SelectedIndex = -1;
+            if (stopAgain)
+            {
+                queue.BeforeSelectedIndexRead = () =>
+                {
+                    queue.BeforeSelectedIndexRead = null;
+                    selectionEntered.TrySetResult();
+                    releaseSelection.Wait();
+                };
+            }
+            play = panel.HandlePlayButton(() => surfaces++);
+            Func<Task> capturedStop = firstStop;
+            if (stopAgain)
+            {
+                await TestUiDispatcherHost.AwaitNotificationAsync(selectionEntered.Task, play, "empty-selection-entered");
+                capturedStop = panel.AcceptStopPlayback(closeProcess: true);
+                releaseSelection.Set();
+            }
+            await play;
+            CollectionAssert.AreEqual(new[] { path }, player.Starts.ToArray(), "空選択では別の開始を行いません。");
+            Assert.AreEqual(1, surfaces, "空選択でも入力時に受理した面要求を維持します。");
+            player.CloseCompletion = async () =>
+            {
+                closeEntered.TrySetResult();
+                await releaseClose.Task;
+                closeFinished = true;
+            };
+            if (!stopAgain) { firstStop = null; }
+            stop = capturedStop();
+            await TestUiDispatcherHost.AwaitNotificationAsync(closeEntered.Task, stop, "empty-selection-stop-close");
+            Assert.IsFalse(stop.IsCompleted, "実Closeの終端まで停止Taskを完了させません。");
+            releaseClose.SetResult();
+            await stop;
+            Assert.IsTrue(closeFinished);
+            Assert.IsNull(panel.NowPlayingChart);
+            Assert.IsFalse(panel.IsPlaying);
+            Assert.IsFalse(panel.IsPaused);
+            Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
+        }
+        finally
+        {
+            releaseSelection.Set();
+            releaseClose.TrySetResult();
+            completion.TrySetResult();
+            try { await Task.WhenAll(play, stop); }
+            finally
+            {
+                try { if (firstStop != null) { await firstStop(); } }
+                finally
+                {
+                    player.CloseCompletion = null;
+                    panel.BeginShutdown();
+                    await panel.CloseForShutdown();
+                }
+            }
+        }
+    }
+
     /// <summary>遅い旧世代の終了故障を一度通知し、現在曲とそのPLAY表示は保全します。</summary>
     [TestMethod]
     public async Task NaturalExit_StaleFailurePreservesReplacementAndStillNotifies()
@@ -1613,14 +1873,15 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     /// <summary>通常発見した入れ子パッケージで衝突なし・入力元兄弟・両側複数・ディレクトリ占有から開始名を決め、元入力と第三者のバイト内容・相対配置を保全します。</summary>
-    /// <remarks>実コピーを内蔵BeginStartのReadyまで保持し、要求TaskとLの未終端、Completion前の所有物回収を観測します。ディレクトリ占有の代表だけReady故障を重ね、元原因の一通知と明示再試聴を確認します。</remarks>
+    /// <remarks>実コピーを内蔵BeginStartのReadyまで保持し、要求TaskとLの未終端、Completion前の所有物回収を観測します。ディレクトリ占有の代表はReady故障を重ねます。兄弟衝突の一代表はReady途中に実Stopを入力し、通常取消の無通知・元名復元・受付解放と次の明示再試聴を確認します。</remarks>
     [TestMethod]
-    [DataRow(0, "chart.bms", false)]
-    [DataRow(1, "chart__.bms", false)]
-    [DataRow(2, "chart_____.bms", false)]
-    [DataRow(3, "chart___.bms", false)]
-    [DataRow(3, "chart___.bms", true)]
-    public async Task TemporaryCopy_IsRetainedUntilReadyAndRemovedBeforeCompletion(int collision, string expectedName, bool failReady)
+    [DataRow(0, "chart.bms", false, false)]
+    [DataRow(1, "chart__.bms", false, false)]
+    [DataRow(2, "chart_____.bms", false, false)]
+    [DataRow(3, "chart___.bms", false, false)]
+    [DataRow(3, "chart___.bms", true, false)]
+    [DataRow(1, "chart__.bms", false, true)]
+    public async Task TemporaryCopy_IsRetainedUntilReadyAndRemovedBeforeCompletion(int collision, string expectedName, bool failReady, bool stopBeforeReady)
     {
         var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         bool workspaceDisposed = false;
@@ -1638,6 +1899,7 @@ public sealed class PlaybackPanelViewModelTests
             PlaybackPanelViewModel? panel = null;
             Task start = Task.CompletedTask;
             Task retry = Task.CompletedTask;
+            Task stop = Task.CompletedTask;
             try
             {
                 string source = Path.Combine(root, "source");
@@ -1730,9 +1992,19 @@ public sealed class PlaybackPanelViewModelTests
                 }
                 Assert.AreEqual("existing image", File.ReadAllText(Path.Combine(destination, "charts/extra/banner.png")));
                 Assert.IsFalse(File.Exists(Path.Combine(destination, "outside.wav")));
-                if (failReady) { ready.SetException(failure); }
+                if (stopBeforeReady)
+                {
+                    stop = panel.HandleStopButton();
+                    Assert.IsNull(panel.NowPlayingChart);
+                    Assert.IsFalse(start.IsCompleted, "停止だけでは準備Taskと所有コピーの回収は完了しません。");
+                    Assert.IsTrue(operations.IsActive);
+                    CollectionAssert.AreEqual(chartBytes, File.ReadAllBytes(copiedPath));
+                    CollectionAssert.AreEqual(chartBytes, File.ReadAllBytes(Path.Combine(source, "charts", expectedName)));
+                    ready.SetCanceled();
+                }
+                else if (failReady) { ready.SetException(failure); }
                 else { ready.SetResult(); }
-                await start;
+                await Task.WhenAll(start, stop);
                 Assert.IsFalse(operations.IsActive, "回収と元名復元の終端後にLを解放します。");
                 AssertTree(source, sourceBefore);
                 AssertTree(destination, destinationBefore);
@@ -1744,12 +2016,18 @@ public sealed class PlaybackPanelViewModelTests
                     Assert.AreSame(failure, dialogs.LastPlaybackFailure);
                     Assert.IsNull(panel.NowPlayingChart);
                 }
+                else if (stopBeforeReady)
+                {
+                    Assert.IsNull(panel.NowPlayingChart);
+                    Assert.IsFalse(panel.IsPlaying);
+                    Assert.IsFalse(panel.IsPaused);
+                }
                 else
                 {
                     Assert.IsNotNull(panel.NowPlayingChart);
                     Assert.AreEqual(chartPath, panel.NowPlayingChart.Path);
                 }
-                if (collision == 0 || failReady)
+                if (collision == 0 || failReady || stopBeforeReady)
                 {
                     await panel.StopPlayback(closeProcess: true);
                     player.Ready = Task.CompletedTask;
@@ -1772,7 +2050,7 @@ public sealed class PlaybackPanelViewModelTests
             {
                 ready.TrySetResult();
                 completion.TrySetResult();
-                try { await Task.WhenAll(start, retry, completion.Task); }
+                try { await Task.WhenAll(start, stop, retry, completion.Task); }
                 finally
                 {
                     try { if (panel != null) { await panel.CloseForShutdown(); } }
@@ -4594,7 +4872,13 @@ public sealed class PlaybackPanelViewModelTests
         private int claimed;
         internal bool RowResolved => Volatile.Read(ref rowResolved) != 0;
         public int Count => inner.Count;
-        public int SelectedIndex { get => inner.SelectedIndex; set => inner.SelectedIndex = value; }
+        /// <summary>空選択の判定と停止受付の順序だけを制御します。通常は指定しません。</summary>
+        internal Action? BeforeSelectedIndexRead { get; set; }
+        public int SelectedIndex
+        {
+            get { BeforeSelectedIndexRead?.Invoke(); return inner.SelectedIndex; }
+            set => inner.SelectedIndex = value;
+        }
         /// <inheritdoc/>
         public int IndexOfPlaybackItem(object locator, ChartFile chart) => inner.IndexOfPlaybackItem(locator, chart);
         /// <inheritdoc/>
