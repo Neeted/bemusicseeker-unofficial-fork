@@ -111,7 +111,7 @@ internal sealed class DroppedInstallIngressMaterializer
 
             string[] normalizedPaths = originals.Select(LongPathFileSystem.NormalizePathForStorage).ToArray();
             bool[] transient = normalizedPaths.Select(IsExternalTransientSource).ToArray();
-            bool[] sourceIsDirectory = new bool[normalizedPaths.Length];
+            var transientSources = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
             for (int index = 0; index < normalizedPaths.Length; index++)
             {
                 string source = normalizedPaths[index];
@@ -129,7 +129,12 @@ internal sealed class DroppedInstallIngressMaterializer
                         ? GetTrustedRootDescendantAttributes(source)
                         : GetStableSourceAttributesWithAncestors(source);
                     EnsureSourceTreeIsNotReparsePoints(source, attributes);
-                    sourceIsDirectory[index] = (attributes & FileAttributes.Directory) != 0;
+                    if (transient[index])
+                    {
+                        transientSources.TryAdd(
+                            LongPathFileSystem.TrimTrailingDirectorySeparators(source),
+                            (attributes & FileAttributes.Directory) != 0);
+                    }
                 }
                 catch (Exception exception) when (exception is FileNotFoundException
                     || exception is DirectoryNotFoundException
@@ -164,22 +169,20 @@ internal sealed class DroppedInstallIngressMaterializer
                 string destination = LongPathFileSystem.NormalizePathForStorage(
                     Path.Combine(ingressRoot, relativePath));
                 EnsureDestinationWithinIngressRoot(destination, ingressRoot);
-                if (sourceIsDirectory[index]
+                string copySource = LongPathFileSystem.TrimTrailingDirectorySeparators(source);
+                if (transientSources[copySource]
                     && LongPathFileSystem.IsSameOrDescendantDirectoryPath(ingressRoot, source))
                 {
                     throw new UnsafeDroppedInstallSourceException("The managed ingress destination is inside a dropped source directory.");
                 }
                 durablePaths[index] = destination;
-                mappedPaths[source] = destination;
+                mappedPaths[copySource] = destination;
             }
 
-            foreach (string source in GetMinimalCopySources(normalizedPaths, transient, sourceIsDirectory))
+            foreach ((string source, bool isDirectory) in GetMinimalCopySources(transientSources))
             {
                 string destination = mappedPaths[source];
-                int sourceIndex = Array.FindIndex(
-                    normalizedPaths,
-                    path => string.Equals(path, source, StringComparison.OrdinalIgnoreCase));
-                if (sourceIsDirectory[sourceIndex])
+                if (isDirectory)
                 {
                     CopyDirectoryWithoutReparsePoints(source, destination, ingressRoot);
                 }
@@ -234,31 +237,35 @@ internal sealed class DroppedInstallIngressMaterializer
             systemTempRoot);
     }
 
-    private static IEnumerable<string> GetMinimalCopySources(
-        string[] paths,
-        bool[] transient,
-        bool[] sourceIsDirectory)
+    /// <summary>
+    /// 末尾区切りを除いたコピー元と取得済みの種別から、選択された一時ディレクトリに包含されないものだけを返します。
+    /// </summary>
+    private static IEnumerable<KeyValuePair<string, bool>> GetMinimalCopySources(
+        Dictionary<string, bool> sources)
     {
-        var unique = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        for (int index = 0; index < paths.Length; index++)
+        var directories = sources.Where(source => source.Value)
+            .Select(source => source.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (KeyValuePair<string, bool> source in sources)
         {
-            if (transient[index])
+            // ファイル同士は包含しません。全入力の再探索を避け、祖先だけを集合で照合します。
+            bool coveredByDirectory = false;
+            if (directories.Count != 0)
             {
-                unique.Add(paths[index]);
+                string ancestor = Path.GetDirectoryName(source.Key);
+                while (!string.IsNullOrEmpty(ancestor))
+                {
+                    if (directories.Contains(ancestor))
+                    {
+                        coveredByDirectory = true;
+                        break;
+                    }
+                    ancestor = Path.GetDirectoryName(ancestor);
+                }
             }
-        }
-
-        foreach (string candidate in unique)
-        {
-            bool coveredByDirectory = unique.Any(other =>
-                !string.Equals(candidate, other, StringComparison.OrdinalIgnoreCase)
-                && sourceIsDirectory[Array.FindIndex(
-                    paths,
-                    path => string.Equals(path, other, StringComparison.OrdinalIgnoreCase))]
-                && LongPathFileSystem.IsSameOrDescendantDirectoryPath(candidate, other));
             if (!coveredByDirectory)
             {
-                yield return candidate;
+                yield return source;
             }
         }
     }

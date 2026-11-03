@@ -1052,7 +1052,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         }
     }
 
-    /// <summary>一時的な借用元を管理領域へ確保してから元を消しても、導入portに同じ内容と相対構造を渡し、引渡し済み入力を回収しない。</summary>
+    /// <summary>同期受付の帰還直後に確保先を読み、借用元を消しても導入portへ同じ内容と相対構造を渡し、引渡し済み入力を回収しない。</summary>
     /// <remarks>実ファイルの確保後に借用元を削除し、導入portで実内容を読む。コピー成功だけで寿命保全の保証に代えない。</remarks>
     [TestMethod]
     public async Task AcquireAndTryEnqueueDroppedPaths_StagesTransientSourceThroughMutationPort()
@@ -1111,8 +1111,9 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 owner.AcquireAndTryEnqueueDroppedPaths([source]);
 
             Assert.IsTrue(result.Succeeded, result.Exception?.ToString());
-            await TestUiDispatcherHost.AwaitNotificationAsync(mutationEntered.Task, owner.WaitForIdleAsync(), "PackageInstallWorkflowOwnerTests.mutationEntered");
+            Assert.AreEqual("borrowed-chart", File.ReadAllText(result.Request.Paths.Single()));
             File.Delete(source);
+            await TestUiDispatcherHost.AwaitNotificationAsync(mutationEntered.Task, owner.WaitForIdleAsync(), "PackageInstallWorkflowOwnerTests.mutationEntered");
             allowMutationRead.Set();
             await TestUiDispatcherHost.AwaitNotificationAsync(mutationFinished.Task, owner.WaitForIdleAsync(), "PackageInstallWorkflowOwnerTests.mutationFinished");
             await owner.WaitForIdleAsync();

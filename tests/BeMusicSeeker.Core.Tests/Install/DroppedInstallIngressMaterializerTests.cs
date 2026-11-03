@@ -120,21 +120,71 @@ public sealed class DroppedInstallIngressMaterializerTests
         Assert.AreEqual("two", File.ReadAllText(result.Request.Paths[1]));
     }
 
-    /// <summary>重なるfile・親folder入力でも返却pathの包含関係と内容を保ち、重複入力の配置ずれを検出します。</summary>
-    /// <remarks>実FSで確保・読取り・回収の接続を観測し、queue以後の導入処理は別の入口ケースが担います。</remarks>
+    /// <summary>平坦な複数file、親子、重複、安定・管理入力の順序を入れ替えても、各入力の配置・種別・内容と借用元を保つことを確認します。</summary>
+    /// <remarks>実FSで確保・読取り・回収を観測し、包含縮約による取り違えを検出します。queue以後は入口ケースが担います。</remarks>
     [TestMethod]
-    public void Acquire_OverlappingFileAndDirectoryPreserveInputMapping()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Acquire_OverlappingFileAndDirectoryPreserveInputMapping(bool reverse)
     {
         using var fixture = new MaterializerFixture();
         string directory = fixture.CreateExternalDirectory(Path.Combine("tree", "package"));
-        string file = Path.Combine(directory, "chart.bms");
-        File.WriteAllText(file, "chart");
+        string file = fixture.CreateExternalFile(Path.Combine("tree", "package", "chart.bms"), "chart");
+        string sibling = fixture.CreateExternalFile(Path.Combine("flat", "sibling.bms"), "sibling");
+        string sameName = fixture.CreateExternalFile(Path.Combine("flat", "chart.bms"), "other-chart");
+        string stable = fixture.CreateStableFile("stable/chart.bms", "stable");
+        string managed = fixture.CreateManagedFile("current/chart.bms", "managed");
+        (string Original, string Relative, string? Contents)[] inputs =
+        [
+            (file, Path.Combine("tree", "package", "chart.bms"), "chart"),
+            (sibling, Path.Combine("flat", "sibling.bms"), "sibling"),
+            (directory, Path.Combine("tree", "package"), null),
+            (sameName, Path.Combine("flat", "chart.bms"), "other-chart"),
+            (Path.Combine(directory, ".", "chart.bms"), Path.Combine("tree", "package", "chart.bms"), "chart"),
+            (file.ToUpperInvariant(), Path.Combine("tree", "package", "chart.bms"), "chart"),
+            (directory.ToUpperInvariant(), Path.Combine("tree", "package"), null),
+            (directory + Path.DirectorySeparatorChar, Path.Combine("tree", "package"), null),
+            (stable, stable, "stable"),
+            (managed, managed, "managed")
+        ];
+        if (reverse)
+        {
+            Array.Reverse(inputs);
+        }
+        string[] originals = inputs.Select(input => input.Original).ToArray();
 
-        DroppedInstallIngressAcquisitionResult result = fixture.Materializer.Acquire([file, directory]);
+        DroppedInstallIngressAcquisitionResult result = fixture.Materializer.Acquire(originals);
 
         Assert.IsTrue(result.Succeeded, result.Exception?.ToString());
-        Assert.AreEqual(Path.Combine(result.Request.Paths[1], "chart.bms"), result.Request.Paths[0]);
-        Assert.AreEqual("chart", File.ReadAllText(result.Request.Paths[0]));
+        Assert.IsNotNull(fixture.LastIngressRoot);
+        CollectionAssert.AreEqual(originals, result.Request.OriginalPaths);
+        Assert.AreEqual(inputs.Length, result.Request.Paths.Length);
+        for (int index = 0; index < inputs.Length; index++)
+        {
+            (string Original, string Relative, string? Contents) input = inputs[index];
+            string expected = Path.GetFullPath(Path.Combine(fixture.LastIngressRoot, input.Relative));
+            string actual = result.Request.Paths[index];
+            Assert.IsTrue(string.Equals(expected, Path.TrimEndingDirectorySeparator(actual), StringComparison.OrdinalIgnoreCase), input.Original);
+            Assert.AreEqual(input.Contents == null, Directory.Exists(actual), input.Original);
+            if (input.Contents != null)
+            {
+                CollectionAssert.AreEqual(File.ReadAllBytes(input.Original), File.ReadAllBytes(actual), input.Original);
+            }
+        }
+
+        result.Request.TryAbandonUnconsumedSources();
+        Assert.IsFalse(Directory.Exists(fixture.LastIngressRoot));
+        foreach ((string Original, string Relative, string? Contents) input in inputs)
+        {
+            if (input.Contents == null)
+            {
+                Assert.IsTrue(Directory.Exists(input.Original));
+            }
+            else
+            {
+                Assert.AreEqual(input.Contents, File.ReadAllText(input.Original));
+            }
+        }
     }
 
     /// <summary>一入力の読取りlockでコピーが失敗すると作業rootを一回回収し、外部入力の誤削除や部分rootの残留を検出します。</summary>
