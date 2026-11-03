@@ -34,6 +34,12 @@ LEVELの整列は型付き数値キーを優先し、必要な文字列fallback�
 
 通常Selectedと再クリックは、実際に表示された親TreeViewItemのItemsSourceを選択の出自として渡します。モデル確定後も旧表示が残る間のクリックは旧構成の対応へ追従し、新表示からの同名キーの選択へ旧対応を再適用しません。要求の複製・表参照差替えでも出自を保持し、現在のモデル構成へ暗黙に読み替えません。LampViewerも存在確認と同じ公開構成を使います。
 
+### 譜面一覧のフォルダ名編集
+
+`CustomTableView` は直接打鍵による置換前の編集原文を一回捕捉し、確定入力とともに同じ編集要求の終端へ渡します。開始時の対象と操作範囲を維持し、確定時の最新行から原文を再取得しません。確定・取消・終了で原文を解放し、一回だけ終端を通知します。Enter・Tab・フォーカス離脱と、選択・現在セル・次編集の操作を維持します。他列の同値編集イベントは抑止しません。
+
+FOLDERの変更不要判定と改名の反映は[ライブラリ変更](../library/mutations.md#フォルダ名の変更不要判定と表記変更)に従います。実編集部品は `CustomTableEditingTests.FolderEdit_CapturesOriginalBeforeTypingAndCompletesEachSessionOnce`、開始範囲の配送は `ChartListVirtualViewTests.MainChartList_CellEditSessionKeepsBeginningScopeUntilEnded`、既定端末の接続は `MainWindowChartPresentationWpfTests.MainWindowFolderEdit_DefaultTerminalPreservesOriginalAndNoOp` が確認します。
+
 ### プレイリストツリーのドロップとホバー
 
 表見出し・実子フォルダにOSのFileDropを落とすと、既存の `Window_Drop`、`DroppedInstallDropTerminal`、導入ownerの受付へ一回渡します。表のインポートやプレイリストへの譜面追加へ変換しません。内部行形式は実ヒット先の表rootまたは通常所属への既存要求を使います。空名・空白名の子ノードは[保存仕様](../playlist/storage-and-export.md#フォルダ単位のドロップ)に従います。

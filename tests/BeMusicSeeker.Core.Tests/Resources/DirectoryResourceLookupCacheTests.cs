@@ -209,11 +209,13 @@ public sealed class DirectoryResourceLookupCacheTests
     /// 保証：移動は対象項目の音声・画像・動画ハッシュbucketだけを更新し、無関係な逆引きの全列挙・書込みを行わない。
     /// </summary>
     [TestMethod]
-    public void ReplaceDirsWithResult_RewritesOnlyBucketsForMovedEntryHashes()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ReplaceDirsWithResult_RewritesOnlyBucketsForMovedEntryHashes(bool caseOnly)
     {
         const string first = @"C:\Songs\First";
         const string second = @"C:\Songs\Second";
-        const string moved = @"C:\Renamed\First";
+        string moved = caseOnly ? @"C:\Songs\FIRST" : @"C:\Renamed\First";
         var cache = DirectoryResourceLookupCache.CreateFromNativeCanonicalArrays(
             [first, second],
             [[11u], [12u]],
@@ -249,6 +251,8 @@ public sealed class DirectoryResourceLookupCacheTests
             },
             writes);
         Assert.IsFalse(writes.Contains((ChartResourceKind.Audio, 99u)));
+        CollectionAssert.AreEquivalent(new[] { moved, second }, next.Keys.ToArray());
+        CollectionAssert.AreEquivalent(new[] { first, second }, cache.Keys.ToArray());
         CollectionAssert.AreEqual(new[] { moved }, next.GetDirectoriesByAudioRelativeHash(11u).ToArray());
         CollectionAssert.AreEqual(new[] { moved }, next.GetDirectoriesByImageRelativeHash(21u).ToArray());
         CollectionAssert.AreEqual(new[] { moved }, next.GetDirectoriesByMovieRelativeHash(31u).ToArray());

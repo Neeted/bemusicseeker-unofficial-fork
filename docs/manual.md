@@ -583,6 +583,8 @@ Right-clicking a chart row or playlist row opens operations for the selected row
 - `Automatic folder renaming`: Renames the selected chart's folder according to the folder-name format in settings.
 - `Convert to audio file`: Outputs BMS / bmson chart playback as an audio file according to the recording settings in the settings dialog.
 
+Edit a chart’s `FOLDER` cell to rename its folder. Confirming the original name, including after changing it and changing it back, leaves the folder unchanged. Both manual and automatic renaming support case-only changes such as `song` to `Song`.
+
 With LR2 integration enabled, renaming or moving a folder also updates external custom folders beneath it to their new locations. When deleting or disabling charts leaves `folderinfo.txt` or custom folders in place, the LR2 folder hierarchy they require is retained.
 
 #### Removing List Items and Parse Records

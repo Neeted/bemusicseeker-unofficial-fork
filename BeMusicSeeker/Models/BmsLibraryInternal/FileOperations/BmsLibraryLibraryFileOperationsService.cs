@@ -903,7 +903,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     ? children
                     : [];
                 string requestedPath = createFolderPath?.Invoke(directChildren, DirectoryExt.GetDirectoryNameSimple(folder));
-                if (!string.IsNullOrWhiteSpace(requestedPath) && !folder.Equals(requestedPath, StringComparison.OrdinalIgnoreCase))
+                if (!string.IsNullOrWhiteSpace(requestedPath) && !folder.Equals(requestedPath, StringComparison.Ordinal))
                 {
                     plan = new FolderAutoRenamePlan
                     {
@@ -993,7 +993,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
 
         string basePath = Path.Combine(sourceParent, candidateName);
-        if (basePath.Equals(sourceFolder, StringComparison.OrdinalIgnoreCase))
+        if (basePath.Equals(sourceFolder, StringComparison.Ordinal))
         {
             return null;
         }
@@ -1018,12 +1018,10 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             return true;
         }
-        if (candidate.Equals(sourceFolder, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-        return reservedDestinationFolders?.Contains(candidate) == true
-            || LongPathFileSystem.EntryExists(candidate);
+        if (reservedDestinationFolders?.Contains(candidate) == true) { return true; }
+        // 採番済みの移動元自身は空き(変更不要)として扱い、自動改名のたびに別の番号へ改名されることを防ぎます。大小文字だけの違いは同一性判定に任せます。
+        if (string.Equals(candidate, sourceFolder, StringComparison.Ordinal)) { return false; }
+        return LongPathFileSystem.HasDirectoryMoveDestinationConflict(sourceFolder, candidate);
     }
 
     private static string GetLastPathSegment(string path)

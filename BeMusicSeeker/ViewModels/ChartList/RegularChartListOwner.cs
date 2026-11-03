@@ -1160,6 +1160,11 @@ internal sealed partial class RegularChartListOwner : IDisposable
         }
         MainChartListCellEditContext context = request.Context;
         if (string.Equals(context.PropertyName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal)
+            && string.Equals(request.OriginalText, request.Text, StringComparison.Ordinal))
+        {
+            return Task.CompletedTask;
+        }
+        if (string.Equals(context.PropertyName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal)
             && GridRowResolver.TryGetFolderEditChartOperationTarget(context.Row, context.SourceScope, out ChartOperationTarget folderTarget)
             && RenameChartFolderRequest.TryCreate(folderTarget, out RenameChartFolderRequest renameRequest))
         {
@@ -1174,7 +1179,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         return Task.CompletedTask;
     }
 
-    /// <summary>改名を対象確定前にLへ非待機受付し、実変更・必要公開・通知・cleanupの終端まで保持します。Busyで予約しません。</summary>
+    /// <summary>名前の正規化後も変わる改名だけをLへ非待機受付し、実変更・必要公開・通知・cleanupの終端まで保持します。変更不要では受付もFS検査も行わず、Busyで予約しません。</summary>
     internal Task RenameChartFolderAsync(RenameChartFolderRequest request, string newFolder)
     {
         if (request?.HasTarget != true || string.IsNullOrWhiteSpace(newFolder)) { return Task.CompletedTask; }
@@ -1182,6 +1187,13 @@ internal sealed partial class RegularChartListOwner : IDisposable
         lock (syncRoot)
         {
             if (disposed || normalLibraryRefreshSource == null) { return Task.CompletedTask; }
+            string sourceDirectory = DirectoryExt.GetDirectoryNameSimple(request.Chart.Path);
+            // 判定だけに正規化結果を使い、実計画へは原入力を渡して正規化を一回(計画側)に限ります。予約名を含む入力では正規化が冪等でないため、二重適用すると最終名が判定とずれます。
+            string normalizedFolder = normalLibraryRefreshSource.NormalizeAutoRenameFolderName(newFolder);
+            string sourceParent = Path.GetDirectoryName(sourceDirectory);
+            if (string.IsNullOrWhiteSpace(normalizedFolder)
+                || (sourceParent != null && string.Equals(sourceDirectory, Path.Combine(sourceParent, normalizedFolder), StringComparison.Ordinal)))
+            { return Task.CompletedTask; }
             if (chartFileOperations.TryEnter(out IDisposable accepted))
             {
                 BMSLibrary library = normalLibraryRefreshSource;

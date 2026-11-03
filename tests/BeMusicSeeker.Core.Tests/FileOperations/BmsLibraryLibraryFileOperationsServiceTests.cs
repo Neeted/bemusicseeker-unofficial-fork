@@ -569,6 +569,33 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         });
     }
 
+    /// <summary>別実体の「Renamed」が存在し、移動元が採番済みの「Renamed (2)」で書式結果が「Renamed」のとき、移動元自身を空きとして宛先が移動元と同じになり、実移動が0件(再実行で別の番号へ改名されない)ことを確認します。</summary>
+    [TestMethod]
+    public void BuildAutoRenamePlans_NumberedSourceKeepsItsOwnNameWithoutMove()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            var service = new BmsLibraryLibraryFileOperationsService();
+            string rootPath = Path.Combine(tempDirectoryPath, "Songs");
+            string sourcePath = Path.Combine(rootPath, "Renamed (2)");
+            Directory.CreateDirectory(sourcePath);
+            Directory.CreateDirectory(Path.Combine(rootPath, "Renamed"));
+            ChartFile chart = CreateFile(Path.Combine(sourcePath, "chart.bms"));
+
+            List<FolderAutoRenamePlan> plans = service.BuildAutoRenamePlans(
+                [chart],
+                [],
+                [],
+                renameRootFolder: true,
+                folders => [chart],
+                (_, parentDir) => Path.Combine(parentDir, "Renamed"));
+
+            Assert.IsTrue(plans.All(plan => string.IsNullOrWhiteSpace(plan.DestinationDirectory)
+                || string.Equals(plan.DestinationDirectory, sourcePath, StringComparison.Ordinal)));
+            Assert.AreEqual(0, new FolderMoveBatch(plans).Moves.Count);
+        });
+    }
+
     /// <summary>名前正規化後の衝突先を計画内でも予約し、別入力が同じ宛先へ割り当たる誤りや既存宛先への上書きを検出する。</summary>
     /// <remarks>実ディレクトリの存在・衝突を観測し、譜面metadataは既存の直接子取得callbackで条件を渡す。</remarks>
     [TestMethod]

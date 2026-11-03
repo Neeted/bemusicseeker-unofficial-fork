@@ -31,12 +31,12 @@ internal sealed class FolderMoveBatch
         Moves = Array.AsReadOnly([.. Plans.Where(plan => plan.FailureException == null
             && !string.IsNullOrWhiteSpace(plan.SourceDirectory)
             && !string.IsNullOrWhiteSpace(plan.DestinationDirectory)
-            && !string.Equals(plan.SourceDirectory, plan.DestinationDirectory, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(plan.SourceDirectory, plan.DestinationDirectory, StringComparison.Ordinal)
             && !string.Equals(Path.GetPathRoot(plan.SourceDirectory), plan.SourceDirectory, StringComparison.OrdinalIgnoreCase)
             && LongPathFileSystem.DirectoryExists(plan.SourceDirectory)
             && (string.IsNullOrEmpty(Path.GetDirectoryName(plan.DestinationDirectory))
                 || LongPathFileSystem.DirectoryExists(Path.GetDirectoryName(plan.DestinationDirectory)))
-            && !LongPathFileSystem.EntryExists(plan.DestinationDirectory))]);
+            && !LongPathFileSystem.HasDirectoryMoveDestinationConflict(plan.SourceDirectory, plan.DestinationDirectory))]);
         physicalMoves = [.. Moves];
     }
 

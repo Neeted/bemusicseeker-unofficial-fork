@@ -507,7 +507,8 @@ public sealed class ChartListVirtualViewTests
 
         Assert.IsTrue(mainChartList.TryBeginCellEdit(row, nameof(LibraryChartRow.Folder)));
         mainChartList.NotifyCellEditStarted(row, nameof(LibraryChartRow.Folder));
-        mainChartList.RequestCellEditEnded(row, nameof(LibraryChartRow.Folder), "renamed", commit: true);
+        mainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
+        mainChartList.RequestCellEditEnded(row, nameof(LibraryChartRow.Folder), "renamed", commit: true, originalText: "original");
 
         Assert.IsNotNull(started);
         Assert.AreSame(row, started!.Row);
@@ -516,6 +517,17 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(ChartOperationSourceScope.Library, ended.Context.SourceScope);
         Assert.AreEqual(MainViewOperationSection.Library, ended.Context.OperationSection);
         Assert.AreEqual("renamed", ended.Text);
+        Assert.AreEqual("original", ended.OriginalText);
+        MainChartListCellEditEndedEventArgs first = ended;
+        mainChartList.RequestCellEditEnded(row, nameof(LibraryChartRow.Folder), "duplicate", true, "other");
+        Assert.AreSame(first, ended);
+        Assert.IsTrue(mainChartList.TryBeginCellEdit(row, nameof(LibraryChartRow.Folder)));
+        mainChartList.NotifyCellEditStarted(row, nameof(LibraryChartRow.Folder));
+        mainChartList.RequestCellEditEnded(row, nameof(LibraryChartRow.Folder), "next", false, "next original");
+        Assert.AreNotSame(first, ended);
+        Assert.AreEqual("next original", ended.OriginalText);
+        Assert.IsFalse(ended.Commit);
+        ended = first;
         Assert.IsTrue(ended.Commit);
     }
 

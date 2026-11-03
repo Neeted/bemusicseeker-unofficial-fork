@@ -2276,6 +2276,8 @@ public sealed partial class CustomTableView : Grid
         return BeginCellEdit(hit, replacementText);
     }
 
+    private string activeEditOriginalText;
+
     private bool BeginCellEdit(CustomTableHitTestResult hit, string replacementText)
     {
         if (hit?.Kind != CustomTableHitKind.Cell || string.IsNullOrWhiteSpace(hit.Column?.EditPropertyName))
@@ -2298,7 +2300,9 @@ public sealed partial class CustomTableView : Grid
             return false;
         }
         Rect editorRect = CreateEditorRect(hit.Column, rect);
-        TextBox textBox = CreateCellEditor(hit, replacementText);
+        string originalText = hit.Column.GetEditText(hit.Row) ?? string.Empty;
+        TextBox textBox = CreateCellEditor(hit, replacementText ?? originalText);
+        activeEditOriginalText = originalText;
         textBox.LostKeyboardFocus += ActiveEditorLostKeyboardFocus;
         Canvas.SetLeft(textBox, editorRect.Left);
         Canvas.SetTop(textBox, editorRect.Top);
@@ -2410,6 +2414,8 @@ public sealed partial class CustomTableView : Grid
             TextBox editor = activeEditor;
             CustomTableHitTestResult hit = activeEditHit;
             string text = editor.Text ?? string.Empty;
+            string originalText = activeEditOriginalText;
+            activeEditOriginalText = null;
             CloseEditSuggestions();
             editor.LostKeyboardFocus -= ActiveEditorLostKeyboardFocus;
             editor.TextChanged -= ActiveEditorTextChanged;
@@ -2419,7 +2425,7 @@ public sealed partial class CustomTableView : Grid
             if (hit != null)
             {
                 rowCache.InvalidateRow(hit.Row);
-                CellEditEnded?.Invoke(this, new CustomTableCellEditEndedEventArgs(hit, hit.Column?.EditPropertyName, text, commit));
+                CellEditEnded?.Invoke(this, new CustomTableCellEditEndedEventArgs(hit, hit.Column?.EditPropertyName, text, commit, originalText));
             }
             RequestRedraw("edit");
             return true;

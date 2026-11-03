@@ -136,7 +136,7 @@ internal sealed class LibraryResourceIndexOwner
         List<LibraryFolderPathChange> moves = [.. (movedFolders ?? [])
             .Where(move => !string.IsNullOrWhiteSpace(move?.OldFolderPath)
                 && !string.IsNullOrWhiteSpace(move.NewFolderPath)
-                && !move.OldFolderPath.Equals(move.NewFolderPath, StringComparison.OrdinalIgnoreCase))
+                && !move.OldFolderPath.Equals(move.NewFolderPath, StringComparison.Ordinal))
             .GroupBy(move => NormalizeDirectoryPath(move.OldFolderPath), StringComparer.OrdinalIgnoreCase)
             .Select(group => group.Last())];
 

@@ -150,7 +150,7 @@ public sealed class CustomTableAutomationPeerTests
             owner.CellEditEndedRequested += (_, request) => ended.Add(request);
             table.CellEditBeginning += (_, request) => request.Cancel = refuseActualStart || !owner.TryBeginCellEdit(request.Row, request.EditPropertyName);
             table.CellEditStarted += (_, request) => owner.NotifyCellEditStarted(request.Row, request.EditPropertyName);
-            table.CellEditEnded += (_, request) => owner.RequestCellEditEnded(request.Row, request.EditPropertyName, request.Text, request.Commit);
+            table.CellEditEnded += (_, request) => owner.RequestCellEditEnded(request.Row, request.EditPropertyName, request.Text, request.Commit, request.OriginalText);
             Assert.IsTrue(owner.TryBeginCellEdit(row, "Value"));
             accepted = false;
             Assert.IsFalse(owner.CanBeginCellEdit(other, "Value"));

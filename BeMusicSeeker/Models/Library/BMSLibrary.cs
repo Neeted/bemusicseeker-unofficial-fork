@@ -9737,16 +9737,9 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private string NormalizeAutoRenameFolderName(string folderName)
-    {
-        folderName = folderName ?? string.Empty;
-        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        if (options.UseOnlyShiftJISChars)
-        {
-            folderName = folderName.ToSjisSchemeString();
-        }
-        return folderName.RemoveInvalidFileNameChars();
-    }
+    /// <summary>受付前の変更不要判定にも使う、既存設定に基づく純粋なフォルダ名正規化です。</summary>
+    internal string NormalizeAutoRenameFolderName(string folderName)
+        => libraryMutationOwner.NormalizeAutoRenameFolderName(folderName);
 
     private List<ChartFile> CreateDirectLibraryChartSnapshotsInFolders(IReadOnlyCollection<string> folderPaths)
     {

@@ -230,6 +230,34 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>既定端末で実FOLDER編集の原文と確定入力が実入口のVMへ届くことを確認します。未変更の確定が受付や活動を起こさないことはCoreのRegularChartFolderRenameTestsが担当します。</summary>
+    [TestMethod]
+    public void MainWindowFolderEdit_DefaultTerminalPreservesOriginalAndNoOp()
+    {
+        WithSimpleTextBoxStyles(() => MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(), (scope, viewModel, window) =>
+            {
+                window.Width = 1000; window.Height = 700;
+                MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+                var row = LibraryChartRow.FromChartFile(ChartFileProjection.WithPath(ChartTestValues.Empty(), @"C:\Library\Pack😀\chart.bms"));
+                var table = (CustomTableView)window.FindName("customTableView");
+                table.ItemsSource = new[] { row };
+                var settings = new CustomTableColumnSettings();
+                table.Columns = [.. CustomTableColumnFactory.CreateMainColumns(settings).Where(column => column.EditPropertyName == nameof(LibraryChartRow.Folder))];
+                foreach (CustomTableColumn column in table.Columns) { column.Layout.Width = 220; column.Layout.Visibility = Visibility.Visible; }
+                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                MaterializeTable(table, 900, 220);
+                table.SelectRowsByPredicate(_ => true);
+                var completed = new List<MainChartListCellEditEndedEventArgs>();
+                viewModel.MainChartList.CellEditEndedRequested += (_, args) => completed.Add(args);
+                RaiseKey(table, Key.F2); RaiseKey(table, Key.Return);
+                Assert.AreEqual(1, completed.Count);
+                Assert.AreEqual("Pack😀", completed[0].OriginalText); Assert.AreEqual("Pack😀", completed[0].Text);
+                Assert.AreSame(row, completed[0].Context.Row);
+                Assert.IsTrue(completed[0].Commit);
+            }));
+    }
+
     /// <summary>実列factoryの導入先・playlist Memo・URL空欄をF2/Enterで共通端末へ配送し、URL編集のEscape取消と詳細編集状態の終端を確認します。</summary>
     [TestMethod]
     public void MainWindowPendingCellEditUsesDefaultTerminalAndMainChartOwnerRoute()

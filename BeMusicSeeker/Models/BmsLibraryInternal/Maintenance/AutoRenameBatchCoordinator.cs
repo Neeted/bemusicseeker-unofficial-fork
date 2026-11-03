@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -92,7 +93,7 @@ internal sealed class AutoRenameBatchCoordinator
                 {
                     continue;
                 }
-                if (string.Equals(sourceDirectory, destinationDirectory, StringComparison.OrdinalIgnoreCase)
+                if (string.Equals(sourceDirectory, destinationDirectory, StringComparison.Ordinal)
                     || IsDriveRootSourcePlan(plan))
                 {
                     continue;
@@ -110,7 +111,7 @@ internal sealed class AutoRenameBatchCoordinator
                         sourceDirectory: sourceDirectory));
                     continue;
                 }
-                if (host.EntryExists(destinationDirectory))
+                if (LongPathFileSystem.HasDirectoryMoveDestinationConflict(sourceDirectory, destinationDirectory))
                 {
                     diagnostics.Add(new AutoRenameBatchDiagnostic(
                         AutoRenameBatchDiagnosticKind.DestinationAlreadyExists,

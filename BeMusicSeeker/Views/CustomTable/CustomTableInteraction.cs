@@ -156,10 +156,12 @@ public sealed class CustomTableCellActionRequestedEventArgs : EventArgs
 
 public sealed class CustomTableCellEditEndedEventArgs : EventArgs
 {
-    internal CustomTableCellEditEndedEventArgs(CustomTableHitTestResult hit, string editPropertyName, string text, bool commit)
+    /// <summary>置換前の原文と終端入力を同じ編集対象に結び付けます。</summary>
+    internal CustomTableCellEditEndedEventArgs(CustomTableHitTestResult hit, string editPropertyName, string text, bool commit, string originalText)
     {
         Hit = hit;
         EditPropertyName = editPropertyName;
+        OriginalText = originalText;
         Text = text ?? string.Empty;
         Commit = commit;
     }
@@ -175,6 +177,9 @@ public sealed class CustomTableCellEditEndedEventArgs : EventArgs
     public string EditPropertyName { get; }
 
     public string Text { get; }
+
+    /// <summary>直接打鍵で置換する前に一回捕捉したセルの編集原文です。</summary>
+    public string OriginalText { get; }
 
     public bool Commit { get; }
 }

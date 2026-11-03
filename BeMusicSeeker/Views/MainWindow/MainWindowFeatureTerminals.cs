@@ -663,12 +663,12 @@ internal sealed class MainWindowMainChartCellEditTerminal
 {
     private readonly Func<object, string, bool> tryBegin;
     private readonly Action<object, string> notifyStarted;
-    private readonly Action<object, string, string, bool> complete;
+    private readonly Action<object, string, string, bool, string> complete;
 
     internal MainWindowMainChartCellEditTerminal(
         Func<object, string, bool> tryBegin,
         Action<object, string> notifyStarted,
-        Action<object, string, string, bool> complete)
+        Action<object, string, string, bool, string> complete)
     {
         this.tryBegin = tryBegin ?? throw new ArgumentNullException(nameof(tryBegin));
         this.notifyStarted = notifyStarted ?? throw new ArgumentNullException(nameof(notifyStarted));
@@ -681,8 +681,9 @@ internal sealed class MainWindowMainChartCellEditTerminal
     internal void NotifyStarted(object row, string propertyName)
         => notifyStarted(row, propertyName);
 
-    internal void Complete(object row, string propertyName, string text, bool commit)
-        => complete(row, propertyName, text, commit);
+    /// <summary>開始原文と確定入力を、同じ編集要求の終端へ渡します。</summary>
+    internal void Complete(object row, string propertyName, string text, bool commit, string originalText)
+        => complete(row, propertyName, text, commit, originalText);
 
     internal static MainWindowMainChartCellEditTerminal Create(MainWindowViewModel viewModel)
     {

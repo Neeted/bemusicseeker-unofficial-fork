@@ -7,6 +7,38 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class LibraryResourceIndexOwnerTests
 {
+    /// <summary>大小文字だけの成功移動を単独で適用し、lazy/full逆引き・子階層・rawキーを一回更新して旧snapshotと無関係候補を保持します。</summary>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    public void MoveFolderReferences_CaseOnlyPublishesExactSpellingOnce(bool full, bool warm)
+    {
+        const string source = @"C:\Library\song";
+        const string destination = @"C:\Library\Song";
+        const string child = @"C:\Library\song\Child";
+        const string other = @"C:\Library\Other";
+        var owner = new LibraryResourceIndexOwner(CreateOrderedResourceIndex(full, 11u, [source, child, other]));
+        LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
+        if (warm) { AssertAllCategoryCandidates(before.DirectoryLookupCache, 11u, [source, child, other]); }
+        LibraryResourceIndexMutationReceipt receipt = owner.MoveFolderReferences(source, destination);
+        Assert.IsTrue(receipt.MutationResult.Changed);
+        Assert.AreEqual(before.Generation + 1, receipt.Snapshot.Generation);
+        CollectionAssert.AreEquivalent(new[] { destination, destination + @"\Child", other }, receipt.Snapshot.DirectoryLookupCache.Keys.ToArray());
+        CollectionAssert.AreEquivalent(new[] { source, child, other }, before.DirectoryLookupCache.Keys.ToArray());
+        string[] expected = [destination, destination + @"\Child", other];
+        DirectoryResourceLookupCache current = receipt.Snapshot.DirectoryLookupCache;
+        if (full || warm) { AssertAllCategoryCandidates(current, 11u, expected); }
+        else
+        {
+            CollectionAssert.AreEquivalent(expected, current.GetDirectoriesByAudioRelativeHash(11u).ToArray());
+            CollectionAssert.AreEquivalent(expected, current.GetDirectoriesByImageRelativeHash(11u).ToArray());
+            CollectionAssert.AreEquivalent(expected, current.GetDirectoriesByMovieRelativeHash(11u).ToArray());
+        }
+        AssertAllCategoryCandidates(before.DirectoryLookupCache, 11u, [source, child, other]);
+    }
+
+
     /// <summary>
     /// 保証：索引置換後のフォルダ移動は現行世代だけへ反映し、置換前と移動前のsnapshotのフォルダ対応を保持する。
     /// </summary>

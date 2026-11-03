@@ -69,7 +69,7 @@ internal static class LibraryFolderMoveCoordinator
             host.ShowRenameFolderNotExists(srcDir);
             return null;
         }
-        if (host.EntryExists(dstDir))
+        if (LongPathFileSystem.HasDirectoryMoveDestinationConflict(srcDir, dstDir))
         {
             host.ShowMoveDestinationAlreadyExists(srcDir, dstDir);
             return null;
@@ -209,7 +209,7 @@ internal static class LibraryFolderMoveCoordinator
             FolderAutoRenamePlan plan = movePlans[index];
             string srcDir = plan.SourceDirectory;
             string dstDir = plan.DestinationDirectory;
-            if (host.EntryExists(dstDir))
+            if (LongPathFileSystem.HasDirectoryMoveDestinationConflict(srcDir, dstDir))
             {
                 postLeaseNotifications.Add(() => host.ShowMoveDestinationAlreadyExists(srcDir, dstDir));
                 continue;

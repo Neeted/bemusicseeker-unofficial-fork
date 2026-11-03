@@ -718,7 +718,7 @@ internal sealed class DirectoryResourceLookupCache
         {
             return ReverseLookupMutationResult.Empty;
         }
-        if (string.Equals(oldPath, newPath, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(oldPath, newPath, StringComparison.Ordinal))
         {
             return ReverseLookupMutationResult.Empty;
         }
@@ -758,7 +758,7 @@ internal sealed class DirectoryResourceLookupCache
         List<KeyValuePair<string, string>> replacements = [.. (pathReplacements ?? [])
             .Where(pair => !string.IsNullOrWhiteSpace(pair.Key)
                 && !string.IsNullOrWhiteSpace(pair.Value)
-                && !string.Equals(pair.Key, pair.Value, StringComparison.OrdinalIgnoreCase))
+                && !string.Equals(pair.Key, pair.Value, StringComparison.Ordinal))
             .GroupBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.Last())];
         if (replacements.Count == 0)
@@ -948,7 +948,7 @@ internal sealed class DirectoryResourceLookupCache
     }
 
     /// <summary>
-    /// Compares the semantic directory mappings for a bounded set of paths.
+    /// 限定した物理キーの現在表記と資源内容を比較します。大小文字だけの表記変更も新しい世代として公開します。
     /// </summary>
     internal bool HasSameDirectoryEntries(
         DirectoryResourceLookupCache other,
@@ -972,12 +972,18 @@ internal sealed class DirectoryResourceLookupCache
                 }
                 continue;
             }
-            if (!currentEntry.SemanticallyEquals(otherEntry))
+            if (!string.Equals(GetStoredDirectoryPath(directoryPath), other.GetStoredDirectoryPath(directoryPath), StringComparison.Ordinal)
+                || !currentEntry.SemanticallyEquals(otherEntry))
             {
                 return false;
             }
         }
         return true;
+    }
+
+    private string GetStoredDirectoryPath(string directoryPath)
+    {
+        lock (lockEntries) { return entries.GetStoredPathOrNull(directoryPath); }
     }
 
     private static IEnumerable<uint> TryGetHashes(Dictionary<string, uint[]> hashesByDirectory, string directoryPath)

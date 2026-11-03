@@ -16,6 +16,70 @@ namespace BeMusicSeeker.Tests;
 public sealed class RegularChartFolderRenameTests
 {
 
+    /// <summary>実VMの編集通知で原文一致・正規化後一致を受付前に終え、Busy中もUnicodeと既存空白名を保持し、活動・抑止・停止・通知・DB更新を始めません。</summary>
+    [TestMethod]
+    [DataRow("Pack😀", "Pack😀", false)]
+    [DataRow("Pack😀", "Pack😀", true)]
+    [DataRow(" song", " song", false)]
+    [DataRow(" song", " song", true)]
+    [DataRow("song", " song ", false)]
+    [DataRow("song", " song ", true)]
+    public void FolderEdit_UnchangedInputHasNoEffectsBeforeAdmission(string folder, string input, bool busy)
+    {
+        var scope = new ApplicationDatabaseScope();
+        WithTemporarySongDb(database =>
+        {
+            string root = Path.GetDirectoryName(database) ?? throw new InvalidOperationException();
+            string directory = Directory.CreateDirectory(Path.Combine(root, folder)).FullName;
+            string path = Path.Combine(directory, "chart.bms");
+            File.WriteAllText(path, "#PLAYER 1\n#TITLE No change\n");
+            ChartFile chart = CreateTestableBmsFile(path);
+            var options = new BmsLibraryOptionsSnapshot { UseOnlyShiftJISChars = true };
+            var library = new TestBmsLibrary(scope, database, null, null, null, new FileDbReportRecordingDialogs(),
+                new TestUiScheduler(() => null), () => options)
+            { BmsCharts = [chart], BmsonCharts = [] };
+            var gateway = new BmsLibraryDbGateway(scope, new BmsDatabaseLoadOptions(true, true, true), database);
+            gateway.UpsertSongs([chart]);
+            var table = new MainChartListViewModel();
+            var dialogs = new FileDbReportRecordingDialogs();
+            var playback = new NoOpChartMutationPlaybackPort();
+            var activity = new ChartMutationActivityOwner();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner(), action => action(),
+                chartFileOperations: library.OperationAdmission, mutationDialogs: dialogs, chartMutationActivity: activity, mutationPlayback: playback);
+            owner.AttachNormalLibraryRefreshSource(library);
+            var row = LibraryChartRow.FromChartFile(library.BmsCharts.Single());
+            table.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+            Task? completed = null;
+            table.CellEditBeginningRequested += (_, args) => args.Accepted = owner.CanBeginCellEdit(args.Context);
+            table.CellEditEndedRequested += (_, args) => completed = owner.CompleteCellEdit(args);
+            IDisposable? held = null;
+            if (busy) { Assert.IsTrue(library.OperationAdmission.TryEnter(out held)); }
+            int availability = 0, activities = 0, suppressions = 0, refreshes = 0;
+            library.OperationAdmission.AvailabilityChanged += (_, _) => availability++;
+            activity.ActivityChanged += (_, _) => activities++;
+            owner.RefreshSuppressionChanged += (_, _) => suppressions++;
+            table.DisplayRefreshRequested += (_, _) => refreshes++;
+            int revision = library.CatalogRevision;
+            try
+            {
+                Assert.IsTrue(table.TryBeginCellEdit(row, nameof(LibraryChartRow.Folder)));
+                table.NotifyCellEditStarted(row, nameof(LibraryChartRow.Folder));
+                table.RequestCellEditEnded(row, nameof(LibraryChartRow.Folder), input, true, folder);
+                Assert.IsNotNull(completed);
+                Assert.AreSame(Task.CompletedTask, completed);
+                completed.GetAwaiter().GetResult();
+                Assert.AreEqual(0, availability); Assert.AreEqual(0, activities); Assert.AreEqual(0, suppressions);
+                Assert.AreEqual(0, refreshes); Assert.AreEqual(0, playback.StopCount); Assert.AreEqual(0, dialogs.Messages.Count);
+                Assert.AreEqual(revision, library.CatalogRevision);
+                Assert.AreEqual(path, library.BmsCharts.Single().Path);
+                Assert.IsTrue(Directory.EnumerateDirectories(root).Contains(directory, StringComparer.Ordinal));
+                using LR2SongDBExtended db = gateway.OpenSongDbReadOnly();
+                Assert.AreEqual(path, db.Table<LR2SongDB.song>().Single().path);
+            }
+            finally { held?.Dispose(); owner.StopAsync().GetAwaiter().GetResult(); library.RequestShutdown("folder-no-op"); }
+        });
+    }
+
     /// <summary>実libraryの管理領域交差は共有Pの競合を再生停止前に拒否し、物理・DBを保持して予約せず、解放後の新しい明示要求だけを成功させることを確認します。</summary>
     [TestMethod]
     public void FolderRename_ManagedPlaylistBusyRejectsBeforePlaybackStopAndFreshRequestSucceeds()
@@ -114,6 +178,34 @@ public sealed class RegularChartFolderRenameTests
                 incumbent.Dispose();
                 owner.StopAsync().GetAwaiter().GetResult();
             }
+        });
+    }
+
+    /// <summary>予約名を含む入力でも、受付前の無作用判定と実計画は同じ一回の正規化結果を使い、二重正規化で元と同じ名前へ畳まれることなく一回の正規化結果へ改名することを確認します。</summary>
+    [TestMethod]
+    public void FolderRename_ReservedNameInputNormalizesOnceBetweenJudgementAndPlan()
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+        WithTemporarySongDb(songDbPath =>
+        {
+            string libraryRoot = Path.GetDirectoryName(songDbPath)!;
+            string sourceDirectory = Path.Combine(libraryRoot, "song");
+            string chartPath = Path.Combine(sourceDirectory, "chart.bms");
+            Directory.CreateDirectory(sourceDirectory);
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE reserved\r\n");
+            ChartFile file = CreateTestableBmsFile(chartPath);
+            var library = new TestBmsLibrary(databaseScope, songDbPath) { BmsCharts = [file] };
+            using RegularChartListOwner owner = CreateOwner(
+                new MainChartListViewModel(), CreateWorkspaceForOwner(), action => action(),
+                chartFileOperations: library.OperationAdmission, mutationDialogs: new FileDbReportRecordingDialogs());
+            owner.AttachNormalLibraryRefreshSource(library);
+            const string input = "CON. song";
+            string once = library.NormalizeAutoRenameFolderName(input);
+            Assert.AreNotEqual("song", once);
+            owner.RenameChartFolderAsync(CreateRenameRequest(file), input).GetAwaiter().GetResult();
+            Assert.IsTrue(Directory.Exists(Path.Combine(libraryRoot, once)));
+            Assert.IsFalse(Directory.Exists(sourceDirectory));
+            owner.StopAsync().GetAwaiter().GetResult();
         });
     }
 

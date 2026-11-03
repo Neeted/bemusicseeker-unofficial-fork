@@ -249,6 +249,7 @@ internal sealed partial class LibraryMutationOwner
         => ShowOperationDialog(string.Format(Resources.Warn_CannotMoveRegisteredBmsRoot, sourceDirectory),
             Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
 
+    /// <summary>手動・自動改名と受付前判定が共有する名前の正規化です。ファイルシステムへアクセスしません。</summary>
     internal string NormalizeAutoRenameFolderName(string folderName)
     {
         folderName ??= string.Empty;

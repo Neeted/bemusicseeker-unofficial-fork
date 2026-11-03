@@ -19,6 +19,63 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class CustomTableEditingTests
 {
+    /// <summary>直接打鍵前の原文を一回捕捉し、未変更・元に戻した入力・Enter/Tab/離脱・取消の各終端と次編集を分離します。他列の同値イベントも配送します。</summary>
+    /// <remarks>非active実WindowでTabの消費・終端・選択を確認します。実keyboard focus到達は保証せず、確定後のMoveFocus(Next)呼出し維持は静的確認へ分担します。</remarks>
+    [TestMethod]
+    public void FolderEdit_CapturesOriginalBeforeTypingAndCompletesEachSessionOnce()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            string value = "Pack😀";
+            CustomTableColumn MakeColumn(string name) => new(name, name,
+                new CustomTableColumnSettings.ColumnLayout { Width = 160, Visibility = Visibility.Visible },
+                fallbackOrder: 0, sortMemberPath: null, alignment: TextAlignment.Left, textSelector: _ => value, editPropertyName: name);
+            CustomTableColumn folder = MakeColumn("Folder"), memo = MakeColumn("memo");
+            var table = new CustomTableView
+            {
+                Width = 340,
+                Height = 100,
+                HeaderHeight = 0,
+                RowHeight = 60,
+                Columns = [folder, memo],
+                ItemsSource = new[] { new object() }
+            };
+            var ended = new List<CustomTableCellEditEndedEventArgs>();
+            table.CellEditEnded += (_, args) => ended.Add(args);
+            scope.ShowAndWaitForContentRendered(new Window { Width = 380, Height = 160, Content = table });
+            table.HandleKeyDown(Key.Down, ModifierKeys.None);
+            Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+            Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
+            Assert.AreEqual(1, ended.Count); Assert.AreEqual("Pack😀", ended[0].OriginalText); Assert.AreEqual("Pack😀", ended[0].Text);
+            var typing = new TextCompositionEventArgs(Keyboard.PrimaryDevice, new TextComposition(InputManager.Current, table, "changed"))
+            { RoutedEvent = TextCompositionManager.PreviewTextInputEvent, Source = table };
+            table.RaiseEvent(typing); Assert.IsTrue(typing.Handled);
+            TextBox editor = EditBox(table) ?? throw new AssertFailedException("editorがありません。");
+            Assert.AreEqual("changed", editor.Text);
+            value = "later row value";
+            editor.Text = "Pack😀";
+            Assert.IsTrue(table.HandleKeyDown(Key.Tab, ModifierKeys.None));
+            Assert.AreEqual(2, ended.Count); Assert.AreEqual("Pack😀", ended[1].OriginalText); Assert.AreEqual("Pack😀", ended[1].Text);
+            Assert.IsTrue(table.IsCurrentCell(0, folder));
+            Assert.IsNull(EditBox(table));
+            Assert.AreEqual(0, table.SelectedIndex);
+            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            Assert.IsTrue(table.IsCurrentCell(0, memo));
+            Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+            table.HandleEditFocusDeparture(false);
+            Assert.AreEqual(3, ended.Count); Assert.AreEqual("memo", ended[2].EditPropertyName);
+            Assert.AreEqual(value, ended[2].OriginalText); Assert.AreEqual(value, ended[2].Text);
+            table.HandleEditFocusDeparture(false); Assert.AreEqual(3, ended.Count);
+            Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+            Assert.IsTrue(table.HandleKeyDown(Key.Escape, ModifierKeys.None));
+            Assert.AreEqual(4, ended.Count); Assert.IsFalse(ended[3].Commit);
+            value = "next";
+            Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+            Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
+            Assert.AreEqual(5, ended.Count); Assert.AreEqual("next", ended[4].OriginalText); Assert.IsTrue(ended[4].Commit);
+        });
+    }
+
     /// <summary>実URL列の40 DIPは通常/反復クリックで取得し、広幅は初回選択と再クリック編集を使います。両幅のF2/文字入力は元URLと開始判定を通し、外部同期の拒否を幅で回避しません。</summary>
     [TestMethod]
     [DataRow("Url1", true, false)]
@@ -94,6 +151,7 @@ public sealed class CustomTableEditingTests
                             Assert.IsTrue(ended.Commit); Assert.AreSame(row, ended.Row); Assert.AreSame(column, ended.Column);
                             Assert.AreEqual(columnId == "Url1" ? "Url" : "Url_diff", ended.EditPropertyName);
                             Assert.AreEqual(typeToEdit ? "input" : raw, ended.Text);
+                            Assert.AreEqual(raw, ended.OriginalText, "直接打鍵でも置換前の原文を保持します。");
                         }
                         Assert.AreEqual(beforeCompleted + (externalSync ? 0 : 1), completed.Count);
                     }

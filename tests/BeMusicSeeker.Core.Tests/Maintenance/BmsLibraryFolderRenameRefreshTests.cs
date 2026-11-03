@@ -20,6 +20,99 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 {
     private readonly ApplicationDatabaseScope databaseScope = new();
 
+    /// <summary>本番の物理境界で大小文字だけを改名し、形式・子階層を跨ぐ同token、exact保存行・保守・索引・パッケージと保留先を一回反映します。続く改名も同tokenから成功します。</summary>
+    [TestMethod]
+    [DataRow(0, false)]
+    [DataRow(1, false)]
+    [DataRow(2, false)]
+    [DataRow(2, true)]
+    public void RenameChartFolder_CaseOnlyPreservesAllSuccessReferences(int format, bool nested)
+    {
+        WithTemporarySongDb(databaseScope, database =>
+        {
+            string root = Path.GetDirectoryName(database) ?? throw new InvalidOperationException();
+            string source = Path.Combine(root, "song");
+            string destination = Path.Combine(root, "Song");
+            string chartDirectory = nested ? Path.Combine(source, "Child") : source;
+            Directory.CreateDirectory(chartDirectory);
+            File.WriteAllText(Path.Combine(chartDirectory, "sound.wav"), "resource");
+            List<ChartFile> charts = [];
+            foreach (bool bmson in format == 0 ? new[] { false } : format == 1 ? new[] { true } : new[] { false, true })
+            {
+                string path = Path.Combine(chartDirectory, bmson ? "chart.bmson" : "chart.bms");
+                File.WriteAllText(path, bmson
+                    ? "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Song\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[{\"name\":\"sound.wav\",\"notes\":[{\"x\":1,\"y\":0,\"l\":0}]}]}"
+                    : "#PLAYER 1\n#TITLE Song\n#ARTIST Artist\n#WAV01 sound.wav\n#00111:01\n");
+                ChartFile chart = (bmson ? ChartTestValues.ReadBmson(path) : BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path))) with { Token = new OwnedChartToken() };
+                charts.Add(ChartFileProjection.WithMaintenance(chart, BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(chart)));
+            }
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(database))
+            {
+                BmsLibraryDbGateway.EnsureBmsonSchema(db);
+                foreach (ChartFile chart in charts)
+                {
+                    if (chart.Kind == ChartFileKind.Bms) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song)); }
+                    else { db.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(chart), typeof(LR2SongDBExtended.bmson_song)); }
+                    db.InsertOrReplace(MaintenanceStorageMapping.ToStorage(chart.ResourceHealthMaintenanceSnapshot), typeof(LR2SongDBExtended.maintenance));
+                }
+            }
+            var library = new TestBmsLibrary(databaseScope, database, null, null, new ResilientFileMutationService(), new RecordingDialogService(),
+                new TestUiScheduler(() => null), settings: TestBmsFactory.CreateRootSettings([root]))
+            { BmsCharts = charts.Where(chart => chart.Kind == ChartFileKind.Bms).ToArray(), BmsonCharts = charts.Where(chart => chart.Kind == ChartFileKind.Bmson).ToArray() };
+            var pending = PackageChartEntry.FromChart(ChartFileProjection.WithPackageState(
+                ChartTestValues.Empty() with { Path = Path.Combine(root, "pending.bms") }, chartDirectory, "Song", "Artist", [chartDirectory], []));
+            library.ChartPackagesPending = CreatePackageCollection([ChartPackage.FromChartEntries([pending])]);
+            var installed = ChartPackage.FromChartEntries(charts.Select(PackageChartEntry.FromChart));
+            installed.path = source;
+            library.ChartPackagesInstalled = CreatePackageCollection([installed]);
+            LibraryResourceIndexOwner index = GetLibraryResourceIndexOwner(library);
+            index.AddDirectory(chartDirectory, ["sound.wav"]);
+            LibraryResourceIndexSnapshot before = index.CaptureSnapshot();
+            int notifications = 0;
+            library.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion)) { notifications++; } };
+            try
+            {
+                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(source, "Song", reportAtTerminal: true);
+                Assert.IsTrue(receipt.DurableCommit, receipt.PrimaryFailure?.ToString());
+                Assert.IsNull(receipt.PrimaryFailure);
+                Assert.AreEqual(1, receipt.ConfirmedChangeCount);
+                Assert.AreEqual(charts.Count, receipt.CatalogChartPathChangeCount);
+                Assert.AreEqual(1, receipt.ApplyCounts.CatalogApplyCount); Assert.AreEqual(1, receipt.ApplyCounts.PackageReferenceApplyCount);
+                Assert.AreEqual(1, receipt.ApplyCounts.ReverseLookupApplyCount); Assert.AreEqual(1, notifications);
+                Assert.IsTrue(Directory.EnumerateDirectories(root).Contains(destination, StringComparer.Ordinal));
+                Assert.IsFalse(Directory.EnumerateDirectories(root).Contains(source, StringComparer.Ordinal));
+                string movedDirectory = nested ? Path.Combine(destination, "Child") : destination;
+                Assert.AreEqual(destination, installed.path);
+                Assert.AreEqual(movedDirectory, pending.Chart.InstallDestination);
+                CollectionAssert.AreEqual(new[] { movedDirectory }, pending.Chart.InstallDestinationSuggestions.ToArray());
+                Assert.IsTrue(index.CaptureSnapshot().DirectoryLookupCache.Keys.Contains(movedDirectory, StringComparer.Ordinal));
+                Assert.IsFalse(index.CaptureSnapshot().DirectoryLookupCache.Keys.Contains(chartDirectory, StringComparer.Ordinal));
+                Assert.IsTrue(before.DirectoryLookupCache.Keys.Contains(chartDirectory, StringComparer.Ordinal));
+                using (LR2SongDBExtended db = databaseScope.OpenSongReadOnly(database))
+                {
+                    string[] paths = db.Table<LR2SongDB.song>().Select(row => row.path).Concat(db.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path)).ToArray();
+                    string[] health = db.Table<LR2SongDBExtended.maintenance>().Select(row => row.path).ToArray();
+                    foreach (ChartFile chart in charts)
+                    {
+                        ChartFile current = CurrentOwnedChart(library, chart);
+                        string expected = Path.Combine(movedDirectory, Path.GetFileName(chart.Path));
+                        Assert.AreSame(chart.Token, current.Token); Assert.AreEqual(expected, current.Path);
+                        Assert.AreEqual(expected, current.ResourceHealthMaintenanceSnapshot.Path);
+                        Assert.AreEqual(1, paths.Count(path => string.Equals(path, expected, StringComparison.Ordinal)));
+                        Assert.IsFalse(paths.Contains(chart.Path, StringComparer.Ordinal));
+                        Assert.AreEqual(1, health.Count(path => string.Equals(path, expected, StringComparison.Ordinal)));
+                        Assert.IsFalse(health.Contains(chart.Path, StringComparer.Ordinal));
+                    }
+                }
+                LibraryMutationSessionReceipt next = library.RenameChartFolderWithReceipt(destination, "SONG", reportAtTerminal: true);
+                Assert.IsTrue(next.DurableCommit, next.PrimaryFailure?.ToString());
+                Assert.IsNull(next.PrimaryFailure);
+                foreach (ChartFile chart in charts) { Assert.AreSame(chart.Token, CurrentOwnedChart(library, chart).Token); }
+            }
+            finally { library.RequestShutdown("case-only-rename"); }
+        });
+    }
+
     /// <summary>所持再導入の消失DSTは元譜面・保存行・現在値を保ち、旧先を再作成せず案内し、再選択した既存先へ成功します。BMS/BMSONの成功時保存差分は既存ケースへ分担します。</summary>
     [TestMethod]
     public void FixInstallationDirectoryCharts_MissingDestinationRetainsOwnedChartAndAllowsReselection()

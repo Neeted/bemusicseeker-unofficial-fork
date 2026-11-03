@@ -578,13 +578,14 @@ public sealed class MainChartListViewModel : ViewModel
         }
     }
 
-    internal void RequestCellEditEnded(object row, string propertyName, string text, bool commit)
+    /// <summary>同じ編集の開始範囲へ確定入力と捕捉済み原文を一回だけ配送し、配送前に活動中の要求を解放します。</summary>
+    internal void RequestCellEditEnded(object row, string propertyName, string text, bool commit, string originalText = null)
     {
         if (IsSameCellEdit(activeCellEditContext, row, propertyName))
         {
             MainChartListCellEditContext context = activeCellEditContext;
             activeCellEditContext = null;
-            var request = new MainChartListCellEditEndedEventArgs(context, text, commit);
+            var request = new MainChartListCellEditEndedEventArgs(context, text, commit, originalText);
             CellEditEndedRequested?.Invoke(this, request);
         }
     }
@@ -1253,9 +1254,11 @@ internal sealed class MainChartListCellEditBeginningEventArgs : EventArgs
 
 internal sealed class MainChartListCellEditEndedEventArgs : EventArgs
 {
-    internal MainChartListCellEditEndedEventArgs(MainChartListCellEditContext context, string text, bool commit)
+    /// <summary>開始時の文脈・原文と終端入力を保持します。原文を持たない直接要求は省略できますが行から補完しません。</summary>
+    internal MainChartListCellEditEndedEventArgs(MainChartListCellEditContext context, string text, bool commit, string originalText = null)
     {
         Context = context ?? throw new ArgumentNullException(nameof(context));
+        OriginalText = originalText;
         Text = text ?? string.Empty;
         Commit = commit;
     }
@@ -1263,6 +1266,9 @@ internal sealed class MainChartListCellEditEndedEventArgs : EventArgs
     internal MainChartListCellEditContext Context { get; }
 
     internal string Text { get; }
+
+    /// <summary>編集部品が開始時に捕捉した原文です。行の現在値から再構成しません。</summary>
+    internal string OriginalText { get; }
 
     internal bool Commit { get; }
 }

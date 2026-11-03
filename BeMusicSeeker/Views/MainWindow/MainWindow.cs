@@ -2582,7 +2582,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private void customTableView_CellEditEnded(object sender, CustomTableCellEditEndedEventArgs e)
     {
-        mainChartCellEditTerminal.Complete(e.Row, e.EditPropertyName, e.Text, e.Commit);
+        mainChartCellEditTerminal.Complete(e.Row, e.EditPropertyName, e.Text, e.Commit, e.OriginalText);
     }
 
     private void RefreshCustomTableViewDisplayAsync()

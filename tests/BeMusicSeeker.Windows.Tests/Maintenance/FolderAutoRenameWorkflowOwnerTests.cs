@@ -4,6 +4,7 @@ using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
@@ -16,6 +17,138 @@ namespace BeMusicSeeker.Tests;
 public sealed class FolderAutoRenameWorkflowOwnerTests
 {
     private readonly ApplicationDatabaseScope databaseScope = new();
+
+    /// <summary>実自動改名の大小文字変更を混在・子階層へ適用し、同tokenの保存・保守・索引・Package・保留候補・一覧を一回反映します。同じ一覧行からの次要求も最終配置へ到達します。</summary>
+    [TestMethod]
+    public async Task SelectedRequest_CaseOnlyRenamesMixedSubtreeWithProductionFileSystem()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = CreateRoot(workspace);
+        string source = Path.Combine(root, "[artist] song");
+        string destination = Path.Combine(root, "[Artist] Song");
+        string child = Path.Combine(source, "Child");
+        string movedChild = Path.Combine(destination, "Child");
+        string unrelated = Directory.CreateDirectory(Path.Combine(root, "Unrelated")).FullName;
+        Directory.CreateDirectory(child);
+        string bmsPath = Path.Combine(source, "chart.bms");
+        string bmsonPath = Path.Combine(child, "chart.bmson");
+        File.WriteAllText(bmsPath, "#PLAYER 1\n#TITLE Song\n#ARTIST Artist\n#BPM 120\n#WAV01 sound.wav\n#00111:01\n");
+        File.WriteAllText(bmsonPath, "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Child\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[{\"name\":\"sound.wav\",\"notes\":[{\"x\":1,\"y\":0,\"l\":0}]}]}");
+        File.WriteAllText(Path.Combine(source, "sound.wav"), "root sound");
+        File.WriteAllText(Path.Combine(child, "sound.wav"), "child sound");
+        ChartFile PrepareHealth(ChartFile chart) => ChartFileProjection.WithMaintenance(chart with { Token = new OwnedChartToken() },
+            BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(chart));
+        ChartFile bms = PrepareHealth(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsPath)));
+        ChartFile bmson = PrepareHealth(ChartTestValues.ReadBmson(bmsonPath));
+        string database = Path.Combine(root, "song.db");
+        File.WriteAllBytes(database, []);
+        var options = new BmsLibraryOptionsSnapshot { FolderNameFormat = "[%ARTIST%] %TITLE%" };
+        var library = new TestBmsLibrary(databaseScope, database, null, null, new ResilientFileMutationService(), new FileDbReportRecordingDialogs(),
+            new TestUiScheduler(() => null), () => options)
+        { BmsCharts = [bms], BmsonCharts = [bmson] };
+        using (LR2SongDBExtended db = databaseScope.OpenSongWrite(database))
+        {
+            BmsLibraryDbGateway.EnsureBmsonSchema(db);
+            db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(bms), typeof(LR2SongDB.song));
+            db.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(bmson), typeof(LR2SongDBExtended.bmson_song));
+            foreach (ChartFile chart in new[] { bms, bmson })
+            { db.InsertOrReplace(MaintenanceStorageMapping.ToStorage(chart.ResourceHealthMaintenanceSnapshot), typeof(LR2SongDBExtended.maintenance)); }
+        }
+        PackageChartEntry[] installedEntries = new[] { PackageChartEntry.FromChart(library.BmsCharts.Single()), PackageChartEntry.FromChart(library.BmsonCharts.Single()) };
+        var installed = ChartPackage.FromChartEntries(installedEntries);
+        installed.path = source;
+        library.ChartPackagesInstalled = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([installed]);
+        var pending = PackageChartEntry.FromChart(ChartFileProjection.WithPackageState(
+            ChartTestValues.Empty() with { Path = Path.Combine(root, "pending.bms") }, child, "Child", "Artist", [source, child, unrelated], []));
+        library.ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([ChartPackage.FromChartEntries([pending])]);
+        var pendingRow = LibraryChartRow.FromPackageChartEntry(pending);
+        var index = (LibraryResourceIndexOwner)(typeof(BMSLibrary).GetField("libraryResourceIndexOwner", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.GetValue(library)
+            ?? throw new AssertFailedException("索引の観測対象がありません。"));
+        index.AddDirectory(source, ["sound.wav"]); index.AddDirectory(child, ["sound.wav"]); index.AddDirectory(unrelated, ["sound.wav"]);
+        LibraryResourceIndexSnapshot before = index.CaptureSnapshot();
+        uint resourceHash = before.DirectoryLookupCache.GetEntryOrNull(source).AudioRelativePathHashArray.Single();
+        string[] previousCandidates = before.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(resourceHash).ToArray();
+        CollectionAssert.AreEquivalent(new[] { source, child, unrelated }, previousCandidates);
+        var rowCache = new NormalLibraryRowCache();
+        LibraryChartRow row = rowCache.GetOrCreate(library.BmsCharts.Single(), null);
+        int handledVersion = library.NormalLibraryRefreshNotificationVersion;
+        int publications = 0;
+        library.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName != nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion)) { return; }
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledVersion);
+            rowCache.ApplyChanges(batch.ChangedCharts, batch.DeletedTokens, null);
+            handledVersion = batch.LatestVersion;
+            publications++;
+        };
+        var playback = new NoOpChartMutationPlaybackPort();
+        var owner = new FolderAutoRenameWorkflowOwner(library.OperationAdmission, new ChartMutationActivityOwner(),
+            new BmsLibraryFolderAutoRenameMutationPort(), playback, action => action(), action => action(), new AcceptedFolderDialogService());
+        owner.AttachLibrary(library);
+        FolderAutoRenameCompletionReceipt? completion = null;
+        FolderAutoRenameFailure? failure = null;
+        int terminals = 0;
+        owner.CompletionPublished += value => completion = value;
+        owner.FailurePublished += value => failure = value;
+        owner.TerminalPublished += () => terminals++;
+        try
+        {
+            Assert.IsTrue(GridRowResolver.TryGetFolderEditChartOperationTarget(row, ChartOperationSourceScope.Library, out ChartOperationTarget firstTarget));
+            Assert.IsTrue(owner.RequestStartSelected([firstTarget]));
+            await owner.WaitForIdleAsync();
+            Assert.IsNull(failure); Assert.IsNotNull(completion);
+            Assert.AreEqual(1, terminals); Assert.AreEqual(1, playback.StopCount); Assert.AreEqual(1, publications);
+            Assert.IsFalse(library.OperationAdmission.IsActive);
+            Assert.AreEqual(1, completion.SessionReceipt.ConfirmedChangeCount);
+            Assert.AreEqual(2, completion.SessionReceipt.CatalogChartPathChangeCount);
+            Assert.AreEqual(new LibraryMutationSessionApplyCounts
+            { CatalogApplyCount = 1, PackageReferenceApplyCount = 1, ReverseLookupApplyCount = 1, Lr2SyncCount = 1, RequiredPublicationCount = 1 }, completion.SessionReceipt.ApplyCounts);
+            Assert.IsTrue(Directory.EnumerateDirectories(root).Contains(destination, StringComparer.Ordinal));
+            Assert.IsFalse(Directory.EnumerateDirectories(root).Contains(source, StringComparer.Ordinal));
+            Assert.AreSame(bms.Token, library.BmsCharts.Single().Token); Assert.AreSame(bmson.Token, library.BmsonCharts.Single().Token);
+            string expectedBms = Path.Combine(destination, "chart.bms"), expectedBmson = Path.Combine(movedChild, "chart.bmson");
+            Assert.AreEqual(expectedBms, library.BmsCharts.Single().Path); Assert.AreEqual(expectedBmson, library.BmsonCharts.Single().Path);
+            Assert.AreEqual(destination, installed.path);
+            CollectionAssert.AreEqual(new[] { expectedBms, expectedBmson }, installedEntries.Select(entry => entry.Chart.Path).ToArray());
+            Assert.AreEqual(movedChild, pendingRow.instl_dst);
+            CollectionAssert.AreEqual(new[] { destination, movedChild, unrelated }, pending.Chart.InstallDestinationSuggestions.ToArray());
+            Assert.AreEqual("Child", pending.Chart.InstallDestinationTitle); Assert.AreEqual("Artist", pending.Chart.InstallDestinationArtist);
+            Assert.AreEqual(before.Generation + 1, index.CaptureSnapshot().Generation);
+            CollectionAssert.AreEquivalent(new[] { destination, movedChild, unrelated }, index.CaptureSnapshot().DirectoryLookupCache.Keys.ToArray());
+            CollectionAssert.AreEqual(previousCandidates.Select(path => path == source ? destination : path == child ? movedChild : path).ToArray(), index.CaptureSnapshot().DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(resourceHash).ToArray());
+            CollectionAssert.AreEquivalent(new[] { source, child, unrelated }, before.DirectoryLookupCache.Keys.ToArray());
+            CollectionAssert.AreEqual(previousCandidates, before.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(resourceHash).ToArray());
+            Assert.AreSame(row, rowCache.SnapshotRows().Single()); Assert.AreEqual("[Artist] Song", row.Folder); Assert.AreEqual(expectedBms, row.Chart.Path);
+            using (LR2SongDBExtended db = databaseScope.OpenSongReadOnly(database))
+            {
+                CollectionAssert.AreEqual(new[] { expectedBms }, db.Table<LR2SongDB.song>().Select(item => item.path).ToArray());
+                CollectionAssert.AreEqual(new[] { expectedBmson }, db.Table<LR2SongDBExtended.bmson_song>().Select(item => item.path).ToArray());
+                CollectionAssert.AreEquivalent(new[] { expectedBms, expectedBmson }, db.Table<LR2SongDBExtended.maintenance>().Select(item => item.path).ToArray());
+                foreach (ChartFile chart in library.BmsCharts.Concat(library.BmsonCharts))
+                {
+                    Assert.AreEqual(chart.Path, chart.ResourceHealthMaintenanceSnapshot.Path);
+                    Assert.AreEqual(1, chart.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
+                    LR2SongDBExtended.maintenance health = db.Table<LR2SongDBExtended.maintenance>().Single(item => item.path == chart.Path);
+                    Assert.AreEqual(1, health.wav_files_defined); Assert.AreEqual(1, health.wav_files_existing);
+                }
+            }
+            // 同じ表示行の現在値から次の明示要求を作り、旧パスを再使用しないことを実物理変更で確認します。
+            options = new BmsLibraryOptionsSnapshot { FolderNameFormat = "%TITLE%" };
+            Assert.IsTrue(GridRowResolver.TryGetFolderEditChartOperationTarget(row, ChartOperationSourceScope.Library, out ChartOperationTarget nextTarget));
+            Assert.AreEqual(expectedBms, nextTarget.Chart.Path);
+            Assert.IsTrue(owner.RequestStartSelected([nextTarget]));
+            await owner.WaitForIdleAsync();
+            Assert.IsNull(failure); Assert.AreEqual(2, terminals); Assert.AreEqual(2, publications); Assert.AreEqual(2, playback.StopCount);
+            Assert.AreSame(row, rowCache.SnapshotRows().Single()); Assert.AreEqual("Song", row.Folder);
+            string finalDirectory = Path.Combine(root, "Song");
+            Assert.AreEqual(Path.Combine(finalDirectory, "chart.bms"), row.Chart.Path);
+            Assert.AreSame(bms.Token, row.Chart.Token);
+            Assert.IsTrue(Directory.EnumerateDirectories(root).Contains(finalDirectory, StringComparer.Ordinal));
+            Assert.IsFalse(Directory.Exists(destination));
+            Assert.AreEqual(Path.Combine(finalDirectory, "Child"), pendingRow.instl_dst);
+        }
+        finally { await owner.WaitForIdleAsync(); library.RequestShutdown("case-auto-rename"); DeleteRoot(root); }
+    }
 
     /// <summary>
     /// 実移動だけで管理出力との交差を判定し、診断だけなら再生を止めず、実交差のBusyではFS・DBを変更せず、解放後の新規要求で確定することで予約や交差誤判定を検出する。
