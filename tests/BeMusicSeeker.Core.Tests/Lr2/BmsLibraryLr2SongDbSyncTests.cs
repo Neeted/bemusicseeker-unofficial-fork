@@ -2337,10 +2337,14 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     // 依存なし、譜面だけ削除してcustomが残る、フォルダごとcustomも消える条件を同じ実入口で比較します。
-    [DataRow(false, false)]
-    [DataRow(true, false)]
-    [DataRow(true, true)]
-    public void RemoveLibraryCharts_PrunesNormalFolderRowsForRemovedBmsWhenLr2SongDbSyncEnabled(bool customPresent, bool wholeFolder)
+    [DataRow(false, false, false, false, false)]
+    [DataRow(true, false, false, false, false)]
+    [DataRow(false, true, false, false, false)]
+    [DataRow(true, true, false, false, false)]
+    [DataRow(true, true, true, false, false)]
+    [DataRow(false, false, false, true, false)]
+    [DataRow(false, true, false, false, true)]
+    public void RemoveLibraryCharts_PrunesNormalFolderRowsForRemovedBmsWhenLr2SongDbSyncEnabled(bool customPresent, bool folderInfoPresent, bool wholeFolder, bool siblingFolderInfo, bool disable)
     {
         using var scope = TestDatabaseScope.Create();
         try
@@ -2349,7 +2353,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             ResetLr2FolderDiscoverySettings(testSettings);
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string packDirectory = Path.Combine(rootDirectory, "Pack");
-            string keepDirectory = Path.Combine(packDirectory, "Keep");
+            string keepDirectory = Path.Combine(siblingFolderInfo ? rootDirectory : packDirectory, "Keep");
             string removeDirectory = Path.Combine(packDirectory, "Remove");
             Directory.CreateDirectory(keepDirectory);
             Directory.CreateDirectory(removeDirectory);
@@ -2359,6 +2363,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.WriteAllText(removePath, "#TITLE Remove\r\n#00111:01\r\n", Encoding.ASCII);
             string customPath = Path.Combine(removeDirectory, "external.lr2folder");
             if (customPresent) { File.WriteAllText(customPath, "#TITLE External", Encoding.ASCII); }
+            if (folderInfoPresent) { File.WriteAllText(Path.Combine(removeDirectory, "folderinfo.txt"), "#TITLE Retained Folder", Encoding.ASCII); }
             ChartFile keepFile = CreateSyncTestFile(keepPath, ChartFileContentReader.ReadSnapshot(keepPath));
             ChartFile removeFile = CreateSyncTestFile(removePath, ChartFileContentReader.ReadSnapshot(removePath));
             using (LR2SongDBExtended setup = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath))
@@ -2414,20 +2419,43 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     setupCustom.InsertOrReplace(new LR2SongDB.folder { path = customPath, type = 2, title = "External", command = "song.hash = 'keep'", parent = "keep-exact-parent", date = 321, adddate = 123 });
                     Assert.IsNotNull(setupCustom.Find<LR2SongDB.folder>(customPath), "全物理削除でも直前にcustomのDB行が存在する条件を固定します。");
                 }
+                string siblingDirectory = Path.Combine(packDirectory, "InfoSibling");
+                if (siblingFolderInfo)
+                {
+                    Directory.CreateDirectory(siblingDirectory);
+                    File.WriteAllText(Path.Combine(siblingDirectory, "folderinfo.txt"), "#TITLE Sibling", Encoding.ASCII);
+                    using LR2SongDBExtended setupSibling = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
+                    setupSibling.InsertOrReplace(new LR2SongDB.folder { path = ToFolderPath(siblingDirectory), type = 1, title = "Sibling", parent = Lr2StoredPathReference.Compute(ToFolderPath(packDirectory)) });
+                }
                 ChartFile currentRemoveFile = library.BmsCharts.Single(file =>
                     string.Equals(file.Path, removePath, StringComparison.OrdinalIgnoreCase));
-                LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
-                    library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((currentRemoveFile))]),
-                    sendToRecycleBin: false,
-                    approvedWholeFolderDeletePaths: wholeFolder ? [removeDirectory] : []);
-                Assert.IsFalse(removal.HasError);
+                if (disable)
+                {
+                    LibraryMutationSessionReceipt disabled = library.RenameBMSFilesExtensionsWithReceipt(
+                        [library.PrepareLibraryFileExtensionRenameBatch([currentRemoveFile], ".bmx")], unregister: true);
+                    Assert.IsTrue(disabled.DurableCommit, disabled.PrimaryFailure?.ToString());
+                    Assert.IsFalse(disabled.HasRequiredFailure, disabled.PrimaryFailure?.ToString());
+                    Assert.IsTrue(File.Exists(Path.ChangeExtension(removePath, ".bmx")));
+                }
+                else
+                {
+                    LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
+                        library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(currentRemoveFile)]),
+                        sendToRecycleBin: false,
+                        approvedWholeFolderDeletePaths: wholeFolder ? [removeDirectory] : []);
+                    Assert.IsFalse(removal.HasError);
+                }
 
                 using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
                 List<LR2SongDB.folder> folders = [.. verify.Table<LR2SongDB.folder>()];
                 Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(rootDirectory)));
                 Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(packDirectory)));
                 Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(keepDirectory)));
-                Assert.AreEqual(customPresent && !wholeFolder, folders.Any(folder => folder.path == ToFolderPath(removeDirectory)));
+                Assert.AreEqual((customPresent || folderInfoPresent) && !wholeFolder, folders.Any(folder => folder.path == ToFolderPath(removeDirectory)));
+                if (folderInfoPresent && !wholeFolder)
+                {
+                    Assert.AreEqual("Retained Folder", folders.Single(folder => folder.path == ToFolderPath(removeDirectory)).title);
+                }
                 if (customPresent && !wholeFolder)
                 {
                     Assert.IsTrue(File.Exists(customPath));
@@ -2436,7 +2464,16 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     Assert.AreEqual("External", custom.title); Assert.AreEqual("keep-exact-parent", custom.parent);
                     Assert.AreEqual(123, custom.adddate); Assert.AreEqual(321, custom.date);
                 }
-                if (wholeFolder) { Assert.IsFalse(Directory.Exists(removeDirectory)); }
+                if (siblingFolderInfo)
+                {
+                    Assert.AreEqual("Sibling", verify.Find<LR2SongDB.folder>(ToFolderPath(siblingDirectory)).title);
+                    Assert.AreEqual(Lr2StoredPathReference.Compute(ToFolderPath(rootDirectory)), verify.Find<LR2SongDB.folder>(ToFolderPath(packDirectory)).parent);
+                }
+                if (wholeFolder)
+                {
+                    Assert.IsFalse(Directory.Exists(removeDirectory));
+                    Assert.IsNull(verify.Find<LR2SongDB.folder>(customPath));
+                }
                 Assert.IsNotNull(verify.Find<LR2SongDB.song>(keepPath));
                 Assert.IsNull(verify.Find<LR2SongDB.song>(removePath));
             }
@@ -2517,7 +2554,11 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     /// </summary>
     /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
-    public void RenameChartFolder_MovesNormalFolderRowsForMovedBmsWhenLr2SongDbSyncEnabled()
+    [DataRow("manual", false)]
+    [DataRow("manual", true)]
+    [DataRow("auto", false)]
+    [DataRow("root", false)]
+    public void RenameChartFolder_MovesNormalFolderRowsForMovedBmsWhenLr2SongDbSyncEnabled(string operation, bool nullAddDate)
     {
         using var scope = TestDatabaseScope.Create();
         try
@@ -2527,7 +2568,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string packDirectory = Path.Combine(rootDirectory, "Pack");
             string oldDirectory = Path.Combine(packDirectory, "Old");
-            string newDirectory = Path.Combine(packDirectory, "New");
+            string otherRoot = Path.Combine(scope.DirectoryPath, "OtherRoot");
+            Directory.CreateDirectory(otherRoot);
+            string newName = operation == "auto" ? "[Artist] Moved" : "New";
+            string newDirectory = operation == "root" ? Path.Combine(otherRoot, "Old") : Path.Combine(packDirectory, newName);
             Directory.CreateDirectory(oldDirectory);
             string oldPath = Path.Combine(oldDirectory, "chart.bms");
             string newPath = Path.Combine(newDirectory, "chart.bms");
@@ -2536,7 +2580,12 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.WriteAllText(oldPath, "#TITLE Moved\r\n#00111:01\r\n", Encoding.ASCII);
             File.WriteAllText(oldFolderInfoPath, "#TITLE Owned Mutation New", Encoding.GetEncoding("shift_jis"));
             Directory.SetLastWriteTimeUtc(oldDirectory, newDirectoryTimestamp);
-            ChartFile file = CreateSyncTestFile(oldPath, ChartFileContentReader.ReadSnapshot(oldPath));
+            string customDirectory = Path.Combine(oldDirectory, "CustomOnly", "Nested");
+            Directory.CreateDirectory(customDirectory);
+            string customPath = Path.Combine(customDirectory, "external.lr2folder");
+            File.WriteAllText(customPath, "#TITLE External\r\n#COMMAND song.level > 5", Encoding.ASCII);
+            ChartFile file = CreateSyncTestFile(oldPath, ChartFileContentReader.ReadSnapshot(oldPath)) with
+            { Title = "Moved", RawTitle = "Moved", Artist = "Artist", RawArtist = "Artist" };
             using (LR2SongDBExtended setup = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath))
             {
                 setup.RunInTransaction(() =>
@@ -2544,6 +2593,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     setup.CreateTable<LR2SongDB.folder>();
                     setup.CreateTable<LR2SongDB.song>();
                     setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
+                    setup.InsertOrReplace(new LR2SongDB.folder { path = ToFolderPath(oldDirectory), type = 1, title = "Old", parent = Lr2StoredPathReference.Compute(ToFolderPath(packDirectory)), adddate = nullAddDate ? null : 234 });
+                    setup.InsertOrReplace(new LR2SongDB.folder { path = customPath, type = 2, title = "External", command = "song.level > 5", parent = Lr2StoredPathReference.Compute(ToFolderPath(customDirectory)), date = 321, adddate = nullAddDate ? null : 123 });
                 });
             }
             var library = new TestBmsLibrary(scope.DatabaseScope,
@@ -2553,17 +2604,19 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 new TestUiScheduler(() => null),
-                settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
+                settings: TestBmsFactory.CreateRootSettings([rootDirectory, otherRoot], testSettings))
             {
 
                 BmsCharts = []
             };
             library.BmsCharts = [file];
-            LibraryMutationSessionReceipt moveReceipt = library.RenameChartFolderWithReceipt(
-                oldDirectory,
-                "New",
-                unregister: false,
-                renameRootFolder: false);
+            LibraryMutationSessionReceipt moveReceipt = operation switch
+            {
+                "root" => library.MoveLibraryRootFolderWithReceipt([LibraryChartRef.FromChartFile(file)], otherRoot),
+                "auto" => library.AutoRenameChartFoldersWithProgress([file], false,
+                    new RecordingFolderAutoRenameProgressWriter()).SessionReceipt,
+                _ => library.RenameChartFolderWithReceipt(oldDirectory, newName, false, false)
+            };
             Assert.IsTrue(moveReceipt.DurableCommit, moveReceipt.PrimaryFailure?.ToString());
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
@@ -2571,18 +2624,176 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Assert.AreEqual(oldPath, file.Path);
             Assert.AreEqual(newPath, library.BmsCharts.Single().Path);
             Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(rootDirectory)));
-            Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(packDirectory)));
+            Assert.AreEqual(operation != "root", folders.Any(folder => folder.path == ToFolderPath(packDirectory)));
             Assert.IsFalse(folders.Any(folder => folder.path == ToFolderPath(oldDirectory)));
             LR2SongDB.folder newFolder = folders.Single(folder => folder.path == ToFolderPath(newDirectory));
             Assert.AreEqual("Owned Mutation New", newFolder.title);
+            Assert.AreEqual(nullAddDate ? (int?)null : 234, newFolder.adddate);
             Assert.AreEqual(
                 Lr2SongRowEnricher.ToLr2UnixSeconds(Directory.GetLastWriteTimeUtc(newDirectory)),
                 newFolder.date);
             Assert.IsNull(verify.Find<LR2SongDB.song>(oldPath));
             Assert.IsNotNull(verify.Find<LR2SongDB.song>(newPath));
+            string movedCustomDirectory = Path.Combine(newDirectory, "CustomOnly", "Nested");
+            string movedCustomPath = Path.Combine(movedCustomDirectory, "external.lr2folder");
+            Assert.IsNull(verify.Find<LR2SongDB.folder>(customPath));
+            LR2SongDB.folder movedCustom = verify.Find<LR2SongDB.folder>(movedCustomPath);
+            Assert.IsNotNull(movedCustom);
+            Assert.AreEqual("External", movedCustom.title);
+            Assert.AreEqual("song.level > 5", movedCustom.command);
+            Assert.AreEqual(321, movedCustom.date);
+            Assert.AreEqual(nullAddDate ? (int?)null : 123, movedCustom.adddate);
+            Assert.AreEqual(Lr2StoredPathReference.Compute(ToFolderPath(movedCustomDirectory)), movedCustom.parent);
+            Assert.IsNotNull(verify.Find<LR2SongDB.folder>(ToFolderPath(movedCustomDirectory)));
+            Assert.IsNotNull(verify.Find<LR2SongDB.folder>(ToFolderPath(Path.Combine(newDirectory, "CustomOnly"))));
+            Assert.AreEqual("#TITLE External\r\n#COMMAND song.level > 5", File.ReadAllText(movedCustomPath));
         }
         finally
         {
+            ResetTouchedSettings(testSettings);
+        }
+    }
+
+    /// <summary>非CP932への実改名でBMS/BMSONの同token現在値と保守を確定し、対応名への復帰と全体同期で必要階層が一致することを確認します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task RenameChartFolder_UnsupportedPathCommitsAndRestoresProjection(bool nested)
+    {
+        using var scope = TestDatabaseScope.Create();
+        testSettings.OperationModeLR2DB = true;
+        testSettings.UseOnlyShiftJISChars = false;
+        ResetLr2FolderDiscoverySettings(testSettings);
+        string root = Path.Combine(scope.DirectoryPath, "BMS");
+        string oldDirectory = Path.Combine(root, "Old");
+        string chartDirectory = nested ? Path.Combine(oldDirectory, "Child") : oldDirectory;
+        ChartFile bms = CreateReadableSyncChart(Path.Combine(chartDirectory, "chart.bms"), "Moved");
+        string bmsonPath = Path.Combine(oldDirectory, "chart.bmson");
+        File.WriteAllText(bmsonPath, "{}");
+        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
+        { Path = bmsonPath, Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Token = new OwnedChartToken() };
+        string customParent = Path.Combine(oldDirectory, "CustomOnly", "Deep");
+        Directory.CreateDirectory(customParent);
+        string customPath = Path.Combine(customParent, "external.lr2folder");
+        const string customText = "#TITLE External\r\n#SUBTITLE Subtitle\r\n#CATEGORY Category\r\n#COMMAND song.level > 5\r\n#INFORMATION_A Info\r\n#MAXTRACKS 12";
+        File.WriteAllText(customPath, customText, Encoding.ASCII);
+        string infoDirectory = Path.Combine(oldDirectory, "InfoOnly");
+        Directory.CreateDirectory(infoDirectory);
+        string infoPath = Path.Combine(infoDirectory, "folderinfo.txt");
+        File.WriteAllText(infoPath, "#TITLE Info Only", Encoding.ASCII);
+        string[] directories = [.. (nested ? new[] { root, oldDirectory, chartDirectory } : new[] { root, oldDirectory }),
+            Path.Combine(oldDirectory, "CustomOnly"), customParent, infoDirectory];
+        ChartFile[] charts = [bms];
+        (TestBmsLibrary library, LibraryFileInitializationResult input) = CreateFolderProjectionSyncLibrary(scope, root, charts, [customPath], directories);
+        library.BmsonCharts = [bmson];
+        input = new LibraryFileInitializationResult(InvokeCaptureLr2SongDbSyncScanSurface(library,
+            new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true }, [root],
+            CreateCompleteLr2ScanSurface(directories, [root], [customPath], directories, [infoPath], [infoDirectory])));
+        try
+        {
+            await library.QueueLr2SongDbSyncAsync("rename_before", initializationResult: input);
+            int? customAddDate = nested ? null : 123;
+            int? customDate;
+            using (LR2SongDBExtended db = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath))
+            {
+                db.Execute("UPDATE folder SET adddate = ? WHERE path = ?", customAddDate, customPath);
+                customDate = db.Find<LR2SongDB.folder>(customPath).date;
+                Assert.AreEqual("Info Only", db.Find<LR2SongDB.folder>(ToFolderPath(infoDirectory)).title);
+            }
+            void AssertCustomColumns(LR2SongDB.folder row)
+            {
+                Assert.IsNotNull(row);
+                Assert.AreEqual("External", row.title);
+                Assert.AreEqual("Subtitle", row.subtitle);
+                Assert.AreEqual("Category", row.category);
+                Assert.AreEqual("song.level > 5", row.command);
+                Assert.AreEqual("Info", row.info_a);
+                Assert.AreEqual(12, row.max);
+                Assert.AreEqual(customAddDate, row.adddate);
+                Assert.AreEqual(customDate, row.date);
+            }
+            ChartFile original = library.BmsCharts.Single(chart => chart.Path == bms.Path);
+            var membership = PackageChartEntry.FromChart(original);
+            library.ChartPackagesInstalled = new ObservableCollection<ChartPackage>([ChartPackage.FromChartEntries([membership])]);
+            _ = library.CreateInstalledChartLookupSnapshotForDiagnostics();
+            var heldReference = LibraryChartRef.FromChartFile(original);
+            string unsupportedDirectory = Path.Combine(root, "New😀");
+            string unsupportedChartDirectory = nested ? Path.Combine(unsupportedDirectory, "Child") : unsupportedDirectory;
+            string newPath = Path.Combine(unsupportedChartDirectory, "chart.bms");
+            LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(oldDirectory, "New😀", false, false);
+            Assert.IsTrue(receipt.DurableCommit, receipt.PrimaryFailure?.ToString());
+            Assert.IsFalse(receipt.HasRequiredFailure, receipt.PrimaryFailure?.ToString());
+            ChartFile current = library.BmsCharts.Single(chart => ReferenceEquals(chart.Token, original.Token));
+            Assert.AreSame(original.Token, current.Token);
+            Assert.AreEqual(newPath, current.Path);
+            Assert.AreEqual(newPath, library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(current)]).Targets.Single().Path);
+            Assert.IsTrue(current.Warnings.Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported));
+            Assert.IsNotNull(current.ResourceHealthMaintenanceSnapshot);
+            Assert.AreEqual(newPath, current.ResourceHealthMaintenanceSnapshot.Path);
+            Assert.AreEqual(original.ResourceHealthMaintenanceSnapshot.Encoding, current.ResourceHealthMaintenanceSnapshot.Encoding);
+            Assert.AreEqual(original.ResourceHealthMaintenanceSnapshot.EncodingFixed, current.ResourceHealthMaintenanceSnapshot.EncodingFixed);
+            Assert.AreEqual(original.ResourceHealthMaintenanceSnapshot.WavFilesExisting, current.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
+            Assert.AreEqual(newPath, membership.Chart.Path);
+            InstalledChartLookupIndexSnapshot lookup = library.CreateInstalledChartLookupSnapshotForDiagnostics();
+            CollectionAssert.AreEqual(new[] { unsupportedChartDirectory }, lookup.Md5Directories[current.Md5].ToArray());
+            Assert.IsFalse(lookup.KnownChartDirectories.Contains(chartDirectory));
+            Assert.IsTrue(((Lr2CompatibilityWarningFlags)current.ResourceHealthMaintenanceSnapshot.Lr2WarningFlags.GetValueOrDefault()).HasFlag(Lr2CompatibilityWarningFlags.PathEncodingUnsupported));
+            Assert.AreEqual(Path.Combine(unsupportedDirectory, "chart.bmson"), library.BmsonCharts.Single().Path);
+            Assert.AreSame(bmson.Token, library.BmsonCharts.Single().Token);
+            using (LR2SongDBExtended db = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath))
+            {
+                Assert.IsNull(db.Find<LR2SongDB.folder>(ToFolderPath(oldDirectory)));
+                Assert.IsNull(db.Find<LR2SongDB.folder>(ToFolderPath(unsupportedDirectory)));
+                Assert.IsNull(db.Find<LR2SongDB.folder>(ToFolderPath(unsupportedChartDirectory)));
+                string movedCustomPath = Path.Combine(unsupportedDirectory, "CustomOnly", "Deep", "external.lr2folder");
+                Assert.IsNull(db.Find<LR2SongDB.folder>(customPath));
+                LR2SongDB.folder custom = db.Find<LR2SongDB.folder>(movedCustomPath);
+                AssertCustomColumns(custom);
+                Assert.IsNull(custom.parent);
+                Assert.IsNull(db.Find<LR2SongDB.folder>(ToFolderPath(Path.Combine(unsupportedDirectory, "CustomOnly", "Deep"))));
+                Assert.AreEqual(customText, File.ReadAllText(movedCustomPath));
+                Assert.AreEqual(1L, db.ExecuteScalar<long>("SELECT COUNT(*) FROM song WHERE path = ? AND folder IS NULL AND parent IS NULL", newPath));
+                Assert.IsNull(db.Find<LR2SongDB.folder>(ToFolderPath(Path.Combine(unsupportedDirectory, "InfoOnly"))));
+                Assert.AreEqual(newPath, db.Find<LR2SongDBExtended.maintenance>(newPath).path);
+                Assert.IsNotNull(db.Find<LR2SongDBExtended.bmson_song>(library.BmsonCharts.Single().Path));
+            }
+            LibraryMutationSessionReceipt restored = library.RenameChartFolderWithReceipt(unsupportedDirectory, "Old", false, false);
+            Assert.IsTrue(restored.DurableCommit, restored.PrimaryFailure?.ToString());
+            Assert.IsFalse(restored.HasRequiredFailure, restored.PrimaryFailure?.ToString());
+            Assert.AreSame(original.Token, library.BmsCharts.Single(chart => ReferenceEquals(chart.Token, original.Token)).Token);
+            Assert.AreEqual(original.Path, library.BmsCharts.Single(chart => ReferenceEquals(chart.Token, original.Token)).Path);
+            Assert.IsFalse(library.BmsCharts.Single(chart => ReferenceEquals(chart.Token, original.Token)).Warnings.Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported));
+            List<string> before;
+            using (LR2SongDBExtended db = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath))
+            {
+                Assert.AreEqual(Lr2StoredPathReference.Compute(ToFolderPath(chartDirectory)), db.Find<LR2SongDB.song>(original.Path).folder);
+                foreach (string directory in directories) { Assert.IsNotNull(db.Find<LR2SongDB.folder>(ToFolderPath(directory))); }
+                LR2SongDB.folder restoredInfo = db.Find<LR2SongDB.folder>(ToFolderPath(infoDirectory));
+                Assert.AreEqual("Info Only", restoredInfo.title);
+                Assert.AreEqual(Lr2StoredPathReference.Compute(ToFolderPath(oldDirectory)), restoredInfo.parent);
+                Assert.IsNull(db.Find<LR2SongDB.folder>(Path.Combine(unsupportedDirectory, "CustomOnly", "Deep", "external.lr2folder")));
+                LR2SongDB.folder custom = db.Find<LR2SongDB.folder>(customPath);
+                AssertCustomColumns(custom);
+                Assert.AreEqual(Lr2StoredPathReference.Compute(ToFolderPath(customParent)), custom.parent);
+                Assert.AreEqual(customText, File.ReadAllText(customPath));
+                before = db.Table<LR2SongDB.folder>().Select(row => row.path + "|" + row.title + "|" + row.parent).Order().ToList();
+            }
+            var currentInput = new LibraryFileInitializationResult(InvokeCaptureLr2SongDbSyncScanSurface(library,
+                new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true }, [root],
+                CreateCompleteLr2ScanSurface(directories, [root], [customPath], directories, [infoPath], [infoDirectory])));
+            await library.QueueLr2SongDbSyncAsync("rename_after", force: true, initializationResult: currentInput);
+            using (LR2SongDBExtended db = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath))
+            {
+                AssertCustomColumns(db.Find<LR2SongDB.folder>(customPath));
+                CollectionAssert.AreEqual(before, db.Table<LR2SongDB.folder>().Select(row => row.path + "|" + row.title + "|" + row.parent).Order().ToList());
+            }
+            LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([heldReference]), false, []);
+            Assert.IsFalse(removal.HasError);
+            Assert.IsFalse(File.Exists(original.Path));
+        }
+        finally
+        {
+            library.RequestShutdown("unicode-rename");
             ResetTouchedSettings(testSettings);
         }
     }

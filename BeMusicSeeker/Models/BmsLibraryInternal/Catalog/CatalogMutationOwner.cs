@@ -360,6 +360,14 @@ internal sealed class CatalogMutationOwner
         return Lr2NormalFolderDbSyncService.CaptureCustomDependencyCandidates(songDb, roots, pruneScopes, pruneExactDirectories);
     }
 
+    /// <summary>局所整理する通常行だけからfolderinfoの物理残存候補を捕捉します。</summary>
+    internal Lr2LocalFolderDependencies CaptureLr2FolderInfoDependencyDirectories(
+        IEnumerable<string> pruneScopes, IEnumerable<string> pruneExactDirectories)
+    {
+        using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
+        return Lr2NormalFolderDbSyncService.CaptureFolderInfoDependencyDirectories(songDb, pruneScopes, pruneExactDirectories);
+    }
+
     internal Lr2NormalFolderDbSyncResult ApplyLr2NormalFolderSync(Lr2NormalFolderDbSyncRequest request)
     {
         if (request == null)
@@ -549,7 +557,7 @@ internal sealed class CatalogMutationOwner
             {
                 continue;
             }
-            folderChanges.Add(new CatalogFolderPathReplacement(change.OldFolderPath, change.NewFolderPath));
+            folderChanges.Add(new CatalogFolderPathReplacement(change.OldFolderPath, change.NewFolderPath, change.IncludesDescendants, change.IsCustomFile));
         }
 
         var bmsChanges = new List<BmsSongPathReplacement>();
@@ -610,7 +618,8 @@ internal sealed class CatalogMutationOwner
         return new CatalogRelocationRequest(
             folderChanges,
             bmsChanges,
-            bmsonChanges);
+            bmsonChanges,
+            facts.FolderProjectionExcludedDirectories);
     }
 
     /// <summary>
@@ -734,7 +743,7 @@ internal sealed class CatalogMutationOwner
                  removalRequest?.RemoveRequests,
                  dbResult.FolderDbTargetRows,
                  dbResult.FolderDbFullScanCount,
-                 ownedCollectionOwner.Collection.CapturePathMembershipIndex(), commit);
+                 ownedCollectionOwner.Collection.CapturePathMembershipIndex(), commit, relocationRequest.FolderPathChanges);
         }
     }
 

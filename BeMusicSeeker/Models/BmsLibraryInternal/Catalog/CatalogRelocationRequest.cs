@@ -9,15 +9,21 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class CatalogRelocationRequest
 {
+    /// <summary>確定した移転と管理出力の除外範囲をコピーし、DB確定まで変更不能に保持します。</summary>
     internal CatalogRelocationRequest(
         IEnumerable<CatalogFolderPathReplacement> folderPathChanges,
         IEnumerable<BmsSongPathReplacement> bmsPathReplacements,
-        IEnumerable<BmsonSongPathReplacement> bmsonPathReplacements)
+        IEnumerable<BmsonSongPathReplacement> bmsonPathReplacements,
+        IEnumerable<string> folderProjectionExcludedDirectories = null)
     {
+        FolderProjectionExcludedDirectories = Snapshot(folderProjectionExcludedDirectories);
         FolderPathChanges = Snapshot(folderPathChanges);
         BmsPathReplacements = Snapshot(bmsPathReplacements);
         BmsonPathReplacements = Snapshot(bmsonPathReplacements);
     }
+
+    /// <summary>管理出力主体が所有するため局所移転から除外する物理範囲です。</summary>
+    internal IReadOnlyList<string> FolderProjectionExcludedDirectories { get; }
 
     internal IReadOnlyList<CatalogFolderPathReplacement> FolderPathChanges { get; }
 
@@ -40,11 +46,20 @@ internal sealed class CatalogRelocationRequest
 /// </summary>
 internal sealed class CatalogFolderPathReplacement
 {
-    internal CatalogFolderPathReplacement(string oldFolderPath, string newFolderPath)
+    /// <summary>exact通常行・成功した物理subtree・採番済みcustomファイルを区別して旧新配置を保持します。</summary>
+    internal CatalogFolderPathReplacement(string oldFolderPath, string newFolderPath, bool includesDescendants = false, bool isCustomFile = false)
     {
         OldFolderPath = oldFolderPath;
         NewFolderPath = newFolderPath;
+        IncludesDescendants = includesDescendants;
+        IsCustomFile = isCustomFile;
     }
+
+    /// <summary>配下全体の物理移転成功を表し、exact行だけの変更と区別します。</summary>
+    internal bool IncludesDescendants { get; }
+
+    /// <summary>customファイルの採番を含む確定移転です。</summary>
+    internal bool IsCustomFile { get; }
 
     internal string OldFolderPath { get; }
 
@@ -163,8 +178,10 @@ internal sealed class CatalogMutationReceipt
         int folderDbTargetRows = 0,
         int folderDbFullScanCount = 0,
         IReadOnlyDictionary<string, OwnedChartToken> bmsPathMembershipIdentity = null,
-        CatalogCommitReceipt commit = null)
+        CatalogCommitReceipt commit = null,
+        IEnumerable<CatalogFolderPathReplacement> folderPathChanges = null)
     {
+        FolderPathChanges = Array.AsReadOnly([.. folderPathChanges ?? []]);
         Applied = applied;
         Commit = commit;
         StorageRowsVersion = storageRowsVersion;
@@ -229,6 +246,9 @@ internal sealed class CatalogMutationReceipt
     internal IReadOnlyList<CatalogRelocationPathFact> MovedCharts { get; }
 
     internal IReadOnlyList<CatalogRelocationPathFact> PathFacts { get; }
+
+    /// <summary>成功した物理移転範囲とcustom実宛先です。譜面形式に依存せず局所依存捕捉へ渡します。</summary>
+    internal IReadOnlyList<CatalogFolderPathReplacement> FolderPathChanges { get; }
 
 
 }

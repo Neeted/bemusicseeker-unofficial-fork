@@ -60,7 +60,7 @@ internal static class BmsLibraryStateApplierTestSupport
             .Select(change => change.Chart with { Path = change.NewPath }));
         return new LibraryCatalogMutationFacts(facts.ChartRemoveRequests, facts.ChartPathChanges,
             facts.FolderPathChanges, facts.TextChanges,
-            moved.ToDictionary(chart => chart.Path, chart => chart.Txt.GetValueOrDefault(), StringComparer.Ordinal));
+            moved.ToDictionary(chart => chart.Path, chart => chart.Txt.GetValueOrDefault(), StringComparer.Ordinal), facts.FolderProjectionExcludedDirectories);
     }
 
     /// <summary>確定後の共通現在値を観測するため、同じ局所カタログ所有者も返します。</summary>
@@ -85,7 +85,8 @@ internal static class BmsLibraryStateApplierTestSupport
             normalizedChanges.Add(new LibraryChartPathChange
             { Chart = current, OldPath = change.OldPath, NewPath = change.NewPath });
         }
-        var normalizedFacts = new LibraryCatalogMutationFacts(catalogFacts.ChartRemoveRequests, normalizedChanges, catalogFacts.FolderPathChanges);
+        var normalizedFacts = new LibraryCatalogMutationFacts(catalogFacts.ChartRemoveRequests, normalizedChanges, catalogFacts.FolderPathChanges,
+            folderProjectionExcludedDirectories: catalogFacts.FolderProjectionExcludedDirectories);
         var owner = new CatalogMutationOwner(currentOwner, new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath));
         owner.CatalogWriteFailurePublished += delegate (object? sender, CatalogWriteFailureFact fact)
         {

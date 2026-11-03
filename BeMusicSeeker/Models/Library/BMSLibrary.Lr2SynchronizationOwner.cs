@@ -844,7 +844,7 @@ public partial class BMSLibrary
             string reason,
             LibraryFileMutationCapability mutationCapability)
         {
-            if (receipt?.HasBmsMutation != true)
+            if (receipt?.HasMutation != true)
             {
                 return;
             }
@@ -879,6 +879,9 @@ public partial class BMSLibrary
                         {
                             IReadOnlyList<string> candidateCustomPaths = data.CaptureLr2NormalFolderCustomDependencyCandidates(
                                 roots, syncInput.PruneScopeDirectories, syncInput.PruneExactDirectories);
+                            Lr2SongDbSyncAppManagedOutputScope managedScope =
+                                data.CaptureLr2SongDbSyncAppManagedOutputScope(options, throwOnFailure: true);
+                            var removedCustomPaths = new List<string>();
                             var remainingCustomParents = new List<string>();
                             foreach (string path in candidateCustomPaths)
                             {
@@ -889,13 +892,47 @@ public partial class BMSLibrary
                                 }
                                 catch (Exception ex) when (ex is FileNotFoundException || ex is DirectoryNotFoundException)
                                 {
-                                    // 物理削除済みcustomは通常親の保持根拠にしません。その他の取得失敗は操作失敗へ返します。
+                                    // 祖先の依存検索で見つかった無関係な消失行は整理しません。
+                                    if (syncInput.PruneScopeDirectories.Any(directory => Lr2FolderPath.IsSameOrDescendant(path, directory))
+                                        && !managedScope.Directories.Any(directory => Lr2FolderPath.IsSameOrDescendant(path, directory))
+                                        && !managedScope.PruneExcludedPaths.Contains(path, StringComparer.Ordinal))
+                                    {
+                                        removedCustomPaths.Add(path);
+                                    }
                                 }
                             }
+                            Lr2LocalFolderDependencies dependencies = data.CaptureLr2FolderInfoDependencyDirectories(
+                                syncInput.PruneScopeDirectories, syncInput.PruneExactDirectories);
+                            // 非CP932で通常行が省略された子階層も、成功した移転先だけを走査して再発見します。
+                            // 旧scopeと削除scopeは再列挙せず、登録root全体や管理出力へ候補を広げません。
+                            var movedSubtrees = new List<string>();
+                            foreach (string directory in receipt.FolderPathChanges.Where(change => change.IncludesDescendants)
+                                .Select(change => Lr2FolderPath.NormalizeDirectoryPath(change.NewFolderPath))
+                                .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(path => path.Length))
+                            {
+                                if (roots.Any(root => Lr2FolderPath.IsSameOrDescendant(directory, root))
+                                    && !managedScope.Directories.Any(excluded => Lr2FolderPath.IsSameOrDescendant(directory, excluded))
+                                    && !movedSubtrees.Any(parent => Lr2FolderPath.IsSameOrDescendant(directory, parent)))
+                                {
+                                    movedSubtrees.Add(directory);
+                                }
+                            }
+                            Lr2FolderInfoCandidateSnapshot movedFolderInfo = Lr2FolderInfoCandidateEnumerationService.CreateTextMetadataSnapshot(
+                                movedSubtrees, [], data.EverythingNative, rootFileEnumerator: new FastRootFileEnumerator(), includeAllFolderInfo: true,
+                                excludedDirectories: managedScope.Directories).FolderInfoCandidates;
+                            Lr2FolderInfoCandidateSnapshot remainingFolderInfo =
+                                Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromOwnedDirectories(
+                                    dependencies.FolderInfoCandidateDirectories.Concat(movedFolderInfo.Paths
+                                        .Where(path => !managedScope.Directories.Any(excluded => Lr2FolderPath.IsSameOrDescendant(path, excluded))
+                                            && !managedScope.PruneExcludedPaths.Contains(path, StringComparer.Ordinal))
+                                        .Select(Lr2FolderPath.SafeGetDirectoryName)));
                             IReadOnlyCollection<string> directoryMetadataTargets = [..
                                 Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, syncInput.ChartPaths)
                                 .Concat(Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargetsFromDirectories(roots, remainingCustomParents))
-                                .Distinct(StringComparer.OrdinalIgnoreCase)];
+                                .Concat(Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargetsFromDirectories(roots,
+                                    remainingFolderInfo.Paths.Select(Lr2FolderPath.SafeGetDirectoryName)))
+                                .Concat(dependencies.RetainedAncestorDirectories)
+                                .Distinct(StringComparer.Ordinal)];
                             if (!TryEnterManagedOutputMutation(directoryMetadataTargets.Concat(syncInput.PruneExactDirectories),
                                 recursive: false, out LibraryFileMutationLease playlistLease, capability: mutationCapability,
                                 recursivePaths: syncInput.PruneScopeDirectories))
@@ -909,6 +946,8 @@ public partial class BMSLibrary
                                     RootDirectories = roots,
                                     ChartPaths = syncInput.ChartPaths,
                                     RequiredCustomParentDirectories = remainingCustomParents,
+                                    RemovedCustomPaths = removedCustomPaths,
+                                    PruneExcludedDirectories = managedScope.Directories,
                                     DirectoryPaths = directoryMetadataTargets,
                                     FolderInfoFilePaths = metadataSurface.FolderInfoCandidates.Paths,
                                     FolderInfoFileEntries = metadataSurface.FolderInfoCandidates.EntriesByPath,

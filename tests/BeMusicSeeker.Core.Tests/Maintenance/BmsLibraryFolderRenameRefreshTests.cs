@@ -1576,7 +1576,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     /// 改名後にLR2の旧パス長を超える譜面名でも物理改名と所持パス更新を完了し、旧制限による処理拒否を検出します。
     /// </summary>
     [TestMethod]
-    public void AutoRenameChartFolders_DoesNotFailWhenLongChartFileNameExceedsLr2LegacyPathLimit()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void AutoRenameChartFolders_DoesNotFailWhenLongChartFileNameExceedsLr2LegacyPathLimit(bool unicode)
     {
 
         WithTemporarySongDb(databaseScope, delegate (string songDbPath)
@@ -1584,7 +1586,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             using var caseWorkspace8 = TestWorkspace.Create(TestRunDirectory.RootDirectory);
             string tempRootPath = Path.Combine(caseWorkspace8.RootDirectory, "BeMusicSeeker_AutoRenameLongName_" + Guid.NewGuid().ToString("N"));
             // 各要素を短く保ち、TEMPの長さによらず改名後にCP932の259バイト制限を超えます。
-            string libraryRootPath = Path.Combine(tempRootPath, new string('a', 80), new string('b', 80), new string('c', 80));
+            string libraryRootPath = unicode ? Path.Combine(tempRootPath, "BMS") : Path.Combine(tempRootPath, new string('a', 80), new string('b', 80), new string('c', 80));
             string sourceDirectoryPath = Path.Combine(libraryRootPath, "O");
             string chartFileName = "chart.bms";
             string chartPath = Path.Combine(sourceDirectoryPath, chartFileName);
@@ -1599,7 +1601,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     new TestFileMutationService(),
                     new RecordingDialogService(),
                     new TestUiScheduler(() => null),
-                    settings: TestBmsFactory.CreateRootSettings([libraryRootPath]))
+                    settings: TestBmsFactory.CreateRootSettings([libraryRootPath],
+                        TestSettingsFactory.CreateIsolatedSettings(settings => { settings.OperationModeLR2DB = true; settings.UseOnlyShiftJISChars = false; })))
                 {
 
                 };
@@ -1609,21 +1612,37 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 };
                 file = file with { Token = new OwnedChartToken() };
                 file = file with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
-                file = file with { Title = "T", RawTitle = "T" };
+                string title = unicode ? "T😀" : "T";
+                file = file with { Title = title, RawTitle = title };
                 file = file with { Artist = "A", RawArtist = "A" };
                 library.BmsCharts = [file];
 
-                library.AutoRenameChartFoldersWithProgress([(file)], false, new RecordingFolderAutoRenameProgressWriter());
+                using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
+                {
+                    setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
+                    setup.InsertOrReplace(new LR2SongDB.folder { path = sourceDirectoryPath + Path.DirectorySeparatorChar, type = 1, parent = "old", title = "O" });
+                }
+                AutoRenameBatchResult result = library.AutoRenameChartFoldersWithProgress([file], false, new RecordingFolderAutoRenameProgressWriter());
+                Assert.IsTrue(result.HasDurableCommit);
+                Assert.IsFalse(result.SessionReceipt.HasRequiredFailure, result.SessionReceipt.PrimaryFailure?.ToString());
 
-                string destinationDirectoryPath = Path.Combine(libraryRootPath, "[A] T");
+                string destinationDirectoryPath = Path.Combine(libraryRootPath, "[A] " + title);
                 string destinationChartPath = Path.Combine(destinationDirectoryPath, chartFileName);
-                Assert.IsTrue(System.Text.Encoding.GetEncoding(932).GetByteCount(destinationChartPath) > 259);
+                if (!unicode) { Assert.IsTrue(System.Text.Encoding.GetEncoding(932).GetByteCount(destinationChartPath) > 259); }
                 ChartFile current = CurrentOwnedChart(library, file);
                 Assert.AreSame(file.Token, current.Token);
                 Assert.AreEqual(destinationChartPath, current.Path);
                 Assert.IsTrue(File.Exists(destinationChartPath));
                 Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
                 Assert.IsTrue(Directory.Exists(destinationDirectoryPath));
+                if (unicode)
+                {
+                    Assert.IsTrue(current.Warnings.Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported));
+                    using LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath);
+                    Assert.IsNull(db.Find<LR2SongDB.folder>(sourceDirectoryPath + Path.DirectorySeparatorChar));
+                    Assert.IsNull(db.Find<LR2SongDB.folder>(destinationDirectoryPath + Path.DirectorySeparatorChar));
+                    Assert.AreEqual(1L, db.ExecuteScalar<long>("SELECT COUNT(*) FROM song WHERE path = ? AND folder IS NULL AND parent IS NULL", destinationChartPath));
+                }
             }
             finally
             {
@@ -1787,7 +1806,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     fileMutationService,
                     dialogs,
                     new TestUiScheduler(() => null),
-                    settings: TestBmsFactory.CreateRootSettings([libraryRootPath]))
+                    settings: TestBmsFactory.CreateRootSettings([libraryRootPath], lr2: true))
                 {
 
                 };
@@ -1809,6 +1828,12 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 library.BmsCharts = [firstFile, secondFile, thirdFile];
                 using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
                 {
+                    foreach (string directory in new[] { firstDirectoryPath, secondDirectoryPath, thirdDirectoryPath })
+                    {
+                        string custom = Path.Combine(directory, "external.lr2folder");
+                        File.WriteAllText(custom, "#TITLE External", Encoding.ASCII);
+                        songDb.InsertOrReplace(new LR2SongDB.folder { path = custom, title = directory, type = 2, command = "song.level > 5", parent = "kept", adddate = 123 });
+                    }
                     songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(firstFile), typeof(LR2SongDB.song));
                     songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(secondFile), typeof(LR2SongDB.song));
                     songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(thirdFile), typeof(LR2SongDB.song));
@@ -1867,6 +1892,15 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.IsTrue(Directory.Exists(thirdDirectoryPath));
                 Assert.IsFalse(Directory.Exists(thirdDestinationPath));
                 using LR2SongDBExtended verifySongDb = databaseScope.OpenSongReadOnly(songDbPath);
+                Assert.IsNull(verifySongDb.Find<LR2SongDB.folder>(Path.Combine(firstDirectoryPath, "external.lr2folder")));
+                Assert.IsNotNull(verifySongDb.Find<LR2SongDB.folder>(Path.Combine(firstDestinationPath, "external.lr2folder")));
+                foreach (string directory in new[] { secondDirectoryPath, thirdDirectoryPath })
+                {
+                    LR2SongDB.folder unchanged = verifySongDb.Find<LR2SongDB.folder>(Path.Combine(directory, "external.lr2folder"));
+                    Assert.AreEqual(directory, unchanged.title);
+                    Assert.AreEqual("kept", unchanged.parent);
+                    Assert.AreEqual(123, unchanged.adddate);
+                }
                 Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(firstChartPath));
                 Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(Path.Combine(firstDestinationPath, "first.bms")));
                 Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(secondChartPath));

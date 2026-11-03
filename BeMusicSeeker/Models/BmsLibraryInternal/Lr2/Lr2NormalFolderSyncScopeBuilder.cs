@@ -270,7 +270,7 @@ internal static class Lr2NormalFolderSyncScopeBuilder
         Lr2NormalFolderCatalogMutationReceipt receipt)
     {
         List<string> roots = NormalizeRoots(rootDirectories);
-        if (roots.Count == 0 || receipt?.HasBmsMutation != true)
+        if (roots.Count == 0 || receipt?.HasMutation != true)
         {
             return Lr2NormalFolderSyncScope.Empty;
         }
@@ -306,6 +306,15 @@ internal static class Lr2NormalFolderSyncScopeBuilder
                 removedChartPath,
                 roots,
                 currentBmsLookup);
+        }
+
+        foreach (CatalogFolderPathReplacement change in receipt.FolderPathChanges)
+        {
+            bool isDirectory = !change.IsCustomFile;
+            AddChartDirectoryScopeIfUnderAnyRoot(pruneScopeDirectories, change.OldFolderPath, roots, isDirectory);
+            AddChartDirectoryScopeIfUnderAnyRoot(pruneScopeDirectories, change.NewFolderPath, roots, isDirectory);
+            AddEmptyAncestorExactScopesForDirectoryIfUnderAnyRoot(pruneExactDirectories,
+                isDirectory ? change.OldFolderPath : Lr2FolderPath.SafeGetDirectoryName(change.OldFolderPath), roots, currentBmsLookup);
         }
 
         AddCurrentPathsUnderPruneScopes(chartPaths, currentBmsLookup, pruneScopeDirectories);
@@ -348,6 +357,12 @@ internal static class Lr2NormalFolderSyncScopeBuilder
                 countQueryDirectories,
                 removedChartPath,
                 roots);
+        }
+
+        foreach (CatalogFolderPathReplacement change in receipt.FolderPathChanges)
+        {
+            AddBmsQueryDirectory(pathQueryDirectories, countQueryDirectories, change.OldFolderPath, roots, !change.IsCustomFile);
+            AddBmsQueryDirectory(pathQueryDirectories, countQueryDirectories, change.NewFolderPath, roots, !change.IsCustomFile);
         }
 
         return CreateBmsQueryScope(pathQueryDirectories, countQueryDirectories);
@@ -475,14 +490,14 @@ internal static class Lr2NormalFolderSyncScopeBuilder
         }
     }
 
-    private static void AddChartDirectoryScopeIfUnderAnyRoot(HashSet<string> result, string chartPath, IReadOnlyCollection<string> rootDirectories)
+    private static void AddChartDirectoryScopeIfUnderAnyRoot(HashSet<string> result, string chartPath, IReadOnlyCollection<string> rootDirectories, bool inputIsDirectory = false)
     {
         if (result == null || string.IsNullOrWhiteSpace(chartPath) || rootDirectories == null || rootDirectories.Count == 0)
         {
             return;
         }
 
-        string directoryPath = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(chartPath));
+        string directoryPath = Lr2FolderPath.NormalizeDirectoryPath(inputIsDirectory ? chartPath : Lr2FolderPath.SafeGetDirectoryName(chartPath));
         if (string.IsNullOrWhiteSpace(directoryPath))
         {
             return;

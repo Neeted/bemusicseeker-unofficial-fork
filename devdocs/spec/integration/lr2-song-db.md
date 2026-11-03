@@ -76,6 +76,12 @@ LR2の相対・絶対登録はいずれも受理し、保存時にはLR2root基�
 
 正常に読み取れたBMSや `.lr2folder` でも、パスをCP932で表現できない場合は該当する通常folder行・`.lr2folder` 行・親行だけを投影から省き、他の行の同期を続けます。BMSのsong行は保持し、`folder` と `parent` を `NULL` にしてLR2互換性警告を残します。folder投影の既存事前検査で探索未完了、`.lr2folder` または `folderinfo.txt` の読込み失敗、必要なディレクトリメタデータ不足を検出した場合は、従来どおり全体同期を失敗させます。この規則はBMS譜面本体の読取り失敗へ広げません。実装は `Lr2FolderTableReconciliationService.BuildProjection`、回帰テストは [`BmsLibraryLr2SongDbSyncTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Lr2/BmsLibraryLr2SongDbSyncTests.cs) / [`BmsLibraryLr2SongDbSyncTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Lr2/BmsLibraryLr2SongDbSyncTests.cs) の `QueueLr2SongDbSync_CompletesWhenChartDirectoryPathIsUnsupported`、`QueueLr2SongDbSync_SkipsUnsupportedLr2FolderFileNameAndContinues`、`QueueLr2SongDbSync_SkipsUnsupportedLr2FolderParentAndContinues` です。
 
+フォルダの改名・移動では、物理処理に成功した旧新範囲を同じ変更セッションへ渡します。範囲内の管理外customはBMSのない子階層も含めて新しいexactキーと親CRCへ移し、SQL・表示列・定義本文と元の追加時刻（NULLを含む）を保持します。統合では物理処理が確定した実宛先を使います。局所反映にはBMSの直接親だけでなく成功した物理subtreeとcustom実宛先の事実を渡し、直下がBMSONだけの場合も必要親を捕捉します。非CP932で通常行が省略されたfolderinfo単独の子階層は、成功した移転先subtree内だけを再列挙して復帰時に生成します。旧・削除scopeを再探索せず、失敗・未処理の範囲と管理出力の所有境界は広げません。
+
+最後のBMSを削除・無効化した後も、局所整理候補に残る `folderinfo.txt` の名称と祖先、管理外customの必要親を生成集合へ含めます。両方が残れば和を保持し、依存がなくなったBMSの親と、物理削除した範囲の不要な通常行を整理します。
+
+文字制限OFFで非CP932名へ改名しても、BMS・BMSONの保存パス、保守、同じ所持識別の現在値、索引とパッケージ参照を最終配置へ揃えます。自身または親のpathを投影できない通常folderは旧キーを退役させて新行を省き、BMSのsong.folder/parentは両NULLとします。同じ明示移転に含まれる管理外customは新しいexactキーへ列値と追加時刻を保持し、非対応pathのparentはNULLにして通常階層から切り離します。対応名への復帰で親CRCを再計算します。非対応名の間に別途明示した全体同期の投影省略規則は変えません。警告kind・flags・最新pathは既存の互換性警告経路へ渡します。対応名へ戻すと必要通常階層とCRCを復元し、全体再同期を操作完了の条件にしません。保存済み同期署名の定義は変えません。
+
 全入力の探索・取得・解析と必要な親行の構成が成功してから、一つのトランザクションでフォルダ表全体を置き換えます。不完全な入力や同順位の衝突では表を変更せず、`Incomplete` または `Failed` を返します。通常のプレイリスト・設定・譜面変更は、明示された局所範囲だけを同期します。
 
 全登録rootの完全走査は、空・不完全走査の既存保護を通過した後、全current走査と通常folder・祖先・folderinfo・物理残存customの必要親から必要集合を確定します。受理済み登録root内の全旧raw行とのexact差分を一つの共通計画で作り、song差分やmtimeの有無で全同期を省略しません。保存行と生成行の識別、別キーの新規追加時刻、exact存続のNULL保持は[folderの追加時刻](../core/path-identity.md#folderの追加時刻)に従います。二回目も必要集合を生成し、exact同値の保存を省略します。

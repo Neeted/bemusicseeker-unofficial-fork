@@ -827,16 +827,16 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 });
             }
         }
+        folderPathChanges.Add(new LibraryFolderPathChange
+        {
+            OldFolderPath = srcDir,
+            NewFolderPath = dstDir,
+            IncludesDescendants = true
+        });
         foreach (IGrouping<string, LibraryChartRef> group in targetCharts
             .Where(chart => chart.Kind == ChartFileKind.Bms)
             .GroupBy(target => Path.GetDirectoryName(target.Path)))
         {
-            string newFolderPath = group.Key.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
-            folderPathChanges.Add(new LibraryFolderPathChange
-            {
-                NewFolderPath = newFolderPath,
-                OldFolderPath = group.Key
-            });
             foreach (LibraryChartRef chart in group)
             {
                 chartPathChanges.Add(new LibraryChartPathChange

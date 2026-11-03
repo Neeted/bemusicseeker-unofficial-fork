@@ -527,7 +527,7 @@ internal sealed class BmsLibraryDbGateway(
     }
 
     /// <summary>
-    /// 移動・削除を旧／新exact keyで一つのcatalog transactionへ反映します。
+    /// 移動・削除を旧／新exact keyで一つのcatalog transactionへ反映します。物理subtreeの成功範囲は限定取得して展開し、管理出力を除外します。
     /// 呼出し側はcommit後にだけstorageとpackageを反映し、別表記の行を対象へ加えません。
     /// </summary>
     internal CatalogRelocationDbReceipt ReplaceAndRemoveLibraryMutationRows(
@@ -537,7 +537,7 @@ internal sealed class BmsLibraryDbGateway(
         List<CatalogFolderPathReplacement> folderRows = [.. (relocationRequest?.FolderPathChanges ?? [])
             .Where(change => !string.IsNullOrWhiteSpace(change?.OldFolderPath)
                 && !string.IsNullOrWhiteSpace(change.NewFolderPath))
-            .GroupBy(change => NormalizeFolderRecordPath(change.OldFolderPath), StringComparer.Ordinal)
+            .GroupBy(change => change.IsCustomFile ? change.OldFolderPath : NormalizeFolderRecordPath(change.OldFolderPath), StringComparer.Ordinal)
             .Select(group => group.Last())];
         List<BmsSongPathReplacement> bmsRows = [.. (relocationRequest?.BmsPathReplacements ?? [])
             .Where(replacement => replacement?.Song != null
@@ -569,7 +569,7 @@ internal sealed class BmsLibraryDbGateway(
         }
         foreach (CatalogFolderPathReplacement row in folderRows)
         {
-            if (!LongPathFileSystem.DirectoryExists(row.NewFolderPath))
+            if (row.IsCustomFile ? !LongPathFileSystem.FileExists(row.NewFolderPath) : !LongPathFileSystem.DirectoryExists(row.NewFolderPath))
             {
                 throw new DirectoryNotFoundException(string.Format(Resources.Error_RenameDestDirNotFound, row.NewFolderPath));
             }
@@ -584,7 +584,7 @@ internal sealed class BmsLibraryDbGateway(
             }
 
             var stopwatch = Stopwatch.StartNew();
-            result.FolderDbTargetRows = ReplaceFolderRecords(songDb, folderRows);
+            result.FolderDbTargetRows = ReplaceFolderRecords(songDb, folderRows, relocationRequest?.FolderProjectionExcludedDirectories ?? []);
             stopwatch.Stop();
             result.FolderDbMs = stopwatch.ElapsedMilliseconds;
 
@@ -1782,7 +1782,8 @@ internal sealed class BmsLibraryDbGateway(
         }
     }
 
-    private static int ReplaceFolderRecords(LR2SongDBExtended songDb, IReadOnlyCollection<CatalogFolderPathReplacement> rows)
+    private static int ReplaceFolderRecords(LR2SongDBExtended songDb, IReadOnlyCollection<CatalogFolderPathReplacement> rows,
+        IReadOnlyList<string> excludedDirectories)
     {
         if (songDb == null || rows == null || rows.Count == 0)
         {
@@ -1790,25 +1791,66 @@ internal sealed class BmsLibraryDbGateway(
         }
 
         int replaced = 0;
-        var changesByOldPath = rows.ToDictionary(
-            change => NormalizeFolderRecordPath(change.OldFolderPath),
-            change => change,
-            StringComparer.Ordinal);
-        List<string> oldPaths = [.. changesByOldPath.Keys];
-        foreach (LR2SongDB.folder folder in QueryFolderRecordsByExactPaths(songDb, oldPaths))
+        var excludedScope = Lr2DirectoryScopeMatcher.Create(excludedDirectories);
+        var replacements = new Dictionary<string, string>(StringComparer.Ordinal);
+        var existingRows = new Dictionary<string, LR2SongDB.folder>(StringComparer.Ordinal);
+        foreach (CatalogFolderPathReplacement change in rows)
         {
-            if (folder == null || !changesByOldPath.TryGetValue(folder.path, out CatalogFolderPathReplacement change))
+            string oldPath = change.IsCustomFile ? change.OldFolderPath : NormalizeFolderRecordPath(change.OldFolderPath);
+            string newPath = change.IsCustomFile ? change.NewFolderPath : NormalizeFolderRecordPath(change.NewFolderPath);
+            replacements[oldPath] = newPath;
+            if (change.IncludesDescendants)
+            {
+                foreach (LR2SongDB.folder existing in Lr2FolderExistingRowLookup.QueryPathPrefixScopes(songDb, [oldPath], excludedDirectories.Select(Lr2FolderPath.ToFolderPath)))
+                {
+                    // 範囲取得は物理包含、削除と置換は取得済みraw完全一致キーを使います。
+                    replacements[existing.path] = newPath + existing.path.Substring(oldPath.Length);
+                    existingRows[existing.path] = existing;
+                }
+            }
+        }
+        foreach (LR2SongDB.folder folder in QueryFolderRecordsByExactPaths(songDb,
+            [.. replacements.Keys.Where(path => !existingRows.ContainsKey(path))]))
+        {
+            existingRows[folder.path] = folder;
+        }
+        foreach (LR2SongDB.folder folder in existingRows.Values)
+        {
+            string destination = replacements[folder.path];
+            if (excludedScope.ContainsNormalizedDirectory(Lr2FolderPath.NormalizeDirectoryPath(folder.path))
+                || excludedScope.ContainsNormalizedDirectory(Lr2FolderPath.NormalizeDirectoryPath(destination)))
+            {
+                continue;
+            }
+            bool isCustom = string.Equals(Path.GetExtension(folder.path), ".lr2folder", StringComparison.OrdinalIgnoreCase);
+            if (isCustom && !LongPathFileSystem.FileExists(destination))
             {
                 continue;
             }
             replaced++;
             songDb.Delete<LR2SongDB.folder>(folder.path);
-            folder.title = Path.GetFileName(change.NewFolderPath);
-            folder.path = NormalizeFolderRecordPath(change.NewFolderPath);
+            folder.path = destination;
+            if (!isCustom)
+            {
+                folder.title = Path.GetFileName(destination.TrimEnd(Path.DirectorySeparatorChar));
+            }
+            // 通常行だけを投影から省きます。customは定義由来の列と追加時刻を新exactへ保持し、
+            // 到達不能なparentをNULLにして、対応名へ戻る次の物理移転でCRCを復元します。
+            string parentDirectory = Path.GetDirectoryName(destination.TrimEnd(Path.DirectorySeparatorChar));
+            if (!Lr2CompatibilityEvaluator.TryGetCp932ByteCount(destination, out _)
+                || (folder.parent != Lr2SongFolderParentNormalizer.RootParentHash
+                    && !Lr2CompatibilityEvaluator.TryGetCp932ByteCount(parentDirectory, out _)))
+            {
+                if (isCustom)
+                {
+                    folder.parent = null;
+                    songDb.InsertOrReplace(folder, typeof(LR2SongDB.folder));
+                }
+                continue;
+            }
             if (folder.parent != Lr2SongFolderParentNormalizer.RootParentHash)
             {
-                string directoryName = Path.GetDirectoryName(change.NewFolderPath.TrimEnd(Path.DirectorySeparatorChar));
-                folder.parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(directoryName);
+                folder.parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(parentDirectory);
             }
             songDb.InsertOrReplace(folder, typeof(LR2SongDB.folder));
         }

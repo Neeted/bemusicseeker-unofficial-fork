@@ -583,6 +583,8 @@ Right-clicking a chart row or playlist row opens operations for the selected row
 - `Automatic folder renaming`: Renames the selected chart's folder according to the folder-name format in settings.
 - `Convert to audio file`: Outputs BMS / bmson chart playback as an audio file according to the recording settings in the settings dialog.
 
+With LR2 integration enabled, renaming or moving a folder also updates external custom folders beneath it to their new locations. When deleting or disabling charts leaves `folderinfo.txt` or custom folders in place, the LR2 folder hierarchy they require is retained.
+
 #### Removing List Items and Parse Records
 
 - `Remove from list`: Removes the target from the new / pending / installed package display. Distinguish this from operations that delete actual files.
@@ -1193,6 +1195,8 @@ The pending tree provides advanced cleanup features.
 - LR2 resource path too long: The actual resource path LR2 would reference, formed by combining the chart folder and resource definition, may be too long. Consider moving the chart folder to a shorter location or shortening resource folder / file names.
 
 A resource definition containing a parent-directory reference such as `..` is not treated as LR2-incompatible by itself. However, if the actual referenced path including the placement location becomes too long, it is subject to `LR2 resource path too long`.
+
+With character restriction turned OFF, renaming a folder to include unsupported characters keeps the charts managed at their new location in BeMusicSeeker. Folders that LR2 cannot represent are omitted from its folder hierarchy. Renaming them back to CP932 / Shift_JIS-compatible names restores that hierarchy.
 
 BeMusicSeeker does not delete these charts; it only visualizes them as warnings. LR2 may still fail to select or play them. If necessary, rename chart files, resource files, or parent folders to CP932 / Shift_JIS-compatible names and shorter paths.
 

@@ -21,14 +21,17 @@ internal sealed class LibraryCatalogMutationFacts
     /// <param name="chartPathChanges">確定した譜面パス移動。</param>
     /// <param name="folderPathChanges">確定したフォルダーパス移動。</param>
     /// <param name="textChanges">存続する同token BMSのTXT実差分。</param>
+    /// <param name="folderProjectionExcludedDirectories">管理出力主体が所有し、局所移転から除外する範囲。</param>
     /// <param name="relocatedTextFlags">セッションで評価済みの移転先完全一致pathとTXT。BMS移転がある場合は全移転先を必須とします。</param>
     internal LibraryCatalogMutationFacts(
         IEnumerable<OwnedChartRemoveRequest> chartRemoveRequests = null,
         IEnumerable<LibraryChartPathChange> chartPathChanges = null,
         IEnumerable<LibraryFolderPathChange> folderPathChanges = null,
         IEnumerable<ChartFile> textChanges = null,
-        IReadOnlyDictionary<string, int> relocatedTextFlags = null)
+        IReadOnlyDictionary<string, int> relocatedTextFlags = null,
+        IEnumerable<string> folderProjectionExcludedDirectories = null)
     {
+        FolderProjectionExcludedDirectories = Array.AsReadOnly((folderProjectionExcludedDirectories ?? []).ToArray());
         TextChanges = Array.AsReadOnly((textChanges ?? []).ToArray());
         RelocatedTextFlags = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
             relocatedTextFlags == null ? new Dictionary<string, int>(StringComparer.Ordinal)
@@ -43,6 +46,9 @@ internal sealed class LibraryCatalogMutationFacts
             .Where(change => change != null)
             .ToArray());
     }
+
+    /// <summary>管理出力主体へ委ねる通常/custom行の物理範囲です。</summary>
+    internal IReadOnlyList<string> FolderProjectionExcludedDirectories { get; }
 
     /// <summary>同じ操作の最終配置で評価済みの移転先BMSのTXTです。欠落pathを再探索して補いません。</summary>
     internal IReadOnlyDictionary<string, int> RelocatedTextFlags { get; }
@@ -357,6 +363,12 @@ internal sealed class LibraryChartPathChange
 /// <summary>カタログのフォルダー行の旧パスと新パスを保持する移動事実。</summary>
 internal sealed class LibraryFolderPathChange
 {
+    /// <summary>物理移動が配下全体に成功した場合だけtrueとします。exact行の変更と区別します。</summary>
+    public bool IncludesDescendants { get; init; }
+
+    /// <summary>採番済みcustomファイルの実移転であることを表します。</summary>
+    public bool IsCustomFile { get; init; }
+
     /// <summary>変更後のフォルダーパス。</summary>
     public string NewFolderPath { get; init; }
 

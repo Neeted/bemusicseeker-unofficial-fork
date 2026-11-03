@@ -479,7 +479,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.AreEqual(0, paths.Count);
     }
 
-    /// <summary>rename用の変更事実は各子パスを更新しつつ保存行のパス通知を抑止し、全体移動として誤通知する誤りを検出する。</summary>
+    /// <summary>rename用の変更事実はBMSのない子も含む物理範囲と各譜面パスを渡し、保存行のパス通知抑止を維持します。</summary>
     [TestMethod]
     public void BuildFolderMoveFacts_CanSuppressStorageRowPathNotificationForRename()
     {
@@ -497,7 +497,10 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             unregister: false,
             notifyStorageRowPathChanges: false);
 
-        Assert.AreEqual(2, facts.CatalogFacts.FolderPathChanges.Count);
+        LibraryFolderPathChange scope = facts.CatalogFacts.FolderPathChanges.Single();
+        Assert.IsTrue(scope.IncludesDescendants);
+        Assert.AreEqual("C:\\Lib\\Src", scope.OldFolderPath);
+        Assert.AreEqual("C:\\Lib\\Dst", scope.NewFolderPath);
         Assert.AreEqual(2, facts.CatalogFacts.ChartPathChanges.Count);
         Assert.AreEqual(0, facts.CatalogFacts.ChartRemoveRequests.Count);
         CollectionAssert.AreEquivalent(

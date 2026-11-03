@@ -17,20 +17,29 @@ internal sealed class Lr2NormalFolderCatalogMutationReceipt
     /// <param name="addedBmsChartPaths">追加された BMS の exact path。</param>
     /// <param name="removedBmsChartPaths">削除された BMS の exact path。</param>
     /// <param name="pathChanges">移動前後の BMS path facts。</param>
+    /// <param name="folderPathChanges">成功した物理subtree移転とcustom実宛先。通常行の有無に依存しません。</param>
     /// <param name="currentBmsFacts">捕捉済み current BMS の局所 facts。</param>
     internal Lr2NormalFolderCatalogMutationReceipt(
         int catalogRevision,
         IEnumerable<string> addedBmsChartPaths,
         IEnumerable<string> removedBmsChartPaths,
         IEnumerable<Lr2NormalFolderPathChange> pathChanges,
-        Lr2NormalFolderCurrentBmsLookup currentBmsFacts)
+        Lr2NormalFolderCurrentBmsLookup currentBmsFacts,
+        IEnumerable<CatalogFolderPathReplacement> folderPathChanges = null)
     {
+        FolderPathChanges = Array.AsReadOnly([.. (folderPathChanges ?? []).Where(change => change.IncludesDescendants || change.IsCustomFile)]);
         CatalogRevision = catalogRevision;
         AddedBmsChartPaths = SnapshotPaths(addedBmsChartPaths);
         RemovedBmsChartPaths = SnapshotPaths(removedBmsChartPaths);
         PathChanges = Array.AsReadOnly([.. (pathChanges ?? []).Where(change => change != null)]);
         CurrentBmsFacts = currentBmsFacts;
     }
+
+    /// <summary>譜面の直接親と分離した成功物理移転事実です。</summary>
+    internal IReadOnlyList<CatalogFolderPathReplacement> FolderPathChanges { get; }
+
+    /// <summary>BMSまたは物理folder依存の局所反映が必要かを返します。</summary>
+    internal bool HasMutation => HasBmsMutation || FolderPathChanges.Count > 0;
 
     internal int CatalogRevision { get; }
 
@@ -52,7 +61,8 @@ internal sealed class Lr2NormalFolderCatalogMutationReceipt
         || RemovedBmsChartPaths.Count > 0
         || PathChanges.Count > 0;
 
-    internal bool RequiresCurrentBmsChartSnapshot => RemovedBmsChartPaths.Count > 0
+    internal bool RequiresCurrentBmsChartSnapshot => FolderPathChanges.Count > 0
+        || RemovedBmsChartPaths.Count > 0
         || PathChanges.Count > 0;
 
     internal Lr2NormalFolderCurrentBmsLookup CreateCurrentBmsLookup()

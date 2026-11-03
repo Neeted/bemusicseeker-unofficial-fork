@@ -48,13 +48,15 @@ internal static class Lr2FolderInfoCandidateEnumerationService
     /// 一回のテキスト列挙からfolderinfoとテキストディレクトリ候補を作ります。全体入力では通常候補にないfolderinfoも採用し、後段で必要祖先へ広げます。
     /// </summary>
     /// <param name="rootFileEnumerator">Optional internal grouped enumerator; null preserves the production fallback.</param>
-    /// <param name="includeAllFolderInfo">全体入力だけでtrueとし、局所処理の対象ディレクトリ制約を維持します。</param>
+    /// <param name="includeAllFolderInfo">探索root内のfolderinfoを直接親候補に限定せず採用します。局所移転では成功した新subtreeだけをrootに渡します。</param>
+    /// <param name="excludedDirectories">今回の探索範囲内でも別の管理主体が所有するため列挙しないディレクトリです。</param>
     internal static Lr2TextMetadataCandidateSnapshot CreateTextMetadataSnapshot(
         IEnumerable<string> rootDirectories,
         IEnumerable<string> targetDirectories,
         EverythingNative everythingNative,
         IRootFileEnumerator rootFileEnumerator = null,
-        bool includeAllFolderInfo = false)
+        bool includeAllFolderInfo = false,
+        IEnumerable<string> excludedDirectories = null)
     {
         HashSet<string> targetSet = new((targetDirectories ?? [])
             .Select(Lr2FolderPath.NormalizeDirectoryPath)
@@ -73,7 +75,7 @@ internal static class Lr2FolderInfoCandidateEnumerationService
             return CreateEmptyTextMetadataSnapshot();
         }
 
-        RootFileEnumerationGroup[] groups = [new RootFileEnumerationGroup(ChartDirectoryScanBuilder.TextGroupName, ChartDirectoryScanBuilder.TextExtensions)];
+        RootFileEnumerationGroup[] groups = [new RootFileEnumerationGroup(ChartDirectoryScanBuilder.TextGroupName, ChartDirectoryScanBuilder.TextExtensions, excludedDirectories: excludedDirectories)];
         RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(
             roots,
             groups,

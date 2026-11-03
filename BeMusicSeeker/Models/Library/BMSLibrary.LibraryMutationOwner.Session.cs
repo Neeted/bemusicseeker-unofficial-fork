@@ -182,6 +182,19 @@ internal sealed partial class LibraryMutationOwner
         {
             EnsureOpen();
             ArgumentNullException.ThrowIfNull(physicalMutation);
+            // promotionに成功したcustomだけを、採番後の実宛先でcanonical transactionへ渡します。
+            LibraryFolderPathChange[] customMoves = [.. physicalMutation.ConfirmedTargets
+                .Where(target => string.Equals(System.IO.Path.GetExtension(target.SourcePath), ".lr2folder", StringComparison.OrdinalIgnoreCase)
+                    && LongPathFileSystem.FileExists(target.DestinationPath))
+                .Select(target => new LibraryFolderPathChange
+                {
+                    OldFolderPath = target.SourcePath,
+                    NewFolderPath = target.DestinationPath,
+                    IsCustomFile = true
+                })];
+            catalogMutationFacts = new LibraryCatalogMutationFacts(
+                catalogMutationFacts.ChartRemoveRequests, catalogMutationFacts.ChartPathChanges,
+                catalogMutationFacts.FolderPathChanges.Concat(customMoves));
             AppendCatalogChange(
                 catalogMutationFacts,
                 packageMutationFacts,
@@ -452,8 +465,13 @@ internal sealed partial class LibraryMutationOwner
                     ChartFile resolved = resolvedTextCharts[installedPackageCharts.Count + index];
                     if (resolved.Txt != textTargets[index].Txt) { textChanges.Add(resolved); }
                 }
+                BmsLibraryOptionsSnapshot options = owner.lr2SynchronizationOwner.CurrentOptionsSnapshot;
+                IReadOnlyList<string> projectionExclusions = options.OperationModeLR2DB && combinedCatalogFacts.FolderPathChanges.Count > 0
+                    ? owner.catalogMutationOwner.CaptureLr2SongDbSyncAppManagedOutputScope(options, throwOnFailure: true).Directories
+                    : [];
                 combinedCatalogFacts = new LibraryCatalogMutationFacts(combinedCatalogFacts.ChartRemoveRequests,
-                    combinedCatalogFacts.ChartPathChanges, combinedCatalogFacts.FolderPathChanges, textChanges, relocatedTextFlags);
+                    combinedCatalogFacts.ChartPathChanges, combinedCatalogFacts.FolderPathChanges, textChanges, relocatedTextFlags,
+                    projectionExclusions);
             }
             catch (Exception exception)
             {

@@ -91,6 +91,45 @@ internal static class Lr2FolderExistingRowLookup
             " AND " + pathColumn + " LIKE '%.lr2folder' COLLATE NOCASE").Select(row => row.path)];
     }
 
+    /// <summary>削除候補祖先をまとめて照会し、今回のsubtree外に存続する通常行が必要とする祖先だけを返します。</summary>
+    internal static IReadOnlyList<string> QueryAncestorsWithRetainedNormalChildren(
+        LR2SongDBExtended songDb, IEnumerable<string> ancestorDirectories, IEnumerable<string> pruneDirectories)
+    {
+        List<string> candidates = BuildLookupPaths(ancestorDirectories.Select(Lr2FolderPath.ToFolderPath));
+        if (candidates.Count == 0) { return []; }
+        List<PathPrefixRange> excluded = CreatePrefixRanges(pruneDirectories.Select(Lr2FolderPath.ToFolderPath));
+        BmsLibraryDbGateway.EnsureFolderLookupIndexes(songDb);
+        PrepareTempExactPathTable(songDb);
+        const string excludedTable = "lr2_folder_retained_child_exclusions";
+        songDb.Execute("CREATE TEMP TABLE IF NOT EXISTS " + excludedTable + " (lower TEXT COLLATE NOCASE PRIMARY KEY, upper TEXT);");
+        songDb.Execute("DELETE FROM temp." + excludedTable + ";");
+        try
+        {
+            InsertTempExactPaths(songDb, candidates);
+            string table = SQLiteTable<LR2SongDB.folder>.GetTableName();
+            foreach (PathPrefixRange[] chunk in excluded.Chunk(TempInsertChunkSize))
+            {
+                songDb.Execute("INSERT INTO temp." + excludedTable + " VALUES "
+                    + string.Join(",", chunk.Select(_ => "(?, ?)")),
+                    chunk.SelectMany(range => new object[] { range.Lower, range.Upper }).ToArray());
+            }
+            // 正規化済みprefixは末尾が区切り一文字なので、その次の文字が排他的上限になります。
+            // 除外区間は互いに素なので、索引で直前の下限一件だけを確認し、多数削除時の全区間照合を避けます。
+            string sql = "SELECT p.path FROM temp." + TempExactPathTable + " p WHERE EXISTS (SELECT 1 FROM "
+                + table + " f INDEXED BY " + BmsLibraryDbGateway.FolderPathNocaseIndexName
+                + " WHERE f.path COLLATE NOCASE > p.path AND f.path COLLATE NOCASE < "
+                + "substr(p.path,1,length(p.path)-1) || char(unicode(substr(p.path,-1))+1)"
+                + " AND f.type = 1 AND COALESCE(f.path COLLATE NOCASE < (SELECT e.upper FROM temp." + excludedTable
+                + " e WHERE e.lower <= f.path ORDER BY e.lower DESC LIMIT 1), 0) = 0 LIMIT 1)";
+            return [.. songDb.Query<LR2SongDB.folder>(sql).Select(row => Lr2FolderPath.NormalizeDirectoryPath(row.path))];
+        }
+        finally
+        {
+            ClearTempExactPathTable(songDb);
+            songDb.Execute("DELETE FROM temp." + excludedTable + ";");
+        }
+    }
+
     internal static IReadOnlyList<LR2SongDB.folder> QueryPathPrefixScopes(
         LR2SongDBExtended songDb,
         IEnumerable<string> folderPathPrefixes)

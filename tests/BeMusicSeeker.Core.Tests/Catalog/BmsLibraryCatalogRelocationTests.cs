@@ -27,6 +27,10 @@ public sealed class BmsLibraryCatalogRelocationTests
             string newDirectoryPath = Path.Combine(tempRootPath, "NewFolder");
             Directory.CreateDirectory(oldDirectoryPath);
             Directory.CreateDirectory(newDirectoryPath);
+            string managedDirectory = Path.Combine(oldDirectoryPath, "Managed");
+            string managedPath = Path.Combine(managedDirectory, "external.lr2folder");
+            Directory.CreateDirectory(Path.Combine(newDirectoryPath, "Managed"));
+            File.WriteAllText(Path.Combine(newDirectoryPath, "Managed", "external.lr2folder"), "#TITLE Managed");
             string oldFirstPath = Path.Combine(oldDirectoryPath, "first.bms");
             string newFirstPath = Path.Combine(newDirectoryPath, "first.bms");
             string oldSecondPath = Path.Combine(oldDirectoryPath, "second.bms");
@@ -69,6 +73,7 @@ public sealed class BmsLibraryCatalogRelocationTests
                     {
                         songDb.CreateTable<LR2SongDB.song>();
                         songDb.CreateTable<LR2SongDB.folder>();
+                        songDb.InsertOrReplace(new LR2SongDB.folder { path = managedPath, type = 2, title = "Managed", command = "managed-command", parent = "managed-parent" });
                         songDb.CreateTable<LR2SongDBExtended.maintenance>();
                         songDb.CreateTable<LR2SongDBExtended.bmson_song>();
                         songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
@@ -107,7 +112,8 @@ public sealed class BmsLibraryCatalogRelocationTests
                 folderPathChanges.Add(new LibraryFolderPathChange
                 {
                     OldFolderPath = oldDirectoryPath,
-                    NewFolderPath = newDirectoryPath
+                    NewFolderPath = newDirectoryPath,
+                    IncludesDescendants = true
                 });
                 var pathChanges = new List<LibraryChartPathChange>();
                 pathChanges.Add(new LibraryChartPathChange
@@ -131,7 +137,7 @@ public sealed class BmsLibraryCatalogRelocationTests
 
                 CatalogMutationReceipt result = ApplyCatalogRelocation(
                     songDbPath,
-                    new LibraryCatalogMutationFacts([], pathChanges, folderPathChanges),
+                    new LibraryCatalogMutationFacts([], pathChanges, folderPathChanges, folderProjectionExcludedDirectories: [managedDirectory]),
                     callbacks, out CatalogOwnedCollectionOwner currentOwner);
 
                 Assert.AreEqual(3, result.PathFacts.Count);
@@ -153,6 +159,10 @@ public sealed class BmsLibraryCatalogRelocationTests
                 Assert.AreEqual(3, verifySongDb.ExecuteScalar<int>("SELECT wav_files_existing FROM maintenance WHERE path = ?;", newBmsonPath));
                 LR2SongDB.folder movedFolder = verifySongDb.Table<LR2SongDB.folder>().Single(folder => folder.path == newDirectoryPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar);
                 Assert.AreEqual("NewFolder", movedFolder.title);
+                LR2SongDB.folder managed = verifySongDb.Find<LR2SongDB.folder>(managedPath);
+                Assert.AreEqual("managed-command", managed.command);
+                Assert.AreEqual("managed-parent", managed.parent);
+                Assert.IsNull(verifySongDb.Find<LR2SongDB.folder>(Path.Combine(newDirectoryPath, "Managed", "external.lr2folder")));
                 Assert.AreEqual("keep-subtitle", movedFolder.subtitle);
                 Assert.AreEqual("keep-category", movedFolder.category);
                 Assert.AreEqual("keep-info-a", movedFolder.info_a);
@@ -247,7 +257,9 @@ public sealed class BmsLibraryCatalogRelocationTests
     /// </summary>
     /// <remarks>実ライブラリの移転経路と保存行を接続し、LR2互換正規化が保存にも適用されることを確認する。</remarks>
     [TestMethod]
-    public void ApplyCatalogRelocation_PathReplaceUsesSharedLr2CompatibilityNormalizer()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ApplyCatalogRelocation_PathReplaceUsesSharedLr2CompatibilityNormalizer(bool parentUnsupported)
     {
         var databaseScope = new ApplicationDatabaseScope();
 
@@ -256,7 +268,7 @@ public sealed class BmsLibraryCatalogRelocationTests
             using var caseWorkspace3 = TestWorkspace.Create(TestRunDirectory.RootDirectory);
             string tempRootPath = Path.Combine(caseWorkspace3.RootDirectory, "BeMusicSeeker_StateApplier_" + Guid.NewGuid().ToString("N"));
             string oldDirectoryPath = Path.Combine(tempRootPath, "OldFolder");
-            string newDirectoryPath = Path.Combine(tempRootPath, "New😀Folder");
+            string newDirectoryPath = parentUnsupported ? Path.Combine(tempRootPath, "New😀Folder", "Child") : Path.Combine(tempRootPath, "New😀Folder");
             Directory.CreateDirectory(oldDirectoryPath);
             Directory.CreateDirectory(newDirectoryPath);
             string oldChartPath = Path.Combine(oldDirectoryPath, "chart.bms");
@@ -274,6 +286,14 @@ public sealed class BmsLibraryCatalogRelocationTests
                 {
                     songDb.RunInTransaction(() =>
                     {
+                        songDb.CreateTable<LR2SongDB.folder>();
+                        songDb.InsertOrReplace(new LR2SongDB.folder
+                        {
+                            path = oldDirectoryPath + Path.DirectorySeparatorChar,
+                            type = 1,
+                            title = "OldFolder",
+                            parent = "old-parent"
+                        });
                         songDb.CreateTable<LR2SongDB.song>();
                         songDb.CreateTable<LR2SongDBExtended.maintenance>();
                         ChartFile oldRow = ChartTestValues.Empty() with
@@ -295,7 +315,7 @@ public sealed class BmsLibraryCatalogRelocationTests
                     OldPath = oldChartPath,
                     NewPath = newChartPath
                     }],
-                    []);
+                    [new LibraryFolderPathChange { OldFolderPath = oldDirectoryPath, NewFolderPath = newDirectoryPath }]);
 
                 ApplyCatalogRelocation(songDbPath, catalogFacts, callbacks, out CatalogOwnedCollectionOwner currentOwner);
 
@@ -305,8 +325,9 @@ public sealed class BmsLibraryCatalogRelocationTests
                 using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 Assert.IsFalse(verifySongDb.Table<LR2SongDB.song>().Any(file => file.path == oldChartPath));
                 Assert.AreEqual(1L, verifySongDb.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", newChartPath));
-                Assert.IsTrue(string.IsNullOrWhiteSpace(verifySongDb.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", newChartPath)));
-                Assert.IsTrue(string.IsNullOrWhiteSpace(verifySongDb.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", newChartPath)));
+                Assert.AreEqual(1L, verifySongDb.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ? AND folder IS NULL AND parent IS NULL;", newChartPath));
+                Assert.IsNull(verifySongDb.Find<LR2SongDB.folder>(oldDirectoryPath + Path.DirectorySeparatorChar));
+                Assert.IsNull(verifySongDb.Find<LR2SongDB.folder>(newDirectoryPath + Path.DirectorySeparatorChar));
             }
             finally
             {

@@ -19,6 +19,9 @@ internal sealed class Lr2NormalFolderDbSyncRequest
     /// <summary>所有者が今回の物理残存を確定したcustomの親。DB行だけを残存根拠にしません。</summary>
     public IReadOnlyCollection<string> RequiredCustomParentDirectories { get; set; } = [];
 
+    /// <summary>成功した物理範囲内で消失を確認した管理外customのraw完全一致キーです。</summary>
+    public IReadOnlyCollection<string> RemovedCustomPaths { get; set; } = [];
+
     public IReadOnlyCollection<string> FolderInfoFilePaths { get; set; } = [];
 
     public IReadOnlyDictionary<string, RootFileEnumerationEntry> FolderInfoFileEntries { get; set; } =
@@ -105,6 +108,11 @@ internal sealed class Lr2NormalFolderDbSyncResult(
     public bool HasChanges => UpsertedCount > 0 || DeletedCount > 0;
 }
 
+/// <summary>局所整理範囲のfolderinfo確認先と、対象外の通常階層が引き続き必要とする祖先です。</summary>
+internal sealed record Lr2LocalFolderDependencies(
+    IReadOnlyList<string> FolderInfoCandidateDirectories,
+    IReadOnlyList<string> RetainedAncestorDirectories);
+
 internal static class Lr2NormalFolderDbSyncService
 {
     internal static Lr2NormalFolderDbSyncResult Sync(
@@ -175,6 +183,11 @@ internal static class Lr2NormalFolderDbSyncService
         {
             plan = new Lr2FolderGenerationSyncPlan(plan.UpsertRows, []);
         }
+        if (request.RemovedCustomPaths.Count > 0)
+        {
+            plan = new Lr2FolderGenerationSyncPlan(plan.UpsertRows,
+                [.. plan.DeletePaths.Concat(request.RemovedCustomPaths).Distinct(StringComparer.Ordinal)]);
+        }
         long planMs = RestartElapsed(stepStopwatch);
         Lr2FolderGenerationWriteResult writeResult = Lr2FolderDbWriter.ApplySyncPlan(
             songDb,
@@ -231,6 +244,20 @@ internal static class Lr2NormalFolderDbSyncService
             }
         }
         return Lr2FolderExistingRowLookup.QueryCustomFolderDependencyPaths(songDb, prefixes);
+    }
+
+    /// <summary>局所整理する通常行の物理directoryを限定取得し、folderinfoの残存確認へ渡します。</summary>
+    internal static Lr2LocalFolderDependencies CaptureFolderInfoDependencyDirectories(
+        LR2SongDBExtended songDb, IEnumerable<string> pruneScopes, IEnumerable<string> pruneExactDirectories)
+    {
+        return new Lr2LocalFolderDependencies([.. Lr2FolderExistingRowLookup.QueryPathPrefixScopes(songDb,
+                (pruneScopes ?? []).Select(Lr2FolderPath.ToFolderPath))
+            .Where(row => row.type == 1 && row.path.Length > 0 && Lr2FolderPath.IsDirectorySeparator(row.path[^1]))
+            .Select(row => Lr2FolderPath.NormalizeDirectoryPath(row.path))
+            .Concat(pruneExactDirectories ?? [])
+            .Concat(pruneScopes ?? [])
+            .Distinct(StringComparer.Ordinal)],
+            Lr2FolderExistingRowLookup.QueryAncestorsWithRetainedNormalChildren(songDb, pruneExactDirectories ?? [], pruneScopes ?? []));
     }
 
     internal static IReadOnlyCollection<string> CreateDirectoryMetadataTargets(

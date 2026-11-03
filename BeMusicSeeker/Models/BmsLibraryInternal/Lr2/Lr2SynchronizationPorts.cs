@@ -52,6 +52,10 @@ internal interface ILr2SynchronizationDataPort
     IReadOnlyList<string> CaptureLr2NormalFolderCustomDependencyCandidates(
         IEnumerable<string> roots, IEnumerable<string> pruneScopes, IEnumerable<string> pruneExactDirectories);
 
+    /// <summary>局所整理する通常行のfolderinfo残存候補を捕捉します。</summary>
+    Lr2LocalFolderDependencies CaptureLr2FolderInfoDependencyDirectories(
+        IEnumerable<string> pruneScopes, IEnumerable<string> pruneExactDirectories);
+
     Lr2NormalFolderDbSyncResult ApplyLr2NormalFolderSync(Lr2NormalFolderDbSyncRequest request);
 
     Lr2SongDbSyncResult ApplyLr2SongDbSync(Lr2SongDbSyncRequest request);
@@ -495,6 +499,11 @@ internal sealed class Lr2SynchronizationDataPort : ILr2SynchronizationDataPort
     public IReadOnlyList<string> CaptureLr2NormalFolderCustomDependencyCandidates(
         IEnumerable<string> roots, IEnumerable<string> pruneScopes, IEnumerable<string> pruneExactDirectories) =>
         catalogMutationOwner.CaptureLr2NormalFolderCustomDependencyCandidates(roots, pruneScopes, pruneExactDirectories);
+
+    /// <summary>局所整理する通常行のfolderinfo残存候補を捕捉します。</summary>
+    public Lr2LocalFolderDependencies CaptureLr2FolderInfoDependencyDirectories(
+        IEnumerable<string> pruneScopes, IEnumerable<string> pruneExactDirectories) =>
+        catalogMutationOwner.CaptureLr2FolderInfoDependencyDirectories(pruneScopes, pruneExactDirectories);
 
     public Lr2NormalFolderDbSyncResult ApplyLr2NormalFolderSync(Lr2NormalFolderDbSyncRequest request) =>
         catalogMutationOwner.ApplyLr2NormalFolderSync(request);

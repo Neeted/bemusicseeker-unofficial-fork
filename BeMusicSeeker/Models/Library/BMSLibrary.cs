@@ -6132,14 +6132,14 @@ public partial class BMSLibrary : ObservableObject
         List<Lr2NormalFolderPathChange> pathChanges = [.. receipt.PathFacts?
             .Where(pathFact => pathFact?.Kind == ChartFileKind.Bms)
             .Select(pathFact => new Lr2NormalFolderPathChange(pathFact.OldPath, pathFact.NewPath)) ?? []];
-        bool requiresSnapshot = removedBmsChartPaths.Count > 0 || pathChanges.Count > 0;
+        bool requiresSnapshot = removedBmsChartPaths.Count > 0 || pathChanges.Count > 0 || receipt.FolderPathChanges.Any(change => change.IncludesDescendants || change.IsCustomFile);
         Lr2NormalFolderCatalogMutationReceipt factsReceipt = requiresSnapshot
             ? new Lr2NormalFolderCatalogMutationReceipt(
                 expectedVersion,
                 addedBmsChartPaths,
                 removedBmsChartPaths,
                 pathChanges,
-                null)
+                null, receipt.FolderPathChanges)
             : null;
         Lr2NormalFolderCurrentBmsCapture currentCapture = requiresSnapshot
             ? TryCaptureLr2NormalFolderCurrentBmsFacts(
@@ -6152,7 +6152,7 @@ public partial class BMSLibrary : ObservableObject
             addedBmsChartPaths,
             removedBmsChartPaths,
             pathChanges,
-            requiresSnapshot ? currentCapture?.CurrentBmsFacts : null);
+            requiresSnapshot ? currentCapture?.CurrentBmsFacts : null, receipt.FolderPathChanges);
     }
 
     private Lr2NormalFolderCurrentBmsCapture TryCaptureLr2NormalFolderCurrentBmsFacts(

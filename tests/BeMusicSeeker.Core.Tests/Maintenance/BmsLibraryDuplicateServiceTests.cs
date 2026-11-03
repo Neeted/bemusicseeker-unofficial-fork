@@ -307,7 +307,10 @@ public sealed class BmsLibraryDuplicateServiceTests
     /// </summary>
     /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
     [TestMethod]
-    public void MergeChartDirectory_DifferentContentCollisionUsesActualDestinationEverywhere()
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public void MergeChartDirectory_DifferentContentCollisionUsesActualDestinationEverywhere(bool overwriteCustom, bool customCollision)
     {
 
         WithTemporarySongDb(databaseScope, delegate (string songDbPath)
@@ -331,6 +334,19 @@ public sealed class BmsLibraryDuplicateServiceTests
             File.WriteAllBytes(Path.Combine(srcDir, "readme(1).txt"), [4, 5, 6]);
             File.SetLastWriteTimeUtc(Path.Combine(dstDir, "readme.txt"), new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
             File.SetLastWriteTimeUtc(Path.Combine(srcDir, "readme.txt"), new DateTime(2020, 1, 3, 0, 0, 0, DateTimeKind.Utc));
+            string customSource = Path.Combine(srcDir, "CustomOnly", "external.lr2folder");
+            Directory.CreateDirectory(Path.Combine(srcDir, "CustomOnly"));
+            File.WriteAllText(customSource, "#TITLE External\r\n#COMMAND song.level > 5", Encoding.ASCII);
+            string customDestination = Path.Combine(dstDir, "CustomOnly", "external.lr2folder");
+            Directory.CreateDirectory(Path.Combine(dstDir, "CustomOnly"));
+            if (customCollision)
+            {
+                File.WriteAllText(customDestination, "#TITLE Existing\r\n#COMMAND song.level < 5", Encoding.ASCII);
+                File.SetLastWriteTimeUtc(customDestination, new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+            }
+            bool sourceCustomWins = !customCollision || overwriteCustom;
+            byte[] expectedCustomBytes = File.ReadAllBytes(sourceCustomWins ? customSource : customDestination);
+            File.SetLastWriteTimeUtc(customSource, new DateTime(overwriteCustom ? 2022 : 2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
             TestBmsLibrary? library = null;
             try
             {
@@ -341,6 +357,19 @@ public sealed class BmsLibraryDuplicateServiceTests
                 existingFile = existingFile with { Tag = "existing-user-tag" };
                 using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
                 {
+                    songDb.InsertOrReplace(new LR2SongDB.folder { path = customSource, type = 2, title = "External", command = "song.level > 5", parent = "old", adddate = 123 });
+                    if (customCollision)
+                    {
+                        songDb.InsertOrReplace(new LR2SongDB.folder
+                        {
+                            path = customDestination,
+                            type = 2,
+                            title = "Existing",
+                            command = "song.level < 5",
+                            parent = Lr2StoredPathReference.Compute(Path.Combine(dstDir, "CustomOnly") + Path.DirectorySeparatorChar),
+                            adddate = 456
+                        });
+                    }
                     songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(sourceFile), typeof(LR2SongDB.song));
                     songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existingFile), typeof(LR2SongDB.song));
                 }
@@ -354,11 +383,11 @@ public sealed class BmsLibraryDuplicateServiceTests
                     new TestUiScheduler(() => null),
                     () => new BmsLibraryOptionsSnapshot
                     {
-                        OperationModeLR2DB = false,
+                        OperationModeLR2DB = true,
                         EnableSmartComponentOverwrite = true,
                         KeepSmartOverwriteProtectedFilesByRenaming = true,
                         DeletePendingPackageSourceAfterInstall = false
-                    })
+                    }, settings: TestBmsFactory.CreateRootSettings([tempRootPath], lr2: true))
                 {
                     BmsCharts = [sourceFile, existingFile],
                     BmsonCharts = []
@@ -415,7 +444,29 @@ public sealed class BmsLibraryDuplicateServiceTests
                 CollectionAssert.AreEqual(new byte[] { 1 }, File.ReadAllBytes(Path.Combine(dstDir, "readme.txt")));
                 CollectionAssert.AreEqual(new byte[] { 4, 5, 6 }, File.ReadAllBytes(Path.Combine(dstDir, "readme(1).txt")));
                 CollectionAssert.AreEqual(new byte[] { 2, 3 }, File.ReadAllBytes(Path.Combine(dstDir, "readme(2).txt")));
-                CollectionAssert.AreEquivalent(new[] { collisionPath, actualDestinationPath, Path.Combine(dstDir, "readme.txt"),
+                CollectionAssert.AreEqual(expectedCustomBytes, File.ReadAllBytes(customDestination));
+                if (sourceCustomWins)
+                {
+                    Assert.IsNull(verify.Find<LR2SongDB.folder>(customSource));
+                }
+                else
+                {
+                    // skipは移転事実ではなく、確定後cleanupで消える元customの即時DB退役は既存保証に含めません。
+                    LR2SongDB.folder skippedCustom = verify.Find<LR2SongDB.folder>(customSource);
+                    Assert.IsNotNull(skippedCustom);
+                    Assert.AreEqual("External", skippedCustom.title);
+                    Assert.AreEqual("song.level > 5", skippedCustom.command);
+                    Assert.AreEqual(123, skippedCustom.adddate);
+                    Assert.AreEqual("old", skippedCustom.parent);
+                }
+                LR2SongDB.folder movedCustom = verify.Find<LR2SongDB.folder>(customDestination);
+                Assert.IsNotNull(movedCustom);
+                Assert.AreEqual(sourceCustomWins ? "song.level > 5" : "song.level < 5", movedCustom.command);
+                Assert.AreEqual(sourceCustomWins ? "External" : "Existing", movedCustom.title);
+                Assert.AreEqual(sourceCustomWins ? 123 : 456, movedCustom.adddate);
+                Assert.AreEqual(Lr2StoredPathReference.Compute(Path.Combine(dstDir, "CustomOnly") + Path.DirectorySeparatorChar), movedCustom.parent);
+                Assert.IsNotNull(verify.Find<LR2SongDB.folder>(Path.Combine(dstDir, "CustomOnly") + Path.DirectorySeparatorChar));
+                CollectionAssert.AreEquivalent(new[] { customDestination, collisionPath, actualDestinationPath, Path.Combine(dstDir, "readme.txt"),
                     Path.Combine(dstDir, "readme(1).txt"), Path.Combine(dstDir, "readme(2).txt") }, Directory.GetFiles(dstDir, "*", System.IO.SearchOption.AllDirectories));
                 Assert.IsFalse(Directory.Exists(srcDir));
                 Assert.IsTrue(library.OperationAdmission.TryEnter(out IDisposable admission));
