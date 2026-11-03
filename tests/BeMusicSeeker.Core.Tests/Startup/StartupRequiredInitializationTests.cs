@@ -251,6 +251,7 @@ public sealed class StartupRequiredInitializationTests
                 new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_startup"), accepted.Capability, new StartupCompletionTestFixture.CompletionDialogs(), leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
         }
         Assert.IsNotNull(result.Lr2Failure);
+        Assert.IsFalse(result.CatalogConvergenceReady, "必須LR2の失敗後はローカル成功から収束を公開しません。");
         Assert.AreEqual(1, failurePublications, "下位で確定したFailedを必須ownerが再公開しない。");
         StringAssert.Contains(result.Lr2Failure.Message, "lr2-only-failure");
         Assert.AreEqual(Lr2SongDbSyncStatusKind.Failed, fixture.Library.GetLr2SongDbSyncStatusSnapshot().Status);
@@ -286,6 +287,7 @@ public sealed class StartupRequiredInitializationTests
                 new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_lr2_acceptance_failure"), accepted.Capability, new StartupCompletionTestFixture.CompletionDialogs(), leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
         }
         Assert.AreSame(failure, result.Lr2Failure);
+        Assert.IsFalse(result.CatalogConvergenceReady);
         Assert.AreEqual(1, failurePublications);
         Assert.AreEqual(Lr2SongDbSyncStatusKind.Failed, fixture.Library.GetLr2SongDbSyncStatusSnapshot().Status);
         using LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDbPath).OpenSongDbReadOnly();

@@ -339,9 +339,21 @@ internal sealed partial class LibraryMutationOwner
         {
             markDuplicateWarningFullClearPending();
         }
-        resourceIndexOwner.Replace(
-            replacementEvent.NextResourceIndex
-                ?? LibraryResourceIndex.CreateFromScanResult(new ChartScanResult()));
+        if (replacementEvent.ProtectedSearchRoots.Count > 0)
+        {
+            // directory keyだけを一度選別します。親entryの解除で残存する子rootを失わないようexact除去します。
+            KeyValuePair<string, ChartScanResult>[] removals = resourceIndexOwner.CaptureSnapshot().DirectoryLookupCache.Keys
+                .Where(path => !replacementEvent.ProtectedSearchRoots.Any(root =>
+                    LongPathFileSystem.IsSameOrDescendantDirectoryPath(path, root)))
+                .Select(path => new KeyValuePair<string, ChartScanResult>(path, null)).ToArray();
+            resourceIndexOwner.ApplyFolderChanges([], [], removals);
+        }
+        else
+        {
+            resourceIndexOwner.Replace(
+                replacementEvent.NextResourceIndex
+                    ?? LibraryResourceIndex.CreateFromScanResult(new ChartScanResult()));
+        }
         if (receipt.OwnedCollectionApplied)
         {
             LogOwnedChartCollectionSkippedRows("replace", receipt.FilterSummary);

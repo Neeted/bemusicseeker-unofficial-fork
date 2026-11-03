@@ -921,11 +921,13 @@ public sealed class LibraryFileScanPipelineOwnerTests
         Assert.AreEqual(2, callbacks.CatalogOwnedCollectionOwner.CaptureSnapshot().BmsRows.Count);
     }
 
-    /// <summary>Fastの事前確認とEverythingの実返却表記を登録側が採用し、raw面・resource indexを保持したまま同じOptionsでDB直前に保存します。取消・不完全・root消失・設定失敗は保存/公開せず、登録成立後のDB失敗は巻き戻しません。</summary>
+    /// <summary>Fastの事前確認とEverythingの実返却表記を登録側が採用し、raw面・resource indexを保持したまま同じOptionsでDB直前に保存します。取消・不完全・root消失・設定失敗は保存/公開せず、登録成立後のDB失敗は巻き戻しません。保護付き部分解除でも保存をDB確定より前に行い、保存失敗ではDB・catalogを変えません。</summary>
     [TestMethod]
     [DataRow("fast")]
     [DataRow("empty")]
     [DataRow("empty-protected")]
+    [DataRow("partial-removal")]
+    [DataRow("partial-save-failure")]
     [DataRow("captured")]
     [DataRow("incomplete")]
     [DataRow("cancel")]
@@ -939,7 +941,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         string actual = Directory.CreateDirectory(Path.Combine(directory, "MixedSongs")).FullName;
         string requested = Path.Combine(directory, "mixedsongs");
         string chart = Path.Combine(actual, "chart.bms");
-        if (scenario is not "empty" and not "empty-protected") { File.WriteAllText(chart, "#PLAYER 1\n#TITLE Root spelling\n#BPM 120\n#00111:01\n"); }
+        bool partial = scenario is "partial-removal" or "partial-save-failure";
+        if (scenario is not "empty" and not "empty-protected" and not "partial-removal" and not "partial-save-failure") { File.WriteAllText(chart, "#PLAYER 1\n#TITLE Root spelling\n#BPM 120\n#00111:01\n"); }
         try
         {
             string config = Path.Combine(directory, "user.config");
@@ -950,7 +953,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             var registrations = new BmsRootRegistrationStore(settings, () => null);
             int publications = 0; registrations.Published += (_, _) => publications++;
             IChartFileScanner inner = scenario is "fast" or "empty" ? new FastDirectoryFileScanner()
-                : scenario == "empty-protected" ? CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(), [actual])
+                : scenario is "empty-protected" or "partial-removal" or "partial-save-failure" ? CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(), [actual])
                 : scenario == "incomplete" ? new SequenceChartFileScanner(new ChartScanExecutionResult { Success = false, IsComplete = false, ErrorReason = "bridge_dll_not_found:test" })
                 : CapturedChartFileScanner.FromFixture([chart], new Dictionary<string, IEnumerable<string>> { [actual] = [] }, [actual]);
             string returnedRoot = char.ToLowerInvariant(actual[0]) + actual[1..];
@@ -970,6 +973,19 @@ public sealed class LibraryFileScanPipelineOwnerTests
             var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
             if (scenario == "empty-protected")
             { callbacks.BmsFiles = [ChartTestValues.Empty() with { Path = Path.Combine(actual, "retained.bms"), Md5 = "retained" }]; }
+            // 期待集合は入力に明記します。範囲内の保持行と、最終範囲外で解除される行を分けます。
+            ChartFile retainedRow = ChartTestValues.Empty() with { Path = Path.Combine(actual, "retained.bms"), Md5 = "retained" };
+            ChartFile removedRow = ChartTestValues.Empty() with { Path = Path.Combine(directory, "Outside", "gone.bms"), Md5 = "gone" };
+            if (partial)
+            {
+                callbacks.BmsFiles = [retainedRow, removedRow];
+                string seededDb = Path.Combine(directory, "song.db");
+                Directory.CreateDirectory(directory);
+                using LR2SongDBExtended seed = databaseScope.OpenSongWrite(seededDb);
+                seed.CreateTable<LR2SongDB.song>();
+                seed.Insert(new LR2SongDB.song { hash = "retained", path = retainedRow.Path });
+                seed.Insert(new LR2SongDB.song { hash = "gone", path = removedRow.Path });
+            }
             LibraryFileScanPipelineOwner owner = CreateOwner(callbacks, chartFileScanner: scanner, directoryPath: directory, rootRegistrations: registrations);
             BmsLibraryOptionsSnapshot options = BmsLibraryOptionsSnapshot.CreateCurrent(settings) with { StandaloneBmsRootPaths = registrations.CaptureStandaloneRoots() };
             var preflight = new LibraryDirectoryPreflightService();
@@ -984,12 +1000,12 @@ public sealed class LibraryFileScanPipelineOwnerTests
                 db.CreateTable<LR2SongDB.song>();
                 db.Execute("CREATE TRIGGER fail_song BEFORE INSERT ON song BEGIN SELECT RAISE(ABORT, 'test DB failure'); END;");
             }
-            using FileStream? locked = scenario == "save-failure" ? File.Open(config, FileMode.Open, FileAccess.Read, FileShare.Read) : null;
+            using FileStream? locked = scenario is "save-failure" or "partial-save-failure" ? File.Open(config, FileMode.Open, FileAccess.Read, FileShare.Read) : null;
             Lr2FolderFileDiffPreparationResult? result = null;
             Exception? failure = null;
             try { result = owner.ApplyActiveFileScan(generation, false, InstallDestinationCleanupSnapshot.Empty); }
             catch (Exception exception) { failure = exception; }
-            bool saved = scenario is "fast" or "empty" or "captured" or "db-failure";
+            bool saved = scenario is "fast" or "empty" or "captured" or "db-failure" or "partial-removal";
             string adopted = raw == null ? actual : returnedRoot;
             Assert.AreEqual(saved ? 1 : 0, publications);
             CollectionAssert.AreEqual(new[] { saved ? adopted : requested }, registrations.CaptureUserRoots().ToArray());
@@ -1006,9 +1022,32 @@ public sealed class LibraryFileScanPipelineOwnerTests
             }
             if (!saved && result != null) { Assert.AreSame(options, result.SynchronizationInput.Options); }
             if (scenario == "cancel") { Assert.IsInstanceOfType<OperationCanceledException>(failure); }
-            else if (scenario == "save-failure") { Assert.IsInstanceOfType<PortableSettingsException>(failure); }
+            else if (scenario is "save-failure" or "partial-save-failure") { Assert.IsInstanceOfType<PortableSettingsException>(failure); }
             else if (scenario == "db-failure") { Assert.IsNotNull(failure); }
             else { Assert.IsNull(failure); }
+            if (partial)
+            {
+                using LR2SongDBExtended partialDb = databaseScope.OpenSongWrite(Path.Combine(directory, "song.db"));
+                string[] dbPaths = [.. partialDb.Table<LR2SongDB.song>().Select(row => row.path)];
+                string[] catalogPaths = [.. callbacks.CatalogOwnedCollectionOwner.CaptureSnapshot().BmsRows.Select(row => row.Path)];
+                if (scenario == "partial-removal")
+                {
+                    Assert.IsNotNull(result);
+                    CollectionAssert.AreEqual(new[] { retainedRow.Path }, dbPaths);
+                    CollectionAssert.AreEqual(new[] { retainedRow.Path }, catalogPaths);
+                    Assert.IsTrue(callbacks.LastCatalogReplacement.Receipt.Applied);
+                    // 部分解除は完全LR2投影を渡さず、全体同期だけを見送って収束は閉じたままです。
+                    Assert.IsTrue(result.SynchronizationInput.SkipLr2Synchronization);
+                    Assert.IsFalse(result.SynchronizationInput.CatalogFullyApplied);
+                    Assert.IsNull(result.SynchronizationInput.ScanSurface);
+                }
+                else
+                {
+                    CollectionAssert.AreEquivalent(new[] { retainedRow.Path, removedRow.Path }, dbPaths);
+                    CollectionAssert.AreEquivalent(new[] { retainedRow.Path, removedRow.Path }, catalogPaths);
+                    Assert.IsNull(callbacks.LastCatalogReplacement);
+                }
+            }
             if (scenario is "fast" or "empty" or "captured")
             {
                 CollectionAssert.AreEqual(new[] { actual }, observed);
@@ -1099,7 +1138,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
             callbacks.LogEverythingScan,
             callbacks.LogStartupMemoryCheckpoint,
             callbacks.GetDisplayedExceptionMessage,
-            () => { },
             callbacks.QueueEverythingFallbackWarning,
             callbacks.QueueFileScanSkippedIncompleteWarning,
             callbacks.QueueEmptyScanWithExistingDbWarning,

@@ -190,6 +190,8 @@ Configure the language, operating mode, BMS directories, LR2 directory, beatoraj
 
 In either mode, edit the search-root list with `Add`, drag and drop, and removal, then press `Change BMS directories`. Multiple edits apply once using the final list. When removing the current install destination, check `Current install destination (to be removed)` and select a remaining BMS directory under `New install destination` before confirming. Selection alone does not save changes. If no directories remain, add a BMS directory or use `Discard these changes` to restore the list and install destination.
 
+Removing a folder from search unregisters its charts and leaves the original files in place. To switch to an empty folder, select it as the new-install destination and confirm the directory list. You can then install charts there.
+
 Registered paths adopt the actual folder-name casing confirmed during scanning.
 
 In LR2 linked mode, registrations are saved as absolute paths, including paths entered in relative form. If you move the LR2 installation to another location, register the BMS directories at their new locations.

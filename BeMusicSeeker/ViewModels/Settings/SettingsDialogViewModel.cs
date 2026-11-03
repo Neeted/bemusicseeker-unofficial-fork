@@ -286,9 +286,9 @@ public partial class SettingsDialogViewModel : ViewModel
     }
 
     /// <summary>受理済みの共通権限で差分とLR2必須継続の実終端を待ち、失敗を呼出元の解放後通知へ伝播します。</summary>
-    internal Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability capability = null)
+    internal Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability capability = null, Lr2SearchRootSnapshot searchRoots = null)
     {
-        return ReloadFileDiffCoreAsync(capability);
+        return statePort.ReloadFileDiffAsync(capability, searchRoots);
     }
 
     /// <summary>手動同期の実受付時だけ関係環境候補を戻し、閉鎖を通知して実処理の終端を待ちます。</summary>
@@ -304,11 +304,6 @@ public partial class SettingsDialogViewModel : ViewModel
             DiscardConflictingCandidates(ConflictingCandidates.Lr2Details | ConflictingCandidates.Lr2Mode);
             accepted?.Invoke();
         });
-    }
-
-    private async Task<StartupInitializationResult> ReloadFileDiffCoreAsync(LibraryFileMutationCapability capability = null)
-    {
-        return await statePort.ReloadFileDiffAsync(capability);
     }
 
     private Settings ApplicationSettings => settingsEditSession.Values;

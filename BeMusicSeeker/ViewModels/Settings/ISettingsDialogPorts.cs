@@ -68,7 +68,7 @@ internal interface ISettingsDialogStatePort
     Task<StartupInitializationResult> ReloadScoresOnlyAsync(LibraryFileMutationCapability capability);
 
     /// <summary>呼出元の共通受付内で差分再読込みと後片付けを終え、処理失敗は通知せず元原因を伴うOperationFailedで返します。専用警告も親解放後に呼出元が通知します。</summary>
-    Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability capability);
+    Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability capability, Lr2SearchRootSnapshot searchRoots = null);
 
     /// <summary>検索rootの確定後に保留参照だけを実走査rootへ揃え、受付解放後に呼ぶ通知を返します。物理削除や全走査はしません。</summary>
     void ReevaluatePendingPackagesForSearchRoots(LibraryFileMutationCapability capability, out Action publication);

@@ -719,7 +719,7 @@ public sealed class SettingDialogOutputConfirmationTests
 
         public void ReevaluatePendingPackagesForSearchRoots(LibraryFileMutationCapability capability, out Action publication) { publication = () => { }; }
 
-        public Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
+        public Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null, Lr2SearchRootSnapshot? searchRoots = null) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
 
 #pragma warning disable CS0067 // インターフェイスのイベント面を満たすが、このテストダブルでは発火させない。
         public event EventHandler? LibraryOperationAvailabilityChanged;

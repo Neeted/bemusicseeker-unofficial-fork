@@ -925,6 +925,8 @@ public sealed class SettingsDialogBehaviorTests
             Assert.AreEqual(newRoot, fresh.BMSInstallDir);
             CollectionAssert.AreEqual(new[] { newRoot }, StandaloneBmsRootPathSettings.Deserialize(fresh.StandaloneBmsRootPaths).ToArray());
             Assert.AreEqual(initialReloads + 1, harness.State.FileDiffReloadCount);
+            // 差分要求へ渡す最終範囲は確定後の一覧だけです。旧rootと途中で外した候補を含めません。
+            CollectionAssert.AreEqual(new[] { newRoot }, harness.State.LastSearchRoots!.Roots.ToArray());
             Assert.IsTrue(harness.Dialog.CanConfirmBmsRoots);
             Assert.IsFalse(harness.Dialog.CanCancelBmsRoots);
             await harness.Dialog.CommitBmsRootsAsync();

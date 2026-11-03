@@ -40,6 +40,7 @@ internal sealed class FileScanParseCommitOwner
 
     /// <summary>
     /// 走査差分を並列解析して確定し、開始済み処理の終端後に失敗を返します。
+    /// 0件保護した実検索範囲内の行は削除差分へ含めません。
     /// post-parseの最初の原因はqueue閉鎖前に保持し、後続出力の失敗で置換せず、既存のcollector終端Flushを維持します。
     /// </summary>
     internal void ApplyFileDiff(
@@ -57,7 +58,7 @@ internal sealed class FileScanParseCommitOwner
         Action<string> logInstallPerformanceWarn,
         Action<IReadOnlyList<BeMusicSeeker.Models.ChartDetails>> inlineChartInfoRowsCommitted,
         bool protectExistingBmsRowsFromLr2SongDbSyncMigration,
-        Action<SongTableFileCheckResult> catalogProjectionApplied)
+        Action<SongTableFileCheckResult> catalogProjectionApplied, IReadOnlyList<string> protectedSearchRoots = null)
     {
         var stopwatchDiff = Stopwatch.StartNew();
         var stopwatchCurrentIndex = Stopwatch.StartNew();
@@ -108,17 +109,19 @@ internal sealed class FileScanParseCommitOwner
         result.BmsPathCount = scannedPaths.Count;
         result.BmsonPathCount = scannedBmsonPaths.Count;
 
+        bool IsProtected(string path) => (protectedSearchRoots ?? []).Any(root =>
+            LongPathFileSystem.IsSameOrDescendantDirectoryPath(path, root));
         var stopwatchDeleted = Stopwatch.StartNew();
         foreach (string currentPath in currentBmsByPath.Keys)
         {
-            if (!scannedPaths.Contains(currentPath))
+            if (!scannedPaths.Contains(currentPath) && !IsProtected(currentPath))
             {
                 result.DeletedPaths.Add(currentPath);
             }
         }
         foreach (string currentPath in currentBmsonByPath.Keys)
         {
-            if (!scannedBmsonPaths.Contains(currentPath))
+            if (!scannedBmsonPaths.Contains(currentPath) && !IsProtected(currentPath))
             {
                 result.DeletedBmsonPaths.Add(currentPath);
             }

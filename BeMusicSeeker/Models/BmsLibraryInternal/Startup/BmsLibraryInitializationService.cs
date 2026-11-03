@@ -1008,6 +1008,7 @@ internal sealed class BmsLibraryInitializationService
     /// <param name="rootFileEnumerator">要求に接続した列挙窓口。nullでは通常の実列挙を使います。</param>
     /// <param name="folderTableSnapshot">LR2全登録走査では必須の同操作の全folder面。比較・生成・保存計画で共有し、旧行を再取得しません。</param>
     /// <param name="generatedAtUtc">同じ初期化から渡す新folderキーのUTC生成時刻。省略時は呼出時刻です。</param>
+    /// <param name="effectiveSearchRoots">存在確認で欠落させない最終実検索範囲。0件時も範囲外の保存行だけは解除します。</param>
     public SongTableFileCheckResult ApplyFileScanDiff(
         BmsLibraryDbGateway dbGateway,
         EverythingNative everythingNative,
@@ -1036,7 +1037,8 @@ internal sealed class BmsLibraryInitializationService
         Action<SongTableFileCheckResult> catalogProjectionApplied = null,
         Func<Lr2NormalFolderSyncScope, IReadOnlyCollection<string>, IDisposable> enterNormalFolderMutation = null,
         IRootFileEnumerator rootFileEnumerator = null,
-        DateTime? generatedAtUtc = null)
+        DateTime? generatedAtUtc = null,
+        IReadOnlyList<string> effectiveSearchRoots = null)
     {
         var result = new SongTableFileCheckResult();
         var stopwatchScan = Stopwatch.StartNew();
@@ -1060,23 +1062,39 @@ internal sealed class BmsLibraryInitializationService
         bool bmsFileScanSucceeded = scanResult.Success;
         result.ScanFallbackUsed = scanResult.FallbackUsed;
         result.ScanFallbackReason = scanResult.FallbackReason ?? string.Empty;
+        // 解除は今回の最終範囲と保存行から再導出します。同値再保存・再起動でも履歴は不要です。LR2のfolder探索より前に判定します。
         if (ShouldSkipEmptyScanWithExistingDb(scanResult, currentFiles, currentBmsonSongs, out int existingBmsCount, out int existingBmsonCount))
         {
-            stopwatchScan.Stop();
-            result.ScanElapsedMs = stopwatchScan.ElapsedMilliseconds + (result.PrefetchedScanUsed ? prefetchedScanElapsedMs : 0L);
-            result.EmptyScanWithExistingDbSkipped = true;
-            result.EmptyScanWithExistingDbSkipReason = CreateEmptyScanSkipReason(scanResult, existingBmsCount, existingBmsonCount);
-            scanCompleted?.Invoke();
-            logInstallPerformance?.Invoke("song_tbl_file_check skipped"
-                + " reason=empty_scan_with_existing_db"
-                + " existing_bms=" + existingBmsCount
-                + " existing_bmson=" + existingBmsonCount
-                + " fallback_used=" + result.ScanFallbackUsed.ToString().ToLowerInvariant()
-                + " fallback_reason=" + (string.IsNullOrWhiteSpace(result.ScanFallbackReason) ? string.Empty : result.ScanFallbackReason)
-                + " native_bridge_reason=" + (string.IsNullOrWhiteSpace(scanResult.NativeBridgeReason) ? string.Empty : scanResult.NativeBridgeReason));
-            return result;
+            bool IsProtected(ChartFile chart) => chart != null && !string.IsNullOrWhiteSpace(chart.Path)
+                && (effectiveSearchRoots == null || effectiveSearchRoots.Any(root =>
+                    LongPathFileSystem.IsSameOrDescendantDirectoryPath(chart.Path, root)));
+            ChartFile[] existingRows = [.. (currentFiles ?? []).Concat(currentBmsonSongs ?? [])
+                .Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
+            if (!existingRows.Any(chart => !IsProtected(chart)))
+            {
+                stopwatchScan.Stop();
+                result.ScanElapsedMs = stopwatchScan.ElapsedMilliseconds + (result.PrefetchedScanUsed ? prefetchedScanElapsedMs : 0L);
+                result.EmptyScanWithExistingDbSkipped = true;
+                result.EmptyScanWithExistingDbSkipReason = CreateEmptyScanSkipReason(scanResult, existingBmsCount, existingBmsonCount);
+                scanCompleted?.Invoke();
+                logInstallPerformance?.Invoke("song_tbl_file_check skipped"
+                    + " reason=empty_scan_with_existing_db"
+                    + " existing_bms=" + existingBmsCount
+                    + " existing_bmson=" + existingBmsonCount
+                    + " fallback_used=" + result.ScanFallbackUsed.ToString().ToLowerInvariant()
+                    + " fallback_reason=" + (string.IsNullOrWhiteSpace(result.ScanFallbackReason) ? string.Empty : result.ScanFallbackReason)
+                    + " native_bridge_reason=" + (string.IsNullOrWhiteSpace(scanResult.NativeBridgeReason) ? string.Empty : scanResult.NativeBridgeReason));
+                return result;
+            }
+            if (existingRows.Any(IsProtected))
+            {
+                result.EmptyScanWithExistingDbSkipReason = CreateEmptyScanSkipReason(scanResult, existingBmsCount, existingBmsonCount);
+                logInstallPerformance?.Invoke("song_tbl_file_check protected reason=empty_scan_with_existing_db " + result.EmptyScanWithExistingDbSkipReason);
+                result.ApplicationOutcome = FileScanApplicationOutcome.AppliedWithProtectedRows;
+                result.ProtectedSearchRoots = effectiveSearchRoots;
+            }
         }
-        if (bmsFileScanSucceeded)
+        if (bmsFileScanSucceeded && result.ApplicationOutcome != FileScanApplicationOutcome.AppliedWithProtectedRows)
         {
             result.Lr2ScanSurfaceAvailable = true;
             ApplyLr2FolderScanSurface(
@@ -1145,7 +1163,7 @@ internal sealed class BmsLibraryInitializationService
         result.ImageResourceKeyHashEntryCount = imageResourceKeyEntryCount;
         result.MovieResourceKeyHashEntryCount = movieResourceKeyEntryCount;
 
-        if (bmsFileScanSucceeded)
+        if (bmsFileScanSucceeded && result.ApplicationOutcome != FileScanApplicationOutcome.AppliedWithProtectedRows)
         {
             result.Lr2ScanNormalFolderDirectoryPaths = Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargetsFromNormalizedDirectories(
                 lr2NormalFolderSyncRootDirectories,
@@ -1165,6 +1183,10 @@ internal sealed class BmsLibraryInitializationService
             result.Lr2ScanTextFileDirectories = [.. (mergedScanResult.ChartDirectoriesWithTextFiles ?? [])
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+        }
+        // 保護付き部分解除でもルート表記はDB確定前に保存します。完全LR2投影の準備は呼出し側が開始しません。
+        if (bmsFileScanSucceeded)
+        {
             fileScanReadyToCommit?.Invoke(result);
         }
         result.DirectoryCount = result.NextDirectoryResourceLookupCache?.Count ?? 0;
@@ -1184,7 +1206,7 @@ internal sealed class BmsLibraryInitializationService
             logInstallPerformanceWarn,
             inlineChartInfoRowsCommitted,
             protectExistingBmsRowsFromLr2SongDbSyncMigration,
-            catalogProjectionApplied);
+            catalogProjectionApplied, result.ProtectedSearchRoots);
 
         Lr2NormalFolderSyncScope normalScope = Lr2NormalFolderSyncScopeBuilder.CreateForFileDiff(
             lr2NormalFolderSyncRootDirectories, result.Lr2ScanNormalFolderDirectoryPaths);
@@ -1199,9 +1221,13 @@ internal sealed class BmsLibraryInitializationService
             result,
             logInstallPerformance,
             logInstallPerformanceWarn,
-            bmsFileScanSucceeded, enterNormalFolderMutation, result.Lr2ScanLr2FolderFilePaths,
+            bmsFileScanSucceeded && result.ApplicationOutcome != FileScanApplicationOutcome.AppliedWithProtectedRows, enterNormalFolderMutation, result.Lr2ScanLr2FolderFilePaths,
             folderTableSnapshot, generatedAtUtc ?? DateTime.UtcNow, lr2FolderExcludedDirectories);
 
+        if (result.ApplicationOutcome != FileScanApplicationOutcome.AppliedWithProtectedRows)
+        {
+            result.ApplicationOutcome = FileScanApplicationOutcome.Applied;
+        }
         logInstallPerformance?.Invoke("song_tbl_file_check_result result=applied"
             + " checkedCharts=" + (result.BmsPathCount + result.BmsonPathCount)
             + " checkedBms=" + result.BmsPathCount

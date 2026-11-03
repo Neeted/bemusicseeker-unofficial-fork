@@ -201,7 +201,7 @@ internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
     public void ReevaluatePendingPackagesForSearchRoots(LibraryFileMutationCapability capability, out Action publication)
         => ((ISettingsDialogStatePort)owner).ReevaluatePendingPackagesForSearchRoots(capability, out publication);
 
-    public async Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null)
+    public async Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null, Lr2SearchRootSnapshot? searchRoots = null)
     {
         Task operation = reloadFileDiff(capability);
         await operation;

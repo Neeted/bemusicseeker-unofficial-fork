@@ -1218,6 +1218,269 @@ public sealed class SettingDialogEditCompletionTests
         finally { release.Set(); Directory.Delete(root, recursive: true); }
     }
 
+    /// <summary>実設定確定で旧BMS/BMSONと同hashを解除し、同じproduction libraryへの導入を保証します。通常条件では手動・自動導入に続く改名・削除と再起動、障害条件では固有の保護と回復後の自動導入を分担します。</summary>
+    /// <param name="lr2">LR2連携と単独モードを切り替えます。</param>
+    /// <param name="recovery">0は通常、1は走査失敗後の同値確定、2は走査失敗後の明示再読込み、3は混在0件保護、4はDB解除失敗、5は必須LR2終端失敗からの回復です。</param>
+    [TestMethod]
+    [DataRow(false, 0)]
+    [DataRow(true, 0)]
+    [DataRow(false, 1)]
+    [DataRow(true, 1)]
+    [DataRow(false, 2)]
+    [DataRow(true, 2)]
+    [DataRow(false, 3)]
+    [DataRow(true, 3)]
+    [DataRow(false, 4)]
+    [DataRow(true, 4)]
+    [DataRow(true, 5)]
+    public void BmsConfirmation_EmptyRootRecoversAndAcceptsRealInstallations(bool lr2, int recovery)
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        string oldRoot = Directory.CreateDirectory(Path.Combine(root, "Songs")).FullName;
+        string oldFolder = Directory.CreateDirectory(Path.Combine(oldRoot, "Work")).FullName;
+        string duplicateFolder = Directory.CreateDirectory(Path.Combine(oldRoot, "Duplicate")).FullName;
+        string newRoot = Directory.CreateDirectory(Path.Combine(root, "New")).FullName;
+        string settingsPath = Path.Combine(root, "user.config");
+        string bms = Path.Combine(oldFolder, "chart.bms");
+        string duplicate = Path.Combine(duplicateFolder, "chart.bms");
+        string bmson = Path.Combine(oldFolder, "chart.bmson");
+        File.WriteAllText(bms, "#PLAYER 1\n#TITLE Old\n#BPM 120\n#WAV01 sound.wav\n#00111:01\n");
+        File.Copy(bms, duplicate);
+        File.WriteAllText(bmson, "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Old BMSON\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[{\"name\":\"sound.wav\",\"notes\":[{\"x\":1,\"y\":0,\"l\":0}]}]}");
+        File.WriteAllBytes(Path.Combine(oldFolder, "sound.wav"), [1, 2, 3]);
+        File.WriteAllBytes(Path.Combine(duplicateFolder, "sound.wav"), [1, 2, 3]);
+        Dictionary<string, byte[]> originalBytes = Directory.GetFiles(oldRoot, "*", SearchOption.AllDirectories).ToDictionary(path => path, File.ReadAllBytes);
+        try
+        {
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                Settings values = lr2 ? CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(settingsPath))
+                    : CreateValidStandaloneSettings(oldRoot, TestSettingsFactory.OpenSettings(settingsPath));
+                values.ScanBmsFilesOnStartup = true;
+                values.StartupSelectInstallPending = false;
+                values.ShowNewPackageInstallConfirmMsg = false;
+                values.DeletePendingPackageSourceAfterInstall = false;
+                values.Save();
+                for (int run = 0; run < (recovery == 0 ? 2 : 1); run++)
+                {
+                    if (run > 0) { values = TestSettingsFactory.OpenSettings(settingsPath); }
+                    var warnings = new List<string>();
+                    var failures = new List<Exception>();
+                    var dialogs = new RecordingRootDialogService();
+                    dialogs.MessageObserved = () => warnings.Add(dialogs.LastMessageText);
+                    var scanner = new SettingsChartFileScanner(new FastDirectoryFileScanner());
+                    var composition = new ApplicationComposition(settingsEditSession: new CountingSettingsEditSession(values),
+                        reportSettingsApplyFailure: failures.Add, uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                        applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                        runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe"))),
+                        chartFileScanner: scanner, rootFileEnumerator: new FastRootFileEnumerator(), fileDbMutationDialogService: dialogs,
+                        defaultBmsPlayerFactory: () => new RecordingPlaybackPlayer());
+                    var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []);
+                    var owner = new MainWindowViewModel(composition, factory);
+                    Task? operation = null;
+                    try
+                    {
+                        Task<bool> initialize = owner.InitializeAsync();
+                        operation = initialize;
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(initialize, "empty-root-initialize");
+                        Assert.IsTrue(initialize.Result);
+                        AwaitStartupBackgroundCompletionOnDispatcher(owner, "empty-root-background");
+                        BMSLibrary library = factory.CreatedLibrary ?? throw new AssertFailedException("実library未構築");
+                        Assert.AreEqual(typeof(BMSLibrary), library.GetType(), "収束を注入するTestBmsLibraryを使いません。");
+                        BMSPlaylist playlist = factory.CreatedPlaylist ?? throw new AssertFailedException("実playlist未構築");
+                        string database = lr2 ? values.LR2SongDBPath : composition.ApplicationPathSnapshot.StandaloneSongDbPath;
+                        void AssertEmpty()
+                        {
+                            Assert.AreEqual(0, library.BmsCharts.Count);
+                            Assert.AreEqual(0, library.BmsonCharts.Count);
+                            using LR2SongDBExtended db = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), database).OpenSongDbReadOnly();
+                            Assert.AreEqual(0, db.Table<LR2SongDB.song>().Count());
+                            Assert.AreEqual(0, db.Table<LR2SongDBExtended.bmson_song>().Count());
+                            Assert.IsFalse(owner.LibraryFolderTree.HasOwnedChartUnderRealPath(oldRoot));
+                            Assert.IsFalse(owner.MainChartList.Rows.OfType<LibraryChartRow>().Any(row => row.Title is "Old" or "Old BMSON"));
+                            Assert.IsNull(LibraryResourceIndexTestSupport.GetOwner(library).CaptureSnapshot().DirectoryLookupCache.GetEntryOrNull(oldFolder));
+                            Assert.IsNull(LibraryResourceIndexTestSupport.GetOwner(library).CaptureSnapshot().DirectoryLookupCache.GetEntryOrNull(duplicateFolder));
+                            foreach ((string path, byte[] bytes) in originalBytes) { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path)); }
+                        }
+                        if (run > 0) { AssertEmpty(); continue; }
+                        Assert.AreEqual(2, library.BmsCharts.Count);
+                        Assert.AreEqual(1, library.BmsonCharts.Count);
+                        ChartFile oldChart = library.BmsCharts.Single(chart => chart.Path == bms);
+                        var entry = new BMSTableEntry { md5 = oldChart.Md5, title = "Old", folder = "Folder" };
+                        var table = new BMSTable { playlist_id = 1, name = "Root references", Folder_order = ["Folder"], entries = [entry] };
+                        playlist.BMSTables.Add(table);
+                        playlist.CommitBMSTablesWithEntriesToDB([table]);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(playlist.ApplyRequiredLibraryReferencesAsync(), "empty-root-initial-reference");
+                        Assert.IsNotNull(library.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out _, out _).ResolveChartForPlaylistEntry(entry));
+                        ChartPackage? failureProbe = null;
+                        if (recovery == 5)
+                        {
+                            string source = Directory.CreateDirectory(Path.Combine(root, "FailureProbe")).FullName;
+                            File.WriteAllText(Path.Combine(source, "chart.bms"), "#PLAYER 1\n#TITLE FailureProbe\n#BPM 120\n#WAV01 probe.wav\n#00111:01\n");
+                            File.WriteAllBytes(Path.Combine(source, "probe.wav"), [7, 8, 9]);
+                            values.KeepInstallablePackagesPending = true;
+                            operation = library.InstallChartPackagesAutoWithProgressAsync([source], CancellationToken.None,
+                                new InstallServiceComponentTestSupport.RecordingPackageInstallProgressWriter());
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "empty-root-failure-probe-prepare");
+                            failureProbe = library.ChartPackagesPending.Single(package => package.path == source);
+                        }
+                        DirectoryResourceLookupCache.Entry retainedResource = LibraryResourceIndexTestSupport.GetOwner(library).CaptureSnapshot().DirectoryLookupCache.GetEntryOrNull(duplicateFolder);
+                        owner.SettingDialog.BmsRootPathList.Clear();
+                        owner.SettingDialog.BmsRootPathList.Add(newRoot);
+                        if (recovery == 3) { owner.SettingDialog.BmsRootPathList.Add(duplicateFolder); }
+                        owner.SettingDialog.ReplacementBmsInstallDir = newRoot;
+                        if (recovery is 1 or 2)
+                        {
+                            var failed = CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(), [newRoot]);
+                            failed.ScanObserved = () => throw new IOException("root-transition-scan-failure");
+                            scanner.Current = failed;
+                        }
+                        if (recovery == 3)
+                        {
+                            scanner.Current = CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(), [newRoot, duplicateFolder]);
+                        }
+                        if (recovery == 4)
+                        {
+                            using LR2SongDBExtended db = composition.DatabaseScope.OpenSongWrite(database);
+                            db.Execute("CREATE TRIGGER fail_root_removal BEFORE DELETE ON song BEGIN SELECT RAISE(ABORT, 'root-delete-failure'); END;");
+                        }
+                        if (recovery == 5)
+                        {
+                            using LR2SongDBExtended db = composition.DatabaseScope.OpenSongWrite(database);
+                            // 保存済み未完了を入力として必要同期へ到達させ、その実Completed保存だけを失敗させます。
+                            db.Execute("UPDATE lr2_song_db_sync_status SET status = 'Incomplete';");
+                            db.Execute("CREATE TRIGGER fail_required_lr2 BEFORE INSERT ON lr2_song_db_sync_status WHEN NEW.status = 'Completed' BEGIN SELECT RAISE(ABORT, 'root-required-lr2-failure'); END;");
+                        }
+                        operation = owner.SettingDialog.CommitBmsRootsAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "empty-root-confirm");
+                        Assert.AreEqual(newRoot, TestSettingsFactory.OpenSettings(settingsPath).BMSInstallDir);
+                        if (recovery == 5)
+                        {
+                            Assert.AreEqual(0, library.BmsCharts.Count);
+                            Assert.AreEqual(0, library.BmsonCharts.Count);
+                            using (LR2SongDBExtended db = composition.DatabaseScope.OpenSongReadOnly(database))
+                            {
+                                Assert.AreEqual(0, db.Table<LR2SongDB.song>().Count());
+                                Assert.AreEqual(0, db.Table<LR2SongDBExtended.bmson_song>().Count());
+                            }
+                            Assert.IsFalse(composition.OperationAdmission.IsActive);
+                            Assert.IsNotNull(failureProbe);
+                            using (BMSLibrary.OperationDialogScope deniedDialogs = library.BeginOperationDialogScope())
+                            {
+                                Assert.IsFalse(library.ForceInstallPendingPackagesWithReceipt([failureProbe], true, null).DurableCommit,
+                                    "必須LR2が失敗した後は有効な導入要求も未収束として拒否します。");
+                                Assert.AreEqual(1, deniedDialogs.Messages.Count);
+                            }
+                            Assert.IsTrue(File.Exists(Path.Combine(failureProbe.path, "chart.bms")));
+                            Assert.IsTrue(failures.Any(failure => failure.ToString().Contains("root-required-lr2-failure", StringComparison.Ordinal)));
+                            failures.Clear();
+                            using (LR2SongDBExtended db = composition.DatabaseScope.OpenSongWrite(database)) { db.Execute("DROP TRIGGER fail_required_lr2;"); }
+                            operation = owner.SettingDialog.CommitBmsRootsAsync();
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "empty-root-required-lr2-recovery");
+                            operation = library.RemovePendingPackagesAsync([failureProbe], () => Task.CompletedTask);
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "empty-root-failure-probe-cleanup");
+                        }
+                        if (recovery == 3)
+                        {
+                            CollectionAssert.AreEqual(new[] { duplicate }, library.BmsCharts.Select(chart => chart.Path).ToArray());
+                            Assert.AreEqual(0, library.BmsonCharts.Count);
+                            Assert.IsNull(LibraryResourceIndexTestSupport.GetOwner(library).CaptureSnapshot().DirectoryLookupCache.GetEntryOrNull(oldFolder));
+                            Assert.AreSame(retainedResource, LibraryResourceIndexTestSupport.GetOwner(library).CaptureSnapshot().DirectoryLookupCache.GetEntryOrNull(duplicateFolder));
+                            Assert.IsTrue(library.TryGetInstalledDirectoryByHash(oldChart.Md5, out _));
+                            Assert.IsTrue(warnings.Any(text => text.Contains("empty_scan_with_existing_db", StringComparison.Ordinal)));
+                            Assert.IsFalse(composition.OperationAdmission.IsActive);
+                            using (BMSLibrary.OperationDialogScope deniedDialogs = library.BeginOperationDialogScope())
+                            {
+                                Assert.IsNull(library.RenameChartFolderWithReceipt(duplicateFolder, "Protected"), "未収束の有効改名は着手前に拒否され、確定事実を返しません。");
+                                Assert.AreEqual(1, deniedDialogs.Messages.Count);
+                            }
+                            Assert.IsTrue(Directory.Exists(duplicateFolder));
+                            owner.SettingDialog.BmsRootPathList.Remove(duplicateFolder);
+                            scanner.Current = new FastDirectoryFileScanner();
+                            warnings.Clear();
+                            operation = owner.SettingDialog.CommitBmsRootsAsync();
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "empty-root-protected-recovery");
+                        }
+                        if (recovery is 1 or 2 or 4)
+                        {
+                            Assert.AreEqual(2, library.BmsCharts.Count);
+                            Assert.IsFalse(composition.OperationAdmission.IsActive);
+                            using (BMSLibrary.OperationDialogScope deniedDialogs = library.BeginOperationDialogScope())
+                            {
+                                Assert.IsNull(library.RenameChartFolderWithReceipt(oldFolder, "Blocked"), "親受付解放後も未収束の有効改名を着手前に拒否します。");
+                                Assert.AreEqual(1, deniedDialogs.Messages.Count);
+                            }
+                            Assert.IsTrue(Directory.Exists(oldFolder));
+                            if (recovery == 4)
+                            {
+                                Assert.IsTrue(failures.Any(failure => failure.ToString().Contains("root-delete-failure", StringComparison.Ordinal)));
+                                failures.Clear();
+                                using LR2SongDBExtended db = composition.DatabaseScope.OpenSongWrite(database);
+                                db.Execute("DROP TRIGGER fail_root_removal;");
+                            }
+                            scanner.Current = new FastDirectoryFileScanner();
+                            operation = recovery != 2 ? owner.SettingDialog.CommitBmsRootsAsync() : owner.ReloadFileDiffAsync();
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "empty-root-recover");
+                        }
+                        AssertEmpty();
+                        Assert.IsFalse(library.TryGetInstalledDirectoryByHash(oldChart.Md5, out _));
+                        Assert.IsNull(library.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out _, out _).ResolveChartForPlaylistEntry(entry));
+                        Assert.IsTrue(library.DuplicateChartGroups == null || library.DuplicateChartGroups.Count == 0);
+                        Assert.IsFalse(warnings.Any(text => text.Contains("empty_scan_with_existing_db", StringComparison.Ordinal)));
+                        Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                        foreach (bool manual in recovery == 0 ? new[] { true, false } : new[] { false })
+                        {
+                            string title = manual ? "Manual" : "Automatic";
+                            string source = Directory.CreateDirectory(Path.Combine(root, title)).FullName;
+                            File.WriteAllText(Path.Combine(source, "chart.bms"), "#PLAYER 1\n#TITLE " + title + "\n#BPM 120\n#WAV01 new.wav\n#00111:01\n");
+                            File.WriteAllBytes(Path.Combine(source, "new.wav"), [4, 5, 6]);
+                            values.KeepInstallablePackagesPending = manual;
+                            Task<PackageInstallCommandResult> import = library.InstallChartPackagesAutoWithProgressAsync([source], CancellationToken.None,
+                                new InstallServiceComponentTestSupport.RecordingPackageInstallProgressWriter());
+                            operation = import;
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(import, "empty-root-import-" + title);
+                            Assert.IsFalse(import.Result.HasRequiredFailure, import.Result.EstimationFailure?.ToString());
+                            if (manual)
+                            {
+                                ChartPackage package = library.ChartPackagesPending.Single(package => package.path == source);
+                                LibraryMutationSessionReceipt installed = library.ForceInstallPendingPackagesWithReceipt([package], true, null);
+                                Assert.IsTrue(installed.DurableCommit, installed.PrimaryFailure?.ToString());
+                            }
+                            ChartFile installedChart = library.BmsCharts.Single(chart => chart.RawTitle == title);
+                            string installedFolder = Path.GetDirectoryName(installedChart.Path) ?? throw new AssertFailedException();
+                            Assert.IsTrue(installedFolder.StartsWith(newRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+                            Assert.IsTrue(File.Exists(installedChart.Path));
+                            if (recovery != 0) { continue; }
+                            LibraryMutationSessionReceipt renamed = library.RenameChartFolderWithReceipt(installedFolder, title + "Renamed");
+                            Assert.IsTrue(renamed.DurableCommit, renamed.PrimaryFailure?.ToString());
+                            ChartFile renamedChart = library.BmsCharts.Single(chart => chart.RawTitle == title);
+                            LibraryChartRemovalPreflight removal = library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(renamedChart)]);
+                            library.RemoveLibraryCharts(removal, false, removal.WholeFolderCandidatePaths);
+                            Assert.IsFalse(File.Exists(renamedChart.Path));
+                            AssertEmpty();
+                        }
+                        if (recovery == 0)
+                        {
+                            operation = owner.ReloadFileDiffAsync();
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "empty-root-no-resurrection");
+                            AssertEmpty();
+                        }
+                    }
+                    finally
+                    {
+                        try { if (operation != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "empty-root-operation-cleanup"); } }
+                        finally
+                        {
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "empty-root-shutdown");
+                            owner.SettingDialog.Dispose();
+                        }
+                    }
+                }
+            });
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     /// <summary>無効な検索ルートでは通常起動だけが初回言語選択／設定再表示を要求し、設定経由では重ねて表示せず、進捗 block と profile を残さないことを確認します。</summary>
     [TestMethod]
     [DataRow(true, false)]

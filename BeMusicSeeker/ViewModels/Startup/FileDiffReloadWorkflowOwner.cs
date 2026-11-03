@@ -17,14 +17,19 @@ internal sealed class FileDiffReloadRequest
     /// <param name="capability">同じownerが受理した操作の生存権限。実モデルを更新する呼出元は全必須継続の実終端まで所有します。</param>
     /// <param name="progressRequest">受理した親の表示世代と操作識別。必須LR2へ同じ発生元を直接渡します。</param>
     /// <param name="warningObserver">今回の走査警告を親解放後の通知へ持ち出す局所境界。</param>
-    internal FileDiffReloadRequest(string reason, long operationToken, LibraryFileMutationCapability capability = null, OperationProgressRequest progressRequest = null, Action<LibraryScanWarning> warningObserver = null)
+    /// <param name="searchRoots">設定確定後に捕捉した最終実検索範囲。同値再確定も通常の差分として渡します。</param>
+    internal FileDiffReloadRequest(string reason, long operationToken, LibraryFileMutationCapability capability = null, OperationProgressRequest progressRequest = null, Action<LibraryScanWarning> warningObserver = null, Lr2SearchRootSnapshot searchRoots = null)
     {
         Reason = reason ?? string.Empty;
         OperationToken = operationToken;
         Capability = capability;
         ProgressRequest = progressRequest;
         WarningObserver = warningObserver;
+        SearchRoots = searchRoots;
     }
+
+    /// <summary>設定の親受付内で確定後に捕捉した最終実検索範囲。通常再読込みは最新登録から捕捉します。</summary>
+    internal Lr2SearchRootSnapshot SearchRoots { get; }
 
     /// <summary>この操作だけの走査警告を、親解放後に通知する呼出元へ渡します。</summary>
     internal Action<LibraryScanWarning> WarningObserver { get; }
@@ -76,6 +81,10 @@ internal sealed class FileDiffReloadWorkflowResult
 
     /// <summary>今回の必須ファイル変更の結果。受付外の明示後続へ渡します。</summary>
     internal LibraryFileInitializationResult FileResult { get; }
+
+    /// <summary>完全反映と必須LR2・参照の終端後に、必須UI成功を条件として収束を公開できます。</summary>
+    internal bool CatalogConvergenceReady => FileResult.CatalogFullyApplied
+        && (Lr2QueueResult.WasQueued || FileResult.Options?.OperationModeLR2DB == false);
 
     /// <summary>
     /// 差分後に直接待ったLR2結果を取得します。

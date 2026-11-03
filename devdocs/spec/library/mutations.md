@@ -31,6 +31,8 @@
 
 ### 検索root確定後の保留再評価
 
+検索rootの確定では親受付内で保存後の最終実検索範囲を一度捕捉し、同じ差分走査へ直接渡します。設定候補の採用は保存したセクションだけとし、別セクションの未確定入力を保持します。範囲外の所持登録の解除と0件保護・収束終端は[再読込みの範囲](../runtime/startup.md#再読込みの範囲)に従います。
+
 検索root設定の確定、登録rootを含む所持フォルダの物理削除後の登録解除、通常カスタム出力基点の確定は、同じ保留再評価へ接続します。検索root設定では保存直後に再評価し、後続走査が失敗しても確定root・保留解除を維持します。元走査原因を保持し、通知は親設定操作のL/P解放後に完了します。追加・削除を区別せず、確定後の `Lr2SearchRootSnapshot.Roots` と同じ実走査root集合を使います。登録一覧の `RequestedRoots` や利用者一覧で代用せず、追加出力・ROOT出力の除外を維持します。
 
 実走査root自身・配下に元入力がある保留だけを参照とinstall記録から解除し、無関係な保留を保持します。元ファイル・フォルダ・管理一時入力は削除せず、公開の保留解除・回収APIも使いません。差分の作成からDB・一覧反映までを、既存保留更新と同じInitializedAll読取り・保留書込み・install DB書込みの順で短く保護します。DB確定後の一覧変更通知はモデル保護・親受付の解放後に渡し、保留ツリーと右クリック操作の入力を同じ現在一覧へ揃えます。
@@ -313,6 +315,7 @@ sequenceDiagram
 | --- | --- | --- |
 | 最後の有効譜面の除去と親子所有境界 | `LibraryMutationSession.ApplyFolderResourceChanges` | Windows `BmsLibraryMutationBoundaryTests.ChartOnlyMutation_MatchesIndependentFinalResourceIndex` が固定最終FSから独立構築した索引と六種資源を照合し、Core `LibraryResourceIndexOwnerTests.ApplyFolderChanges_PublishesSubtreeAndAncestorSixCategoriesTogether` が完全一致除去と子保持を確認する。 |
 | 存続BMSのTXTと資源のみ上書き | `LibraryMutationSession.Commit`、`CatalogMutationOwner` | Core `CatalogMutationOwnerTests.TextOnlyCommit_PreservesIdentityAndCandidateContent` と `BmsLibraryPackageInstallServiceTests` の導入・資源上書きが別SQLite接続、共通現在値、新旧全所属を照合する。 |
+| 検索rootの空範囲への確定・部分解除・回復・次の変更受付 | `BmsLibraryInitializationService`、`LibraryFileScanPipelineOwner`、`FileDiffReloadWorkflowOwner` | Core `BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_EmptyScanUnregistersOnlyOutsideFinalRoots` が形式・LR2・範囲の比較と実DBを確認する。Windows `SettingDialogEditCompletionTests.BmsConfirmation_EmptyRootRecoversAndAcceptsRealInstallations` が実設定・同一production libraryの全投影、失敗後の受付、同値／明示再読込み、手動・自動導入と改名・削除、保存媒体からの再起動を確認する。 |
 | 検索root解除後の新規作品と題名 | `BmsLibraryStateApplier`、`PackageLifecycleOwner` | Windows `MainWindowPackageMaintenanceWpfTests.RemovedSearchRoot_CompiledSettingsPrunesInstalledTreeOnSameLibrary` と `InstalledMixedFolderRelocationKeepsRowsSelectionAndUncommittedEditor` が実Binding、同live scan、一覧再選択と同ノード題名を確認する。 |
 | 単体導入packageの衝突先参照 | `PackageLifecycleOwner.CaptureCommittedPackagePaths` | Core `BmsLibraryDuplicateServiceTests.SingleFileInstall_MergeCollisionPublishesActualPackageAndExplorerPath` が実導入、統合、DB、token、Explorer要求を照合する。 |
 | 所持の一時DSTと成功directory通知 | `NormalLibraryRefreshPublisher`、`MainChartRowProjectionOwner` | Core `RegularChartNavigationTests.FolderSuccess_UpdatesOnlyOwnedTransientReferences` と `FolderSuccess_NotificationBatchDiscardsOnlyBeforeLastReset`、Windows `FullScanDestinationEditing_RealTreePreservesOriginAndFeedsExplicitRepair` が順序、寿命、実編集と修正先を確認する。 |

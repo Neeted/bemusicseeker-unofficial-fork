@@ -227,6 +227,26 @@ public sealed class FileDiffReloadWorkflowOwnerTests
         CollectionAssert.AreEqual(new[] { "reload" }, events);
     }
 
+    /// <summary>保護付き部分解除だけが完全LR2同期を見送ります。非反映は従来どおり必須同期を試み、どちらも収束成功にしません。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ReloadAsync_PartialRemovalSkipsLr2OnlyAndBothKeepConvergenceClosed(bool protectedPartialRemoval)
+    {
+        var events = new List<string>();
+        var runtime = new RecordingRuntime(events);
+        var input = new LibraryFileInitializationResult(options: new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true })
+        { SkipLr2Synchronization = protectedPartialRemoval };
+        var owner = new FileDiffReloadWorkflowOwner(_ => Task.FromResult(input), CreateSyncOwner(runtime),
+            _ => { events.Add("playlist"); return Task.CompletedTask; });
+        FileDiffReloadWorkflowResult result = await owner.ReloadAsync(new("protected_root_change", 1));
+        Assert.AreEqual(protectedPartialRemoval ? Lr2SongDbSyncQueueStatus.SkippedIncompleteFileScan : Lr2SongDbSyncQueueStatus.Queued,
+            result.Lr2QueueResult.Status);
+        Assert.AreEqual(protectedPartialRemoval ? 0 : 1, runtime.QueueCount);
+        CollectionAssert.AreEqual(protectedPartialRemoval ? new[] { "playlist" } : new[] { "lr2", "playlist" }, events);
+        Assert.IsFalse(result.CatalogConvergenceReady);
+    }
+
     /// <summary>
     /// 再読込み・LR2・playlistの依存が欠落した構築を拒否し、部分的な処理系を成立させない。
     /// </summary>

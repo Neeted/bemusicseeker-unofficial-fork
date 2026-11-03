@@ -358,7 +358,7 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
     {
         if (library.IsShutdownRequested) { throw new OperationCanceledException(); }
         BmsLibraryOptionsSnapshot options = fileResult.Options ?? library.Lr2Synchronization.CurrentOptionsSnapshot;
-        bool syncNeeded = options.OperationModeLR2DB && library.Lr2Synchronization.EvaluateLr2SongDbSyncStatus(
+        bool syncNeeded = !fileResult.SkipLr2Synchronization && options.OperationModeLR2DB && library.Lr2Synchronization.EvaluateLr2SongDbSyncStatus(
             true, DateTime.UtcNow).IsNeeded;
         if (fileResult.NormalOutputBasePathChange is { } pathChange)
         {
@@ -370,9 +370,12 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
             capability.PlaylistCapability, originatingRequest, customFolderSettings, forceBeatorajaBmtProjection,
             fileResult.NormalOutputBasePathChange).ConfigureAwait(false);
         Exception lr2Failure = null;
+        bool convergenceReady = false;
         try
         {
-            await lr2Workflow.SynchronizeRequiredAsync("required_initialization", fileResult, prepared, capability, originatingRequest, options).ConfigureAwait(false);
+            bool synchronized = !fileResult.SkipLr2Synchronization
+                && await lr2Workflow.SynchronizeRequiredAsync("required_initialization", fileResult, prepared, capability, originatingRequest, options).ConfigureAwait(false);
+            convergenceReady = fileResult.CatalogFullyApplied && (!options.OperationModeLR2DB || synchronized);
         }
         catch (OperationCanceledException) when (library.IsShutdownRequested) { throw; }
         catch (Exception failure)
@@ -383,7 +386,7 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
             Task.FromException(failure).ObserveFault("RequiredStartupLr2Sync");
         }
         if (library.IsShutdownRequested) { throw new OperationCanceledException(); }
-        return new(fileResult, lr2Failure, chartInfo);
+        return new(fileResult, lr2Failure, chartInfo, CatalogConvergenceReady: convergenceReady);
     }
 
     /// <summary>
@@ -455,6 +458,7 @@ internal sealed class StartupRequiredOperationLease : IDisposable
 }
 
 /// <summary>ローカル成功・LR2単独失敗と、親受付解放後に引き渡す明示終了選択を区別します。ローカル失敗は例外で伝播します。</summary>
+/// <param name="CatalogConvergenceReady">正本・索引・必須LR2と参照の終端が成功し、必須UIの成功後に受付へ公開できる事実です。</param>
 /// <param name="ExitRequested">保留復元の選択で明示した終了です。通常成功と出力・後続の開始より前に、親受付解放後の既存Closeへ渡します。</param>
 internal sealed record StartupRequiredInitializationResult(LibraryFileInitializationResult FileResult, Exception Lr2Failure,
-    RequiredChartInfoHydrationResult ChartInfo = null, bool ExitRequested = false);
+    RequiredChartInfoHydrationResult ChartInfo = null, bool ExitRequested = false, bool CatalogConvergenceReady = false);

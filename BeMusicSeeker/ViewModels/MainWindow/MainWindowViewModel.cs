@@ -221,8 +221,8 @@ public partial class MainWindowViewModel : ViewModel,
     Task<StartupInitializationResult> ISettingsDialogStatePort.ReloadScoresOnlyAsync(LibraryFileMutationCapability capability)
         => ReloadScoresOnlyUnderAdmissionAsync(capability);
 
-    Task<StartupInitializationResult> ISettingsDialogStatePort.ReloadFileDiffAsync(LibraryFileMutationCapability capability)
-        => ReloadFileDiffUnderAdmissionAsync(capability);
+    Task<StartupInitializationResult> ISettingsDialogStatePort.ReloadFileDiffAsync(LibraryFileMutationCapability capability, Lr2SearchRootSnapshot searchRoots)
+        => ReloadFileDiffUnderAdmissionAsync(capability, searchRoots);
 
     void ISettingsDialogStatePort.ReevaluatePendingPackagesForSearchRoots(LibraryFileMutationCapability capability, out Action publication)
         => files.ReevaluatePendingPackagesForSearchRoots(capability, out publication);
@@ -2283,7 +2283,7 @@ public partial class MainWindowViewModel : ViewModel,
             request => Task.Run(delegate
             {
                 LogInitStage("file_diff_reload_call", "ReloadFileDiff");
-                return files.ReloadFileDiff(request.Capability, request.WarningObserver);
+                return files.ReloadFileDiff(request.Capability, request.WarningObserver, request.SearchRoots);
             }),
             Lr2SongDbSyncWorkflow,
             _ => tables.ApplyRequiredLibraryReferencesAsync());
@@ -2980,7 +2980,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     /// <summary>差分再読込みの停止・変更・必要参照までL/Pを所有し、受付外で表示と失敗通知を終えます。未受理ならnull、受理済みなら実終端結果を返します。</summary>
     internal Task<StartupInitializationResult> ReloadFileDiffAsync()
-        => RunLibraryInputOperationAsync(ReloadFileDiffUnderAdmissionAsync, "ReloadFileDiff", requiresPlaylist: true);
+        => RunLibraryInputOperationAsync(capability => ReloadFileDiffUnderAdmissionAsync(capability), "ReloadFileDiff", requiresPlaylist: true);
 
     /// <summary>有限の入力変更を非待機で受け付け、局所結果を親解放後の同じ必須UI終端へ渡します。</summary>
     private async Task<StartupInitializationResult> RunLibraryInputOperationAsync(Func<LibraryFileMutationCapability, Task<StartupInitializationResult>> operation, string routeName, bool requiresPlaylist = false)
@@ -3030,7 +3030,7 @@ public partial class MainWindowViewModel : ViewModel,
             : new(StartupInitializationOutcome.OperationFailed, GetStartupSettingsSnapshot(), operationToken, Failure: failure, OperationKind: kind);
 
     /// <summary>同じL/Pで差分と必要LR2・保存済み表参照を終え、実表示前の結果を返します。</summary>
-    private async Task<StartupInitializationResult> ReloadFileDiffUnderAdmissionAsync(LibraryFileMutationCapability capability)
+    private async Task<StartupInitializationResult> ReloadFileDiffUnderAdmissionAsync(LibraryFileMutationCapability capability, Lr2SearchRootSnapshot searchRoots = null)
     {
         if (!initializationStatePort.IsInitializationCompleted) { return null; }
         await PlaybackPanel.StopPlaybackForMutationAsync();
@@ -3044,9 +3044,9 @@ public partial class MainWindowViewModel : ViewModel,
         try
         {
             FileDiffReloadWorkflowResult result = await FileDiffReloadWorkflow.ReloadAsync(new("ReloadFileDiff", operationToken, capability,
-                new(startupBackgroundTaskScheduler.CurrentGeneration, operationToken, "reload_file_diff", operationToken), warning => scanWarnings.TryAdd(warning.Kind, warning))).LoggingAndPropagate("ReloadFileDiff");
+                new(startupBackgroundTaskScheduler.CurrentGeneration, operationToken, "reload_file_diff", operationToken), warning => scanWarnings.TryAdd(warning.Kind, warning), searchRoots)).LoggingAndPropagate("ReloadFileDiff");
             operationResult = new(StartupInitializationOutcome.Succeeded, GetStartupSettingsSnapshot(), operationToken,
-                RequiredResult: new(result.FileResult, null), OperationKind: StartupProgressOperationKind.ReloadFileDiff, BackupNotifications: CaptureNotifications());
+                RequiredResult: new(result.FileResult, null, CatalogConvergenceReady: result.CatalogConvergenceReady), OperationKind: StartupProgressOperationKind.ReloadFileDiff, BackupNotifications: CaptureNotifications());
         }
         catch (Exception failure) { operationResult = CreateLimitedInitializationFailure(operationToken, StartupProgressOperationKind.ReloadFileDiff, failure) with { BackupNotifications = CaptureNotifications() }; }
         finally { EndUiUpdateSuppression(scheduleFlush: false); _semaphore.Release(); }
@@ -3309,6 +3309,7 @@ public partial class MainWindowViewModel : ViewModel,
                 if (IsRequiredInitializationShutdownRequested) { throw new OperationCanceledException(); }
                 if (!IsStartupCompletionTokenCurrent(operationToken)) { return result; }
             }
+            if (result.RequiredResult?.CatalogConvergenceReady == true) { files.MarkCatalogPathConvergenceCompleted(); }
             startupReadyUiReached = true;
             startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyUi, operationToken);
             if (!IsStartupCompletionTokenCurrent(operationToken)) { return result; }

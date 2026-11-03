@@ -146,13 +146,17 @@ internal sealed class SettingsDialogHarness : IDisposable
 
         public void ReevaluatePendingPackagesForSearchRoots(LibraryFileMutationCapability capability, out Action publication) { publication = () => { }; }
 
-        public async Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null)
+        /// <summary>設定が直近の差分要求へ渡した最終実検索範囲。設定側の捕捉と転送を確認します。</summary>
+        internal Lr2SearchRootSnapshot? LastSearchRoots { get; private set; }
+
+        public async Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null, Lr2SearchRootSnapshot? searchRoots = null)
         {
             FileDiffReloadCount++;
+            LastSearchRoots = searchRoots;
             if (ReloadFileDiffWorkflowOwner != null)
             {
                 await ReloadFileDiffWorkflowOwner.ReloadAsync(
-                    new FileDiffReloadRequest("SettingsDialog.SearchRoot", 0L));
+                    new FileDiffReloadRequest("SettingsDialog.SearchRoot", 0L, searchRoots: searchRoots));
                 return new(StartupInitializationOutcome.Succeeded);
             }
             await (ReloadFileDiffHandler?.Invoke() ?? Task.CompletedTask);

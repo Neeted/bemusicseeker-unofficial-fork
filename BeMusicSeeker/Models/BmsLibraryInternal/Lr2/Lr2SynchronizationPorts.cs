@@ -84,8 +84,8 @@ internal sealed class Lr2SearchRootSnapshot
         int configuredCustomOutputRootCount,
         IReadOnlyList<string> requestedRoots = null)
     {
-        Roots = roots ?? [];
-        RequestedRoots = requestedRoots ?? Roots;
+        Roots = Array.AsReadOnly((roots ?? []).ToArray());
+        RequestedRoots = Array.AsReadOnly((requestedRoots ?? Roots).ToArray());
         RequestedRootCount = requestedRootCount;
         ExistingRootCount = existingRootCount;
         ExcludedCustomOutputRootCount = excludedCustomOutputRootCount;

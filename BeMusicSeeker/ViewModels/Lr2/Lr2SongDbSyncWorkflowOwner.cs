@@ -21,7 +21,10 @@ internal enum Lr2SongDbSyncQueueStatus
     SkippedUnavailable,
 
     /// <summary>LまたはPが競合し、準備前に見送った要求。予約や自動再実行を行いません。</summary>
-    SkippedCompeting
+    SkippedCompeting,
+
+    /// <summary>今回の差分が保護付き部分解除のため、完全な生成面を持たない全体同期を見送ります。</summary>
+    SkippedIncompleteFileScan
 }
 
 /// <summary>
@@ -234,6 +237,10 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
         LibraryFileMutationCapability capability = null, LibraryFileInitializationResult initializationResult = null)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (initializationResult?.SkipLr2Synchronization == true)
+        {
+            return new Lr2SongDbSyncQueueResult(request, Lr2SongDbSyncQueueStatus.SkippedIncompleteFileScan);
+        }
         if (!CanRun())
         {
             return new Lr2SongDbSyncQueueResult(request, Lr2SongDbSyncQueueStatus.SkippedUnavailable);

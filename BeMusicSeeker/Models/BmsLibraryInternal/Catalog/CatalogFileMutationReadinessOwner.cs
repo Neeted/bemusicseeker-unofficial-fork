@@ -59,8 +59,8 @@ internal sealed class CatalogFileMutationReadinessOwner
     }
 
     /// <summary>
-    /// Publishes convergence after the authoritative scan diff and canonical
-    /// catalog storage replacement have both completed successfully.
+    /// 完全走査の正本・索引と、入口が必要とするLR2・参照・表示の終端成功後に収束を公開します。
+    /// 部分解除や保存だけの成功では呼び出しません。
     /// </summary>
     internal void MarkConverged()
     {

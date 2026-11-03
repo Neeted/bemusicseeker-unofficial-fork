@@ -15,6 +15,12 @@ internal sealed record LibraryFileInitializationResult
         CommittedBmsPaths = (committedBmsPaths ?? []).ToFrozenSet(StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <summary>正本とcatalogの完全反映の事実です。必要LR2・参照の終端は呼出元が確認します。</summary>
+    internal bool CatalogFullyApplied { get; init; }
+
+    /// <summary>保護付き部分解除のため、完全な生成面を持たない全体同期を見送る事実です。不完全走査・保護のみのskipなど従来の経路には設定しません。</summary>
+    internal bool SkipLr2Synchronization { get; init; }
+
     /// <summary>ファイル確定と同じ操作で捕捉した設定。後段の生成・探索へ再読なしで渡します。</summary>
     internal BmsLibraryOptionsSnapshot Options { get; }
 

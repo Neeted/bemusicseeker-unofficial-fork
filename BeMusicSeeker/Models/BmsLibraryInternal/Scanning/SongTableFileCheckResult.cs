@@ -4,6 +4,14 @@ using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>一回の完全走査を正本へ反映した範囲です。不完全走査は非反映のままです。</summary>
+internal enum FileScanApplicationOutcome
+{
+    NotApplied,
+    AppliedWithProtectedRows,
+    Applied
+}
+
 internal sealed class SongTableFileCheckResult
 {
     public List<string> Pragmas { get; } = [];
@@ -50,6 +58,12 @@ internal sealed class SongTableFileCheckResult
     public bool ScanFallbackUsed { get; set; }
 
     public string ScanFallbackReason { get; set; } = string.Empty;
+
+    /// <summary>非反映、範囲内保護付き解除、完全反映を区別します。</summary>
+    internal FileScanApplicationOutcome ApplicationOutcome { get; set; }
+
+    /// <summary>0件保護した最終実検索範囲。空の場合は保護付き解除ではありません。</summary>
+    internal IReadOnlyList<string> ProtectedSearchRoots { get; set; } = [];
 
     public bool EmptyScanWithExistingDbSkipped { get; set; }
 

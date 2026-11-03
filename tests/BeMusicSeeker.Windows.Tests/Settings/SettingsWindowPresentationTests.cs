@@ -5490,7 +5490,7 @@ public sealed class SettingsWindowPresentationTests
 
         public void ReevaluatePendingPackagesForSearchRoots(LibraryFileMutationCapability capability, out Action publication) { publication = () => { }; }
 
-        public Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
+        public Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null, Lr2SearchRootSnapshot? searchRoots = null) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
 
         public event EventHandler LibraryOperationAvailabilityChanged
         {
@@ -5674,7 +5674,7 @@ public sealed class SettingsWindowPresentationTests
 
         public void ReevaluatePendingPackagesForSearchRoots(LibraryFileMutationCapability capability, out Action publication) { publication = () => { }; }
 
-        public Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
+        public Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null, Lr2SearchRootSnapshot? searchRoots = null) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
 
         public event EventHandler LibraryOperationAvailabilityChanged
         {
@@ -5733,7 +5733,7 @@ public sealed class SettingsWindowPresentationTests
 
         public void ReevaluatePendingPackagesForSearchRoots(LibraryFileMutationCapability capability, out Action publication) { publication = () => { }; }
 
-        public Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null)
+        public Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null, Lr2SearchRootSnapshot? searchRoots = null)
             => ReloadFileDiff?.Invoke() ?? Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
 
         public event EventHandler? LibraryOperationAvailabilityChanged;

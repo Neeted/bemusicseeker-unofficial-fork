@@ -2838,7 +2838,6 @@ public partial class BMSLibrary : ObservableObject
             LogEverythingScan,
             LogStartupMemoryCheckpoint,
             GetDisplayedExceptionMessage,
-            MarkCatalogPathConvergenceCompleted,
             reason => { QueueEverythingFallbackWarning(reason); },
             reason => { QueueFileScanSkippedIncompleteWarning(reason); },
             reason => { QueueEmptyScanWithExistingDbWarning(reason); },
@@ -5182,7 +5181,11 @@ public partial class BMSLibrary : ObservableObject
         TimeSpan timeSpan2 = DateTime.UtcNow - now;
         NLogWrapper.DebuggerLogger?.Trace(timeSpan2.ToString());
         synchronizationInput = synchronizationInput with { FollowUp = new(deferredMaintenanceReason, !isScoreOnly, installableElapsedMs) };
-        if (capability == null) { ScheduleInitializationFollowUp(synchronizationInput.FollowUp); }
+        if (capability == null)
+        {
+            if (synchronizationInput.CatalogFullyApplied) { MarkCatalogPathConvergenceCompleted(); }
+            ScheduleInitializationFollowUp(synchronizationInput.FollowUp);
+        }
         LogInstallPerformance("init_library saved_data_ms=" + initializeResult.SavedDataMs
             + " files_projection_ms=" + initializeResult.FilesAndProjectionMs + " wait_continuation_ms=" + initializeResult.WaitContinuationMs
             + " total_ms=" + initializeResult.TotalMs);
@@ -5568,8 +5571,9 @@ public partial class BMSLibrary : ObservableObject
     /// <summary>新しい差分要求として共通受付を取得します。Busyは変更前に拒否し、受理時はDB確定とcleanupまで保持します。</summary>
     public void ReloadFileDiff() => ReloadFileDiff(null);
 
-    /// <summary>受理済み差分の共通権限を借用し、ファイル検査・DB確定・cleanupを完了します。</summary>
-    internal LibraryFileInitializationResult ReloadFileDiff(LibraryFileMutationCapability capability, Action<LibraryScanWarning> warningObserver = null)
+    /// <summary>受理済み差分の共通権限を借用し、ファイル検査・DB確定・cleanupを完了します。完全反映の事実を外側の必要LR2・表示終端へ返します。</summary>
+    /// <param name="searchRoots">設定確定後に捕捉した最終実検索範囲。通常再読込みは現在の確定登録から捕捉します。</param>
+    internal LibraryFileInitializationResult ReloadFileDiff(LibraryFileMutationCapability capability, Action<LibraryScanWarning> warningObserver = null, Lr2SearchRootSnapshot searchRoots = null)
     {
         using var progressScope = new LibraryInitializationProgressScope(
             libraryInitializationProgressContext, Interlocked.Read(ref libraryInitializationProgressOperationToken));
@@ -5603,7 +5607,9 @@ public partial class BMSLibrary : ObservableObject
                 mutationCapability.Validate(OperationAdmission);
                 ResetCatalogPathConvergence();
                 options = CurrentOptionsSnapshot;
-                directoryPreflightRequest = CaptureDirectoryPreflightRequest(options);
+                directoryPreflightRequest = searchRoots == null ? CaptureDirectoryPreflightRequest(options)
+                    : directoryPreflightService.CreateRequest(searchRoots.RequestedRoots,
+                        searchRoots.Roots, options);
                 directoryPreflightService.EnsureAvailable(
                     directoryPreflightRequest,
                     probeOutputBases: true);
@@ -5634,7 +5640,7 @@ public partial class BMSLibrary : ObservableObject
                             LibraryInitializationProgressStage.FileEnumeration,
                             scannerLabel,
                             force: true),
-                        directoryPreflightRequest, warningObserver);
+                        directoryPreflightRequest, warningObserver, searchRoots);
                     Lr2FolderTableSnapshot folderTableSnapshot = bmsDirectories.Count > 0
                         ? initializationService.LoadFolderTableSnapshot(dbGateway, options) : null;
                     Lr2FolderFileDiffPreparationResult scanPreparation = libraryFileScanPipelineOwner.ApplyActiveFileScan(
@@ -5686,6 +5692,7 @@ public partial class BMSLibrary : ObservableObject
             throw;
         }
         InvokePostLeaseNotificationsBestEffort(postLeaseEffects);
+        if (capability == null && synchronizationInput.CatalogFullyApplied) { MarkCatalogPathConvergenceCompleted(); }
         return synchronizationInput;
     }
 
@@ -6040,8 +6047,8 @@ public partial class BMSLibrary : ObservableObject
     }
 
     /// <summary>
-    /// Marks the current catalog generation as path-converged after an
-    /// authoritative scan diff and canonical catalog replacement succeed.
+    /// 完全走査の正本・索引と、この入口が所有する必要LR2・参照・公開の終端成功後に収束を公開します。
+    /// 借用入口は必須UIも含む外側の終端まで結果を返し、部分解除・非反映・失敗では呼びません。
     /// </summary>
     internal void MarkCatalogPathConvergenceCompleted()
     {

@@ -645,7 +645,7 @@ public partial class SettingsDialogViewModel
                 if (statePort.HasActiveLibraryProfile)
                 {
                     statePort.ReevaluatePendingPackagesForSearchRoots(capability, out pendingPublication);
-                    return await ReloadFileDiffAsync(capability);
+                    return await ReloadFileDiffAsync(capability, CaptureConfirmedSearchRoots());
                 }
                 return null;
             }
@@ -654,6 +654,15 @@ public partial class SettingsDialogViewModel
         }
         catch (Exception exception) { if (!operationAdmission.IsAdmissionClosed) { reportApplyFailure(exception); } }
         finally { IsEditCompletionInProgress = false; RaiseEnvironmentAvailabilityChanged(); }
+    }
+
+    /// <summary>利用者候補ではなく確定済み登録と配置から、存在確認前の実検索範囲を捕捉します。</summary>
+    private Lr2SearchRootSnapshot CaptureConfirmedSearchRoots()
+    {
+        BmsLibraryOptionsSnapshot options = BmsLibraryOptionsSnapshot.CreateCurrent(ApplicationSettings,
+            customFolderOutputPort.CustomFolderOutputSettings) with
+        { StandaloneBmsRootPaths = bmsRootRegistrations.CaptureStandaloneRoots() };
+        return new Lr2SearchRootSnapshotOwner(GetConfirmedLr2Owner(), () => options).CaptureForUpdate(options);
     }
 
     /// <summary>BMS候補と局所代替導入先を最新公開値へ戻します。媒体の読取り・保存は行いません。</summary>

@@ -4,7 +4,9 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
 using static BeMusicSeeker.TestSupport.Components.BmsLibraryInitializationFileScanTestSupport;
 using static BeMusicSeeker.TestSupport.Components.BmsLibraryInitializationTestSupport;
 namespace BeMusicSeeker.Tests;
@@ -14,6 +16,156 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryInitializationFileScanTests
 {
     private readonly ApplicationDatabaseScope databaseScope = new();
+
+
+    /// <summary>完全0件では最終範囲外の登録だけを通常差分で解除します。形式・LR2 mode・親子包含・重複大小文字・共通prefix兄弟を入力し、範囲内保護と旧実bytesの保持を実DBで確認します。</summary>
+    [TestMethod]
+    [DataRow("bms", false, 0)]
+    [DataRow("bmson", false, 0)]
+    [DataRow("mixed", false, 0)]
+    [DataRow("bms", true, 0)]
+    [DataRow("bmson", true, 0)]
+    [DataRow("mixed", true, 0)]
+    [DataRow("bms", false, 1)]
+    [DataRow("bmson", false, 1)]
+    [DataRow("mixed", false, 1)]
+    [DataRow("bms", true, 1)]
+    [DataRow("bmson", true, 1)]
+    [DataRow("mixed", true, 1)]
+    [DataRow("bmson", false, 2)]
+    [DataRow("mixed", true, 2)]
+    [DataRow("mixed", false, 3)]
+    [DataRow("mixed", true, 3)]
+    public void ApplyFileScanDiff_EmptyScanUnregistersOnlyOutsideFinalRoots(string formats, bool lr2, int retainedScope)
+    {
+        WithTemporaryLr2SongDb((root, database) =>
+        {
+            string old = Directory.CreateDirectory(Path.Combine(root, "Old")).FullName;
+            string retained = Directory.CreateDirectory(Path.Combine(old, "Child")).FullName;
+            string sibling = Directory.CreateDirectory(Path.Combine(old, "ChildSibling")).FullName;
+            string empty = Directory.CreateDirectory(Path.Combine(root, "Empty")).FullName;
+            string[] extensions = formats == "mixed" ? ["bms", "bmson"] : [formats];
+            var rows = new List<ChartFile>();
+            var bytes = new Dictionary<string, byte[]>();
+            var expectedRemoved = new List<string>();
+            var expectedRetained = new List<string>();
+            foreach (string directory in new[] { old, retained, sibling })
+            {
+                foreach (string extension in extensions)
+                {
+                    string path = Path.Combine(directory, "chart." + extension);
+                    string text = extension == "bms" ? "#PLAYER 1\n#TITLE Registered\n#BPM 120\n#00111:01\n"
+                        : "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Registered\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[]}";
+                    File.WriteAllText(path, text);
+                    ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(path);
+                    rows.Add(extension == "bms" ? BmsChartFileParser.ParseSnapshot(snapshot) : BmsonChartFileParser.ParseSnapshot(snapshot));
+                    bytes[path] = File.ReadAllBytes(path);
+                    // 期待集合は入力役割から明記し、本番の包含計算を再利用しません。
+                    (retainedScope >= 2 || retainedScope == 1 && directory == retained ? expectedRetained : expectedRemoved).Add(path);
+                }
+            }
+
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), database);
+            gateway.EnsureLibraryStartupSchema();
+            ExecuteSongDbFixtureTransaction(databaseScope, database, db =>
+            {
+                db.CreateTable<LR2SongDB.song>(); BmsLibraryDbGateway.EnsureBmsonSchema(db);
+                foreach (ChartFile chart in rows)
+                {
+                    if (chart.Kind == ChartFileKind.Bms) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song)); }
+                    else { db.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(chart), typeof(LR2SongDBExtended.bmson_song)); }
+                }
+            });
+            string nested = Directory.CreateDirectory(Path.Combine(retained, "Nested")).FullName;
+            string[] roots = retainedScope == 2 ? [old, old.ToUpperInvariant(), retained]
+                : retainedScope == 1 ? [empty, retained.ToUpperInvariant(), retained, nested] : [empty];
+            var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = lr2, LR2RootPath = root };
+            SongTableFileCheckResult result = new BmsLibraryInitializationService().ApplyFileScanDiff(gateway,
+                new EverythingNative(ApplicationPathPolicy.Current), options, rows.Where(chart => chart.Kind == ChartFileKind.Bms),
+                new ChartScanExecutionResult
+                {
+                    Success = retainedScope != 3,
+                    IsComplete = retainedScope != 3,
+                    ScanSource = ChartScanSource.Everything,
+                    Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>())
+                },
+                0, () => throw new InvalidOperationException("prefetched only"), null,
+                currentBmsonSongs: rows.Where(chart => chart.Kind == ChartFileKind.Bmson),
+                effectiveSearchRoots: roots, rootFileEnumerator: new FastRootFileEnumerator());
+            Assert.AreEqual(retainedScope >= 2 ? FileScanApplicationOutcome.NotApplied : retainedScope == 1 ? FileScanApplicationOutcome.AppliedWithProtectedRows : FileScanApplicationOutcome.Applied, result.ApplicationOutcome);
+            Assert.AreEqual(retainedScope == 2, result.EmptyScanWithExistingDbSkipped, "範囲内だけを保護し、範囲外混在は部分解除、不完全は全非反映です。");
+            CollectionAssert.AreEquivalent(expectedRemoved, result.DeletedPaths.Concat(result.DeletedBmsonPaths).ToArray());
+            if (retainedScope < 2)
+            {
+                ProjectCatalogState(result, rows.Where(chart => chart.Kind == ChartFileKind.Bms).ToArray(), rows.Where(chart => chart.Kind == ChartFileKind.Bmson).ToArray());
+                CollectionAssert.AreEquivalent(expectedRetained, result.NextFiles.Concat(result.NextBmsonSongs).Select(chart => chart.Path).ToArray());
+            }
+            using LR2SongDBExtended fresh = gateway.OpenSongDbReadOnly();
+            CollectionAssert.AreEquivalent(expectedRetained, fresh.Table<LR2SongDB.song>().Select(row => row.path)
+                .Concat(fresh.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path)).ToArray());
+            foreach ((string path, byte[] original) in bytes) { CollectionAssert.AreEqual(original, File.ReadAllBytes(path)); }
+        });
+    }
+
+    /// <summary>実検索範囲の捕捉規則をそのまま保護範囲に使います。LR2の通常出力は保護範囲に入り、追加・ROOT出力配下の保存行だけが0件走査で解除されます。期待する範囲と集合は入力役割から明記します。</summary>
+    [TestMethod]
+    public void ApplyFileScanDiff_EmptyScanProtectsNormalOutputAndUnregistersAdditionalAndRootOutputRows()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        WithTemporaryLr2SongDb((root, database) =>
+        {
+            string user = Directory.CreateDirectory(Path.Combine(root, "user")).FullName;
+            string normal = Directory.CreateDirectory(Path.Combine(root, "normal")).FullName;
+            string normalChild = Directory.CreateDirectory(Path.Combine(normal, "child")).FullName;
+            string additional = Directory.CreateDirectory(Path.Combine(root, "additional")).FullName;
+            string rootOutput = Directory.CreateDirectory(Path.Combine(root, "root-output")).FullName;
+            Settings settings = TestSettingsFactory.OpenSettings(Path.Combine(root, "user.config"));
+            settings.OperationModeLR2DB = true;
+            settings.LR2CustomFolderOutputBaseDir = normal;
+            settings.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additional]);
+            settings.LR2CustomFolderOutputBaseDirRootType = rootOutput;
+            LR2Config xml = TestLr2ConfigFactory.CreateLr2Config(root, user, normal, additional, rootOutput);
+            settings.LR2ConfigXmlPath = xml.ConfigFilePath;
+            var owner = new Lr2ConfigOwner(xml);
+            BmsLibraryOptionsSnapshot options = BmsLibraryOptionsSnapshot.CreateCurrent(settings).WithLr2Input(owner.Capture());
+            Lr2SearchRootSnapshot captured = new Lr2SearchRootSnapshotOwner(owner, () => options).CaptureForUpdate(options);
+            // 通常出力は検索範囲に残り、追加・ROOT出力だけが除外されます。
+            CollectionAssert.AreEquivalent(new[] { user, normal }, captured.Roots.ToArray());
+
+            var rows = new List<ChartFile>();
+            foreach (string directory in new[] { user, normal, normalChild, additional, rootOutput })
+            {
+                string path = Path.Combine(directory, "chart.bms");
+                File.WriteAllText(path, "#PLAYER 1\n#TITLE Registered\n#BPM 120\n#00111:01\n");
+                rows.Add(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path)));
+            }
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), database);
+            gateway.EnsureLibraryStartupSchema();
+            ExecuteSongDbFixtureTransaction(databaseScope, database, db =>
+            {
+                db.CreateTable<LR2SongDB.song>(); BmsLibraryDbGateway.EnsureBmsonSchema(db);
+                foreach (ChartFile chart in rows) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song)); }
+            });
+            SongTableFileCheckResult result = new BmsLibraryInitializationService().ApplyFileScanDiff(gateway,
+                new EverythingNative(ApplicationPathPolicy.Current), options, rows,
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    IsComplete = true,
+                    ScanSource = ChartScanSource.Everything,
+                    Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>())
+                },
+                0, () => throw new InvalidOperationException("prefetched only"), null,
+                effectiveSearchRoots: captured.Roots, rootFileEnumerator: new FastRootFileEnumerator());
+            Assert.AreEqual(FileScanApplicationOutcome.AppliedWithProtectedRows, result.ApplicationOutcome);
+            CollectionAssert.AreEquivalent(
+                new[] { Path.Combine(additional, "chart.bms"), Path.Combine(rootOutput, "chart.bms") }, result.DeletedPaths.ToArray());
+            using LR2SongDBExtended fresh = gateway.OpenSongDbReadOnly();
+            CollectionAssert.AreEquivalent(
+                new[] { Path.Combine(user, "chart.bms"), Path.Combine(normal, "chart.bms"), Path.Combine(normalChild, "chart.bms") },
+                fresh.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
+        });
+    }
 
     /// <summary>同内容のBMS/BMSON更新は無視bitだけを新資源評価へ引き継ぎ、本文変更では解除します。実差分保存・現在値・不足対象索引を照合し、古い充足件数の復元を検出します。</summary>
     [TestMethod]

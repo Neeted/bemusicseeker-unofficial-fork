@@ -31,6 +31,8 @@ internal sealed class LibraryFileScanPipelineOwner
 
         internal List<string> RootDirectories { get; init; }
 
+        internal Lr2SearchRootSnapshot SearchRoots { get; init; }
+
         internal LibraryDirectoryPreflightRequest DirectoryPreflightRequest { get; init; }
 
         internal string Reason { get; init; }
@@ -66,8 +68,6 @@ internal sealed class LibraryFileScanPipelineOwner
     private readonly Action<string, string> logStartupMemoryCheckpoint;
 
     private readonly Func<Exception, string> getDisplayedExceptionMessage;
-
-    private readonly Action markCatalogPathConvergenceCompleted;
 
     private readonly Action<string> queueEverythingFallbackWarning;
 
@@ -114,7 +114,6 @@ internal sealed class LibraryFileScanPipelineOwner
     /// <param name="chartFileScanner">構成時に捕捉した譜面列挙窓口。nullは通常のEverything走査です。</param>
     /// <param name="rootFileEnumerator">構成時に捕捉したroot列挙窓口。nullは通常のLR2列挙です。</param>
     /// <param name="directoryPreflightService">更新前検査を共有する service。null の場合は通常構成を作成します。</param>
-    /// <param name="markCatalogPathConvergenceCompleted">正本の差分と目録差替え完了後に、このモデルのpath収束を公開します。</param>
     internal LibraryFileScanPipelineOwner(
         BmsLibraryDbGateway dbGateway,
         CatalogOwnedCollectionOwner catalogOwnedCollectionOwner,
@@ -128,7 +127,6 @@ internal sealed class LibraryFileScanPipelineOwner
         Action<string> logEverythingScan,
         Action<string, string> logStartupMemoryCheckpoint,
         Func<Exception, string> getDisplayedExceptionMessage,
-        Action markCatalogPathConvergenceCompleted,
         Action<string> queueEverythingFallbackWarning,
         Action<string> queueFileScanSkippedIncompleteWarning,
         Action<string> queueEmptyScanWithExistingDbWarning,
@@ -156,7 +154,6 @@ internal sealed class LibraryFileScanPipelineOwner
         this.logEverythingScan = logEverythingScan ?? throw new ArgumentNullException(nameof(logEverythingScan));
         this.logStartupMemoryCheckpoint = logStartupMemoryCheckpoint ?? throw new ArgumentNullException(nameof(logStartupMemoryCheckpoint));
         this.getDisplayedExceptionMessage = getDisplayedExceptionMessage ?? throw new ArgumentNullException(nameof(getDisplayedExceptionMessage));
-        this.markCatalogPathConvergenceCompleted = markCatalogPathConvergenceCompleted ?? throw new ArgumentNullException(nameof(markCatalogPathConvergenceCompleted));
         this.queueEverythingFallbackWarning = queueEverythingFallbackWarning ?? throw new ArgumentNullException(nameof(queueEverythingFallbackWarning));
         this.queueFileScanSkippedIncompleteWarning = queueFileScanSkippedIncompleteWarning ?? throw new ArgumentNullException(nameof(queueFileScanSkippedIncompleteWarning));
         this.queueEmptyScanWithExistingDbWarning = queueEmptyScanWithExistingDbWarning ?? throw new ArgumentNullException(nameof(queueEmptyScanWithExistingDbWarning));
@@ -186,12 +183,13 @@ internal sealed class LibraryFileScanPipelineOwner
     /// scanner に渡す root と、同じ操作で後段再検査する immutable request を登録します。
     /// </summary>
     /// <param name="directoryPreflightRequest">初回検査と後段再検査で共有する request。</param>
+    /// <param name="searchRoots">設定の親受付内で確定後に捕捉した最終実検索範囲。同値でも最終範囲外を解除します。</param>
     internal long BeginFileScanRequest(
         BmsLibraryOptionsSnapshot options,
         List<string> rootDirectories,
         string reason,
         Action<string> reportScanner = null,
-        LibraryDirectoryPreflightRequest directoryPreflightRequest = null, Action<LibraryScanWarning> warningObserver = null)
+        LibraryDirectoryPreflightRequest directoryPreflightRequest = null, Action<LibraryScanWarning> warningObserver = null, Lr2SearchRootSnapshot searchRoots = null)
     {
         BmsLibraryOptionsSnapshot registrationInput = options;
         rootDirectories ??= [];
@@ -219,6 +217,7 @@ internal sealed class LibraryFileScanPipelineOwner
                 Options = options,
                 RegistrationInput = registrationInput,
                 RootDirectories = confirmedRoots,
+                SearchRoots = searchRoots,
                 Reason = reason ?? string.Empty,
                 DirectoryPreflightRequest = directoryPreflightRequest,
                 WarningObserver = warningObserver
@@ -336,7 +335,7 @@ internal sealed class LibraryFileScanPipelineOwner
                 {
                     bmsRootRegistrations?.SaveRootChanges(scan.RegistrationInput, confirmedOptions);
                     registrationAdopted = true;
-                }, generatedAtUtc, scan.RegistrationInput.Lr2Input?.RegisteredRoots);
+                }, generatedAtUtc, scan.RegistrationInput.Lr2Input?.RegisteredRoots, scan.SearchRoots?.Roots);
             if (!registrationAdopted)
             {
                 return result.WithFileCheckResult(result.FileCheckResult,
@@ -618,7 +617,7 @@ internal sealed class LibraryFileScanPipelineOwner
         string reason,
         InstallDestinationCleanupSnapshot installDestinationCleanupSnapshot,
         Action<Action> postLeaseEffectObserver = null, LibraryFileMutationCapability capability = null, Action<LibraryScanWarning> warningObserver = null, Action saveConfirmedRoots = null, DateTime? generatedAtUtc = null,
-        IReadOnlyList<string> previousRootDirectories = null)
+        IReadOnlyList<string> previousRootDirectories = null, IReadOnlyList<string> effectiveSearchRoots = null)
     {
         if (installDestinationCleanupSnapshot == null)
         {
@@ -757,6 +756,7 @@ internal sealed class LibraryFileScanPipelineOwner
             {
                 saveConfirmedRoots?.Invoke();
                 if (lr2FolderFileDiffPreparationTask != null
+                    || partialResult.ApplicationOutcome == FileScanApplicationOutcome.AppliedWithProtectedRows
                     || !lr2FolderFileDiffOwner.CanPrepare(options, partialResult))
                 {
                     return;
@@ -828,8 +828,8 @@ internal sealed class LibraryFileScanPipelineOwner
                     { throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy); }
                     return playlistLease;
                 },
-                rootFileEnumerator: rootFileEnumerator, generatedAtUtc: generatedAtUtc);
-            if (fileCheckResult.EmptyScanWithExistingDbSkipped)
+                rootFileEnumerator: rootFileEnumerator, generatedAtUtc: generatedAtUtc, effectiveSearchRoots: effectiveSearchRoots ?? bmsDirectories);
+            if (fileCheckResult.EmptyScanWithExistingDbSkipped || fileCheckResult.ApplicationOutcome == FileScanApplicationOutcome.AppliedWithProtectedRows)
             {
                 string skipReason = string.IsNullOrWhiteSpace(fileCheckResult.EmptyScanWithExistingDbSkipReason)
                     ? "empty_scan_with_existing_db"
@@ -842,7 +842,10 @@ internal sealed class LibraryFileScanPipelineOwner
                 {
                     completeLibraryFileDiffProgress();
                 }
-                return Lr2FolderFileDiffPreparationResult.FromFileCheckResult(fileCheckResult, new LibraryFileInitializationResult(options: options));
+                if (fileCheckResult.EmptyScanWithExistingDbSkipped)
+                {
+                    return Lr2FolderFileDiffPreparationResult.FromFileCheckResult(fileCheckResult, new LibraryFileInitializationResult(options: options));
+                }
             }
             // Keep the catalog projection in this owner so the ordinary scan path
             // completes its catalog work before returning the immutable LR2 bridge
@@ -905,8 +908,14 @@ internal sealed class LibraryFileScanPipelineOwner
                         fileCheckResult.ClearedInstallDestinationCharts,
                         reason)),
                 "catalog_residual");
-            Lr2SongDbSyncScanSurfaceSnapshot scanSurface = lr2Synchronization.CreateLr2SongDbSyncScanSurface(options, bmsDirectories, fileCheckResult);
-            var synchronizationInput = new LibraryFileInitializationResult(scanSurface, fileCheckResult.CommittedLr2SongDbSyncBmsPaths, options);
+            bool fullyApplied = fileCheckResult.ApplicationOutcome == FileScanApplicationOutcome.Applied;
+            Lr2SongDbSyncScanSurfaceSnapshot scanSurface = fullyApplied
+                ? lr2Synchronization.CreateLr2SongDbSyncScanSurface(options, bmsDirectories, fileCheckResult) : null;
+            var synchronizationInput = new LibraryFileInitializationResult(scanSurface, fileCheckResult.CommittedLr2SongDbSyncBmsPaths, options)
+            {
+                CatalogFullyApplied = fullyApplied && !fileCheckResult.Lr2NormalFolderSyncFailed,
+                SkipLr2Synchronization = fileCheckResult.ApplicationOutcome == FileScanApplicationOutcome.AppliedWithProtectedRows
+            };
             lr2Synchronization.MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(options, fileCheckResult);
             if (trackLibraryFileCheckProgress && lr2FolderFileDiffPreparation?.Request == null)
             {
@@ -917,7 +926,6 @@ internal sealed class LibraryFileScanPipelineOwner
             logInstallPerformance("library_file_scan_pipeline completed operation=" + (reason ?? string.Empty));
             PublishPostLeaseEffects();
             // 譜面単体の解析失敗は全体必須失敗へ格上げせず、正本確定と必要公開の完了を返す。
-            markCatalogPathConvergenceCompleted();
             return (lr2FolderFileDiffPreparation ?? Lr2FolderFileDiffPreparationResult.FromFileCheckResult(fileCheckResult))
                 .WithFileCheckResult(fileCheckResult, synchronizationInput);
         }
@@ -960,7 +968,7 @@ internal sealed class LibraryFileScanPipelineOwner
                 receipt,
                 fileCheckResult.NextResourceIndex,
                 resourceHealthMutation.BaseIndexCurrent,
-                reason);
+                reason, fileCheckResult.ProtectedSearchRoots);
         }
         return publishCatalogReplacement(replacementEvent);
     }
@@ -1041,7 +1049,9 @@ internal sealed class LibraryFileScanPipelineOwner
             .Where(IsCurrentChartOwner)
             .Where(chart => !string.IsNullOrWhiteSpace(chart.InstallDestination)))
         {
-            if (!directoryKeys.Contains(chart.InstallDestination))
+            if (!directoryKeys.Contains(chart.InstallDestination)
+                && !fileCheckResult.ProtectedSearchRoots.Any(root =>
+                    LongPathFileSystem.IsSameOrDescendantDirectoryPath(chart.InstallDestination, root)))
             {
                 fileCheckResult.ClearedInstallDestinationCharts.Add(
                     ChartFileProjection.WithPackageState(
