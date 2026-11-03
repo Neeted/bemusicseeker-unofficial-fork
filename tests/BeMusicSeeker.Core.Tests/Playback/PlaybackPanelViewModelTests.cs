@@ -1288,10 +1288,12 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     /// <summary>ファイル変更の受付中は再生を拒否し、現在曲の停止終端後だけ書込みを許可します。停止失敗時には物理変更と自動再開を行わないことも確認します。</summary>
+    /// <remarks>Ready待ちの代表はmutationの同期停止受付を現在曲解除で観測し、後発UI Stopのworkerを遅らせても変更前停止が実Closeへ合流することを確認します。</remarks>
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task FileMutation_StopsCurrentSongBeforeWritingAndRejectsPlaybackWhileBusy(bool failStop)
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    public async Task FileMutation_StopsCurrentSongBeforeWritingAndRejectsPlaybackWhileBusy(bool failStop, bool laterUiStop)
     {
         using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         int unexpectedNotificationCount = 0;
@@ -1300,7 +1302,10 @@ public sealed class PlaybackPanelViewModelTests
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var cleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var player = new PreloadBmsPlayer { Completion = completion.Task };
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopAccepted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!laterUiStop) { ready.SetResult(); }
+        var player = new PreloadBmsPlayer { Ready = ready.Task, Completion = completion.Task };
         var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
         var operations = new ChartFileOperationSynchronizer();
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
@@ -1312,18 +1317,40 @@ public sealed class PlaybackPanelViewModelTests
         var target = new ChartOperationTarget(CreatePlaybackTargetChart(ChartFileKind.Bms, paths[1]), null,
             ChartOperationSourceScope.Library, true, false, false, ChartOperationCapabilities.RemoveFromLibrary);
         Task<SelectedChartMutationResult>? deletion = null;
+        Task start = Task.CompletedTask;
+        Func<Task>? delayedUiStop = null;
+        void ObserveStop(object? sender, PropertyChangedEventArgs args)
+        {
+            if (args.PropertyName == nameof(panel.NowPlayingChart) && panel.NowPlayingChart == null)
+            {
+                stopAccepted.TrySetResult();
+            }
+        }
+        panel.PropertyChanged += ObserveStop;
         try
         {
-            await panel.StartAtIndex(0);
+            start = panel.StartAtIndex(0);
+            await TestUiDispatcherHost.AwaitNotificationAsync(player.StartObserved.Task, start, "playback.mutation-start");
+            if (!laterUiStop) { await start; }
             player.CloseCompletion = () => { entered.TrySetResult(); return cleanup.Task; };
             deletion = mutation.DeleteAsync(new SelectedChartDeleteRequest([target], target, MainViewOperationSection.Library));
+            if (laterUiStop)
+            {
+                await TestUiDispatcherHost.AwaitNotificationAsync(stopAccepted.Task, deletion, "playback.mutation-stop-accepted");
+                Assert.IsTrue(operations.IsActive);
+                delayedUiStop = panel.AcceptStopPlayback(closeProcess: true);
+                ready.SetResult();
+            }
             await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, deletion, "playback.mutation-stop");
             await panel.StartAtIndex(1);
             Assert.AreEqual(1, player.Starts.Count, "変更受付中の再生を後から実行する予約にはしません。");
             Assert.AreEqual(0, store.Mutations, "停止完了前にファイルを変更しません。");
+            Assert.IsTrue(File.Exists(paths[1]));
+            Assert.IsFalse(deletion.IsCompleted, "実Closeの終端前に変更要求を完了させません。");
             if (failStop) { cleanup.SetException(new IOException("停止処理が失敗しました。")); }
             else { cleanup.SetResult(); }
             SelectedChartMutationResult result = await deletion;
+            await start;
             Assert.AreEqual(!failStop, result.Succeeded);
             Assert.AreEqual(failStop ? 0 : 1, store.Mutations);
             Assert.IsNull(panel.NowPlayingChart, "変更対象が次曲だけでも現在曲を止めます。");
@@ -1334,12 +1361,21 @@ public sealed class PlaybackPanelViewModelTests
         }
         finally
         {
+            ready.TrySetResult();
             cleanup.TrySetResult();
-            if (deletion != null) { await deletion; }
-            player.CloseCompletion = null;
-            await panel.StopPlayback(closeProcess: true);
             completion.TrySetResult();
-            foreach (string path in paths) { File.Delete(path); }
+            try { await Task.WhenAll(start, deletion is null ? Task.CompletedTask : deletion); }
+            finally
+            {
+                panel.PropertyChanged -= ObserveStop;
+                player.CloseCompletion = null;
+                try { if (delayedUiStop != null) { await delayedUiStop(); } }
+                finally
+                {
+                    await panel.StopPlayback(closeProcess: true);
+                    foreach (string path in paths) { File.Delete(path); }
+                }
+            }
         }
         Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }

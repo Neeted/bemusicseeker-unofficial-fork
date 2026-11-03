@@ -1880,15 +1880,36 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             && (chartPackage.ChartEntries ?? []).Any(entry => entry?.IsSameChartTarget(chart) == true);
     }
 
-    /// <summary>既存の譜面変更受付の内側で、開始済みの選曲と再生・先読みの停止を待ちます。</summary>
-    /// <remarks>変更側がChartFileOperationSynchronizerを保持する間、新しい選曲は受け付けません。別の入力scopeは返しません。</remarks>
+    /// <summary>譜面変更受付の内側で未開始入力を失効させ、準備と一時配置の回収へ合流して現playerの実停止を待ちます。</summary>
+    /// <remarks>呼出側はChartFileOperationSynchronizerを保持します。L中のUI Stopは許可しますが、その世代更新を資源停止済みとは扱いません。終了受付・Close故障では成功を返さず、物理変更へ進ませません。</remarks>
     internal async Task StopPlaybackForMutationAsync()
     {
-        Func<Task> stop = AcceptStopPlayback(closeProcess: true);
+        lock (sessionGate)
+        {
+            if (shutdownStarted) { throw new OperationCanceledException(); }
+            playbackStopEpoch++;
+            ClearPlaybackStateWithoutExternalCall(closeProcess: true);
+        }
         await playbackInputGate.WaitAsync().ConfigureAwait(false);
         try
         {
-            await stop().ConfigureAwait(false);
+            IBMSPlayer player;
+            long stoppedGeneration;
+            await playerOperationGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                lock (sessionGate)
+                {
+                    if (shutdownStarted) { throw new OperationCanceledException(); }
+                    // Lと入力gateが新規開始を防ぎ、操作gateが置換旧playerの回収へ合流します。
+                    // UI Stopの世代変化によらず、この現playerの実Closeを変更前停止が所有します。
+                    player = bmsPlayer;
+                    stoppedGeneration = playbackGeneration;
+                }
+                await ClosePlayerAsync(player).ConfigureAwait(false);
+            }
+            finally { playerOperationGate.Release(); }
+            RefreshClosedPlayer(player, stoppedGeneration);
             // terminal側へ停止を委ねた場合は、変更側を成功として物理書込みへ進めません。
             if (shutdownStarted) { throw new OperationCanceledException(); }
         }
@@ -1985,10 +2006,22 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 if ((shutdownStarted && !forShutdown) || !ReferenceEquals(player, bmsPlayer)
                     || stoppedGeneration != playbackGeneration) { return; }
             }
-            if (player is INextSongPreloadPlayer preloadPlayer) { await preloadPlayer.CloseAsync().ConfigureAwait(false); }
-            else { await Task.Run(player.CloseProcess).ConfigureAwait(false); }
+            await ClosePlayerAsync(player).ConfigureAwait(false);
         }
         finally { playerOperationGate.Release(); }
+        RefreshClosedPlayer(player, stoppedGeneration);
+    }
+
+    private static Task ClosePlayerAsync(IBMSPlayer player) => player switch
+    {
+        null => Task.CompletedTask,
+        INextSongPreloadPlayer preloadPlayer => preloadPlayer.CloseAsync(),
+        _ => Task.Run(player.CloseProcess)
+    };
+
+    private void RefreshClosedPlayer(IBMSPlayer player, long stoppedGeneration)
+    {
+        if (player == null) { return; }
         DispatchToUi(() =>
         {
             lock (sessionGate)
