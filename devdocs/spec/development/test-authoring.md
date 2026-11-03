@@ -199,7 +199,7 @@ PowerShellの配布・更新等の受入検証にも、シナリオ単位で同�
 
 | 仕様項目 | 指示・実装 | 確認方法 |
 | --- | --- | --- |
-| 必要性、判定基準、境界、保証の分担 | [テスト配下の指針](../../../tests/AGENTS.md)、[設計担当](../../../.codex/agents/test-contract-designer.toml) | 設計と実際の検証を照合し、既存の保証、不足、置換先を確認する。 |
+| 必要性、判定基準、境界、保証の分担 | [テスト配下の指針](../../../tests/AGENTS.md)、[設計担当（Codex）](../../../.codex/agents/test-contract-designer.toml)、[設計担当（Claude Code）](../../../.claude/agents/test-contract-designer.md) | 設計と実際の検証を照合し、既存の保証、不足、置換先を確認する。 |
 | 既存ケースの採否、保証コメント、不要な補助処理の退役 | [テスト配下の指針](../../../tests/AGENTS.md)、[スクリプト配下の指針](../../../scripts/AGENTS.md) | 通常・明示実行・スキップを含む整理範囲で、共通保証と各条件差、実際の観測、残存する利用先を静的に確認する。 |
 | 表示リソースの共通検査 | [基準辞書](../../../BeMusicSeeker/Properties/Resources.resx)、[アクセサー](../../../BeMusicSeeker/Properties/Resources.cs)、[全言語](../../../lang) | [`LocalizationResourceParityTests`](../../../tests/BeMusicSeeker.Core.Tests/Localization/LocalizationResourceParityTests.cs)。機能固有の保証は各機能仕様に示す。 |
 | 資源、待機、実行条件 | [検証仕様](testing.md)、[共通テスト基盤](../../../tests/BeMusicSeeker.TestSupport) | 使用する補助処理、所有・復元、完了と失敗の観測を確認する。 |
