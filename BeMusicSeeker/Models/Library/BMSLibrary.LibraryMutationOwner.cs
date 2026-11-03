@@ -517,10 +517,11 @@ internal sealed partial class LibraryMutationOwner
             }
         }
         BmsLibraryOptionsSnapshot options = lr2SynchronizationOwner.CurrentOptionsSnapshot;
+        var selection = new LibraryChartRemovalSelection(canonicalCharts);
         return new LibraryChartRemovalPreflight(targets,
-            libraryFileOperationsService.GetWholeFolderDeleteCandidatePaths(canonicalCharts, lookup),
+            libraryFileOperationsService.GetWholeFolderDeleteCandidatePaths(selection, lookup),
             unresolvedPaths, inputCount, pathOnlyInputCount,
-            BmsRootRegistrationStore.CaptureUserRoots(options), options.BMSInstallDir);
+            BmsRootRegistrationStore.CaptureUserRoots(options), options.BMSInstallDir, selection: selection);
     }
 
     private LibraryCatalogMutationFacts ExecuteLibraryChartRemovalAfterAdmission(
@@ -568,6 +569,7 @@ internal sealed partial class LibraryMutationOwner
             List<ChartPackage> pendingPackageSnapshots = ClonePendingPackageSnapshots(packageLifecycleOwner.PendingPackages);
             InstallDestinationOverlayChartRefSnapshot installDestinationOverlay = CreateInstallDestinationOverlayChartRefSnapshot();
             plan = libraryFileOperationsService.BuildLibraryChartRemovalPlan(
+                prepared.Selection,
                 validCanonicalCharts,
                 lookup,
                 installDestinationOverlay,

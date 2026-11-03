@@ -16,6 +16,61 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class OwnedChartCollectionLibraryMutationTests
 {
+    /// <summary>親子と独立兄弟の各2譜面から異なる形式を混在選択しても、同じ準備で候補0・選択exact行だけの一回確定を保ちます。未選択と資源の巻込みを検出します。</summary>
+    [TestMethod]
+    public void RemoveLibraryCharts_PreparedMixedSelectionPreservesUnselectedDescendantsAndSiblings()
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException();
+            string[] folders = [Path.Combine(root, "Pack"), Path.Combine(root, "Pack", "Child"), Path.Combine(root, "PackOther")];
+            var bms = new List<ChartFile>();
+            var bmson = new List<ChartFile>();
+            for (int index = 0; index < folders.Length; index++)
+            {
+                Directory.CreateDirectory(folders[index]);
+                bms.Add(CreateFile((index * 2 + 1).ToString("x32"), Path.Combine(folders[index], "chart.bms")));
+                bmson.Add(CreateBmsonSong(Path.Combine(folders[index], "chart.bmson"), (index * 2 + 2).ToString("x32")));
+                File.WriteAllText(bms[index].Path, "BMS retained input");
+                File.WriteAllText(bmson[index].Path, "BMSON retained input");
+                File.WriteAllText(Path.Combine(folders[index], "resource.wav"), "resource retained input");
+            }
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, db =>
+            {
+                foreach (ChartFile chart in bms) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song)); }
+                foreach (ChartFile chart in bmson) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(chart), typeof(LR2SongDBExtended.bmson_song)); }
+            });
+            var library = new TestBmsLibrary(databaseScope, songDbPath) { BmsCharts = bms, BmsonCharts = bmson };
+            try
+            {
+                ChartFile[] selected = [bmson[1], bms[2], bmson[0]];
+                ChartFile[] retained = [bms[0], bms[1], bmson[2]];
+                LibraryChartRemovalPreflight prepared = library.PrepareLibraryChartRemoval(selected.Select(chart => LibraryChartRef.FromChartFile(chart)));
+                Assert.AreEqual(0, prepared.WholeFolderCandidatePaths.Count);
+                LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(prepared, false, []);
+                Assert.IsFalse(outcome.HasError);
+                CollectionAssert.AreEquivalent(selected.Select(chart => chart.Path).ToArray(), outcome.Targets
+                    .Where(target => target.State == LibraryChartRemovalState.Confirmed).Select(target => target.Path).ToArray());
+                Assert.AreEqual(3, outcome.SessionReceipt.CatalogChartRemovalCount);
+                Assert.AreEqual(1, outcome.SessionReceipt.ApplyCounts.CatalogApplyCount);
+                Assert.AreEqual(1, outcome.SessionReceipt.ApplyCounts.RequiredPublicationCount);
+                Assert.AreEqual(0, outcome.SessionReceipt.ResourceDirectoryRemovalCount);
+                Assert.IsTrue(outcome.CatalogDurable);
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+                CollectionAssert.AreEquivalent(retained.Select(chart => chart.Path).ToArray(), library.BmsCharts.Concat(library.BmsonCharts).Select(chart => chart.Path).ToArray());
+                foreach (ChartFile chart in selected) { Assert.IsFalse(File.Exists(chart.Path)); }
+                foreach (ChartFile chart in retained)
+                { Assert.AreEqual(chart.Kind == ChartFileKind.Bms ? "BMS retained input" : "BMSON retained input", File.ReadAllText(chart.Path)); }
+                foreach (string folder in folders) { Assert.AreEqual("resource retained input", File.ReadAllText(Path.Combine(folder, "resource.wav"))); }
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
+                CollectionAssert.AreEquivalent(new[] { bms[0].Path, bms[1].Path }, db.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
+                CollectionAssert.AreEquivalent(new[] { bmson[2].Path }, db.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path).ToArray());
+            }
+            finally { library.RequestStop("prepared-mixed-delete-test"); }
+        });
+    }
+
     /// <summary>物理成功scope内の確認済み親子だけを解除し、catalogと登録保存の4終端を独立して回収します。失敗・未処理・scope外の登録を保持します。</summary>
     [TestMethod]
     [DataRow(false, false)]
@@ -665,7 +720,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     }
 
     /// <summary>
-    /// 子の成功・フォルダ失敗・欠落・譜面だけの削除失敗に応じて承認済み親の再帰削除を制限し、失敗対象とリソースを保つ。
+    /// 子の成功・フォルダ失敗・欠落・譜面だけの削除結果に応じて親の再帰削除を制限し、子Noの成功でも親子の資源を保って独立したYes兄弟を確定する。
     /// </summary>
     /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [TestMethod]
@@ -673,6 +728,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(1, true)] // 子フォルダの削除失敗、ごみ箱指定。
     [DataRow(2, false)] // 子フォルダが既に欠落、永久削除。
     [DataRow(3, true)] // 子の全体削除を拒否し個別削除が失敗、ごみ箱指定。
+    [DataRow(4, false)] // 子の全体削除No・個別削除成功。親Yesより子の資源保持を優先。
     public void RemoveLibraryCharts_ParentDeletionDependsOnObservedChildResult(int childState, bool recycle)
     {
         var databaseScope = new ApplicationDatabaseScope();
@@ -748,33 +804,47 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             LibraryChartRef[] selected = [LibraryChartRef.FromChartFile((parentChart)),
                 LibraryChartRef.FromChartFile((childChart)), LibraryChartRef.FromChartFile((independentChart)),
                 LibraryChartRef.FromChartFile((siblingChart))];
-            var approvedFolders = library.PrepareLibraryChartRemoval(selected).WholeFolderCandidatePaths.ToList();
+            LibraryChartRemovalPreflight prepared = library.PrepareLibraryChartRemoval(selected);
+            var approvedFolders = prepared.WholeFolderCandidatePaths.ToList();
             CollectionAssert.AreEquivalent(new[] { parent, child, independent, sibling }, approvedFolders);
-            if (childState == 3)
+            if (childState is 3 or 4)
             {
                 approvedFolders.Remove(child); // 利用者はこの子の譜面だけを削除する。
             }
 
-            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval(selected), recycle, approvedFolders);
+            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(prepared, recycle, approvedFolders);
+            bool allConfirmed = childState is 0 or 4;
 
             Assert.IsNotNull(outcome);
             Assert.IsTrue(outcome.CatalogDurable);
             Assert.IsNull(outcome.CatalogFailure);
-            Assert.AreEqual(childState == 0 ? 4 : 3, outcome.ConfirmedChartCount);
-            Assert.AreEqual(childState != 0, outcome.HasError);
+            Assert.AreEqual(allConfirmed ? 4 : 3, outcome.ConfirmedChartCount);
+            Assert.AreEqual(!allConfirmed, outcome.HasError);
             Assert.IsFalse(File.Exists(parentChartPath));
             Assert.IsFalse(Directory.Exists(independent));
             Assert.IsFalse(Directory.Exists(sibling));
             Assert.AreEqual(childState != 0, Directory.Exists(parent));
             Assert.AreEqual(childState != 0, File.Exists(parentResource));
             Assert.AreEqual(childState == 1 || childState == 3, File.Exists(childChartPath));
-            Assert.AreEqual(childState == 1 || childState == 3, File.Exists(childResource));
+            Assert.AreEqual(childState is 1 or 3 or 4, File.Exists(childResource));
             Assert.AreEqual(childState == 0, filesystem.DirectoryDeletePaths.Contains(parent));
             Assert.IsTrue(filesystem.DirectoryDeletePaths.Contains(independent));
+            if (childState == 4)
+            {
+                Assert.IsTrue(Directory.Exists(child));
+                Assert.AreEqual("parent resource", File.ReadAllText(parentResource));
+                Assert.AreEqual("child resource", File.ReadAllText(childResource));
+                Assert.IsFalse(filesystem.DirectoryDeletePaths.Contains(child));
+                CollectionAssert.AreEquivalent(selected.Select(chart => chart.Path).ToArray(),
+                    outcome.Targets.Where(target => target.State == LibraryChartRemovalState.Confirmed).Select(target => target.Path).ToArray());
+                Assert.AreEqual(4, outcome.SessionReceipt.CatalogChartRemovalCount);
+                Assert.AreEqual(1, outcome.SessionReceipt.ApplyCounts.CatalogApplyCount);
+                Assert.AreEqual(1, outcome.SessionReceipt.ApplyCounts.RequiredPublicationCount);
+            }
             Assert.IsTrue(filesystem.DirectoryRecycleOptions.All(option => option ==
                 (recycle ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently)));
             LibraryChartRemovalTarget childResult = outcome.Targets.Single(target => target.Path == childChartPath);
-            Assert.AreEqual(childState == 0 ? LibraryChartRemovalState.Confirmed
+            Assert.AreEqual(allConfirmed ? LibraryChartRemovalState.Confirmed
                 : childState == 2 ? LibraryChartRemovalState.NotExecuted : LibraryChartRemovalState.Unconfirmed, childResult.State);
             if (childState == 1 || childState == 3)
             {
@@ -782,11 +852,11 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             }
 
             Assert.AreEqual(0, library.BmsCharts.Count);
-            Assert.AreEqual(childState == 0 ? 0 : 1, library.BmsonCharts.Count);
+            Assert.AreEqual(allConfirmed ? 0 : 1, library.BmsonCharts.Count);
             using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
             string[] retained = readback.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path).ToArray();
-            CollectionAssert.AreEqual(childState == 0 ? Array.Empty<string>() : new[] { childChartPath }, retained);
+            CollectionAssert.AreEqual(allConfirmed ? Array.Empty<string>() : new[] { childChartPath }, retained);
             using LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation("deletion_completion_probe");
             Assert.IsNotNull(probe);
         });

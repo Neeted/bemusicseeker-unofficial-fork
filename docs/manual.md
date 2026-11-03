@@ -579,7 +579,7 @@ Right-clicking a chart row or playlist row opens operations for the selected row
 
 - `Move to`: Moves the entire folder containing the selected charts to another library root folder selected from the menu.
 - `Remove entry`: In playlist detail, removes the selected row from the playlist.
-- `Delete file`: Lets you choose `Rename to invalid extension (*.bmx/*.pmx)` or `Move to Recycle bin`.
+- `Delete file`: Lets you choose `Rename to invalid extension (*.bmx/*.pmx)` or `Move to Recycle bin`. When moving library charts to the Recycle Bin, deletion begins after you answer all confirmations. Choose `No` for whole-folder deletion to delete only the selected charts, or `Cancel` to cancel the entire operation. If you choose `No` for a child folder, choosing `Yes` for its parent still preserves both folders and their bundled files; only the selected charts are deleted.
 - `Automatic folder renaming`: Renames the selected chart's folder according to the folder-name format in settings.
 - `Convert to audio file`: Outputs BMS / bmson chart playback as an audio file according to the recording settings in the settings dialog.
 

@@ -383,7 +383,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         Assert.IsFalse(state.ContainsKnownChart((bmsFile)));
         Assert.AreEqual(0, index.GetChartRefsByPaths([oldPath]).Count);
         Assert.AreEqual(0, index.GetChartRefsUnderRealPath(oldDirectory).Count);
-        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(oldDirectory, null));
+        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(oldDirectory));
     }
 
     /// <summary>

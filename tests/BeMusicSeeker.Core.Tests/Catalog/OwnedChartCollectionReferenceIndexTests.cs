@@ -166,7 +166,7 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         ]);
 
         Assert.AreEqual(0, index.GetChartRefsByPaths([bmsFile.Path, bmsonSong.Path]).Count);
-        Assert.AreEqual(0, index.CountChartRefsUnderRealPath("C:\\Installed", null));
+        Assert.AreEqual(0, index.CountChartRefsUnderRealPath("C:\\Installed"));
         CanonicalChartResolveResult resolveResult = index.ResolveCanonicalCharts([
             LibraryChartRef.FromChartFile((bmsFile)),
             LibraryChartRef.FromChartFile((bmsonSong))
@@ -466,7 +466,7 @@ public sealed class OwnedChartCollectionReferenceIndexTests
     }
 
     /// <summary>
-    /// 行解決は完全一致パスを要求し、配下探索だけは大小文字・ドット表記を正規化して除外集合と種別別件数を反映する。
+    /// 行解決は完全一致パスを要求し、配下探索だけは大小文字・ドット表記を正規化し、種別別件数と選択外の行が残ることを判定する。
     /// </summary>
     [TestMethod]
     public void CreateLibraryChartRefIndexSnapshot_ResolvesPathOnlyAndCountsRealPathSubtree()
@@ -496,9 +496,10 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(0, index.ResolveCanonicalCharts([
             LibraryChartRef.FromPath(ChartFileKind.Bms, Path.Combine(targetDirectory, ".", "direct.bms"), directBms.Md5, directBms.Sha256)
         ]).CanonicalCharts.Count);
-        Assert.AreEqual(3, index.CountChartRefsUnderRealPath(Path.Combine(targetDirectory.ToUpperInvariant(), "."), null));
-        Assert.AreEqual(3, index.CountChartRefsUnderRealPath(targetDirectory, null));
-        Assert.AreEqual(2, index.CountChartRefsUnderRealPath(targetDirectory, new HashSet<string>([directBms.Path], StringComparer.OrdinalIgnoreCase)));
+        Assert.AreEqual(3, index.CountChartRefsUnderRealPath(Path.Combine(targetDirectory.ToUpperInvariant(), ".")));
+        Assert.AreEqual(3, index.CountChartRefsUnderRealPath(targetDirectory));
+        Assert.IsFalse(((ILibraryChartCanonicalLookup)index).AreAllChartRefsUnderRealPathSelected(targetDirectory,
+            new HashSet<(ChartFileKind Kind, string Path)> { (directBms.Kind, directBms.Path) }));
         Assert.AreEqual(3, index.GetChartRefsUnderRealPath(targetDirectory).Count);
         Assert.AreEqual(2, index.CountBmsChartRefsUnderRealPath(targetDirectory));
         CollectionAssert.AreEquivalent(new[] { directBms.Path, nestedBms.Path }, index.GetBmsChartPathsUnderRealPath(targetDirectory));
@@ -586,8 +587,8 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(bmsFile.Path, newPathRefs[0].Path);
         Assert.AreEqual(bmsFile.Md5, newPathRefs[0].Md5);
         Assert.AreEqual(ChartFileKind.Bms, newPathRefs[0].Kind);
-        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(oldPath), null));
-        Assert.AreEqual(1, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(newPath), null));
+        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(oldPath)));
+        Assert.AreEqual(1, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(newPath)));
         Assert.AreEqual(0, index.CountBmsChartRefsUnderRealPath(Path.GetDirectoryName(oldPath)));
         Assert.AreEqual(1, index.CountBmsChartRefsUnderRealPath(Path.GetDirectoryName(newPath)));
         CollectionAssert.AreEqual(new[] { newPath }, index.GetBmsChartPathsUnderRealPath(Path.GetDirectoryName(newPath)));
@@ -619,8 +620,8 @@ public sealed class OwnedChartCollectionReferenceIndexTests
 
         Assert.AreSame(index, state.CreateLibraryChartRefIndexSnapshot());
         Assert.AreEqual(0, index.GetChartRefsByPaths([oldPath, newPath]).Count);
-        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(oldPath), null));
-        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(newPath), null));
+        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(oldPath)));
+        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(newPath)));
         Assert.AreEqual(0, index.CountBmsChartRefsUnderRealPath(Path.GetDirectoryName(oldPath)));
         Assert.AreEqual(0, index.CountBmsChartRefsUnderRealPath(Path.GetDirectoryName(newPath)));
     }
@@ -652,8 +653,8 @@ public sealed class OwnedChartCollectionReferenceIndexTests
 
         Assert.AreSame(index, state.CreateLibraryChartRefIndexSnapshot());
         Assert.AreEqual(0, index.GetChartRefsByPaths([oldPath, newPath]).Count);
-        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(oldPath), null));
-        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(newPath), null));
+        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(oldPath)));
+        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(newPath)));
         Assert.AreEqual(0, index.CountBmsChartRefsUnderRealPath(Path.GetDirectoryName(oldPath)));
         Assert.AreEqual(0, index.CountBmsChartRefsUnderRealPath(Path.GetDirectoryName(newPath)));
     }
@@ -690,7 +691,7 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreSame(index, state.CreateLibraryChartRefIndexSnapshot());
         Assert.AreEqual(0, index.GetChartRefsByPaths([oldPath]).Count);
         Assert.AreEqual(1, index.GetChartRefsByPaths([newPath]).Count);
-        Assert.AreEqual(1, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(newPath), null));
+        Assert.AreEqual(1, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(newPath)));
         Assert.AreEqual(1, index.CountBmsChartRefsUnderRealPath(Path.GetDirectoryName(newPath)));
     }
 
@@ -720,8 +721,8 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreSame(index, state.CreateLibraryChartRefIndexSnapshot());
         Assert.AreEqual(0, index.GetChartRefsByPaths([oldPath]).Count);
         Assert.AreEqual(1, index.GetChartRefsByPaths([newPath]).Count);
-        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(oldPath), null));
-        Assert.AreEqual(1, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(newPath), null));
+        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(oldPath)));
+        Assert.AreEqual(1, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(newPath)));
         Assert.AreEqual(0, index.CountBmsChartRefsUnderRealPath(Path.GetDirectoryName(oldPath)));
         Assert.AreEqual(1, index.CountBmsChartRefsUnderRealPath(Path.GetDirectoryName(newPath)));
     }
@@ -787,7 +788,7 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreSame(index, state.CreateLibraryChartRefIndexSnapshot());
         List<LibraryChartRef> refs = index.GetChartRefsByPaths([newPath]);
         Assert.AreEqual(0, refs.Count);
-        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(newPath), null));
+        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(newPath)));
         CanonicalChartResolveResult resolveResult = index.ResolveCanonicalCharts([LibraryChartRef.FromChartFile((bmsFile))]);
         Assert.AreEqual(0, resolveResult.CanonicalCharts.Count);
     }
@@ -895,7 +896,7 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(newBms.Path, refs[0].Path);
         Assert.AreEqual(newBms.Md5, refs[0].Md5);
         Assert.AreEqual(ChartFileKind.Bms, refs[0].Kind);
-        Assert.AreEqual(2, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(replacedPath), null));
+        Assert.AreEqual(2, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(replacedPath)));
         Assert.AreEqual(2, index.CountBmsChartRefsUnderRealPath(Path.GetDirectoryName(replacedPath)));
     }
 

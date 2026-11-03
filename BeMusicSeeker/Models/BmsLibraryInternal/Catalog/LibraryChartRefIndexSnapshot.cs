@@ -11,7 +11,8 @@ internal interface ILibraryChartCanonicalLookup
     /// <summary>指定tokenは同じ現在項目だけへ解決し、tokenなしの場合だけ形式とDB完全一致パスを使います。</summary>
     CanonicalChartResolveResult ResolveCanonicalCharts(IEnumerable<LibraryChartRef> inputCharts);
 
-    int CountChartRefsUnderRealPath(string folderPath, ISet<string> excludedPaths);
+    /// <summary>削除で選択済みの種別・raw完全一致キーだけを使い、同じ操作の集合を複製せず全選択を判定します。</summary>
+    bool AreAllChartRefsUnderRealPathSelected(string folderPath, IReadOnlySet<(ChartFileKind Kind, string Path)> excluded);
 }
 
 /// <summary>
@@ -413,23 +414,14 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         return refs;
     }
 
-    internal int CountChartRefsUnderRealPath(string folderPath, ISet<string> excludedPaths)
+    /// <summary>物理scope内に現在存在する参照の件数を返します。削除の選択集合判定は別の専用queryへ渡します。</summary>
+    internal int CountChartRefsUnderRealPath(string folderPath)
     {
         string folderKey = CreateDirectoryKey(folderPath);
         if (string.IsNullOrWhiteSpace(folderKey)
             || !subtreeCountsByDirectory.ContainsKey(folderKey))
         {
             return 0;
-        }
-
-        HashSet<string> excludedPathKeys = null;
-        if (excludedPaths?.Count > 0 == true)
-        {
-            excludedPathKeys = new HashSet<string>(
-                excludedPaths
-                    .Select(CreatePathKey)
-                    .Where(path => !string.IsNullOrWhiteSpace(path)),
-                StringComparer.Ordinal);
         }
 
         int count = 0;
@@ -440,16 +432,23 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
                 continue;
             }
 
-            string pathKey = CreatePathKey(chart.Path);
-            if (excludedPathKeys?.Contains(pathKey) == true)
-            {
-                continue;
-            }
-
             count++;
         }
 
         return count;
+    }
+
+    /// <summary>物理scope内の全選択を判定し、別形式・別rawキーを選択済みへ読み替えません。未索引scopeは全選択としません。</summary>
+    bool ILibraryChartCanonicalLookup.AreAllChartRefsUnderRealPathSelected(
+        string folderPath, IReadOnlySet<(ChartFileKind Kind, string Path)> excluded)
+    {
+        string folderKey = CreateDirectoryKey(folderPath);
+        if (string.IsNullOrWhiteSpace(folderKey) || !subtreeCountsByDirectory.ContainsKey(folderKey)) { return false; }
+        foreach (LibraryChartRef chart in EnumerateChartRefsUnderDirectoryKey(folderKey))
+        {
+            if (HasCurrentPath(chart) && !excluded.Contains((chart.Kind, chart.Path))) { return false; }
+        }
+        return true;
     }
 
     internal int CountBmsChartRefsUnderRealPath(string folderPath)
@@ -460,11 +459,6 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
             && bmsSubtreeCountsByDirectory.TryGetValue(folderKey, out int count)
                 ? count
                 : 0;
-    }
-
-    int ILibraryChartCanonicalLookup.CountChartRefsUnderRealPath(string folderPath, ISet<string> excludedPaths)
-    {
-        return CountChartRefsUnderRealPath(folderPath, excludedPaths);
     }
 
     private void AddChart(ChartFile chart, string pathOverride = null)

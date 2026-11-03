@@ -603,7 +603,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         }
     }
 
-    /// <summary>実storeと実DBを通し、最初の確認前の固定対象が削除・通常拡張子変更へ届くことを確認します。</summary>
+    /// <summary>実storeと実DBを通し、確認前の固定対象が削除・通常拡張子変更へ届き、成功削除で残った同じ項目の次の明示削除も終端することを確認します。</summary>
     /// <remarks>確認通知と操作が共に完了している場合も実通知への到達を受理し、待機競合の勝者を処理順の証拠にしません。</remarks>
     [TestMethod]
     // 0: 初期hashと現hashが違う削除、2: 確認取消、3: 現path変更後の拡張子修正。
@@ -626,6 +626,13 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
             { BmsCharts = [CreateFile(new string('a', 32), path)], BmsonCharts = [] };
             ChartFile selected = library.BmsCharts.Single();
+            ChartFile remaining = CreateFile(new string('c', 32), Path.Combine(folder, "remaining.bms"));
+            if (scenario == 0)
+            {
+                File.WriteAllText(remaining.Path, "remaining chart");
+                library.BmsCharts = [selected, remaining];
+                remaining = library.BmsCharts.Single(chart => chart.Path == remaining.Path);
+            }
             CatalogOwnedCollectionOwner collection = GetOwnedCollectionOwner(library);
             void ChangeCurrent(ChartFile value)
             {
@@ -702,8 +709,24 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                     Assert.IsTrue(result.Succeeded);
                     Assert.AreEqual(1, result.RemovalOutcome.ConfirmedChartCount);
                     Assert.AreEqual(1, filesystem.FileDeleteCalls);
-                    Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
+                    Assert.AreEqual(remaining.Path, readback.Table<LR2SongDB.song>().Single().path);
                     Assert.IsFalse(File.Exists(path));
+                    Assert.AreEqual("remaining chart", File.ReadAllText(remaining.Path));
+                    Assert.AreSame(remaining.Token, library.BmsCharts.Single().Token);
+                    // 成功削除で残った同じ項目を次に明示選択し、前の準備や受付が次操作を妨げないことを確認します。
+                    var nextTarget = new ChartOperationTarget(remaining, null, ChartOperationSourceScope.Library,
+                        true, false, false, ChartOperationCapabilities.RemoveFromLibrary);
+                    dialogs.ConfirmationResults = new([UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
+                        UiDialogResult.FromMessageBoxResult(MessageBoxResult.No)]);
+                    operation = owner.DeleteAsync(new SelectedChartDeleteRequest([nextTarget], nextTarget, MainViewOperationSection.Library));
+                    SelectedChartMutationResult next = await operation;
+                    Assert.IsTrue(next.Succeeded);
+                    Assert.AreEqual(1, next.RemovalOutcome.ConfirmedChartCount);
+                    Assert.IsFalse(gate.IsActive);
+                    Assert.IsFalse(activity.IsActive);
+                    Assert.AreEqual(0, library.BmsCharts.Count);
+                    Assert.IsFalse(File.Exists(remaining.Path));
+                    Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
                 }
                 else if (scenario == 3)
                 {
@@ -728,6 +751,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                     Assert.IsNull(result.RemovalOutcome);
                     Assert.IsNull(result.MutationReceipt);
                     Assert.AreEqual(0, presentation.Events.Count);
+
                 }
             }
             finally

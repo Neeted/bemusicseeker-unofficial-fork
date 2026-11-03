@@ -345,12 +345,9 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         fileMutationService.MoveDirectory(srcDir, dstDir, overwrite: false, recursiveDirectoryTreeFileMutationOptions);
     }
 
-    /// <summary>
-    /// Builds the path-only portion of a library removal.  Canonical
-    /// owner binding is intentionally left to the command owner so this plan
-    /// can be executed after every model snapshot guard has been released.
-    /// </summary>
+    /// <summary>確認前に捕捉したindex・物理包含を共用し、適用直前に照合済みの現在hashと承認結果から実行計画を作ります。子の全体削除Noは祖先のYesより優先し資源を保ちます。</summary>
     internal LibraryChartRemovalPlan BuildLibraryChartRemovalPlan(
+        LibraryChartRemovalSelection selection,
         IEnumerable<LibraryChartRef> canonicalCharts,
         ILibraryChartCanonicalLookup libraryChartLookup,
         InstallDestinationOverlayChartRefSnapshot installDestinationOverlayCharts,
@@ -358,8 +355,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         IEnumerable<string> approvedWholeFolderDeletePaths)
     {
         libraryChartLookup ??= LibraryChartRefIndexSnapshot.Empty;
-        List<LibraryChartRef> targets = [.. (canonicalCharts ?? [])
-            .Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
+        List<LibraryChartRef> targets = [.. canonicalCharts];
         var planTargets = new List<LibraryChartRemovalPlanTarget>(targets.Count);
         for (int index = 0; index < targets.Count; index++)
         {
@@ -378,40 +374,23 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             (approvedWholeFolderDeletePaths ?? [])
                 .Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.OrdinalIgnoreCase);
-        var selectedPaths = new HashSet<string>(StringComparer.Ordinal);
         var folderPlans = new List<LibraryChartRemovalPlanFolder>();
+        bool[] wholeFolderTargets = new bool[targets.Count];
         var installDestinationTargets = new List<LibraryChartRemovalInstallDestinationTarget>();
-        foreach (IGrouping<string, LibraryChartRef> folderGroup in from groupedFiles in targets
-                                                                   .GroupBy(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path), StringComparer.OrdinalIgnoreCase)
-                                                                   orderby groupedFiles.Key.Length descending
-                                                                   select groupedFiles)
+        foreach (LibraryChartRemovalPlanFolder folder in selection.Folders)
         {
-            bool canDeleteWholeFolder = libraryChartLookup.CountChartRefsUnderRealPath(folderGroup.Key, selectedPaths) == folderGroup.Count();
-            bool deleteWholeFolder = canDeleteWholeFolder && approvedPaths.Contains(folderGroup.Key);
-            // Directory grouping follows filesystem scope, but target indexes keep catalog row identity.
-            // Resolve the fallback by exact path so case-only rows remain separate confirmed targets.
-            IReadOnlyList<int> targetIndexes = Array.AsReadOnly(folderGroup
-                .Select(chart => targets.FindIndex(candidate => ReferenceEquals(candidate, chart)
-                    || (candidate.Kind == chart.Kind
-                        && string.Equals(candidate.Path, chart.Path, StringComparison.Ordinal))))
-                .Where(index => index >= 0)
-                .ToArray());
+            bool canDeleteWholeFolder = libraryChartLookup.AreAllChartRefsUnderRealPathSelected(folder.Path, selection.SelectedRows);
+            // 子のNoは親のYesより優先します。同じ包含indexから、資源を残す子がある祖先も譜面だけへ限定します。
+            bool deleteWholeFolder = canDeleteWholeFolder && approvedPaths.Contains(folder.Path)
+                && folder.RequiredRemovedTargetIndexes.All(index => wholeFolderTargets[index]);
+            foreach (int index in folder.TargetIndexes) { wholeFolderTargets[index] = deleteWholeFolder; }
             folderPlans.Add(new LibraryChartRemovalPlanFolder
             {
-                Path = folderGroup.Key,
+                Path = folder.Path,
                 DeleteWholeFolder = deleteWholeFolder,
-                TargetIndexes = targetIndexes,
-                RequiredRemovedTargetIndexes = Array.AsReadOnly(folderPlans
-                    .Where(child => child.Path.StartsWith(
-                        folderGroup.Key + Path.DirectorySeparatorChar,
-                        StringComparison.OrdinalIgnoreCase))
-                    .SelectMany(child => child.TargetIndexes)
-                    .ToArray())
+                TargetIndexes = folder.TargetIndexes,
+                RequiredRemovedTargetIndexes = folder.RequiredRemovedTargetIndexes
             });
-            foreach (LibraryChartRef chart in folderGroup)
-            {
-                selectedPaths.Add(chart.Path);
-            }
 
             if (!deleteWholeFolder)
             {
@@ -421,7 +400,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             foreach (LibraryInstallDestinationChange target in EnumerateInstallDestinationTargetsUnderFolder(
                 pendingPackages,
                 installDestinationOverlayCharts,
-                folderGroup.Key))
+                folder.Path))
             {
                 ChartFile chart = target.Entry?.Chart ?? target.Chart;
                 if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
@@ -430,7 +409,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 }
                 installDestinationTargets.Add(new LibraryChartRemovalInstallDestinationTarget
                 {
-                    FolderPath = folderGroup.Key,
+                    FolderPath = folder.Path,
                     Kind = chart.Kind,
                     Path = chart.Path,
                     Md5 = chart.Md5,
@@ -448,12 +427,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         };
     }
 
-    /// <summary>
-    /// Executes a library-removal plan using path facts only.  Catalog
-    /// and package deltas are built by the owner after this method returns.
-    /// A failed or unexecuted child blocks recursive ancestor deletion, not
-    /// deletion of the ancestor group's own selected chart files.
-    /// </summary>
+    /// <summary>準備済みindexと物理scopeの計画を実行します。子の実成功だけを親再帰削除の条件とし、失敗した子を親から再試行しません。成功factsは呼出元が一回のsessionへ反映します。</summary>
     internal LibraryChartRemovalExecutionResult ExecuteLibraryChartRemovalPlan(
         LibraryChartRemovalPlan plan,
         bool sendToRecycleBin,
@@ -482,7 +456,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 continue;
             }
 
-            string physicalPathKey = CreatePhysicalPathKey(target.Path);
+            string physicalPathKey = LibraryChartRemovalSelection.PhysicalPath(target.Path);
             if (!targetIndexesByPhysicalPath.TryGetValue(physicalPathKey, out List<int> physicalTargetIndexes))
             {
                 physicalTargetIndexes = [];
@@ -542,7 +516,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 {
                     continue;
                 }
-                string physicalPathKey = CreatePhysicalPathKey(target.Path);
+                string physicalPathKey = LibraryChartRemovalSelection.PhysicalPath(target.Path);
                 if (removedTargetIndexes.Contains(target.Index))
                 {
                     result.Targets.Add(new(target.Path, LibraryChartRemovalState.Confirmed));
@@ -603,7 +577,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 return;
             }
 
-            string physicalPathKey = CreatePhysicalPathKey(plan.Targets[targetIndex].Path);
+            string physicalPathKey = LibraryChartRemovalSelection.PhysicalPath(plan.Targets[targetIndex].Path);
             if (!targetIndexesByPhysicalPath.TryGetValue(physicalPathKey, out List<int> physicalTargetIndexes))
             {
                 physicalTargetIndexes = [targetIndex];
@@ -640,18 +614,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             return null;
         }
 
-        static string CreatePhysicalPathKey(string path)
-        {
-            try
-            {
-                return LongPathFileSystem.NormalizePathForStorage(path);
-            }
-            catch
-            {
-                // Keep malformed catalog paths isolated to the existing per-target filesystem outcome.
-                return path ?? string.Empty;
-            }
-        }
+
     }
 
     /// <summary>
@@ -736,6 +699,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         return result;
     }
 
+    /// <summary>単独呼出しの選択を解決して操作内対応を作り、通常削除と同じ候補判定へ渡します。</summary>
     public List<string> GetWholeFolderDeleteCandidatePaths(
         IEnumerable<LibraryChartRef> charts,
         ILibraryChartCanonicalLookup libraryChartLookup)
@@ -743,27 +707,19 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         List<LibraryChartRef> inputCharts = [.. (charts ?? []).Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
         libraryChartLookup ??= LibraryChartRefIndexSnapshot.Empty;
         CanonicalChartResolveResult resolveResult = libraryChartLookup.ResolveCanonicalCharts(inputCharts);
-        return GetWholeFolderDeleteCandidatePathsForCanonicalCharts(resolveResult.CanonicalCharts.Where(HasPath), libraryChartLookup);
+        return GetWholeFolderDeleteCandidatePaths(new LibraryChartRemovalSelection(resolveResult.CanonicalCharts), libraryChartLookup);
     }
 
-    private static List<string> GetWholeFolderDeleteCandidatePathsForCanonicalCharts(
-        IEnumerable<LibraryChartRef> canonicalCharts,
-        ILibraryChartCanonicalLookup libraryChartLookup)
+    /// <summary>固定した対象index・物理scopeを候補判定にも使い、種別・完全一致の選択集合をそのまま参照します。</summary>
+    internal List<string> GetWholeFolderDeleteCandidatePaths(
+        LibraryChartRemovalSelection selection, ILibraryChartCanonicalLookup libraryChartLookup)
     {
         List<string> result = [];
-        var selectedChartPaths = new HashSet<string>(StringComparer.Ordinal);
-        foreach (IGrouping<string, LibraryChartRef> folderGroup in from groupedFiles in (canonicalCharts ?? []).Where(HasPath).GroupBy(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path), StringComparer.OrdinalIgnoreCase)
-                                                                   orderby groupedFiles.Key.Length descending
-                                                                   select groupedFiles)
+        foreach (LibraryChartRemovalPlanFolder folder in selection.Folders)
         {
-            bool shouldConfirmWholeFolder = libraryChartLookup.CountChartRefsUnderRealPath(folderGroup.Key, selectedChartPaths) == folderGroup.Count();
-            if (shouldConfirmWholeFolder)
+            if (libraryChartLookup.AreAllChartRefsUnderRealPathSelected(folder.Path, selection.SelectedRows))
             {
-                result.Add(folderGroup.Key);
-            }
-            foreach (LibraryChartRef chart in folderGroup)
-            {
-                selectedChartPaths.Add(chart.Path);
+                result.Add(folder.Path);
             }
         }
         return result;

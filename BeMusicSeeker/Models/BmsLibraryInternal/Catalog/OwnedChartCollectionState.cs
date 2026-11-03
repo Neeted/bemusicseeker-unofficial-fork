@@ -676,7 +676,7 @@ internal sealed class OwnedChartCollectionState
 
     internal int CountLibraryChartRefsUnderRealPath(string directoryPath)
     {
-        return CreateLibraryChartRefIndexSnapshot().CountChartRefsUnderRealPath(directoryPath, null);
+        return CreateLibraryChartRefIndexSnapshot().CountChartRefsUnderRealPath(directoryPath);
     }
 
     internal int CountBmsChartRefsUnderRealPath(string directoryPath)
