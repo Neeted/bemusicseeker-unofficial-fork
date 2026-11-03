@@ -24,6 +24,7 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         Lr2PlayHistorySchemaCheckResult result = service.Check(null, isLr2LinkedProfile: false);
 
         Assert.AreEqual(Lr2PlayHistorySchemaStatus.SkippedProfile, result.Status);
+        Assert.AreEqual(Lr2PlayHistorySchemaReason.SkippedProfile, result.Reason);
     }
 
     /// <summary>
@@ -41,6 +42,7 @@ public sealed class Lr2PlayHistorySchemaServiceTests
             Lr2PlayHistorySchemaCheckResult result = service.Check(scoreDbPath, isLr2LinkedProfile: true);
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, result.Status);
+            Assert.AreEqual(Lr2PlayHistorySchemaReason.NotInstalled, result.Reason);
             using SQLiteConnectionEx verify = databaseScope.OpenProviderConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(0, CountPlayHistoryObjects(verify));
         });
@@ -62,7 +64,9 @@ public sealed class Lr2PlayHistorySchemaServiceTests
             Lr2PlayHistorySchemaCheckResult second = service.InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, first.Status);
+            Assert.AreEqual(Lr2PlayHistorySchemaReason.Installed, first.Reason);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, second.Status);
+            Assert.AreEqual(Lr2PlayHistorySchemaReason.Installed, second.Reason);
             using SQLiteConnectionEx verify = databaseScope.OpenProviderConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             AssertObjectExists(verify, "table", Lr2PlayHistorySchemaService.LastPlayTableName);
             AssertObjectExists(verify, "table", Lr2PlayHistorySchemaService.PlayHistoryTableName);
@@ -222,6 +226,7 @@ public sealed class Lr2PlayHistorySchemaServiceTests
             Lr2PlayHistorySchemaCheckResult result = service.Check(scoreDbPath, isLr2LinkedProfile: true);
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.ManualRepairRequired, result.Status);
+            Assert.AreEqual(Lr2PlayHistorySchemaReason.TableColumnsIncompatible, result.Reason);
             CollectionAssert.Contains(result.MissingColumns, "bms_lr2_last_play.last_play_at");
         });
     }
@@ -245,6 +250,7 @@ public sealed class Lr2PlayHistorySchemaServiceTests
             Lr2PlayHistorySchemaCheckResult result = service.Check(scoreDbPath, isLr2LinkedProfile: true);
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.ManualRepairRequired, result.Status);
+            Assert.AreEqual(Lr2PlayHistorySchemaReason.TableColumnsIncompatible, result.Reason);
             CollectionAssert.Contains(result.IncompatibleColumns, "bms_lr2_last_play.hash");
         });
     }
@@ -268,6 +274,7 @@ public sealed class Lr2PlayHistorySchemaServiceTests
             Lr2PlayHistorySchemaCheckResult result = service.Check(scoreDbPath, isLr2LinkedProfile: true);
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.ManualRepairRequired, result.Status);
+            Assert.AreEqual(Lr2PlayHistorySchemaReason.BaseSchemaIncompatible, result.Reason);
             CollectionAssert.Contains(result.MissingBaseColumns, "score.playcount");
         });
     }
@@ -291,8 +298,10 @@ public sealed class Lr2PlayHistorySchemaServiceTests
             Lr2PlayHistorySchemaCheckResult install = service.InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.ManualRepairRequired, check.Status);
+            Assert.AreEqual(Lr2PlayHistorySchemaReason.BaseSchemaIncompatible, check.Reason);
             CollectionAssert.Contains(check.MissingBaseTables, "score");
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.ManualRepairRequired, install.Status);
+            Assert.AreEqual(Lr2PlayHistorySchemaReason.BaseSchemaIncompatible, install.Reason);
             using SQLiteConnectionEx verify = databaseScope.OpenProviderConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(0, CountPlayHistoryObjects(verify));
         });
@@ -317,6 +326,7 @@ public sealed class Lr2PlayHistorySchemaServiceTests
             Lr2PlayHistorySchemaCheckResult result = service.Check(scoreDbPath, isLr2LinkedProfile: true);
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.ManualRepairRequired, result.Status);
+            Assert.AreEqual(Lr2PlayHistorySchemaReason.ObjectNameCollision, result.Reason);
             CollectionAssert.Contains(result.ObjectNameCollisions, "bms_lr2_last_play:view");
         });
     }
@@ -334,6 +344,7 @@ public sealed class Lr2PlayHistorySchemaServiceTests
             Lr2PlayHistorySchemaCheckResult result = service.Check(scoreDbPath, isLr2LinkedProfile: true);
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Unreadable, result.Status);
+            Assert.AreEqual(Lr2PlayHistorySchemaReason.FileNotFound, result.Reason);
         });
     }
 
@@ -348,6 +359,7 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         Lr2PlayHistorySchemaCheckResult result = service.InstallOrRepair(null, isLr2LinkedProfile: false);
 
         Assert.AreEqual(Lr2PlayHistorySchemaStatus.SkippedProfile, result.Status);
+        Assert.AreEqual(Lr2PlayHistorySchemaReason.SkippedProfile, result.Reason);
     }
 
     /// <summary>
@@ -372,9 +384,11 @@ public sealed class Lr2PlayHistorySchemaServiceTests
             Lr2PlayHistorySchemaCheckResult after = service.InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Repairable, before.Status);
+            Assert.AreEqual(Lr2PlayHistorySchemaReason.InstallOrRepairAvailable, before.Reason);
             CollectionAssert.Contains(before.MissingIndexes, Lr2PlayHistorySchemaService.TimeIndexName);
             CollectionAssert.Contains(before.MissingTriggers, Lr2PlayHistorySchemaService.ScoreInsertTriggerName);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, after.Status);
+            Assert.AreEqual(Lr2PlayHistorySchemaReason.Installed, after.Reason);
         });
     }
 
@@ -404,9 +418,11 @@ public sealed class Lr2PlayHistorySchemaServiceTests
             Lr2PlayHistorySchemaCheckResult after = service.InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Repairable, before.Status);
+            Assert.AreEqual(Lr2PlayHistorySchemaReason.InstallOrRepairAvailable, before.Reason);
             CollectionAssert.Contains(before.MismatchedIndexes, Lr2PlayHistorySchemaService.TimeIndexName);
             CollectionAssert.Contains(before.MismatchedTriggers, Lr2PlayHistorySchemaService.ScoreInsertTriggerName);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, after.Status);
+            Assert.AreEqual(Lr2PlayHistorySchemaReason.Installed, after.Reason);
             using SQLiteConnectionEx verify = databaseScope.OpenProviderConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM bms_lr2_play_history WHERE hash = ?;", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
         });
@@ -436,6 +452,7 @@ public sealed class Lr2PlayHistorySchemaServiceTests
                 Lr2PlayHistorySchemaUninstallMode.TriggersOnly);
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Repairable, result.Status);
+            Assert.AreEqual(Lr2PlayHistorySchemaReason.InstallOrRepairAvailable, result.Reason);
             CollectionAssert.Contains(result.MissingTriggers, Lr2PlayHistorySchemaService.ScoreInsertTriggerName);
             CollectionAssert.Contains(result.MissingTriggers, Lr2PlayHistorySchemaService.ScoreUpdateTriggerName);
             CollectionAssert.Contains(result.MissingTriggers, Lr2PlayHistorySchemaService.PlayerUpdateTriggerName);
@@ -470,6 +487,7 @@ public sealed class Lr2PlayHistorySchemaServiceTests
                 Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers);
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, result.Status);
+            Assert.AreEqual(Lr2PlayHistorySchemaReason.NotInstalled, result.Reason);
             using SQLiteConnectionEx verify = databaseScope.OpenProviderConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(0, CountPlayHistoryObjects(verify));
             AssertObjectExists(verify, "table", "score");

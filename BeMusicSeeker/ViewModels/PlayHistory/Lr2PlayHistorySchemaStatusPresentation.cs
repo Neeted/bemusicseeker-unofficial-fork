@@ -29,6 +29,7 @@ internal sealed class Lr2PlayHistorySchemaStatusPresentation
 
     internal bool CanRepair { get; }
 
+    /// <summary>保持された検査事実だけを現在の言語で表示し、対象DBと操作可否を変えません。</summary>
     internal static Lr2PlayHistorySchemaStatusPresentation Create(Lr2PlayHistorySchemaStatusSnapshot result)
     {
         if (result == null || result.IsReset)
@@ -44,7 +45,7 @@ internal sealed class Lr2PlayHistorySchemaStatusPresentation
         return new Lr2PlayHistorySchemaStatusPresentation(
             result.Status,
             GetStatusText(result.Status),
-            result.Message,
+            Lr2PlayHistorySchemaMessage.Format(result.Reason, result.Diagnostic),
             canInstall: result.Status == Lr2PlayHistorySchemaStatus.NotInstalled,
             canRepair: result.Status == Lr2PlayHistorySchemaStatus.Repairable);
     }

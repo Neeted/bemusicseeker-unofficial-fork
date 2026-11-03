@@ -160,6 +160,12 @@ internal sealed class DelegateAudioDeviceTestRuntime : IAudioDeviceTestRuntime
     }
 
     /// <summary>実音声ownerの要求を変換せず、指定した処理へ渡します。</summary>
+    /// <summary>表示更新で実テストを再実行していないことを観測します。</summary>
+    internal int RunCount { get; private set; }
+
     public AudioDeviceTestResult Run(AudioDeviceTestRequest request)
-        => run(request);
+    {
+        RunCount++;
+        return run(request);
+    }
 }

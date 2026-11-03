@@ -8,6 +8,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Media;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.Localization;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
@@ -380,6 +381,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 DataContext = owner.SettingDialog,
                 PlaybackPanel = owner.PlaybackPanel
             };
+            System.Globalization.CultureInfo? previousLanguage = Resources.Culture;
             try
             {
                 Materialize(window);
@@ -457,10 +459,25 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Assert.AreEqual(Visibility.Visible, eventDescription.Visibility);
                 Assert.AreEqual(SampleRate.AUTO, owner.SettingDialog.PlayerSampleRate);
                 Assert.AreEqual(SampleFormat.AUTO, owner.SettingDialog.PlayerFormat);
+                foreach (string language in new[] { "en-US", "ja-JP", "en-US" })
+                {
+                    ResourceService.Current.ChangeCulture(language);
+                    Materialize(window);
+                    Assert.AreEqual(Resources.AudioOutputSelectionResetMessage, owner.SettingDialog.AudioOutputSelectionResetMessage);
+                    SettingsStatusBanner reset = FindLogicalDescendants<SettingsStatusBanner>(audioPage).Single(control => GetBindingPath(control, ContentControl.ContentProperty) == nameof(SettingsDialogViewModel.AudioOutputSelectionResetMessage));
+                    Assert.AreEqual(Resources.AudioOutputSelectionResetMessage, reset.Content);
+                    Assert.AreEqual(SampleRate.AUTO, playerSampleRate.SelectedValue);
+                    Assert.AreEqual(SampleFormat.AUTO, playerFormat.SelectedValue);
+                }
+
                 Assert.AreEqual(Visibility.Visible, playerSampleRate.Visibility);
                 Assert.AreEqual(Visibility.Visible, playerFormat.Visibility);
 
                 playerSampleRate.SelectedValue = SampleRate.SAMPLE_RATE_44100Hz;
+                ResourceService.Current.ChangeCulture("ja-JP");
+                Materialize(window);
+                Assert.AreEqual(Resources.AudioSampleRateSelectionResetMessage, owner.SettingDialog.AudioOutputSelectionResetMessage);
+                Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, playerSampleRate.SelectedValue);
                 playerFormat.SelectedValue = SampleFormat.SAMPLE_INT_16BIT;
                 Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, owner.SettingDialog.PlayerSampleRate);
                 Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, owner.SettingDialog.PlayerFormat);
@@ -514,6 +531,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
             {
                 window.CloseForOwnerShutdown();
                 owner.SettingDialog.Dispose();
+                if (previousLanguage == null) { Resources.Culture = null; }
+                else { ResourceService.Current.ChangeCulture(previousLanguage.Name); }
             }
         });
     }
@@ -539,6 +558,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
             settings.UsePlayerLR2body = false;
             settings.UsePlayerBMIIDXView = false;
             settings.Encoder = EncoderType.MP3_LAME;
+            settings.EncoderSampleRate = SampleRate.AUTO;
+            settings.EncoderFormat = SampleFormat.AUTO;
             settings.Save();
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
             owner.SettingDialog.Dispose();
@@ -561,6 +582,9 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 audioDeviceCatalog: new SettingsDialogHarness.WaveOnlyAudioDeviceCatalog(),
                 audioSettingsGateway: gateway);
             SettingsWindow? window = null;
+            System.Globalization.CultureInfo? previousLanguage = Resources.Culture;
+            string languagePath = Path.Combine(ApplicationPathPolicy.Current.LanguageDirectory, "de-DE.json");
+            byte[]? languageBackup = File.Exists(languagePath) ? File.ReadAllBytes(languagePath) : null;
             try
             {
                 window = new SettingsWindow { DataContext = dialog, PlaybackPanel = owner.PlaybackPanel };
@@ -574,6 +598,28 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Assert.AreEqual(EncoderType.MP3_LAME, SelectedChartAudioConversionSettingsSnapshot.CreateCurrent(gateway.CaptureEncodingSettings()).Encoder);
                 Assert.AreEqual(0, persistedRequests.SetRequests, "初期表示とsnapshot取得は保存しません。");
                 Assert.AreEqual(0, dialogs.MessageCount);
+                Directory.CreateDirectory(Path.GetDirectoryName(languagePath) ?? throw new AssertFailedException("翻訳の親ディレクトリがありません。"));
+                File.WriteAllText(languagePath, """{"_language_name":"Recording regression", "Auto":"Automatisch regression"}""");
+                JsonLanguageCatalog.Invalidate("de-DE");
+                JsonLanguageCatalog.InvalidateLanguages();
+                var rate = (ComboBox)page.FindName("comboBoxEncoderSampleRate");
+                var format = (ComboBox)page.FindName("comboBoxEncoderFormat");
+                foreach (string language in new[] { "en-US", "de-DE", "ja-JP", "en-US" })
+                {
+                    ResourceService.Current.ChangeCulture(language);
+                    Materialize(window);
+                    string expectedAuto = language == "de-DE" ? "Automatisch regression" : Resources.Auto;
+                    Assert.AreEqual(expectedAuto, rate.Items.Cast<KeyValuePair<SampleRate, string>>().Single(item => item.Key == SampleRate.AUTO).Value);
+                    Assert.AreEqual(expectedAuto, format.Items.Cast<KeyValuePair<SampleFormat, string>>().Single(item => item.Key == SampleFormat.AUTO).Value);
+                    Assert.AreEqual(SampleRate.AUTO, rate.SelectedValue);
+                    Assert.AreEqual(SampleFormat.AUTO, format.SelectedValue);
+                    var snapshot = SelectedChartAudioConversionSettingsSnapshot.CreateCurrent(gateway.CaptureEncodingSettings());
+                    Assert.AreEqual(SampleRate.AUTO, snapshot.EncoderSampleRate);
+                    Assert.AreEqual(SampleFormat.AUTO, snapshot.EncoderFormat);
+                    Assert.AreEqual(expectedAuto, snapshot.SampleRateDisplayName);
+                    Assert.AreEqual(expectedAuto, snapshot.SampleFormatDisplayName);
+                    Assert.AreEqual(0, persistedRequests.SetRequests, "言語変更で録音条件を保存しません。");
+                }
 
                 encoder.SetCurrentValue(Selector.SelectedIndexProperty, (int)EncoderType.WAVE);
                 Materialize(window);
@@ -616,7 +662,16 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 }
                 finally
                 {
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "recording-page-owner-cleanup");
+                    try { TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "recording-page-owner-cleanup"); }
+                    finally
+                    {
+                        if (languageBackup == null) { File.Delete(languagePath); }
+                        else { File.WriteAllBytes(languagePath, languageBackup); }
+                        JsonLanguageCatalog.Invalidate("de-DE");
+                        JsonLanguageCatalog.InvalidateLanguages();
+                        if (previousLanguage == null) { Resources.Culture = null; }
+                        else { ResourceService.Current.ChangeCulture(previousLanguage.Name); }
+                    }
                 }
             }
         });

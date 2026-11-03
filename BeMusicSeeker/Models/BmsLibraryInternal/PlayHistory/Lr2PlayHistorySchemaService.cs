@@ -35,13 +35,62 @@ internal enum Lr2PlayHistorySchemaUninstallMode
     TablesAndTriggers
 }
 
+/// <summary>検査・明示操作で確定した詳細理由です。表示言語から独立して結果と共に保持します。</summary>
+internal enum Lr2PlayHistorySchemaReason
+{
+    None,
+    SkippedProfile,
+    PathNotConfigured,
+    FileNotFound,
+    BaseSchemaIncompatible,
+    ObjectNameCollision,
+    TableColumnsIncompatible,
+    PartialSchemaManualActionRequired,
+    NotInstalled,
+    Installed,
+    InstallOrRepairAvailable,
+    Diagnostic,
+    InstallOrRepairFailed,
+    UninstallFailed
+}
+
+/// <summary>確定した理由と診断を現在の表示言語へ投影します。DBへのアクセスは行いません。</summary>
+internal static class Lr2PlayHistorySchemaMessage
+{
+    /// <summary>理由に対応する翻訳文へ、保持した診断だけを差し込みます。</summary>
+    internal static string Format(Lr2PlayHistorySchemaReason reason, string diagnostic) => reason switch
+    {
+        Lr2PlayHistorySchemaReason.SkippedProfile => Resources.Lr2_play_history_schema_message_skipped_profile,
+        Lr2PlayHistorySchemaReason.PathNotConfigured => Resources.Lr2_play_history_schema_message_score_db_path_not_configured,
+        Lr2PlayHistorySchemaReason.FileNotFound => Resources.Lr2_play_history_schema_message_score_db_file_not_found,
+        Lr2PlayHistorySchemaReason.BaseSchemaIncompatible => Resources.Lr2_play_history_schema_message_base_schema_incompatible,
+        Lr2PlayHistorySchemaReason.ObjectNameCollision => Resources.Lr2_play_history_schema_message_object_name_collision,
+        Lr2PlayHistorySchemaReason.TableColumnsIncompatible => Resources.Lr2_play_history_schema_message_table_columns_incompatible,
+        Lr2PlayHistorySchemaReason.PartialSchemaManualActionRequired => Resources.Lr2_play_history_schema_message_partial_schema_manual_action_required,
+        Lr2PlayHistorySchemaReason.NotInstalled => Resources.Lr2_play_history_schema_message_not_installed,
+        Lr2PlayHistorySchemaReason.Installed => Resources.Lr2_play_history_schema_message_installed,
+        Lr2PlayHistorySchemaReason.InstallOrRepairAvailable => Resources.Lr2_play_history_schema_message_install_or_repair_available,
+        Lr2PlayHistorySchemaReason.Diagnostic => diagnostic ?? string.Empty,
+        Lr2PlayHistorySchemaReason.InstallOrRepairFailed => string.Format(Resources.Lr2_play_history_schema_message_install_or_repair_failed_format, diagnostic),
+        Lr2PlayHistorySchemaReason.UninstallFailed => string.Format(Resources.Lr2_play_history_schema_message_uninstall_failed_format, diagnostic),
+        _ => string.Empty
+    };
+}
+
 internal sealed class Lr2PlayHistorySchemaCheckResult
 {
     public Lr2PlayHistorySchemaStatus Status { get; set; }
 
     public string ScoreDbPath { get; set; }
 
-    public string Message { get; set; }
+    /// <summary>検査または明示操作で確定した理由です。</summary>
+    public Lr2PlayHistorySchemaReason Reason { get; set; }
+
+    /// <summary>失敗時に取得した技術診断です。表示言語を変えても再取得しません。</summary>
+    public string Diagnostic { get; set; }
+
+    /// <summary>確定理由を現在の言語で表示します。</summary>
+    public string Message => Lr2PlayHistorySchemaMessage.Format(Reason, Diagnostic);
 
     public List<string> MissingTables { get; } = [];
 
@@ -282,16 +331,16 @@ internal sealed class Lr2PlayHistorySchemaService
             {
                 Status = Lr2PlayHistorySchemaStatus.SkippedProfile,
                 ScoreDbPath = scoreDbPath,
-                Message = Resources.Lr2_play_history_schema_message_skipped_profile
+                Reason = Lr2PlayHistorySchemaReason.SkippedProfile
             };
         }
         if (string.IsNullOrWhiteSpace(scoreDbPath))
         {
-            return CreateUnreadableResult(scoreDbPath, Resources.Lr2_play_history_schema_message_score_db_path_not_configured);
+            return CreateUnreadableResult(scoreDbPath, Lr2PlayHistorySchemaReason.PathNotConfigured);
         }
         if (!File.Exists(scoreDbPath))
         {
-            return CreateUnreadableResult(scoreDbPath, Resources.Lr2_play_history_schema_message_score_db_file_not_found);
+            return CreateUnreadableResult(scoreDbPath, Lr2PlayHistorySchemaReason.FileNotFound);
         }
 
         try
@@ -302,7 +351,7 @@ internal sealed class Lr2PlayHistorySchemaService
         catch (Exception ex)
         {
             PlayHistoryReadDiagnostics.Report(ex, "LR2", "schema_check", scoreDbPath);
-            return CreateUnreadableResult(scoreDbPath, ex.Message);
+            return CreateUnreadableResult(scoreDbPath, Lr2PlayHistorySchemaReason.Diagnostic, ex.Message);
         }
     }
 
@@ -348,7 +397,7 @@ internal sealed class Lr2PlayHistorySchemaService
         {
             return CreateUnreadableResult(
                 scoreDbPath,
-                string.Format(Resources.Lr2_play_history_schema_message_install_or_repair_failed_format, ex.Message));
+                Lr2PlayHistorySchemaReason.InstallOrRepairFailed, ex.Message);
         }
 
         return Check(scoreDbPath, isLr2LinkedProfile);
@@ -393,7 +442,7 @@ internal sealed class Lr2PlayHistorySchemaService
         {
             return CreateUnreadableResult(
                 scoreDbPath,
-                string.Format(Resources.Lr2_play_history_schema_message_uninstall_failed_format, ex.Message));
+                Lr2PlayHistorySchemaReason.UninstallFailed, ex.Message);
         }
 
         return Check(scoreDbPath, isLr2LinkedProfile);
@@ -451,7 +500,7 @@ internal sealed class Lr2PlayHistorySchemaService
             || result.IncompatibleBaseColumns.Count > 0)
         {
             result.Status = Lr2PlayHistorySchemaStatus.ManualRepairRequired;
-            result.Message = Resources.Lr2_play_history_schema_message_base_schema_incompatible;
+            result.Reason = Lr2PlayHistorySchemaReason.BaseSchemaIncompatible;
             return result;
         }
 
@@ -459,7 +508,7 @@ internal sealed class Lr2PlayHistorySchemaService
         if (result.ObjectNameCollisions.Count > 0)
         {
             result.Status = Lr2PlayHistorySchemaStatus.ManualRepairRequired;
-            result.Message = Resources.Lr2_play_history_schema_message_object_name_collision;
+            result.Reason = Lr2PlayHistorySchemaReason.ObjectNameCollision;
             return result;
         }
 
@@ -472,7 +521,7 @@ internal sealed class Lr2PlayHistorySchemaService
         if (result.MissingColumns.Count > 0 || result.IncompatibleColumns.Count > 0)
         {
             result.Status = Lr2PlayHistorySchemaStatus.ManualRepairRequired;
-            result.Message = Resources.Lr2_play_history_schema_message_table_columns_incompatible;
+            result.Reason = Lr2PlayHistorySchemaReason.TableColumnsIncompatible;
             return result;
         }
 
@@ -481,9 +530,9 @@ internal sealed class Lr2PlayHistorySchemaService
             result.Status = hasAnyPlayHistoryObject
                 ? Lr2PlayHistorySchemaStatus.ManualRepairRequired
                 : Lr2PlayHistorySchemaStatus.NotInstalled;
-            result.Message = hasAnyPlayHistoryObject
-                ? Resources.Lr2_play_history_schema_message_partial_schema_manual_action_required
-                : Resources.Lr2_play_history_schema_message_not_installed;
+            result.Reason = hasAnyPlayHistoryObject
+                ? Lr2PlayHistorySchemaReason.PartialSchemaManualActionRequired
+                : Lr2PlayHistorySchemaReason.NotInstalled;
             return result;
         }
 
@@ -521,19 +570,20 @@ internal sealed class Lr2PlayHistorySchemaService
             || result.MismatchedTriggers.Count > 0
                 ? Lr2PlayHistorySchemaStatus.Repairable
                 : Lr2PlayHistorySchemaStatus.Installed;
-        result.Message = result.Status == Lr2PlayHistorySchemaStatus.Installed
-            ? Resources.Lr2_play_history_schema_message_installed
-            : Resources.Lr2_play_history_schema_message_install_or_repair_available;
+        result.Reason = result.Status == Lr2PlayHistorySchemaStatus.Installed
+            ? Lr2PlayHistorySchemaReason.Installed
+            : Lr2PlayHistorySchemaReason.InstallOrRepairAvailable;
         return result;
     }
 
-    private static Lr2PlayHistorySchemaCheckResult CreateUnreadableResult(string scoreDbPath, string message)
+    private static Lr2PlayHistorySchemaCheckResult CreateUnreadableResult(string scoreDbPath, Lr2PlayHistorySchemaReason reason, string diagnostic = null)
     {
         return new Lr2PlayHistorySchemaCheckResult
         {
             Status = Lr2PlayHistorySchemaStatus.Unreadable,
             ScoreDbPath = scoreDbPath,
-            Message = message
+            Reason = reason,
+            Diagnostic = diagnostic
         };
     }
 

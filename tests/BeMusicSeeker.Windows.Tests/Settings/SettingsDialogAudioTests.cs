@@ -5,6 +5,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using ManagedBass;
@@ -54,9 +55,7 @@ public sealed class SettingsDialogAudioTests
                     settings.PlayerDeviceName)
             };
             AudioDeviceTestRequest? capturedRequest = null;
-            var workflow = new AudioDeviceTestWorkflowOwner(
-                new NoOpAudioDeviceTestPlaybackPort(),
-                new DelegateAudioDeviceTestRuntime(request =>
+            var runtime = new DelegateAudioDeviceTestRuntime(request =>
                 {
                     capturedRequest = request;
                     return AudioDeviceTestResultFactory.CreateSuccessful(
@@ -67,16 +66,22 @@ public sealed class SettingsDialogAudioTests
                             actualDeviceName: "Changed name",
                             latency: 21,
                             streamProgressSucceeded: false);
-                }),
+                });
+            var catalog = new TestAudioDeviceCatalog();
+            var workflow = new AudioDeviceTestWorkflowOwner(
+                new NoOpAudioDeviceTestPlaybackPort(),
+                runtime,
                 requestAdmission: new TestAudioDeviceTestRequestAdmission());
             using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 settingsSession,
                 workflow,
-                audioGateway);
+                audioGateway, audioDeviceCatalog: catalog);
             dialog.PlayerResamplingQuality = 3;
             dialog.PlayerMixerThreadCount = 4;
 
             await dialog.RunAudioDeviceTestAsync();
+            AssertAudioResultRelocalizesWithoutWork(dialog, settingsSession, runtime, catalog);
+
 
             Assert.AreEqual(3, capturedRequest?.SampleRateConversionQuality);
             Assert.AreEqual(4, capturedRequest?.PlayerMixerThreadCount);
@@ -122,9 +127,7 @@ public sealed class SettingsDialogAudioTests
             const string fallbackReason =
                 "Requested ASIO device identity was stale; a compatible name match was used. "
                 + "Requested ASIO endpoint format SAMPLE_INT_16BIT differs from native endpoint format SAMPLE_INT_24BIT.";
-            var workflow = new AudioDeviceTestWorkflowOwner(
-                new NoOpAudioDeviceTestPlaybackPort(),
-                new DelegateAudioDeviceTestRuntime(request =>
+            var runtime = new DelegateAudioDeviceTestRuntime(request =>
                     AudioDeviceTestResultFactory.CreateSuccessful(
                         request,
                         actualBackend: AudioDriver.WasapiShared,
@@ -136,14 +139,20 @@ public sealed class SettingsDialogAudioTests
                         endpointContainerBits: 24,
                         endpointEffectiveBits: 24,
                         latency: 16.5,
-                        fallbackReason: fallbackReason)),
+                        fallbackReason: fallbackReason));
+            var catalog = new TestAudioDeviceCatalog();
+            var workflow = new AudioDeviceTestWorkflowOwner(
+                new NoOpAudioDeviceTestPlaybackPort(),
+                runtime,
                         requestAdmission: new TestAudioDeviceTestRequestAdmission());
             using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 settingsSession,
                 workflow,
-                audioGateway);
+                audioGateway, audioDeviceCatalog: catalog);
 
             await dialog.RunAudioDeviceTestAsync();
+            AssertAudioResultRelocalizesWithoutWork(dialog, settingsSession, runtime, catalog);
+
 
             AssertExplicitAudioSettingsUnchanged(settings, audioGateway, AudioDriver.Asio);
             string resultMessage = dialog.AudioDeviceTestStatusMessage;
@@ -218,9 +227,10 @@ public sealed class SettingsDialogAudioTests
                         new(SampleRate.SAMPLE_RATE_384000Hz, SampleFormat.SAMPLE_INT_16BIT, true)
                     ]);
             });
+            var testRuntime = new DelegateAudioDeviceTestRuntime(request => AudioDeviceTestResultFactory.CreateSuccessful(request));
             workflow = new AudioDeviceTestWorkflowOwner(
                 new NoOpAudioDeviceTestPlaybackPort(),
-                new DelegateAudioDeviceTestRuntime(_ => throw new InvalidOperationException("test runtime unused")),
+                testRuntime,
                 capabilityRuntime,
                 requestAdmission: new TestAudioDeviceTestRequestAdmission());
             workflow.OperationReleased += observeReleased;
@@ -230,13 +240,12 @@ public sealed class SettingsDialogAudioTests
                 audioGateway);
             var firstApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var secondApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            int appliedCount = 0;
             appliedObserver = (_, args) =>
             {
                 if (args.PropertyName == nameof(SettingsDialogViewModel.PlayerSampleRateNames)
                     && dialog.PlayerSampleRateNames.ContainsKey(SampleRate.SAMPLE_RATE_384000Hz))
                 {
-                    if (Interlocked.Increment(ref appliedCount) == 1)
+                    if (Volatile.Read(ref queryCount) == 1)
                     {
                         firstApplied.TrySetResult();
                     }
@@ -253,11 +262,36 @@ public sealed class SettingsDialogAudioTests
             dialog.SetAudioSettingsPageVisible(visible: true);
             await firstApplied.Task;
             Assert.AreEqual(1, queryCount);
+            await dialog.AudioSettingsCompletionTask;
+            await dialog.RunAudioDeviceTestAsync();
+            Assert.IsNotNull(dialog.AudioDeviceTestStatusMessage);
+            System.Globalization.CultureInfo? previousLanguage = Resources.Culture;
+            try
+            {
+                foreach (string language in new[] { "en-US", "ja-JP", "en-US" })
+                {
+                    ResourceService.Current.ChangeCulture(language);
+                    Assert.AreEqual(1, queryCount);
+                    Assert.AreEqual(0, settingsSession.SaveCount);
+                    Assert.AreEqual(1, testRuntime.RunCount);
+                    Assert.IsNotNull(dialog.AudioDeviceTestStatusMessage);
+                    StringAssert.Contains(dialog.PlayerSampleRateNames[SampleRate.SAMPLE_RATE_44100Hz], Resources.AudioDeviceCapabilityUnsupportedChoice);
+                }
+            }
+            finally
+            {
+                if (previousLanguage == null) { Resources.Culture = null; }
+                else { ResourceService.Current.ChangeCulture(previousLanguage.Name); }
+            }
+            string retainedResult = dialog.AudioDeviceTestStatusMessage;
             dialog.SetAudioSettingsPageVisible(visible: false);
+            Assert.AreEqual(retainedResult, dialog.AudioDeviceTestStatusMessage);
             Assert.IsNull(dialog.AudioDeviceCapabilityStatusMessage);
             dialog.SetAudioSettingsPageVisible(visible: true);
             await secondApplied.Task;
             Assert.AreEqual(2, queryCount);
+            Assert.AreEqual(retainedResult, dialog.AudioDeviceTestStatusMessage);
+            Assert.AreEqual(1, testRuntime.RunCount);
 
             AudioDeviceCapabilityRequest capturedRequest = observedRequest
                 ?? throw new AssertFailedException("Capability query did not reach its runtime.");
@@ -420,11 +454,17 @@ public sealed class SettingsDialogAudioTests
         }
     }
 
-    /// <summary>既定機器・AUTO rate／format で成功しても、解決済み機器と実測値を保存設定へ固定しないことを確認します。</summary>
+    /// <summary>既定機器・AUTOの意図を成功後と言語変更後も保ち、閉鎖時の結果破棄と、旧Taskが再表示前後のどちらで完了しても結果を持ち越さないことを実Taskで確認します。</summary>
     [TestMethod]
-    public async Task AudioDeviceTest_DefaultAndAutoSuccess_PreservesUserIntent()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task AudioDeviceTest_DefaultAndAutoSuccess_PreservesUserIntent(bool reopenBeforeCompletion)
     {
         string root = CreateTemporaryRoot(CaseWorkspace);
+        using var releaseSecond = new ManualResetEventSlim();
+        var secondStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? pendingTest = null;
+        int requests = 0;
         try
         {
             Settings settings = CreateAudioSettings(root);
@@ -437,34 +477,78 @@ public sealed class SettingsDialogAudioTests
             settings.uBMplayVolume = 50;
             var settingsSession = new CountingAudioSettingsEditSession(settings);
             var audioGateway = new TestAudioSettingsGateway { PlayerDriver = AudioDriver.WasapiShared };
-            var workflow = new AudioDeviceTestWorkflowOwner(
-                new NoOpAudioDeviceTestPlaybackPort(),
-                new DelegateAudioDeviceTestRuntime(request =>
-                    AudioDeviceTestResultFactory.CreateSuccessful(
+            var runtime = new DelegateAudioDeviceTestRuntime(request =>
+            {
+                if (Interlocked.Increment(ref requests) == 2)
+                {
+                    secondStarted.TrySetResult();
+                    releaseSecond.Wait();
+                }
+                return AudioDeviceTestResultFactory.CreateSuccessful(
                         request,
                         actualDevice: "resolved-default",
                         actualDeviceName: "Resolved default",
                         actualRate: SampleRate.SAMPLE_RATE_48000Hz,
                         engineFormat: SampleFormat.SAMPLE_FLOAT_32BIT,
                         endpointFormat: SampleFormat.SAMPLE_FLOAT_32BIT,
-                        latency: 17)),
+                        latency: 17);
+            });
+            var catalog = new TestAudioDeviceCatalog();
+            var workflow = new AudioDeviceTestWorkflowOwner(
+                new NoOpAudioDeviceTestPlaybackPort(),
+                runtime,
                         requestAdmission: new TestAudioDeviceTestRequestAdmission());
             using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 settingsSession,
                 workflow,
-                audioGateway);
+                audioGateway, audioDeviceCatalog: catalog);
 
+            System.Globalization.CultureInfo? previousLanguage = Resources.Culture;
+            try
+            {
+                ResourceService.Current.ChangeCulture("ja-JP");
+                Assert.IsNull(dialog.AudioDeviceTestStatusMessage, "未実行の結果を言語変更で作りません。");
+            }
+            finally
+            {
+                if (previousLanguage == null) { Resources.Culture = null; }
+                else { ResourceService.Current.ChangeCulture(previousLanguage.Name); }
+            }
             await dialog.RunAudioDeviceTestAsync();
+            AssertAudioResultRelocalizesWithoutWork(dialog, settingsSession, runtime, catalog);
 
             Assert.IsNull(settings.PlayerDevice);
             Assert.IsNull(settings.PlayerDeviceName);
             Assert.AreEqual(SampleRate.AUTO, settings.PlayerSampleRate);
             Assert.AreEqual(SampleFormat.AUTO, settings.PlayerFormat);
             StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, "WASAPI");
+            dialog.SetAudioSettingsPageVisible(false);
+            AssertAudioResultRelocalizesWithoutWork(dialog, settingsSession, runtime, catalog);
+            dialog.SetPresentationActive(false);
+            Assert.IsNull(dialog.AudioDeviceTestStatusMessage, "閉鎖時には結果を破棄します。");
+            dialog.SetPresentationActive(true);
+            Assert.IsNull(dialog.AudioDeviceTestStatusMessage);
+            Assert.AreEqual(1, runtime.RunCount);
+            pendingTest = dialog.RunAudioDeviceTestAsync();
+            await TestUiDispatcherHost.AwaitNotificationAsync(secondStarted.Task, pendingTest, "audio test before hidden completion");
+            dialog.SetPresentationActive(false);
+            if (reopenBeforeCompletion) { dialog.SetPresentationActive(true); }
+            Assert.IsFalse(pendingTest.IsCompleted, "閉鎖・再表示では受理済みTaskを終端させません。");
+            Assert.IsTrue(dialog.IsAudioDeviceTestInProgress);
+            Assert.IsFalse(dialog.IsAudioOutputSelectionEnabled);
+            releaseSecond.Set();
+            await pendingTest;
+            Assert.IsNull(dialog.AudioDeviceTestStatusMessage, "閉鎖前に開始した結果は、完了時の表示状態によらず採用しません。");
+            Assert.IsNull(dialog.AudioDeviceTestDiagnosticMessage);
+            if (!reopenBeforeCompletion) { dialog.SetPresentationActive(true); }
+            Assert.IsNull(dialog.AudioDeviceTestStatusMessage);
+            Assert.AreEqual(2, runtime.RunCount);
         }
         finally
         {
-            Directory.Delete(root, recursive: true);
+            releaseSecond.Set();
+            try { if (pendingTest != null) { await pendingTest; } }
+            finally { Directory.Delete(root, recursive: true); }
         }
     }
 
@@ -486,9 +570,7 @@ public sealed class SettingsDialogAudioTests
                     settings.PlayerDeviceName)
             };
             var dialogs = new SettingsDialogHarness.RecordingDialogService();
-            var workflow = new AudioDeviceTestWorkflowOwner(
-                new NoOpAudioDeviceTestPlaybackPort(),
-                new DelegateAudioDeviceTestRuntime(_ => throw new AudioInitializationException(
+            var runtime = new DelegateAudioDeviceTestRuntime(_ => throw new AudioInitializationException(
                     BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
                     BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
                     "BASS_WASAPI_Init",
@@ -496,15 +578,21 @@ public sealed class SettingsDialogAudioTests
                     new BassAudioPlayer.DeviceDescriptor("Attempted device B", "attempted-device-b"),
                     "BASSWASAPI",
                     Errors.Device,
-                    "WASAPI initialization failed")),
+                    "WASAPI initialization failed"));
+            var catalog = new TestAudioDeviceCatalog();
+            var workflow = new AudioDeviceTestWorkflowOwner(
+                new NoOpAudioDeviceTestPlaybackPort(),
+                runtime,
                     requestAdmission: new TestAudioDeviceTestRequestAdmission());
             using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 settingsSession,
                 workflow,
                 audioGateway,
-                dialogs);
+                dialogs, audioDeviceCatalog: catalog);
 
             await dialog.RunAudioDeviceTestAsync();
+            AssertAudioResultRelocalizesWithoutWork(dialog, settingsSession, runtime, catalog);
+
 
             Assert.AreEqual(0, dialogs.MessageCount);
             string expectedMessage = string.Format(
@@ -887,6 +975,44 @@ public sealed class SettingsDialogAudioTests
             audioSettingsGateway: audioGateway, dialogs: dialogs, audioDeviceCatalog: audioDeviceCatalog).Dialog;
         dialog.SetPresentationActive(active: true);
         return dialog;
+    }
+
+    /// <summary>保持した成功・代替・失敗結果だけを現在語へ再投影し、実行・列挙・保存と候補を変えないことを確認します。</summary>
+    private static void AssertAudioResultRelocalizesWithoutWork(SettingsDialogViewModel dialog,
+        CountingAudioSettingsEditSession session, DelegateAudioDeviceTestRuntime runtime, TestAudioDeviceCatalog catalog)
+    {
+        System.Globalization.CultureInfo? previousLanguage = Resources.Culture;
+        string diagnostic = dialog.AudioDeviceTestDiagnosticMessage;
+        int saves = session.SaveCount;
+        int runs = runtime.RunCount;
+        int refreshes = catalog.RefreshCount;
+        SampleRate rate = dialog.PlayerSampleRate;
+        SampleFormat format = dialog.PlayerFormat;
+        var notifications = new List<string>();
+        PropertyChangedEventHandler changed = (_, args) => notifications.Add(args.PropertyName ?? string.Empty);
+        dialog.PropertyChanged += changed;
+        try
+        {
+            ResourceService.Current.ChangeCulture("en-US");
+            string english = dialog.AudioDeviceTestStatusMessage;
+            ResourceService.Current.ChangeCulture("ja-JP");
+            Assert.AreNotEqual(english, dialog.AudioDeviceTestStatusMessage);
+            ResourceService.Current.ChangeCulture("en-US");
+            Assert.AreEqual(english, dialog.AudioDeviceTestStatusMessage);
+            CollectionAssert.Contains(notifications, nameof(dialog.AudioDeviceTestStatusMessage));
+            Assert.AreEqual(diagnostic, dialog.AudioDeviceTestDiagnosticMessage);
+            Assert.AreEqual(rate, dialog.PlayerSampleRate);
+            Assert.AreEqual(format, dialog.PlayerFormat);
+            Assert.AreEqual(saves, session.SaveCount);
+            Assert.AreEqual(runs, runtime.RunCount);
+            Assert.AreEqual(refreshes, catalog.RefreshCount);
+        }
+        finally
+        {
+            dialog.PropertyChanged -= changed;
+            if (previousLanguage == null) { Resources.Culture = null; }
+            else { ResourceService.Current.ChangeCulture(previousLanguage.Name); }
+        }
     }
 
     private static void ConfigureExplicitAudioSettings(Settings settings)

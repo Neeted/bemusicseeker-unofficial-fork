@@ -70,6 +70,32 @@ public sealed class Lr2PlayHistorySchemaUiTests
             Assert.IsFalse(presentation.CanRepair, status.ToString());
             Assert.IsFalse(string.IsNullOrWhiteSpace(presentation.StatusText), status.ToString());
         }
+
+        const string diagnostic = "SQLite diagnostic: sample";
+        foreach ((Lr2PlayHistorySchemaReason reason, string expected) in new[]
+        {
+            (Lr2PlayHistorySchemaReason.PathNotConfigured, Resources.Lr2_play_history_schema_message_score_db_path_not_configured),
+            (Lr2PlayHistorySchemaReason.FileNotFound, Resources.Lr2_play_history_schema_message_score_db_file_not_found),
+            (Lr2PlayHistorySchemaReason.Diagnostic, diagnostic),
+            (Lr2PlayHistorySchemaReason.InstallOrRepairFailed, string.Format(Resources.Lr2_play_history_schema_message_install_or_repair_failed_format, diagnostic)),
+            (Lr2PlayHistorySchemaReason.UninstallFailed, string.Format(Resources.Lr2_play_history_schema_message_uninstall_failed_format, diagnostic))
+        })
+        {
+            var snapshot = Lr2PlayHistorySchemaStatusSnapshot.FromResult(new Lr2PlayHistorySchemaCheckResult
+            {
+                Status = Lr2PlayHistorySchemaStatus.Unreadable,
+                ScoreDbPath = "score.db",
+                Reason = reason,
+                Diagnostic = diagnostic
+            });
+            var presentation = Lr2PlayHistorySchemaStatusPresentation.Create(snapshot);
+            Assert.AreEqual(reason, snapshot.Reason);
+            Assert.AreEqual(diagnostic, snapshot.Diagnostic);
+            Assert.AreEqual("score.db", snapshot.ScoreDbPath);
+            Assert.AreEqual(expected, presentation.Message);
+            Assert.IsFalse(presentation.CanInstall);
+            Assert.IsFalse(presentation.CanRepair);
+        }
     }
 
     private static Lr2PlayHistorySchemaStatusPresentation CreatePresentation(Lr2PlayHistorySchemaStatus status)
@@ -78,7 +104,8 @@ public sealed class Lr2PlayHistorySchemaUiTests
             Lr2PlayHistorySchemaStatusSnapshot.FromResult(new Lr2PlayHistorySchemaCheckResult
             {
                 Status = status,
-                Message = status.ToString()
+                Reason = Lr2PlayHistorySchemaReason.Diagnostic,
+                Diagnostic = status.ToString()
             }));
     }
 

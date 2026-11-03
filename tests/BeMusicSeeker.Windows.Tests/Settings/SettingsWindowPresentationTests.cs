@@ -63,7 +63,7 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            SettingsDialogViewModel settings = owner.SettingDialog;
+            using SettingsDialogViewModel settings = owner.SettingDialog;
             var presentationPort = new RecordingPresentationPort();
             settings.AttachPresentationPort(presentationPort);
             Uri tableListUriBefore = settings.TableListURL;
@@ -75,11 +75,35 @@ public sealed class SettingsWindowPresentationTests
                 firstPresentation = new SettingsWindow { DataContext = settings };
                 presentationPort.CloseAction = firstPresentation!.CloseFromPresentation;
                 windowTest.ShowAndWaitForContentRendered(firstPresentation!);
-                SeedTransientPlaylistUriValidation(settings);
 
                 var navigation = (ListBox)firstPresentation!.FindName("settingsNavigation");
                 navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationPlaylist");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
+                var playlistPage = (FrameworkElement)((ContentControl)firstPresentation.FindName("settingsPageContent")).Content;
+                TextBox tableInput = FindDescendants<TextBox>(playlistPage).Single(control => control.GetBindingExpression(TextBox.TextProperty)?.ParentBinding.Path.Path == nameof(settings.TableListURL));
+                TextBox mappingInput = FindDescendants<TextBox>(playlistPage).Single(control => control.GetBindingExpression(TextBox.TextProperty)?.ParentBinding.Path.Path == nameof(settings.PlaylistMd5UrlMappingTsvUri));
+                tableInput.Text = string.Empty;
+                (tableInput.GetBindingExpression(TextBox.TextProperty) ?? throw new AssertFailedException("表URLのBindingがありません。")).UpdateSource();
+                mappingInput.Text = "ftp://example.com/mapping.tsv";
+                (mappingInput.GetBindingExpression(TextBox.TextProperty) ?? throw new AssertFailedException("TSV URLのBindingがありません。")).UpdateSource();
+                System.Globalization.CultureInfo? previousLanguage = Resources.Culture;
+                try
+                {
+                    foreach (string language in new[] { "en-US", "ja-JP", "en-US" })
+                    {
+                        ResourceService.Current.ChangeCulture(language);
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.AreEqual(Resources.Error_InvalidTableListUri, settings.TableListUriValidationMessage);
+                        Assert.AreEqual(Resources.Error_InvalidPlaylistMd5UrlMappingTsvUri, settings.PlaylistMd5UrlMappingTsvUriValidationMessage);
+                        Assert.AreEqual(tableListUriBefore, settings.TableListURL);
+                        Assert.AreEqual(mappingUriBefore, settings.PlaylistMd5UrlMappingTsvUri);
+                    }
+                }
+                finally
+                {
+                    if (previousLanguage == null) { Resources.Culture = null; }
+                    else { ResourceService.Current.ChangeCulture(previousLanguage.Name); }
+                }
                 navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationGeneral");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationPlaylist");
@@ -575,6 +599,7 @@ public sealed class SettingsWindowPresentationTests
                 var ownerWindow = new Window { Width = 320, Height = 200, ShowInTaskbar = false };
                 var window = new SettingsWindow(dialogs) { DataContext = settings };
                 Task? terminal = null;
+                SettingsWindow? reopenedWindow = null;
                 try
                 {
                     scope.PrepareForOwnedPresentation(ownerWindow);
@@ -582,7 +607,22 @@ public sealed class SettingsWindowPresentationTests
                     window.Owner = ownerWindow;
                     scope.ShowAndWaitForContentRendered(window);
                     settings.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2SongDBPath), draft).GetAwaiter().GetResult();
-                    settings.EnableBeatorajaBmtOutput = !values.EnableBeatorajaBmtOutput;
+                    CheckBox BmtCheck(SettingsWindow current, string property) => FindDescendants<CheckBox>(current)
+                        .Single(control => control.GetBindingExpression(ToggleButton.IsCheckedProperty)?.ParentBinding.Path.Path == property);
+                    ComboBox BmtHash(SettingsWindow current) => FindDescendants<ComboBox>(current)
+                        .Single(control => control.GetBindingExpression(Selector.SelectedValueProperty)?.ParentBinding.Path.Path == nameof(settings.BeatorajaBmtHashOutputMode));
+                    BmtCheck(window, nameof(settings.EnableBeatorajaBmtOutput)).IsChecked = !values.EnableBeatorajaBmtOutput;
+                    BmtCheck(window, nameof(settings.KeepBeatorajaBmtFilesWhenOutputDisabled)).IsChecked = !values.KeepBeatorajaBmtFilesWhenOutputDisabled;
+                    BmtCheck(window, nameof(settings.RegisterBeatorajaBmtUrls)).IsChecked = !values.RegisterBeatorajaBmtUrls;
+                    BmtHash(window).SelectedValue = values.BeatorajaBmtHashOutputMode == "Original" ? "PreferSha256Only" : "Original";
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreNotEqual(values.BeatorajaBmtHashOutputMode, settings.BeatorajaBmtHashOutputMode);
+                    var navigation = (ListBox)window.FindName("settingsNavigation");
+                    navigation.SelectedItem = window.FindName("navigationPlaylist");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    navigation.SelectedItem = window.FindName("navigationGeneral");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(!values.KeepBeatorajaBmtFilesWhenOutputDisabled, BmtCheck(window, nameof(settings.KeepBeatorajaBmtFilesWhenOutputDisabled)).IsChecked);
                     Button button = FindDescendants<Button>(window).Single(candidate => Equals(candidate.Content, Resources.Lr2_song_db_sync_data_resync));
                     button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     terminal = settings.SettingsOperationCompletionTask;
@@ -620,6 +660,28 @@ public sealed class SettingsWindowPresentationTests
                     }
                     Assert.AreEqual(Path.Combine(root, "LR2files", "Database", "song.db"), values.LR2SongDBPath, "候補を確定環境へ便乗保存しません。");
                     Assert.AreEqual(1, dialogs.ConfirmationCount);
+                    if (outcome == "accepted")
+                    {
+                        reopenedWindow = new SettingsWindow(dialogs) { DataContext = settings, Owner = ownerWindow };
+                        scope.ShowAndWaitForContentRendered(reopenedWindow);
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.AreEqual(values.EnableBeatorajaBmtOutput, settings.EnableBeatorajaBmtOutput);
+                        Assert.AreEqual(values.KeepBeatorajaBmtFilesWhenOutputDisabled, settings.KeepBeatorajaBmtFilesWhenOutputDisabled);
+                        Assert.AreEqual(values.RegisterBeatorajaBmtUrls, settings.RegisterBeatorajaBmtUrls);
+                        Assert.AreEqual(values.BeatorajaBmtHashOutputMode, settings.BeatorajaBmtHashOutputMode);
+                        Assert.AreEqual(values.EnableBeatorajaBmtOutput, BmtCheck(reopenedWindow, nameof(settings.EnableBeatorajaBmtOutput)).IsChecked);
+                        Assert.AreEqual(values.KeepBeatorajaBmtFilesWhenOutputDisabled, BmtCheck(reopenedWindow, nameof(settings.KeepBeatorajaBmtFilesWhenOutputDisabled)).IsChecked);
+                        Assert.AreEqual(values.RegisterBeatorajaBmtUrls, BmtCheck(reopenedWindow, nameof(settings.RegisterBeatorajaBmtUrls)).IsChecked);
+                        Assert.AreEqual(values.BeatorajaBmtHashOutputMode, BmtHash(reopenedWindow).SelectedValue);
+                        foreach (bool keep in new[] { true, false })
+                        {
+                            BmtCheck(reopenedWindow, nameof(settings.KeepBeatorajaBmtFilesWhenOutputDisabled)).IsChecked = keep;
+                            FindDescendants<Button>(reopenedWindow).Single(control => Equals(control.Tag, "confirm:bmt")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(settings.SettingsOperationCompletionTask, "reopened BMT confirmation");
+                            Assert.AreEqual(keep, settings.KeepBeatorajaBmtFilesWhenOutputDisabled);
+                            Assert.AreEqual(keep, values.KeepBeatorajaBmtFilesWhenOutputDisabled);
+                        }
+                    }
                 }
                 finally
                 {
@@ -628,7 +690,7 @@ public sealed class SettingsWindowPresentationTests
                     try { if (terminal != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "manual cleanup"); } }
                     finally
                     {
-                        try { window.CloseForOwnerShutdown(); }
+                        try { reopenedWindow?.CloseForOwnerShutdown(); window.CloseForOwnerShutdown(); }
                         finally { ownerWindow.Close(); }
                     }
                 }
@@ -2272,6 +2334,7 @@ public sealed class SettingsWindowPresentationTests
             SettingsWindow? window = null;
             ExceptionDispatchInfo? bodyFailure = null;
             Exception? cleanupFailure = null;
+            System.Globalization.CultureInfo? previousLanguage = Resources.Culture;
             try
             {
                 // context 生成に失敗しても外側で実 DB 領域を回収する。
@@ -2297,11 +2360,34 @@ public sealed class SettingsWindowPresentationTests
                     SetSchemaPresentationStatus(context.StatePort, context.ScoreDbPath, Lr2PlayHistorySchemaStatus.Repairable);
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     AssertSchemaBannerState(banner, "!", "Warning");
+                    Lr2PlayHistorySchemaStatusSnapshot retainedSnapshot = context.Settings.Lr2PlayHistorySchemaStatusSnapshot;
+                    foreach (string language in new[] { "en-US", "ja-JP", "en-US" })
+                    {
+                        ResourceService.Current.ChangeCulture(language);
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.AreSame(retainedSnapshot, context.Settings.Lr2PlayHistorySchemaStatusSnapshot);
+                        Assert.AreEqual(Resources.Lr2_play_history_schema_status_repairable, banner.Content);
+                        string detail = Resources.Lr2_play_history_schema_message_install_or_repair_available + Environment.NewLine + context.ScoreDbPath;
+                        if (categoryName == "navigationGeneral") { Assert.AreEqual(detail, banner.ToolTip); }
+                        else
+                        {
+                            SettingsField field = FindDescendants<SettingsField>(page).Single(control => control.GetBindingExpression(SettingsField.DescriptionProperty)?.ParentBinding.Path.Path == nameof(SettingsDialogViewModel.Lr2PlayHistorySchemaDetailText));
+                            Assert.AreEqual(detail, field.Description);
+                        }
+                        Assert.AreEqual(context.ScoreDbPath, context.Settings.Lr2PlayHistoryScoreDbPath);
+                        Assert.IsTrue(context.Settings.CanRepairLr2PlayHistorySchema);
+                    }
 
                     SetSchemaPresentationStatus(context.StatePort, context.ScoreDbPath, Lr2PlayHistorySchemaStatus.Installed);
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     AssertSchemaBannerState(banner, "i", "Information");
                 }
+                Lr2PlayHistorySchemaStatusSnapshot retainedAfterClose = context.Settings.Lr2PlayHistorySchemaStatusSnapshot;
+                window.CloseForOwnerShutdown();
+                window = new SettingsWindow { DataContext = context.Settings };
+                windowTest.ShowAndWaitForContentRendered(window);
+                Assert.AreSame(retainedAfterClose, context.Settings.Lr2PlayHistorySchemaStatusSnapshot);
+                Assert.AreEqual(Resources.Lr2_play_history_schema_message_installed, context.Settings.Lr2PlayHistorySchemaMessage);
             }
             catch (Exception exception)
             {
@@ -2309,6 +2395,8 @@ public sealed class SettingsWindowPresentationTests
             }
             finally
             {
+                if (previousLanguage == null) { Resources.Culture = null; }
+                else { ResourceService.Current.ChangeCulture(previousLanguage.Name); }
                 if (window?.IsVisible == true)
                 {
                     try
@@ -3158,7 +3246,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>同じ LR2 root を picker から選び直して標準 config に戻すと、通知と実 TextBox が個別 path から標準 path へ更新されることを確認します。</summary>
+    /// <summary>初表示では未保存候補を確定値へ戻し、表示中に編集した個別 config を同じ LR2 root の picker 選択で標準 config に戻すと、通知と実 TextBox が更新されることを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_GeneralConfigPathBindingUpdatesWhenSameRootRestoresStandardTuple()
     {
@@ -3184,8 +3272,10 @@ public sealed class SettingsWindowPresentationTests
                 MainWindowViewModel mainViewModel = MainWindowViewModelTestFactory.Create();
                 using SettingsDialogViewModel ownedDialogLifetime = mainViewModel.SettingDialog;
                 settings = mainViewModel.SettingDialog;
+                string? confirmedConfig = settings.LR2ConfigXmlPath;
                 settings.LR2RootPath = root;
                 settings.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2ConfigXmlPath), customConfig).GetAwaiter().GetResult();
+                Assert.AreEqual(customConfig, settings.LR2ConfigXmlPath);
                 window = new SettingsWindow
                 {
                     DataContext = settings,
@@ -3200,6 +3290,12 @@ public sealed class SettingsWindowPresentationTests
                 SettingsPathPicker configPathPicker = FindDescendants<SettingsPathPicker>(page).Single(picker =>
                     picker.GetBindingExpression(SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path == nameof(settings.LR2ConfigXmlPath));
                 TextBox configPathTextBox = FindDescendants<TextBox>(configPathPicker).Single();
+                Assert.AreEqual(confirmedConfig, settings.LR2ConfigXmlPath, "初表示では最新確定値へ候補を復元します。");
+                Assert.AreEqual(confirmedConfig ?? string.Empty, configPathTextBox.Text);
+                settings.LR2RootPath = root;
+                settings.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2ConfigXmlPath), customConfig).GetAwaiter().GetResult();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(customConfig, settings.LR2ConfigXmlPath);
                 Assert.AreEqual(customConfig, configPathTextBox.Text);
                 bool configPathNotified = false;
                 settings.PropertyChanged += (_, args) => configPathNotified |= args.PropertyName == nameof(settings.LR2ConfigXmlPath);
@@ -4019,7 +4115,7 @@ public sealed class SettingsWindowPresentationTests
         {
             Status = status,
             ScoreDbPath = scoreDbPath,
-            Message = status.ToString()
+            Reason = status == Lr2PlayHistorySchemaStatus.Installed ? Lr2PlayHistorySchemaReason.Installed : Lr2PlayHistorySchemaReason.InstallOrRepairAvailable
         });
         statePort.NotifyLr2PlayHistorySchemaStatusChanged(snapshot);
         Assert.IsNotNull(statePort.LastSettingsDialog);
@@ -4121,17 +4217,6 @@ public sealed class SettingsWindowPresentationTests
         Assert.AreEqual(expectedInstalled, objectCount > 0);
     }
 
-
-    private static void SeedTransientPlaylistUriValidation(SettingsDialogViewModel settings)
-    {
-        // URI 入力の拒否は別ケースが分担する。一時検証状態を与え、表示終了と再表示による解除だけを実 Window で観測する。
-        typeof(SettingsDialogViewModel)
-            .GetField("tableListUriValidationMessage", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(settings, "invalid table URI");
-        typeof(SettingsDialogViewModel)
-            .GetField("playlistMd5UrlMappingTsvUriValidationMessage", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(settings, "invalid mapping URI");
-    }
 
     private static string GetAppliedApplicationTheme()
     {
@@ -5364,7 +5449,7 @@ public sealed class SettingsWindowPresentationTests
         var workflow = new Lr2SongDbSyncWorkflowOwner(runtime);
         return new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
             new ManualResyncStatePort(),
-            owner.PlaylistWorkspace,
+            new SettingsDialogHarness.RecordingWorkspacePort(),
             owner.PlaylistWorkspace,
             owner.PlayHistory,
             owner.LibraryFolderTree,

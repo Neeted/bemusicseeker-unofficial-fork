@@ -177,7 +177,7 @@ internal sealed class SelectedChartAudioConversionSettingsSnapshot
     {
         return sampleRate switch
         {
-            SampleRate.AUTO => "Auto",
+            SampleRate.AUTO => BeMusicSeeker.Properties.Resources.Auto,
             SampleRate.SAMPLE_RATE_11025Hz => "11025Hz",
             SampleRate.SAMPLE_RATE_22050Hz => "22050Hz",
             SampleRate.SAMPLE_RATE_32000Hz => "32000Hz",
@@ -195,7 +195,7 @@ internal sealed class SelectedChartAudioConversionSettingsSnapshot
     {
         return sampleFormat switch
         {
-            SampleFormat.AUTO => "Auto",
+            SampleFormat.AUTO => BeMusicSeeker.Properties.Resources.Auto,
             SampleFormat.SAMPLE_INT_8BIT => "8bit",
             SampleFormat.SAMPLE_INT_16BIT => "16bit",
             SampleFormat.SAMPLE_INT_24BIT => "24bit",

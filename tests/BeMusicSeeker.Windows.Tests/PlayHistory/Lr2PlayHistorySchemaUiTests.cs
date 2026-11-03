@@ -64,7 +64,8 @@ public sealed class Lr2PlayHistorySchemaUiTests
             {
                 Status = Lr2PlayHistorySchemaStatus.Installed,
                 ScoreDbPath = scoreDbPath,
-                Message = "matching"
+                Reason = Lr2PlayHistorySchemaReason.Diagnostic,
+                Diagnostic = "matching"
             });
         statePort.NotifyLr2PlayHistorySchemaStatusChanged(matchingSnapshot);
         Assert.AreSame(matchingSnapshot, settingDialog.Lr2PlayHistorySchemaStatusSnapshot);
@@ -75,7 +76,8 @@ public sealed class Lr2PlayHistorySchemaUiTests
                 {
                     Status = Lr2PlayHistorySchemaStatus.Repairable,
                     ScoreDbPath = "C:\\other\\score.db",
-                    Message = "stale"
+                    Reason = Lr2PlayHistorySchemaReason.Diagnostic,
+                    Diagnostic = "stale"
                 }));
         Assert.AreSame(matchingSnapshot, settingDialog.Lr2PlayHistorySchemaStatusSnapshot);
 
@@ -84,7 +86,8 @@ public sealed class Lr2PlayHistorySchemaUiTests
         {
             Status = Lr2PlayHistorySchemaStatus.Repairable,
             ScoreDbPath = scoreDbPath,
-            Message = "confirmed LR2 despite candidate mode"
+            Reason = Lr2PlayHistorySchemaReason.Diagnostic,
+            Diagnostic = "confirmed LR2 despite candidate mode"
         });
         statePort.NotifyLr2PlayHistorySchemaStatusChanged(candidateUnchangedSnapshot);
         Assert.AreSame(candidateUnchangedSnapshot, settingDialog.Lr2PlayHistorySchemaStatusSnapshot,
@@ -96,7 +99,8 @@ public sealed class Lr2PlayHistorySchemaUiTests
                 {
                     Status = Lr2PlayHistorySchemaStatus.Repairable,
                     ScoreDbPath = scoreDbPath,
-                    Message = "non-lr2"
+                    Reason = Lr2PlayHistorySchemaReason.Diagnostic,
+                    Diagnostic = "non-lr2"
                 }));
         Assert.AreSame(candidateUnchangedSnapshot, settingDialog.Lr2PlayHistorySchemaStatusSnapshot);
         SetPrivateField(settingDialog, "operationModeLR2DB", true);

@@ -410,13 +410,13 @@ public partial class SettingsDialogViewModel : ViewModel
 
 
 
-    private string tableListUriValidationMessage = string.Empty;
+    private bool tableListUriRejected;
 
 
 
 
 
-    private string playlistMd5UrlMappingTsvUriValidationMessage = string.Empty;
+    private bool playlistMd5UrlMappingTsvUriRejected;
 
 
 
@@ -657,11 +657,11 @@ public partial class SettingsDialogViewModel : ViewModel
                 environmentLR2SongDBPath = PathsEqual(songDbPath, ApplicationSettings.LR2SongDBPath) ? ApplicationSettings.LR2SongDBPath : songDbPath;
                 environmentLR2ConfigXmlPath = PathsEqual(configPath, ApplicationSettings.LR2ConfigXmlPath) ? ApplicationSettings.LR2ConfigXmlPath : configPath;
                 isLr2ConfigPathParsed = true;
-                SetLr2PathSelectionErrorWithoutNotification(string.Empty);
+                SetLr2PathSelectionErrorWithoutNotification(Lr2PathSelectionFailure.None);
             }
             else
             {
-                SetLr2PathSelectionError(BeMusicSeeker.Properties.Resources.Error_InvalidLR2RootPath);
+                SetLr2PathSelectionError(Lr2PathSelectionFailure.Root);
             }
             RaisePropertyChanged("LR2RootPath");
             RaisePropertyChanged(nameof(LR2SongDBPath));
@@ -1047,7 +1047,7 @@ public partial class SettingsDialogViewModel : ViewModel
         if (before.Status is Lr2PlayHistorySchemaStatus.SkippedProfile or Lr2PlayHistorySchemaStatus.Unreadable)
         {
             await ShowLr2PlayHistorySchemaMessageAsync(
-                before.Message,
+                Lr2PlayHistorySchemaStatusPresentation.Create(before).Message,
                 BeMusicSeeker.Properties.Resources.Warning,
                 MessageBoxImage.Exclamation,
                 "LR2 play history schema uninstall preflight notification");
@@ -1373,11 +1373,11 @@ public partial class SettingsDialogViewModel : ViewModel
                 {
                     environmentLR2SongDBPath = value;
                 }
-                SetLr2PathSelectionError(string.Empty);
+                SetLr2PathSelectionError(Lr2PathSelectionFailure.None);
             }
             else
             {
-                SetLr2PathSelectionError(BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath);
+                SetLr2PathSelectionError(Lr2PathSelectionFailure.DatabaseOrConfig);
             }
             RaisePropertyChanged("LR2SongDBPath");
             RaiseLr2PathPresentationChanged();
@@ -1409,13 +1409,13 @@ public partial class SettingsDialogViewModel : ViewModel
                     environmentLR2ConfigXmlPath = value;
                 }
                 isLr2ConfigPathParsed = true;
-                SetLr2PathSelectionError(string.Empty);
+                SetLr2PathSelectionError(Lr2PathSelectionFailure.None);
             }
             else
             {
                 // A rejected picker candidate is not the draft. Keep the previous raw persisted
                 // value and its parsed object intact while exposing an explicit validation failure.
-                SetLr2PathSelectionError(BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath);
+                SetLr2PathSelectionError(Lr2PathSelectionFailure.DatabaseOrConfig);
             }
             if (string.Equals(previousPath, environmentLR2ConfigXmlPath, StringComparison.Ordinal)
                 && previousParsed == isLr2ConfigPathParsed
@@ -1476,11 +1476,16 @@ public partial class SettingsDialogViewModel : ViewModel
             || PathsEqual(LR2ConfigXmlPath, Path.Combine(standardConfigDirectory, "config.xmh"));
     }
 
-    /// <summary>Gets an explicit failure raised by the most recent rejected LR2 path selection.</summary>
-    public string Lr2PathSelectionError => lr2PathSelectionError;
+    /// <summary>直近のLR2パス選択の拒否理由を現在の言語で表示します。確定パスの検査とは分離します。</summary>
+    public string Lr2PathSelectionError => lr2PathSelectionError switch
+    {
+        Lr2PathSelectionFailure.Root => Resources.Error_InvalidLR2RootPath,
+        Lr2PathSelectionFailure.DatabaseOrConfig => Resources.Error_InvalidLR2SongDbOrConfigPath,
+        _ => string.Empty
+    };
 
-    /// <summary>Gets whether the most recent LR2 path selection was rejected.</summary>
-    public bool HasLr2PathSelectionError => !string.IsNullOrWhiteSpace(lr2PathSelectionError);
+    /// <summary>直近のLR2パス選択が拒否された事実を保持します。</summary>
+    public bool HasLr2PathSelectionError => lr2PathSelectionError != Lr2PathSelectionFailure.None;
 
     private static bool PathsEqual(string left, string right)
     {
@@ -1695,7 +1700,9 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool isLr2ConfigPathParsed;
 
-    private string lr2PathSelectionError = string.Empty;
+    private enum Lr2PathSelectionFailure { None, Root, DatabaseOrConfig }
+
+    private Lr2PathSelectionFailure lr2PathSelectionError;
 
     private Lr2ConfigOwner lr2config
     {
@@ -1731,14 +1738,13 @@ public partial class SettingsDialogViewModel : ViewModel
         isLr2ConfigPathParsed = lr2ConfigSession.TryResolve(environmentLR2ConfigXmlPath, out Lr2ConfigOwner parsedConfig);
         lr2config = isLr2ConfigPathParsed && (useLr2Mode ?? OperationModeLR2DB) ? parsedConfig : null;
         SetLr2PathSelectionError(showSelectionError && !string.IsNullOrWhiteSpace(environmentLR2ConfigXmlPath) && !isLr2ConfigPathParsed
-            ? BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath
-            : string.Empty);
+            ? Lr2PathSelectionFailure.DatabaseOrConfig
+            : Lr2PathSelectionFailure.None);
     }
 
-    private void SetLr2PathSelectionError(string value)
+    private void SetLr2PathSelectionError(Lr2PathSelectionFailure value)
     {
-        value ??= string.Empty;
-        if (string.Equals(lr2PathSelectionError, value, StringComparison.Ordinal))
+        if (lr2PathSelectionError == value)
         {
             return;
         }
@@ -1747,9 +1753,9 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(HasLr2PathSelectionError));
     }
 
-    private void SetLr2PathSelectionErrorWithoutNotification(string value)
+    private void SetLr2PathSelectionErrorWithoutNotification(Lr2PathSelectionFailure value)
     {
-        lr2PathSelectionError = value ?? string.Empty;
+        lr2PathSelectionError = value;
     }
 
     public string uBMplayPath
@@ -2469,11 +2475,11 @@ public partial class SettingsDialogViewModel : ViewModel
                 if (IsTableListURLValid(value))
                 {
                     if (!TryCommitSetting(nameof(TableListURL), (nameof(Settings.TableListURL), value))) { return; }
-                    tableListUriValidationMessage = string.Empty;
+                    tableListUriRejected = false;
                 }
                 else
                 {
-                    tableListUriValidationMessage = BeMusicSeeker.Properties.Resources.Error_InvalidTableListUri;
+                    tableListUriRejected = true;
                     ShowUiMessage(BeMusicSeeker.Properties.Resources.Error_InvalidTableListUri, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
                 }
                 RaisePropertyChanged("TableListURL");
@@ -2482,8 +2488,8 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    /// <summary>Gets the inline validation message for the external table-list URI editor.</summary>
-    public string TableListUriValidationMessage => tableListUriValidationMessage;
+    /// <summary>表一覧URLの拒否事実を現在の言語で表示します。受理済みURLは変更しません。</summary>
+    public string TableListUriValidationMessage => tableListUriRejected ? Resources.Error_InvalidTableListUri : string.Empty;
 
     public bool EnablePlaylistUrlCompletion
     {
@@ -2554,11 +2560,11 @@ public partial class SettingsDialogViewModel : ViewModel
             if (IsPlaylistMd5UrlMappingTsvUriValid(normalizedValue))
             {
                 if (!TryCommitSetting(nameof(PlaylistMd5UrlMappingTsvUri), (nameof(Settings.PlaylistMd5UrlMappingTsvUri), normalizedValue))) { return; }
-                playlistMd5UrlMappingTsvUriValidationMessage = string.Empty;
+                playlistMd5UrlMappingTsvUriRejected = false;
             }
             else
             {
-                playlistMd5UrlMappingTsvUriValidationMessage = BeMusicSeeker.Properties.Resources.Error_InvalidPlaylistMd5UrlMappingTsvUri;
+                playlistMd5UrlMappingTsvUriRejected = true;
                 ShowUiMessage(BeMusicSeeker.Properties.Resources.Error_InvalidPlaylistMd5UrlMappingTsvUri, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
             }
             RaisePropertyChanged("PlaylistMd5UrlMappingTsvUri");
@@ -2566,8 +2572,8 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    /// <summary>Gets the inline validation message for the playlist metadata mapping URI editor.</summary>
-    public string PlaylistMd5UrlMappingTsvUriValidationMessage => playlistMd5UrlMappingTsvUriValidationMessage;
+    /// <summary>TSV URLの拒否事実を現在の言語で表示します。再検査や再保存は行いません。</summary>
+    public string PlaylistMd5UrlMappingTsvUriValidationMessage => playlistMd5UrlMappingTsvUriRejected ? Resources.Error_InvalidPlaylistMd5UrlMappingTsvUri : string.Empty;
 
     /// <summary>バックアップ方針だけを保存し、LR2連携での有効化成功後に次回起動からの適用を案内します。</summary>
     public bool IsLR2BackupEnabled
@@ -3360,11 +3366,11 @@ public partial class SettingsDialogViewModel : ViewModel
     }
 
     /// <summary>音声ファイル書出しで選択できるサンプルレート名を取得します。</summary>
-    public ReadOnlyDictionary<SampleRate, string> EncoderSampleRateNames { get; } = new ReadOnlyDictionary<SampleRate, string>(new Dictionary<SampleRate, string>
+    public ReadOnlyDictionary<SampleRate, string> EncoderSampleRateNames => new ReadOnlyDictionary<SampleRate, string>(new Dictionary<SampleRate, string>
         {
             {
                 SampleRate.AUTO,
-                "Auto"
+                Resources.Auto
             },
             {
                 SampleRate.SAMPLE_RATE_11025Hz,
@@ -3460,11 +3466,11 @@ public partial class SettingsDialogViewModel : ViewModel
     }
 
     /// <summary>音声ファイル書出しで選択できるサンプル形式名を取得します。</summary>
-    public ReadOnlyDictionary<SampleFormat, string> EncoderFormatNames { get; } = new ReadOnlyDictionary<SampleFormat, string>(new Dictionary<SampleFormat, string>
+    public ReadOnlyDictionary<SampleFormat, string> EncoderFormatNames => new ReadOnlyDictionary<SampleFormat, string>(new Dictionary<SampleFormat, string>
         {
             {
                 SampleFormat.AUTO,
-                "Auto"
+                Resources.Auto
             },
             {
                 SampleFormat.SAMPLE_INT_8BIT,
@@ -3818,6 +3824,11 @@ public partial class SettingsDialogViewModel : ViewModel
             settingDialogViewModel.RaisePropertyChanged(nameof(settingDialogViewModel.LR2ConfigBMSDirectories));
             settingDialogViewModel.RaisePropertyChanged(nameof(settingDialogViewModel.AvailableBMSDirectories));
             settingDialogViewModel.RaiseLr2PathPresentationChanged();
+            settingDialogViewModel.RaiseLr2PlayHistorySchemaStatusChanged();
+            settingDialogViewModel.RaisePropertyChanged(nameof(EncoderSampleRateNames));
+            settingDialogViewModel.RaisePropertyChanged(nameof(EncoderSampleRate));
+            settingDialogViewModel.RaisePropertyChanged(nameof(EncoderFormatNames));
+            settingDialogViewModel.RaisePropertyChanged(nameof(EncoderFormat));
             settingDialogViewModel.RaisePropertyChanged(nameof(AudioDeviceListStatusMessage));
             audioDeviceTestWorkflow.RefreshLocalizedOptionNames();
             settingDialogViewModel.RaiseValidationStateChanged();
@@ -4099,8 +4110,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private void ClearTransientPlaylistUriValidationState()
     {
-        tableListUriValidationMessage = string.Empty;
-        playlistMd5UrlMappingTsvUriValidationMessage = string.Empty;
+        tableListUriRejected = false;
+        playlistMd5UrlMappingTsvUriRejected = false;
         RaiseValidationStateChanged();
     }
 

@@ -116,10 +116,15 @@ flowchart TB
 
 外部プロセスを使う確認は明示的な任意テストです。生成した短いステレオ音源を実際の音声書出し処理と無音セッションへ通し、Unicodeと空白を含むパス、既存出力との衝突時の採番、内容、開始・停止・解放を確認します。実行条件と環境変数は[テスト運用](../development/testing.md)に集約します。エンコーダー本体、ライセンス、外部音源を検証用データとして追加しません。
 
+### 録音条件のAuto表示
+
+録音のサンプルレート・サンプル形式のAutoは既存の `Resources.Auto` を使います。表示中の選択肢と変換開始時の設定snapshotを現在の言語で整形し、enumの選択識別・実値・保存値・出力条件を変えません。
+
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 録音Autoの言語表示と型付き条件 | `SettingsDialogViewModel.EncoderSampleRateNames` / `EncoderFormatNames`、`SelectedChartAudioConversionSettingsSnapshot` | `SettingsWindowCompiledBehaviorTests.RecordingPage_PreservesUnavailableSavedEncoderAndPersistsExplicitWaveAcrossReopen` が追加辞書・実ComboBox・snapshot・保存なしを確認する。既存 `SelectedChartAudioConversionWorkflowOwnerTests` が出力条件と解放を分担する。 |
 | 地域非依存の安全側の範囲助言 | `SelectedChartAudioConversionWorkflowOwner` | `SelectedChartAudioConversionWorkflowOwnerTests.RunAsync_RangeAdviceUsesCapturedAmplificationAndSafeTenths` はfr-FRで2.61 dB・74%・0.7など独立期待と最小値・実行不能条件を確認する。 |
 | 拡張子なしベース名と同名directory、既存完成fileとの衝突時の採番・保全 | [`BMSAutoPlayWriter.Write`](../../../BeMusicSeeker/Ribbit/BMS/BMSAutoPlayWriter.cs)、`BassSelectedChartAudioConversionExecutor`、`BassAudioWriter.GetAvailableOutputFile` | [`BMSAutoPlayWriterTests.WriterTreatsExistingDirectoryAsFileBaseAndPreservesExistingEntries`](../../../tests/BeMusicSeeker.Windows.Tests/Playback/BMSAutoPlayWriterTests.cs) はBMS・bmsonと既存完成fileの有無を組み合わせ、実WAVEの親directory直下の名前・既知入力のNONE増幅PCM・Float32 48kHz形式と、入力・既存file・directory内容の保全を確認する。通常バッチの形式・増幅・完了と解放は既存の変換ownerテストが担う。 |
 | 表示時の形式保持と実変換時の既存WAVE代替の分離 | `SettingsDialogViewModel.EncoderIndex`、`BassSelectedChartAudioConversionExecutor`、`SettingsAudioGateway.ApplyEncoderFallback` | 表示・保存・変換前snapshotは[設定の検証対応](settings.md#実装とテストの対応)で確認する。実変換の欠損判定から共有設定更新・終了時保存への接続は実装を静的確認し、表示テストで保証したものとは扱わない。 |

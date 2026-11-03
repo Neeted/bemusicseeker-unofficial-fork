@@ -17,7 +17,7 @@ namespace BeMusicSeeker.ViewModels;
 /// <summary>音声下書きの編集・照会・テスト表示を、同じ機能の処理所有者に集約します。</summary>
 internal sealed partial class AudioDeviceTestWorkflowOwner
 {
-    private string audioDeviceTestStatusMessage;
+    private AudioDeviceTestResult audioDeviceTestResult;
 
     private string audioDeviceTestDiagnosticMessage;
 
@@ -37,7 +37,9 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
 
     private AudioOutputSelection? audioDeviceCapabilitySelection;
 
-    private string audioDeviceCapabilityStatusMessage;
+    private AudioDeviceCapabilityStatus? audioDeviceCapabilityStatus;
+
+    private bool isAudioDeviceCapabilityStatusPending;
 
     private string audioDeviceCapabilityDiagnosticMessage;
 
@@ -55,7 +57,9 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
 
     private bool audioSessionReleaseObservedDuringCapabilityQuery;
 
-    private string audioOutputSelectionResetMessage;
+    private enum AudioOutputResetReason { None, OutputSelection, SampleRate }
+
+    private AudioOutputResetReason audioOutputSelectionResetReason;
 
     private AudioOutputSelection audioOutputSelectionDraft;
 
@@ -74,6 +78,9 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
     private Settings ApplicationSettings => getSettings();
     private IAudioDeviceCatalog audioDeviceCatalog;
     private bool isPresentationActive;
+
+    // テストは一件ずつ受理するため、閉鎖時にその一件の表示採用だけを失効させます。再表示では復活させません。
+    private bool canPresentAudioDeviceTestResult;
     private bool IsEditCompletionInProgress;
 
     /// <summary>保存担当から下書きへのアクセスと画面の依存を一度だけ接続します。</summary>
@@ -173,13 +180,14 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
         isPresentationActive = active;
         if (!active)
         {
+            canPresentAudioDeviceTestResult = false;
+            InvalidateAudioDeviceTestResult();
             InvalidateAudioDeviceCapabilities();
         }
         else if (opening)
         {
             hasVisitedAudioPage = false;
-            AudioDeviceTestStatusMessage = null;
-            AudioDeviceTestDiagnosticMessage = null;
+            InvalidateAudioDeviceTestResult();
             PresentAudioSettingsPage();
         }
     }
@@ -304,7 +312,8 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
     /// <summary>保存済み選択の復元を明示編集と分け、Autoリセットを起こしません。</summary>
     internal void RestoreSelection()
     {
-        audioOutputSelectionResetMessage = null;
+        audioOutputSelectionResetReason = AudioOutputResetReason.None;
+        RaisePropertyChanged(nameof(AudioOutputSelectionResetMessage));
         RebuildAudioDeviceSelection();
     }
 
@@ -349,23 +358,15 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
     public bool IsAudioOutputSelectionEnabled => !IsEditCompletionInProgress && !IsAudioDeviceTestInProgress;
 
     /// <summary>出力先変更によるAutoへのリセット理由を取得します。</summary>
-    public string AudioOutputSelectionResetMessage => audioOutputSelectionResetMessage;
+    public string AudioOutputSelectionResetMessage => audioOutputSelectionResetReason switch
+    {
+        AudioOutputResetReason.OutputSelection => Resources.AudioOutputSelectionResetMessage,
+        AudioOutputResetReason.SampleRate => Resources.AudioSampleRateSelectionResetMessage,
+        _ => null
+    };
 
     /// <summary>最新の機器テストの結果を示す翻訳文を取得します。</summary>
-    public string AudioDeviceTestStatusMessage
-    {
-        get => audioDeviceTestStatusMessage;
-        private set
-        {
-            if (string.Equals(audioDeviceTestStatusMessage, value, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            audioDeviceTestStatusMessage = value;
-            RaisePropertyChanged(nameof(AudioDeviceTestStatusMessage));
-        }
-    }
+    public string AudioDeviceTestStatusMessage => audioDeviceTestResult == null ? null : FormatAudioDeviceTestResult(audioDeviceTestResult);
 
     /// <summary>最新のテスト結果に展開可能な技術診断があるかを取得します。</summary>
     public bool HasAudioDeviceTestDiagnostics => !string.IsNullOrWhiteSpace(AudioDeviceTestDiagnosticMessage);
@@ -387,19 +388,15 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
     }
 
     /// <summary>明示的な能力照会の状態を取得します。</summary>
-    public string AudioDeviceCapabilityStatusMessage
-    {
-        get => audioDeviceCapabilityStatusMessage;
-        private set
-        {
-            if (string.Equals(audioDeviceCapabilityStatusMessage, value, StringComparison.Ordinal))
-            {
-                return;
-            }
+    public string AudioDeviceCapabilityStatusMessage => isAudioDeviceCapabilityStatusPending
+        ? Resources.AudioDeviceCapabilityQueryInProgress
+        : audioDeviceCapabilityStatus.HasValue ? GetAudioDeviceCapabilityStatusMessage(audioDeviceCapabilityStatus.Value) : null;
 
-            audioDeviceCapabilityStatusMessage = value;
-            RaisePropertyChanged(nameof(AudioDeviceCapabilityStatusMessage));
-        }
+    private void SetAudioDeviceCapabilityStatus(AudioDeviceCapabilityStatus? status, bool pending = false)
+    {
+        audioDeviceCapabilityStatus = status;
+        isAudioDeviceCapabilityStatusPending = pending;
+        RaisePropertyChanged(nameof(AudioDeviceCapabilityStatusMessage));
     }
 
     /// <summary>最新の照会結果に展開可能な技術診断があるかを取得します。</summary>
@@ -587,8 +584,7 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
             if (audioOutputSelectionDraft.Backend != driver)
             {
                 audioOutputSelectionDraft = new AudioOutputSelection(driver, null, null);
-                ResetAudioOutputConditions(
-                    BeMusicSeeker.Properties.Resources.AudioOutputSelectionResetMessage);
+                ResetAudioOutputConditions();
                 InvalidateAudioDeviceCapabilities();
                 playerDeviceNames = BuildPlayerDeviceNames(driver);
                 RaisePlayerDriverStateProperties();
@@ -693,8 +689,7 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
             }
 
             audioOutputSelectionDraft = nextSelection;
-            ResetAudioOutputConditions(
-                BeMusicSeeker.Properties.Resources.AudioOutputSelectionResetMessage);
+            ResetAudioOutputConditions();
             InvalidateAudioDeviceCapabilities();
             RaisePropertyChanged(nameof(PlayerDevice));
             RaisePropertyChanged(nameof(SelectedPlayerDevice));
@@ -756,8 +751,7 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
             {
                 candidatePlayerSampleRate = value;
                 candidatePlayerFormat = SampleFormat.AUTO;
-                audioOutputSelectionResetMessage =
-                    BeMusicSeeker.Properties.Resources.AudioSampleRateSelectionResetMessage;
+                audioOutputSelectionResetReason = AudioOutputResetReason.SampleRate;
                 RaisePropertyChanged(nameof(AudioOutputSelectionResetMessage));
                 RaisePropertyChanged(nameof(PlayerSampleRate));
                 RaisePropertyChanged(nameof(SelectedPlayerSampleRate));
@@ -793,7 +787,7 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
             if (candidatePlayerFormat != value)
             {
                 candidatePlayerFormat = value;
-                audioOutputSelectionResetMessage = null;
+                audioOutputSelectionResetReason = AudioOutputResetReason.None;
                 RaisePropertyChanged(nameof(AudioOutputSelectionResetMessage));
                 RaisePropertyChanged(nameof(PlayerFormat));
                 RaisePropertyChanged(nameof(SelectedPlayerFormat));
@@ -898,6 +892,17 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
         RaisePropertyChanged(nameof(PlayerResamplingQuality));
         RaisePropertyChanged(nameof(PlayerMixerThreadCountNames));
         RaisePropertyChanged(nameof(PlayerMixerThreadCount));
+        RaisePropertyChanged(nameof(PlayerSampleRateNames));
+        RaisePropertyChanged(nameof(SelectedPlayerSampleRate));
+        RaisePropertyChanged(nameof(PlayerFormatNames));
+        RaisePropertyChanged(nameof(SelectedPlayerFormat));
+        RaisePropertyChanged(nameof(AudioOutputSelectionResetMessage));
+        RaisePropertyChanged(nameof(AudioDeviceTestStatusMessage));
+        RaisePropertyChanged(nameof(AudioDeviceTestButtonContent));
+        RaisePropertyChanged(nameof(AudioDeviceCapabilityStatusMessage));
+        RaisePropertyChanged(nameof(AudioDeviceCapabilityFormatDescription));
+        RaisePropertyChanged(nameof(AudioDeviceCapabilityRateDescription));
+        RaisePropertyChanged(nameof(AudioDeviceListStatusMessage));
     }
 
     private static string FormatMixerThreadCountOption(int threadCount) => threadCount == BassMixerThreadConfigurator.RealtimeDefaultThreadCount
@@ -923,6 +928,7 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
     }
 
 
+    /// <summary>捕捉した候補でテストを実行し、開始後に画面を閉じていない場合だけ結果を表示します。閉鎖してもTaskと操作制限は終端まで維持します。</summary>
     internal Task RunAudioDeviceTestAsync()
     {
         if (!IsAudioDeviceTestAvailable)
@@ -942,7 +948,9 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
             playSound: true,
             PlayerResamplingQuality,
             PlayerMixerThreadCount);
-        AudioDeviceTestStatusMessage = null;
+        canPresentAudioDeviceTestResult = isPresentationActive;
+        audioDeviceTestResult = null;
+        RaisePropertyChanged(nameof(AudioDeviceTestStatusMessage));
         AudioDeviceTestDiagnosticMessage = null;
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         audioDeviceTestCompletionTask = completion.Task;
@@ -971,12 +979,13 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
         try
         {
             AudioDeviceTestResult result = await testTask;
-            if (result == null || !isPresentationActive)
+            if (result == null || !isPresentationActive || !canPresentAudioDeviceTestResult)
             {
                 return;
             }
 
-            AudioDeviceTestStatusMessage = FormatAudioDeviceTestResult(result);
+            audioDeviceTestResult = result;
+            RaisePropertyChanged(nameof(AudioDeviceTestStatusMessage));
             AudioDeviceTestDiagnosticMessage = FormatAudioDeviceTestDiagnostics(result);
         }
         finally
@@ -1184,7 +1193,7 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
         {
             isAudioDeviceCapabilityQueryBlocked = true;
             audioDeviceCapabilityQueryBlockedBySave = false;
-            AudioDeviceCapabilityStatusMessage = BeMusicSeeker.Properties.Resources.AudioDeviceCapabilityBusy;
+            SetAudioDeviceCapabilityStatus(AudioDeviceCapabilityStatus.Busy);
             return;
         }
 
@@ -1201,7 +1210,7 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
         audioDeviceCapabilityQueryBlockedBySave = false;
         audioSessionReleaseObservedDuringCapabilityQuery = false;
         isAudioDeviceCapabilityQueryInProgress = true;
-        AudioDeviceCapabilityStatusMessage = BeMusicSeeker.Properties.Resources.AudioDeviceCapabilityQueryInProgress;
+        SetAudioDeviceCapabilityStatus(null, pending: true);
         AudioDeviceCapabilityDiagnosticMessage = null;
         audioDeviceCapabilityResult = null;
         audioDeviceCapabilitySelection = null;
@@ -1223,13 +1232,13 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
                 isAudioDeviceCapabilityQueryPending = true;
                 isAudioDeviceCapabilityQueryBlocked = true;
                 audioDeviceCapabilityQueryBlockedBySave = false;
-                AudioDeviceCapabilityStatusMessage = BeMusicSeeker.Properties.Resources.AudioDeviceCapabilityBusy;
+                SetAudioDeviceCapabilityStatus(AudioDeviceCapabilityStatus.Busy);
                 return;
             }
 
             audioDeviceCapabilityResult = result;
             audioDeviceCapabilitySelection = selection;
-            AudioDeviceCapabilityStatusMessage = GetAudioDeviceCapabilityStatusMessage(result.Status);
+            SetAudioDeviceCapabilityStatus(result.Status);
             AudioDeviceCapabilityDiagnosticMessage = FormatAudioDeviceCapabilityDiagnostics(result);
             RaiseAudioDeviceCapabilityPropertiesChanged();
         }
@@ -1240,7 +1249,7 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
                 isAudioDeviceCapabilityQueryPending = false;
                 isAudioDeviceCapabilityQueryBlocked = false;
                 audioDeviceCapabilityQueryBlockedBySave = false;
-                AudioDeviceCapabilityStatusMessage = BeMusicSeeker.Properties.Resources.AudioDeviceCapabilityFailed;
+                SetAudioDeviceCapabilityStatus(AudioDeviceCapabilityStatus.Failed);
                 AudioDeviceCapabilityDiagnosticMessage = "exceptionType=" + exception.GetType().FullName;
             }
         }
@@ -1275,7 +1284,7 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
         audioSessionReleaseObservedDuringCapabilityQuery = false;
         audioDeviceCapabilityResult = null;
         audioDeviceCapabilitySelection = null;
-        AudioDeviceCapabilityStatusMessage = null;
+        SetAudioDeviceCapabilityStatus(null);
         AudioDeviceCapabilityDiagnosticMessage = null;
         RaiseAudioDeviceCapabilityPropertiesChanged();
     }
@@ -1283,7 +1292,9 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
     private void RaiseAudioDeviceCapabilityPropertiesChanged()
     {
         RaisePropertyChanged(nameof(PlayerSampleRateNames));
+        RaisePropertyChanged(nameof(SelectedPlayerSampleRate));
         RaisePropertyChanged(nameof(PlayerFormatNames));
+        RaisePropertyChanged(nameof(SelectedPlayerFormat));
         RaisePropertyChanged(nameof(AudioDeviceCapabilityFormatDescription));
         RaisePropertyChanged(nameof(AudioDeviceCapabilityRateDescription));
     }
@@ -1298,11 +1309,11 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
         RaisePropertyChanged("IsEditCancellationEnabled");
     }
 
-    private void ResetAudioOutputConditions(string resetMessage)
+    private void ResetAudioOutputConditions()
     {
         candidatePlayerSampleRate = SampleRate.AUTO;
         candidatePlayerFormat = SampleFormat.AUTO;
-        audioOutputSelectionResetMessage = resetMessage;
+        audioOutputSelectionResetReason = AudioOutputResetReason.OutputSelection;
         RaisePropertyChanged(nameof(AudioOutputSelectionResetMessage));
         RaisePropertyChanged(nameof(PlayerSampleRate));
         RaisePropertyChanged(nameof(SelectedPlayerSampleRate));
@@ -1314,7 +1325,8 @@ internal sealed partial class AudioDeviceTestWorkflowOwner
 
     private void InvalidateAudioDeviceTestResult()
     {
-        AudioDeviceTestStatusMessage = null;
+        audioDeviceTestResult = null;
+        RaisePropertyChanged(nameof(AudioDeviceTestStatusMessage));
         AudioDeviceTestDiagnosticMessage = null;
     }
 

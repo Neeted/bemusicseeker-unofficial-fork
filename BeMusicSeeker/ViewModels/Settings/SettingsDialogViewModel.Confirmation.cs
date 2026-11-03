@@ -58,7 +58,7 @@ public partial class SettingsDialogViewModel
         outputLR2CustomFolderOutputBaseDir = ApplicationSettings.LR2CustomFolderOutputBaseDir;
         outputLR2CustomFolderOutputBaseDirRootType = ApplicationSettings.LR2CustomFolderOutputBaseDirRootType;
         outputLR2CustomFolderAdditionalOutputBaseDirs = ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs;
-        RefreshEnvironmentBeatorajaCandidate();
+        beatorajaBmtTablePath = ApplicationSettings.BeatorajaBmtTablePath;
     }
 
     private bool TryCommitSetting(string propertyName, params (string Name, object Value)[] changes)
@@ -100,8 +100,7 @@ public partial class SettingsDialogViewModel
         refreshingSectionEditors = true;
         try { InitializeSectionEditorsCore(); }
         finally { refreshingSectionEditors = false; }
-        RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
-        RaisePropertyChanged(nameof(AvailableBMSDirectories));
+        RaiseSectionCandidatesChanged();
     }
 
     private void InitializeSectionEditorsCore()
@@ -118,6 +117,43 @@ public partial class SettingsDialogViewModel
         audioDeviceTestWorkflow.RestoreSelection();
         rightClickActionSettingsEditor.AcceptSavedSnapshot(ApplicationSettings.RightClickActionsJson);
         rightClickActionSettingsEditor.DiscardChanges();
+        RaiseValidationStateChanged();
+        RaiseEnvironmentAvailabilityChanged();
+    }
+
+    /// <summary>全候補を復元した後、選択肢・選択値・派生表示の順に再通知します。入力・保存・再読込みは開始しません。</summary>
+    private void RaiseSectionCandidatesChanged()
+    {
+        RaisePropertyChanged(nameof(LR2ConfigBMSDirectories));
+        RaisePropertyChanged(nameof(AvailableBMSDirectories));
+        RaisePropertyChanged(nameof(ConfirmedBMSDirectories));
+        RaisePropertyChanged(nameof(AvailableBeatorajaPlayers));
+        RaisePropertyChanged(nameof(OperationModeLR2DB));
+        RaisePropertyChanged(nameof(IsStandaloneOperationMode));
+        RaisePropertyChanged(nameof(LR2RootPath));
+        RaisePropertyChanged(nameof(LR2SongDBPath));
+        RaisePropertyChanged(nameof(LR2ConfigXmlPath));
+        RaisePropertyChanged(nameof(BeatorajaRootPath));
+        RaisePropertyChanged(nameof(UseBeatorajaScoreDb));
+        RaisePropertyChanged(nameof(BeatorajaPlayerId));
+        RaisePropertyChanged(nameof(BeatorajaScoreDbPath));
+        RaisePropertyChanged(nameof(BeatorajaBmtTablePath));
+        RaisePropertyChanged(nameof(EnvironmentBeatorajaPlayerId));
+        RaisePropertyChanged(nameof(EnvironmentBeatorajaScoreDbPath));
+        RaisePropertyChanged(nameof(EnvironmentBeatorajaBmtTablePath));
+        RaisePropertyChanged(nameof(uBMplayPath));
+        RaisePropertyChanged(nameof(BMIIDXViewPath));
+        RaisePropertyChanged(nameof(UsePlayeruBMplay));
+        RaisePropertyChanged(nameof(UsePlayerLR2body));
+        RaisePropertyChanged(nameof(UsePlayerBMIIDXView));
+        RaisePropertyChanged(nameof(UseInternalPlayer));
+        RaisePropertyChanged(nameof(UseExternalPanelImage));
+        RaisePropertyChanged(nameof(StagefilePath));
+        RaisePropertyChanged(nameof(LR2CustomFolderOutputDir));
+        RaisePropertyChanged(nameof(LR2CustomFolderAsRootOutputDir));
+        RaisePropertyChanged(nameof(BMSInstallDir));
+        RaiseBmtSettingsChanged();
+        RaiseLr2PathPresentationChanged();
         RaiseValidationStateChanged();
         RaiseEnvironmentAvailabilityChanged();
     }
@@ -403,6 +439,12 @@ public partial class SettingsDialogViewModel
         bmtKeepBeatorajaBmtFilesWhenOutputDisabled = ApplicationSettings.KeepBeatorajaBmtFilesWhenOutputDisabled;
         bmtRegisterBeatorajaBmtUrls = ApplicationSettings.RegisterBeatorajaBmtUrls;
         bmtBeatorajaBmtHashOutputMode = ApplicationSettings.BeatorajaBmtHashOutputMode;
+        RaiseBmtSettingsChanged();
+    }
+
+    /// <summary>BMT候補の値と操作可否だけを通知し、出力や確定を開始しません。</summary>
+    private void RaiseBmtSettingsChanged()
+    {
         RaisePropertyChanged(nameof(EnableBeatorajaBmtOutput));
         RaisePropertyChanged(nameof(KeepBeatorajaBmtFilesWhenOutputDisabled));
         RaisePropertyChanged(nameof(RegisterBeatorajaBmtUrls));
@@ -777,7 +819,7 @@ public partial class SettingsDialogViewModel
         if (!root.IsSjisSchemeString()) { ShowSettingValidationError(Resources.Error_LR2UnicodePathUnsupported); return Task.CompletedTask; }
         if (!TryBuildStandardLr2PathTuple(root, out string song, out string config, out _))
         {
-            SetLr2PathSelectionError(Resources.Error_InvalidLR2RootPath);
+            SetLr2PathSelectionError(Lr2PathSelectionFailure.Root);
             return Task.CompletedTask;
         }
         return CommitEnvironmentChangeAsync(new(ApplicationSettings.OperationModeLR2DB, root, song, config), replaceDetails: true);
@@ -903,7 +945,7 @@ public partial class SettingsDialogViewModel
         environmentLR2SongDBPath = ApplicationSettings.LR2SongDBPath;
         environmentLR2ConfigXmlPath = ApplicationSettings.LR2ConfigXmlPath;
         isLr2ConfigPathParsed = lr2ConfigSession.TryResolve(environmentLR2ConfigXmlPath, out _);
-        SetLr2PathSelectionErrorWithoutNotification(string.Empty);
+        SetLr2PathSelectionErrorWithoutNotification(Lr2PathSelectionFailure.None);
         RaisePropertyChanged(nameof(OperationModeLR2DB));
         RaisePropertyChanged(nameof(IsStandaloneOperationMode));
         RaisePropertyChanged(nameof(LR2RootPath));

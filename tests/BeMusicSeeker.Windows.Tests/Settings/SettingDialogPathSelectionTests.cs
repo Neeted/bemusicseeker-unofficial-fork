@@ -186,6 +186,26 @@ public sealed class SettingDialogPathSelectionTests
             Assert.AreEqual(config, draft.LR2ConfigXmlPath);
             Assert.IsTrue(draft.HasLr2PathSelectionError);
             StringAssert.Contains(draft.Lr2PathSelectionError, Resources.Error_InvalidLR2SongDbOrConfigPath);
+            System.Globalization.CultureInfo? previousLanguage = Resources.Culture;
+            try
+            {
+                foreach (string language in new[] { "en-US", "ja-JP", "en-US" })
+                {
+                    ResourceService.Current.ChangeCulture(language);
+                    Assert.AreEqual(Resources.Error_InvalidLR2SongDbOrConfigPath, draft.Lr2PathSelectionError);
+                    Assert.IsTrue(draft.HasLr2PathSelectionError);
+                    Assert.AreEqual(config, draft.LR2ConfigXmlPath);
+                    Assert.AreEqual(0, session.SaveCount);
+                }
+                draft.CancelEnvironment();
+                Assert.IsFalse(draft.HasLr2PathSelectionError);
+                Assert.AreEqual(string.Empty, draft.Lr2PathSelectionError);
+            }
+            finally
+            {
+                if (previousLanguage == null) { Resources.Culture = null; }
+                else { ResourceService.Current.ChangeCulture(previousLanguage.Name); }
+            }
             Assert.AreEqual("Success", draft.Lr2ConfigPathStatusKind);
         }
         finally
@@ -218,6 +238,29 @@ public sealed class SettingDialogPathSelectionTests
             Assert.AreEqual(config, draft.LR2ConfigXmlPath);
             Assert.IsTrue(draft.HasLr2PathSelectionError);
             StringAssert.Contains(draft.Lr2PathSelectionError, Resources.Error_InvalidLR2RootPath);
+            System.Globalization.CultureInfo? previousLanguage = Resources.Culture;
+            try
+            {
+                foreach (string language in new[] { "en-US", "ja-JP", "en-US" })
+                {
+                    ResourceService.Current.ChangeCulture(language);
+                    Assert.AreEqual(Resources.Error_InvalidLR2RootPath, draft.Lr2PathSelectionError);
+                    Assert.IsTrue(draft.HasLr2PathSelectionError);
+                    Assert.AreEqual(root, draft.LR2RootPath);
+                    Assert.AreEqual(0, session.SaveCount);
+                }
+                draft.SetPresentationActive(false);
+                draft.SetPresentationActive(true);
+                Assert.IsFalse(draft.HasLr2PathSelectionError);
+                Assert.AreEqual(string.Empty, draft.Lr2PathSelectionError);
+                Assert.AreEqual(root, draft.LR2RootPath);
+                Assert.AreEqual(0, session.SaveCount);
+            }
+            finally
+            {
+                if (previousLanguage == null) { Resources.Culture = null; }
+                else { ResourceService.Current.ChangeCulture(previousLanguage.Name); }
+            }
         }
         finally
         {

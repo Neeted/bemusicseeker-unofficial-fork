@@ -92,10 +92,15 @@ LR2が使うSQLite 3.6.7で動くSQLを使います。UPSERT構文、CTE、ウ�
 
 設定画面は得られた状態を表示し、開くたびに再検査しません。明示操作前後と通常のスコア・履歴読込みで状態を更新します。成功後、稼働プロファイルでは通常成績と全履歴を一組として再取得し、その終端まで同じTaskで待ちます。稼働プロファイルがなければ再取得しません。再取得の失敗も今回の取得組として保持し、期間操作では読み直さず、次の許可取得で更新します。成績の取得状態と表示は[保存成績の再読込み](../library/chart-model.md#保存成績の再読込みと旧結果)に従います。
 
+### 検査結果の表示言語
+
+検査serviceは状態・対象DBと詳細理由・診断を結果へ格納し、snapshotはその事実を保持します。presentationは現在の言語で状態と詳細を整形します。言語変更は設定の表示通知だけを行い、DBの再読込み・導入・修復・撤去を開始しません。未表示の詳細も現在語で表示し、同じ対象への再表示では結果・対象パス・操作可否を保持します。
+
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 検査理由から現在語表示への接続 | `Lr2PlayHistorySchemaService`、`Lr2PlayHistorySchemaStatusSnapshot`、`Lr2PlayHistorySchemaStatusPresentation`、設定の言語購読 | `Lr2PlayHistorySchemaServiceTests` が実DB由来の理由、Core/Windows `Lr2PlayHistorySchemaUiTests` が受渡しと可否、`SettingsWindowPresentationTests.Lr2SchemaBanners_ActualPagesRevertSeverityAndAutomationStatusAfterRepairBecomesUnavailable` が現在語の実Binding・詳細・同対象再表示を確認する。 |
 | 列・索引・トリガー・衝突・明示操作 | [`Lr2PlayHistorySchemaService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistorySchemaService.cs) | [`Lr2PlayHistorySchemaServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/PlayHistory/Lr2PlayHistorySchemaServiceTests.cs) |
 | 状態表示・導入と削除の受付 | [`Lr2PlayHistorySchemaService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistorySchemaService.cs) | [`Lr2PlayHistorySchemaUiTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/PlayHistory/Lr2PlayHistorySchemaUiTests.cs)、[`Lr2PlayHistorySchemaUiTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/PlayHistory/Lr2PlayHistorySchemaUiTests.cs) |
 | 記録された値と読取り条件 | [`Lr2PlayHistoryReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistoryReader.cs) | [`PlayHistoryReadModelTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/PlayHistory/PlayHistoryReadModelTests.cs)、[`PlayHistoryReadModelTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/PlayHistory/PlayHistoryReadModelTests.cs) |

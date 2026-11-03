@@ -1046,6 +1046,7 @@ public sealed class SettingsDialogBehaviorTests
             harness.Workspace.BeforeOperationAsync = () => { entered.TrySetResult(); return release.Task; };
             harness.State.ThrowOnScoreReload = failContinuation && section == "score";
             harness.Workspace.ThrowOnBmt = failContinuation && section == "bmt";
+            System.Globalization.CultureInfo? previousLanguage = Resources.Culture;
             Task operation;
             switch (section)
             {
@@ -1065,9 +1066,12 @@ public sealed class SettingsDialogBehaviorTests
                 Assert.IsFalse(dialog.KeepBeatorajaBmtFilesWhenOutputDisabled);
                 Assert.AreEqual(values.LR2CustomFolderOutputBaseDir, dialog.LR2CustomFolderOutputDir);
                 dialog.UseExternalPanelImage = true;
+                ResourceService.Current.ChangeCulture("ja-JP");
+                Assert.IsTrue(dialog.UseExternalPanelImage);
                 release.TrySetResult();
                 await operation;
                 Assert.AreEqual(failContinuation ? 1 : 0, failures.Count, string.Join(Environment.NewLine, failures));
+                ResourceService.Current.ChangeCulture("en-US");
                 Assert.IsTrue(dialog.UseExternalPanelImage);
                 Assert.IsFalse(values.UseExternalPanelImage);
                 Assert.AreEqual(values.BeatorajaRootPath, dialog.BeatorajaRootPath);
@@ -1089,7 +1093,15 @@ public sealed class SettingsDialogBehaviorTests
                 if (section == "root") { Assert.AreEqual(nextRoot, values.BeatorajaRootPath); }
                 if (section == "output") { Assert.AreEqual(nextOutput, values.LR2CustomFolderOutputBaseDir); }
             }
-            finally { release.TrySetResult(); await operation; }
+            finally
+            {
+                release.TrySetResult(); try { await operation; }
+                finally
+                {
+                    if (previousLanguage == null) { Resources.Culture = null; }
+                    else { ResourceService.Current.ChangeCulture(previousLanguage.Name); }
+                }
+            }
         }, nameof(SectionConfirmation_PreparationReopenAdoptsOnlySavedSection));
     }
 
@@ -1366,16 +1378,43 @@ public sealed class SettingsDialogBehaviorTests
         {
             using var directory = new TemporaryDirectory(CaseWorkspace, "settings-close");
             Settings values = OpenPersistedSettings(directory.Path);
-            using var harness = SettingsDialogHarness.Create(values);
+            var session = new CountingSettingsEditSession(values);
+            using var harness = SettingsDialogHarness.Create(values, settingsEditSession: session);
+            harness.Dialog.SetPresentationActive(true);
+            IReadOnlyList<SettingsDialogViewModel.BeatorajaBmtHashOutputModeOption> optionIdentity = harness.Dialog.BeatorajaBmtHashOutputModeOptions;
+            int scoreInputs = 0;
+            harness.Dialog.ScoreSelectionChanged += (_, _) => scoreInputs++;
             var presentation = new RecordingSettingsDialogPresentationPort();
             harness.Dialog.AttachPresentationPort(presentation);
             harness.Dialog.EnableBeatorajaBmtOutput = true;
+            harness.Dialog.KeepBeatorajaBmtFilesWhenOutputDisabled = !values.KeepBeatorajaBmtFilesWhenOutputDisabled;
+            harness.Dialog.RegisterBeatorajaBmtUrls = !values.RegisterBeatorajaBmtUrls;
+            harness.Dialog.BeatorajaBmtHashOutputMode = "PreferSha256Only";
+            harness.Dialog.UseExternalPanelImage = true;
+            harness.Dialog.BeatorajaRootPath = Path.Combine(directory.Path, "candidate");
             harness.Dialog.StartupSortCachePrewarmPriority = 3;
+            int saves = session.SaveCount;
+            var notifications = new List<string>();
+            harness.Dialog.PropertyChanged += (_, args) => notifications.Add(args.PropertyName ?? string.Empty);
             harness.Dialog.CloseCommand.Execute();
             harness.Dialog.SetPresentationActive(false);
             harness.Dialog.RequestOpen();
             harness.Dialog.SetPresentationActive(true);
             Assert.IsFalse(harness.Dialog.EnableBeatorajaBmtOutput);
+            Assert.AreEqual(values.KeepBeatorajaBmtFilesWhenOutputDisabled, harness.Dialog.KeepBeatorajaBmtFilesWhenOutputDisabled);
+            Assert.AreEqual(values.RegisterBeatorajaBmtUrls, harness.Dialog.RegisterBeatorajaBmtUrls);
+            Assert.AreEqual(values.BeatorajaBmtHashOutputMode, harness.Dialog.BeatorajaBmtHashOutputMode);
+            Assert.AreEqual(values.UseExternalPanelImage, harness.Dialog.UseExternalPanelImage);
+            Assert.AreEqual(values.BeatorajaRootPath, harness.Dialog.BeatorajaRootPath);
+            Assert.AreSame(optionIdentity, harness.Dialog.BeatorajaBmtHashOutputModeOptions);
+            foreach (string property in new[] { nameof(harness.Dialog.EnableBeatorajaBmtOutput), nameof(harness.Dialog.KeepBeatorajaBmtFilesWhenOutputDisabled),
+                nameof(harness.Dialog.RegisterBeatorajaBmtUrls), nameof(harness.Dialog.BeatorajaBmtHashOutputMode), nameof(harness.Dialog.BeatorajaRootPath),
+                nameof(harness.Dialog.UseExternalPanelImage) }) { CollectionAssert.Contains(notifications, property); }
+            CollectionAssert.DoesNotContain(notifications, string.Empty);
+            Assert.AreEqual(saves, session.SaveCount);
+            Assert.AreEqual(0, scoreInputs);
+            Assert.AreEqual(0, harness.State.ScoreReloadCount);
+            Assert.AreEqual(0, harness.Workspace.BmtRequests.Count);
             Assert.AreEqual(3, harness.Dialog.StartupSortCachePrewarmPriority);
             Assert.IsFalse(TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config")).EnableBeatorajaBmtOutput);
             await Task.CompletedTask;

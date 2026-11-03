@@ -24,7 +24,7 @@ public sealed class PlayHistoryReadModelTests
     private readonly ApplicationDatabaseScope databaseScope = new();
 
     /// <summary>
-    /// 検査結果の保存後に元の状態・パス・文言を変えても捕捉値を維持し、可変結果の共有による表示の書換えを防ぐ。
+    /// 検査結果の捕捉後に元の状態・パス・理由・診断を変えてもsnapshotを維持し、可変結果の共有による表示の書換えを防ぐ。
     /// </summary>
     [TestMethod]
     public void Lr2PlayHistorySchemaStatusSnapshot_DetachesMutableServiceResult()
@@ -33,18 +33,21 @@ public sealed class PlayHistoryReadModelTests
         {
             Status = Lr2PlayHistorySchemaStatus.Installed,
             ScoreDbPath = "score.db",
-            Message = "installed"
+            Reason = Lr2PlayHistorySchemaReason.Installed,
+            Diagnostic = "original diagnostic"
         };
 
         var snapshot = Lr2PlayHistorySchemaStatusSnapshot.FromResult(result);
         result.Status = Lr2PlayHistorySchemaStatus.Repairable;
         result.ScoreDbPath = "other.db";
-        result.Message = "changed";
+        result.Reason = Lr2PlayHistorySchemaReason.InstallOrRepairAvailable;
+        result.Diagnostic = "changed";
 
         Assert.IsFalse(snapshot.IsReset);
         Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, snapshot.Status);
         Assert.AreEqual("score.db", snapshot.ScoreDbPath);
-        Assert.AreEqual("installed", snapshot.Message);
+        Assert.AreEqual(Lr2PlayHistorySchemaReason.Installed, snapshot.Reason);
+        Assert.AreEqual("original diagnostic", snapshot.Diagnostic);
     }
 
     /// <summary>

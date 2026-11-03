@@ -339,10 +339,17 @@ BMSディレクトリの追加・削除・複数選択・D&Dは設定画面内�
 
 走査で確認した同所prefixの訂正は、保存側ではproviderの短い保存区間内にある現在の対象キーへ、公開側では現在のreaderと適用済み配置へ別々に適用します。別操作で保存だけ成功した別場所の出力先を、旧公開値で上書きしたり便乗公開したりしません。読取り失敗は既存の保存失敗として終え、全設定のReloadや保存済みコピーの常駐は行いません。XMLは自身の保存済み登録へ今回の差分だけを適用し、必要媒体の成功後だけ対象値を公開します。
 
+### 候補復元と表示言語
+
+再表示では、既存の表示開始時機に全候補を最新の確定値へ戻し、値を揃えた後に選択肢・選択値・派生表示と可否を名前付きで通知します。BMTの出力・既存ファイル保持・URL登録・hash出力方式も同じ境界を使います。固定のhash選択肢は作り直さず、入力setterやスコア選択イベントを通知の代用にしません。保存完了は採用した欄だけを揃え、言語変更とページ移動は未確定入力を保ちます。
+
+LR2パスとURL入力の拒否は、受理済み値とは別に理由・事実として保持し、現在の言語で表示します。言語変更で入力を再検査・保存しません。LR2の拒否理由は有効入力・候補復元・明示取消で解除します。URL拒否はページ移動と閉鎖直後まで残し、次回の表示開始で通知付きで解除します。表一覧URLは従来どおりFTPを受理し、TSV URLはFTPを拒否します。
+
 ## 実装とテストの対応
 
 | 保証 | 実装 | 検証 |
 | --- | --- | --- |
+| 候補の復元・言語変更・拒否理由 | `SettingsDialogViewModel.InitializeSectionEditors`、`RaiseSectionCandidatesChanged`、理由付き表示 | `SettingsDialogBehaviorTests.ClosingDiscardsCandidatesAndKeepsConfirmedOrdinaryItems`、`SectionConfirmation_PreparationReopenAdoptsOnlySavedSection`、`SettingsWindowPresentationTests.SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow`、`PlaylistUriValidation_*`、`SettingDialogPathSelectionTests` が値・通知・実Binding・再処理なしを分担する。 |
 | 表記訂正時の保存済み・公開済み配置の分離 | `BmsRootRegistrationStore.SaveRootChanges`、`PortableSettingsProvider.TransformPropertyValues` | `BmsRootRegistrationTests.RootSpellingChange_DoesNotReAddReplacedSavedRootOrPublishUnrelatedPlacement` はPersist-only後のfresh provider、公開配置・XML別場所の保持、実読取失敗時の非公開・非通知を確認する。二媒体の部分失敗への到達は既存 `OutputConfirmation_LatestSelectionResavesBothMediaAfterPartialFailure` が分担する。 |
 | 通常出力の管理階層と走査表記の収束 | `LibraryFileScanPipelineOwner`、`BMSPlaylist.SynchronizeNormalOutputBasePathChangeAsync`、起動・LR2 workflow | [`SettingDialogLr2OwnerTests.NormalOutputScan_PreservesManagedHierarchyAndConvergesConfirmedPaths`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingDialogLr2OwnerTests.cs) は無変更・CP932 Greekの二回差分と候補・score保持、ASCIIの次回起動での初検出を分担する。旧設定・XML・DBから新実在表記へ登録・fresh provider・runtime/applied値・ownerが揃い、全管理行・親CRC・通常BMSの利用者列を保持する。起動直後にCompleted run維持・修復対象0とファイル日時不変も確認する。 |
 | 走査後の確定一覧・同所導入先の表示 | `SettingsDialogViewModel`、`BmsRootRegistrationStore.Published` | `SettingDialogEditCompletionTests.BmsConfirmation_CompletesRealFileDiffBeforeClosing` が標準composition・実DB・確定一覧/導入先と未確定候補の保持、実score取得後も譜面差分を伴わない登録公開でcache世代・通知が進む接続を確認する。 |

@@ -344,7 +344,7 @@ public sealed class SettingDialogCategoryPersistenceTests
         });
     }
 
-    /// <summary>実音声入力の正常保存・失敗・retry・確定値への復帰を確認します。ページ初生成前と同じComboBox表示中の言語変更で品質・並列度の表示だけを更新し、選択・未保存候補・保存媒体・テスト結果を保ちます。</summary>
+    /// <summary>実音声入力の正常保存・失敗・retry・確定値への復帰を確認します。ページ初生成前と同じComboBox表示中の言語変更で品質・並列度の表示だけを更新し、選択・未保存候補・保存媒体・テスト結果の事実を保ち、結果の理由を現在言語で表示します。</summary>
     /// <remarks>専用providerと実Bindingを使い、native機器だけを代替します。資源通知区間の列挙・照会・テスト回数と媒体を観測し、追加Commitの不在は表示更新経路の静的確認と分担します。既存language setterの言語保存は対象外です。</remarks>
     [TestMethod]
     public void CompiledAudioSelection_ShowsSaveRetryOnlyAfterFailureAndClearsOnSuccessOrRestoration()
@@ -479,7 +479,18 @@ public sealed class SettingDialogCategoryPersistenceTests
                 Assert.IsTrue(dialog.CanRetryAudioSettings);
                 Assert.AreEqual(Visibility.Visible, retry.Visibility);
                 Assert.AreEqual(Resources.Settings_retry_audio_save, retry.Content);
-                Assert.AreEqual(result, dialog.AudioDeviceTestStatusMessage);
+                Assert.AreNotEqual(result, dialog.AudioDeviceTestStatusMessage);
+                StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, Resources.AudioDeviceTestSucceeded);
+                ResourceService.Current.ChangeCulture("ja-JP");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(result, dialog.AudioDeviceTestStatusMessage, "同じ実行結果を元の言語へ戻して表示します。");
+                ResourceService.Current.ChangeCulture("en-US");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                StringAssert.Contains(dialog.AudioDeviceTestStatusMessage, Resources.AudioDeviceTestSucceeded);
+                AssertLocalizedOptionsAndSelection();
+                Assert.IsFalse(dialog.PlayerWASAPIParam);
+                Assert.IsFalse(toggle.IsChecked);
+                Assert.IsTrue(dialog.CanRetryAudioSettings);
                 Assert.AreEqual(diagnostic, dialog.AudioDeviceTestDiagnosticMessage);
                 Assert.AreEqual(refreshes, catalog.RefreshCount);
                 Assert.AreEqual(queries, Volatile.Read(ref queryCount));
