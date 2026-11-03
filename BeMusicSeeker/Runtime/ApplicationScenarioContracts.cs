@@ -8,6 +8,7 @@ namespace BeMusicSeeker.Runtime;
 
 /// <summary>明示test sessionから既存操作へ送る固定要求です。番号は通信の相関だけに使います。</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "command")]
+[JsonDerivedType(typeof(ScenarioPlaybackCommand), "playback")]
 [JsonDerivedType(typeof(ScenarioSnapshotCommand), "snapshot")]
 [JsonDerivedType(typeof(ScenarioKeywordCommand), "keyword")]
 [JsonDerivedType(typeof(ScenarioReloadCommand), "reload")]
@@ -50,6 +51,7 @@ internal sealed record ScenarioCloseCommand(long RequestId) : ScenarioCommand(Re
 
 /// <summary>実処理の結果と観測事実だけを伝える固定応答です。</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "message")]
+[JsonDerivedType(typeof(ScenarioPlaybackCompleted), "playback")]
 [JsonDerivedType(typeof(ScenarioConnected), "connected")]
 [JsonDerivedType(typeof(ScenarioStartupCompleted), "startup")]
 [JsonDerivedType(typeof(ScenarioSnapshotCompleted), "snapshot")]

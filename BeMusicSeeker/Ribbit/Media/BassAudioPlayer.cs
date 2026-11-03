@@ -2308,6 +2308,11 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 checked(sampleCount * sizeof(float)), out processedFrames);
         }
         session.ThrowIfCallbackOutputFailed();
+        if (processedFrames > 0)
+        {
+            System.Threading.Volatile.Read(ref session.PcmObservation)?.Invoke(session, renderer.SampleRate,
+                renderer.ChannelCount, buffer.AsSpan(0, checked(processedFrames * renderer.ChannelCount)));
+        }
         return processedFrames;
     }
 

@@ -650,7 +650,7 @@ public partial class PlaybackPanelView : UserControl
     {
         if (DataContext is PlaybackPanelViewModel viewModel)
         {
-            viewModel.NextCommand.Execute();
+            RequestNextPlayback().ObserveFault("PlaybackPanelView.NextButton");
         }
     }
 
@@ -772,16 +772,25 @@ public partial class PlaybackPanelView : UserControl
 
     /// <summary>再生ボタンの要求を現在のownerへ渡し、面選択は受付後に現在のView接続へ適用します。</summary>
     /// <returns>転送した再生要求の実終端。面要求のUI配送は別に進みます。</returns>
-    internal Task RequestPlaybackFromPlayButton() => DataContext is PlaybackPanelViewModel viewModel
-        ? viewModel.HandlePlayButton(CaptureBmsPlayerSurfaceRequest())
+    /// <param name="receipt">当該入力だけの受取先。通常入力では省略し、再生・通知・停止の所有は変えません。</param>
+    internal Task RequestPlaybackFromPlayButton(PlaybackInputReceipt receipt = null) => DataContext is PlaybackPanelViewModel viewModel
+        ? viewModel.HandlePlayButton(CaptureBmsPlayerSurfaceRequest(), receipt)
         : Task.CompletedTask;
+
+    /// <summary>次ボタンの通常workerへ当該入力の受取先を渡します。</summary>
+    internal Task RequestNextPlayback(PlaybackInputReceipt receipt = null) => DataContext is PlaybackPanelViewModel panel
+        ? panel.HandleNextButton(receipt) : Task.CompletedTask;
+
+    /// <summary>停止ボタンの通常workerへ当該入力の受取先を渡します。</summary>
+    internal Task RequestStopPlayback(PlaybackInputReceipt receipt = null) => DataContext is PlaybackPanelViewModel panel
+        ? panel.HandleStopButton(receipt) : Task.CompletedTask;
 
     private void gridBMSPlayerControlsPlayStopButtonClicked(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
         if (DataContext is PlaybackPanelViewModel viewModel)
         {
-            viewModel.StopCommand.Execute();
+            RequestStopPlayback().ObserveFault("PlaybackPanelView.StopButton");
         }
     }
 

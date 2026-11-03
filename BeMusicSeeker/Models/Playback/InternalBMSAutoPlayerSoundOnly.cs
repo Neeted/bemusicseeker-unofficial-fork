@@ -713,7 +713,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
         _ = ready.Task.ContinueWith(task => { _ = task.Exception; }, CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
         Task completion = StartCoreAsync(path, onExit, allowPreload, ready, onPlaybackFailure);
-        return new PlaybackStartOperation(ready.Task, completion);
+        return new PlaybackStartOperation(ready.Task, completion, audioPlaybackRuntime as IPlaybackNativeObservation);
     }
 
     private async Task StartCoreAsync(string bmsFilePath, Action<object, EventArgs> onExitEventHandler,

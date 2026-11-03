@@ -59,13 +59,14 @@ internal sealed class ApplicationRuntimeOptions
 internal sealed class ApplicationTestSession
 {
     /// <summary>起動入口で検証済みのmanifestと実行・通信の識別子を保持します。</summary>
-    internal ApplicationTestSession(string manifestPath, string runId, string caseId, string controlPipeName, bool pendingSchemaConfirmation = false)
+    internal ApplicationTestSession(string manifestPath, string runId, string caseId, string controlPipeName, bool pendingSchemaConfirmation = false, bool nullOutputPlayback = false)
     {
         ManifestPath = manifestPath ?? throw new ArgumentNullException(nameof(manifestPath));
         RunId = runId ?? throw new ArgumentNullException(nameof(runId));
         CaseId = caseId ?? throw new ArgumentNullException(nameof(caseId));
         ControlPipeName = controlPipeName ?? throw new ArgumentNullException(nameof(controlPipeName));
         PendingSchemaConfirmation = pendingSchemaConfirmation;
+        NullOutputPlayback = nullOutputPlayback;
     }
 
     /// <summary>再起動後も読むmanifestの絶対パスを取得します。</summary>
@@ -82,4 +83,7 @@ internal sealed class ApplicationTestSession
 
     /// <summary>実schema確認を起動前から保留し、driverの明示回答を待つ固定入力です。</summary>
     internal bool PendingSchemaConfirmation { get; }
+
+    /// <summary>manifestで明示した実decoder・mixerの無音出力を選択します。通常device設定は変更しません。</summary>
+    internal bool NullOutputPlayback { get; }
 }

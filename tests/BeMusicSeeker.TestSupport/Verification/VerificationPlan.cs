@@ -149,7 +149,7 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
         "dev" or "verify" => new Dictionary<string, IReadOnlyList<string>> { ["Scenarios"] = ["SC-01", "SC-02", "SC-09"] },
         "full" => new Dictionary<string, IReadOnlyList<string>>
         {
-            ["Scenarios"] = ["SC-01", "SC-02", "SC-05", "SC-09", "SC-10A", "SC-10B", "SC-11", "SC-13", "SC-14", "SC-ExistingData", "SC-CurrentUpdate"],
+            ["Scenarios"] = ["SC-01", "SC-02", "SC-05", "SC-09", "SC-10A", "SC-10B", "SC-11", "SC-12", "SC-13", "SC-14", "SC-ExistingData", "SC-CurrentUpdate"],
             ["Desktop.E2E"] = ["DT-01", "DT-02", "DT-03"],
         },
         _ => new Dictionary<string, IReadOnlyList<string>>(),

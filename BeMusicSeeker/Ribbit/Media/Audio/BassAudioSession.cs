@@ -181,6 +181,9 @@ internal sealed class BassAudioSession
     /// <summary>callback backendが再利用するFloat32 PCM pull rendererを取得または設定します。</summary>
     internal AudioPcmRenderer? CallbackPcmRenderer { get; set; }
 
+    /// <summary>明示無音runtimeが所有する一回の受動観測です。実取得の成功後だけ呼びます。</summary>
+    internal PlaybackPcmCallback? PcmObservation;
+
     /// <summary>再生callbackが一回に要求した最大frame数を取得します。</summary>
     internal int MaximumCallbackFrames => Volatile.Read(ref maximumCallbackFrames);
 

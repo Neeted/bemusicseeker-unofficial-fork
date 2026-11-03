@@ -19,6 +19,70 @@ public sealed class PlaybackPanelViewModelTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
 
+    /// <summary>同じ行への先行入力と後続入力が、それぞれの実Task・Ready・世代を受け取り、受付拒否は以前の開始を受け取りません。</summary>
+    [TestMethod]
+    public async Task InputReceiptBelongsToItsOwnAcceptedAction()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string path = workspace.GetPath("chart.bms");
+        File.WriteAllText(path, "#BPM 120");
+        var firstReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int starts = 0;
+        var player = new PreloadBmsPlayer
+        {
+            BeginOperation = _ =>
+            {
+                if (++starts == 1) { return new(firstReady.Task, completion.Task); }
+                secondEntered.TrySetResult();
+                return new(secondReady.Task, completion.Task);
+            }
+        };
+        ChartFile chart = ChartTestValues.Empty() with { Path = path };
+        var rows = new MainChartListViewModel { Rows = new List<object> { chart } };
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => { }, new ChartFileOperationSynchronizer());
+        var first = new PlaybackInputReceipt();
+        var second = new PlaybackInputReceipt();
+        Task earlier = panel.HandleTableRowActivation(0, chart, receipt: first);
+        Task later = Task.CompletedTask;
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(player.StartObserved.Task, earlier, "first-receipt-start");
+            later = panel.HandleTableRowActivation(0, chart, receipt: second);
+            firstReady.TrySetResult();
+            await earlier;
+            await TestUiDispatcherHost.AwaitNotificationAsync(secondEntered.Task, later, "second-receipt-start");
+            Assert.IsNotNull(first.ActionTask);
+            Assert.IsTrue(first.ActionTask.IsCompletedSuccessfully);
+            Assert.IsNotNull(first.Start);
+            Assert.AreSame(firstReady.Task, first.Start.Ready);
+            secondReady.TrySetResult();
+            await later;
+            Assert.IsNotNull(second.ActionTask);
+            Assert.AreNotSame(first.ActionTask, second.ActionTask);
+            Assert.IsNotNull(second.Start);
+            Assert.AreSame(secondReady.Task, second.Start.Ready);
+            Assert.AreSame(completion.Task, second.Start.Completion);
+            Assert.AreNotEqual(first.Start.Generation, second.Start.Generation);
+            Assert.AreEqual(path, second.Start.ChartPath);
+            Assert.IsNull(first.Failure);
+            Assert.IsNull(second.Failure);
+            var rejected = new PlaybackInputReceipt();
+            await panel.HandleTableRowActivation(-1, chart, receipt: rejected);
+            Assert.IsNull(rejected.ActionTask);
+            Assert.IsNull(rejected.Start);
+        }
+        finally
+        {
+            firstReady.TrySetResult(); secondReady.TrySetResult(); completion.TrySetResult();
+            try { await Task.WhenAll(earlier, later); }
+            finally { await panel.CloseForShutdown(); }
+        }
+    }
+
     /// <summary>通常の候補列から一時配置Bへ進み、実parser入力不良だけなら回収・元名復元・受付解放後にCへ進む。Stopと独立した回収・復元失敗では再開しない。</summary>
     [TestMethod]
     [DataRow("continue")]
@@ -82,7 +146,8 @@ public sealed class PlaybackPanelViewModelTests
         try
         {
             await panel.StartAtIndex(0);
-            navigation = panel.Next();
+            var input = new PlaybackInputReceipt();
+            navigation = panel.HandleNextButton(input);
             await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, navigation, "temporary-input-ready");
             Assert.IsTrue(operations.IsActive);
             Assert.IsFalse(File.Exists(bad));
@@ -96,6 +161,13 @@ public sealed class PlaybackPanelViewModelTests
             }
             ready.SetException(await entered.Task);
             await Task.WhenAll(navigation, stop);
+            Assert.IsNotNull(input.ActionTask);
+            Assert.IsTrue(input.ActionTask.IsCompletedSuccessfully, "製品の候補探索終端は開始成功と別です。");
+            Assert.IsNotNull(input.Start);
+            Assert.AreSame(ready.Task, input.Start.Ready);
+            Assert.AreEqual(bad, input.Start.ChartPath);
+            Assert.AreEqual(copied, input.Start.PlaybackPath);
+            Assert.IsNotNull(input.Failure, "次候補が成功しても最初の実故障を隠しません。");
             Assert.IsFalse(operations.IsActive);
             CollectionAssert.AreEqual(condition == "continue" ? new[] { first, copied, last } : new[] { first, copied }, player.Starts.ToArray());
             Assert.AreEqual(condition == "continue" ? last : null, panel.NowPlayingChart?.Path);

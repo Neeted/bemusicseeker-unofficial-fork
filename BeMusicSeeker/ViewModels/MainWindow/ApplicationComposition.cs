@@ -190,7 +190,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         audioSettingsGateway = new SettingsAudioGateway(() => this.settingsEditSession.Values);
         this.audioDeviceCatalog = audioDeviceCatalog ?? new BassAudioDeviceCatalog();
         this.defaultBmsPlayerFactory = defaultBmsPlayerFactory
-            ?? (() => new InternalBMSAutoPlayerSoundOnly(playerSettingsGateway, new BassAudioPlaybackRuntime()));
+            ?? (() => new InternalBMSAutoPlayerSoundOnly(playerSettingsGateway, runtimeOptions.TestSession?.NullOutputPlayback == true
+                ? new NullOutputPlaybackRuntime() : new BassAudioPlaybackRuntime()));
         this.uiScheduler = uiScheduler
             ?? throw new ArgumentNullException(nameof(uiScheduler));
         this.reportSettingsApplyFailure = reportSettingsApplyFailure;

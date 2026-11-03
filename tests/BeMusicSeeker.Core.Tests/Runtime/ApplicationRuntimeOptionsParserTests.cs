@@ -10,6 +10,22 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ApplicationRuntimeOptionsParserTests
 {
+    /// <summary>音声provider未指定は通常出力、明示null-outputだけは無音出力を選び、未知値では起動条件を拒否します。</summary>
+    [TestMethod]
+    [DataRow(null)]
+    [DataRow("null-output")]
+    [DataRow("unknown")]
+    public void AudioPlaybackProviderIsExplicit(string? value)
+    {
+        using var fixture = new RuntimeOptionsManifestFixture();
+        JsonObject document = fixture.CreateDocument();
+        document["providers"] = value is null ? new JsonObject() : new JsonObject { ["audioPlayback"] = value };
+        fixture.Write(document);
+        if (value == "unknown") { Assert.ThrowsExactly<FormatException>(() => fixture.Capture()); }
+        else { Assert.AreEqual(value is not null, fixture.Capture().TestSession?.NullOutputPlayback); }
+        fixture.AssertOnlyManifestExists();
+    }
+
     /// <summary>通常起動は未知引数と不正な非空URLも保持し、更新URLは大小文字を区別せず最後の指定を採用し、未指定・空値・空白では従来どおり既定値を返します。</summary>
     [TestMethod]
     [DataRow(null, null)]

@@ -257,7 +257,7 @@ public sealed class VerificationRunnerTests
         using var fixture = new RunnerFixture(distribution)
         {
             FormatInput = true,
-            ScenarioIds = ["SC-01", "SC-02", "SC-05", "SC-09", "SC-10A", "SC-10B", "SC-11", "SC-13", "SC-14", "SC-ExistingData", "SC-CurrentUpdate"],
+            ScenarioIds = ["SC-01", "SC-02", "SC-05", "SC-09", "SC-10A", "SC-10B", "SC-11", "SC-12", "SC-13", "SC-14", "SC-ExistingData", "SC-CurrentUpdate"],
         };
         long firstModuleStart = 0;
         fixture.BeforeStart = (name, _) => { if (name == "Core") { firstModuleStart = Stopwatch.GetTimestamp(); } };

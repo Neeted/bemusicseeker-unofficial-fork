@@ -2335,7 +2335,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     /// <summary>構成済み表の行をそのまま再生ownerへ渡し、受付後の面要求を現在のView接続へ向けます。</summary>
     /// <returns>転送した再生要求の実終端。面要求のUI配送は別に進みます。</returns>
-    internal Task RequestPlaybackFromTable(int rowIndex, object row)
+    /// <param name="receipt">当該入力だけの受取先。通常入力では省略し、再生・通知・停止の所有は変えません。</param>
+    internal Task RequestPlaybackFromTable(int rowIndex, object row, PlaybackInputReceipt receipt = null)
     {
         if (ShouldBlockStartupUiInteraction("custom_table_row_activate")
             || base.DataContext is not MainWindowViewModel)
@@ -2343,8 +2344,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return Task.CompletedTask;
         }
         return playbackTerminal.HandleTableRowActivation(rowIndex, row,
-            playbackPanelView.CaptureBmsPlayerSurfaceRequest());
+            playbackPanelView.CaptureBmsPlayerSurfaceRequest(), receipt);
     }
+
+    /// <summary>構成済み再生面の通常開始入力を転送します。</summary>
+    internal Task RequestStartPlayback(PlaybackInputReceipt receipt) => playbackPanelView.RequestPlaybackFromPlayButton(receipt);
+
+    /// <summary>構成済み再生面の通常次入力を転送します。</summary>
+    internal Task RequestNextPlayback(PlaybackInputReceipt receipt) => playbackPanelView.RequestNextPlayback(receipt);
+
+    /// <summary>構成済み再生面の通常停止入力を転送します。</summary>
+    internal Task RequestStopPlayback(PlaybackInputReceipt receipt) => playbackPanelView.RequestStopPlayback(receipt);
 
     private void customTablePlaylistSummary_RowActivated(object sender, CustomTableRowRequestedEventArgs e)
     {

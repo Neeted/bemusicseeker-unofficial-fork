@@ -11,7 +11,7 @@ internal sealed class MainWindowPlaybackTerminal
 {
     private readonly Action<object> handleTableSelection;
 
-    private readonly Func<int, object, Action, Task> handleTableRowActivation;
+    private readonly Func<int, object, Action, PlaybackInputReceipt, Task> handleTableRowActivation;
 
     /// <summary>
     /// 表選択と、受付後の面選択要求を伴う行activationの接続を作ります。
@@ -24,8 +24,14 @@ internal sealed class MainWindowPlaybackTerminal
     {
         this.handleTableSelection = handleTableSelection
             ?? throw new ArgumentNullException(nameof(handleTableSelection));
-        this.handleTableRowActivation = handleTableRowActivation
-            ?? throw new ArgumentNullException(nameof(handleTableRowActivation));
+        ArgumentNullException.ThrowIfNull(handleTableRowActivation);
+        this.handleTableRowActivation = (index, row, surface, _) => handleTableRowActivation(index, row, surface);
+    }
+
+    private MainWindowPlaybackTerminal(Action<object> selection, Func<int, object, Action, PlaybackInputReceipt, Task> activation)
+    {
+        handleTableSelection = selection;
+        handleTableRowActivation = activation;
     }
 
     /// <summary>
@@ -42,8 +48,9 @@ internal sealed class MainWindowPlaybackTerminal
     /// <param name="row">表イベントで渡された行。</param>
     /// <param name="requestPlayerSurface">受付後にViewが面の利用可能性と接続寿命を確認する処理。</param>
     /// <returns>転送した要求の実終端。面要求のUI配送完了は含みません。</returns>
-    internal Task HandleTableRowActivation(int rowIndex, object row, Action requestPlayerSurface)
-        => handleTableRowActivation(rowIndex, row, requestPlayerSurface);
+    /// <param name="receipt">当該入力だけの受取先。通常入力では省略し、再生・通知・停止の所有は変えません。</param>
+    internal Task HandleTableRowActivation(int rowIndex, object row, Action requestPlayerSurface, PlaybackInputReceipt receipt = null)
+        => handleTableRowActivation(rowIndex, row, requestPlayerSurface, receipt);
 
     /// <summary>
     /// 既存再生ownerへ直接接続した標準terminalを作ります。

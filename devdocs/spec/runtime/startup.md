@@ -37,7 +37,7 @@ manifestはJSON objectで、未知のfieldと重複propertyを拒否します。
 | `runId`、`caseId`、`controlPipeName` | 必須、空白でない文字列 |
 | `assetsDirectory` | 省略時は実行ファイルのディレクトリ |
 | `languageDirectory`、`tempDirectory`、`legacySettingsDirectory` | 省略時はprofile配下の`lang`、`temp`、`legacy` |
-| `providers` | 省略またはobject。既知fieldは`fileEnumeration`だけで、省略または厳密な文字列`file-system`を受理 |
+| `providers` | 省略またはobject。`fileEnumeration`は省略または厳密な文字列`file-system`、`audioPlayback`は省略または厳密な文字列`null-output`を受理 |
 | `updateManifestUrl` | 省略時だけ既存CLI、次に通常既定値を使用。明示値は空白でない絶対HTTP(S) URL |
 | `pendingSchemaConfirmation` | 省略時はfalse。boolだけを受理し、trueでは実schema確認を起動前から保留する固定入力を用意 |
 

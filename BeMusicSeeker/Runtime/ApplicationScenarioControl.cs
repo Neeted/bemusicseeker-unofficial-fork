@@ -162,7 +162,7 @@ internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
         {
             // 通信終端では観測待機だけを解放します。既存業務Taskの取消や結果補完は行いません。
             stopping.Cancel();
-            await dispatcher.InvokeAsync(() => { ClearObservation(); ClearInitialPlaylistSync(); }).Task.ConfigureAwait(false);
+            await dispatcher.InvokeAsync(() => { ClearObservation(); ClearInitialPlaylistSync(); playback = null; }).Task.ConfigureAwait(false);
         }
     }
 
@@ -230,6 +230,7 @@ internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
         { return new ScenarioSnapshotCompleted(request.RequestId, CaptureSnapshot(model)); }
         if (!model.IsInitializationCompleted)
         { throw new InvalidOperationException("The library is not ready for this command."); }
+        if (request is ScenarioPlaybackCommand playbackCommand) { return await ExecutePlaybackAsync(model, playbackCommand); }
         if (request is ScenarioHistoryCommand history) { return await ExecuteHistoryAsync(model, history); }
         if (request is ScenarioSettingsSectionCommand section)
         {
@@ -317,7 +318,7 @@ internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         stopping.Cancel();
-        await dispatcher.InvokeAsync(() => { ClearObservation(); ClearInitialPlaylistSync(); }).Task.ConfigureAwait(false);
+        await dispatcher.InvokeAsync(() => { ClearObservation(); ClearInitialPlaylistSync(); playback = null; }).Task.ConfigureAwait(false);
         var failures = new List<Exception>();
         try { await (reading ?? Task.CompletedTask).ConfigureAwait(false); }
         catch (Exception failure) { failures.Add(failure); }

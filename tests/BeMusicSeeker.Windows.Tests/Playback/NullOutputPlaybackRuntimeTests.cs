@@ -143,6 +143,7 @@ public sealed class NullOutputPlaybackRuntimeTests
         InstallRenderer(session, native);
         internalPlayer = new InternalBMSAutoPlayerSoundOnly(new SettingsPlayerSettingsGateway(() => settings), output);
         PlaybackStartOperation operation = internalPlayer.BeginStart(chart, null, allowPreload: true);
+        Assert.AreSame(output, operation.NativeObservation);
         PlaybackStartOperation? adopted = null;
         try
         {
@@ -203,8 +204,14 @@ public sealed class NullOutputPlaybackRuntimeTests
         BassAudioSession session = Session;
         using var source = new BassAudioPlayer(FilePath("sound.wav")) { Volume = 1f };
         float[] pcm = new float[4096 * 2];
+        using IDisposable registration = output.ObservePcm(session, out Task<PlaybackPcmSnapshot> observed);
         source.Play();
         Assert.AreEqual(4096, BassAudioPlayer.ReadNullOutputFrames(session, pcm, 4096));
+        PlaybackPcmSnapshot snapshot = await observed.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.AreEqual(48000, snapshot.SampleRate);
+        Assert.AreEqual(2, snapshot.Channels);
+        CollectionAssert.AreEqual(pcm.Take(snapshot.Samples.Length).ToArray(), snapshot.Samples.ToArray(),
+            "受動観測は追加pullせず、成功した同一取得のPCMを返します。");
         AssertWave(pcm, frame => 0.25d);
         output.SetVolume(50);
         source.Play();

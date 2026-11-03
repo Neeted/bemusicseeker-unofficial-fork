@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Runtime.ExceptionServices;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Properties;
 using Ribbit.Media;
@@ -12,7 +14,7 @@ namespace BeMusicSeeker.Models;
 /// 明示的な無音再生で実decoder・mixer・共通出力処理を使います。
 /// 初回実pullだけを所有し、演奏中の駆動と再生Taskの停止合流は既存playerへ委ねます。
 /// </summary>
-internal sealed class NullOutputPlaybackRuntime : IAudioPlaybackRuntime
+internal sealed class NullOutputPlaybackRuntime : IAudioPlaybackRuntime, IPlaybackNativeObservation
 {
     private readonly BassAudioSessionLease sessionLease = new();
     private readonly object volumeGate = new();
@@ -21,6 +23,74 @@ internal sealed class NullOutputPlaybackRuntime : IAudioPlaybackRuntime
     private AudioPlaybackInitializationResult activeInitialization;
     private int? currentVolume;
     private bool initializing;
+
+    private PcmRegistration pcmRegistration;
+
+    /// <summary>現在所有する実sessionだけを公開します。</summary>
+    public BassAudioSession Session => sessionLease.Session;
+
+    /// <summary>登録後の実取得にだけ接続します。旧sessionへの登録と二重登録は拒否します。</summary>
+    public IDisposable ObservePcm(BassAudioSession expectedSession, out Task<PlaybackPcmSnapshot> completion)
+    {
+        lock (volumeGate)
+        {
+            if (activeInitialization == null || !ReferenceEquals(expectedSession, sessionLease.Session)
+                || expectedSession.State != BassAudioSessionState.Active)
+            { throw new InvalidOperationException("The PCM observation session expired."); }
+            if (pcmRegistration != null) { throw new InvalidOperationException("A PCM observation is already registered."); }
+            var registration = new PcmRegistration(this, expectedSession);
+            pcmRegistration = registration;
+            registration.Callback = registration.Capture;
+            Volatile.Write(ref expectedSession.PcmObservation, registration.Callback);
+            completion = registration.Completion.Task;
+            return registration;
+        }
+    }
+
+    private sealed class PcmRegistration(NullOutputPlaybackRuntime owner, BassAudioSession session) : IDisposable
+    {
+        internal readonly TaskCompletionSource<PlaybackPcmSnapshot> Completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly object gate = new();
+        private bool disposed;
+        internal PlaybackPcmCallback Callback;
+
+        internal void Capture(BassAudioSession actual, int rate, int channels, ReadOnlySpan<float> samples)
+        {
+            lock (gate)
+            {
+                if (disposed || Completion.Task.IsCompleted) { return; }
+                try
+                {
+                    if (!ReferenceEquals(actual, session)) { throw new InvalidOperationException("A different session supplied PCM."); }
+                    int first = -1;
+                    for (int index = 0; index < samples.Length; index++)
+                    {
+                        if (!float.IsFinite(samples[index])) { throw new InvalidOperationException("Nonfinite observed PCM."); }
+                        if (samples[index] != 0 && first < 0) { first = index / channels * channels; }
+                    }
+                    if (first < 0) { return; }
+                    int count = Math.Min(64 * channels, samples.Length - first);
+                    Completion.TrySetResult(new(rate, channels, ImmutableArray.Create(samples.Slice(first, count).ToArray())));
+                }
+                catch (Exception failure) { Completion.TrySetException(failure); }
+            }
+        }
+
+        public void Dispose()
+        {
+            lock (owner.volumeGate)
+            {
+                lock (gate)
+                {
+                    if (disposed) { return; }
+                    disposed = true;
+                    Interlocked.CompareExchange(ref session.PcmObservation, null, Callback);
+                    Completion.TrySetCanceled();
+                }
+                if (ReferenceEquals(owner.pcmRegistration, this)) { owner.pcmRegistration = null; }
+            }
+        }
+    }
 
     /// <summary>実native sessionを所有する明示無音runtimeを作成します。</summary>
     internal NullOutputPlaybackRuntime() : this(BassAudioPlayer.Free) { }
@@ -166,6 +236,7 @@ internal sealed class NullOutputPlaybackRuntime : IAudioPlaybackRuntime
         catch (Exception failure) { failures.Add(failure); }
         try
         {
+            lock (volumeGate) { pcmRegistration?.Dispose(); }
             if (!sessionLease.TryRelease(releaseSession))
             {
                 throw new InvalidOperationException(Resources.AudioDeviceTestCleanupFailure);

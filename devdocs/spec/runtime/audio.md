@@ -362,6 +362,14 @@ SRC=6の信号検査は44.1↔48、48↔96kHzで1/5/10/18kHzの振幅差≤0.01d
 
 機器対応や出力方式を変更した場合は、Windows 10・11の配布物で内蔵機器と利用可能なUSBまたはASIO機器を使う確認をユーザーへ推奨できます。共有の他アプリとの同時再生、アプリ音量とWindows音量・ミュートの独立性、排他・ASIOの交渉値、テスト音の一回の自然終了、機器の切断・再接続と保存後の再起動から、変更に関係する条件・操作・期待結果を示します。実施と未実施の扱いは[検証方針](../development/testing.md#検証方針)に従います。無音変換の物理機器からの独立とミュート非依存は自動検証で確認します。
 
+### 明示検証起動の実再生観測
+
+`--test-session` の `providers.audioPlayback: "null-output"` だけがCompositionで既存の無音runtimeを選びます。未指定は通常出力、未知値は起動失敗です。通常CLI、保存device、可聴出力のfallback順は変更しません。
+
+PCM観測は `ReadNullOutputFrames` の成功した取得後にだけ接続し、短い非無音窓を一件返します。追加pull・pump・timerは作らず、実sessionを保持して明示Stopの実Task・当該Completion終端・同sessionの `IsReleased` を別々に確認します。Readyの初回ゼロPCMは正常です。
+
+Fullの `PlaybackScenarioTests` は通常BMSのactivation→別BMSへのNext→実PCM→その演奏Completion→明示Stop→再開始と、実発見した保留入れ子bmsonの一時試聴→実PCM→演奏中Stop→再開始の二代表を確認します。PCM期待はWAV整数振幅とgainから独立に算出します。全frame・gain条件はWindowsの `NullOutputPlaybackRuntimeTests`、候補探索・Ready前の一時素材保持は既存Coreの保証へ分担します。
+
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |

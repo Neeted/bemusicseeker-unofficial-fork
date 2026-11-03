@@ -78,17 +78,24 @@ internal static class ApplicationRuntimeOptionsParser
                 { throw new FormatException("The test-session pendingSchemaConfirmation must be boolean."); }
                 pendingSchemaConfirmation = pending.GetBoolean();
             }
-            session = new ApplicationTestSession(manifestPath, ReadRequiredString(root, "runId"),
-                ReadRequiredString(root, "caseId"), ReadRequiredString(root, "controlPipeName"), pendingSchemaConfirmation);
+            bool nullOutputPlayback = false;
             if (root.TryGetProperty("providers", out JsonElement providers))
             {
-                ValidateObject(providers, ["fileEnumeration"]);
+                ValidateObject(providers, ["fileEnumeration", "audioPlayback"]);
+                if (providers.TryGetProperty("audioPlayback", out JsonElement audio))
+                {
+                    if (audio.ValueKind != JsonValueKind.String || audio.GetString() != "null-output")
+                    { throw new FormatException("The test-session audioPlayback provider must be null-output."); }
+                    nullOutputPlayback = true;
+                }
                 if (providers.TryGetProperty("fileEnumeration", out JsonElement provider)
                     && (provider.ValueKind != JsonValueKind.String || provider.GetString() != "file-system"))
                 {
                     throw new FormatException("The test-session fileEnumeration provider must be file-system.");
                 }
             }
+            session = new ApplicationTestSession(manifestPath, ReadRequiredString(root, "runId"), ReadRequiredString(root, "caseId"),
+                ReadRequiredString(root, "controlPipeName"), pendingSchemaConfirmation, nullOutputPlayback);
             if (root.TryGetProperty("updateManifestUrl", out _))
             {
                 updateUrl = ReadRequiredString(root, "updateManifestUrl");

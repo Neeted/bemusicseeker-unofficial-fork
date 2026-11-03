@@ -10,7 +10,7 @@ namespace BeMusicSeeker.TestSupport.Scenarios;
 
 /// <summary>実製品processと専有pipeを所有し、固定要求の実結果を対応する呼出元へ返します。</summary>
 /// <remarks>通信相関だけを管理し、業務成功・ready・保存結果を作りません。各待機はcaseから渡す同じ絶対期限を使います。</remarks>
-internal sealed class ApplicationScenarioDriver : IAsyncDisposable
+internal sealed partial class ApplicationScenarioDriver : IAsyncDisposable
 {
     private readonly NamedPipeServerStream pipe;
     private StreamReader reader;
@@ -58,7 +58,7 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
 
     /// <summary>初期化前から用意したpipeへ、指定された実製品exeだけを起動します。別buildの探索は行いません。</summary>
     internal static async Task<ApplicationScenarioDriver> StartAsync(string executablePath, string profileDirectory,
-        string manifestPath, string caseId, string updateManifestUrl, ProcessDeadline deadline, bool pendingSchemaConfirmation = false)
+        string manifestPath, string caseId, string updateManifestUrl, ProcessDeadline deadline, bool pendingSchemaConfirmation = false, bool nullOutputPlayback = false)
     {
         string executable = Path.GetFullPath(executablePath);
         string profile = Path.GetFullPath(profileDirectory);
@@ -77,7 +77,9 @@ internal sealed class ApplicationScenarioDriver : IAsyncDisposable
             caseId,
             controlPipeName = pipeName,
             languageDirectory = Path.Combine(assets, "lang"),
-            providers = new { fileEnumeration = "file-system" },
+            providers = nullOutputPlayback
+                ? new Dictionary<string, string> { ["fileEnumeration"] = "file-system", ["audioPlayback"] = "null-output" }
+                : new Dictionary<string, string> { ["fileEnumeration"] = "file-system" },
             updateManifestUrl,
             pendingSchemaConfirmation
         }), new UTF8Encoding(false));
