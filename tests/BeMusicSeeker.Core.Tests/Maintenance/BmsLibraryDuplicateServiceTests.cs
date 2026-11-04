@@ -104,7 +104,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\BMS", "DirC", "b.bms"))
         ];
 
-        DuplicateAnalysisResult result = service.Analyze(CreateDuplicateAnalysisSnapshot(files, []), Resources.Warning_DuplicateBmsFile);
+        DuplicateAnalysisResult result = service.Analyze(CreateDuplicateAnalysisSnapshot(files, []));
 
         Assert.AreEqual(1, result.DuplicateGroups.Count);
         CollectionAssert.AreEquivalent(new[] { "C:\\BMS\\DirA", "C:\\BMS\\DirB", "C:\\BMS\\DirC" }, result.DuplicateGroups[0].Folders);
@@ -123,12 +123,12 @@ public sealed class BmsLibraryDuplicateServiceTests
         var service = new BmsLibraryDuplicateService();
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
 
-        file = service.ApplyDuplicateWarnings([file], Resources.Warning_DuplicateBmsFile).Single();
-        file = service.ApplyDuplicateWarnings([file], Resources.Warning_DuplicateBmsFile).Single();
+        file = service.ApplyDuplicateWarnings([file]).Single();
+        file = service.ApplyDuplicateWarnings([file]).Single();
 
         Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
-        Assert.IsTrue(ChartWarningCollection.HasAnyHighlightedWarning(file.Warnings));
-        Assert.AreEqual("[1] 重複譜面", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
+        Assert.IsTrue(ChartWarningProjectionFormatter.HasAnyHighlightedWarning(file.Warnings));
+        Assert.AreEqual("[1] 重複譜面", ChartWarningProjectionFormatter.BuildDigestText(file.Warnings, file.InstallDestination));
     }
 
     /// <summary>
@@ -168,7 +168,7 @@ public sealed class BmsLibraryDuplicateServiceTests
 
         OwnedDuplicateChartRowSnapshot snapshot = CreateDuplicateAnalysisSnapshot(bmsFiles, bmsonSongs);
 
-        DuplicateAnalysisResult result = service.Analyze(snapshot, Resources.Warning_DuplicateBmsFile);
+        DuplicateAnalysisResult result = service.Analyze(snapshot);
 
         Assert.AreEqual(1, result.DuplicateGroups.Count);
         Assert.AreEqual(1, snapshot.DuplicateHashCount);
@@ -199,8 +199,7 @@ public sealed class BmsLibraryDuplicateServiceTests
         };
 
         DuplicateAnalysisResult result = service.Analyze(
-            CreateDuplicateAnalysisSnapshot([duplicateBms, uniqueSibling], [duplicateBmson]),
-            Resources.Warning_DuplicateBmsFile);
+            CreateDuplicateAnalysisSnapshot([duplicateBms, uniqueSibling], [duplicateBmson]));
 
         Assert.AreEqual(1, result.DuplicateGroups.Count);
         Assert.AreEqual(2, result.DuplicateCharts.Count);
@@ -239,7 +238,7 @@ public sealed class BmsLibraryDuplicateServiceTests
         Assert.AreEqual(1, duplicateSnapshot.DuplicateHashCount);
         Assert.AreEqual(2, duplicateSnapshot.DuplicateHashRowCount);
 
-        DuplicateAnalysisResult result = service.Analyze(duplicateSnapshot, Resources.Warning_DuplicateBmsFile);
+        DuplicateAnalysisResult result = service.Analyze(duplicateSnapshot);
 
         Assert.AreEqual(4, snapshotRows.Count(row => row.Chart != null));
         Assert.IsTrue(snapshotRows.All(row => row.Chart.Resources == null), "重複検索でリソースを先行解析しません。");
@@ -267,8 +266,7 @@ public sealed class BmsLibraryDuplicateServiceTests
         ChartFile uniqueSibling = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\BMS", "dira", "unique.bms"));
 
         DuplicateAnalysisResult result = service.Analyze(
-            CreateDuplicateAnalysisSnapshot([duplicateLower, duplicateUpper, uniqueSibling], []),
-            Resources.Warning_DuplicateBmsFile);
+            CreateDuplicateAnalysisSnapshot([duplicateLower, duplicateUpper, uniqueSibling], []));
 
         Assert.AreEqual(1, result.DuplicateGroups.Count);
         Assert.AreEqual(3, result.MaterializedChartCount);
@@ -808,7 +806,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             ChartFile first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", @"C:\BMS\DirA\a.bms");
             if (clearWarning)
             {
-                first = first with { Warnings = [ChartWarning.Create(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile)] };
+                first = first with { Warnings = [ChartWarning.Create(ChartWarningKind.DuplicateChart)] };
             }
             var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
@@ -903,7 +901,7 @@ public sealed class BmsLibraryDuplicateServiceTests
         {
 
             ChartFile staleWarningFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
-            staleWarningFile = staleWarningFile with { Warnings = [.. staleWarningFile.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile)] };
+            staleWarningFile = staleWarningFile with { Warnings = [.. staleWarningFile.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart)] };
             var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
@@ -1113,7 +1111,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 var entry = PackageChartEntry.FromPath(path);
                 BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry);
                 entry.RestoreInstallDestinationState(new PackageChartInstallDestinationState(confirmedDestination, "evidence", "artist", candidates));
-                entry.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "original diagnostic");
+                entry.SetWarning(ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B"));
                 return entry;
             }
             PackageChartEntry candidateOnly = CreatePending("candidate", null, [sourceDirectory, destinationDirectory]);

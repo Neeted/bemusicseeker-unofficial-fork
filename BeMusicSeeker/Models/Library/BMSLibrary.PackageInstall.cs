@@ -1182,7 +1182,7 @@ public partial class BMSLibrary
         foreach (PackageChartEntry entry in (installedEntries ?? []).Where(entry => entry?.Chart != null))
         {
             entry.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
-            entry.SetWarning(ChartWarningKind.AlreadyInstalled, Resources.Warning_AlreadyInstalled);
+            entry.SetWarning(ChartWarningKind.AlreadyInstalled);
         }
     }
 

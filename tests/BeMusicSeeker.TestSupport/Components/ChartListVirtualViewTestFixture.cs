@@ -54,13 +54,13 @@ internal static class ChartListVirtualViewTestFixture
             switch (warningSeed.Value)
             {
                 case 1:
-                    file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch, "zero note warning")] };
+                    file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch)] };
                     break;
                 case 2:
-                    file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart, "duplicate warning")] };
+                    file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart)] };
                     break;
                 default:
-                    file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ChartInfoParseFailure), ChartWarning.Create(ChartWarningKind.ChartInfoParseFailure, "chart info warning")] };
+                    file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ChartInfoParseFailure), ChartWarning.CreateChartInfoParseFailure("InvalidDataException", "parse_failed", "chart info warning")] };
                     break;
             }
         }

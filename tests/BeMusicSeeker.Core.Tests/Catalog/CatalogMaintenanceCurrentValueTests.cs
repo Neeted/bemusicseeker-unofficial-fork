@@ -194,6 +194,48 @@ public sealed class CatalogMaintenanceCurrentValueTests
         Assert.AreSame(expected[0], read.Resolve(key).Token);
     }
 
+    /// <summary>
+    /// 同じ事実で作り直した警告は「変更なし」(版・通知を進めない)で、事実が変わったときだけ警告表示の効果を通知することを確認します。
+    /// 警告を翻訳済み文字列で比較して、言語や生成回の違いで版を進める誤りと、事実の変化を見落とす誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void CurrentCommit_RecreatedWarningsWithSameFactsAreUnchangedAndFactChangesPublishWarningEffect()
+    {
+        static ChartWarning[] Facts(int health) =>
+        [
+            ChartWarning.CreateResourceHealth(ChartWarningKind.ResourceWavMissing, health, 1, 4),
+            ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B"),
+            ChartWarning.Create(ChartWarningKind.DuplicateChart),
+        ];
+
+        var publisher = new NormalLibraryRefreshPublisher();
+        var owner = new CatalogOwnedCollectionOwner { RefreshPublisher = publisher };
+        owner.ReplaceCharts([Chart(1)], []);
+        owner.CommitCurrentValues([owner.BmsRows[0]], (current, _) => current with { Warnings = Facts(25) });
+        int revision = owner.CatalogRevision;
+        int handled = publisher.Version;
+
+        // 同じ事実で別に作り直した警告は、変更なし・版不変・新しい確定なしです。
+        CatalogCommitReceipt same = owner.CommitCurrentValues([owner.BmsRows[0]], (current, _) => current with { Warnings = Facts(25) });
+        Assert.IsFalse(same.HasChanges);
+        Assert.AreEqual(revision, owner.CatalogRevision);
+        Assert.AreEqual(0, publisher.GetNotificationsAfter(handled).CatalogCommits.Count);
+
+        // 基本値の変更に同じ事実の作り直しが伴っても、警告表示の効果は通知しません。
+        CatalogCommitReceipt titleOnly = owner.CommitCurrentValues([owner.BmsRows[0]], (current, _) => current with { Title = "renamed", Warnings = Facts(25) });
+        Assert.IsTrue(titleOnly.HasChanges);
+        NormalLibraryRefreshNotificationBatch titleBatch = publisher.GetNotificationsAfter(handled);
+        Assert.IsTrue(titleBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
+        Assert.IsFalse(titleBatch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+        handled = publisher.Version;
+
+        // 事実を一つ変えると変更あり・警告表示の効果ありです。
+        CatalogCommitReceipt factChanged = owner.CommitCurrentValues([owner.BmsRows[0]], (current, _) => current with { Warnings = Facts(26) });
+        Assert.IsTrue(factChanged.HasChanges);
+        Assert.AreEqual(titleOnly.Revision + 1, factChanged.Revision);
+        Assert.IsTrue(publisher.GetNotificationsAfter(handled).HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+    }
+
     /// <summary>health・encoding・検査由来・警告を含むbatchの実変更は一回だけ版を進め、同値・対象なしと旧snapshotを区別する。</summary>
     [TestMethod]
     public void CurrentCommit_AdvancesOnceForEveryCurrentValueChangeAndKeepsPriorCapture()
@@ -212,7 +254,7 @@ public sealed class CatalogMaintenanceCurrentValueTests
             BGAHealth = 0,
             MovieHealth = null,
             ResourceHealthMaintenanceSnapshot = new() { Path = current.Path, Hash = current.Md5, Origin = MaintenanceInfoOrigin.Calculated, Encoding = "utf-16" },
-            Warnings = [ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch, "warning")]
+            Warnings = [ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch)]
         });
         Assert.AreEqual(before.CatalogRevision, commit.BaseRevision);
         Assert.AreEqual(before.CatalogRevision + 1, commit.Revision);

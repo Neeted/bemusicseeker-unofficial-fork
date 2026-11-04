@@ -1535,8 +1535,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     path == firstDirectoryPath ? Path.Combine(libraryRootPath, "[First Artist] First Title") : Path.Combine(libraryRootPath, "[Second Artist] Second Title")).ToArray(), priorEntry.Chart.InstallDestinationSuggestions.ToArray());
                 Assert.AreEqual(string.Empty, priorEntry.Chart.InstallDestination);
                 Assert.AreEqual(priorState.WAVHealth, priorEntry.Chart.WAVHealth);
-                CollectionAssert.AreEqual(priorState.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray(),
-                    priorEntry.Chart.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray());
+                CollectionAssert.AreEqual(priorState.Warnings.ToArray(),
+                    priorEntry.Chart.Warnings.ToArray());
 
                 string pendingDirectoryPath = Path.Combine(tempRootPath, "PendingAfterRename");
                 string pendingChartPath = Path.Combine(pendingDirectoryPath, "pending.bms");

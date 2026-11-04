@@ -369,7 +369,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         string[] suggestionPaths = [.. (result?.SuggestedDestinationDirectories ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(3)];
+            .Take(ChartWarning.MaxCandidateCount)];
         bool isLowConfidence = result?.Confidence == InstallEstimationConfidence.Low;
         ReplacePendingInstallDestination(
             result?.ShouldAutoApplyDestination == true && !string.IsNullOrWhiteSpace(result.DestinationDirectory)
@@ -387,7 +387,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
     {
         ReplacePendingInstallDestination(null, string.Empty, string.Empty, [], forceProjection: true);
         ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
-        SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, Properties.Resources.Warning_InstalledDestinationResolveFailed);
+        SetWarning(ChartWarningKind.InstalledDestinationResolveFailed);
     }
 
     /// <summary>候補・代表・DSTを変更せず、採用要求の親参照WARNINGだけを更新します。未取得時は既存事実を維持します。</summary>
@@ -396,7 +396,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         if (chart.Resources == null) { return; }
         if (chart.Resources.Any(reference => reference.RestrictsAutomaticDestination))
         {
-            pendingWarnings[ChartWarningKind.UnsupportedResourcePath] = ChartWarning.Create(ChartWarningKind.UnsupportedResourcePath, Properties.Resources.Warning_UnsupportedResourcePath);
+            pendingWarnings[ChartWarningKind.UnsupportedResourcePath] = ChartWarning.Create(ChartWarningKind.UnsupportedResourcePath);
             projectedWarningCategories.Add(ChartWarningCategory.InstallEstimation);
         }
         else { pendingWarnings.Remove(ChartWarningKind.UnsupportedResourcePath); }
@@ -407,9 +407,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
     {
         ReplacePendingInstallDestination(null, string.Empty, string.Empty, [], forceProjection: true);
         ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
-        SetWarning(
-            ChartWarningKind.SourceSurfaceScanLimitExceeded,
-            string.Format(Properties.Resources.Warning_SourceSurfaceScanLimitExceeded, maxVisitedFileSystemEntryCount));
+        SetWarning(ChartWarning.CreateSourceSurfaceScanLimitExceeded(maxVisitedFileSystemEntryCount));
     }
 
     /// <summary>導入先の明示的なクリアを、代表情報・候補・推定警告とともに反映します。</summary>
@@ -505,12 +503,15 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         RaiseChartChanged();
     }
 
+    /// <summary>事実を持たない種別の警告を項目の投影に設定します。</summary>
+    internal void SetWarning(ChartWarningKind kind) => SetWarning(ChartWarning.Create(kind));
+
     /// <summary>指定の警告を項目の投影に設定します。</summary>
-    internal void SetWarning(ChartWarningKind kind, string message)
+    internal void SetWarning(ChartWarning warning)
     {
+        ArgumentNullException.ThrowIfNull(warning);
         lock (mutationGate)
         {
-            var warning = ChartWarning.Create(kind, message);
             pendingWarnings[warning.Kind] = warning;
             projectedWarningCategories.Add(warning.Category);
         }
@@ -662,46 +663,44 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         string[] suggestionPaths = [.. (result?.SuggestedDestinationDirectories ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(3)];
+            .Take(ChartWarning.MaxCandidateCount)];
         bool isLowConfidence = result?.Confidence == InstallEstimationConfidence.Low;
         InstallEstimationLowConfidenceKind lowConfidenceKind = result?.LowConfidenceKind ?? InstallEstimationLowConfidenceKind.None;
         if (isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.AmbiguousCandidates && selectedCandidate != null && (result.AmbiguousCandidateDirectory != null || secondCandidate != null))
         {
-            yield return ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, string.Format(Properties.Resources.Warning_InstallEstimationAmbiguous, selectedCandidate.DirectoryPath, result.AmbiguousCandidateDirectory ?? secondCandidate.DirectoryPath));
+            yield return ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, selectedCandidate.DirectoryPath, result.AmbiguousCandidateDirectory ?? secondCandidate.DirectoryPath);
         }
-        if (isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.InstalledDestinationAmbiguous && suggestionPaths.Length >= 2)
+        if (isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.InstalledDestinationAmbiguous && suggestionPaths.Length >= ChartWarning.MinCandidateCount)
         {
-            yield return ChartWarning.Create(ChartWarningKind.InstalledDestinationAmbiguous, string.Format(Properties.Resources.Warning_InstalledDestinationAmbiguous, string.Join(Environment.NewLine, suggestionPaths.Select(path => "- " + path))));
+            yield return ChartWarning.CreateWithCandidates(ChartWarningKind.InstalledDestinationAmbiguous, suggestionPaths);
         }
-        if (isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.InstalledDestinationAutoAppliedAmbiguous && suggestionPaths.Length >= 2)
+        if (isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.InstalledDestinationAutoAppliedAmbiguous && suggestionPaths.Length >= ChartWarning.MinCandidateCount)
         {
-            yield return ChartWarning.Create(ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous, string.Format(Properties.Resources.Warning_InstalledDestinationAutoAppliedAmbiguous, string.Join(Environment.NewLine, suggestionPaths.Select(path => "- " + path))));
+            yield return ChartWarning.CreateWithCandidates(ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous, suggestionPaths);
         }
         if (isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.MetadataMismatch && selectedCandidate != null)
         {
-            (ChartWarningKind kind, string message) = selectedCandidate.MetadataRelation switch
+            ChartWarningKind kind = selectedCandidate.MetadataRelation switch
             {
-                InstallEstimationMetadataRelation.Unrelated => (ChartWarningKind.InstallEstimationUnrelated, Properties.Resources.Warning_InstallEstimationUnrelated),
-                InstallEstimationMetadataRelation.Unavailable => (ChartWarningKind.InstallEstimationMetadataUnavailable, Properties.Resources.Warning_InstallEstimationMetadataUnavailable),
-                _ => (ChartWarningKind.InstallEstimationMetadataMismatch, Properties.Resources.Warning_InstallEstimationMetadataMismatch)
+                InstallEstimationMetadataRelation.Unrelated => ChartWarningKind.InstallEstimationUnrelated,
+                InstallEstimationMetadataRelation.Unavailable => ChartWarningKind.InstallEstimationMetadataUnavailable,
+                _ => ChartWarningKind.InstallEstimationMetadataMismatch
             };
-            yield return ChartWarning.Create(kind, string.Format(message, selectedCandidate.DirectoryPath));
+            yield return ChartWarning.CreateWithPath(kind, selectedCandidate.DirectoryPath);
         }
         if (isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.ReinstallNotImproved && selectedCandidate != null)
         {
-            yield return ChartWarning.Create(ChartWarningKind.InstallEstimationReinstallNotImproved, string.Format(Properties.Resources.Warning_InstallEstimationReinstallNotImproved, selectedCandidate.DirectoryPath));
+            yield return ChartWarning.CreateWithPath(ChartWarningKind.InstallEstimationReinstallNotImproved, selectedCandidate.DirectoryPath);
         }
         if (result?.HasViableDestination == true && selectedCandidate != null)
         {
             if (result.AudioCompleteness == InstallAudioCompleteness.Missing && !result.AudioAutoApplyAllowed)
             {
-                yield return ChartWarning.Create(ChartWarningKind.InstallEstimationAudioMissing,
-                    string.Format(Properties.Resources.Warning_InstallEstimationAudioMissing, selectedCandidate.DirectoryPath));
+                yield return ChartWarning.CreateWithPath(ChartWarningKind.InstallEstimationAudioMissing, selectedCandidate.DirectoryPath);
             }
             else if (result.AudioCompleteness == InstallAudioCompleteness.Unverifiable)
             {
-                yield return ChartWarning.Create(ChartWarningKind.InstallEstimationAudioUnverifiable,
-                    string.Format(Properties.Resources.Warning_InstallEstimationAudioUnverifiable, selectedCandidate.DirectoryPath));
+                yield return ChartWarning.CreateWithPath(ChartWarningKind.InstallEstimationAudioUnverifiable, selectedCandidate.DirectoryPath);
             }
         }
     }

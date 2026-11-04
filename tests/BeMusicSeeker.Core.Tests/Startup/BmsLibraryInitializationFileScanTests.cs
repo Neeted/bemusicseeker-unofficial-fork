@@ -7,6 +7,7 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.ViewModels;
 using static BeMusicSeeker.TestSupport.Components.BmsLibraryInitializationFileScanTestSupport;
 using static BeMusicSeeker.TestSupport.Components.BmsLibraryInitializationTestSupport;
 namespace BeMusicSeeker.Tests;
@@ -1800,7 +1801,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(Path.GetFileName(Path.GetDirectoryName(bmsPath)), added.Folder);
             Assert.IsTrue(string.IsNullOrWhiteSpace(ChartSongStorageMapping.ToBmsRow(added).parent));
             Assert.IsTrue(added.Warnings.Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported));
-            StringAssert.Contains(ChartWarningCollection.BuildTooltipText(added.Warnings), "Shift_JIS");
+            StringAssert.Contains(ChartWarningProjectionFormatter.BuildTooltipText(added.Warnings), "Shift_JIS");
             Assert.AreEqual(1, result.NextFiles.Count(file => string.IsNullOrWhiteSpace(ChartSongStorageMapping.ToBmsRow(file).parent)));
 
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();

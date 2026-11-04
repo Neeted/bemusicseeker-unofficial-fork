@@ -2119,14 +2119,13 @@ internal sealed class BmsLibraryInitializationService
                 if (isInstalledChart != null && isInstalledChart(chart))
                 {
                     entry.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
-                    entry.SetWarning(ChartWarningKind.AlreadyInstalled, Resources.Warning_AlreadyInstalled);
+                    entry.SetWarning(ChartWarningKind.AlreadyInstalled);
                     result.InstalledWarningCount++;
                 }
                 else if (isSingleFilePackage)
                 {
                     entry.ClearWarningsByCategory(ChartWarningCategory.PackageLayout);
-                    entry.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile,
-                        isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
+                    entry.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile);
                     result.SingleFileWarningCount++;
                 }
             }

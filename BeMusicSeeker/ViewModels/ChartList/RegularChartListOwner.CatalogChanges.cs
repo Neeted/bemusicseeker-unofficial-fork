@@ -151,8 +151,7 @@ internal sealed partial class RegularChartListOwner
                 || change.Before?.MovieHealth != change.After?.MovieHealth || change.Before?.EncodingName != change.After?.EncodingName);
             bool warningsChanged = maintenanceChanged || commit.Changes.Any(change => change.Before != null && change.After != null
                 && (change.Before.ResourceHealthWarningsIgnored != change.After.ResourceHealthWarningsIgnored
-                    || !change.Before.Warnings.Select(warning => (warning.Kind, warning.Message)).SequenceEqual(
-                        change.After.Warnings.Select(warning => (warning.Kind, warning.Message)))));
+                    || !change.Before.Warnings.SequenceEqual(change.After.Warnings)));
             if (dependency == MainViewDataDependency.Warning && warningsChanged)
             { return true; }
             foreach (CatalogChartChange change in commit.Changes)

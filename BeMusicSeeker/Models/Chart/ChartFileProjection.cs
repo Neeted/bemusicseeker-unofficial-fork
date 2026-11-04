@@ -313,36 +313,6 @@ internal static class ChartFileProjection
         };
     }
 
-    /// <summary>変更した一時値を引き継ぎ、現在値の不変リソース結果を共有します。</summary>
-    internal static ChartFile WithTransientOverrides(
-        ChartFile current,
-        ChartFile overrideChart,
-        ChartFile baseline,
-        bool includeWarningSnapshot = true)
-    {
-        if (current == null || overrideChart == null || baseline == null)
-        {
-            return current;
-        }
-
-        return current with
-        {
-            Subtitle = SelectStringOverride(current.Subtitle, overrideChart.Subtitle, baseline.Subtitle),
-            InstallDestination = SelectStringOverride(current.InstallDestination, overrideChart.InstallDestination, baseline.InstallDestination),
-            InstallDestinationTitle = SelectStringOverride(current.InstallDestinationTitle, overrideChart.InstallDestinationTitle, baseline.InstallDestinationTitle),
-            InstallDestinationArtist = SelectStringOverride(current.InstallDestinationArtist, overrideChart.InstallDestinationArtist, baseline.InstallDestinationArtist),
-            InstallDestinationSuggestions = SelectStringListOverride(current.InstallDestinationSuggestions, overrideChart.InstallDestinationSuggestions, baseline.InstallDestinationSuggestions),
-            Warnings = includeWarningSnapshot ? SelectWarningOverride(current.Warnings, overrideChart.Warnings, baseline.Warnings) : [],
-            WAVHealth = SelectNullableOverride(current.WAVHealth, overrideChart.WAVHealth, baseline.WAVHealth),
-            BGAHealth = SelectNullableOverride(current.BGAHealth, overrideChart.BGAHealth, baseline.BGAHealth),
-            MovieHealth = SelectNullableOverride(current.MovieHealth, overrideChart.MovieHealth, baseline.MovieHealth),
-            StagefileHealth = SelectNullableOverride(current.StagefileHealth, overrideChart.StagefileHealth, baseline.StagefileHealth),
-            BannerHealth = SelectNullableOverride(current.BannerHealth, overrideChart.BannerHealth, baseline.BannerHealth),
-            BackbmpHealth = SelectNullableOverride(current.BackbmpHealth, overrideChart.BackbmpHealth, baseline.BackbmpHealth),
-            EncodingName = SelectStringOverride(current.EncodingName, overrideChart.EncodingName, baseline.EncodingName)
-        };
-    }
-
     /// <summary>共通基本値を保持し、要求された表示値だけを捕捉します。現在値や保存行へ遡りません。</summary>
     internal static ChartFile CaptureBasicSnapshot(
         ChartFile source,
@@ -403,37 +373,6 @@ internal static class ChartFileProjection
             chartInfo);
     }
 
-    private static string SelectStringOverride(string current, string overrideValue, string baseline)
-    {
-        return string.Equals(overrideValue ?? string.Empty, baseline ?? string.Empty, System.StringComparison.Ordinal)
-            ? current
-            : overrideValue;
-    }
-
-    private static T? SelectNullableOverride<T>(T? current, T? overrideValue, T? baseline)
-        where T : struct
-    {
-        return EqualityComparer<T?>.Default.Equals(overrideValue, baseline) ? current : overrideValue;
-    }
-
-    private static IReadOnlyList<string> SelectStringListOverride(IReadOnlyList<string> current, IReadOnlyList<string> overrideValue, IReadOnlyList<string> baseline)
-    {
-        return StringSequenceEquals(overrideValue, baseline) ? current : overrideValue ?? [];
-    }
-
-    private static IReadOnlyList<ChartWarning> SelectWarningOverride(IReadOnlyList<ChartWarning> current, IReadOnlyList<ChartWarning> overrideValue, IReadOnlyList<ChartWarning> baseline)
-    {
-        if (WarningSequenceEquals(overrideValue, baseline))
-        {
-            return current;
-        }
-        if ((overrideValue?.Count ?? 0) == 0 && (baseline?.Count ?? 0) > 0)
-        {
-            return current;
-        }
-        return overrideValue ?? [];
-    }
-
     private static IReadOnlyList<ChartWarning> SelectTransientWarnings(IReadOnlyList<ChartWarning> sourceWarnings, ChartFileTransientState state, bool includeWarningSnapshot)
     {
         if (!includeWarningSnapshot)
@@ -451,48 +390,6 @@ internal static class ChartFileProjection
                 .Concat((state.Warnings ?? []).Where(warning => warning?.Category == ChartWarningCategory.InstallEstimation))];
         }
         return sourceWarnings ?? [];
-    }
-
-    private static bool StringSequenceEquals(IReadOnlyList<string> first, IReadOnlyList<string> second)
-    {
-        first ??= [];
-        second ??= [];
-        return first.SequenceEqual(second, System.StringComparer.Ordinal);
-    }
-
-    private static bool WarningSequenceEquals(IReadOnlyList<ChartWarning> first, IReadOnlyList<ChartWarning> second)
-    {
-        first ??= [];
-        second ??= [];
-        if (first.Count != second.Count)
-        {
-            return false;
-        }
-        for (int i = 0; i < first.Count; i++)
-        {
-            ChartWarning left = first[i];
-            ChartWarning right = second[i];
-            if (left == null || right == null)
-            {
-                if (!ReferenceEquals(left, right))
-                {
-                    return false;
-                }
-                continue;
-            }
-            if (left.Kind != right.Kind
-                || left.Category != right.Category
-                || left.Priority != right.Priority
-                || left.HighlightRow != right.HighlightRow
-                || left.ShowInDigest != right.ShowInDigest
-                || left.ShowInTooltip != right.ShowInTooltip
-                || !string.Equals(left.DigestLabel, right.DigestLabel, System.StringComparison.Ordinal)
-                || !string.Equals(left.Message, right.Message, System.StringComparison.Ordinal))
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     private static double? ParseNullableDouble(string value, ChartFileLevelParsing levelParsing)

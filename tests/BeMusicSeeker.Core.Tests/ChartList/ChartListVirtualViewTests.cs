@@ -143,12 +143,12 @@ public sealed class ChartListVirtualViewTests
             "Alpha",
             "Warning",
             hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart, "live warning")] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart)] };
 
         var row = LibraryChartRow.FromChartFile((file));
 
         Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
-        StringAssert.Contains(row.WarningTooltipText, "live warning");
+        StringAssert.Contains(row.WarningTooltipText, BeMusicSeeker.Properties.Resources.Warning_DuplicateBmsFile);
     }
 
     /// <summary>bmsonの過渡状態providerから導入先・代表タイトル・曖昧警告を部分一覧へ反映し、元譜面だけを表示して推定結果を失う誤りを検出します。</summary>
@@ -161,7 +161,7 @@ public sealed class ChartListVirtualViewTests
             "C:\\Installed\\Bmson",
             "Installed Bmson",
             "Installed Artist",
-            [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination")]);
+            [ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B")]);
         var sourceRow = ChartListSourceRow.FromChartFile(
             (bmson),
             ChartListSourceProjectionMode.OwnerBacked,
@@ -188,7 +188,7 @@ public sealed class ChartListVirtualViewTests
             "C:\\Installed\\Bms",
             "Installed BMS",
             "Installed Artist",
-            [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination")]);
+            [ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B")]);
         var sourceRow = ChartListSourceRow.FromChartFile(
             (file),
             ChartListSourceProjectionMode.OwnerBacked,
@@ -316,8 +316,8 @@ public sealed class ChartListVirtualViewTests
         ChartFile sourceWithStaleWarning = ChartFileProjection.WithWarnings(
             (file),
             [
-                ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "stale warning"),
-                ChartWarning.Create(ChartWarningKind.DuplicateChart, "projection-only duplicate warning")
+                ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B"),
+                ChartWarning.Create(ChartWarningKind.DuplicateChart)
             ]);
         ChartFile clearedProjection = ChartFileProjection.WithWarnings(
             (file),
@@ -2446,7 +2446,7 @@ public sealed class ChartListVirtualViewTests
         entry.ApplyInstallDestinationMetadata(@"D:\BMS\Installed", "Resolved", "Artist");
         entry.ReplaceResourceHealthProjection(
             maintenanceInfo,
-            [ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "WAV missing")]);
+            [ChartWarning.CreateResourceHealth(ChartWarningKind.ResourceWavMissing, 25, 1, 4)]);
         ChartListSourceRow sourceRow = ChartListSourceRow.BuildPackageRows([entry]).Single();
         LibraryChartRow row = new MainChartRowProjectionOwner().CreateSubsetRow(null, sourceRow, includeResourceHealth: false);
 
@@ -2460,8 +2460,10 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(sourceRow.MovieHealth, row.MovieHealth);
         Assert.IsTrue(sourceRow.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing));
         Assert.IsTrue(row.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing));
-        StringAssert.Contains(ChartWarningCollection.BuildTooltipText(sourceRow.Chart.Warnings), "WAV missing");
-        StringAssert.Contains(row.WarningTooltipText, "WAV missing");
+        // 詳細は警告の事実(割合・存在数・定義数)から現在の言語の資源で作ります。
+        string firstDetail = string.Format(BeMusicSeeker.Properties.Resources.Warning_WavFilesNotFound, 25, 1, 4);
+        StringAssert.Contains(ChartWarningProjectionFormatter.BuildTooltipText(sourceRow.Chart.Warnings), firstDetail);
+        StringAssert.Contains(row.WarningTooltipText, firstDetail);
 
         entry.ApplyInstallDestinationMetadata(@"D:\BMS\Next", "Next", "Artist");
 
@@ -2477,10 +2479,10 @@ public sealed class ChartListVirtualViewTests
             healthNotifications++;
             Assert.AreEqual(75, sourceRow.WAVHealth);
             Assert.AreEqual(75, row.WAVHealth);
-            StringAssert.Contains(row.WarningTooltipText, "Next WAV missing");
+            StringAssert.Contains(row.WarningTooltipText, string.Format(BeMusicSeeker.Properties.Resources.Warning_WavFilesNotFound, 75, 3, 4));
         };
         entry.ReplaceResourceHealthProjection(maintenanceInfo with { WavFilesExisting = 3 },
-            [ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "Next WAV missing")]);
+            [ChartWarning.CreateResourceHealth(ChartWarningKind.ResourceWavMissing, 75, 3, 4)]);
         observeHealth = false;
         Assert.AreEqual(1, healthNotifications);
         Assert.AreEqual(75, sourceRow.WAVHealth);
@@ -2629,7 +2631,7 @@ public sealed class ChartListVirtualViewTests
             CollectionAssert.AreEqual(candidates, row.Chart.InstallDestinationSuggestions.ToArray());
             CollectionAssert.AreEqual(estimationWarnings, sourceRow.Chart.Warnings.ToArray());
             CollectionAssert.AreEqual(estimationWarnings, row.Chart.Warnings.ToArray());
-            Assert.AreEqual(ChartWarningCollection.BuildDigestText(estimationWarnings, path), row.WarningDigestText);
+            Assert.AreEqual(ChartWarningProjectionFormatter.BuildDigestText(estimationWarnings, path), row.WarningDigestText);
         }
     }
 
@@ -2833,10 +2835,10 @@ public sealed class ChartListVirtualViewTests
             [
                 ChartFileProjection.WithWarnings(
                     (bmsFile),
-                    [ChartWarning.Create(ChartWarningKind.DuplicateChart, "duplicate warning")]),
+                    [ChartWarning.Create(ChartWarningKind.DuplicateChart)]),
                 ChartFileProjection.WithWarnings(
                     (bmsonSong),
-                    [ChartWarning.Create(ChartWarningKind.DuplicateChart, "duplicate warning")])
+                    [ChartWarning.Create(ChartWarningKind.DuplicateChart)])
             ],
             [Path.Combine("C:\\BMS", "DirA"), Path.Combine("C:\\BMS", "DirB")]);
 
@@ -3024,7 +3026,7 @@ public sealed class ChartListVirtualViewTests
         file = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(CreateScore(file.Md5, ClearType.HARD, RankType.AA, perfect: 800, great: 200, totalNotes: 1200, maxCombo: 999, minBp: 12, ranking: 42, rankingNum: 500, rankingLastUpdate: new DateTime(2026, 5, 15, 1, 2, 3, DateTimeKind.Local), stdDevVal: 51.5, scoreDifficulty: 78.25), file.Path));
         BeMusicSeeker.Models.ChartDetails bmsChartInfo = CreateChartInfo(file.Sha256, file.Md5, level: 7, difficulty: 3, mainBpm: 150.5, total: 340.0);
         file = ChartFileProjection.WithMaintenance(file, CreateMaintenanceInfo(file.Path, file.Md5, 3));
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart, "duplicate warning")] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart)] };
         ChartFile bmsInstallDestinationChart = ChartFileProjection.WithPackageState(
             (file),
             "Installed",
@@ -3174,11 +3176,11 @@ public sealed class ChartListVirtualViewTests
             "Warning",
             "folder-a",
             hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ResourceWavMissing), ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "stale resource warning")] };
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart, "duplicate warning")] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ResourceWavMissing), ChartWarning.CreateResourceHealth(ChartWarningKind.ResourceWavMissing, 50, 1, 2)] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart)] };
         var projection = new ResourceHealthWarningProjection(
             1,
-            [ChartWarning.Create(ChartWarningKind.ResourceBgaMissing, "projected resource warning")],
+            [ChartWarning.CreateResourceHealth(ChartWarningKind.ResourceBgaMissing, 50, 1, 2)],
             isIgnored: false);
         List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(
             [file],

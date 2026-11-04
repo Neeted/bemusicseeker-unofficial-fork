@@ -175,6 +175,138 @@ public sealed class RegularChartViewBuildAndOrderingTests
         });
     }
 
+    /// <summary>
+    /// WARNING列で整列中に言語を変えると、直後は旧言語の順序と整列キャッシュを保ってセルだけ現在語になり、
+    /// 同じ事実の作り直しや警告以外の変更ではキャッシュを失効させず、警告の事実が変わったときだけ現在語で並べ直すことを確認します。
+    /// </summary>
+    /// <remarks>言語変更だけで全行の再整列を起こす誤りと、警告の変化後も旧語の順序を使い続ける誤りを検出します。言語変更後・失効前に警告以外の更新で局所挿入された行の位置は対象外とし、行の欠落と重複がないことだけを確認します。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void WarningSort_KeepsPriorOrderAfterCultureChangeAndResortsInCurrentLanguageOnWarningChange()
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+        System.Globalization.CultureInfo? previousResourcesCulture = Resources.Culture;
+        try
+        {
+            ResourceService.Current.ChangeCulture("ja-JP");
+            WithTemporarySongDb(path =>
+            {
+                var library = new TestBmsLibrary(databaseScope, path);
+                CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
+                ChartFile Make(string title, params ChartWarning[] warnings) => ChartTestValues.Empty(ChartFileKind.Bms) with
+                {
+                    Path = @"C:\Charts\" + title + ".bms",
+                    Md5 = title,
+                    Title = title,
+                    Folder = "Folder",
+                    Token = new OwnedChartToken(),
+                    Warnings = warnings
+                };
+                catalog.ReplaceCharts(
+                [
+                    Make("N"),
+                    Make("Z", ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch)),
+                    Make("D", ChartWarning.Create(ChartWarningKind.DuplicateChart)),
+                    Make("E", ChartWarning.CreateResourceHealth(ChartWarningKind.ResourceWavMissing, 25, 1, 4)),
+                ], []);
+                var table = new MainChartListViewModel();
+                using var scheduler = new ScoreDeliveryUiScheduler();
+                using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner(), action => action(), scheduler);
+                void Deliver(string reason)
+                {
+                    owner.QueueLatestNormalLibraryRefreshNotification(reason, library);
+                    Task delivery = owner.DeliverPendingLibraryChangesAsync(library, CancellationToken.None);
+                    var timeout = Stopwatch.StartNew();
+                    while (!delivery.IsCompleted)
+                    {
+                        if (scheduler.TryTake(out ScheduledScoreOperation? operation)) { operation.Run(); operation.Complete(); }
+                        else if (timeout.Elapsed > TimeSpan.FromSeconds(20)) { Assert.Fail("警告の配送が終端しませんでした: " + reason); }
+                        else { delivery.Wait(5); }
+                    }
+                    delivery.GetAwaiter().GetResult();
+                }
+                ChartFile Current(string title) => library.CaptureNormalLibraryChartSnapshot().BmsRows.Single(row => row.Title == title);
+                string[] Titles(RegularVirtualNormalLibraryApplyResult result) => [.. result.RowsView.Cast<LibraryChartRow>().Select(row => row.Title).Where(title => title != "E")];
+                try
+                {
+                    owner.AttachNormalLibraryRefreshSource(library);
+                    Deliver("initial");
+                    var request = new RegularVirtualNormalLibraryApplyRequest
+                    {
+                        Library = library,
+                        IncludeBmsonRows = false,
+                        TreeFilter = null,
+                        KeywordFilter = string.Empty,
+                        ModeFilter = ChartModeFilter.All,
+                        SortColumnName = nameof(LibraryChartRow.WarningDigestText),
+                        SortDirection = ListSortDirection.Ascending,
+                        ExternalVersions = new RegularChartListExternalVersions(0, 0, 0),
+                        ColumnSelection = new MainChartListColumnSelection(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD), false, 0L,
+                            MainViewUpdateMode.FolderFilterSelected, Visibility.Collapsed, new PlaylistSummaryColumnSettings()),
+                        Mode = MainViewUpdateMode.FolderFilterSelected,
+                        Stopwatch = Stopwatch.StartNew(),
+                        Reason = "warning_sort_language"
+                    };
+                    RegularVirtualNormalLibraryApplyResult japanese = owner.TryApplyVirtualNormalLibrary(request);
+                    Assert.IsFalse(japanese.SortCacheHit);
+                    CollectionAssert.AreEqual(new[] { "N", "Z", "D" }, Titles(japanese), "日本語の語順では ゼロノート < 重複 です。");
+
+                    ResourceService.Current.ChangeCulture("en-US");
+
+                    // 言語変更だけでは整列キャッシュを失効させず、旧い順序を保ってセルだけ現在語になります。
+                    RegularVirtualNormalLibraryApplyResult english = owner.TryApplyVirtualNormalLibrary(request);
+                    Assert.IsTrue(english.SortCacheHit);
+                    CollectionAssert.AreEqual(new[] { "N", "Z", "D" }, Titles(english));
+                    LibraryChartRow zero = english.RowsView.Cast<LibraryChartRow>().Single(row => row.Title == "Z");
+                    Assert.AreEqual("[1] " + Resources.WarningDigest_ZeroNoteMismatch, zero.WarningDigestText);
+                    Assert.AreEqual(Resources.Warning_ZeroNoteMismatch, zero.WarningTooltipText);
+                    Assert.IsTrue(string.CompareOrdinal(Resources.WarningDigest_DuplicateChart, Resources.WarningDigest_ZeroNoteMismatch) < 0,
+                        "英語では 重複 < ゼロノート となり、日本語の順序とは異なります。");
+
+                    // 同じ事実の警告の作り直しと、警告以外の変更では失効しません。
+                    // 基本値の変更と、同じ事実の別インスタンスの警告の作り直しを1つのコミットにまとめます。
+                    catalog.CommitCurrentValues([Current("Z")], (current, _) => current with { Genre = "recreated", Warnings = [ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch)] });
+                    Deliver("same_facts");
+                    Assert.IsTrue(owner.TryApplyVirtualNormalLibrary(request).SortCacheHit);
+                    catalog.CommitCurrentValues([Current("D")], (current, _) => current with { Genre = "changed" });
+                    Deliver("title_only");
+                    RegularVirtualNormalLibraryApplyResult afterGenre = owner.TryApplyVirtualNormalLibrary(request);
+                    Assert.IsTrue(afterGenre.SortCacheHit);
+                    string[] retained = Titles(afterGenre);
+                    Assert.AreEqual(3, retained.Length);
+                    CollectionAssert.AreEquivalent(new[] { "N", "Z", "D" }, retained, "行の欠落と重複がありません。");
+
+                    // 要約が変わらない事実(件数・割合)だけの変更でも失効します。
+                    catalog.CommitCurrentValues([Current("E")], (current, _) => current with { Warnings = [ChartWarning.CreateResourceHealth(ChartWarningKind.ResourceWavMissing, 50, 2, 4)] });
+                    Deliver("fact_only_changed");
+                    Assert.IsFalse(owner.TryApplyVirtualNormalLibrary(request).SortCacheHit, "要約が同じでも事実が変わると整列順を再計算します。");
+
+                    // 警告の事実が変わると失効し、現在語(英語)で並べ直します。
+                    catalog.CommitCurrentValues([Current("N")], (current, _) => current with { Warnings = [ChartWarning.Create(ChartWarningKind.DuplicateChart)] });
+                    Deliver("fact_changed");
+                    RegularVirtualNormalLibraryApplyResult resorted = owner.TryApplyVirtualNormalLibrary(request);
+                    Assert.IsFalse(resorted.SortCacheHit);
+                    string[] titles = Titles(resorted);
+                    Assert.AreEqual("Z", titles[2], "英語では Duplicate の二行が Zero-note より前です。");
+                    CollectionAssert.AreEquivalent(new[] { "N", "D" }, titles.Take(2).ToArray());
+                }
+                finally
+                {
+                    Task stop = owner.StopAsync();
+                    scheduler.AbortOutstanding();
+                    while (scheduler.TryTake(out ScheduledScoreOperation? pending)) { pending.Run(); pending.Complete(); }
+                    stop.GetAwaiter().GetResult();
+                    library.RequestShutdown("warning_sort_language_test");
+                }
+            });
+        }
+        finally
+        {
+            ResourceService.Current.ChangeCulture(previousResourcesCulture?.Name ?? "en-US");
+            Resources.Culture = previousResourcesCulture;
+        }
+    }
+
     /// <summary>新規・保留の全体/単一packageについて警告順、BMS/BMSON、検索・24/48選択と5除外・folder件数を実ownerで確認します。背景所持数だけを増やしてもpackage投影は対象entry数に限られます。</summary>
     [TestMethod]
     [DataRow(true, false, 16)]
@@ -201,7 +333,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
         if (!installed)
         {
             warning = ChartFileProjection.WithWarnings(warning,
-                [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "pending estimation warning")]);
+                [ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B")]);
         }
         ChartFile clean = CreateSourceRow("Clean", "Keep Clean", 48).Chart with { Kind = ChartFileKind.Bmson };
         ChartFile keywordExcluded = CreateSourceRow("Keyword excluded", "Drop", 24).Chart;

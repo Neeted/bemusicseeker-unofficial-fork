@@ -3774,7 +3774,7 @@ public partial class BMSLibrary : ObservableObject
             if (entry?.Chart == null) { continue; }
             entry.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
             if (ContainsInstalledChartUnsafe(entry.Chart))
-            { entry.SetWarning(ChartWarningKind.AlreadyInstalled, Resources.Warning_AlreadyInstalled); }
+            { entry.SetWarning(ChartWarningKind.AlreadyInstalled); }
         }
 
         var previouslyOwned = request.AlreadyInstalledEntries.ToHashSet();
@@ -8683,16 +8683,7 @@ public partial class BMSLibrary : ObservableObject
         }
         return ChartFileProjection.WithWarnings(
             chart,
-            [ChartWarning.Create(ChartWarningKind.ChartInfoParseFailure, BuildChartInfoParseFailureWarningMessage(failure))]);
-    }
-
-    private static string BuildChartInfoParseFailureWarningMessage(BeMusicSeeker.Models.ChartParseFailure failure)
-    {
-        string reason = !string.IsNullOrWhiteSpace(failure.exception_type)
-            ? failure.exception_type
-            : (!string.IsNullOrWhiteSpace(failure.failure_kind) ? failure.failure_kind : Resources.WarningDigest_ChartInfoParseFailure);
-        string message = !string.IsNullOrWhiteSpace(failure.message) ? failure.message : Resources.WarningDigest_ChartInfoParseFailure;
-        return string.Format(CultureInfo.CurrentCulture, Resources.Warning_ChartInfoParseFailure, reason, message);
+            [ChartWarning.CreateChartInfoParseFailure(failure.exception_type, failure.failure_kind, failure.message)]);
     }
 
     /// <summary>解析失敗記録をLの非待機受付で削除します。</summary>
@@ -8768,7 +8759,7 @@ public partial class BMSLibrary : ObservableObject
                         stageStartMs = totalStopwatch.ElapsedMilliseconds;
                         long clearDuplicateStateMs = 0;
                         stageStartMs = totalStopwatch.ElapsedMilliseconds;
-                        DuplicateAnalysisResult analysis = duplicateService.Analyze(duplicateSnapshot, DuplicateWarningMessage);
+                        DuplicateAnalysisResult analysis = duplicateService.Analyze(duplicateSnapshot);
                         long analyzeMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                         stageStartMs = totalStopwatch.ElapsedMilliseconds;
                         int beforeRevision = catalogOwnedCollectionOwner.CatalogRevision;
@@ -8780,7 +8771,7 @@ public partial class BMSLibrary : ObservableObject
                                     ? duplicateSnapshot.BmsCharts.Select(chart => chart.Token) : duplicateWarningTokens);
                                 duplicateWarningFullClearPending = false;
                                 duplicateWarningTokens = [];
-                                foreach (ChartFile value in duplicateService.ApplyDuplicateWarnings(analysis.DuplicateCharts, DuplicateWarningMessage))
+                                foreach (ChartFile value in duplicateService.ApplyDuplicateWarnings(analysis.DuplicateCharts))
                                 {
                                     ChartFile current = state.ResolveCurrentChart(LibraryChartRef.FromChartFile(value));
                                     if (current?.Token != value.Token || current == null)
@@ -8836,7 +8827,6 @@ public partial class BMSLibrary : ObservableObject
             }
         }
     }
-    private static readonly string DuplicateWarningMessage = Resources.Warning_DuplicateBmsFile;
 
     /// <summary>既存の実パス索引から、原題とBMSの元作者・bmsonの現在の作者を取得し、対象側と同じ集計入力にします。</summary>
     private IEnumerable<(string Title, string Artist, string Path)> EnumerateInstalledChartMetadataRecordsUnsafe(string normalizedDestinationDirectory)

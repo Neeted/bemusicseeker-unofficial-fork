@@ -1541,15 +1541,14 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
                 Assert.IsFalse(row.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
 
-                (ChartWarningKind Kind, string Message)[] estimationWarnings = row.Chart.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray();
-                (ChartWarningKind Kind, string Message)[] estimationReasons = row.Chart.Warnings
-                    .Where(warning => warning.Category == ChartWarningCategory.InstallEstimation)
-                    .Select(warning => (warning.Kind, warning.Message)).ToArray();
+                ChartWarning[] estimationWarnings = row.Chart.Warnings.ToArray();
+                ChartWarning[] estimationReasons = row.Chart.Warnings
+                    .Where(warning => warning.Category == ChartWarningCategory.InstallEstimation).ToArray();
                 string renamedCandidate = Path.Combine(registeredRoot, "Z");
                 ChangeCandidate(() => currentLibrary.RenameChartFolder(candidate, "Z"), renamedCandidate);
                 Assert.AreEqual(string.Empty, row.instl_dst);
                 CollectionAssert.AreEqual(new[] { candidate }, row.Chart.InstallDestinationSuggestions.ToArray());
-                CollectionAssert.AreEqual(estimationWarnings, row.Chart.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray());
+                CollectionAssert.AreEqual(estimationWarnings, row.Chart.Warnings.ToArray());
                 AssertEvidence();
 
                 Assert.AreEqual(ChartOperationSourceScope.PendingPackage, viewModel.MainChartList.CurrentOperationContext.SourceScope);
@@ -1617,13 +1616,11 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Assert.AreEqual(candidate, row.instl_dst);
                 CollectionAssert.AreEqual(new[] { candidate }, entry.Chart.InstallDestinationSuggestions.ToArray());
                 CollectionAssert.AreEqual(new[] { candidate }, row.Chart.InstallDestinationSuggestions.ToArray());
-                // 推定理由のMessageは旧pathを含む診断として保ち、現在健康度とは分けて比較します。
+                // 推定理由の種類と事実は旧pathを含む診断として保ち、現在健康度とは分けて比較します。
                 CollectionAssert.AreEqual(estimationReasons, entry.Chart.Warnings
-                    .Where(warning => warning.Category == ChartWarningCategory.InstallEstimation)
-                    .Select(warning => (warning.Kind, warning.Message)).ToArray());
+                    .Where(warning => warning.Category == ChartWarningCategory.InstallEstimation).ToArray());
                 CollectionAssert.AreEqual(estimationReasons, row.Chart.Warnings
-                    .Where(warning => warning.Category == ChartWarningCategory.InstallEstimation)
-                    .Select(warning => (warning.Kind, warning.Message)).ToArray());
+                    .Where(warning => warning.Category == ChartWarningCategory.InstallEstimation).ToArray());
                 Assert.AreEqual(100, entry.Chart.WAVHealth);
                 Assert.AreEqual(100, row.Chart.WAVHealth);
                 Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
@@ -1788,7 +1785,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     Assert.AreEqual(otherBefore.InstallDestinationTitle, current.InstallDestinationTitle);
                     Assert.AreEqual(otherBefore.InstallDestinationArtist, current.InstallDestinationArtist);
                     CollectionAssert.AreEqual(otherBefore.InstallDestinationSuggestions.ToArray(), current.InstallDestinationSuggestions.ToArray());
-                    CollectionAssert.AreEqual(otherBefore.Warnings.Select(value => (value.Kind, value.Message)).ToArray(), current.Warnings.Select(value => (value.Kind, value.Message)).ToArray());
+                    CollectionAssert.AreEqual(otherBefore.Warnings.ToArray(), current.Warnings.ToArray());
                 }
             }, prepareViewModel: viewModel =>
             {

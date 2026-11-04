@@ -51,8 +51,6 @@ internal sealed class CatalogCommitReceipt
 internal static class CatalogChartValueEquality
 {
     /// <summary>一覧内の不変リストを内容比較し、それ以外の現在値をrecord契約で比較します。</summary>
-    private static object WarningValue(ChartWarning value) => (value.Kind, value.Message, value.Priority, value.DigestLabel, value.HighlightRow, value.ShowInDigest, value.ShowInTooltip);
-
     internal static bool AreEqual(ChartFile left, ChartFile right)
     {
         if (ReferenceEquals(left, right))
@@ -71,7 +69,7 @@ internal static class CatalogChartValueEquality
             Resources = left.Resources,
             InstallDestinationSuggestions = left.InstallDestinationSuggestions
         }
-            && left.Warnings.Select(WarningValue).SequenceEqual(right.Warnings.Select(WarningValue))
+            && left.Warnings.SequenceEqual(right.Warnings)
             && left.InstallDestinationSuggestions.SequenceEqual(right.InstallDestinationSuggestions)
             && (left.Resources == right.Resources || left.Resources != null && right.Resources != null
                 && left.Resources.SequenceEqual(right.Resources));

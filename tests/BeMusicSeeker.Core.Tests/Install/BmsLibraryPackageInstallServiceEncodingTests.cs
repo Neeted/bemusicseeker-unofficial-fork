@@ -88,10 +88,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Assert.AreEqual(estimated, (installed.Warnings ?? []).Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported));
                 Assert.AreEqual(estimated, (entry.Chart.Warnings ?? []).Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported));
                 CollectionAssert.AreEquivalent(
-                    (installed.Warnings ?? []).Where(warning => warning.Category == ChartWarningCategory.Lr2Compatibility)
-                        .Select(warning => (warning.Kind, warning.Message)).ToArray(),
-                    (entry.Chart.Warnings ?? []).Where(warning => warning.Category == ChartWarningCategory.Lr2Compatibility)
-                        .Select(warning => (warning.Kind, warning.Message)).ToArray());
+                    (installed.Warnings ?? []).Where(warning => warning.Category == ChartWarningCategory.Lr2Compatibility).ToArray(),
+                    (entry.Chart.Warnings ?? []).Where(warning => warning.Category == ChartWarningCategory.Lr2Compatibility).ToArray());
                 library.RescanResourceHealthCharts([installed]);
                 InstallEncodingTestInput.AssertFixed(library.BmsCharts.Single(), installedPath);
                 InstallEncodingTestInput.AssertFixed(entry.Chart, installedPath);

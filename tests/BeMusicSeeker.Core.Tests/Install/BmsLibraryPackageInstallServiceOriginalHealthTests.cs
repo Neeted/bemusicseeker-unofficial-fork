@@ -79,9 +79,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         };
         entry.ApplyCurrentChart(ChartFileProjection.WithMaintenance(entry.Chart, current));
         entry.RestoreInstallDestinationState(new PackageChartInstallDestinationState(@"C:\Candidate", "Title", "Artist", [@"C:\Candidate"]));
-        entry.SetWarning(ChartWarningKind.InstallEstimationAudioMissing, "estimate");
-        entry.SetWarning(ChartWarningKind.SingleBmsFile, "layout");
-        entry.SetWarning(ChartWarningKind.AlreadyInstalled, "installed");
+        entry.SetWarning(ChartWarning.CreateWithPath(ChartWarningKind.InstallEstimationAudioMissing, @"C:\Dest\A"));
+        entry.SetWarning(ChartWarningKind.SingleBmsFile);
+        entry.SetWarning(ChartWarningKind.AlreadyInstalled);
         var bundled = new DirectoryResourceLookupCache();
         bundled.AddDir(@"C:\Bundled", ["tone.wav"]);
         DirectoryResourceLookupCache.Entry context = bundled.GetEntryOrNull(@"C:\Bundled");
@@ -120,8 +120,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         Assert.AreEqual(string.Empty, result.InstallDestinationArtist);
         Assert.AreEqual(0, result.InstallDestinationSuggestions.Count);
         Assert.IsFalse(result.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
-        CollectionAssert.AreEquivalent(otherWarnings.Select(warning => (warning.Kind, warning.Message)).ToArray(),
-            result.Warnings.Where(warning => warning.Category != ChartWarningCategory.ResourceHealth).Select(warning => (warning.Kind, warning.Message)).ToArray());
+        CollectionAssert.AreEquivalent(otherWarnings.ToArray(),
+            result.Warnings.Where(warning => warning.Category != ChartWarningCategory.ResourceHealth).ToArray());
         ChartWarningKind[] expected = condition == 0
             ? [ChartWarningKind.ResourceWavMissing, ChartWarningKind.ResourceBgaMissing, ChartWarningKind.ResourceMovieMissing,
                 ChartWarningKind.ResourceStagefileMissing, ChartWarningKind.ResourceBackbmpMissing] : [];
@@ -139,7 +139,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     {
         var entry = PackageChartEntry.FromChart(ChartTestValues.Empty() with { Path = @"C:\Unavailable\chart.bms", Resources = null });
         entry.RestoreInstallDestinationState(new PackageChartInstallDestinationState(@"C:\Candidate", "Title", "Artist", [@"C:\Candidate"]));
-        entry.SetWarning(ChartWarningKind.InstallEstimationAudioMissing, "estimate");
+        entry.SetWarning(ChartWarning.CreateWithPath(ChartWarningKind.InstallEstimationAudioMissing, @"C:\Dest\A"));
         Assert.ThrowsExactly<InvalidOperationException>(() => BmsLibraryPackageInstallService.ClearPendingInstallDestination(entry));
         Assert.AreEqual(@"C:\Candidate", entry.Chart.InstallDestination);
         Assert.AreEqual("Title", entry.Chart.InstallDestinationTitle);

@@ -1675,7 +1675,7 @@ public sealed class PlaylistViewPipelineTests
             14,
             chartInfo: null,
             installDestination: "C:\\Installed\\Bmson",
-            warnings: [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "projected warning")]);
+            warnings: [ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B")]);
 
         var sourceRow = new PlaylistDetailSourceRow(entry, projectedChart);
         PlaylistDetailRow row = sourceRow.CreateViewRow();
@@ -1687,7 +1687,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(14, row.mode);
         Assert.AreEqual("12", row.Level);
         Assert.AreEqual("C:\\Installed\\Bmson", row.instl_dst);
-        Assert.AreEqual("projected warning", row.DisplayWarning);
+        Assert.AreEqual(string.Format(BeMusicSeeker.Properties.Resources.Warning_InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B"), row.DisplayWarning);
         Assert.IsTrue(row.HasHighlightedWarning);
         Assert.AreSame(projectedChart, sourceRow.Chart);
         Assert.AreSame(projectedChart, row.Chart);
@@ -1721,7 +1721,7 @@ public sealed class PlaylistViewPipelineTests
             "C:\\Installed\\Bmson",
             string.Empty,
             string.Empty,
-            [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination")]);
+            [ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B")]);
         foreach (bool includeResources in new[] { false, true })
         {
             var row = LibraryChartRow.FromChartFile(oldSong with
@@ -2200,7 +2200,7 @@ public sealed class PlaylistViewPipelineTests
             "C:\\Installed\\Bmson",
             string.Empty,
             string.Empty,
-            [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination")]);
+            [ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B")]);
         var row = LibraryChartRow.FromChartFile(statefulChart);
 
         ChartFile chart = row.Chart;
@@ -2231,7 +2231,7 @@ public sealed class PlaylistViewPipelineTests
             "C:\\Installed\\Bmson",
             string.Empty,
             string.Empty,
-            [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination")]);
+            [ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B")]);
         var libraryRow = LibraryChartRow.FromChartFile(libraryChart);
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(libraryRow, out ChartOperationTarget firstLibraryTarget));
 
@@ -2245,12 +2245,12 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(secondLibraryTarget.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
         Assert.AreEqual("C:\\Installed\\Bmson", libraryRow.instl_dst);
         Assert.IsTrue(libraryRow.HasHighlightedWarning);
-        StringAssert.Contains(libraryRow.WarningTooltipText, "ambiguous install destination");
+        StringAssert.Contains(libraryRow.WarningTooltipText, string.Format(BeMusicSeeker.Properties.Resources.Warning_InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B"));
 
         var rebuiltWarningRow = LibraryChartRow.FromChartFile(libraryChart);
         Assert.IsTrue(rebuiltWarningRow.HasHighlightedWarning);
         Assert.AreEqual("C:\\Installed\\Bmson", rebuiltWarningRow.Chart.InstallDestination);
-        StringAssert.Contains(rebuiltWarningRow.WarningTooltipText, "ambiguous install destination");
+        StringAssert.Contains(rebuiltWarningRow.WarningTooltipText, string.Format(BeMusicSeeker.Properties.Resources.Warning_InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B"));
 
         var entry = new TestablePlaylistEntry();
         entry.SetMd5(bmson.Md5);
@@ -2260,7 +2260,7 @@ public sealed class PlaylistViewPipelineTests
             "C:\\Installed\\PlaylistBmson",
             "Installed Playlist Bmson",
             "Installed Playlist Artist",
-            [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "playlist ambiguous install destination")]);
+            [ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, @"C:\Dest\PlaylistA", @"C:\Dest\PlaylistB")]);
         PlaylistDetailRow playlistRow = new PlaylistDetailSourceRow(
             entry,
             playlistChart).CreateViewRow();
@@ -2279,7 +2279,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("Installed Playlist Bmson", rebuiltPlaylistSourceRow.InstallDestinationTitle);
         Assert.AreEqual("Installed Playlist Artist", rebuiltPlaylistSourceRow.InstallDestinationArtist);
         Assert.IsTrue(rebuiltPlaylistSourceRow.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
-        StringAssert.Contains(rebuiltPlaylistSourceRow.WarningTooltipText, "playlist ambiguous install destination");
+        StringAssert.Contains(rebuiltPlaylistSourceRow.WarningTooltipText, string.Format(BeMusicSeeker.Properties.Resources.Warning_InstallEstimationAmbiguous, @"C:\Dest\PlaylistA", @"C:\Dest\PlaylistB"));
     }
 
     /// <summary>通常bmson sourceを再構築してもprovider由来の導入先・title・artist・警告をviewへ渡し、再構築で修復状態を消しません。</summary>
@@ -2300,7 +2300,7 @@ public sealed class PlaylistViewPipelineTests
             "C:\\Installed\\Bmson",
             "Installed Bmson",
             "Installed Artist",
-            [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination")]);
+            [ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B")]);
 
         ChartListSourceRow firstSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
             [(bmson)],
@@ -2322,7 +2322,7 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(rebuiltSourceRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_InstallEstimationAmbiguous);
         Assert.AreEqual("C:\\Installed\\Bmson", rebuiltViewRow.instl_dst);
         Assert.IsTrue(rebuiltViewRow.HasHighlightedWarning);
-        StringAssert.Contains(rebuiltViewRow.WarningTooltipText, "ambiguous install destination");
+        StringAssert.Contains(rebuiltViewRow.WarningTooltipText, string.Format(BeMusicSeeker.Properties.Resources.Warning_InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B"));
     }
 
     /// <summary>通常bmson行をdrop用譜面へ解決し、パスとtitleを保ってMD5・SHA256両方のplaylist項目を生成します。</summary>
@@ -2439,7 +2439,7 @@ public sealed class PlaylistViewPipelineTests
         bmson = ChartFileProjection.WithMaintenance(bmson, bmson.ResourceHealthMaintenanceSnapshot with { WavFilesExisting = 1 });
 
         var entry = PackageChartEntry.FromChart((bmson));
-        entry.SetWarning(ChartWarningKind.AlreadyInstalled, "installed chart warning");
+        entry.SetWarning(ChartWarningKind.AlreadyInstalled);
         entry.ApplyInstallDestinationMetadata("C:\\Library\\Destination", string.Empty, string.Empty);
         var row = LibraryChartRow.FromPackageChartEntry(entry);
 
@@ -2447,7 +2447,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(bmson.Path, row.Chart.Path);
 
         Assert.IsFalse(GridRowResolver.TryGetBmsChart(row, out _));
-        Assert.IsTrue(row.DisplayWarning.Contains("installed chart warning"));
+        Assert.IsTrue(row.DisplayWarning.Contains(BeMusicSeeker.Properties.Resources.Warning_AlreadyInstalled));
         Assert.AreEqual("C:\\Library\\Destination", row.instl_dst);
         Assert.AreEqual(bmson.ResourceHealthMaintenanceSnapshot.GetWavHealth(), row.WAVHealth);
 
@@ -2475,7 +2475,7 @@ public sealed class PlaylistViewPipelineTests
             Sha256 = new string('4', 64)
         };
         var entry = PackageChartEntry.FromChart((bmson));
-        entry.SetWarning(ChartWarningKind.ResourceWavMissing, "WAV missing detail");
+        entry.SetWarning(ChartWarning.CreateResourceHealth(ChartWarningKind.ResourceWavMissing, 50, 1, 2));
 
         var unresolvedRow = LibraryChartRow.FromPackageChartEntry(entry);
         StringAssert.Contains(unresolvedRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
@@ -2485,7 +2485,7 @@ public sealed class PlaylistViewPipelineTests
 
         StringAssert.Contains(resolvedRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
         StringAssert.Contains(unresolvedRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
-        StringAssert.Contains(resolvedRow.WarningTooltipText, "WAV missing detail");
+        StringAssert.Contains(resolvedRow.WarningTooltipText, string.Format(BeMusicSeeker.Properties.Resources.Warning_WavFilesNotFound, 50, 1, 2));
     }
 
     /// <summary>保留のpackage sourceでも導入先の設定前後とも資源不足の要約と譜面警告の詳細を保持し、生成済み入力行の表示固定を検出します。</summary>
@@ -2502,7 +2502,7 @@ public sealed class PlaylistViewPipelineTests
             Sha256 = new string('6', 64)
         };
         var entry = PackageChartEntry.FromChart((bmson));
-        entry.SetWarning(ChartWarningKind.ResourceWavMissing, "source WAV missing detail");
+        entry.SetWarning(ChartWarning.CreateResourceHealth(ChartWarningKind.ResourceWavMissing, 50, 1, 2));
 
         var unresolvedRow = ChartListSourceRow.FromPackageChartEntry(entry);
         StringAssert.Contains(unresolvedRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
@@ -2512,7 +2512,7 @@ public sealed class PlaylistViewPipelineTests
 
         StringAssert.Contains(resolvedRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
         StringAssert.Contains(unresolvedRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
-        StringAssert.Contains(ChartWarningCollection.BuildTooltipText(resolvedRow.Chart.Warnings), "source WAV missing detail");
+        StringAssert.Contains(ChartWarningProjectionFormatter.BuildTooltipText(resolvedRow.Chart.Warnings), string.Format(BeMusicSeeker.Properties.Resources.Warning_WavFilesNotFound, 50, 1, 2));
     }
 
     /// <summary>保留bmsonの現在packageパスとPending scopeをtargetへ渡し、元libraryパスや所持扱いへ戻しません。</summary>
@@ -3363,7 +3363,7 @@ public sealed class PlaylistViewPipelineTests
             14,
             chartInfo: null,
             installDestination: @"C:\Installed\Projected",
-            warnings: [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "projected warning")]);
+            warnings: [ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B")]);
         var entry = new TestablePlaylistEntry();
         entry.SetMd5(song.Md5);
         entry.SetSha256(song.Sha256);
@@ -3383,7 +3383,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(14, row.mode);
         Assert.AreEqual("12", row.Level);
         Assert.AreEqual(@"C:\Installed\Projected", row.instl_dst);
-        Assert.AreEqual("projected warning", row.DisplayWarning);
+        Assert.AreEqual(string.Format(BeMusicSeeker.Properties.Resources.Warning_InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B"), row.DisplayWarning);
         Assert.AreSame(chartInfo, row.Chart.ChartInfo);
         Assert.AreEqual("15", row.ChartLevelText);
         Assert.AreEqual(5555, row.ChartNotes);

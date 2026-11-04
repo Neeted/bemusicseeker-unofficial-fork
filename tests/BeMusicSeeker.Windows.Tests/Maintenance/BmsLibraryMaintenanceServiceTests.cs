@@ -645,7 +645,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             ChartFile lr2Warning = CreateFile("cccccccccccccccccccccccccccccccc");
             lr2Warning = lr2Warning with { Path = @"C:\Library\lr2-warning.bms" };
             lr2Warning = ChartFileProjection.WithMaintenance(lr2Warning, new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = lr2Warning.Path, Hash = lr2Warning.Md5, Encoding = "shift_jis", EncodingFixed = false });
-            lr2Warning = lr2Warning with { Warnings = [.. lr2Warning.Warnings.Where(warning => warning.Kind != ChartWarningKind.Lr2ResourcePathTooLong), ChartWarning.Create(ChartWarningKind.Lr2ResourcePathTooLong, "resource path is too long for LR2")] };
+            lr2Warning = lr2Warning with { Warnings = [.. lr2Warning.Warnings.Where(warning => warning.Kind != ChartWarningKind.Lr2ResourcePathTooLong), ChartWarning.Create(ChartWarningKind.Lr2ResourcePathTooLong)] };
             ChartFile parentBlankWithoutWarning = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
             parentBlankWithoutWarning = parentBlankWithoutWarning with { Path = @"C:\Library\parent-blank.bms" };
             parentBlankWithoutWarning = ChartFileProjection.WithMaintenance(parentBlankWithoutWarning, new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = parentBlankWithoutWarning.Path, Hash = parentBlankWithoutWarning.Md5, Encoding = "shift_jis", EncodingFixed = false });

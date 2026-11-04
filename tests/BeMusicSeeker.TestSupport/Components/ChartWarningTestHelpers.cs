@@ -1,5 +1,6 @@
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.TestSupport.Components;
 
@@ -21,7 +22,7 @@ internal static class ChartWarningTestHelpers
     /// <summary>元の警告と導入先から同じ要約文言を取得します。</summary>
     internal static string BuildDigestText(ChartFile? chart)
     {
-        return ChartWarningCollection.BuildDigestText(chart?.Warnings ?? [], chart?.InstallDestination);
+        return ChartWarningProjectionFormatter.BuildDigestText(chart?.Warnings ?? [], chart?.InstallDestination, hideResourceHealthDigestWhenInstallDestinationSet: true);
     }
 
     /// <summary>元の警告と導入先から同じ要約文言を取得します。</summary>
@@ -33,7 +34,7 @@ internal static class ChartWarningTestHelpers
     /// <summary>元の警告集合から同じtooltip文言を取得します。</summary>
     internal static string BuildTooltipText(ChartFile? chart)
     {
-        return ChartWarningCollection.BuildTooltipText(chart?.Warnings ?? []);
+        return ChartWarningProjectionFormatter.BuildTooltipText(chart?.Warnings ?? []);
     }
 
     /// <summary>元の警告集合から同じtooltip文言を取得します。</summary>

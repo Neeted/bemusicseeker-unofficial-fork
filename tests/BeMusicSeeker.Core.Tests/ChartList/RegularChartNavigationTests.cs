@@ -32,13 +32,13 @@ public sealed class RegularChartNavigationTests
         string child = Path.Combine(source, "Child"), movedChild = Path.Combine(destination, "Child");
         string outside = @"C:\Library\E";
         ChartFile original = ChartTestValues.Empty() with
-        { Path = @"C:\Library\A\a.bms", Md5 = "same-hash", Warnings = [ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "resource")] };
+        { Path = @"C:\Library\A\a.bms", Md5 = "same-hash", Warnings = [ChartWarning.CreateResourceHealth(ChartWarningKind.ResourceWavMissing, 50, 1, 2)] };
         ChartFile edited = ChartFileProjection.WithPackageState(original,
             destinationMode == 0 ? null : destinationMode == 1 ? child : outside,
             "代表題名", "代表作者", [child, outside],
-            [ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "resource"),
-                ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "candidate"),
-                ChartWarning.Create(ChartWarningKind.UnsupportedResourcePath, "source")]);
+            [ChartWarning.CreateResourceHealth(ChartWarningKind.ResourceWavMissing, 50, 1, 2),
+                ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B"),
+                ChartWarning.Create(ChartWarningKind.UnsupportedResourcePath)]);
         ChartFile other = original with { Path = @"C:\Library\Other\a.bms" };
         var owner = new MainChartRowProjectionOwner();
         owner.UpdateTransientStates([edited], forceInstallDestinationProjection: true);

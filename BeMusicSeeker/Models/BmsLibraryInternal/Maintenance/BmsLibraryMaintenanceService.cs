@@ -244,12 +244,12 @@ internal sealed class BmsLibraryMaintenanceService
             return [];
         }
         List<ChartWarning> warnings = [];
-        AppendHealthWarning(warnings, snapshot.GetWavHealth(), snapshot.WavFilesDefined, snapshot.WavFilesExisting, ChartWarningKind.ResourceWavMissing, Resources.Warning_WavFilesNotFound);
-        AppendHealthWarning(warnings, snapshot.GetBgaHealth(), snapshot.BgaFilesDefined, snapshot.BgaFilesExisting, ChartWarningKind.ResourceBgaMissing, Resources.Warning_BgaFilesNotFound);
-        AppendHealthWarning(warnings, snapshot.GetMovieHealth(), snapshot.MovieFilesDefined, snapshot.MovieFilesExisting, ChartWarningKind.ResourceMovieMissing, Resources.Warning_MovieFilesNotFound);
-        AppendFlagWarning(warnings, snapshot.GetStagefileHealth(), ChartWarningKind.ResourceStagefileMissing, Resources.Warning_StagefileNotFound);
-        AppendFlagWarning(warnings, snapshot.GetBackbmpHealth(), ChartWarningKind.ResourceBackbmpMissing, Resources.Warning_BackbmpNotFound);
-        AppendFlagWarning(warnings, snapshot.GetBannerHealth(), ChartWarningKind.ResourceBannerMissing, Resources.Warning_BannerNotFound);
+        AppendHealthWarning(warnings, snapshot.GetWavHealth(), snapshot.WavFilesDefined, snapshot.WavFilesExisting, ChartWarningKind.ResourceWavMissing);
+        AppendHealthWarning(warnings, snapshot.GetBgaHealth(), snapshot.BgaFilesDefined, snapshot.BgaFilesExisting, ChartWarningKind.ResourceBgaMissing);
+        AppendHealthWarning(warnings, snapshot.GetMovieHealth(), snapshot.MovieFilesDefined, snapshot.MovieFilesExisting, ChartWarningKind.ResourceMovieMissing);
+        AppendFlagWarning(warnings, snapshot.GetStagefileHealth(), ChartWarningKind.ResourceStagefileMissing);
+        AppendFlagWarning(warnings, snapshot.GetBackbmpHealth(), ChartWarningKind.ResourceBackbmpMissing);
+        AppendFlagWarning(warnings, snapshot.GetBannerHealth(), ChartWarningKind.ResourceBannerMissing);
         return warnings;
     }
 
@@ -563,7 +563,7 @@ internal sealed class BmsLibraryMaintenanceService
             var nextWarnings = chart.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch).ToList();
             if (mismatch)
             {
-                nextWarnings.Add(ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch));
+                nextWarnings.Add(ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch));
             }
 
             result.ChangedCharts.Add(chart with { Warnings = nextWarnings });
@@ -795,10 +795,9 @@ internal sealed class BmsLibraryMaintenanceService
                 {
                     reloadedFiles.Add(itemResult.ReloadedBmsChart);
                 }
-                // 保存値とは別に警告の現在値も比較し、同じ表示の再評価では更新を増やしません。
+                // 保存値とは別に警告の現在値(種類と事実)も比較し、同じ表示の再評価では更新を増やしません。
                 if (itemResult.CurrentChart != null && (itemResult.MaintenanceInfoChanged || itemResult.ReloadedBmsChart != null
-                    || !itemResult.CurrentChart.Warnings.Select(warning => (warning.Kind, warning.Message))
-                        .SequenceEqual(item.Target.Chart.Warnings.Select(warning => (warning.Kind, warning.Message)))))
+                    || !itemResult.CurrentChart.Warnings.SequenceEqual(item.Target.Chart.Warnings)))
                 {
                     currentValues.Add(itemResult.CurrentChart);
                 }
@@ -1299,21 +1298,21 @@ internal sealed class BmsLibraryMaintenanceService
         public BmsonResourceRefreshResult BmsonRefreshResult { get; set; } = BmsonResourceRefreshResult.NotApplicable;
     }
 
-    private static void AppendHealthWarning(List<ChartWarning> warnings, int? health, int? defined, int? existing, ChartWarningKind kind, string warningFormat)
+    private static void AppendHealthWarning(List<ChartWarning> warnings, int? health, int? defined, int? existing, ChartWarningKind kind)
     {
         if (!health.HasValue || health.Value >= 100)
         {
             return;
         }
-        warnings.Add(ChartWarning.Create(kind, string.Format(warningFormat, health, existing, defined)));
+        warnings.Add(ChartWarning.CreateResourceHealth(kind, health.Value, existing, defined));
     }
 
-    private static void AppendFlagWarning(List<ChartWarning> warnings, bool? isHealthy, ChartWarningKind kind, string warningText)
+    private static void AppendFlagWarning(List<ChartWarning> warnings, bool? isHealthy, ChartWarningKind kind)
     {
         if (isHealthy != false)
         {
             return;
         }
-        warnings.Add(ChartWarning.Create(kind, warningText));
+        warnings.Add(ChartWarning.Create(kind));
     }
 }

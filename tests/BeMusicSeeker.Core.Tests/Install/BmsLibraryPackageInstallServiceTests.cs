@@ -1216,9 +1216,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             ChartPackage firstPackage = ChartPackageTestExtensions.CreatePackage([firstChart]);
             firstPackage.path = firstSourceDirectoryPath;
             firstPackage.delete_parent = false;
-            firstPackage.ChartEntries.Single().SetWarning(
-                ChartWarningKind.InstallEstimationAmbiguous,
-                "keep warning");
+            firstPackage.ChartEntries.Single().SetWarning(ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B"));
             string firstWarningDigest = ChartWarningTestHelpers.BuildDigestText(
                 firstPackage.ChartEntries.Single());
             ChartPackage secondPackage = ChartPackageTestExtensions.CreatePackage([
@@ -2724,14 +2722,14 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     "",
                     sourceChart.Warnings));
             ChartWarningKind layoutKind = bmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile;
-            pendingEntry.SetWarning(layoutKind, "source single chart");
+            pendingEntry.SetWarning(layoutKind);
             Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == layoutKind));
             IReadOnlyList<ChartWarning> pendingWarnings =
                 BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjection(pendingEntry);
             Assert.IsTrue(pendingWarnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
             Assert.AreEqual(parentReference, pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.UnsupportedResourcePath));
             StringAssert.Contains(
-                ChartWarningCollection.BuildTooltipText(pendingWarnings),
+                ChartWarningProjectionFormatter.BuildTooltipText(pendingWarnings),
                 "WAV");
             var package = ChartPackage.FromChartEntries([pendingEntry]);
             package.path = pendingDirectoryPath;
@@ -4094,7 +4092,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
 
         Assert.AreEqual(0, plan.SelectedPendingPackages.Count);
         Assert.AreEqual(1, plan.DeferredManualHoldCount);
-        Assert.AreEqual(string.Empty, ChartWarningCollection.BuildDigestText(pendingFile.Warnings, pendingFile.InstallDestination));
+        Assert.AreEqual(string.Empty, ChartWarningProjectionFormatter.BuildDigestText(pendingFile.Warnings, pendingFile.InstallDestination));
     }
 
     /// <summary>
@@ -4527,7 +4525,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
 
             Assert.IsTrue(applied);
             Assert.IsTrue(nestedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
-            StringAssert.Contains(ChartWarningCollection.BuildTooltipText(nestedEntry.Chart.Warnings), Resources.Warning_NestedChartFileInPackage);
+            StringAssert.Contains(ChartWarningProjectionFormatter.BuildTooltipText(nestedEntry.Chart.Warnings), Resources.Warning_NestedChartFileInPackage);
             var normalizedNestedEntry = PackageChartEntry.FromChart(nestedEntry.Chart);
             Assert.IsTrue(normalizedNestedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
             var clearedNormalizedNestedEntry = PackageChartEntry.FromChart(nestedEntry.Chart);
@@ -4675,7 +4673,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     PackageChartEntry entry = pending.ChartEntries.Single();
                     Assert.AreEqual(sourceChart, entry.Chart.Path);
                     Assert.AreEqual(1, entry.ResourceSnapshot.AudioReferenceCount);
-                    StringAssert.Contains(entry.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.ResourceWavMissing).Message, "WAV");
+                    ChartWarning wavWarning = entry.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.ResourceWavMissing);
+                    Assert.AreEqual((0, 0, 1), (wavWarning.Health, wavWarning.ExistingCount, wavWarning.DefinedCount));
                     Assert.AreEqual(source, readback.Table<LR2SongDBExtended.install>().Single().path);
                 }
             }
@@ -5098,7 +5097,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
     /// <summary>
     /// 元保守の識別一致・大小文字差だけなら未評価のPath/Hash/Encoding/Fixedだけを導入先へ渡し、別path・別hashでは指定を渡しません。旧健全性・無視・LR2診断のコピーを検出します。
-    /// detached準備だけで単体警告を解除し、DB確定失敗では宛先を補償して元入力・live項目のkind/message・通知なしを保持し、確定前の公開や入力消費も検出します。
+    /// detached準備だけで単体警告を解除し、DB確定失敗では宛先を補償して元入力・live項目の種類と事実・通知なしを保持し、確定前の公開や入力消費も検出します。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
@@ -5132,7 +5131,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Lr2ResourceMaxRelativeCp932Bytes = 10000,
                 Lr2ResourceHasParentTraversal = true
             });
-            chart = ChartFileProjection.WithWarnings(chart, [.. chart.Warnings, ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "source missing")]);
+            chart = ChartFileProjection.WithWarnings(chart, [.. chart.Warnings, ChartWarning.CreateResourceHealth(ChartWarningKind.ResourceWavMissing, 50, 1, 2)]);
             ChartPackage package = ChartPackageTestExtensions.CreatePackage([chart]);
             package.path = sourceDirectoryPath;
             package.delete_parent = false;
@@ -5140,7 +5139,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             bool callbackSawSource = false;
             bool callbackSawDestination = false;
             PackageChartEntry liveEntry = package.ChartEntries.Single();
-            liveEntry.SetWarning(ChartWarningKind.SingleBmsFile, "original single chart");
+            liveEntry.SetWarning(ChartWarningKind.SingleBmsFile);
             int liveNotifications = 0;
             System.ComponentModel.PropertyChangedEventHandler liveChanged = (_, _) => liveNotifications++;
             liveEntry.PropertyChanged += liveChanged;
@@ -5166,7 +5165,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     {
                         Assert.AreNotSame(liveEntry, installResult.AddedEntries.Single(), "mutableな準備entryをlive項目と共有しません。");
                         Assert.AreEqual(chartPath, liveEntry.Chart.Path);
-                        Assert.AreEqual("original single chart", liveEntry.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.SingleBmsFile).Message);
+                        Assert.AreEqual(ChartWarning.Create(ChartWarningKind.SingleBmsFile), liveEntry.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.SingleBmsFile));
                         Assert.IsFalse((installResult.AddedEntries.Single().Chart.Warnings ?? []).Any(warning => warning.Category == ChartWarningCategory.PackageLayout));
                         Assert.IsFalse((installResult.AddedCharts.Single().Warnings ?? []).Any(warning => warning.Category == ChartWarningCategory.PackageLayout));
                         Assert.AreEqual(0, liveNotifications);
@@ -5222,7 +5221,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Assert.AreEqual(chartPath, chart.Path);
                 Assert.AreSame(liveEntry, package.ChartEntries.Single());
                 Assert.AreEqual(chartPath, liveEntry.Chart.Path);
-                Assert.AreEqual("original single chart", liveEntry.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.SingleBmsFile).Message);
+                Assert.AreEqual(ChartWarning.Create(ChartWarningKind.SingleBmsFile), liveEntry.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.SingleBmsFile));
                 Assert.AreEqual(0, liveNotifications);
             }
             finally
@@ -6222,7 +6221,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
     /// <summary>
-    /// 強制導入の途中コピーが失敗しても先行成功とその文字コードだけを一回保存し、構造警告も成功分だけ解除します。失敗・未処理保留の指定と構造警告・実評価したLR2警告のkind/message・物理失敗を保ち、未実行資源や指定の拡散を検出します。
+    /// 強制導入の途中コピーが失敗しても先行成功とその文字コードだけを一回保存し、構造警告も成功分だけ解除します。失敗・未処理保留の指定と構造警告・実評価したLR2警告の種類と事実・物理失敗を保ち、未実行資源や指定の拡散を検出します。
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     // 第一値は終端集約、第二値はコピー中の入力消失(falseは別のコピー失敗)を選ぶ。
@@ -6301,15 +6300,14 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             library.ChartPackagesPending = CreatePackageCollection([firstPackage, secondPackage, thirdPackage]);
             library.ChartPackagesInstalled = CreatePackageCollection([]);
 
-            var originalLr2Warnings = new Dictionary<ChartPackage, (ChartWarningKind Kind, string Message)[]>();
+            var originalLr2Warnings = new Dictionary<ChartPackage, ChartWarning[]>();
             foreach (ChartPackage pending in new[] { firstPackage, secondPackage, thirdPackage })
             {
                 PackageChartEntry pendingEntry = pending.ChartEntries.Single();
-                pendingEntry.SetWarning(ChartWarningKind.SingleBmsFile, "layout:" + pending.path);
+                pendingEntry.SetWarning(ChartWarningKind.SingleBmsFile);
                 BmsLibraryPackageInstallService.InitializePendingResourceHealth(pendingEntry);
                 originalLr2Warnings.Add(pending, (pendingEntry.Chart.Warnings ?? [])
-                    .Where(warning => warning.Category == ChartWarningCategory.Lr2Compatibility)
-                    .Select(warning => (warning.Kind, warning.Message)).ToArray());
+                    .Where(warning => warning.Category == ChartWarningCategory.Lr2Compatibility).ToArray());
                 Assert.AreEqual(!ReferenceEquals(pending, firstPackage), originalLr2Warnings[pending]
                     .Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported));
                 library.SetBMSFilesEncoding([pendingEntry.Chart], "big5", pendingEntries: [pendingEntry]);
@@ -6334,11 +6332,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             foreach (ChartPackage pending in new[] { secondPackage, thirdPackage })
             {
                 Assert.AreEqual("big5", pending.ChartEntries.Single().Chart.EncodingName);
-                Assert.AreEqual("layout:" + pending.path, pending.ChartEntries.Single().Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.SingleBmsFile).Message);
+                Assert.AreEqual(ChartWarning.Create(ChartWarningKind.SingleBmsFile), pending.ChartEntries.Single().Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.SingleBmsFile));
                 CollectionAssert.AreEquivalent(originalLr2Warnings[pending],
                     (pending.ChartEntries.Single().Chart.Warnings ?? [])
-                        .Where(warning => warning.Category == ChartWarningCategory.Lr2Compatibility)
-                        .Select(warning => (warning.Kind, warning.Message)).ToArray());
+                        .Where(warning => warning.Category == ChartWarningCategory.Lr2Compatibility).ToArray());
                 Assert.IsTrue(pending.ChartEntries.Single().Chart.ResourceHealthMaintenanceSnapshot.EncodingFixed);
                 Assert.AreEqual(pending.ChartEntries.Single().Chart.Path,
                     pending.ChartEntries.Single().Chart.ResourceHealthMaintenanceSnapshot.Path);

@@ -2038,7 +2038,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         entry.InitializeOriginalResourceHealth(original);
         string destinationDirectory = Path.Combine("C:\\Installed", "Package");
         entry.ApplyInstallDestinationMetadata(destinationDirectory, "Resolved Title", "Resolved Artist");
-        entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
+        entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed);
 
         PackageChartEntry snapshot = entry.ToChartEntrySnapshot();
 
@@ -2060,7 +2060,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         string installedPath = Path.Combine(destinationDirectory, "chart.bms");
 
         entry.ApplyInstallDestinationMetadata(destinationDirectory, "Resolved Title", "Resolved Artist");
-        entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
+        entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed);
         entry.ApplyCurrentChart(ChartFileProjection.WithPath(file, installedPath));
 
         Assert.AreNotEqual(installedPath, file.Path);
@@ -2079,8 +2079,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "chart.bms"));
         var entry = PackageChartEntry.FromChart((file));
 
-        entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart, "duplicate warning")] };
+        entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed);
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart)] };
         entry.ApplyCurrentChart(file);
 
         Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationResolveFailed));
@@ -2670,7 +2670,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         BmsLibraryInstallEstimationService service = CreateService(testSettings);
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Music", "FolderA", "chart.bms"));
         var entry = PackageChartEntry.FromChart((file));
-        entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
+        entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed);
 
         service.ClearInstallDestinations([entry]);
 
@@ -4985,6 +4985,100 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     private static LR2SongDBExtended.maintenance CreateVisualMaintenanceInfo(ChartFile file, int bgaDefined = 0, int bgaExisting = 0, bool stagefileDefined = false, bool stagefileExisting = false, bool backbmpDefined = false, bool backbmpExisting = false, bool bannerDefined = false, bool bannerExisting = false)
     {
         return new LR2SongDBExtended.maintenance { path = file.Path, hash = file.Md5, wav_files_defined = 0, wav_files_existing = 0, bga_files_defined = bgaDefined, bga_files_existing = bgaExisting, movie_files_defined = 0, movie_files_existing = 0, is_stagefile_defined = stagefileDefined, is_stagefile_existing = stagefileExisting, is_backbmp_defined = backbmpDefined, is_backbmp_existing = backbmpExisting, is_banner_defined = bannerDefined, is_banner_existing = bannerExisting };
+    }
+
+    /// <summary>
+    /// 推定結果の各警告種別で、生成元が正しい種別と事実(パス・候補)を警告へ渡すことを確認します。
+    /// 翻訳済み文字列から事実を逆算する実装や、候補の絞込み(空白項目の除外・大小文字違いの重複除去・先頭3件)の誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow("AmbiguousCandidatesSecond")]
+    [DataRow("AmbiguousCandidatesDirectory")]
+    [DataRow("InstalledDestinationAmbiguous")]
+    [DataRow("InstalledDestinationAutoAppliedAmbiguous")]
+    [DataRow("MetadataMismatch")]
+    [DataRow("MetadataUnrelated")]
+    [DataRow("MetadataUnavailable")]
+    [DataRow("ReinstallNotImproved")]
+    [DataRow("AudioMissing")]
+    [DataRow("AudioUnverifiable")]
+    public void ApplyInstallEstimationResult_PassesCandidateFactsForEachWarningKind(string scenario)
+    {
+        const string first = @"C:\Candidate\A";
+        const string second = @"C:\Candidate\B";
+        const string conflicting = @"C:\Candidate\Conflicting";
+        var entry = PackageChartEntry.FromChart(ChartListVirtualViewTestFixture.CreateBmsonSong());
+        var result = new InstallEstimationResult { Confidence = InstallEstimationConfidence.Low, HasViableDestination = true };
+        InstallEstimationMetadataRelation relation = scenario switch
+        {
+            "MetadataUnrelated" => InstallEstimationMetadataRelation.Unrelated,
+            "MetadataUnavailable" => InstallEstimationMetadataRelation.Unavailable,
+            _ => InstallEstimationMetadataRelation.Related,
+        };
+        result.Candidates.Add(new InstallEstimationCandidate { DirectoryPath = first, MetadataRelation = relation, DisplayTitle = "A", DisplayArtist = "A" });
+        result.Candidates.Add(new InstallEstimationCandidate { DirectoryPath = second, MetadataRelation = relation, DisplayTitle = "B", DisplayArtist = "B" });
+        // 空白だけの項目と大小文字違いの重複を含む5候補です。先頭3件は空白を除き重複除去して得ます。
+        foreach (string suggestion in new[] { first, "  ", first.ToUpperInvariant(), second, @"C:\Candidate\C", @"C:\Candidate\D" })
+        {
+            result.SuggestedDestinationDirectories.Add(suggestion);
+        }
+        ChartWarning expected;
+        switch (scenario)
+        {
+            case "AmbiguousCandidatesSecond":
+                result.LowConfidenceKind = InstallEstimationLowConfidenceKind.AmbiguousCandidates;
+                expected = ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, first, second);
+                break;
+            case "AmbiguousCandidatesDirectory":
+                result.LowConfidenceKind = InstallEstimationLowConfidenceKind.AmbiguousCandidates;
+                result.AmbiguousCandidateDirectory = conflicting;
+                expected = ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, first, conflicting);
+                break;
+            case "InstalledDestinationAmbiguous":
+                result.LowConfidenceKind = InstallEstimationLowConfidenceKind.InstalledDestinationAmbiguous;
+                expected = ChartWarning.CreateWithCandidates(ChartWarningKind.InstalledDestinationAmbiguous, [first, second, @"C:\Candidate\C"]);
+                break;
+            case "InstalledDestinationAutoAppliedAmbiguous":
+                result.LowConfidenceKind = InstallEstimationLowConfidenceKind.InstalledDestinationAutoAppliedAmbiguous;
+                expected = ChartWarning.CreateWithCandidates(ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous, [first, second, @"C:\Candidate\C"]);
+                break;
+            case "MetadataMismatch":
+                result.LowConfidenceKind = InstallEstimationLowConfidenceKind.MetadataMismatch;
+                expected = ChartWarning.CreateWithPath(ChartWarningKind.InstallEstimationMetadataMismatch, first);
+                break;
+            case "MetadataUnrelated":
+                result.LowConfidenceKind = InstallEstimationLowConfidenceKind.MetadataMismatch;
+                expected = ChartWarning.CreateWithPath(ChartWarningKind.InstallEstimationUnrelated, first);
+                break;
+            case "MetadataUnavailable":
+                result.LowConfidenceKind = InstallEstimationLowConfidenceKind.MetadataMismatch;
+                expected = ChartWarning.CreateWithPath(ChartWarningKind.InstallEstimationMetadataUnavailable, first);
+                break;
+            case "ReinstallNotImproved":
+                result.LowConfidenceKind = InstallEstimationLowConfidenceKind.ReinstallNotImproved;
+                expected = ChartWarning.CreateWithPath(ChartWarningKind.InstallEstimationReinstallNotImproved, first);
+                break;
+            case "AudioMissing":
+                result.Confidence = InstallEstimationConfidence.High;
+                result.AudioCompleteness = InstallAudioCompleteness.Missing;
+                result.AudioAutoApplyAllowed = false;
+                expected = ChartWarning.CreateWithPath(ChartWarningKind.InstallEstimationAudioMissing, first);
+                break;
+            case "AudioUnverifiable":
+                result.Confidence = InstallEstimationConfidence.High;
+                result.AudioCompleteness = InstallAudioCompleteness.Unverifiable;
+                expected = ChartWarning.CreateWithPath(ChartWarningKind.InstallEstimationAudioUnverifiable, first);
+                break;
+            default:
+                throw new AssertFailedException("未知のシナリオです: " + scenario);
+        }
+
+        entry.ApplyInstallEstimationResult(result);
+
+        ChartWarning[] estimation = [.. entry.Chart.Warnings.Where(warning => warning.Category == ChartWarningCategory.InstallEstimation)];
+        Assert.AreEqual(1, estimation.Length, "推定の警告は期待する一件だけです。");
+        Assert.AreEqual(expected, estimation[0]);
+        Assert.AreEqual(expected.Kind, estimation[0].Kind);
     }
 
     private void WithAutoApplyAmbiguousInstallDestination(bool enabled, Action action)

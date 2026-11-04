@@ -80,10 +80,10 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Assert.IsNull(fixture.Failure, fixture.Failure?.Exception.ToString());
         ChartPackage unrelatedPackage = fixture.Library.ChartPackagesPending.Single();
         PackageChartEntry unrelatedEntry = unrelatedPackage.ChartEntries.Single();
-        // ChartFileの可変参照を期待値にせず、操作前の値と警告文字列をここで固定します。
-        (string PackagePath, string Path, string Md5, ChartFileStatus Status, int? WAVHealth, string[] Warnings) unrelatedBefore = (PackagePath: unrelatedPackage.path, unrelatedEntry.Chart.Path, unrelatedEntry.Chart.Md5,
+        // ChartFileの可変参照を期待値にせず、操作前の値と警告の種類・事実をここで固定します。
+        (string PackagePath, string Path, string Md5, ChartFileStatus Status, int? WAVHealth, ChartWarning[] Warnings) unrelatedBefore = (PackagePath: unrelatedPackage.path, unrelatedEntry.Chart.Path, unrelatedEntry.Chart.Md5,
             unrelatedEntry.Chart.Status, unrelatedEntry.Chart.WAVHealth,
-            Warnings: unrelatedEntry.Chart.Warnings.Select(warning => warning.Kind + "|" + warning.Message).ToArray());
+            Warnings: unrelatedEntry.Chart.Warnings.ToArray());
         PackageChartInstallDestinationState unrelatedDestination = unrelatedEntry.CaptureInstallDestinationState();
         var ownedBefore = fixture.Library.BmsCharts.Select(chart => new
         {
@@ -162,7 +162,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         Assert.AreEqual(unrelatedBefore.Status, unrelatedEntry.Chart.Status);
         Assert.AreEqual(unrelatedBefore.WAVHealth, unrelatedEntry.Chart.WAVHealth);
         CollectionAssert.AreEqual(unrelatedBefore.Warnings,
-            unrelatedEntry.Chart.Warnings.Select(warning => warning.Kind + "|" + warning.Message).ToArray());
+            unrelatedEntry.Chart.Warnings.ToArray());
         PackageChartInstallDestinationState remainingDestination = unrelatedEntry.CaptureInstallDestinationState();
         Assert.AreEqual(unrelatedDestination.Destination, remainingDestination.Destination);
         Assert.AreEqual(unrelatedDestination.Title, remainingDestination.Title);
@@ -232,7 +232,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 Path.GetFileName(entry.Chart.Path) + " title=" + entry.Chart.RawTitle + " artist=" + entry.Chart.Artist
                 + " audio=" + entry.Chart.ResourceHealthMaintenanceSnapshot.WavFilesExisting + "/" + entry.Chart.ResourceHealthMaintenanceSnapshot.WavFilesDefined
                 + " dst=" + entry.Chart.InstallDestination + " candidates=" + string.Join(",", entry.Chart.InstallDestinationSuggestions)
-                + " warnings=" + string.Join(";", entry.Chart.Warnings.Select(warning => warning.Kind + ":" + warning.Message)))));
+                + " warnings=" + string.Join(";", entry.Chart.Warnings.Select(warning => warning.Kind + ":" + ChartWarningProjectionFormatter.GetDetailText(warning))))));
         Assert.IsTrue(fixture.Result.EstimatedInstallReceipt.DurableCommit);
         Assert.AreEqual(1, fixture.Result.EstimatedInstallReceipt.ApplyCounts.InstalledTargetApplyCount);
         Assert.AreEqual(0, fixture.Library.ChartPackagesPending.Count);

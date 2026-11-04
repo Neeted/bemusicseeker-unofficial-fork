@@ -159,7 +159,7 @@ internal sealed class NormalLibraryRefreshPublisher
         }
 
         if (maintenanceChanged || before.ResourceHealthWarningsIgnored != after.ResourceHealthWarningsIgnored
-            || !before.Warnings.Select(value => (value.Kind, value.Message)).SequenceEqual(after.Warnings.Select(value => (value.Kind, value.Message))))
+            || !before.Warnings.SequenceEqual(after.Warnings))
         {
             effects |= LibraryChartRefreshEffects.WarningPresentationChanged;
         }

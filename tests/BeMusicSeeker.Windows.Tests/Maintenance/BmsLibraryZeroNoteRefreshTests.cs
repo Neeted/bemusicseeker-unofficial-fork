@@ -7,6 +7,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
+using BeMusicSeeker.ViewModels;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
@@ -33,7 +34,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
             {
                 Path = "C:\\charts\\normal.bms"
             };
-            file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch, BeMusicSeeker.Properties.Resources.Warning_ZeroNoteMismatch)] };
+            file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch)] };
             file = ChartFileProjection.WithChartInfo(file, new BeMusicSeeker.Models.ChartDetails { md5 = file.Md5, sha256 = file.Sha256, notes = 1200 });
             library.BmsCharts = [file];
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
@@ -74,7 +75,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
             {
                 Path = chartPath
             };
-            file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch, BeMusicSeeker.Properties.Resources.Warning_ZeroNoteMismatch)] };
+            file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch)] };
             file = ChartFileProjection.WithChartInfo(file, new BeMusicSeeker.Models.ChartDetails { md5 = file.Md5, sha256 = file.Sha256, notes = 0 });
             library.BmsCharts = [file];
             await SeedChartInfoIndexAsync(songDbPath, library, CreateChartInfo(file.Md5, notes: 0));
@@ -91,8 +92,8 @@ public sealed class BmsLibraryZeroNoteRefreshTests
 
             Assert.AreEqual(0, refreshNotificationChanged);
             Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch));
-            Assert.IsTrue(ChartWarningCollection.HasAnyHighlightedWarning(file.Warnings));
-            Assert.AreEqual("[1] ゼロノート不整合", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
+            Assert.IsTrue(ChartWarningProjectionFormatter.HasAnyHighlightedWarning(file.Warnings));
+            Assert.AreEqual("[1] ゼロノート不整合", ChartWarningProjectionFormatter.BuildDigestText(file.Warnings, file.InstallDestination));
         });
     }
 
@@ -123,8 +124,8 @@ public sealed class BmsLibraryZeroNoteRefreshTests
             Assert.IsFalse(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch));
             Assert.AreSame(file.Token, current.Token);
             Assert.IsTrue(current.Warnings.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch));
-            Assert.IsTrue(ChartWarningCollection.HasAnyHighlightedWarning(current.Warnings));
-            Assert.AreEqual("[1] ゼロノート不整合", ChartWarningCollection.BuildDigestText(current.Warnings, current.InstallDestination));
+            Assert.IsTrue(ChartWarningProjectionFormatter.HasAnyHighlightedWarning(current.Warnings));
+            Assert.AreEqual("[1] ゼロノート不整合", ChartWarningProjectionFormatter.BuildDigestText(current.Warnings, current.InstallDestination));
         });
     }
 

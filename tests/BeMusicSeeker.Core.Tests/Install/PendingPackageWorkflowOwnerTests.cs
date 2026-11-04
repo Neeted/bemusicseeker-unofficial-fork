@@ -79,7 +79,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             BmsLibraryPackageInstallService.ClearPendingInstallDestination(entries[1]);
             Assert.AreEqual(100, entries[0].Chart.WAVHealth);
             Assert.AreEqual(0, entries[1].Chart.WAVHealth);
-            (ChartWarningKind Kind, string Message)[][] beforeWarnings = entries.Select(entry => entry.Chart.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray()).ToArray();
+            ChartWarning[][] beforeWarnings = entries.Select(entry => entry.Chart.Warnings.ToArray()).ToArray();
             var events = new List<string>();
             presentation = new RecordingPresentation(events);
             PendingPackageWorkflowOwner currentOwner = CreateOwner(() => currentLibrary, events, new BmsLibraryPendingPackageStore(), AcceptedDialogs(),
@@ -106,7 +106,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             for (int i = 0; i < entries.Length; i++)
             {
                 Assert.AreEqual(0, entries[i].Chart.InstallDestinationSuggestions.Count);
-                CollectionAssert.AreEqual(beforeWarnings[i], entries[i].Chart.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray());
+                CollectionAssert.AreEqual(beforeWarnings[i], entries[i].Chart.Warnings.ToArray());
             }
 
             await RunAndAwait(() => currentOwner.ClearPackagesAsync([package]));

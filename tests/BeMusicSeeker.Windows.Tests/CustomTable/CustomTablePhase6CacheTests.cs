@@ -154,6 +154,119 @@ public sealed class CustomTablePhase6CacheTests
         });
     }
 
+    /// <summary>実ChangeCultureのja→en通知だけで、保持した保留仮想行のWARNING列の要約・tooltip・描画を現在語へ更新し、強調・行・選択・scrollを保つことを確認します。警告の事実が新しくなった行は新しい事実の現在語になり、非表示中の言語変更も再表示で最新語になります。</summary>
+    /// <remarks>警告が翻訳済み文字列を保持して言語変更後も旧語のまま表示される誤りと、言語通知から描画への接続漏れを検出します。表示済み表の言語切替後は明示的な描画失効を行いません。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void WarningLanguage_ChangeCultureRedrawsRetainedWarningCellsAndTooltips()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            CultureInfo? previousResourcesCulture = Resources.Culture;
+            CultureInfo threadCulture = CultureInfo.CurrentCulture;
+            try
+            {
+                ResourceService.Current.ChangeCulture("ja-JP");
+                PackageChartEntry[] entries = [.. Enumerable.Range(0, 64).Select(index => PackageChartEntry.FromChart(
+                    ChartFileProjection.WithPackageState(ChartTestValues.Empty() with
+                    {
+                        Path = @"C:\pending\" + index + ".bms", Md5 = index.ToString("x32"),
+                        RawTitle = "Pending " + index.ToString("D2", CultureInfo.InvariantCulture)
+                    }, string.Empty, string.Empty, string.Empty, [],
+                    [ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, @"C:\BMS\A" + index, @"C:\BMS\B" + index)])))];
+                List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildPackageRows(entries);
+                var rows = new ChartListVirtualView(sourceRows, ChartListOrder.CreateTitleAscending(sourceRows), LibraryChartRow.FromSourceRow);
+                var owner = new MainChartListViewModel();
+                owner.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
+                var settings = new CustomTableColumnSettings();
+                foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings)) { layout.Visibility = Visibility.Hidden; }
+                settings.Warning.Visibility = Visibility.Visible;
+                settings.Warning.DisplayIndex = 0; settings.Warning.Width = 200;
+                var table = new CustomTableView { Width = 260, Height = 150, HeaderHeight = 20, RowHeight = 25, DataContext = owner, ColumnsSettings = settings, ItemsSource = rows };
+                var window = new Window { Width = 300, Height = 200, Content = table };
+                try
+                {
+                    scope.ShowAndWaitForContentRendered(window);
+                    CustomTableColumn column = table.VisibleColumns.Single(item => item.Id == "Warning");
+                    object columns = table.Columns;
+                    ScrollBar vertical = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == Orientation.Vertical);
+                    vertical.Value = 2;
+                    table.SelectedIndex = 3;
+                    var row = (LibraryChartRow)rows[3];
+                    Assert.AreSame(entries[3], row.PackageEntry);
+                    var point = new Point(15, table.HeaderHeight + (3 - table.FirstVisibleRowIndex + 0.5) * table.RowHeight);
+                    RenderExistingTable(table);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    CustomTableRowDrawing japaneseDrawing = table.GetRowEntry(row).Drawings[3];
+                    string japaneseDigest = "[1] " + Resources.WarningDigest_InstallEstimationAmbiguous;
+                    string japaneseDetail = string.Format(Resources.Warning_InstallEstimationAmbiguous, @"C:\BMS\A3", @"C:\BMS\B3");
+                    Assert.AreEqual(japaneseDigest, table.GetCellValue(row, column, out _).Text);
+                    Assert.AreEqual(japaneseDetail, table.ResolveCellToolTip(table.HitTestTable(point)));
+                    Assert.IsTrue(table.HasHighlightedWarning(row));
+                    double verticalOffset = vertical.Value;
+                    int realized = rows.RealizedRowCount;
+                    Assert.IsTrue(realized > 0 && realized < rows.Count);
+
+                    ResourceService.Current.ChangeCulture("en-US");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                    // 明示的な失効なしに、通知だけで現在語の要約・詳細・描画になります。
+                    CustomTableRowDrawing englishDrawing = table.GetRowEntry(row).Drawings[3];
+                    Assert.AreNotSame(japaneseDrawing, englishDrawing);
+                    string englishDigest = "[1] " + Resources.WarningDigest_InstallEstimationAmbiguous;
+                    string englishDetail = string.Format(Resources.Warning_InstallEstimationAmbiguous, @"C:\BMS\A3", @"C:\BMS\B3");
+                    Assert.AreNotEqual(japaneseDigest, englishDigest);
+                    Assert.AreNotEqual(japaneseDetail, englishDetail);
+                    Assert.AreEqual(englishDigest, table.GetCellValue(row, column, out bool cacheHit).Text); Assert.IsTrue(cacheHit);
+                    Assert.AreEqual(englishDetail, table.ResolveCellToolTip(table.HitTestTable(point)));
+                    Assert.IsTrue(table.HasHighlightedWarning(row));
+                    Assert.AreSame(threadCulture, CultureInfo.CurrentCulture);
+                    Assert.AreSame(table, window.Content); Assert.AreSame(rows, table.ItemsSource); Assert.AreSame(columns, table.Columns);
+                    Assert.AreSame(row, rows[3]); Assert.AreSame(entries[3], row.PackageEntry);
+                    Assert.AreEqual(3, table.SelectedIndex);
+                    Assert.AreEqual(verticalOffset, vertical.Value); Assert.AreEqual(realized, rows.RealizedRowCount);
+
+                    // 行3の警告の事実を新しい推定結果で更新すると、その行は新しい事実の現在語になり、他の保持行も現在語のままです。
+                    var result = new InstallEstimationResult
+                    {
+                        Confidence = InstallEstimationConfidence.Low,
+                        HasViableDestination = true,
+                        LowConfidenceKind = InstallEstimationLowConfidenceKind.AmbiguousCandidates
+                    };
+                    result.Candidates.Add(new InstallEstimationCandidate { DirectoryPath = @"C:\BMS\NewA", MetadataRelation = InstallEstimationMetadataRelation.Related, DisplayTitle = "T", DisplayArtist = "A" });
+                    result.Candidates.Add(new InstallEstimationCandidate { DirectoryPath = @"C:\BMS\NewB", MetadataRelation = InstallEstimationMetadataRelation.Related, DisplayTitle = "T", DisplayArtist = "A" });
+                    entries[3].ApplyInstallEstimationResult(result);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(string.Format(Resources.Warning_InstallEstimationAmbiguous, @"C:\BMS\NewA", @"C:\BMS\NewB"), table.ResolveCellToolTip(table.HitTestTable(point)));
+                    Assert.AreEqual(englishDigest, table.GetCellValue(row, column, out _).Text);
+
+                    // 非表示の間に言語を変えても、再表示後は最新語で描画します。
+                    window.Content = null;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsFalse(table.IsLoaded);
+                    ResourceService.Current.ChangeCulture("ja-JP");
+                    window.Content = table;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsTrue(table.IsLoaded);
+                    Assert.AreSame(row, rows[3]);
+                    Assert.AreEqual(japaneseDigest, table.GetCellValue(row, column, out _).Text);
+                    Assert.AreEqual(string.Format(Resources.Warning_InstallEstimationAmbiguous, @"C:\BMS\NewA", @"C:\BMS\NewB"), table.ResolveCellToolTip(table.HitTestTable(point)));
+                }
+                finally
+                {
+                    window.Content = null; table.ItemsSource = null;
+                    window.Close(); rows.DisposeRealizedRows();
+                }
+            }
+            finally
+            {
+                ResourceService.Current.ChangeCulture(previousResourcesCulture?.Name ?? "en-US");
+                Resources.Culture = previousResourcesCulture;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+            }
+        });
+    }
+
     /// <summary>追加辞書を含む言語往復で、本体表の導入先見出しと要約表のSTATUS見出しの Header・UIA名・実描画が現在の資源値へ追従し、列・行・編集中editorを作り直さないことを確認します。</summary>
     /// <remarks>ja→追加→ja→追加→en の各段で、通知とキュー処理の後に明示的な描画失効なしで見出し帯を描画し、同じ辞書の画素一致と別辞書の相違を観測します。追加辞書は実行専用profileのlang配下へ置き、既存ファイルと辞書探索を必ず復元します。</remarks>
     [TestMethod]

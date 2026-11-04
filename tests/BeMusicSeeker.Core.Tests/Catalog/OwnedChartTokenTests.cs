@@ -17,7 +17,7 @@ public sealed class OwnedChartTokenTests
         ChartFile parsed = Parse("C:\\Songs\\chart.bms");
         Assert.IsNull(parsed.Token);
         var suggestions = new List<string> { @"C:\Target" };
-        var warnings = new List<ChartWarning> { ChartWarning.Create(ChartWarningKind.DuplicateChart, "captured warning") };
+        var warnings = new List<ChartWarning> { ChartWarning.Create(ChartWarningKind.DuplicateChart) };
         parsed = parsed with { InstallDestinationSuggestions = suggestions, Warnings = warnings };
         suggestions.Clear();
         warnings.Clear();

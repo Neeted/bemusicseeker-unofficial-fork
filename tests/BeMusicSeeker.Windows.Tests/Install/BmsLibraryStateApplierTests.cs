@@ -88,7 +88,7 @@ public sealed class BmsLibraryStateApplierTests
                     Assert.AreEqual("Pending", chart.InstallDestinationTitle);
                     Assert.AreEqual("Artist", chart.InstallDestinationArtist);
                     Assert.AreEqual(0, chart.InstallDestinationSuggestions.Count);
-                    Assert.AreEqual(diagnostics[i].Message, chart.Warnings.Single(warning => warning.Kind == diagnosticKind).Message);
+                    Assert.AreEqual(diagnostics[i], chart.Warnings.Single(warning => warning.Kind == diagnosticKind));
                 }
                 ChartFile beforeSource = entries[0].Chart;
                 ChartFile beforeOutside = entries[1].Chart;
@@ -113,8 +113,8 @@ public sealed class BmsLibraryStateApplierTests
                 Assert.AreEqual(beforeSource.WAVHealth, entries[0].Chart.WAVHealth);
                 Assert.AreEqual(beforeSource.Status, entries[0].Chart.Status);
                 Assert.AreEqual(0, entries[0].Chart.InstallDestinationSuggestions.Count);
-                CollectionAssert.AreEquivalent(beforeSource.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray(),
-                    entries[0].Chart.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray());
+                CollectionAssert.AreEquivalent(beforeSource.Warnings.ToArray(),
+                    entries[0].Chart.Warnings.ToArray());
                 AssertOutsideUnchanged();
 
                 // 次の独立操作の削除成功scopeは、存続DSTそのものを従来どおり全解除します。
@@ -142,8 +142,8 @@ public sealed class BmsLibraryStateApplierTests
                     Assert.AreEqual(beforeOutside.InstallDestinationTitle, entries[1].Chart.InstallDestinationTitle);
                     Assert.AreEqual(beforeOutside.InstallDestinationArtist, entries[1].Chart.InstallDestinationArtist);
                     Assert.AreEqual(beforeOutside.WAVHealth, entries[1].Chart.WAVHealth);
-                    CollectionAssert.AreEqual(beforeOutside.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray(),
-                        entries[1].Chart.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray());
+                    CollectionAssert.AreEqual(beforeOutside.Warnings.ToArray(),
+                        entries[1].Chart.Warnings.ToArray());
                 }
             }
             catch (Exception failure) { primaryFailure = failure; throw; }
@@ -214,7 +214,11 @@ public sealed class BmsLibraryStateApplierTests
             Assert.AreEqual(before.InstallDestinationArtist, entry.Chart.InstallDestinationArtist);
             Assert.AreEqual(before.WAVHealth, entry.Chart.WAVHealth);
             Assert.AreEqual(before.Status, entry.Chart.Status);
-            CollectionAssert.AreEqual(before.Warnings.Select(w => (w.Kind, w.Message)).ToArray(), entry.Chart.Warnings.Select(w => (w.Kind, w.Message)).ToArray());
+            CollectionAssert.AreEqual(before.Warnings.ToArray(), entry.Chart.Warnings.ToArray());
+            // 推定時の診断の事実は、候補が移動先へ追従した後も旧パスのままです。
+            string oldCandidate = before.Warnings.Single(w => w.Kind == ChartWarningKind.InstallEstimationMetadataMismatch).Path;
+            Assert.AreEqual(oldCandidate, entry.Chart.Warnings.Single(w => w.Kind == ChartWarningKind.InstallEstimationMetadataMismatch).Path);
+            CollectionAssert.DoesNotContain(entry.Chart.InstallDestinationSuggestions.ToArray(), oldCandidate, "候補は移動先へ追従しますが、診断の事実は旧パスのままです。");
             Assert.AreEqual(placement.Basis, entry.ResourcePlacement.Basis);
             Assert.AreEqual(Path.Combine(destinationMode == 1 ? outside : Path.Combine(destination, "Child"), "Nested"), entry.ResourcePlacement.Directory);
             Assert.AreEqual("Nested", entry.ResourcePlacement.RelativeDirectory);
@@ -274,7 +278,7 @@ public sealed class BmsLibraryStateApplierTests
             Assert.AreEqual(restoreOriginal ? Path.GetDirectoryName(entry.Chart.Path) : destinationMode == 1 ? outside : destination, entry.ResourcePlacement.Directory);
             Assert.IsTrue(entry.Chart.Warnings.Any(w => w.Kind == ChartWarningKind.NestedChartFileInPackage));
             CollectionAssert.AreEqual(unrelatedBefore.InstallDestinationSuggestions.ToArray(), unrelated.Chart.InstallDestinationSuggestions.ToArray());
-            CollectionAssert.AreEqual(unrelatedBefore.Warnings.Select(w => (w.Kind, w.Message)).ToArray(), unrelated.Chart.Warnings.Select(w => (w.Kind, w.Message)).ToArray());
+            CollectionAssert.AreEqual(unrelatedBefore.Warnings.ToArray(), unrelated.Chart.Warnings.ToArray());
         });
     }
 
@@ -288,8 +292,8 @@ public sealed class BmsLibraryStateApplierTests
         var entry = PackageChartEntry.FromPath(path);
         BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry);
         entry.RestoreInstallDestinationState(new PackageChartInstallDestinationState(destination, "Evidence title", "Evidence artist", candidates));
-        entry.SetWarning(ChartWarningKind.InstallEstimationMetadataMismatch, "diagnostic at " + candidates[0]);
-        entry.SetWarning(ChartWarningKind.NestedChartFileInPackage, "other warning");
+        entry.SetWarning(ChartWarning.CreateWithPath(ChartWarningKind.InstallEstimationMetadataMismatch, candidates[0]));
+        entry.SetWarning(ChartWarningKind.NestedChartFileInPackage);
         return entry;
     }
 
@@ -363,7 +367,7 @@ public sealed class BmsLibraryStateApplierTests
         {
             Path = @"C:\Library\chart.bms"
         };
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstallEstimationAmbiguous), ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous")] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstallEstimationAmbiguous), ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B")] };
         LibraryInstallDestinationChange installDestinationChange = new()
         {
             Chart = ChartFileProjection.WithPackageState(
@@ -396,7 +400,7 @@ public sealed class BmsLibraryStateApplierTests
         {
             Path = @"C:\Library\chart.bms"
         };
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstallEstimationAmbiguous), ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous")] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstallEstimationAmbiguous), ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B")] };
         LibraryInstallDestinationChange installDestinationChange = new()
         {
             Chart = ChartFileProjection.WithPackageState(

@@ -69,9 +69,9 @@ internal sealed class PlaylistDetailSourceRow
 
     internal string DisplayWarning => ChartWarningProjectionFormatter.BuildDisplayText(Chart, resourceHealthProjection, hasResourceHealthProjection);
 
-    internal string WarningDigestText => FirstNonEmpty(ChartWarningProjectionFormatter.BuildDigestText(Chart, resourceHealthProjection, hasResourceHealthProjection), DisplayWarning);
+    internal string WarningDigestText => ChartWarningProjectionFormatter.BuildDigestText(Chart, resourceHealthProjection, hasResourceHealthProjection);
 
-    internal string WarningTooltipText => FirstNonEmpty(ChartWarningProjectionFormatter.BuildTooltipText(Chart, resourceHealthProjection, hasResourceHealthProjection), DisplayWarning);
+    internal string WarningTooltipText => ChartWarningProjectionFormatter.BuildTooltipText(Chart, resourceHealthProjection, hasResourceHealthProjection);
 
     internal string comment { get; private set; }
 

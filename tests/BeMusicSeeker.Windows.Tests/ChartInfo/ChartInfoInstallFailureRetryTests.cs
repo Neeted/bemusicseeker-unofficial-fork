@@ -275,6 +275,7 @@ public sealed class ChartInfoInstallFailureRetryTests
     /// <summary>現在版の所持BMS・bmson失敗だけを一覧へ投影し、旧版・未所持の混入や通常・仮想行での警告件数・リソース文言の欠落を検出する。</summary>
     /// <remarks>本番ライブラリの導入・警告・受付を実DBへ接続する。設定と入力はcaseごとに所有し、保存・通知を計算値で代替しない。</remarks>
     [TestMethod]
+    [DoNotParallelize]
     public void ChartInfoParseFailedChartFiles_ProjectsCurrentFailuresAsWarningShims()
     {
 
@@ -292,6 +293,12 @@ public sealed class ChartInfoInstallFailureRetryTests
             };
             staleBmsFile = staleBmsFile with { Md5 = new string('d', 32) };
             staleBmsFile = staleBmsFile with { Sha256 = new string('4', 64) };
+            ChartFile nullDiagnosticFile = ChartTestValues.Empty() with
+            {
+                Path = Path.Combine(tempRootPath, "nulls.bms"),
+                Md5 = new string('e', 32),
+                Sha256 = new string('5', 64)
+            };
             ChartFile bmsonSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
                 Path = Path.Combine(tempRootPath, "bad.bmson"),
@@ -308,20 +315,21 @@ public sealed class ChartInfoInstallFailureRetryTests
                 CreateChartInfoParseFailureRow(bmsFile.Md5, bmsFile.Sha256, bmsFile.Path, BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "BMS initial BPM is not defined or invalid.", null),
                 CreateChartInfoParseFailureRow(bmsonSong.Md5, bmsonSong.Sha256, bmsonSong.Path, BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "JsonReaderException", "bad json", null),
                 CreateChartInfoParseFailureRow(new string('c', 32), string.Empty, Path.Combine(tempRootPath, "missing.bms"), BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "missing", null),
-                CreateChartInfoParseFailureRow(staleBmsFile.Md5, staleBmsFile.Sha256, staleBmsFile.Path, 0, "parse_failed", "InvalidDataException", "old", null)
+                CreateChartInfoParseFailureRow(staleBmsFile.Md5, staleBmsFile.Sha256, staleBmsFile.Path, 0, "parse_failed", "InvalidDataException", "old", null),
+                CreateChartInfoParseFailureRow(nullDiagnosticFile.Md5, nullDiagnosticFile.Sha256, nullDiagnosticFile.Path, BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", null!, null!, null)
             ]);
             var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings)
             {
-                BmsCharts = [bmsFile, staleBmsFile],
+                BmsCharts = [bmsFile, staleBmsFile, nullDiagnosticFile],
                 BmsonCharts = [bmsonSong]
             };
 
             List<ChartFile> rows = [.. library.ChartInfoParseFailedChartFiles];
             using LR2SongDBExtended failureDb = databaseScope.OpenSongReadOnly(songDbPath);
 
-            Assert.AreEqual(2, rows.Count);
+            Assert.AreEqual(3, rows.Count);
             CollectionAssert.AreEqual(
-                new[] { bmsFile.Path, bmsonSong.Path }.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray(),
+                new[] { bmsFile.Path, bmsonSong.Path, nullDiagnosticFile.Path }.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray(),
                 rows.Select(row => row.Path).ToArray());
             foreach (ChartFile row in rows)
             {
@@ -329,14 +337,21 @@ public sealed class ChartInfoInstallFailureRetryTests
                 LR2SongDBExtended.chart_info_parse_failure failure = failureDb
                     .Table<LR2SongDBExtended.chart_info_parse_failure>()
                     .Single(candidate => string.Equals(candidate.md5, row.Md5, StringComparison.OrdinalIgnoreCase));
+                // 記録された診断は原文のまま使い、欠落(null)の行だけ現在の言語の代替語を使います。
+                string expectedReason = !string.IsNullOrWhiteSpace(failure.exception_type) ? failure.exception_type
+                    : !string.IsNullOrWhiteSpace(failure.failure_kind) ? failure.failure_kind : Resources.WarningDigest_ChartInfoParseFailure;
+                string expectedBody = !string.IsNullOrWhiteSpace(failure.message) ? failure.message : Resources.WarningDigest_ChartInfoParseFailure;
                 string expectedMessage = string.Format(
                     CultureInfo.CurrentCulture,
                     Resources.Warning_ChartInfoParseFailure,
-                    failure.exception_type,
-                    failure.message);
+                    expectedReason,
+                    expectedBody);
                 Assert.IsTrue(ChartWarningProjectionFormatter.HasHighlightedWarning(row, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false));
                 Assert.AreEqual("[1] " + Resources.WarningDigest_ChartInfoParseFailure, ChartWarningProjectionFormatter.BuildDigestText(row, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false));
-                Assert.AreEqual(expectedMessage, parseFailureWarning.Message);
+                Assert.AreEqual(failure.exception_type ?? string.Empty, parseFailureWarning.ExceptionType);
+                Assert.AreEqual(failure.failure_kind ?? string.Empty, parseFailureWarning.FailureKind);
+                Assert.AreEqual(failure.message ?? string.Empty, parseFailureWarning.DiagnosticMessage);
+                Assert.AreEqual(expectedMessage, ChartWarningProjectionFormatter.GetDetailText(parseFailureWarning));
                 StringAssert.Contains(ChartWarningProjectionFormatter.BuildTooltipText(row, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), expectedMessage);
 
                 var materializedRow = LibraryChartRow.FromChartFile(row);
@@ -348,6 +363,31 @@ public sealed class ChartInfoInstallFailureRetryTests
                 var virtualMaterializedRow = LibraryChartRow.FromChartFile(sourceRow.Chart);
                 Assert.IsTrue(virtualMaterializedRow.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ChartInfoParseFailure));
                 Assert.AreEqual("[1] " + Resources.WarningDigest_ChartInfoParseFailure, virtualMaterializedRow.WarningDigestText);
+            }
+
+            // 言語を変えても診断の原文は不変で、欠落した本文の代替語だけが読取り時に現在の言語になります。
+            ChartWarning nullDiagnostics = rows.Single(row => row.Path == nullDiagnosticFile.Path)
+                .Warnings.Single(warning => warning.Kind == ChartWarningKind.ChartInfoParseFailure);
+            CultureInfo? previousResourcesCulture = Resources.Culture;
+            try
+            {
+                ResourceService.Current.ChangeCulture("ja-JP");
+                string japaneseLabel = Resources.WarningDigest_ChartInfoParseFailure;
+                Assert.AreEqual(string.Format(CultureInfo.CurrentCulture, Resources.Warning_ChartInfoParseFailure, "parse_failed", japaneseLabel),
+                    ChartWarningProjectionFormatter.GetDetailText(nullDiagnostics));
+                ResourceService.Current.ChangeCulture("en-US");
+                string englishLabel = Resources.WarningDigest_ChartInfoParseFailure;
+                Assert.AreNotEqual(japaneseLabel, englishLabel);
+                Assert.AreEqual(string.Format(CultureInfo.CurrentCulture, Resources.Warning_ChartInfoParseFailure, "parse_failed", englishLabel),
+                    ChartWarningProjectionFormatter.GetDetailText(nullDiagnostics));
+                Assert.AreEqual(string.Empty, nullDiagnostics.ExceptionType);
+                Assert.AreEqual("parse_failed", nullDiagnostics.FailureKind);
+                Assert.AreEqual(string.Empty, nullDiagnostics.DiagnosticMessage);
+            }
+            finally
+            {
+                ResourceService.Current.ChangeCulture(previousResourcesCulture?.Name ?? "en-US");
+                Resources.Culture = previousResourcesCulture;
             }
         });
     }

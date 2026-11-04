@@ -525,7 +525,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                     : ReferenceEquals(entry, prefixCandidate) ? folders[0] + "Sibling" : folders[0];
                 entry.RestoreInstallDestinationState(new PackageChartInstallDestinationState(
                     ReferenceEquals(entry, outsideDestination) ? folders[1] : null, "evidence", "artist", [candidatePath, siblingDirectory]));
-                entry.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "original candidates");
+                entry.SetWarning(ChartWarning.CreateWithPathPair(ChartWarningKind.InstallEstimationAmbiguous, @"C:\Dest\A", @"C:\Dest\B"));
             }
             package.ReplaceChartEntries([pending, candidateOnly, outsideDestination, failedCandidate, prefixCandidate]);
             BmsLibraryPackageInstallService.RefreshPendingResourceHealth([candidateOnly, outsideDestination, failedCandidate, prefixCandidate], package, before.DirectoryLookupCache);

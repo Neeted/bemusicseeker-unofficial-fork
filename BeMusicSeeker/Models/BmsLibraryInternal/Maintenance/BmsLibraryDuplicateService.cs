@@ -7,19 +7,18 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 internal sealed class BmsLibraryDuplicateService
 {
     /// <summary>重複警告を付けた不変の共通値を返します。</summary>
-    public IReadOnlyList<ChartFile> ApplyDuplicateWarnings(IEnumerable<ChartFile> charts, string message)
+    public IReadOnlyList<ChartFile> ApplyDuplicateWarnings(IEnumerable<ChartFile> charts)
         => [.. (charts ?? []).Where(chart => chart?.Kind == ChartFileKind.Bms).Select(chart => chart with
             { Warnings = [.. chart.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart),
-                ChartWarning.Create(ChartWarningKind.DuplicateChart, message)] })];
+                ChartWarning.Create(ChartWarningKind.DuplicateChart)] })];
 
     /// <summary>
     /// lookup hash が一致する chart を重複として検出し、接続されたディレクトリ単位の group へまとめます。
     /// 重複所属は捕捉したbucketのlookup hashで照合し、別列挙の行インスタンスの同一性を要求しません。
     /// </summary>
     /// <param name="snapshot">重複判定用 snapshot。</param>
-    /// <param name="duplicateWarningMessage">duplicate group の chart projection に重ねる warning 本文。</param>
     /// <returns>接続フォルダの兄弟譜面を含むグループと、重複hashへ所属する譜面だけに警告を付けた解析結果。</returns>
-    public DuplicateAnalysisResult Analyze(OwnedDuplicateChartRowSnapshot snapshot, string duplicateWarningMessage)
+    public DuplicateAnalysisResult Analyze(OwnedDuplicateChartRowSnapshot snapshot)
     {
         var result = new DuplicateAnalysisResult();
         var duplicateHashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -92,7 +91,7 @@ internal sealed class BmsLibraryDuplicateService
                     result.MaterializedChartCount++;
                     if (duplicateHashes.Contains(row.LookupHash))
                     {
-                        chart = ApplyDuplicateWarning(chart, duplicateWarningMessage);
+                        chart = ApplyDuplicateWarning(chart);
                         result.DuplicateCharts.Add(chart);
                     }
                     groupCharts.Add(chart);
@@ -134,7 +133,7 @@ internal sealed class BmsLibraryDuplicateService
         }
     }
 
-    private static ChartFile ApplyDuplicateWarning(ChartFile chart, string duplicateWarningMessage)
+    private static ChartFile ApplyDuplicateWarning(ChartFile chart)
     {
         if (chart == null)
         {
@@ -144,7 +143,7 @@ internal sealed class BmsLibraryDuplicateService
         List<ChartWarning> warnings =
         [
             .. (chart.Warnings ?? []).Where(warning => warning != null && warning.Kind != ChartWarningKind.DuplicateChart),
-            ChartWarning.Create(ChartWarningKind.DuplicateChart, duplicateWarningMessage),
+            ChartWarning.Create(ChartWarningKind.DuplicateChart),
         ];
         return ChartFileProjection.WithWarnings(chart, warnings);
     }

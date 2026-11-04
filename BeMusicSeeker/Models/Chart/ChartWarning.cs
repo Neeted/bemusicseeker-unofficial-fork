@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
-using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Models;
 
@@ -61,29 +61,180 @@ internal enum ChartWarningCategory
 }
 
 /// <summary>
-/// 譜面行に付与される構造化 warning です。
-/// 1 行表示用の digest と tooltip 詳細を同じ source から生成するために必要な表示属性を持ちます。
+/// 警告が保持する事実の形です。
+/// 種別ごとに必要な引数を固定し、形の合わない引数でファクトリが警告を作らないようにするために使います。
 /// </summary>
-internal sealed class ChartWarning
+internal enum ChartWarningShape
 {
-    /// <summary>
-    /// 指定 kind の既定表示属性を使って warning を作成します。
-    /// </summary>
-    /// <param name="kind">warning の種類。</param>
-    /// <param name="message">tooltip や互換詳細表示に出す本文。</param>
-    /// <returns>構造化 warning。</returns>
-    internal static ChartWarning Create(ChartWarningKind kind, string message)
+    /// <summary>事実を持たない種別です。</summary>
+    None,
+
+    /// <summary>パスを1つ持つ種別です。</summary>
+    Path,
+
+    /// <summary>パスを2つ持つ種別です。</summary>
+    PathPair,
+
+    /// <summary>導入先の候補パスの一覧を持つ種別です。</summary>
+    Candidates,
+
+    /// <summary>件数を持つ種別です。</summary>
+    Count,
+
+    /// <summary>資源健康度の割合と、存在数・定義数を持つ種別です。</summary>
+    ResourceHealth,
+
+    /// <summary>解析失敗の診断原文を持つ種別です。</summary>
+    ParseFailure
+}
+
+/// <summary>
+/// 譜面行に付与される構造化 warning です。
+/// 翻訳済みの文字列ではなく、種別と生成時の事実（パス・候補・件数・資源健康度・診断原文）だけを保持します。
+/// 短文と詳細は ViewModels の整形処理が読取り時に現在の表示言語で作るため、言語を変えても警告の同一性は変わりません。
+/// </summary>
+internal sealed class ChartWarning : IEquatable<ChartWarning>
+{
+    /// <summary>候補一覧の事実として保持する最大件数です。</summary>
+    internal const int MaxCandidateCount = 3;
+
+    /// <summary>候補一覧の事実として保持する最小件数です。</summary>
+    internal const int MinCandidateCount = 2;
+
+    // 事実を持たない種別は値が変わらないため、全件走査で大量に作られる場合に備えて共有します。
+    private static readonly ChartWarning[] sharedFactless = new ChartWarning[ChartWarningDefinition.KindCount];
+
+    private readonly ChartWarningDefinition definition;
+
+    private ChartWarning(
+        ChartWarningKind kind,
+        ChartWarningDefinition definition,
+        string path = "",
+        string secondaryPath = "",
+        ImmutableArray<string> candidates = default,
+        int count = 0,
+        int health = 0,
+        int? existingCount = null,
+        int? definedCount = null,
+        string exceptionType = "",
+        string failureKind = "",
+        string diagnosticMessage = "")
     {
-        var definition = ChartWarningDefinition.ForKind(kind);
+        Kind = kind;
+        this.definition = definition;
+        Path = path;
+        SecondaryPath = secondaryPath;
+        Candidates = candidates.IsDefault ? [] : candidates;
+        Count = count;
+        Health = health;
+        ExistingCount = existingCount;
+        DefinedCount = definedCount;
+        ExceptionType = exceptionType;
+        FailureKind = failureKind;
+        DiagnosticMessage = diagnosticMessage;
+    }
+
+    /// <summary>
+    /// 事実を持たない種別の警告を返します。同じ種別では同じインスタンスを共有します。
+    /// </summary>
+    /// <param name="kind">事実を持たない種別。</param>
+    /// <returns>構造化 warning。</returns>
+    /// <exception cref="ArgumentException">種別が事実を持つ形のときです。</exception>
+    internal static ChartWarning Create(ChartWarningKind kind)
+    {
+        ChartWarningDefinition definition = RequireShape(kind, ChartWarningShape.None);
+        return sharedFactless[(int)kind] ??= new ChartWarning(kind, definition);
+    }
+
+    /// <summary>
+    /// パスを1つ持つ種別の警告を作ります。
+    /// </summary>
+    /// <param name="kind">パスを1つ持つ種別。</param>
+    /// <param name="path">対象の候補パス。null は空文字として扱います。</param>
+    /// <returns>構造化 warning。</returns>
+    /// <exception cref="ArgumentException">種別がパスを1つ持つ形でないときです。</exception>
+    internal static ChartWarning CreateWithPath(ChartWarningKind kind, string path)
+    {
+        ChartWarningDefinition definition = RequireShape(kind, ChartWarningShape.Path);
+        return new ChartWarning(kind, definition, path: path ?? string.Empty);
+    }
+
+    /// <summary>
+    /// 選択した候補と、競合する候補の2つのパスを持つ警告を作ります。
+    /// </summary>
+    /// <param name="kind">パスを2つ持つ種別。</param>
+    /// <param name="path">選択した候補パス。null は空文字として扱います。</param>
+    /// <param name="secondaryPath">競合する候補パス。null は空文字として扱います。</param>
+    /// <returns>構造化 warning。</returns>
+    /// <exception cref="ArgumentException">種別がパスを2つ持つ形でないときです。</exception>
+    internal static ChartWarning CreateWithPathPair(ChartWarningKind kind, string path, string secondaryPath)
+    {
+        ChartWarningDefinition definition = RequireShape(kind, ChartWarningShape.PathPair);
+        return new ChartWarning(kind, definition, path: path ?? string.Empty, secondaryPath: secondaryPath ?? string.Empty);
+    }
+
+    /// <summary>
+    /// 導入先の候補パスの一覧を持つ警告を作ります。
+    /// </summary>
+    /// <param name="kind">候補一覧を持つ種別。</param>
+    /// <param name="candidates">候補パス。2件以上3件以下で、null の項目を含めません。</param>
+    /// <returns>構造化 warning。</returns>
+    /// <exception cref="ArgumentException">種別が候補一覧を持つ形でない、または候補の件数・項目が不正なときです。</exception>
+    internal static ChartWarning CreateWithCandidates(ChartWarningKind kind, IEnumerable<string> candidates)
+    {
+        ChartWarningDefinition definition = RequireShape(kind, ChartWarningShape.Candidates);
+        ArgumentNullException.ThrowIfNull(candidates);
+        ImmutableArray<string> values = [.. candidates];
+        if (values.Length < MinCandidateCount || values.Length > MaxCandidateCount || values.Any(value => value == null))
+        {
+            throw new ArgumentException("候補は null を含まない2件以上3件以下で指定してください。", nameof(candidates));
+        }
+        return new ChartWarning(kind, definition, candidates: values);
+    }
+
+    /// <summary>
+    /// 導入元の走査上限を超えたことを示す警告を作ります。
+    /// </summary>
+    /// <param name="maxVisitedCount">走査を打ち切った上限件数。</param>
+    /// <returns>構造化 warning。</returns>
+    internal static ChartWarning CreateSourceSurfaceScanLimitExceeded(int maxVisitedCount)
+    {
+        ChartWarningDefinition definition = RequireShape(ChartWarningKind.SourceSurfaceScanLimitExceeded, ChartWarningShape.Count);
+        return new ChartWarning(ChartWarningKind.SourceSurfaceScanLimitExceeded, definition, count: maxVisitedCount);
+    }
+
+    /// <summary>
+    /// 資源の健康度（割合・存在数・定義数）を持つ警告を作ります。
+    /// </summary>
+    /// <param name="kind">資源健康度の種別。</param>
+    /// <param name="health">健康度の割合。</param>
+    /// <param name="existingCount">存在する資源の数。</param>
+    /// <param name="definedCount">譜面が定義する資源の数。</param>
+    /// <returns>構造化 warning。</returns>
+    /// <exception cref="ArgumentException">種別が資源健康度の形でないときです。</exception>
+    internal static ChartWarning CreateResourceHealth(ChartWarningKind kind, int health, int? existingCount, int? definedCount)
+    {
+        ChartWarningDefinition definition = RequireShape(kind, ChartWarningShape.ResourceHealth);
+        return new ChartWarning(kind, definition, health: health, existingCount: existingCount, definedCount: definedCount);
+    }
+
+    /// <summary>
+    /// 譜面情報の解析失敗の診断原文を持つ警告を作ります。
+    /// 診断は記録された原文のまま保持し、欠落時の代替語は表示時に現在の言語で解決します。
+    /// </summary>
+    /// <param name="exceptionType">記録された例外型名。null は空文字として扱います。</param>
+    /// <param name="failureKind">記録された失敗分類。null は空文字として扱います。</param>
+    /// <param name="message">記録された本文。null は空文字として扱います。</param>
+    /// <returns>構造化 warning。</returns>
+    internal static ChartWarning CreateChartInfoParseFailure(string exceptionType, string failureKind, string message)
+    {
+        ChartWarningDefinition definition = RequireShape(ChartWarningKind.ChartInfoParseFailure, ChartWarningShape.ParseFailure);
         return new ChartWarning(
-            kind,
-            definition.Category,
-            definition.Priority,
-            definition.DigestLabel,
-            message,
-            definition.HighlightRow,
-            definition.ShowInDigest,
-            definition.ShowInTooltip);
+            ChartWarningKind.ChartInfoParseFailure,
+            definition,
+            exceptionType: exceptionType ?? string.Empty,
+            failureKind: failureKind ?? string.Empty,
+            diagnosticMessage: message ?? string.Empty);
     }
 
     /// <summary>
@@ -94,66 +245,165 @@ internal sealed class ChartWarning
     /// <summary>
     /// 一括削除に使う分類です。
     /// </summary>
-    internal ChartWarningCategory Category { get; }
+    internal ChartWarningCategory Category => definition.Category;
 
     /// <summary>
     /// digest 表示順を決める優先度です。小さいほど先に表示します。
     /// </summary>
-    internal int Priority { get; }
-
-    /// <summary>
-    /// 一覧セルの digest に出す短いラベルです。
-    /// </summary>
-    internal string DigestLabel { get; }
-
-    /// <summary>
-    /// tooltip と互換表示に使う詳細本文です。
-    /// </summary>
-    internal string Message { get; }
+    internal int Priority => definition.Priority;
 
     /// <summary>
     /// この warning が行全体の警告色対象かどうかです。
     /// </summary>
-    internal bool HighlightRow { get; }
+    internal bool HighlightRow => definition.HighlightRow;
 
     /// <summary>
     /// この warning を digest の label 候補に含めるかどうかです。
     /// </summary>
-    internal bool ShowInDigest { get; }
+    internal bool ShowInDigest => definition.ShowInDigest;
 
     /// <summary>
     /// この warning を tooltip 詳細に含めるかどうかです。
     /// </summary>
-    internal bool ShowInTooltip { get; }
+    internal bool ShowInTooltip => definition.ShowInTooltip;
 
-    private ChartWarning(ChartWarningKind kind, ChartWarningCategory category, int priority, string digestLabel, string message, bool highlightRow, bool showInDigest, bool showInTooltip)
+    /// <summary>
+    /// 種別が持つ事実の形です。
+    /// </summary>
+    internal ChartWarningShape Shape => definition.Shape;
+
+    /// <summary>
+    /// パスを持つ種別の（選択した）パスです。持たない種別では空文字です。
+    /// </summary>
+    internal string Path { get; }
+
+    /// <summary>
+    /// パスを2つ持つ種別の、競合する候補パスです。持たない種別では空文字です。
+    /// </summary>
+    internal string SecondaryPath { get; }
+
+    /// <summary>
+    /// 候補一覧を持つ種別の候補パスです（2件以上3件以下）。持たない種別では空です。
+    /// </summary>
+    internal ImmutableArray<string> Candidates { get; }
+
+    /// <summary>
+    /// 件数を持つ種別の件数です。持たない種別では 0 です。
+    /// </summary>
+    internal int Count { get; }
+
+    /// <summary>
+    /// 資源健康度の種別の健康度（割合）です。持たない種別では 0 です。
+    /// </summary>
+    internal int Health { get; }
+
+    /// <summary>
+    /// 資源健康度の種別の存在数です。
+    /// </summary>
+    internal int? ExistingCount { get; }
+
+    /// <summary>
+    /// 資源健康度の種別の定義数です。
+    /// </summary>
+    internal int? DefinedCount { get; }
+
+    /// <summary>
+    /// 解析失敗の種別で記録された例外型名の原文です。
+    /// </summary>
+    internal string ExceptionType { get; }
+
+    /// <summary>
+    /// 解析失敗の種別で記録された失敗分類の原文です。
+    /// </summary>
+    internal string FailureKind { get; }
+
+    /// <summary>
+    /// 解析失敗の種別で記録された本文の原文です。
+    /// </summary>
+    internal string DiagnosticMessage { get; }
+
+    /// <summary>
+    /// 種別と事実が同じ警告かどうかを返します。表示言語には依存しません。
+    /// </summary>
+    /// <param name="other">比較先。</param>
+    /// <returns>種別と事実が等しい場合は true。</returns>
+    public bool Equals(ChartWarning other)
     {
-        Kind = kind;
-        Category = category;
-        Priority = priority;
-        DigestLabel = digestLabel ?? string.Empty;
-        Message = message ?? string.Empty;
-        HighlightRow = highlightRow;
-        ShowInDigest = showInDigest;
-        ShowInTooltip = showInTooltip;
+        if (ReferenceEquals(this, other))
+        {
+            return true;
+        }
+        return other != null
+            && Kind == other.Kind
+            && Count == other.Count
+            && Health == other.Health
+            && ExistingCount == other.ExistingCount
+            && DefinedCount == other.DefinedCount
+            && string.Equals(Path, other.Path, StringComparison.Ordinal)
+            && string.Equals(SecondaryPath, other.SecondaryPath, StringComparison.Ordinal)
+            && string.Equals(ExceptionType, other.ExceptionType, StringComparison.Ordinal)
+            && string.Equals(FailureKind, other.FailureKind, StringComparison.Ordinal)
+            && string.Equals(DiagnosticMessage, other.DiagnosticMessage, StringComparison.Ordinal)
+            && Candidates.AsSpan().SequenceEqual(other.Candidates.AsSpan());
+    }
+
+    /// <inheritdoc />
+    public override bool Equals(object obj) => Equals(obj as ChartWarning);
+
+    /// <inheritdoc />
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Kind);
+        hash.Add(Path, StringComparer.Ordinal);
+        hash.Add(SecondaryPath, StringComparer.Ordinal);
+        hash.Add(Count);
+        hash.Add(Health);
+        hash.Add(ExistingCount);
+        hash.Add(DefinedCount);
+        hash.Add(ExceptionType, StringComparer.Ordinal);
+        hash.Add(FailureKind, StringComparer.Ordinal);
+        hash.Add(DiagnosticMessage, StringComparer.Ordinal);
+        foreach (string candidate in Candidates)
+        {
+            hash.Add(candidate, StringComparer.Ordinal);
+        }
+        return hash.ToHashCode();
+    }
+
+    private static ChartWarningDefinition RequireShape(ChartWarningKind kind, ChartWarningShape expected)
+    {
+        var definition = ChartWarningDefinition.ForKind(kind);
+        if (definition.Shape != expected)
+        {
+            throw new ArgumentException($"警告の種別 {kind} は {expected} の形では作成できません。", nameof(kind));
+        }
+        return definition;
     }
 }
 
 /// <summary>
-/// 構造化 warning の既定表示属性です。
-/// 仮の priority と digest label を一箇所に集約し、後続調整を局所化します。
+/// 構造化 warning の既定属性です。
+/// 分類・優先度・強調・表示対象・事実の形を種別ごとに一箇所へ集約します。
+/// 表示文言は持たず、現在の表示言語での文言は ViewModels の整形処理が選びます。
 /// </summary>
 internal sealed class ChartWarningDefinition
 {
-    private ChartWarningDefinition(ChartWarningCategory category, int priority, string digestLabel, bool highlightRow, bool showInDigest = true, bool showInTooltip = true)
+    private static readonly ChartWarningDefinition[] definitions = BuildDefinitions();
+
+    private ChartWarningDefinition(ChartWarningCategory category, int priority, ChartWarningShape shape, bool highlightRow, bool showInDigest = true)
     {
         Category = category;
         Priority = priority;
-        DigestLabel = digestLabel ?? string.Empty;
+        Shape = shape;
         HighlightRow = highlightRow;
         ShowInDigest = showInDigest;
-        ShowInTooltip = showInTooltip;
     }
+
+    /// <summary>
+    /// 種別の総数です。種別は 0 から連続した値です。
+    /// </summary>
+    internal static int KindCount => definitions.Length;
 
     /// <summary>
     /// WARNING の分類です。
@@ -166,9 +416,9 @@ internal sealed class ChartWarningDefinition
     internal int Priority { get; }
 
     /// <summary>
-    /// digest に表示する短い文言です。
+    /// 種別が持つ事実の形です。
     /// </summary>
-    internal string DigestLabel { get; }
+    internal ChartWarningShape Shape { get; }
 
     /// <summary>
     /// 行全体を警告色にするかどうかです。
@@ -181,322 +431,68 @@ internal sealed class ChartWarningDefinition
     internal bool ShowInDigest { get; }
 
     /// <summary>
-    /// tooltip に含めるかどうかです。
+    /// tooltip に含めるかどうかです。すべての種別で含めます。
     /// </summary>
-    internal bool ShowInTooltip { get; }
+    internal bool ShowInTooltip => true;
 
     /// <summary>
-    /// kind に対応する既定表示属性を返します。
+    /// kind に対応する既定属性を返します。
     /// </summary>
     /// <param name="kind">warning の種類。</param>
-    /// <returns>既定表示属性。</returns>
+    /// <returns>既定属性。</returns>
     internal static ChartWarningDefinition ForKind(ChartWarningKind kind)
+    {
+        int index = (int)kind;
+        if ((uint)index >= (uint)definitions.Length)
+        {
+            throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
+        }
+        return definitions[index];
+    }
+
+    private static ChartWarningDefinition[] BuildDefinitions()
+    {
+        ChartWarningKind[] kinds = Enum.GetValues<ChartWarningKind>();
+        var table = new ChartWarningDefinition[kinds.Length];
+        foreach (ChartWarningKind kind in kinds)
+        {
+            table[(int)kind] = Create(kind);
+        }
+        return table;
+    }
+
+    private static ChartWarningDefinition Create(ChartWarningKind kind)
     {
         return kind switch
         {
-            ChartWarningKind.NestedChartFileInPackage => new ChartWarningDefinition(ChartWarningCategory.PackageLayout, 10, Resources.WarningDigest_NestedChart, highlightRow: false),
-            ChartWarningKind.ResourceBearingNestedCharts => new ChartWarningDefinition(ChartWarningCategory.PackageLayout, 9, Resources.WarningDigest_ResourceBearingNestedCharts, highlightRow: true),
-            ChartWarningKind.ZeroNoteMismatch => new ChartWarningDefinition(ChartWarningCategory.ChartContent, 20, Resources.WarningDigest_ZeroNoteMismatch, highlightRow: true),
-            ChartWarningKind.ChartInfoParseFailure => new ChartWarningDefinition(ChartWarningCategory.ChartMetadata, 15, Resources.WarningDigest_ChartInfoParseFailure, highlightRow: true),
-            ChartWarningKind.Lr2PathEncodingUnsupported => new ChartWarningDefinition(ChartWarningCategory.Lr2Compatibility, 18, Resources.WarningDigest_Lr2PathEncodingUnsupported, highlightRow: true),
-            ChartWarningKind.Lr2PathTooLong => new ChartWarningDefinition(ChartWarningCategory.Lr2Compatibility, 19, Resources.WarningDigest_Lr2PathTooLong, highlightRow: true),
-            ChartWarningKind.Lr2ResourcePathUnsupported => new ChartWarningDefinition(ChartWarningCategory.Lr2Compatibility, 21, Resources.WarningDigest_Lr2ResourcePathUnsupported, highlightRow: true),
-            ChartWarningKind.Lr2ResourcePathTooLong => new ChartWarningDefinition(ChartWarningCategory.Lr2Compatibility, 22, Resources.WarningDigest_Lr2ResourcePathTooLong, highlightRow: true),
-            ChartWarningKind.DuplicateChart => new ChartWarningDefinition(ChartWarningCategory.Duplicate, 30, Resources.WarningDigest_DuplicateChart, highlightRow: true),
-            ChartWarningKind.InstallEstimationAmbiguous => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 40, Resources.WarningDigest_InstallEstimationAmbiguous, highlightRow: true),
-            ChartWarningKind.InstallEstimationMetadataMismatch => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 41, Resources.WarningDigest_InstallEstimationMetadataMismatch, highlightRow: true),
-            ChartWarningKind.InstallEstimationUnrelated => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 42, Resources.WarningDigest_InstallEstimationUnrelated, highlightRow: true),
-            ChartWarningKind.InstallEstimationMetadataUnavailable => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 42, Resources.WarningDigest_InstallEstimationMetadataUnavailable, highlightRow: true),
-            ChartWarningKind.InstallEstimationAudioMissing => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 42, Resources.WarningDigest_InstallEstimationAudioMissing, highlightRow: true),
-            ChartWarningKind.InstallEstimationAudioUnverifiable => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 42, Resources.WarningDigest_InstallEstimationAudioUnverifiable, highlightRow: true),
-            ChartWarningKind.InstallEstimationReinstallNotImproved => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 43, Resources.WarningDigest_InstallEstimationReinstallNotImproved, highlightRow: true),
-            ChartWarningKind.InstalledDestinationAmbiguous => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 43, Resources.WarningDigest_InstalledDestinationAmbiguous, highlightRow: true),
-            ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 43, Resources.WarningDigest_InstalledDestinationAutoAppliedAmbiguous, highlightRow: true),
-            ChartWarningKind.UnsupportedResourcePath => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 44, Resources.WarningDigest_UnsupportedResourcePath, highlightRow: false),
-            ChartWarningKind.InstalledDestinationResolveFailed => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 45, Resources.WarningDigest_InstalledDestinationResolveFailed, highlightRow: false),
-            ChartWarningKind.SourceSurfaceScanLimitExceeded => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 46, Resources.WarningDigest_SourceSurfaceScanLimitExceeded, highlightRow: false),
-            ChartWarningKind.InstallEstimationLowConfidence => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 47, Resources.WarningDigest_InstallEstimationLowConfidence, highlightRow: true),
-            ChartWarningKind.AlreadyInstalled => new ChartWarningDefinition(ChartWarningCategory.InstalledState, 50, Resources.WarningDigest_AlreadyInstalled, highlightRow: false),
-            ChartWarningKind.SingleBmsFile => new ChartWarningDefinition(ChartWarningCategory.PackageLayout, 60, Resources.WarningDigest_SingleBmsFile, highlightRow: false),
-            ChartWarningKind.SingleBmsonFile => new ChartWarningDefinition(ChartWarningCategory.PackageLayout, 60, Resources.WarningDigest_SingleBmsonFile, highlightRow: false),
-            ChartWarningKind.ResourceWavMissing or ChartWarningKind.ResourceBgaMissing or ChartWarningKind.ResourceMovieMissing => new ChartWarningDefinition(ChartWarningCategory.ResourceHealth, 80, Resources.WarningDigest_ResourceMissing, highlightRow: false),
-            ChartWarningKind.ResourceStagefileMissing or ChartWarningKind.ResourceBackbmpMissing or ChartWarningKind.ResourceBannerMissing => new ChartWarningDefinition(ChartWarningCategory.ResourceHealth, 83, Resources.WarningDigest_ImageMissing, highlightRow: false, showInDigest: false),
+            ChartWarningKind.NestedChartFileInPackage => new(ChartWarningCategory.PackageLayout, 10, ChartWarningShape.None, highlightRow: false),
+            ChartWarningKind.ResourceBearingNestedCharts => new(ChartWarningCategory.PackageLayout, 9, ChartWarningShape.None, highlightRow: true),
+            ChartWarningKind.ZeroNoteMismatch => new(ChartWarningCategory.ChartContent, 20, ChartWarningShape.None, highlightRow: true),
+            ChartWarningKind.ChartInfoParseFailure => new(ChartWarningCategory.ChartMetadata, 15, ChartWarningShape.ParseFailure, highlightRow: true),
+            ChartWarningKind.Lr2PathEncodingUnsupported => new(ChartWarningCategory.Lr2Compatibility, 18, ChartWarningShape.None, highlightRow: true),
+            ChartWarningKind.Lr2PathTooLong => new(ChartWarningCategory.Lr2Compatibility, 19, ChartWarningShape.None, highlightRow: true),
+            ChartWarningKind.Lr2ResourcePathUnsupported => new(ChartWarningCategory.Lr2Compatibility, 21, ChartWarningShape.None, highlightRow: true),
+            ChartWarningKind.Lr2ResourcePathTooLong => new(ChartWarningCategory.Lr2Compatibility, 22, ChartWarningShape.None, highlightRow: true),
+            ChartWarningKind.DuplicateChart => new(ChartWarningCategory.Duplicate, 30, ChartWarningShape.None, highlightRow: true),
+            ChartWarningKind.InstallEstimationAmbiguous => new(ChartWarningCategory.InstallEstimation, 40, ChartWarningShape.PathPair, highlightRow: true),
+            ChartWarningKind.InstallEstimationMetadataMismatch => new(ChartWarningCategory.InstallEstimation, 41, ChartWarningShape.Path, highlightRow: true),
+            ChartWarningKind.InstallEstimationUnrelated => new(ChartWarningCategory.InstallEstimation, 42, ChartWarningShape.Path, highlightRow: true),
+            ChartWarningKind.InstallEstimationMetadataUnavailable => new(ChartWarningCategory.InstallEstimation, 42, ChartWarningShape.Path, highlightRow: true),
+            ChartWarningKind.InstallEstimationAudioMissing => new(ChartWarningCategory.InstallEstimation, 42, ChartWarningShape.Path, highlightRow: true),
+            ChartWarningKind.InstallEstimationAudioUnverifiable => new(ChartWarningCategory.InstallEstimation, 42, ChartWarningShape.Path, highlightRow: true),
+            ChartWarningKind.InstallEstimationReinstallNotImproved => new(ChartWarningCategory.InstallEstimation, 43, ChartWarningShape.Path, highlightRow: true),
+            ChartWarningKind.InstalledDestinationAmbiguous => new(ChartWarningCategory.InstallEstimation, 43, ChartWarningShape.Candidates, highlightRow: true),
+            ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous => new(ChartWarningCategory.InstallEstimation, 43, ChartWarningShape.Candidates, highlightRow: true),
+            ChartWarningKind.UnsupportedResourcePath => new(ChartWarningCategory.InstallEstimation, 44, ChartWarningShape.None, highlightRow: false),
+            ChartWarningKind.InstalledDestinationResolveFailed => new(ChartWarningCategory.InstallEstimation, 45, ChartWarningShape.None, highlightRow: false),
+            ChartWarningKind.SourceSurfaceScanLimitExceeded => new(ChartWarningCategory.InstallEstimation, 46, ChartWarningShape.Count, highlightRow: false),
+            ChartWarningKind.InstallEstimationLowConfidence => new(ChartWarningCategory.InstallEstimation, 47, ChartWarningShape.None, highlightRow: true),
+            ChartWarningKind.AlreadyInstalled => new(ChartWarningCategory.InstalledState, 50, ChartWarningShape.None, highlightRow: false),
+            ChartWarningKind.SingleBmsFile => new(ChartWarningCategory.PackageLayout, 60, ChartWarningShape.None, highlightRow: false),
+            ChartWarningKind.SingleBmsonFile => new(ChartWarningCategory.PackageLayout, 60, ChartWarningShape.None, highlightRow: false),
+            ChartWarningKind.ResourceWavMissing or ChartWarningKind.ResourceBgaMissing or ChartWarningKind.ResourceMovieMissing => new(ChartWarningCategory.ResourceHealth, 80, ChartWarningShape.ResourceHealth, highlightRow: false),
+            ChartWarningKind.ResourceStagefileMissing or ChartWarningKind.ResourceBackbmpMissing or ChartWarningKind.ResourceBannerMissing => new(ChartWarningCategory.ResourceHealth, 83, ChartWarningShape.None, highlightRow: false, showInDigest: false),
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
         };
-    }
-}
-
-/// <summary>
-/// 譜面行が保持する構造化 warning collection です。
-/// 構造化 warning から表示用文字列と行色を計算します。
-/// </summary>
-internal sealed class ChartWarningCollection
-{
-    private readonly Action onChanged;
-    private readonly Func<string> getInstallDestination;
-    private readonly Dictionary<ChartWarningKind, ChartWarning> structuredWarnings = [];
-
-    /// <summary>
-    /// 指定した譜面行に紐付く collection を作成します。
-    /// </summary>
-    /// <param name="onChanged">内容変更時に呼び出す通知 callback。</param>
-    /// <param name="getInstallDestination">digest 表示判定に使う導入先 provider。</param>
-    internal ChartWarningCollection(Action onChanged, Func<string> getInstallDestination)
-    {
-        this.onChanged = onChanged ?? throw new ArgumentNullException(nameof(onChanged));
-        this.getInstallDestination = getInstallDestination ?? throw new ArgumentNullException(nameof(getInstallDestination));
-    }
-
-    /// <summary>
-    /// 構造化 warning を追加または置き換えます。
-    /// </summary>
-    /// <param name="warning">追加する warning。</param>
-    internal void Set(ChartWarning warning)
-    {
-        if (warning == null)
-        {
-            return;
-        }
-        structuredWarnings[warning.Kind] = warning;
-        NotifyChanged();
-    }
-
-    /// <summary>
-    /// 指定 kind の構造化 warning を削除します。
-    /// </summary>
-    /// <param name="kind">削除する warning kind。</param>
-    internal void Remove(ChartWarningKind kind)
-    {
-        if (structuredWarnings.Remove(kind))
-        {
-            NotifyChanged();
-        }
-    }
-
-    /// <summary>
-    /// 指定カテゴリの構造化 warning を削除します。
-    /// </summary>
-    /// <param name="category">削除するカテゴリ。</param>
-    internal void RemoveCategory(ChartWarningCategory category)
-    {
-        bool removed = false;
-        foreach (ChartWarningKind kind in structuredWarnings.Where(pair => pair.Value.Category == category).Select(pair => pair.Key).ToList())
-        {
-            structuredWarnings.Remove(kind);
-            removed = true;
-        }
-        if (removed)
-        {
-            NotifyChanged();
-        }
-    }
-
-    /// <summary>
-    /// 指定カテゴリの構造化 warning をまとめて入れ替えます。
-    /// </summary>
-    /// <param name="category">入れ替えるカテゴリ。</param>
-    /// <param name="warnings">新しい warning 一覧。</param>
-    internal void ReplaceCategory(ChartWarningCategory category, IEnumerable<ChartWarning> warnings)
-    {
-        bool changed = false;
-        foreach (ChartWarningKind kind in structuredWarnings.Where(pair => pair.Value.Category == category).Select(pair => pair.Key).ToList())
-        {
-            structuredWarnings.Remove(kind);
-            changed = true;
-        }
-        foreach (ChartWarning warning in warnings ?? [])
-        {
-            if (warning == null || warning.Category != category)
-            {
-                continue;
-            }
-            structuredWarnings[warning.Kind] = warning;
-            changed = true;
-        }
-        if (changed)
-        {
-            NotifyChanged();
-        }
-    }
-
-    /// <summary>
-    /// 構造化 warning の内容をコピーします。
-    /// </summary>
-    /// <param name="warnings">コピー元 warning。</param>
-    internal void ReplaceAll(IEnumerable<ChartWarning> warnings)
-    {
-        structuredWarnings.Clear();
-        foreach (ChartWarning warning in warnings ?? [])
-        {
-            if (warning != null)
-            {
-                structuredWarnings[warning.Kind] = warning;
-            }
-        }
-        NotifyChanged();
-    }
-
-    /// <summary>
-    /// すべての構造化 warning を削除します。
-    /// pending warning の完全再初期化など、種類を問わず作り直す場面で使います。
-    /// </summary>
-    internal void Clear()
-    {
-        if (structuredWarnings.Count == 0)
-        {
-            return;
-        }
-        structuredWarnings.Clear();
-        NotifyChanged();
-    }
-
-    /// <summary>
-    /// 指定 kind の構造化 warning が存在するかどうかを返します。
-    /// </summary>
-    /// <param name="kind">確認する kind。</param>
-    /// <returns>存在する場合は true。</returns>
-    internal bool Contains(ChartWarningKind kind)
-    {
-        return structuredWarnings.ContainsKey(kind);
-    }
-
-    /// <summary>
-    /// 指定カテゴリの構造化 warning が存在するかどうかを返します。
-    /// </summary>
-    /// <param name="category">確認するカテゴリ。</param>
-    /// <returns>存在する場合は true。</returns>
-    internal bool ContainsCategory(ChartWarningCategory category)
-    {
-        return structuredWarnings.Values.Any(warning => warning.Category == category);
-    }
-
-    /// <summary>
-    /// 現在保持している構造化 warning を列挙します。
-    /// </summary>
-    /// <returns>構造化 warning の snapshot。</returns>
-    internal IReadOnlyList<ChartWarning> ToStructuredList()
-    {
-        return [.. structuredWarnings.Values];
-    }
-
-    /// <summary>
-    /// WARNING 列の 1 行目に表示する digest を作成します。
-    /// </summary>
-    /// <returns>digest 表示文字列。</returns>
-    internal string BuildDigestText()
-    {
-        return BuildDigestText(EnumerateEffectiveWarnings(), getInstallDestination?.Invoke());
-    }
-
-    internal static string BuildDigestText(IEnumerable<ChartWarning> sourceWarnings, string installDestination)
-    {
-        return BuildDigestText(sourceWarnings, installDestination, hideResourceHealthDigestWhenInstallDestinationSet: true);
-    }
-
-    internal static string BuildDigestText(
-        IEnumerable<ChartWarning> sourceWarnings,
-        string installDestination,
-        bool hideResourceHealthDigestWhenInstallDestinationSet)
-    {
-        List<ChartWarning> warnings = [.. EnumerateEffectiveWarnings(sourceWarnings)];
-        if (warnings.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        string[] labels = [.. warnings
-            .Where(warning => warning.ShowInDigest && ShouldShowInDigest(warning, installDestination, hideResourceHealthDigestWhenInstallDestinationSet))
-            .OrderBy(warning => warning.Priority)
-            .Select(warning => warning.DigestLabel)
-            .Where(label => !string.IsNullOrWhiteSpace(label))
-            .Distinct(StringComparer.Ordinal)];
-        if (labels.Length == 0)
-        {
-            return string.Empty;
-        }
-        return "[" + warnings.Select(warning => warning.Kind).Distinct().Count() + "] " + string.Join(", ", labels);
-    }
-
-    /// <summary>
-    /// tooltip に表示する詳細本文を作成します。
-    /// </summary>
-    /// <returns>tooltip 表示文字列。</returns>
-    internal string BuildTooltipText()
-    {
-        return BuildTooltipText(EnumerateEffectiveWarnings());
-    }
-
-    internal static string BuildTooltipText(IEnumerable<ChartWarning> sourceWarnings)
-    {
-        return string.Join(
-            Environment.NewLine,
-            [.. EnumerateEffectiveWarnings(sourceWarnings)
-                .Where(warning => warning.ShowInTooltip)
-                .OrderBy(warning => warning.Priority)
-                .Select(warning => warning.Message)
-                .Where(message => !string.IsNullOrWhiteSpace(message))
-                .Distinct(StringComparer.Ordinal)]);
-    }
-
-    /// <summary>
-    /// 互換表示用の WARNING 全文を作成します。
-    /// </summary>
-    /// <returns>詳細表示文字列。</returns>
-    internal string BuildDisplayText()
-    {
-        return BuildTooltipText();
-    }
-
-    internal static string BuildDisplayText(IEnumerable<ChartWarning> sourceWarnings)
-    {
-        return BuildTooltipText(sourceWarnings);
-    }
-
-    /// <summary>
-    /// いずれかの warning が行ハイライトを要求しているかどうかです。
-    /// </summary>
-    internal bool HasHighlightedWarning => HasAnyHighlightedWarning(EnumerateEffectiveWarnings());
-
-    internal static bool HasAnyHighlightedWarning(IEnumerable<ChartWarning> sourceWarnings)
-    {
-        return EnumerateEffectiveWarnings(sourceWarnings).Any(warning => warning.HighlightRow);
-    }
-
-    private static bool ShouldShowInDigest(ChartWarning warning, string installDestination, bool hideResourceHealthDigestWhenInstallDestinationSet)
-    {
-        if (hideResourceHealthDigestWhenInstallDestinationSet && warning.Category == ChartWarningCategory.ResourceHealth)
-        {
-            return string.IsNullOrWhiteSpace(installDestination);
-        }
-        return true;
-    }
-
-    private IEnumerable<ChartWarning> EnumerateEffectiveWarnings()
-    {
-        Dictionary<ChartWarningKind, ChartWarning> effective = [];
-        foreach (ChartWarning warning in structuredWarnings.Values)
-        {
-            effective[warning.Kind] = warning;
-        }
-
-        return effective.Values;
-    }
-
-    private static IEnumerable<ChartWarning> EnumerateEffectiveWarnings(IEnumerable<ChartWarning> sourceWarnings)
-    {
-        Dictionary<ChartWarningKind, ChartWarning> effective = [];
-        foreach (ChartWarning warning in sourceWarnings ?? [])
-        {
-            if (warning != null)
-            {
-                effective[warning.Kind] = warning;
-            }
-        }
-        return effective.Values;
-    }
-
-    private void NotifyChanged()
-    {
-        onChanged?.Invoke();
     }
 }

@@ -635,6 +635,110 @@ public sealed class RegularChartViewBuildAndOrderingTests
         });
     }
 
+    /// <summary>
+    /// WARNING列の整列順キャッシュが、同じ事実の警告の作り直しでは保持され、警告の事実が変わったときだけ失効することを確認します。
+    /// 警告を翻訳済み文字列で比較して作り直しのたびに整列を失効させる誤りと、事実の変化で古い順序を使い続ける誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void WarningOrderCache_RetainedForRecreatedSameFactsAndPrunedOnWarningFactChange()
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+        WithTemporarySongDb(path =>
+        {
+            var library = new TestBmsLibrary(databaseScope, path);
+            CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
+            ChartFile Make(string title, params ChartWarning[] warnings) => ChartTestValues.Empty(ChartFileKind.Bms) with
+            {
+                Path = @"C:\Charts\" + title + ".bms",
+                Md5 = title,
+                Title = title,
+                Folder = "Folder",
+                Token = new OwnedChartToken(),
+                Warnings = warnings
+            };
+            ChartFile[] Facts(int health) =>
+            [
+                Make("A"),
+                Make("B", ChartWarning.Create(ChartWarningKind.DuplicateChart)),
+                Make("C", ChartWarning.CreateResourceHealth(ChartWarningKind.ResourceWavMissing, health, 1, 4)),
+            ];
+            catalog.ReplaceCharts(Facts(25), []);
+            var table = new MainChartListViewModel();
+            using var scheduler = new ScoreDeliveryUiScheduler();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner(), action => action(), scheduler);
+            void Deliver(string reason)
+            {
+                owner.QueueLatestNormalLibraryRefreshNotification(reason, library);
+                Task delivery = owner.DeliverPendingLibraryChangesAsync(library, CancellationToken.None);
+                // 配送が必要とする予約済みのUI操作だけを実行し、予約がなければ配送の終端を待ちます。
+                var timeout = Stopwatch.StartNew();
+                while (!delivery.IsCompleted)
+                {
+                    if (scheduler.TryTake(out ScheduledScoreOperation? operation)) { operation.Run(); operation.Complete(); }
+                    else if (timeout.Elapsed > TimeSpan.FromSeconds(20)) { Assert.Fail("警告の配送が終端しませんでした: " + reason); }
+                    else { delivery.Wait(5); }
+                }
+                delivery.GetAwaiter().GetResult();
+            }
+            try
+            {
+                owner.AttachNormalLibraryRefreshSource(library);
+                Deliver("initial");
+                var request = new RegularVirtualNormalLibraryApplyRequest
+                {
+                    Library = library,
+                    IncludeBmsonRows = false,
+                    TreeFilter = null,
+                    KeywordFilter = string.Empty,
+                    ModeFilter = ChartModeFilter.All,
+                    SortColumnName = nameof(LibraryChartRow.WarningDigestText),
+                    SortDirection = ListSortDirection.Ascending,
+                    ExternalVersions = new RegularChartListExternalVersions(0, 0, 0),
+                    ColumnSelection = new MainChartListColumnSelection(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD), false, 0L,
+                        MainViewUpdateMode.FolderFilterSelected, Visibility.Collapsed, new PlaylistSummaryColumnSettings()),
+                    Mode = MainViewUpdateMode.FolderFilterSelected,
+                    Stopwatch = Stopwatch.StartNew(),
+                    Reason = "warning_order_cache"
+                };
+                Assert.IsFalse(owner.TryApplyVirtualNormalLibrary(request).SortCacheHit, "初回は整列を計算します。");
+                Assert.IsTrue(owner.TryApplyVirtualNormalLibrary(request).SortCacheHit, "同じ要求は整列順を再利用します。");
+
+                // 基本値の変更と、同じ事実の警告の作り直しでは整列順キャッシュを失効させません。
+                CatalogChartCollectionSnapshot snapshot = library.CaptureNormalLibraryChartSnapshot();
+                ChartFile target = snapshot.BmsRows.Single(row => row.Title == "C");
+                catalog.CommitCurrentValues([target], (current, _) => current with { Genre = "renamed" });
+                Deliver("title_only");
+                Assert.IsTrue(owner.TryApplyVirtualNormalLibrary(request).SortCacheHit, "警告以外の変更は整列順を失効させません。");
+                target = library.CaptureNormalLibraryChartSnapshot().BmsRows.Single(row => row.Title == "C");
+                catalog.CommitCurrentValues([target], (current, _) => current with
+                {
+                    // 基本値の変更と、同じ事実の別インスタンスの警告の作り直しを1つのコミットにまとめます。
+                    Genre = "recreated",
+                    Warnings = [ChartWarning.CreateResourceHealth(ChartWarningKind.ResourceWavMissing, 25, 1, 4)]
+                });
+                Deliver("same_facts");
+                Assert.IsTrue(owner.TryApplyVirtualNormalLibrary(request).SortCacheHit, "同じ事実の作り直しは整列順を失効させません。");
+
+                // 要約(ラベル・種類数)が変わらない事実(件数・割合)だけの変更でも失効し、再計算します。
+                target = library.CaptureNormalLibraryChartSnapshot().BmsRows.Single(row => row.Title == "C");
+                catalog.CommitCurrentValues([target], (current, _) => current with
+                {
+                    Warnings = [ChartWarning.CreateResourceHealth(ChartWarningKind.ResourceWavMissing, 50, 2, 4)]
+                });
+                Deliver("fact_changed");
+                Assert.IsFalse(owner.TryApplyVirtualNormalLibrary(request).SortCacheHit, "警告の事実が変わると整列順を再計算します。");
+            }
+            finally
+            {
+                Task stop = owner.StopAsync();
+                scheduler.AbortOutstanding();
+                while (scheduler.TryTake(out ScheduledScoreOperation? pending)) { pending.Run(); pending.Complete(); }
+                stop.GetAwaiter().GetResult();
+                library.RequestShutdown("warning_order_cache_test");
+            }
+        });
+    }
+
     /// <summary>通常一覧のfolder絞込みとtitle降順を終端へ確定し、同条件の次要求はsourceとorderを再利用して、絞込み欠けと不要再計算を検出します。</summary>
     [TestMethod]
     public void VirtualNormalLibraryApply_OwnsSourceOrderFilterAndTerminalReuse()

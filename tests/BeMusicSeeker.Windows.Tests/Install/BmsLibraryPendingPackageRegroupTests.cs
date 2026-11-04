@@ -54,7 +54,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual(known.Md5, unrelatedEntry.Chart.Md5);
             Assert.IsFalse(unrelatedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
             string unrelatedDestinationBefore = unrelatedEntry.Chart.InstallDestination;
-            (ChartWarningKind Kind, string Message)[] unrelatedWarningsBefore = unrelatedEntry.Chart.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray();
+            ChartWarning[] unrelatedWarningsBefore = unrelatedEntry.Chart.Warnings.ToArray();
             var sourceHandles = new List<FileStream>();
             try
             {
@@ -101,7 +101,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             {
                 Assert.AreEqual(unrelatedDestinationBefore, unrelatedEntry.Chart.InstallDestination);
                 CollectionAssert.AreEqual(unrelatedWarningsBefore,
-                    unrelatedEntry.Chart.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray(),
+                    unrelatedEntry.Chart.Warnings.ToArray(),
                     "要求外の新parse既所持hash entryは警告もDSTも更新しません。");
             }
         });
@@ -198,8 +198,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             library.SearchEstimatedInstallationDirectory(package);
             Assert.AreEqual(PendingEstimateDeferredReason.None, package.DeferredEstimateReason);
             PendingEstimateDeferredReason reasonBefore = package.DeferredEstimateReason;
-            (ChartWarningKind Kind, string Message)[][] warningsBefore = package.ChartEntries.Select(entry => entry.Chart.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray()).ToArray();
-            string unsupportedMessage = unsupported.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.UnsupportedResourcePath).Message;
+            ChartWarning[][] warningsBefore = package.ChartEntries.Select(entry => entry.Chart.Warnings.ToArray()).ToArray();
+            ChartWarning unsupportedWarning = unsupported.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.UnsupportedResourcePath);
             var store = new BmsLibraryPendingPackageStore();
             Assert.IsTrue(GridRowResolver.TryGetInstallDestinationEditTarget(LibraryChartRow.FromChartFile(owned), ChartOperationSourceScope.Library,
                 MainViewOperationSection.FullScanCheck, out ChartOperationTarget ownedTarget));
@@ -209,7 +209,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual(reasonBefore, package.DeferredEstimateReason);
             for (int index = 0; index < package.ChartEntries.Count; index++)
             {
-                CollectionAssert.AreEqual(warningsBefore[index], package.ChartEntries[index].Chart.Warnings.Select(warning => (warning.Kind, warning.Message)).ToArray());
+                CollectionAssert.AreEqual(warningsBefore[index], package.ChartEntries[index].Chart.Warnings.ToArray());
             }
             Assert.IsTrue(string.IsNullOrEmpty(first.Chart.InstallDestination)); Assert.IsTrue(string.IsNullOrEmpty(second.Chart.InstallDestination));
             Assert.IsTrue(string.IsNullOrEmpty(unsupported.Chart.InstallDestination));
@@ -221,7 +221,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual(pendingDst, first.Chart.InstallDestination); Assert.AreEqual(pendingDst, second.Chart.InstallDestination);
             Assert.AreEqual(pendingDst, unsupported.Chart.InstallDestination);
             Assert.AreEqual(PendingEstimateDeferredReason.None, package.DeferredEstimateReason);
-            Assert.AreEqual(unsupportedMessage, unsupported.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.UnsupportedResourcePath).Message);
+            Assert.AreEqual(unsupportedWarning, unsupported.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.UnsupportedResourcePath));
             Assert.AreEqual(ownedDst, changed.InstallDestination); Assert.IsTrue(string.IsNullOrEmpty(sibling.InstallDestination));
             SeedPendingPackages(library, db);
             Assert.IsNull(store.SetPending(library, pendingRequest, ownedDst));
@@ -625,7 +625,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 Assert.IsTrue(string.IsNullOrEmpty(target.Chart.InstallDestination));
                 Assert.AreEqual(PendingEstimateDeferredReason.SourceSurfaceScanLimitExceeded, package.DeferredEstimateReason);
                 ChartWarning warning = target.Chart.Warnings.Single(item => item.Kind == ChartWarningKind.SourceSurfaceScanLimitExceeded);
-                Assert.AreEqual(string.Format(BeMusicSeeker.Properties.Resources.Warning_SourceSurfaceScanLimitExceeded, 1), warning.Message);
+                Assert.AreEqual(1, warning.Count);
+                Assert.AreEqual(string.Format(BeMusicSeeker.Properties.Resources.Warning_SourceSurfaceScanLimitExceeded, 1), ChartWarningProjectionFormatter.GetDetailText(warning));
                 Assert.IsTrue(package.ChartEntries.All(entry => !entry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING)));
             }
         }, observer);
@@ -2647,7 +2648,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             SeedPendingPackages(library, songDbPath, pendingPackage);
             SetLibraryResourceIndex(library, BuildDirectoryLookupCache(sourceDirectoryPath, candidateDirectoryPath));
 
-            pendingPackage.ChartEntries.Single().SetWarning(ChartWarningKind.SingleBmsFile, BeMusicSeeker.Properties.Resources.Warning_SingleBmsFile);
+            pendingPackage.ChartEntries.Single().SetWarning(ChartWarningKind.SingleBmsFile);
             library.SearchEstimatedInstallationDirectory(pendingPackage);
             PackageChartEntry pendingEntry = GetOnlyEntry(pendingPackage);
             Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));

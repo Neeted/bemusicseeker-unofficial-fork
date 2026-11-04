@@ -282,7 +282,12 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
         using IDisposable culture = TestCultureScope.UseJapaneseCulture();
         ChartWarning warning = BmsLibraryMaintenanceService.BuildResourceHealthWarnings(Complete(4, 1)).Single();
-        Assert.AreEqual(string.Format(Resources.Warning_WavFilesNotFound, 25, 1, 4), warning.Message);
+        // 警告は翻訳済み文字列ではなく事実(割合・存在数・定義数)を保持し、詳細は現在の言語の資源から読取り時に作ります。
+        Assert.AreEqual(ChartWarningKind.ResourceWavMissing, warning.Kind);
+        Assert.AreEqual(25, warning.Health);
+        Assert.AreEqual(1, warning.ExistingCount);
+        Assert.AreEqual(4, warning.DefinedCount);
+        Assert.AreEqual(string.Format(Resources.Warning_WavFilesNotFound, 25, 1, 4), ChartWarningProjectionFormatter.GetDetailText(warning));
     }
 
     /// <summary>使用集合ごとに保守キャッシュを分離します。未定義IDを混ぜても定義先二件中一件の50%を保ち、未定義だけなら0件・N/A・不足警告なし、名前付き親参照は個別の未充足へ計数します。</summary>
@@ -454,7 +459,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.Lr2PathTooLong));
         Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.Lr2ResourcePathUnsupported));
         Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.Lr2ResourcePathTooLong));
-        Assert.AreEqual("[4] LR2パス非対応, LR2パス長超過, LR2リソース非対応, LR2リソースパス長超過", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
+        Assert.AreEqual("[4] LR2パス非対応, LR2パス長超過, LR2リソース非対応, LR2リソースパス長超過", ChartWarningProjectionFormatter.BuildDigestText(file.Warnings, file.InstallDestination));
     }
 
     /// <summary>
@@ -465,13 +470,13 @@ public sealed class BmsLibraryMaintenanceServiceTests
     {
 
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.Lr2PathEncodingUnsupported), ChartWarning.Create(ChartWarningKind.Lr2PathEncodingUnsupported, Resources.Warning_Lr2PathEncodingUnsupported)] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.Lr2PathEncodingUnsupported), ChartWarning.Create(ChartWarningKind.Lr2PathEncodingUnsupported)] };
         var info = new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5, Lr2WarningFlags = (int)Lr2CompatibilityWarningFlags.None };
 
         file = ChartFileProjection.WithMaintenance(file, info);
 
         Assert.IsFalse(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported));
-        Assert.AreEqual(string.Empty, ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
+        Assert.AreEqual(string.Empty, ChartWarningProjectionFormatter.BuildDigestText(file.Warnings, file.InstallDestination));
     }
 
     /// <summary>
@@ -482,14 +487,63 @@ public sealed class BmsLibraryMaintenanceServiceTests
     {
 
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.Lr2PathEncodingUnsupported), ChartWarning.Create(ChartWarningKind.Lr2PathEncodingUnsupported, Resources.Warning_Lr2PathEncodingUnsupported)] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.Lr2PathEncodingUnsupported), ChartWarning.Create(ChartWarningKind.Lr2PathEncodingUnsupported)] };
         var info = new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5 };
 
         file = ChartFileProjection.WithMaintenance(file, info);
 
         Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported));
-        Assert.AreEqual("[1] LR2パス非対応", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
+        Assert.AreEqual("[1] LR2パス非対応", ChartWarningProjectionFormatter.BuildDigestText(file.Warnings, file.InstallDestination));
     }
+    /// <summary>
+    /// 非CP932パスのLR2互換性警告を、同じ事実から作り直しても保守の再評価が更新なし(書込み0・変更譜面なし)になることを確認します。
+    /// 対照として、事実の異なる古い警告を持つ譜面は変更譜面に含まれます。警告を翻訳済み文字列で比較して再評価のたびに更新を増やす誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void UpdateMaintenanceInfo_RecreatedLr2WarningsWithSameFactsAreNotUpdates()
+    {
+        WithTemporarySongDb(databaseScope, songDbPath =>
+        {
+            string directory = Path.Combine(Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException("Song DB has no parent directory."), "譜面\U0001F600");
+            Directory.CreateDirectory(directory);
+            string chartPath = Path.Combine(directory, "chart.bms");
+            File.WriteAllText(chartPath, "#TITLE test\r\n#WAV01 missing.wav\r\n#00101:01\r\n", Encoding.ASCII);
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            ChartFile file = BmsChartFileParser.ParseSnapshot(snapshot);
+            BmsLibraryMaintenanceService.MaintenanceEvaluationResult first =
+                BmsLibraryMaintenanceService.EvaluateMaintenanceForInline(file, snapshot, lookupContext: null, forceUpdate: true);
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
+            {
+                db.InsertOrReplace(MaintenanceStorageMapping.ToStorage(first.MaintenanceInfo), typeof(LR2SongDBExtended.maintenance));
+            }
+            ResourceHealthMaintenanceSnapshot hydrated;
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
+            {
+                hydrated = MaintenanceStorageMapping.ToCommon(db.Table<LR2SongDBExtended.maintenance>().Single(), MaintenanceInfoOrigin.DbHydrated);
+            }
+            ChartFile reloaded = ChartFileProjection.WithMaintenance(file with { Resources = null }, hydrated);
+            Assert.IsTrue(reloaded.Warnings.Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported), "非CP932のパスはLR2非対応の警告になります。");
+
+            int writes = 0;
+            MaintenanceWorkflowResult unchanged = new BmsLibraryMaintenanceService().UpdateMaintenanceInfo([reloaded], forceUpdate: true,
+                request =>
+                {
+                    writes++;
+                    return CreateDurableWriter(songDbPath)(request);
+                }, null);
+            Assert.AreEqual(1, unchanged.CheckedFileCount);
+            Assert.AreEqual(0, writes);
+            Assert.IsFalse(unchanged.HasUpdates);
+            Assert.AreEqual(0, unchanged.ChangedCharts.Count);
+
+            // 対照: 事実の異なる古い警告(LR2非対応ではなくパス長超過)を持つ譜面は、再評価で変更譜面になります。
+            ChartFile stale = reloaded with { Warnings = [.. reloaded.Warnings.Where(warning => warning.Category != ChartWarningCategory.Lr2Compatibility), ChartWarning.Create(ChartWarningKind.Lr2PathTooLong)] };
+            MaintenanceWorkflowResult changed = new BmsLibraryMaintenanceService().UpdateMaintenanceInfo([stale], forceUpdate: true,
+                request => CreateDurableWriter(songDbPath)(request), null);
+            Assert.IsTrue(changed.ChangedCharts.Any(chart => string.Equals(chart.Path, chartPath, StringComparison.OrdinalIgnoreCase)));
+        });
+    }
+
 
     /// <summary>計算済み件数を実DBから読み戻して同値再スキャンし、DB書込み・不要な表示更新を発生させません。未定義IDだけの0件も同じ保存値を保ちます。</summary>
     [TestMethod]
@@ -1115,8 +1169,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         var service = new BmsLibraryMaintenanceService();
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile)] };
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ResourceWavMissing), ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "stale resource warning")] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart)] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ResourceWavMissing), ChartWarning.CreateResourceHealth(ChartWarningKind.ResourceWavMissing, 50, 1, 2)] };
         var info = new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5, BgaFilesDefined = 4, BgaFilesExisting = 3 };
         file = ChartFileProjection.WithMaintenance(file, info);
         var row = LibraryChartRow.FromChartFile(file);
@@ -1148,7 +1202,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     {
 
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ResourceWavMissing), ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "pending resource warning")] };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ResourceWavMissing), ChartWarning.CreateResourceHealth(ChartWarningKind.ResourceWavMissing, 50, 1, 2)] };
         file = ChartFileProjection.WithMaintenance(file, new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5, WavFilesDefined = 2, WavFilesExisting = 2 });
         var row = LibraryChartRow.FromChartFile(file);
         row.SetResourceHealthProjectionProvider(_ => ResourceHealthWarningProjection.Empty);
@@ -1888,7 +1942,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         zeroNoteFile = ChartFileProjection.WithChartInfo(zeroNoteFile, new BeMusicSeeker.Models.ChartDetails { md5 = zeroNoteFile.Md5, sha256 = zeroNoteFile.Sha256, notes = 0 });
         BeMusicSeeker.Models.ChartDetails zeroNoteInfo = CreateChartInfo(zeroNoteFile.Md5, notes: 0);
         zeroNoteFile = zeroNoteFile with { Path = "C:\\missing\\chart.bms" };
-        zeroNoteFile = zeroNoteFile with { Warnings = [.. zeroNoteFile.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch)] };
+        zeroNoteFile = zeroNoteFile with { Warnings = [.. zeroNoteFile.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch)] };
 
         ZeroNoteRecheckResult result = service.RecheckZeroNoteWarnings(
             [(zeroNoteFile)],
@@ -1910,7 +1964,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         var service = new BmsLibraryMaintenanceService();
         ChartFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        zeroNoteFile = zeroNoteFile with { Warnings = [.. zeroNoteFile.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch)] };
+        zeroNoteFile = zeroNoteFile with { Warnings = [.. zeroNoteFile.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch)] };
         ChartFile chart = (zeroNoteFile);
 
         ZeroNoteRecheckResult result = service.RecheckZeroNoteWarnings(
@@ -1934,7 +1988,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         var service = new BmsLibraryMaintenanceService();
         ChartFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        zeroNoteFile = zeroNoteFile with { Warnings = [.. zeroNoteFile.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch)] };
+        zeroNoteFile = zeroNoteFile with { Warnings = [.. zeroNoteFile.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch)] };
         ChartFile chart = (zeroNoteFile);
 
         ZeroNoteRecheckResult result = service.RecheckZeroNoteWarnings(

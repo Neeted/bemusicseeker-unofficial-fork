@@ -950,14 +950,14 @@ internal sealed partial class BmsLibraryPackageInstallService
         {
             if (!IsNestedChartFileInPackage(package.path, entry?.Chart?.Path))
             {
-                if (blocked) { entry.SetWarning(ChartWarningKind.ResourceBearingNestedCharts, Resources.Warning_ResourceBearingNestedCharts); }
+                if (blocked) { entry.SetWarning(ChartWarningKind.ResourceBearingNestedCharts); }
                 continue;
             }
 
-            var nestedWarning = ChartWarning.Create(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
+            var nestedWarning = ChartWarning.Create(ChartWarningKind.NestedChartFileInPackage);
             // 一般警告の従来の分類置換と、重要警告の維持を同じ項目更新で確定します。
             entry.ReplaceWarningsByCategory(ChartWarningCategory.PackageLayout, blocked
-                ? [nestedWarning, ChartWarning.Create(ChartWarningKind.ResourceBearingNestedCharts, Resources.Warning_ResourceBearingNestedCharts)]
+                ? [nestedWarning, ChartWarning.Create(ChartWarningKind.ResourceBearingNestedCharts)]
                 : [nestedWarning]);
             hasNestedChart = true;
         }
@@ -2691,7 +2691,7 @@ internal sealed partial class BmsLibraryPackageInstallService
                 {
                     bool isBmson = entry.Chart?.Kind == ChartFileKind.Bmson;
                     entry.ClearWarningsByCategory(ChartWarningCategory.PackageLayout);
-                    entry.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile, isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
+                    entry.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile);
                     pendingByPackage[pkg] = true;
                 }
             }
@@ -4447,7 +4447,7 @@ internal sealed partial class BmsLibraryPackageInstallService
         foreach (PackageChartEntry entry in entries ?? [])
         {
             entry?.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
-            entry?.SetWarning(ChartWarningKind.AlreadyInstalled, Properties.Resources.Warning_AlreadyInstalled);
+            entry?.SetWarning(ChartWarningKind.AlreadyInstalled);
         }
     }
 

@@ -96,8 +96,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         {
             Assert.AreEqual(source, fixture.Library.ChartPackagesPending.Single().path);
             PackageChartEntry pendingChild = fixture.Library.ChartPackagesPending.Single().ChartEntries.Single(entry => entry.Chart.Path == sourceChart);
-            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning_NestedChartFileInPackage,
-                pendingChild.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage).Message);
+            Assert.AreEqual(ChartWarning.Create(ChartWarningKind.NestedChartFileInPackage),
+                pendingChild.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
             Assert.AreEqual(1, pendingChild.Chart.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
             Assert.AreEqual(0, pendingChild.Chart.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
             Assert.AreEqual(0, pendingChild.Chart.WAVHealth);
@@ -385,7 +385,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         private readonly PendingEstimateDeferredReason deferredReason;
         private readonly ChartFile chart;
         private readonly PackageChartInstallDestinationState destination;
-        private readonly string[] warnings;
+        private readonly ChartWarning[] warnings;
         private readonly byte[] audioBytes;
         private readonly string installPath;
         private readonly bool installDeleteParent;
@@ -402,7 +402,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             ChartBytes = File.ReadAllBytes(chartPath);
             audioBytes = File.ReadAllBytes(Path.Combine(path, "c.wav"));
             destination = entry.CaptureInstallDestinationState();
-            warnings = entry.Chart.Warnings.Select(warning => warning.Kind + "|" + warning.Message).ToArray();
+            warnings = entry.Chart.Warnings.ToArray();
             LR2SongDBExtended.install row = db.Table<LR2SongDBExtended.install>().Single(row => row.path == path);
             installPath = row.path;
             installDeleteParent = row.delete_parent;
@@ -426,7 +426,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Assert.AreEqual(destination.Title, current.Title);
             Assert.AreEqual(destination.Artist, current.Artist);
             CollectionAssert.AreEqual(destination.Suggestions.ToArray(), current.Suggestions.ToArray());
-            CollectionAssert.AreEqual(warnings, entry.Chart.Warnings.Select(warning => warning.Kind + "|" + warning.Message).ToArray());
+            CollectionAssert.AreEqual(warnings, entry.Chart.Warnings.ToArray());
             LR2SongDBExtended.install row = db.Table<LR2SongDBExtended.install>().Single(row => row.path == path);
             Assert.AreEqual(installPath, row.path);
             Assert.AreEqual(installDeleteParent, row.delete_parent);
