@@ -622,7 +622,9 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             new() { playlist_id = 3, name = "Omega", entries = [new() { md5 = "00000000000000000000000000000001" }, new() { md5 = "00000000000000000000000000000002" }] }, new() { playlist_id = 4, name = "Alpha", entries = [new() { md5 = "00000000000000000000000000000001" }] }];
         foreach (BMSTable peer in peers) { fixture.Playlist.BMSTables.Add(peer); }
         fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
-        bool holdEdit = false, holdSort = false;
+        bool holdEdit = false;
+        // 独立sortを同期投入するtest threadだけを捕捉対象にします。保存後のcatalog通知など別threadの適用は捕捉せず、通常どおり実行します。
+        int sortThreadId = 0;
         PlaylistSummaryRow? editingRow = null;
         Action? sortAction = null;
         Task sortApply = Task.CompletedTask;
@@ -634,13 +636,14 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             playlistLibraryProvider: () => fixture.Library, propertySaveService: fixture.Service, presentationRefreshDeferredProvider: _ => true,
             restoreUiApplyScheduler: action =>
             {
-                Task task = Apply(action);
-                if (holdSort) { sortApply = task; }
+                bool isIndependentSort = Volatile.Read(ref sortThreadId) == Environment.CurrentManagedThreadId;
+                Task task = Apply(action, isIndependentSort);
+                if (isIndependentSort) { sortApply = task; }
                 return task;
             });
-        async Task Apply(Action action)
+        async Task Apply(Action action, bool isIndependentSort)
         {
-            if (holdSort) { sortAction = action; await sortDone.Task; return; }
+            if (isIndependentSort) { sortAction = action; await sortDone.Task; return; }
             action();
             if (holdEdit && editingRow?.Name == "Aardvark") { editEntered.TrySetResult(); await editRelease.Task; }
         }
@@ -663,10 +666,13 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         try
         {
             await TestUiDispatcherHost.AwaitNotificationAsync(editEntered.Task, edit, "summary-independent-sort");
-            holdSort = true;
-            workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.Name), System.ComponentModel.ListSortDirection.Descending);
-            workspace.DrainDeferredPlaylistSummaryRefresh(false, false);
-            holdSort = false;
+            Volatile.Write(ref sortThreadId, Environment.CurrentManagedThreadId);
+            try
+            {
+                workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.Name), System.ComponentModel.ListSortDirection.Descending);
+                workspace.DrainDeferredPlaylistSummaryRefresh(false, false);
+            }
+            finally { Volatile.Write(ref sortThreadId, 0); }
             Assert.IsNotNull(sortAction);
             editRelease.TrySetResult();
             Assert.IsTrue((await edit).IsApplied);
@@ -680,7 +686,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
         finally
         {
-            holdEdit = holdSort = false; editRelease.TrySetResult();
+            holdEdit = false; Volatile.Write(ref sortThreadId, 0); editRelease.TrySetResult();
             if (sortAction != null) { PublishSort(); }
             sortDone.TrySetResult();
             await sortApply;
