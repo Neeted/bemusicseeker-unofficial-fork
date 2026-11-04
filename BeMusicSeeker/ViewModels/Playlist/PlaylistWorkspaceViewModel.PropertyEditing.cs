@@ -577,6 +577,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         string nextText = FormatPlaylistSummaryText(playlistSummaryView.TotalCharts, playlistSummaryView.Count);
                         textChanged = playlistSummaryText != nextText;
                         playlistSummaryText = nextText;
+                        playlistSummaryTextIsAutomatic = true;
                     }
                     else if (raw != null) { raw.ApplySavedProperties(header, settings, notify: false); projectedRows++; }
                 }

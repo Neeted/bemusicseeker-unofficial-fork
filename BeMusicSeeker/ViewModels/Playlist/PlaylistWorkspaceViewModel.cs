@@ -548,6 +548,9 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
 
     private string playlistSummaryText = string.Empty;
 
+    /// <summary>現在の <see cref="playlistSummaryText"/> が反映済み集計から作った自動件数かを表します。明示文字列は言語変更で上書きしません。</summary>
+    private bool playlistSummaryTextIsAutomatic = true;
+
     private PlaylistSummaryPresentationIdentity appliedPlaylistSummaryIdentity;
 
     private bool isPlaylistSummaryMode;
@@ -796,6 +799,10 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         get => playlistSummaryView;
     }
 
+    /// <summary>
+    /// プレイリスト概要の件数表示を取得します。内部setterで設定した値は明示文字列として扱い、
+    /// 表示言語の変更で自動件数に上書きしません。
+    /// </summary>
     public string PlaylistSummaryText
     {
         get => playlistSummaryText;
@@ -807,6 +814,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             {
                 changed = playlistSummaryText != next;
                 playlistSummaryText = next;
+                playlistSummaryTextIsAutomatic = false;
             }
             if (changed)
             {
@@ -1548,6 +1556,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             nextSummaryText = request.SummaryText ?? FormatPlaylistSummaryText(playlistSummaryView.TotalCharts, playlistSummaryView.Count);
             textChanged = playlistSummaryText != nextSummaryText;
             playlistSummaryText = nextSummaryText;
+            playlistSummaryTextIsAutomatic = request.SummaryText == null;
             appliedPlaylistSummaryPerformanceInteraction = PerformanceInteraction.Existing(
                 "playlist_summary",
                 request.DataRebuildGeneration ?? request.PresentationGeneration,

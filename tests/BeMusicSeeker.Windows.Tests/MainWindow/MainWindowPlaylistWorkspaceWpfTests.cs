@@ -1823,12 +1823,12 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 }
                 static void DisplayBinding(EditableTextBlock control, PlaylistFolderNode source, string expected)
                 {
-                    BindingExpression binding = BindingOperations.GetBindingExpression(control, EditableTextBlock.DisplayTextProperty)
+                    // 表示値は言語変更でも再評価される複合Bindingから得て、構造ではなく現在値で確認します。
+                    MultiBindingExpression binding = BindingOperations.GetMultiBindingExpression(control, EditableTextBlock.DisplayTextProperty)
                         ?? throw new AssertFailedException("外側の表示Bindingが失われています。");
                     Assert.AreEqual(BindingStatus.Active, binding.Status);
-                    Assert.AreSame(source, binding.DataItem);
-                    Assert.AreEqual(nameof(PlaylistFolderNode.DisplayName), binding.ParentBinding.Path.Path);
-                    Assert.AreEqual(BindingMode.OneWay, binding.ParentBinding.Mode);
+                    Assert.AreSame(source, control.DataContext);
+                    Assert.AreEqual(BindingMode.OneWay, binding.ParentMultiBinding.Mode);
                     Assert.AreEqual(expected, source.DisplayName);
                     Assert.AreEqual(expected, control.DisplayText);
                     BindingExpression raw = BindingOperations.GetBindingExpression(control, EditableTextBlock.TextProperty)
@@ -1885,6 +1885,265 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         primary.Data["TreeEditWindowCleanupFailure"] = cleanupFailure.ToString();
                         if (Directory.Exists(fixture.Root)) { primary.Data["TreeEditRemainingOwnedPath"] = fixture.Root; }
                     }
+                }
+            }
+        });
+    }
+
+    /// <summary>展開済みツリーの空名フォルダの案内を言語往復で現在語へ更新し、同じノード・部品・選択・展開・scroll・編集draftと保存名を保ちます。非空名・空白名・特殊ノードは原文のままです。</summary>
+    /// <remarks>実MainWindowの複合Bindingが資源差替え通知で再評価されることを担当します。言語切替は共通資源のため文化圏を必ず復元します。IME・フォーカスの物理動作は要求しません。</remarks>
+    [TestMethod]
+    public void PlaylistTreeFolderLabels_LanguageRoundTripKeepsNodesAndTreeState()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            CultureInfo? previousCulture = Resources.Culture;
+            var messages = new List<UiMessageRequest>();
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope, messagePresenter: (_, request) =>
+            {
+                messages.Add(request);
+                return new ThemedMessageBoxResponse(MessageBoxResult.OK, false);
+            });
+            PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+            ChartFileOperationSynchronizer admission = fixture.Library.Lr2Synchronization.PlaylistOperationAdmission;
+            int leases = 0, refreshes = 0, contextChanges = 0, verticalScrolls = 0, selectionChanges = 0, editChanges = 0, commits = 0;
+            var tableNotifications = new List<string>();
+            EventHandler availability = (_, _) => { if (admission.IsActive) { leases++; } };
+            EventHandler<PlaylistPresentationRefreshRequestedEventArgs> refreshRequested = (_, _) => refreshes++;
+            System.ComponentModel.PropertyChangedEventHandler tableChanged = (_, args) => tableNotifications.Add(args.PropertyName ?? string.Empty);
+            DependencyPropertyChangedEventHandler contextChanged = (_, _) => contextChanges++;
+            ScrollChangedEventHandler scrolled = (_, args) => { if (args.VerticalChange != 0) { verticalScrolls++; } };
+            RoutedPropertyChangedEventHandler<object> selected = (_, _) => selectionChanges++;
+            RoutedEventHandler editChanged = (_, args) =>
+            {
+                editChanges++;
+                if (args is EditableTextBlockEditModeChangedEventArgs { CommittedText: string }) { commits++; }
+            };
+            var observedControls = new List<EditableTextBlock>();
+            ScrollViewer? observedScroll = null;
+            TreeView? observedTree = null;
+            Exception? primary = null;
+            try
+            {
+                ResourceService.Current.ChangeCulture("ja-JP");
+                fixture.Table.is_external_sync = false;
+                string[] names =
+                [
+                    string.Empty, "   ", "[NO SONG]",
+                    .. Enumerable.Range(3, 237).Select(index => $"Folder {index:D3}")
+                ];
+                fixture.Table.entries = names.Select((name, index) => new BMSTableEntry
+                {
+                    md5 = (index + 1).ToString("x32", CultureInfo.InvariantCulture),
+                    title = name,
+                    folder = name
+                }).ToList();
+                fixture.Table.Folder_order = names.ToList();
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(admission.WaitForIdleAsync(), "tree-language-fixture-idle");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var tree = (TreeView)fixture.Window.FindName("treeViewPlaylist");
+                observedTree = tree;
+                tree.Height = 180;
+                var root = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                root.IsExpanded = true;
+                tree.UpdateLayout();
+                TreeViewItem tableItem = root.ItemContainerGenerator.ContainerFromItem(fixture.Table) as TreeViewItem
+                    ?? throw new AssertFailedException("実表コンテナがありません。");
+                tableItem.IsExpanded = true;
+                tree.Dispatcher.Invoke(DispatcherPriority.Loaded, new Action(tree.UpdateLayout));
+
+                TreeViewItem ItemOf(Func<PlaylistFolderNode, bool> match) => FindDescendants<TreeViewItem>(tableItem).First(item =>
+                    item.DataContext is PlaylistFolderNode node && match(node));
+                TreeViewItem emptyItem = ItemOf(node => !node.IsSpecial && node.FolderName.Length == 0);
+                TreeViewItem blankItem = ItemOf(node => !node.IsSpecial && node.FolderName == "   ");
+                TreeViewItem realItem = ItemOf(node => !node.IsSpecial && node.FolderName == "[NO SONG]");
+                TreeViewItem specialItem = ItemOf(node => node.IsSpecial);
+                EditableTextBlock emptyControl = FindDescendants<EditableTextBlock>(emptyItem).Single();
+                EditableTextBlock blankControl = FindDescendants<EditableTextBlock>(blankItem).Single();
+                EditableTextBlock realControl = FindDescendants<EditableTextBlock>(realItem).Single();
+                EditableTextBlock specialControl = FindDescendants<EditableTextBlock>(specialItem).Single();
+                var emptyNode = (PlaylistFolderNode)emptyControl.DataContext;
+                var blankNode = (PlaylistFolderNode)blankControl.DataContext;
+                var realNode = (PlaylistFolderNode)realControl.DataContext;
+                var specialNode = (PlaylistFolderNode)specialControl.DataContext;
+                Assert.AreEqual(PlaylistFolderNodeSpecialKind.NotOwned, specialNode.SpecialKind);
+                IReadOnlyList<PlaylistFolderNode> nodes = fixture.Table.FolderNodes;
+                System.Collections.IEnumerable attachedNodes = MainWindow.GetPlaylistFolderNodes(tableItem);
+                object? itemsSource = tableItem.ItemsSource;
+                PlaylistFolderNode[] nodeInstances = [.. nodes];
+
+                string Label() => "(" + Resources.No_folder_name + ")";
+                string Shown(EditableTextBlock control) => FindDescendants<TextBlock>(control).Single().Text;
+                void AssertLabels()
+                {
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(Label(), emptyControl.DisplayText);
+                    Assert.AreEqual(Label(), Shown(emptyControl));
+                    Assert.AreEqual(string.Empty, emptyNode.FolderName);
+                    Assert.AreEqual(string.Empty, emptyControl.Text);
+                    Assert.AreEqual("   ", blankControl.DisplayText);
+                    Assert.AreEqual("   ", Shown(blankControl));
+                    Assert.AreEqual("[NO SONG]", realControl.DisplayText);
+                    Assert.AreEqual("[NO SONG]", Shown(realControl));
+                    Assert.AreEqual("[NO SONG]", specialControl.DisplayText);
+                    Assert.AreEqual("[NO SONG]", Shown(specialControl));
+                    Assert.AreSame(emptyNode, emptyControl.DataContext);
+                    Assert.AreSame(nodes, fixture.Table.FolderNodes);
+                    Assert.AreSame(attachedNodes, MainWindow.GetPlaylistFolderNodes(tableItem));
+                    Assert.AreSame(itemsSource, tableItem.ItemsSource);
+                    CollectionAssert.AreEqual(nodeInstances, fixture.Table.FolderNodes.ToArray());
+                    Assert.AreSame(tableItem, root.ItemContainerGenerator.ContainerFromItem(fixture.Table));
+                    Assert.AreSame(emptyControl, FindDescendants<EditableTextBlock>(emptyItem).Single());
+                    Assert.IsTrue(tableItem.IsExpanded);
+                    Assert.IsTrue(root.IsExpanded);
+                    Assert.AreEqual(root.IsExpanded, workspace.IsPlaylistTreeExpanded);
+                }
+
+                // フェーズA: 表示モードで選択・展開を保ったまま言語を往復する。
+                emptyItem.IsSelected = true;
+                tree.UpdateLayout();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "tree-language-detail-idle");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                PlaylistDetailSelection selectionBefore = workspace.CapturePlaylistDetailSelection(out long revisionBefore);
+                // 言語往復の前に詳細一覧の参照とDBの所属を独立に読み取り、往復後の照合に使います。
+                System.Collections.IList detailRowsBefore = workspace.DetailViewState.View.Rows;
+                long detailGenerationBefore = workspace.DetailViewState.View.GenerationId;
+                Dictionary<string, string> ReadDbFolders()
+                {
+                    using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly();
+                    return fixture.Table.entries.ToDictionary(entry => entry.md5, entry =>
+                        db.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ?;", fixture.Table.playlist_id, entry.md5) ?? "<null>", StringComparer.Ordinal);
+                }
+                Dictionary<string, string> dbFoldersBefore = ReadDbFolders();
+                Assert.AreEqual(names.Length, dbFoldersBefore.Count);
+                Assert.AreEqual(string.Empty, dbFoldersBefore[fixture.Table.entries.Single(entry => entry.folder.Length == 0).md5]);
+                AssertLabels();
+                string japanese = Label();
+                var shownTexts = new List<string> { Shown(emptyControl) };
+                observedControls.AddRange([emptyControl, blankControl, realControl, specialControl]);
+                foreach (EditableTextBlock control in observedControls) { control.DataContextChanged += contextChanged; }
+                tree.AddHandler(TreeView.SelectedItemChangedEvent, selected);
+                tree.AddHandler(EditableTextBlock.EditModeChangedEvent, editChanged);
+                ScrollViewer scroll = FindDescendants<ScrollViewer>(tree).First();
+                observedScroll = scroll;
+                scroll.ScrollChanged += scrolled;
+                fixture.Table.PropertyChanged += tableChanged;
+                workspace.PlaylistPresentationRefreshRequested += refreshRequested;
+                admission.AvailabilityChanged += availability;
+                double offsetBefore = scroll.VerticalOffset;
+                object? selectedItem = tree.SelectedItem;
+
+                foreach (string culture in new[] { "en-US", "ja-JP", "en-US" })
+                {
+                    ResourceService.Current.ChangeCulture(culture);
+                    AssertLabels();
+                    shownTexts.Add(Shown(emptyControl));
+                    Assert.AreSame(selectedItem, tree.SelectedItem);
+                    Assert.AreEqual(offsetBefore, scroll.VerticalOffset);
+                }
+                Assert.AreNotEqual(japanese, shownTexts[1], "日本語と英語で案内が切り替わります。");
+                Assert.AreEqual(japanese, shownTexts[2]);
+                Assert.AreEqual(0, contextChanges);
+                Assert.AreEqual(0, selectionChanges);
+                Assert.AreEqual(0, verticalScrolls);
+                Assert.AreEqual(0, editChanges);
+                Assert.AreEqual(0, refreshes);
+                Assert.AreEqual(0, leases);
+                Assert.IsFalse(tableNotifications.Contains("FolderNodes"));
+                Assert.IsFalse(tableNotifications.Contains("folder_list"));
+                PlaylistDetailSelection selectionAfter = workspace.CapturePlaylistDetailSelection(out long revisionAfter);
+                Assert.AreEqual(selectionBefore.FolderName, selectionAfter.FolderName);
+                Assert.AreEqual(string.Empty, selectionAfter.FolderName);
+                Assert.AreEqual(revisionBefore, revisionAfter);
+                Assert.AreEqual(0, messages.Count);
+
+                // フェーズB: 編集中の候補を保ったまま言語を変え、Escape後の空名も現在語に追従する。
+                emptyControl.IsInEditMode = true;
+                tree.UpdateLayout();
+                int editsBeforeText = editChanges;
+                TextBox editor = FindDescendants<TextBox>(emptyControl).Single();
+                editor.SelectAll();
+                editor.SelectedText = "draft";
+                Assert.AreEqual("draft", emptyControl.CandidateText);
+                foreach (string culture in new[] { "ja-JP", "en-US" })
+                {
+                    ResourceService.Current.ChangeCulture(culture);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsTrue(emptyControl.IsInEditMode);
+                    Assert.AreEqual("draft", emptyControl.CandidateText);
+                    Assert.AreSame(editor, FindDescendants<TextBox>(emptyControl).Single());
+                    Assert.AreEqual("draft", editor.Text);
+                    Assert.AreEqual(string.Empty, emptyControl.Text);
+                    Assert.AreEqual(Label(), emptyControl.DisplayText);
+                }
+                Assert.AreEqual(editsBeforeText, editChanges, "編集中の言語変更で編集状態通知を出しません。");
+                PresentationSource source = PresentationSource.FromVisual(editor) ?? throw new AssertFailedException("実editorの表示sourceがありません。");
+                var escape = new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, Key.Escape) { RoutedEvent = Keyboard.KeyDownEvent };
+                editor.RaiseEvent(escape);
+                Assert.IsTrue(escape.Handled);
+                tree.UpdateLayout();
+                Assert.IsFalse(emptyControl.IsInEditMode);
+                Assert.AreEqual(0, commits, "取消は確定を出しません。");
+                foreach (string culture in new[] { "ja-JP", "en-US" })
+                {
+                    ResourceService.Current.ChangeCulture(culture);
+                    AssertLabels();
+                }
+                Assert.AreEqual(0, leases);
+                Assert.AreEqual(0, refreshes);
+                Assert.AreEqual(string.Empty, emptyNode.FolderName);
+                Assert.AreEqual(string.Empty, workspace.CapturePlaylistDetailSelection().FolderName);
+
+                // フェーズC: scrollした状態の言語変更でoffsetを保つ。
+                Assert.IsTrue(scroll.ScrollableHeight > scroll.ViewportHeight);
+                scroll.ScrollToVerticalOffset(scroll.ScrollableHeight / 2);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(tree.Dispatcher.InvokeAsync(tree.UpdateLayout,
+                    DispatcherPriority.Background).Task, "tree-language-scroll-layout");
+                double scrolledOffset = scroll.VerticalOffset;
+                Assert.IsTrue(scrolledOffset > 0);
+                int scrollsBefore = verticalScrolls;
+                foreach (string culture in new[] { "ja-JP", "en-US" })
+                {
+                    ResourceService.Current.ChangeCulture(culture);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(scrolledOffset, scroll.VerticalOffset);
+                    Assert.IsTrue(tableItem.IsExpanded);
+                }
+                Assert.AreEqual(scrollsBefore, verticalScrolls);
+                Assert.AreSame(nodes, fixture.Table.FolderNodes);
+                Assert.AreEqual(0, leases);
+                Assert.AreEqual(0, refreshes);
+                Assert.AreEqual(0, selectionChanges);
+                Assert.IsFalse(tableNotifications.Contains("FolderNodes"));
+                Assert.IsFalse(tableNotifications.Contains("folder_list"));
+                Assert.AreSame(detailRowsBefore, workspace.DetailViewState.View.Rows);
+                Assert.AreEqual(detailGenerationBefore, workspace.DetailViewState.View.GenerationId);
+                CollectionAssert.AreEquivalent(dbFoldersBefore.ToArray(), ReadDbFolders().ToArray());
+                Assert.AreEqual(names.Length, fixture.Table.entries.Count);
+                Assert.AreEqual(1, fixture.Table.entries.Count(entry => entry.folder.Length == 0));
+                Assert.AreEqual(1, fixture.Table.entries.Count(entry => entry.folder == "   "));
+                Assert.AreEqual(0, messages.Count);
+            }
+            catch (Exception failure) { primary = failure; throw; }
+            finally
+            {
+                try
+                {
+                    admission.AvailabilityChanged -= availability;
+                    workspace.PlaylistPresentationRefreshRequested -= refreshRequested;
+                    fixture.Table.PropertyChanged -= tableChanged;
+                    foreach (EditableTextBlock control in observedControls) { control.DataContextChanged -= contextChanged; }
+                    observedTree?.RemoveHandler(TreeView.SelectedItemChangedEvent, selected);
+                    observedTree?.RemoveHandler(EditableTextBlock.EditModeChangedEvent, editChanged);
+                    if (observedScroll != null) { observedScroll.ScrollChanged -= scrolled; }
+                    ResourceService.Current.ChangeCulture(previousCulture?.Name ?? "en-US");
+                    Resources.Culture = previousCulture;
+                }
+                finally
+                {
+                    try { fixture.Close(); }
+                    catch (Exception cleanupFailure) when (primary != null) { primary.Data["TreeLanguageWindowCleanupFailure"] = cleanupFailure.ToString(); }
                 }
             }
         });

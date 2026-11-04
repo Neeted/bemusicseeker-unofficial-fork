@@ -29,6 +29,7 @@
       <v:booleanToVisibilityCollapsedConverter x:Key="booleanToVisibilityCollapsedConverter" />
       <v:notBooleanToVisibilityCollapsedConverter x:Key="notBooleanToVisibilityCollapsedConverter" />
       <v:notOperatorBoolConverter x:Key="notOperatorBoolConverter" />
+      <v:playlistFolderNodeDisplayConverter x:Key="playlistFolderNodeDisplayConverter" />
       <v:stringToBooleanConverter x:Key="stringToBooleanConverter" />
       <v:stringToVisibilityHiddenConverter x:Key="stringToVisibilityHiddenConverter" />
       <v:stringToVisibilityCollapsedConverter x:Key="stringToVisibilityCollapsedConverter" />
@@ -1055,7 +1056,14 @@
                    <DataTemplate x:Key="templateTreeViewItemHeaderPlaylistTableFolderNormal">
                     <StackPanel Orientation="Horizontal">
                       <v:AppFontIcon Style="{StaticResource styleTreeViewItemIconFolder}" />
-                      <v:EditableTextBlock x:Name="etbPlaylistTableFolder" PreviewMouseDown="playlistTableFolderClicked" EditModeChanged="playlistTableFolderNameChanged" Text="{Binding FolderName, Mode=OneWay}" DisplayText="{Binding DisplayName, Mode=OneWay}" IsEditable="{Binding DataContext.is_external_sync, RelativeSource={RelativeSource FindAncestor, AncestorLevel=2, AncestorType={x:Type TreeViewItem}}, Converter={StaticResource notOperatorBoolConverter}}" />
+                      <v:EditableTextBlock x:Name="etbPlaylistTableFolder" PreviewMouseDown="playlistTableFolderClicked" EditModeChanged="playlistTableFolderNameChanged" Text="{Binding FolderName, Mode=OneWay}" IsEditable="{Binding DataContext.is_external_sync, RelativeSource={RelativeSource FindAncestor, AncestorLevel=2, AncestorType={x:Type TreeViewItem}}, Converter={StaticResource notOperatorBoolConverter}}">
+                        <v:EditableTextBlock.DisplayText>
+                          <MultiBinding Mode="OneWay" Converter="{StaticResource playlistFolderNodeDisplayConverter}">
+                            <Binding />
+                            <Binding Source="{x:Static vm:ResourceService.Current}" Path="Resources" Mode="OneWay" />
+                          </MultiBinding>
+                        </v:EditableTextBlock.DisplayText>
+                      </v:EditableTextBlock>
                     </StackPanel>
                   </DataTemplate>
                   <DataTemplate x:Key="templateTreeViewItemHeaderPlaylistTableFolderSP">

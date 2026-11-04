@@ -106,15 +106,23 @@ public sealed class PlaylistWorkspacePresentationStateTests
             Assert.AreSame(rows, workspace.PlaylistSummaryView);
             Assert.AreSame(row, workspace.PlaylistSummaryView.Single());
             Assert.AreEqual("summary", workspace.PlaylistSummaryText);
+            Assert.AreEqual(Resources.Playlist_summary_header, workspace.GridHeaderText);
+            Assert.AreEqual(1, notifications.Count(name => name == nameof(workspace.GridHeaderText)));
+            Assert.AreEqual(0, notifications.Count(name => name == nameof(workspace.PlaylistSummaryText)));
             Assert.AreEqual(generation, workspace.CurrentPlaylistSummaryPresentationGeneration);
             Assert.AreEqual(dataGeneration, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
             Assert.AreEqual(cacheGeneration, workspace.CurrentPlaylistSummaryRowsCacheGeneration);
 
+            string enHeader = workspace.GridHeaderText;
             workspace.DetachPlaylistSummaryKeywordSearchPresentation();
             notifications.Clear();
             ResourceService.Current.ChangeCulture("ja-JP");
             Assert.AreEqual(0, notifications.Count);
+            Assert.AreEqual(enHeader, workspace.GridHeaderText);
             workspace.AttachPlaylistSummaryKeywordSearchPresentation();
+            Assert.AreEqual(Resources.Playlist_summary_header, workspace.GridHeaderText);
+            Assert.AreNotEqual(enHeader, workspace.GridHeaderText);
+            Assert.AreEqual("summary", workspace.PlaylistSummaryText);
             Assert.AreEqual(warning ? string.Format(Resources.Keyword_search_warning_invalid_regex, "[") : string.Empty, workspace.PlaylistSummaryKeywordSearchWarningText);
             Assert.AreEqual(1, notifications.Count(name => name == nameof(workspace.PlaylistSummaryKeywordSearchHelpText)));
             Assert.AreEqual(0, refreshes);
@@ -124,6 +132,243 @@ public sealed class PlaylistWorkspacePresentationStateTests
         finally
         {
             workspace.DetachPlaylistSummaryKeywordSearchPresentation();
+            ResourceService.Current.ChangeCulture(previousCulture?.Name ?? "en-US");
+            Resources.Culture = previousCulture;
+        }
+    }
+
+    /// <summary>採用済みのsummaryは言語往復で見出しと自動件数を現在語へ再整形し、未採用の要求・退出後は何も出しません。通常・0件・絞込み後で、行・世代・scheduler呼出しなどの再構築痕跡を増やさないことを保証します。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow("normal", 5, 2)]
+    [DataRow("zero", 0, 0)]
+    [DataRow("filtered", 2, 1)]
+    public void PlaylistSummaryLanguage_ReformatsAdoptedHeaderAndCountsWithoutRebuild(string scenario, int expectedCharts, int expectedTables)
+    {
+        CultureInfo? previousCulture = Resources.Culture;
+        int schedulerCalls = 0;
+        PlaylistWorkspaceViewModel? workspace = null;
+        try
+        {
+            ResourceService.Current.ChangeCulture("ja-JP");
+            workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _, restoreUiApplyScheduler: action =>
+            {
+                schedulerCalls++;
+                action();
+                return Task.CompletedTask;
+            });
+            int refreshRequests = 0, buildStarts = 0;
+            workspace.PlaylistPresentationRefreshRequested += (_, _) => refreshRequests++;
+            workspace.PlaylistSummaryBuildStarted += (_, _) => buildStarts++;
+            if (scenario == "filtered") { workspace.PlaylistSummaryKeywordFilter = "alpha"; }
+            Assert.IsTrue(workspace.RequestPlaylistSummaryMode(enabled: true));
+            workspace.AttachPlaylistSummaryKeywordSearchPresentation();
+            var notifications = new List<string>();
+            workspace.PropertyChanged += (_, args) => notifications.Add(args.PropertyName ?? string.Empty);
+
+            // 要求だけで未採用の間は、言語を変えても見出しと件数を出さない。
+            ResourceService.Current.ChangeCulture("en-US");
+            Assert.AreEqual(string.Empty, workspace.GridHeaderText);
+            Assert.AreEqual(string.Empty, workspace.PlaylistSummaryText);
+            CollectionAssert.DoesNotContain(notifications, nameof(workspace.GridHeaderText));
+            CollectionAssert.DoesNotContain(notifications, nameof(workspace.PlaylistSummaryText));
+
+            PlaylistSummaryRow[] source = scenario == "zero"
+                ? []
+                :
+                [
+                    new PlaylistSummaryRow { PlaylistId = 1, Name = "alpha", TotalCharts = 2, OwnedCharts = 2 },
+                    new PlaylistSummaryRow { PlaylistId = 2, Name = "beta", TotalCharts = 3, OwnedCharts = 1 }
+                ];
+            Assert.IsTrue(workspace.TrySetPlaylistSummaryRowsCache(source, workspace.BeginPlaylistSummaryDataRebuildGeneration()));
+            workspace.RequestPlaylistSummaryPresentationRefresh();
+            Assert.IsTrue(workspace.IsPlaylistSummaryMode);
+
+            string Counts() => string.Format(Resources.Playlist_summary_format, expectedCharts, expectedTables);
+            Assert.AreEqual(Resources.Playlist_summary_header, workspace.GridHeaderText);
+            Assert.AreEqual(Counts(), workspace.PlaylistSummaryText);
+            Assert.AreEqual(expectedTables, workspace.PlaylistSummaryView.Count);
+
+            ObservableCollection<PlaylistSummaryRow> rows = workspace.PlaylistSummaryView;
+            PlaylistSummaryRow[] rowInstances = [.. rows];
+            long presentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration;
+            long dataGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+            long cacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
+            long appliedDataGeneration = workspace.AppliedPlaylistSummaryDataGeneration;
+            long completedTimestamp = workspace.LastPlaylistSummaryBuildCompletedTimestamp;
+            Assert.IsTrue(workspace.TryGetAppliedPlaylistSummaryPerformanceInteraction(out PerformanceInteraction interaction));
+            int callsBefore = schedulerCalls, refreshesBefore = refreshRequests, buildsBefore = buildStarts;
+            int collectionChanges = 0;
+            rows.CollectionChanged += (_, _) => collectionChanges++;
+
+            string headerBefore = Resources.Playlist_summary_header;
+            string countsBefore = workspace.PlaylistSummaryText;
+            foreach (string culture in new[] { "ja-JP", "en-US", "ja-JP" })
+            {
+                notifications.Clear();
+                ResourceService.Current.ChangeCulture(culture);
+                Assert.AreEqual(Resources.Playlist_summary_header, workspace.GridHeaderText);
+                Assert.AreEqual(Counts(), workspace.PlaylistSummaryText);
+                Assert.AreNotEqual(headerBefore, workspace.GridHeaderText);
+                Assert.AreNotEqual(countsBefore, workspace.PlaylistSummaryText);
+                headerBefore = workspace.GridHeaderText;
+                countsBefore = workspace.PlaylistSummaryText;
+                Assert.AreEqual(1, notifications.Count(name => name == nameof(workspace.GridHeaderText)));
+                Assert.AreEqual(1, notifications.Count(name => name == nameof(workspace.PlaylistSummaryText)));
+                CollectionAssert.DoesNotContain(notifications, nameof(workspace.PlaylistSummaryView));
+                CollectionAssert.DoesNotContain(notifications, nameof(workspace.IsPlaylistSummaryMode));
+                CollectionAssert.DoesNotContain(notifications, nameof(workspace.IsPlaylistDetailViewActive));
+                CollectionAssert.DoesNotContain(notifications, nameof(workspace.PlaylistSummarySortParameters));
+                CollectionAssert.DoesNotContain(notifications, nameof(workspace.PlaylistSummaryKeywordFilter));
+                CollectionAssert.DoesNotContain(notifications, nameof(workspace.PlaylistSummaryOwnedFilter));
+            }
+
+            Assert.AreSame(rows, workspace.PlaylistSummaryView);
+            CollectionAssert.AreEqual(rowInstances, rows.ToArray());
+            Assert.AreEqual(0, collectionChanges);
+            Assert.AreEqual(presentationGeneration, workspace.CurrentPlaylistSummaryPresentationGeneration);
+            Assert.AreEqual(dataGeneration, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
+            Assert.AreEqual(cacheGeneration, workspace.CurrentPlaylistSummaryRowsCacheGeneration);
+            Assert.AreEqual(appliedDataGeneration, workspace.AppliedPlaylistSummaryDataGeneration);
+            Assert.AreEqual(completedTimestamp, workspace.LastPlaylistSummaryBuildCompletedTimestamp);
+            Assert.IsTrue(workspace.TryGetAppliedPlaylistSummaryPerformanceInteraction(out PerformanceInteraction afterInteraction));
+            Assert.AreEqual(interaction, afterInteraction);
+            Assert.AreEqual(callsBefore, schedulerCalls);
+            Assert.AreEqual(refreshesBefore, refreshRequests);
+            Assert.AreEqual(buildsBefore, buildStarts);
+
+            // 概要を抜けた後は見出しも件数も空のまま、言語変更で通知しない。
+            Assert.IsTrue(workspace.SetPlaylistSummaryMode(enabled: false));
+            notifications.Clear();
+            ResourceService.Current.ChangeCulture("en-US");
+            Assert.AreEqual(string.Empty, workspace.GridHeaderText);
+            Assert.AreEqual(string.Empty, workspace.PlaylistSummaryText);
+            CollectionAssert.DoesNotContain(notifications, nameof(workspace.GridHeaderText));
+            CollectionAssert.DoesNotContain(notifications, nameof(workspace.PlaylistSummaryText));
+        }
+        finally
+        {
+            workspace?.DetachPlaylistSummaryKeywordSearchPresentation();
+            workspace?.Dispose();
+            ResourceService.Current.ChangeCulture(previousCulture?.Name ?? "en-US");
+            Resources.Culture = previousCulture;
+        }
+    }
+
+    /// <summary>UI適用待ちの間の言語変更は採用済みの件数で再整形し、待機中の適用を増減させません。後から採用された結果は現在語で出ます。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void PlaylistSummaryLanguage_QueuedPresentationKeepsAdoptedCountsUntilAdoption()
+    {
+        CultureInfo? previousCulture = Resources.Culture;
+        var queued = new List<Action>();
+        var applied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool queueing = false;
+        int schedulerCalls = 0;
+        PlaylistWorkspaceViewModel? workspace = null;
+        try
+        {
+            ResourceService.Current.ChangeCulture("ja-JP");
+            workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _, restoreUiApplyScheduler: action =>
+            {
+                schedulerCalls++;
+                if (!queueing) { action(); return Task.CompletedTask; }
+                queued.Add(action);
+                return applied.Task;
+            });
+            int refreshRequests = 0;
+            workspace.PlaylistPresentationRefreshRequested += (_, _) => refreshRequests++;
+            workspace.RequestPlaylistSummaryMode(enabled: true);
+            workspace.AttachPlaylistSummaryKeywordSearchPresentation();
+            Assert.IsTrue(workspace.TrySetPlaylistSummaryRowsCache(
+                [new PlaylistSummaryRow { PlaylistId = 1, Name = "alpha", TotalCharts = 2 }, new PlaylistSummaryRow { PlaylistId = 2, Name = "beta", TotalCharts = 3 }],
+                workspace.BeginPlaylistSummaryDataRebuildGeneration()));
+            workspace.RequestPlaylistSummaryPresentationRefresh();
+            Assert.AreEqual(string.Format(Resources.Playlist_summary_format, 5, 2), workspace.PlaylistSummaryText);
+
+            // 絞込みの再表示をUI適用待ちにしたまま、言語だけを変える。
+            queueing = true;
+            workspace.PlaylistSummaryKeywordFilter = "alpha";
+            Assert.AreEqual(1, queued.Count);
+            Assert.AreEqual(2, workspace.PlaylistSummaryView.Count);
+            int callsBefore = schedulerCalls, refreshesBefore = refreshRequests;
+            long generation = workspace.CurrentPlaylistSummaryPresentationGeneration;
+
+            ResourceService.Current.ChangeCulture("en-US");
+            Assert.AreEqual(Resources.Playlist_summary_header, workspace.GridHeaderText);
+            Assert.AreEqual(string.Format(Resources.Playlist_summary_format, 5, 2), workspace.PlaylistSummaryText);
+            Assert.AreEqual(1, queued.Count);
+            Assert.AreEqual(callsBefore, schedulerCalls);
+            Assert.AreEqual(refreshesBefore, refreshRequests);
+            Assert.AreEqual(generation, workspace.CurrentPlaylistSummaryPresentationGeneration);
+
+            queued.Single()();
+            Assert.AreEqual(1, workspace.PlaylistSummaryView.Count);
+            Assert.AreEqual(string.Format(Resources.Playlist_summary_format, 2, 1), workspace.PlaylistSummaryText);
+            Assert.AreEqual(Resources.Playlist_summary_header, workspace.GridHeaderText);
+            Assert.AreEqual(1, queued.Count);
+        }
+        finally
+        {
+            applied.TrySetResult();
+            workspace?.DetachPlaylistSummaryKeywordSearchPresentation();
+            workspace?.Dispose();
+            ResourceService.Current.ChangeCulture(previousCulture?.Name ?? "en-US");
+            Resources.Culture = previousCulture;
+        }
+    }
+
+    /// <summary>概要セルの局所編集で変わった件数は、その後の言語変更でも編集後の値で再整形し、一括採用時の件数へ戻さず再構築もしません。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task PlaylistSummaryLanguage_LocalEditCountIsReformattedWithoutRebuild()
+    {
+        CultureInfo? previousCulture = Resources.Culture;
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
+        try
+        {
+            ResourceService.Current.ChangeCulture("ja-JP");
+            PlaylistWorkspaceViewModel workspace = fixture.Workspace;
+            workspace.RequestPlaylistSummaryMode(enabled: true);
+            workspace.RebuildPlaylistSummaryView(runAsync: false);
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            workspace.AttachPlaylistSummaryKeywordSearchPresentation();
+            PlaylistSummaryRow row = workspace.PlaylistSummaryView.Single(item => ReferenceEquals(item.TableRef, fixture.Table));
+            // 一括採用時は絞込みに合う1行を表示し、編集で絞込みから外れて表示件数を変える。
+            workspace.PlaylistSummaryKeywordFilter = "name:Prefix";
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            Assert.AreEqual(1, workspace.PlaylistSummaryView.Count);
+            string bulkText = workspace.PlaylistSummaryText;
+            Assert.IsTrue((await workspace.CompleteSummaryPropertyEditAsync(row, nameof(PlaylistSummaryRow.Name), "Other", true)).IsApplied);
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            int viewCount = workspace.PlaylistSummaryView.Count;
+            int charts = workspace.PlaylistSummaryView.Sum(item => item.TotalCharts);
+            int refreshes = 0, builds = 0;
+            workspace.PlaylistPresentationRefreshRequested += (_, _) => refreshes++;
+            workspace.PlaylistSummaryBuildStarted += (_, _) => builds++;
+            ObservableCollection<PlaylistSummaryRow> rows = workspace.PlaylistSummaryView;
+            PlaylistSummaryRow[] instances = [.. rows];
+            long presentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration;
+            long dataGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+
+            string editedText = string.Format(Resources.Playlist_summary_format, charts, viewCount);
+            Assert.AreEqual(editedText, workspace.PlaylistSummaryText);
+            ResourceService.Current.ChangeCulture("en-US");
+            Assert.AreEqual(string.Format(Resources.Playlist_summary_format, charts, viewCount), workspace.PlaylistSummaryText);
+            Assert.AreNotEqual(editedText, workspace.PlaylistSummaryText);
+            Assert.AreEqual(Resources.Playlist_summary_header, workspace.GridHeaderText);
+            Assert.AreSame(rows, workspace.PlaylistSummaryView);
+            CollectionAssert.AreEqual(instances, rows.ToArray());
+            Assert.AreEqual(presentationGeneration, workspace.CurrentPlaylistSummaryPresentationGeneration);
+            Assert.AreEqual(dataGeneration, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
+            Assert.AreEqual(0, refreshes);
+            Assert.AreEqual(0, builds);
+            Assert.AreEqual(0, viewCount);
+            Assert.AreNotEqual(bulkText, workspace.PlaylistSummaryText);
+        }
+        finally
+        {
+            fixture.Workspace.DetachPlaylistSummaryKeywordSearchPresentation();
             ResourceService.Current.ChangeCulture(previousCulture?.Name ?? "en-US");
             Resources.Culture = previousCulture;
         }

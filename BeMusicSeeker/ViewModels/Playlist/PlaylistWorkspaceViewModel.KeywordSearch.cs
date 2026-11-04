@@ -45,7 +45,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    /// <summary>サマリーの表示寿命へ言語通知を接続し、現在の資源で警告とヘルプを同期します。再接続で購読を重複させません。</summary>
+    /// <summary>サマリーの表示寿命へ言語通知を接続し、現在の資源で警告とヘルプを同期し、採用済みの概要なら見出しと自動件数も現在語へ再整形します。再接続で購読を重複させません。</summary>
     internal void AttachPlaylistSummaryKeywordSearchPresentation()
     {
         ResourceService.Current.PropertyChanged -= PlaylistSummaryKeywordSearchResourcesChanged;
@@ -67,10 +67,53 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
+    /// <summary>
+    /// 画面へ反映済みの概要だけを対象に、見出しと自動件数を現在語で再整形します。
+    /// 行・source・要求世代は触らず、概要要求のみで未採用の状態や概要を抜けた後は何も通知しません。
+    /// 明示的な <c>SummaryText</c> は保持し、見出しだけを更新します。
+    /// </summary>
+    private void RefreshPlaylistSummaryLocalizedHeaderAndCount()
+    {
+        bool headerChanged;
+        bool textChanged;
+        lock (playlistSummaryTransitionLock)
+        {
+            if (!isPlaylistSummaryMode)
+            {
+                return;
+            }
+            string nextHeader = BeMusicSeeker.Properties.Resources.Playlist_summary_header;
+            headerChanged = gridHeaderText != nextHeader;
+            gridHeaderText = nextHeader;
+            textChanged = false;
+            // 概要を抜けた後は件数が空のため、残った古いviewから件数を出さない。
+            if (playlistSummaryTextIsAutomatic && appliedPlaylistSummaryIdentity != null && playlistSummaryText.Length != 0)
+            {
+                string nextText = FormatPlaylistSummaryText(playlistSummaryView.TotalCharts, playlistSummaryView.Count);
+                textChanged = playlistSummaryText != nextText;
+                playlistSummaryText = nextText;
+            }
+        }
+        var publishExceptions = new List<Exception>();
+        if (headerChanged)
+        {
+            TryPublish(() => RaisePropertyChanged(nameof(GridHeaderText)), publishExceptions);
+        }
+        if (textChanged)
+        {
+            TryPublish(() => RaisePropertyChanged(nameof(PlaylistSummaryText)), publishExceptions);
+        }
+        if (publishExceptions.Count > 0)
+        {
+            throw new AggregateException(publishExceptions);
+        }
+    }
+
     private void RefreshPlaylistSummaryKeywordSearchLocalizedPresentation()
     {
         UpdatePlaylistSummaryKeywordSearchPresentation();
         RaisePropertyChanged(nameof(PlaylistSummaryKeywordSearchHelpText));
+        RefreshPlaylistSummaryLocalizedHeaderAndCount();
     }
 
     private void UpdatePlaylistSummaryKeywordSearchPresentation()

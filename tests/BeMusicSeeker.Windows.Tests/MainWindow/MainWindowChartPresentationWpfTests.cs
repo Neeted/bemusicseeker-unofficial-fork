@@ -1466,6 +1466,11 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>概要の見出しまたは件数へ指定した経路でBindingされた、実TextBlockを取得します。</summary>
+    private static TextBlock FindSummaryBindingTextBlock(DependencyObject root, string bindingPath)
+        => FindVisualDescendants<TextBlock>(root).Single(block =>
+            System.Windows.Data.BindingOperations.GetBinding(block, TextBlock.TextProperty)?.Path?.Path == bindingPath);
+
     /// <summary>通常とサマリーの実警告Tooltip・開いたhelpを言語切替で更新し、入力・caret・候補選択を保持します。実Close完了後は保持した両ownerへ言語通知を送りません。</summary>
     /// <remarks>外側ownerの通知から実BindingとPopup本文への接続、およびMainWindowの終了時解除を確認します。文脈・警告の組合せと再接続の条件網羅は各ownerテストへ分担します。</remarks>
     [TestMethod]
@@ -1488,6 +1493,15 @@ public sealed class MainWindowChartPresentationWpfTests
                             {
                                 ResourceService.Current.ChangeCulture("ja-JP");
                                 workspace.SetPlaylistSummaryMode(summary);
+                                if (summary)
+                                {
+                                    // 件数を非空にするため、自動件数の概要を1行で採用する。
+                                    Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
+                                    {
+                                        Rows = new System.Collections.ObjectModel.ObservableCollection<PlaylistSummaryRow>([new PlaylistSummaryRow { PlaylistId = 1, Name = "alpha", TotalCharts = 3 }]),
+                                        PresentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration()
+                                    }));
+                                }
                                 SearchChrome chrome = GetSearchChrome(window, summary ? "PlaylistSummaryKeywordSearchEditor" : "KeywordSearchEditor");
                                 KeywordSearchAssistanceOwner assistance = summary
                                     ? workspace.PlaylistSummaryKeywordSearchAssistanceOwner
@@ -1525,6 +1539,18 @@ public sealed class MainWindowChartPresentationWpfTests
                                         : Resources.Keyword_search_help_fields_bmsfile;
                                     Assert.AreEqual(string.Format(Resources.Keyword_search_help_template, fieldHelp), help.Text);
                                     Assert.IsTrue(chrome.HelpPopup.IsOpen);
+                                    if (summary)
+                                    {
+                                        // 概要の見出しと件数は、実TextBlockのBindingが現在語の値へ追従する。
+                                        TextBlock header = FindSummaryBindingTextBlock(window, "PlaylistWorkspace.GridHeaderText");
+                                        TextBlock counts = FindSummaryBindingTextBlock(window, "PlaylistWorkspace.PlaylistSummaryText");
+                                        Assert.AreEqual(Resources.Playlist_summary_header, workspace.GridHeaderText);
+                                        Assert.AreEqual(Resources.Playlist_summary_header, header.Text);
+                                        string expectedCounts = string.Format(Resources.Playlist_summary_format, workspace.PlaylistSummaryView.Sum(row => row.TotalCharts), workspace.PlaylistSummaryView.Count);
+                                        Assert.AreNotEqual(string.Empty, expectedCounts);
+                                        Assert.AreEqual(expectedCounts, workspace.PlaylistSummaryText);
+                                        Assert.AreEqual(expectedCounts, counts.Text);
+                                    }
                                     Assert.AreEqual(raw, chrome.TextBox.Text);
                                     Assert.AreEqual(caret, chrome.TextBox.CaretIndex);
                                     Assert.AreSame(fields, GetSectionRows(chrome.Editor, KeywordSearchPresentationSectionKind.Fields));
@@ -1554,7 +1580,7 @@ public sealed class MainWindowChartPresentationWpfTests
                             TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "search-language.closed");
                         }
                         finally { window.Closed -= closedHandler; }
-                        int normalNotifications = 0, summaryNotifications = 0;
+                        int normalNotifications = 0, summaryNotifications = 0, summaryTextNotifications = 0;
                         filters.PropertyChanged += (_, args) =>
                         {
                             if (args.PropertyName is nameof(filters.KeywordSearchWarningText) or nameof(filters.HasKeywordSearchWarning) or nameof(filters.KeywordSearchHelpText))
@@ -1564,11 +1590,14 @@ public sealed class MainWindowChartPresentationWpfTests
                         {
                             if (args.PropertyName is nameof(workspace.PlaylistSummaryKeywordSearchWarningText) or nameof(workspace.HasPlaylistSummaryKeywordSearchWarning) or nameof(workspace.PlaylistSummaryKeywordSearchHelpText))
                             { summaryNotifications++; }
+                            if (args.PropertyName is nameof(workspace.GridHeaderText) or nameof(workspace.PlaylistSummaryText))
+                            { summaryTextNotifications++; }
                         };
                         ResourceService.Current.ChangeCulture("ja-JP");
                         TestUiDispatcherHost.ProcessQueuedPresentation();
                         Assert.AreEqual(0, normalNotifications);
                         Assert.AreEqual(0, summaryNotifications);
+                        Assert.AreEqual(0, summaryTextNotifications);
                     });
             }
             finally
