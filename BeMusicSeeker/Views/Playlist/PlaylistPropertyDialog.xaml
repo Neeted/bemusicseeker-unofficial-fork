@@ -69,7 +69,7 @@
                    Text="{Binding last_update, ConverterCulture={x:Static globalization:CultureInfo.InvariantCulture}, StringFormat=&quot;Update: {0:yyyy-MM-dd}&quot;}" />
         <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
           <Button Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" Content="OK" MinWidth="64" Margin="0,0,8,0" AutomationProperties.AutomationId="PlaylistPropertyAccept" Click="SaveAndClose" />
-          <Button Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="Cancel" MinWidth="64" AutomationProperties.AutomationId="PlaylistPropertyCancel" Click="CancelAndClose" />
+          <Button Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel, Mode=OneWay}" MinWidth="64" AutomationProperties.AutomationId="PlaylistPropertyCancel" Click="CancelAndClose" />
         </StackPanel>
       </Grid>
       <ListBox x:Name="propertyNavigation"

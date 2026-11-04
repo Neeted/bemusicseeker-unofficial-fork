@@ -46,6 +46,8 @@
 
 通常の確認画面のOK・Yes・No・Cancelは、表示時点の言語資源を実ボタンの文言に使います。OK・Yes・Noには専用の確認ボタン資源、Cancelには共通の取消資源を使い、言語変更後の次の表示から新しい文言を反映します。開いているモーダルの言語変更購読や翻訳のキャッシュは持ちません。
 
+上記の「開いているモーダルの言語変更購読を持たない」は確認画面（ThemedMessageBox）の記述です。表プロパティと進捗ダイアログの取消ボタンは、`Resources.Cancel` へのBindingにより、新しく開いた画面で現在語を表示します。取消動作・AutomationId・Esc・通常閉鎖は変わりません。
+
 翻訳は既定応答、明示応答、Enter・Esc・閉じる操作の意味を変えません。フォルダー全体の確認ではYesが全体、Noが譜面のみ、Cancel・閉じる・Escが全操作の取消を表し、確認の表示失敗は承認や取消に置き換えません。
 
 保留復元の未確定失敗は専用の`PendingPackageRestoreWindow`を`ShowWindowAsync`で表示し、「再試行」「保留一覧を初期化して続行」「終了」の明示値を区別します。全保留登録の消去と、元ファイル・導入済み楽曲をこの操作では削除しないことを本文で示します。一覧初期化は`IsAccepted`と明示Resetの両方を要求し、×・Escに承認値を与えません。復元・一覧初期化の元原因は画面と既存ログへ渡します。DB確定後の障害や表示不能をこの復旧選択へ再分類しません。範囲と終了引渡しは[起動の保留復元](../runtime/startup.md#保留復元の失敗時選択)に従います。
@@ -75,6 +77,7 @@ LR2個別参照の確認・選択で表示失敗が起きた場合は、元の�
 | 設定の入力検証通知、表示失敗と入力保持 | [SettingsDialogViewModel](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) の `ShowUiMessage` | [SettingDialogEditCompletionTests](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingDialogEditCompletionTests.cs) の `CustomFolderOutputValidation_UsesInjectedDialogAndPreservesRejectedValue`: 注入済み窓口への一度の通知、表示成功・失敗・親なしの結果、拒否値と保存済みXMLの不変。 |
 | 設定終了後の保存完了通知と再表示 | [MainWindow](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs)、[SettingsWindow](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs) | [SettingsWindowPresentationTests](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsWindowPresentationTests.cs) の `MainWindow_InitialSettingsCloseBeforeRealCompletionMessageAndRecoverAfterInitialization`: 実通知の表示と親、旧画面の終了、新しい設定画面の編集受付。 |
 | 一括編集の実確認寿命、任意通知失敗、更新リンク失敗 | [`PlaylistSummaryBulkEditDialog`](../../../BeMusicSeeker/Views/Playlist/PlaylistSummaryBulkEditDialog.cs)、[`UpdateAvailableDialog`](../../../BeMusicSeeker/Views/Dialogs/UpdateAvailableDialog.xaml.cs) | [`MainWindowPlaylistWorkspaceWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) の `MainWindowPlaylistDialogs_UseOwnedNativeModalLifetimeAndCleanup` は確認中の実`applyTask`・閉鎖抑止、確認失敗の未適用と編集値保持、出力確定後の通知失敗と後片付けを確認する。[`DialogPresentationTests`](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogPresentationTests.cs) の `UpdateLinkLaunchFailureKeepsWindowAndDrainsCompiledEvent` は実ボタンと通知Taskの終端後も成功で閉じないことを確認する。 |
+| 進捗ダイアログと表プロパティの取消ボタンの翻訳 | `ProgressDialog.xaml`、`PlaylistPropertyDialog.xaml` | [DialogPresentationTests](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogPresentationTests.cs) の `CancelButtons_NewDialogsUseCurrentLanguageAndKeepCancellation` は6言語で新しく開いたContentが `Resources.Cancel` と一致し、進捗の取消が処理側へ届き `CancelledByUser` で閉じることを確認する。 |
 
 ## 関連資料
 

@@ -802,6 +802,7 @@
                   <MultiBinding Converter="{StaticResource treeViewItemToAncestorsStringConverter}">
                     <Binding Path="SelectedItem" ElementName="treeView" />
                     <Binding ElementName="treeView" />
+                    <Binding Source="{x:Static vm:ResourceService.Current}" Path="Resources" Mode="OneWay" />
                   </MultiBinding>
                 </TextBlock.Text>
               </TextBlock>
@@ -816,6 +817,7 @@
                   <MultiBinding Converter="{StaticResource treeViewItemToAncestorsStringConverter}">
                     <Binding Path="SelectedItem" ElementName="treeViewPlaylist" />
                     <Binding ElementName="treeViewPlaylist" />
+                    <Binding Source="{x:Static vm:ResourceService.Current}" Path="Resources" Mode="OneWay" />
                   </MultiBinding>
                 </TextBlock.Text>
               </TextBlock>

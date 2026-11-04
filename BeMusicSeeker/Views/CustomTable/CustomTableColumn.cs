@@ -117,7 +117,12 @@ public sealed class CustomTableColumn
     private readonly CustomTableCellKind configuredCellKind;
     private readonly TextAlignment configuredAlignment;
     private readonly bool configuredEditOnRepeatClick;
+    private readonly string configuredHeader;
+    private readonly Func<string> headerSelector;
 
+    /// <summary>列定義を作ります。</summary>
+    /// <param name="header">固定の見出し文字列。<paramref name="headerSelector"/> がある場合は使用しません。null も許容します。</param>
+    /// <param name="headerSelector">見出しを呼出しごとに現在の表示言語の資源値から返す関数。指定時は <paramref name="header"/> より優先し、null なら固定見出しを使います。</param>
     internal CustomTableColumn(
         string id,
         string header,
@@ -145,10 +150,12 @@ public sealed class CustomTableColumn
         Func<object, string> editTextSelector = null,
         Func<object, IEnumerable<string>> editSuggestionsSelector = null,
         double? tooltipTextWidth = null,
-        bool autoTrimTooltip = true)
+        bool autoTrimTooltip = true,
+        Func<string> headerSelector = null)
     {
         Id = id;
-        Header = header;
+        configuredHeader = header;
+        this.headerSelector = headerSelector;
         Layout = layout;
         FallbackOrder = fallbackOrder;
         SortMemberPath = sortMemberPath;
@@ -178,7 +185,11 @@ public sealed class CustomTableColumn
 
     public string Id { get; }
 
-    public string Header { get; }
+    /// <summary>
+    /// 列見出しです。翻訳対象の見出しは <c>headerSelector</c> を呼ぶたびに現在の表示言語の資源値を返し、
+    /// 追加辞書を含む言語変更を、列や行を作り直さずに描画・UIA名へ反映します。固定見出しは構築時の文字列です。
+    /// </summary>
+    public string Header => headerSelector?.Invoke() ?? configuredHeader;
 
     public ICustomTableColumnLayout Layout { get; }
 
@@ -429,8 +440,8 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("Folder", "FOLDER", settings.Folder, 14, "Folder", TextAlignment.Left, row => GetString(row, "Folder"), editPropertyName: "Folder"),
             new CustomTableColumn("Path", "PATH", settings.Path, 15, "path", TextAlignment.Left, row => GetString(row, "path")),
             new CustomTableColumn("InstallDst", "INSTL DST", settings.InstallDst, 16, "instl_dst", TextAlignment.Left, row => GetInstallDestinationText(row, canEditInstallDestination?.Invoke(row) == true), editPropertyName: "instl_dst", editTextSelector: row => GetString(row, "instl_dst"), editSuggestionsSelector: GetInstallDestinationSuggestions),
-            new CustomTableColumn("InstallDstTitle", Resources.Header_InstallDstTitle, settings.InstallDstTitle, 17, "InstallDestinationTitle", TextAlignment.Left, row => GetString(row, "InstallDestinationTitle")),
-            new CustomTableColumn("InstallDstArtist", Resources.Header_InstallDstArtist, settings.InstallDstArtist, 18, "InstallDestinationArtist", TextAlignment.Left, row => GetString(row, "InstallDestinationArtist")),
+            new CustomTableColumn("InstallDstTitle", null, settings.InstallDstTitle, 17, "InstallDestinationTitle", TextAlignment.Left, row => GetString(row, "InstallDestinationTitle"), headerSelector: () => Resources.Header_InstallDstTitle),
+            new CustomTableColumn("InstallDstArtist", null, settings.InstallDstArtist, 18, "InstallDestinationArtist", TextAlignment.Left, row => GetString(row, "InstallDestinationArtist"), headerSelector: () => Resources.Header_InstallDstArtist),
             new CustomTableColumn("WavHealth", "WAV", settings.WavHealth, 19, "WAVHealth", TextAlignment.Right, row => FormatSuffix(GetValue(row, "WAVHealth"), "%", "-"), maxWidth: 50, autoTrimTooltip: false),
             new CustomTableColumn("BgaHealth", "BGA", settings.BgaHealth, 20, "BGAHealth", TextAlignment.Right, row => FormatSuffix(GetValue(row, "BGAHealth"), "%", "-"), maxWidth: 50, autoTrimTooltip: false),
             new CustomTableColumn("MovieHealth", "MOVIE", settings.MovieHealth, 21, "MovieHealth", TextAlignment.Right, row => FormatSuffix(GetValue(row, "MovieHealth"), "%", "-"), maxWidth: 50, autoTrimTooltip: false),
@@ -512,7 +523,7 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("Header", "HEADER", settings.Header, 12, nameof(PlaylistSummaryRow.HeaderUriText), TextAlignment.Center, row => GetPlaylistSummaryHeaderText(row), tooltipSelector: GetPlaylistSummaryHeaderTooltip, cellKind: CustomTableCellKind.ActionText, editTextSelector: GetPlaylistSummaryHeaderTooltip),
             new CustomTableColumn("Data", "DATA", settings.Data, 13, nameof(PlaylistSummaryRow.DataUriText), TextAlignment.Center, row => GetPlaylistSummaryDataText(row), tooltipSelector: GetPlaylistSummaryDataTooltip, cellKind: CustomTableCellKind.ActionText, editTextSelector: GetPlaylistSummaryDataTooltip),
             new CustomTableColumn("IsExternalSync", "SYNC", settings.IsExternalSync, 14, nameof(PlaylistSummaryRow.IsExternalSync), TextAlignment.Center, row => string.Empty, editTextSelector: row => GetString(row, nameof(PlaylistSummaryRow.IsExternalSync)), checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsExternalSync)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false),
-            new CustomTableColumn("Status", Resources.Playlist_summary_status_header, settings.Status, 15, nameof(PlaylistSummaryRow.StatusSortOrder), TextAlignment.Center, row => GetString(row, nameof(PlaylistSummaryRow.Status)), tooltipSelector: row => GetString(row, nameof(PlaylistSummaryRow.StatusDetail))),
+            new CustomTableColumn("Status", null, settings.Status, 15, nameof(PlaylistSummaryRow.StatusSortOrder), TextAlignment.Center, row => GetString(row, nameof(PlaylistSummaryRow.Status)), tooltipSelector: row => GetString(row, nameof(PlaylistSummaryRow.StatusDetail)), headerSelector: () => Resources.Playlist_summary_status_header),
             new CustomTableColumn("IsRootFolder", "ROOT", settings.IsRootFolder, 16, nameof(PlaylistSummaryRow.IsRootFolder), TextAlignment.Center, row => string.Empty, editTextSelector: row => GetString(row, nameof(PlaylistSummaryRow.IsRootFolder)), checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsRootFolder)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false),
             new CustomTableColumn("BmtSort", "BMT SORT", settings.BmtSort, 17, nameof(PlaylistSummaryRow.BmtSort), TextAlignment.Right, row => GetString(row, nameof(PlaylistSummaryRow.BmtSort)), autoTrimTooltip: false),
             new CustomTableColumn("IsBmtOutput", "BMT OUTPUT", settings.IsBmtOutput, 18, nameof(PlaylistSummaryRow.IsBmtOutput), TextAlignment.Center, row => string.Empty, editTextSelector: row => GetString(row, nameof(PlaylistSummaryRow.IsBmtOutput)), checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsBmtOutput)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false)

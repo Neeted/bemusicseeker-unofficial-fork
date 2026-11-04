@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -1577,6 +1578,113 @@ public sealed class PlaybackPanelViewModelTests
             Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
         }
         finally { DisposeWorkspace(); }
+    }
+
+    /// <summary>画像／内蔵再生の現在モードと再生中／停止中の4条件で、言語を往復しても表示切替ボタンのtooltipが各段の現在語になり、表示モード・再生・playerを変えないことを確認します。</summary>
+    /// <remarks>内蔵再生面は BMIIDXView2015 でだけ有効になるため、記録gatewayを持つ実playerを使います。再生の開始・停止・playerの再生成なしは、gatewayの起動準備回数、sessionの起動状態と終了要求（CloseMainWindow・Kill）の回数、NowPlayingChartの参照、IsPlayingとPlayerPanelStateの通知有無で観測します（playerはケース内で一つだけ生成します）。tooltipの区切り「: 」は現行挙動を期待値に固定し、言語変更は共通資源のため文化圏を必ず復元します。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void PlaybackPanelView_ViewModeTooltipFollowsLanguageWithoutChangingSurfaceOrPlayback(bool builtInPlayer, bool playing)
+    {
+        var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        try
+        {
+            TestUiDispatcherHost.RunWindowTest(scope =>
+            {
+                CultureInfo? previousCulture = Resources.Culture;
+                string directory = workspace.RootDirectory;
+                string path = Path.Combine(directory, "tooltip.bms");
+                File.WriteAllText(path, "#TITLE tooltip");
+                var gateway = new RecordingExternalPlayerProcessGateway();
+                gateway.Session.KeepRunning = true;
+                gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
+                BMIIDXView2015 player = CreateBmiPlayer(directory, gateway);
+                var rows = new MainChartListViewModel { Rows = new List<object> { ChartTestValues.Empty() with { Path = path } } };
+                var settings = new InMemoryPlaybackSettingsStore { PlayerPanelState = PlayerPanelState.TITLE_LARGE };
+                var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+                    settings, new FakePlaybackDialogService(), _ => Assert.Fail("想定外の再生失敗通知です。"), new ChartFileOperationSynchronizer());
+                var view = new PlaybackPanelView { DataContext = panel };
+                var window = new Window { Content = view, Width = 800d, Height = 400d, ShowInTaskbar = false };
+                try
+                {
+                    ResourceService.Current.ChangeCulture("ja-JP");
+                    scope.ShowAndWaitForContentRendered(window);
+                    var host = (ExternalPlayerHwndHost)view.FindName("externalPlayerHost");
+                    panel.AttachWindowHost(new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(host.Handle)));
+                    if (playing)
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(panel.StartAtIndex(0), "tooltip-start");
+                    }
+                    panel.PlayerPanelState = builtInPlayer ? PlayerPanelState.BMS_PLAYER : PlayerPanelState.TITLE_LARGE;
+                    window.UpdateLayout();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    // 前提: 要求した組合せで、実効の表示モードと再生状態が対象になっている。
+                    Assert.AreEqual(builtInPlayer, view.EffectivePlayerPanelState.HasFlag(PlayerPanelState.BMS_PLAYER));
+                    Assert.AreEqual(playing, panel.IsPlaying);
+
+                    var button = (Button)view.FindName("buttonBMSPlayerControlsRotatePanelState");
+                    string Expected() => Resources.Tooltip_view_mode + ": " + (builtInPlayer ? Resources.Tooltip_bms_player : Resources.Tooltip_image_file);
+                    PlayerPanelState requested = panel.PlayerPanelState, effective = view.EffectivePlayerPanelState;
+                    object? content = button.Content;
+                    object? chart = panel.NowPlayingChart;
+                    int prepares = gateway.PrepareCount;
+                    int closes = gateway.Session.CloseMainWindowCount, kills = gateway.Session.KillCount;
+                    bool started = gateway.Session.Started;
+                    var changes = new List<string>();
+                    System.ComponentModel.PropertyChangedEventHandler recorder = (_, args) => changes.Add(args.PropertyName ?? string.Empty);
+                    panel.PropertyChanged += recorder;
+                    var tooltips = new List<string>();
+                    try
+                    {
+                        Assert.AreEqual(Expected(), button.ToolTip);
+                        tooltips.Add((string)button.ToolTip);
+                        foreach (string culture in new[] { "en-US", "fr-FR", "ja-JP" })
+                        {
+                            ResourceService.Current.ChangeCulture(culture);
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                            Assert.AreEqual(Expected(), button.ToolTip, culture);
+                            tooltips.Add((string)button.ToolTip);
+                        }
+                    }
+                    finally { panel.PropertyChanged -= recorder; }
+                    Assert.AreNotEqual(tooltips[0], tooltips[1], "日本語と英語でtooltipが切り替わります。");
+                    Assert.AreNotEqual(tooltips[1], tooltips[2], "英語とフランス語でtooltipが切り替わります。");
+                    Assert.AreEqual(tooltips[0], tooltips[3]);
+                    Assert.AreEqual(requested, panel.PlayerPanelState);
+                    Assert.AreEqual(effective, view.EffectivePlayerPanelState);
+                    Assert.AreEqual(requested, settings.PlayerPanelState);
+                    Assert.AreEqual(content, button.Content);
+                    Assert.AreEqual(playing, panel.IsPlaying);
+                    Assert.AreSame(chart, panel.NowPlayingChart);
+                    Assert.AreEqual(prepares, gateway.PrepareCount);
+                    Assert.AreEqual(closes, gateway.Session.CloseMainWindowCount, "言語変更でplayerを閉じません。");
+                    Assert.AreEqual(kills, gateway.Session.KillCount, "言語変更でplayerを強制終了しません。");
+                    Assert.AreEqual(started, gateway.Session.Started);
+                    CollectionAssert.DoesNotContain(changes, nameof(PlaybackPanelViewModel.PlayerPanelState));
+                    CollectionAssert.DoesNotContain(changes, nameof(PlaybackPanelViewModel.IsPlaying));
+                    CollectionAssert.DoesNotContain(changes, nameof(PlaybackPanelViewModel.NowPlayingChart));
+                }
+                finally
+                {
+                    ResourceService.Current.ChangeCulture(previousCulture?.Name ?? "en-US");
+                    Resources.Culture = previousCulture;
+                    panel.BeginShutdown();
+                    gateway.Session.KeepRunning = false;
+                    try { TestUiDispatcherHost.AwaitTaskOnDispatcher(panel.CloseForShutdown(), "tooltip-shutdown"); }
+                    finally
+                    {
+                        view.DisposePlayerHost();
+                        window.Content = null;
+                        window.Close();
+                    }
+                }
+            });
+        }
+        finally { workspace.Dispose(); }
     }
 
     /// <summary>小型と利用不能player面を指定してViewを表示すると、最初から画像の小型最終値へ同期しanimation clockを残さないことを確認します。</summary>

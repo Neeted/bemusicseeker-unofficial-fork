@@ -16,6 +16,8 @@
 
 表示面は画像と内蔵プレイヤーです。プレイヤーを使えない場合は画像を表示しますが、要求状態は書き換えません。小型指定とプレイヤー指定が併存していても、最初のフレームから画像の小型表示になります。
 
+表示切替ボタンのtooltipは、有効な表示モードと現在の言語資源を入力にして作ります。言語変更では表示モード・再生・playerを変えず、文言だけを現在語へ更新します。
+
 ### 外部プレーヤーのホスト
 
 `ExternalPlayerHwndHost` はWPFの `HwndHost` として、自プロセスのUIスレッド上に標準STATICクラスの黒い子HWNDを一つ所有します。WPFウィンドウへの接続で生成され、初期状態が `Collapsed` でも `ContentRendered` 後には有効です。`PlayerHostHandle` は生成済みハンドルを返し、取得時の遅延生成は行いません。通常の初期化完了通知から `MainWindow` が非ゼロの親HWNDを外部プレーヤーへ接続します。
@@ -185,6 +187,7 @@ Stop後の明示入力は通常どおり開始できます。停止処理は受�
 | Pause・シーク・一覧・モード変更では準備を差し替えず、実際の送り先を優先すること | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs) | [`PlaybackPanelViewModelTests`](../../../tests/BeMusicSeeker.Core.Tests/Playback/PlaybackPanelViewModelTests.cs)の`SongStart_PreparesOnceAndUsesLiveTargetAfterListAndModeChanges`でAの次にBを準備した後、現在の一覧からCへ進み、Cの開始で次候補を準備することを確認する。 |
 | 関連する画面状態と更新 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistWorkspacePresentationStateTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspacePresentationStateTests.cs) / [`PlaylistWorkspacePresentationStateTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/PlaylistWorkspacePresentationStateTests.cs)、[`PlaylistWorkspaceDetailRefreshTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspaceDetailRefreshTests.cs) |
 | ルート画面への再生管理主体の接続と表示の能力 | [`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) | [`MainWindowPlaybackWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPlaybackWpfTests.cs) |
+| 表示切替ボタンのtooltipの言語追従 | `PlaybackPanelView.xaml`、`panelStateToTooltipConverter` | 有効な表示モードと現在の資源を入力にしたMultiBindingで、言語変更時に表示モードや再生を変えずにtooltipを再評価する。[PlaybackPanelViewModelTests](../../../tests/BeMusicSeeker.Windows.Tests/Playback/PlaybackPanelViewModelTests.cs) の `PlaybackPanelView_ViewModeTooltipFollowsLanguageWithoutChangingSurfaceOrPlayback` は画像／内蔵再生と再生中／停止中の4条件で、言語往復後のtooltipと、表示面・再生・gateway起動回数の不変を確認する。 |
 
 ## 関連資料
 

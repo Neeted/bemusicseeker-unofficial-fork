@@ -740,6 +740,99 @@ public sealed class DialogPresentationTests
         return chromeBounds.Right;
     }
 
+    /// <summary>同梱6言語それぞれへ切り替えた後に新しく開く表プロパティと進捗の取消ボタンが現在の言語資源を表示し、進捗の取消が従来どおり処理側へ届き CancelledByUser で閉じることを確認します。</summary>
+    /// <remarks>実ダイアログの Binding と取消経路を観測します。英語以外では固定の英語名と異なることも確認し、表プロパティの取消・Esc・draft は既存ケースへ分担します。言語変更は共通資源のため、文化圏を必ず復元します。</remarks>
+    [TestMethod]
+    [DataRow("en-US")]
+    [DataRow("fr-FR")]
+    [DataRow("ja-JP")]
+    [DataRow("ko-KR")]
+    [DataRow("zh-CN")]
+    [DataRow("zh-TW")]
+    public void CancelButtons_NewDialogsUseCurrentLanguageAndKeepCancellation(string cultureName)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            object? observedContent = null;
+            Exception? observationFailure = null;
+            bool cancellationObserved = false;
+            using var clicked = new ManualResetEventSlim();
+            CultureInfo? previousCulture = Resources.Culture;
+            try
+            {
+                ResourceService.Current.ChangeCulture(cultureName);
+                string expected = Resources.Cancel;
+                if (cultureName != "en-US")
+                {
+                    Assert.AreNotEqual("Cancel", expected, "英語以外では固定の英語名と異なる辞書値を前提にします。");
+                }
+
+                var propertyDialog = new PlaylistPropertyDialog();
+                Assert.AreEqual(expected, FindButton(propertyDialog, "PlaylistPropertyCancel").Content);
+
+                var owner = new Window { Width = 240, Height = 80, ShowInTaskbar = false, Content = new Border() };
+                windowTest.ShowAndWaitForContentRendered(owner);
+                var coordinator = new UiDialogCoordinator(
+                    new UiDialogOwnerResolver(),
+                    window =>
+                    {
+                        windowTest.PrepareForOwnedPresentation(window);
+                        window.ContentRendered += (_, _) => window.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+                        {
+                            try
+                            {
+                                Button cancel = FindButton(window, "ProgressDialogCancel");
+                                observedContent = cancel.Content;
+                                cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                            }
+                            catch (Exception failure) { observationFailure = failure; }
+                            finally { clicked.Set(); }
+                        }));
+                        return UiDialogOwnerResolver.PushActiveModal(window);
+                    },
+                    (messageOwner, request) => throw new InvalidOperationException("実OSの確認ダイアログは使用しません。"));
+
+                UiProgressResult result = coordinator.RunWithProgressAsync(
+                    new UiProgressRequest("Progress", "Working", new ProgressDialogSettings(
+                        showSubLabel: false,
+                        showCancelButton: true,
+                        showProgressBarIndeterminate: true), owner),
+                    context =>
+                    {
+                        // 取消ボタンの Click は UI スレッドで配送されるため、処理側は待機側で取消要求を観測する。
+                        if (!clicked.Wait(TimeSpan.FromSeconds(30))) { throw new TimeoutException("進捗ダイアログの取消操作が配送されませんでした。"); }
+                        cancellationObserved = context.CheckCancellationPending();
+                        context.ThrowIfCancellationPending();
+                        return System.Threading.Tasks.Task.CompletedTask;
+                    }).GetAwaiter().GetResult();
+
+                if (observationFailure != null) { throw new AssertFailedException("進捗ダイアログの観測に失敗しました。", observationFailure); }
+                Assert.AreEqual(expected, observedContent);
+                Assert.IsTrue(cancellationObserved, "処理側が取消要求を観測します。");
+                Assert.AreEqual(UiDialogStatus.CancelledByUser, result.Status);
+            }
+            finally
+            {
+                ResourceService.Current.ChangeCulture(previousCulture?.Name ?? "en-US");
+                Resources.Culture = previousCulture;
+            }
+        });
+
+        static Button FindButton(DependencyObject root, string automationId)
+        {
+            return EnumerateDescendants(root).OfType<Button>().Single(button => AutomationProperties.GetAutomationId(button) == automationId);
+        }
+
+        static IEnumerable<DependencyObject> EnumerateDescendants(DependencyObject parent)
+        {
+            foreach (DependencyObject child in LogicalTreeHelper.GetChildren(parent).OfType<DependencyObject>())
+            {
+                yield return child;
+                foreach (DependencyObject descendant in EnumerateDescendants(child)) { yield return descendant; }
+            }
+        }
+    }
+
     private static PresentationFixture CreateFixture(string dialogName)
     {
         return dialogName switch

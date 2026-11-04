@@ -2149,6 +2149,335 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         });
     }
 
+    /// <summary>プレイリスト側ツリーの表・空名フォルダ・通常フォルダを選んだまま言語を往復し、一覧上部の経路が各段の現在語になり、詳細一覧の状態とツリーの選択を保つことを確認します。</summary>
+    /// <remarks>経路の各区間が実体化したTreeViewItemの見出しと同じ言語であることと、Header更新前の旧語を写さないことを、資源差替え通知後の最終表示で観測します。利用者名と区切り、省略規則は現行挙動を期待値に固定します。言語変更は共通資源のため文化圏を必ず復元します。</remarks>
+    [TestMethod]
+    public void PlaylistTreePath_LanguageRoundTripMatchesHeadersAndKeepsDetailListState()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            CultureInfo? previousCulture = Resources.Culture;
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope);
+            PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+            ChartFileOperationSynchronizer admission = fixture.Library.Lr2Synchronization.PlaylistOperationAdmission;
+            int refreshes = 0, selectedItemChanges = 0, itemSelections = 0, sorts = 0;
+            EventHandler<PlaylistPresentationRefreshRequestedEventArgs> refreshRequested = (_, _) => refreshes++;
+            RoutedPropertyChangedEventHandler<object> selected = (_, _) => selectedItemChanges++;
+            RoutedEventHandler itemSelected = (_, _) => itemSelections++;
+            EventHandler<CustomTableSortRequestedEventArgs> sortRequested = (_, _) => sorts++;
+            TreeView? observedTree = null;
+            CustomTableView? observedTable = null;
+            Exception? primary = null;
+            try
+            {
+                ResourceService.Current.ChangeCulture("ja-JP");
+                fixture.Table.is_external_sync = false;
+                string[] names = ["", .. Enumerable.Range(1, 239).Select(index => $"Folder {index:D3}")];
+                fixture.Table.entries = names.Select((name, index) => new BMSTableEntry
+                {
+                    md5 = (index + 1).ToString("x32", CultureInfo.InvariantCulture),
+                    title = name.Length == 0 ? "empty " + index : name,
+                    folder = name
+                }).ToList();
+                fixture.Table.Folder_order = names.ToList();
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(admission.WaitForIdleAsync(), "tree-path-fixture-idle");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var tree = (TreeView)fixture.Window.FindName("treeViewPlaylist");
+                observedTree = tree;
+                tree.Height = 180;
+                var root = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                root.IsExpanded = true;
+                tree.UpdateLayout();
+                TreeViewItem tableItem = root.ItemContainerGenerator.ContainerFromItem(fixture.Table) as TreeViewItem
+                    ?? throw new AssertFailedException("実表コンテナがありません。");
+                tableItem.IsExpanded = true;
+                tree.Dispatcher.Invoke(DispatcherPriority.Loaded, new Action(tree.UpdateLayout));
+                TreeViewItem FolderItem(Func<PlaylistFolderNode, bool> match) => FindDescendants<TreeViewItem>(tableItem).First(item =>
+                    item.DataContext is PlaylistFolderNode node && !node.IsSpecial && match(node));
+                TreeViewItem emptyItem = FolderItem(node => node.FolderName.Length == 0);
+                TreeViewItem folderItem = FolderItem(node => node.FolderName == "Folder 003");
+                var table = (CustomTableView)fixture.Window.FindName("customTableView");
+                observedTable = table;
+                TextBlock PathText() => FindDescendants<TextBlock>(fixture.Window).Single(text => text.IsVisible
+                    && BindingOperations.GetMultiBinding(text, TextBlock.TextProperty)?.Converter is treeViewItemToAncestorsStringConverter);
+                string tableName = fixture.Table.name;
+                Assert.AreEqual(tableName, tableItem.Header.ToString(), "表の見出しは利用者名です。");
+                tree.AddHandler(TreeView.SelectedItemChangedEvent, selected);
+                tree.AddHandler(TreeViewItem.SelectedEvent, itemSelected);
+                workspace.PlaylistPresentationRefreshRequested += refreshRequested;
+                table.SortRequested += sortRequested;
+
+                (string Label, TreeViewItem Item, Func<string> Expected, Func<string[]> Segments)[] cases =
+                [
+                    ("table", tableItem, () => tableName, () => [tableName]),
+                    ("empty", emptyItem, () => tableName + " ≫ (" + Resources.No_folder_name + ")", () => [tableName, "(" + Resources.No_folder_name + ")"]),
+                    ("folder", folderItem, () => tableName + " ≫ Folder 003", () => [tableName, "Folder 003"]),
+                ];
+                foreach ((string label, TreeViewItem item, Func<string> expected, Func<string[]> segments) in cases)
+                {
+                    item.IsSelected = true;
+                    tree.UpdateLayout();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "tree-path-detail-idle-" + label);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsFalse(workspace.IsPlaylistSummaryMode, label);
+                    ScrollBar vertical = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == Orientation.Vertical);
+                    if (vertical.Maximum > 2d) { vertical.Value = 2d; }
+                    table.SelectedIndex = 0;
+                    CustomTableColumn sortColumn = table.VisibleColumns.First(column => !string.IsNullOrWhiteSpace(column.SortMemberPath));
+                    table.SetCurrentValue(CustomTableView.SortColumnNameProperty, sortColumn.SortMemberPath);
+                    table.SetCurrentValue(CustomTableView.SortDirectionProperty, System.ComponentModel.ListSortDirection.Descending);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                    object? selectedItem = tree.SelectedItem;
+                    System.Collections.IList rowsBefore = workspace.DetailViewState.View.Rows;
+                    long generationBefore = workspace.DetailViewState.View.GenerationId;
+                    object? tableSource = table.ItemsSource;
+                    double offsetBefore = vertical.Value;
+                    object[] selectionBefore = [.. table.GetSelectedRowsSnapshot()];
+                    int selectedBefore = table.SelectedIndex;
+                    TreeViewItem selectedContainer = item;
+                    int changesBefore = selectedItemChanges, selectionsBefore = itemSelections, refreshesBefore = refreshes, sortsBefore = sorts;
+                    Assert.AreEqual(expected(), PathText().Text, label + " ja");
+                    var observed = new List<string> { PathText().Text };
+                    foreach (string culture in new[] { "en-US", "ja-JP" })
+                    {
+                        ResourceService.Current.ChangeCulture(culture);
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        string text = PathText().Text;
+                        observed.Add(text);
+                        Assert.AreEqual(expected(), text, label + " " + culture);
+                        // 01-b: 各区間は実体化した見出しと同じ言語で、旧語や別言語を写さない。
+                        CollectionAssert.AreEqual(segments(), text.Split(" ≫ "), label + " segments " + culture);
+                        Assert.AreEqual(selectedContainer.Header is PlaylistFolderNode node ? node.DisplayName : tableName,
+                            text.Split(" ≫ ")[^1], label + " 末尾区間は選択項目の見出し");
+                        Assert.AreSame(selectedItem, tree.SelectedItem);
+                    }
+                    if (label == "empty") { Assert.AreNotEqual(observed[0], observed[1], "空名フォルダの案内は日本語と英語で切り替わります。"); }
+                    else { Assert.AreEqual(observed[0], observed[1], label + " 利用者名だけの経路は言語で変わりません。"); }
+                    Assert.AreSame(selectedItem, tree.SelectedItem);
+                    Assert.AreEqual(changesBefore, selectedItemChanges);
+                    Assert.AreEqual(selectionsBefore, itemSelections);
+                    Assert.AreEqual(refreshesBefore, refreshes);
+                    Assert.AreEqual(sortsBefore, sorts);
+                    Assert.AreSame(rowsBefore, workspace.DetailViewState.View.Rows);
+                    Assert.AreEqual(generationBefore, workspace.DetailViewState.View.GenerationId);
+                    Assert.AreSame(tableSource, table.ItemsSource);
+                    Assert.AreEqual(offsetBefore, vertical.Value);
+                    Assert.AreEqual(selectedBefore, table.SelectedIndex);
+                    CollectionAssert.AreEqual(selectionBefore, table.GetSelectedRowsSnapshot().ToArray());
+                    Assert.AreEqual(sortColumn.SortMemberPath, table.SortColumnName);
+                    Assert.AreEqual(System.ComponentModel.ListSortDirection.Descending, table.SortDirection);
+                }
+            }
+            catch (Exception failure) { primary = failure; throw; }
+            finally
+            {
+                try
+                {
+                    workspace.PlaylistPresentationRefreshRequested -= refreshRequested;
+                    if (observedTable != null) { observedTable.SortRequested -= sortRequested; }
+                    observedTree?.RemoveHandler(TreeView.SelectedItemChangedEvent, selected);
+                    observedTree?.RemoveHandler(TreeViewItem.SelectedEvent, itemSelected);
+                    ResourceService.Current.ChangeCulture(previousCulture?.Name ?? "en-US");
+                    Resources.Culture = previousCulture;
+                }
+                finally
+                {
+                    try { fixture.Close(); }
+                    catch (Exception cleanupFailure) when (primary != null) { primary.Data["TreePathWindowCleanupFailure"] = cleanupFailure.ToString(); }
+                }
+            }
+        });
+    }
+
+    /// <summary>ライブラリのroot・通常フォルダ・ゼロノート・全走査の入れ子を選んだまま言語を往復し、一覧上部の経路が各段の現在語になり、一覧の状態とツリーの選択を保つことを確認します。</summary>
+    /// <remarks>経路の各区間は実体化したTreeViewItemの見出しと同じ言語で、Header更新前の旧語を写さないことを資源差替え通知後の最終表示で観測します。区切りと省略規則は現行挙動を期待値に固定し、言語変更は共通資源のため文化圏を必ず復元します。通常フォルダは実在の譜面ファイルを本番のパーサーで読んでライブラリのカタログへ載せて作り、一覧の選択・並べ替えと表示元の参照を保つことも確認します。検索語とmodeフィルタ、現在セル、縦横スクロール、ツリーのスクロールと展開も保つことを確認します。</remarks>
+    [TestMethod]
+    public void LibraryTreePath_LanguageRoundTripMatchesHeadersAndKeepsChartListState()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            CultureInfo? previousCulture = Resources.Culture;
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope);
+            int selectedItemChanges = 0, itemSelections = 0, sorts = 0;
+            RoutedPropertyChangedEventHandler<object> selected = (_, _) => selectedItemChanges++;
+            RoutedEventHandler itemSelected = (_, _) => itemSelections++;
+            EventHandler<CustomTableSortRequestedEventArgs> sortRequested = (_, _) => sorts++;
+            TreeView? observedTree = null;
+            CustomTableView? observedTable = null;
+            Exception? primary = null;
+            try
+            {
+                ResourceService.Current.ChangeCulture("ja-JP");
+                fixture.ViewModel.PlaylistWorkspace.SetPlaylistSummaryMode(false);
+                // 実在の譜面ファイルを本番のパーサーで読み、ライブラリのカタログへ載せ、ツリーの通常フォルダXを作る。
+                string folderX = Path.Combine(fixture.Root, "FolderX");
+                Directory.CreateDirectory(folderX);
+                var parsedCharts = new List<ChartFile>();
+                for (int index = 0; index < 60; index++)
+                {
+                    string chartPath = Path.Combine(folderX, "chart" + index.ToString("D2", CultureInfo.InvariantCulture) + ".bms");
+                    File.WriteAllText(chartPath, "#PLAYER 1\n#TITLE Chart " + index.ToString("D2", CultureInfo.InvariantCulture) + "\n#ARTIST Fixture\n#BPM 120\n#00111:01\n");
+                    parsedCharts.Add(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath)));
+                }
+                // ツリーの親フォルダ一覧と一覧の行は、ライブラリのカタログ（BmsCharts）から作られる。song.dbへの書込みは不要なので行わない。
+                fixture.Library.BmsCharts = parsedCharts;
+                fixture.Library.BmsonCharts = [];
+                fixture.ViewModel.LibraryFolderTree.InvalidateLibraryFolderCache();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.ViewModel.LibraryFolderTree.WaitForDeferredRefreshIdleAsync(), "library-path-folder-refresh");
+                var libTree = (TreeView)(fixture.Window.FindName("treeView") ?? throw new AssertFailedException());
+                foreach (int pass in new[] { 0, 1, 2 })
+                {
+                    foreach (TreeViewItem expandable in FindDescendants<TreeViewItem>(libTree).ToArray()) { expandable.IsExpanded = true; }
+                    libTree.UpdateLayout();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                }
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var tree = (TreeView)fixture.Window.FindName("treeView");
+                observedTree = tree;
+                var table = (CustomTableView)fixture.Window.FindName("customTableView");
+                observedTable = table;
+                // 既定の窓は一覧が高さ0になるため、スクロールと現在セルを観測できる高さを与える。
+                fixture.Window.Height = 700d;
+                fixture.Window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(table.ActualHeight > 200d, "一覧が表示される高さがあります。");
+                TreeViewItem ItemBoundTo(string resourcePath) => FindDescendants<TreeViewItem>(tree).First(item =>
+                    item.GetBindingExpression(HeaderedItemsControl.HeaderProperty)?.ParentBinding.Path.Path == "Resources." + resourcePath);
+                TreeViewItem libraryRoot = ItemBoundTo("Library");
+                TreeViewItem zeroNote = ItemBoundTo("Search_zero_note");
+                TreeViewItem fullScanRoot = ItemBoundTo("Full_scan_check");
+                TreeViewItem fullScanAll = ItemBoundTo("Full_scan_all_charts");
+                TreeViewItem folderXItem = FindDescendants<TreeViewItem>(tree).First(item => item.Header is not null && item.Header.ToString() == fixture.Root);
+                libraryRoot.IsExpanded = true;
+                fullScanRoot.IsExpanded = true;
+                tree.UpdateLayout();
+                TextBlock PathText() => FindDescendants<TextBlock>(fixture.Window).Single(text => text.IsVisible
+                    && BindingOperations.GetMultiBinding(text, TextBlock.TextProperty)?.Converter is treeViewItemToAncestorsStringConverter);
+                tree.AddHandler(TreeView.SelectedItemChangedEvent, selected);
+                tree.AddHandler(TreeViewItem.SelectedEvent, itemSelected);
+                table.SortRequested += sortRequested;
+                (string Label, TreeViewItem Item, Func<string> Expected, Func<string[]> Segments)[] cases =
+                [
+                    ("folder", folderXItem, () => Resources.Library + " ≫ " + fixture.Root, () => [Resources.Library, fixture.Root]),
+                    ("library", libraryRoot, () => Resources.Library, () => [Resources.Library]),
+                    ("zeronote", zeroNote, () => Resources.Search_zero_note, () => [Resources.Search_zero_note]),
+                    ("fullscan", fullScanAll, () => Resources.Full_scan_check + " ≫ " + Resources.Full_scan_all_charts,
+                        () => [Resources.Full_scan_check, Resources.Full_scan_all_charts]),
+                ];
+                // ツリーを内容より低くして、スクロール位置が0以外になる状態にする。
+                tree.Height = 150;
+                tree.UpdateLayout();
+                ScrollViewer treeScroll = FindDescendants<ScrollViewer>(tree).First();
+                ScrollBar vertical = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == Orientation.Vertical);
+                ScrollBar horizontal = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == Orientation.Horizontal);
+                // 一覧のRows通知が届くまで待つ。選択や絞込みによる再構築は非同期のため、通知後に基準値を捕捉する。
+                void WaitForRows(Action action, string name)
+                {
+                    var rowsApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    System.ComponentModel.PropertyChangedEventHandler rowsChanged = (_, args) => { if (args.PropertyName == nameof(MainChartListViewModel.Rows)) { rowsApplied.TrySetResult(); } };
+                    fixture.ViewModel.MainChartList.PropertyChanged += rowsChanged;
+                    try
+                    {
+                        action();
+                        TestUiDispatcherHost.AwaitPresentationOnDispatcher(rowsApplied.Task, name);
+                    }
+                    finally { fixture.ViewModel.MainChartList.PropertyChanged -= rowsChanged; }
+                    tree.UpdateLayout();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                }
+                foreach ((string label, TreeViewItem item, Func<string> expected, Func<string[]> segments) in cases)
+                {
+                    WaitForRows(() => item.IsSelected = true, "library-path-rows-" + label);
+                    if (label == "folder")
+                    {
+                        Assert.AreEqual(60, table.ItemsSource.Count, "実在譜面の60行を表示します。");
+                        // 検索語とmodeフィルタ（#PLAYER 1の全譜面を残す設定）を、設定ごとに再構築の完了まで待って与える。
+                        WaitForRows(() => fixture.ViewModel.ChartFilters.KeywordFilter = "Chart", "library-path-keyword");
+                        WaitForRows(() => fixture.ViewModel.ChartFilters.ModeFilter = ChartModeFilter.All & ~ChartModeFilter._48KEYS, "library-path-mode");
+                        Assert.IsTrue(table.ItemsSource.Count > 3, "絞込み後も行が残ります。");
+                        if (vertical.Maximum > 2d) { vertical.Value = 2d; }
+                        if (horizontal.Maximum > 2d) { horizontal.Value = 2d; }
+                        // 実のセルクリックで、選択行と現在セルを同時に立てる。
+                        var cellPoint = new Point(100d, table.HeaderHeight + 1.5 * table.RowHeight);
+                        CustomTableHitTestResult cellHit = table.HitTestTable(cellPoint);
+                        Assert.AreEqual(CustomTableHitKind.Cell, cellHit.Kind);
+                        Assert.IsTrue(table.HandleCellMouseDown(cellHit, MouseButton.Left, ModifierKeys.None, 1, cellPoint));
+                        Assert.AreEqual(table.FirstVisibleRowIndex + 1, table.SelectedIndex);
+                        CustomTableColumn sortColumn = table.VisibleColumns.First(column => !string.IsNullOrWhiteSpace(column.SortMemberPath));
+                        table.SetCurrentValue(CustomTableView.SortColumnNameProperty, sortColumn.SortMemberPath);
+                        table.SetCurrentValue(CustomTableView.SortDirectionProperty, System.ComponentModel.ListSortDirection.Descending);
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                    }
+                    treeScroll.ScrollToVerticalOffset(Math.Min(10d, treeScroll.ScrollableHeight));
+                    tree.UpdateLayout();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsTrue(treeScroll.VerticalOffset > 0d, label + " ツリーのスクロール位置は0以外を前提にします。");
+                    object? listSource = table.ItemsSource;
+                    double offsetBefore = vertical.Value, horizontalBefore = horizontal.Value, treeOffsetBefore = treeScroll.VerticalOffset;
+                    int selectedBefore = table.SelectedIndex;
+                    string? sortName = table.SortColumnName;
+                    string keywordBefore = fixture.ViewModel.ChartFilters.KeywordFilter;
+                    ChartModeFilter modeBefore = fixture.ViewModel.ChartFilters.ModeFilter;
+                    bool[] expandedBefore = [libraryRoot.IsExpanded, fullScanRoot.IsExpanded];
+                    CustomTableColumn currentColumn = table.VisibleColumns.FirstOrDefault(column => table.IsCurrentCell(table.SelectedIndex, column)) ?? table.VisibleColumns[0];
+                    bool currentCellBefore = table.IsCurrentCell(selectedBefore, currentColumn);
+                    // 現在セルは、一覧に行がありSelectedIndexを設定したフォルダXでだけ立つ。他の選択は0行の一覧で選択行がないため対象外。
+                    if (label == "folder") { Assert.IsTrue(currentCellBefore, "フォルダXでは現在セルが立っています。"); }
+                    Assert.IsTrue(item.IsSelected && (ReferenceEquals(tree.SelectedItem, item) || ReferenceEquals(tree.SelectedItem, item.DataContext)), label + " 選択項目");
+                    Assert.AreEqual(expected(), PathText().Text, label + " ja");
+                    object? selectedItem = tree.SelectedItem;
+                    int changesBefore = selectedItemChanges, selectionsBefore = itemSelections, sortsBefore = sorts;
+                    var observed = new List<string> { PathText().Text };
+                    foreach (string culture in new[] { "en-US", "ja-JP" })
+                    {
+                        ResourceService.Current.ChangeCulture(culture);
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        string text = PathText().Text;
+                        observed.Add(text);
+                        Assert.AreEqual(expected(), text, label + " " + culture);
+                        CollectionAssert.AreEqual(segments(), text.Split(" ≫ "), label + " segments " + culture);
+                        Assert.AreSame(selectedItem, tree.SelectedItem);
+                    }
+                    Assert.AreNotEqual(observed[0], observed[1], label + " 見出しは日本語と英語で切り替わります。");
+                    Assert.AreEqual(observed[0], observed[2]);
+                    Assert.AreEqual(changesBefore, selectedItemChanges);
+                    Assert.AreEqual(selectionsBefore, itemSelections);
+                    Assert.AreEqual(sortsBefore, sorts);
+                    Assert.AreSame(listSource, table.ItemsSource, label);
+                    Assert.AreEqual(offsetBefore, vertical.Value, label);
+                    Assert.AreEqual(horizontalBefore, horizontal.Value, label);
+                    Assert.AreEqual(selectedBefore, table.SelectedIndex, label);
+                    Assert.AreEqual(currentCellBefore, table.IsCurrentCell(selectedBefore, currentColumn), label);
+                    if (label == "folder") { Assert.IsTrue(table.IsCurrentCell(selectedBefore, currentColumn), "往復後も現在セルが保たれます。"); }
+                    Assert.AreEqual(sortName, table.SortColumnName, label);
+                    Assert.AreEqual(keywordBefore, fixture.ViewModel.ChartFilters.KeywordFilter, label);
+                    Assert.AreEqual(modeBefore, fixture.ViewModel.ChartFilters.ModeFilter, label);
+                    Assert.AreEqual(treeOffsetBefore, treeScroll.VerticalOffset, label);
+                    CollectionAssert.AreEqual(expandedBefore, new[] { libraryRoot.IsExpanded, fullScanRoot.IsExpanded }, label);
+                }
+            }
+            catch (Exception failure) { primary = failure; throw; }
+            finally
+            {
+                try
+                {
+                    observedTree?.RemoveHandler(TreeView.SelectedItemChangedEvent, selected);
+                    observedTree?.RemoveHandler(TreeViewItem.SelectedEvent, itemSelected);
+                    if (observedTable != null) { observedTable.SortRequested -= sortRequested; }
+                    ResourceService.Current.ChangeCulture(previousCulture?.Name ?? "en-US");
+                    Resources.Culture = previousCulture;
+                }
+                finally
+                {
+                    try { fixture.Close(); }
+                    catch (Exception cleanupFailure) when (primary != null) { primary.Data["LibraryPathWindowCleanupFailure"] = cleanupFailure.ToString(); }
+                }
+            }
+        });
+    }
+
     /// <summary>compiled編集部品で表示と編集原値を分け、候補寿命、不変通知、再入、取消と空文字の確定・無変更を確認します。旧空白原値も表示ラベルへ置き換えません。</summary>
     /// <remarks>手動context交換は候補破棄だけの検査です。実TreeView再利用と保存対象は前の実MainWindowケースに分担します。</remarks>
     [TestMethod]

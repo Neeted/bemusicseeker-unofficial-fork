@@ -23,6 +23,8 @@
 
 所有者付きのモーダル画面を開き、「全般」「フォルダ」「カスタムフォルダ」を表示します。毎回「全般」から始め、前回のカテゴリを保存しません。共通の確定・取消ボタンはカテゴリの外側に置きます。
 
+取消ボタンは `Resources.Cancel` へBindingし、新しく開いた画面で現在の言語資源を表示します。取消・Esc・通常閉鎖・draftの破棄と復元は従来どおりです。
+
 | カテゴリ | 編集対象 |
 | --- | --- |
 | 全般 | 名前、シンボル、互換用接頭辞、エントリ種別、外部同期の有効状態と3種類のURL。 |
@@ -107,6 +109,7 @@ BMT、外部同期、ルート型、出力種別、出力先、外部属性初�
 | 一括変更の保存前復元と同じ入力の再保存 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistSummaryBulkEditTests.BulkHeaderSaveFailure_RestoresCurrentTableAndSameDraftCanSave`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistSummaryBulkEditTests.cs)の5入口・実DB失敗・同一正本保持と再保存 |
 | 出力名の実Binding入力・訂正・取消 | `PlaylistPropertyDialog` | `MainWindowPlaylistWorkspaceWpfTests.PlaylistPropertyOutputName_InvalidBindingKeepsDraftAndAllowsCorrectionOrCancel` が未反映rawの実OK、専用通知、DB不変、訂正保存または取消を確認する。 |
 | 実効同期元と再取得条件 | `PlaylistPropertySaveService` | `PlaylistWorkspaceActionWorkflowTests.PlaylistPropertySave_EffectiveSourceChangeReloadsOnlyWhenRequired` がPage追加・解除、Header変更、同一実効元と同期OFFを実sessionとSQLiteで確認する。保存後取得失敗と必要BMT・Reset基準は `BmsPlaylistCustomFolderOutputTests.PlaylistPropertyDialog_ExternalSourceFailureAdoptsSavedValuesAndCompletesRequiredOutput` が担う。 |
+| 取消ボタンの翻訳 | `PlaylistPropertyDialog.xaml` | [DialogPresentationTests](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogPresentationTests.cs) の `CancelButtons_NewDialogsUseCurrentLanguageAndKeepCancellation` が6言語のContentを確認する。取消・Esc・draftは既存ケースが担当する。 |
 
 ## 関連資料
 

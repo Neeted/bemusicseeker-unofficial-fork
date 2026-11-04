@@ -2,8 +2,10 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Globalization;
+using System.IO;
 using System.Reflection;
 using System.Windows;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
@@ -12,6 +14,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Localization;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
@@ -149,6 +152,203 @@ public sealed class CustomTablePhase6CacheTests
                 TestUiDispatcherHost.ProcessQueuedPresentation();
             }
         });
+    }
+
+    /// <summary>追加辞書を含む言語往復で、本体表の導入先見出しと要約表のSTATUS見出しの Header・UIA名・実描画が現在の資源値へ追従し、列・行・編集中editorを作り直さないことを確認します。</summary>
+    /// <remarks>ja→追加→ja→追加→en の各段で、通知とキュー処理の後に明示的な描画失効なしで見出し帯を描画し、同じ辞書の画素一致と別辞書の相違を観測します。追加辞書は実行専用profileのlang配下へ置き、既存ファイルと辞書探索を必ず復元します。</remarks>
+    [TestMethod]
+    [DataRow("main")]
+    [DataRow("summary")]
+    [DoNotParallelize]
+    public void ColumnHeaderLanguage_AdditionalDictionaryRoundTripKeepsColumnsRowsAndEdit(string kind)
+    {
+        const string additionalCulture = "it-IT";
+        const string additionalTitle = "ADDL DST TITLE";
+        const string additionalArtist = "ADDL DST ARTIST";
+        const string additionalStatus = "ADDL STATUS";
+        bool isMain = kind == "main";
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            CultureInfo? previousResourcesCulture = Resources.Culture;
+            string languageDirectory = ApplicationPathPolicy.Current.LanguageDirectory;
+            string languagePath = Path.Combine(languageDirectory, additionalCulture + ".json");
+            byte[]? languageBackup = File.Exists(languagePath) ? File.ReadAllBytes(languagePath) : null;
+            ChartListVirtualView? mainRows = null;
+            CustomTableView? table = null;
+            Window? window = null;
+            EventHandler<CustomTableCellEditEndedEventArgs>? onEnded = null;
+            EventHandler<CustomTableSortRequestedEventArgs>? onSort = null;
+            try
+            {
+                Assert.AreEqual(Path.GetFullPath(Path.Combine(ApplicationPathPolicy.Current.ProfileDirectory, "lang")), Path.GetFullPath(languageDirectory));
+                Directory.CreateDirectory(languageDirectory);
+                File.WriteAllText(languagePath, "{\"_language_name\":\"Header regression\","
+                    + "\"Header_InstallDstTitle\":\"" + additionalTitle + "\","
+                    + "\"Header_InstallDstArtist\":\"" + additionalArtist + "\","
+                    + "\"Playlist_summary_status_header\":\"" + additionalStatus + "\"}");
+                JsonLanguageCatalog.Invalidate(additionalCulture);
+                JsonLanguageCatalog.InvalidateLanguages();
+                ResourceService.Current.ChangeCulture("ja-JP");
+
+                string[] headerIds = isMain ? ["InstallDstTitle", "InstallDstArtist"] : ["Status"];
+                string[] ExpectedHeaders() => isMain ? [Resources.Header_InstallDstTitle, Resources.Header_InstallDstArtist] : [Resources.Playlist_summary_status_header];
+                string editedId;
+                if (isMain)
+                {
+                    string[] candidates = [@"C:\BMS\CandidateA", @"C:\BMS\CandidateB"];
+                    PackageChartEntry[] entries = [.. Enumerable.Range(0, 64).Select(index => PackageChartEntry.FromChart(
+                        ChartFileProjection.WithPackageState(ChartTestValues.Empty() with
+                        {
+                            Path = @"C:\pending\" + index + ".bms", Md5 = index.ToString("x32"),
+                            RawTitle = "Pending " + index.ToString("D2", CultureInfo.InvariantCulture)
+                        }, string.Empty, string.Empty, string.Empty, candidates, [])))];
+                    List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildPackageRows(entries);
+                    mainRows = new ChartListVirtualView(sourceRows, ChartListOrder.CreateTitleAscending(sourceRows), LibraryChartRow.FromSourceRow);
+                    editedId = "InstallDst";
+                    var owner = new MainChartListViewModel();
+                    owner.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
+                    var settings = new CustomTableColumnSettings();
+                    foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings)) { layout.Visibility = Visibility.Hidden; }
+                    settings.InstallDst.Visibility = settings.InstallDstTitle.Visibility = settings.InstallDstArtist.Visibility = Visibility.Visible;
+                    settings.InstallDst.DisplayIndex = 0; settings.InstallDst.Width = 90;
+                    settings.InstallDstArtist.DisplayIndex = 1; settings.InstallDstArtist.Width = 130;
+                    settings.InstallDstTitle.DisplayIndex = 2; settings.InstallDstTitle.Width = 150;
+                    table = new CustomTableView { Width = 380, Height = 150, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, HeaderHeight = 20, RowHeight = 25, DataContext = owner, ColumnsSettings = settings, ItemsSource = mainRows };
+                }
+                else
+                {
+                    object[] rows = [.. Enumerable.Range(0, 64).Select(index => new PlaylistSummaryRow { Name = "Row " + index.ToString("D2", CultureInfo.InvariantCulture), Status = "OK" })];
+                    editedId = "Name";
+                    var settings = new PlaylistSummaryColumnSettings();
+                    foreach (PlaylistSummaryColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumeratePlaylistSummaryColumnLayouts(settings)) { layout.Visibility = Visibility.Hidden; }
+                    settings.Name.Visibility = settings.Status.Visibility = Visibility.Visible;
+                    settings.Name.DisplayIndex = 0; settings.Name.Width = 110;
+                    settings.Status.DisplayIndex = 1; settings.Status.Width = 130;
+                    table = new CustomTableView { Width = 300, Height = 150, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, HeaderHeight = 20, RowHeight = 25, PlaylistSummaryColumnsSettings = settings, ItemsSource = rows };
+                }
+                window = new Window { Width = 420, Height = 220, ShowInTaskbar = false, Content = table };
+                var completed = new List<CustomTableCellEditEndedEventArgs>();
+                int sorts = 0;
+                onEnded = (_, args) => completed.Add(args);
+                onSort = (_, _) => sorts++;
+                table.CellEditEnded += onEnded;
+                table.SortRequested += onSort;
+                scope.ShowAndWaitForContentRendered(window);
+                CustomTableView shown = table;
+                System.Collections.IList items = shown.ItemsSource;
+                // 並べ替え状態は列見出しの操作を通さず直接設定し、言語変更で変わらないことだけを観測する。
+                CustomTableColumn sortColumn = shown.VisibleColumns.First(column => !string.IsNullOrWhiteSpace(column.SortMemberPath));
+                shown.SetCurrentValue(CustomTableView.SortColumnNameProperty, sortColumn.SortMemberPath);
+                shown.SetCurrentValue(CustomTableView.SortDirectionProperty, ListSortDirection.Ascending);
+                ScrollBar vertical = shown.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == Orientation.Vertical);
+                vertical.Value = 2;
+                shown.SelectedIndex = 3;
+                CustomTableColumn editedColumn = shown.VisibleColumns.Single(column => column.Id == editedId);
+                object selectedRow = items[3]!;
+                Assert.IsTrue(shown.HandleKeyDown(Key.F2, ModifierKeys.None));
+                TextBox editor = shown.Children.OfType<Canvas>().SelectMany(canvas => canvas.Children.OfType<TextBox>()).Single();
+                const string draft = "uncommitted draft";
+                editor.Text = draft;
+
+                object columns = shown.Columns;
+                CustomTableColumn[] columnInstances = [.. shown.Columns];
+                string[] layoutBefore = [.. shown.VisibleColumns.Select(column => column.Id + ":" + column.Width + ":" + column.DisplayIndex)];
+                double verticalOffset = vertical.Value;
+                int realizedBefore = isMain ? mainRows!.RealizedRowCount : 0;
+                AutomationPeer root = UIElementAutomationPeer.CreatePeerForElement(shown) ?? throw new AssertFailedException("表peerがありません。");
+
+                Dictionary<string, byte[]> pixelsByDictionary = [];
+                void AssertStage(string dictionary)
+                {
+                    string[] expected = ExpectedHeaders();
+                    for (int index = 0; index < headerIds.Length; index++)
+                    {
+                        CustomTableColumn column = shown.Columns.Single(item => item.Id == headerIds[index]);
+                        Assert.AreEqual(expected[index], column.Header, dictionary + " Header " + headerIds[index]);
+                        AutomationPeer header = root.GetChildren().Single(child => child.GetAutomationId() == "header:" + headerIds[index]);
+                        Assert.AreEqual(expected[index], header.GetName(), dictionary + " UIA名 " + headerIds[index]);
+                    }
+                    // 明示的な描画失効なしで、通知とキュー処理だけが反映した実描画を読む。
+                    byte[] pixels = RenderHeaderBandAsIs(shown);
+                    if (pixelsByDictionary.TryGetValue(dictionary, out byte[]? previous)) { CollectionAssert.AreEqual(previous, pixels, dictionary + " 同じ辞書の見出し帯画素"); }
+                    else { pixelsByDictionary[dictionary] = pixels; }
+
+                    Assert.AreSame(columns, shown.Columns);
+                    CollectionAssert.AreEqual(columnInstances, shown.Columns.ToArray());
+                    CollectionAssert.AreEqual(layoutBefore, shown.VisibleColumns.Select(column => column.Id + ":" + column.Width + ":" + column.DisplayIndex).ToArray());
+                    Assert.AreSame(items, shown.ItemsSource);
+                    Assert.AreSame(selectedRow, items[3]);
+                    Assert.AreEqual(3, shown.SelectedIndex);
+                    Assert.IsTrue(shown.IsCurrentCell(3, editedColumn));
+                    Assert.AreEqual(sortColumn.SortMemberPath, shown.SortColumnName);
+                    Assert.AreEqual(ListSortDirection.Ascending, shown.SortDirection);
+                    Assert.AreEqual(verticalOffset, vertical.Value);
+                    Assert.AreSame(editor, shown.Children.OfType<Canvas>().SelectMany(canvas => canvas.Children.OfType<TextBox>()).Single());
+                    Assert.AreEqual(draft, editor.Text);
+                    Assert.AreEqual(0, completed.Count);
+                    Assert.AreEqual(0, sorts);
+                    if (isMain) { Assert.AreEqual(realizedBefore, mainRows!.RealizedRowCount); }
+                }
+
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                AssertStage("ja-JP");
+                foreach ((string culture, string dictionary) in new[] { (additionalCulture, "added"), ("ja-JP", "ja-JP"), (additionalCulture, "added"), ("en-US", "en-US") })
+                {
+                    ResourceService.Current.ChangeCulture(culture);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    if (dictionary == "added")
+                    {
+                        CollectionAssert.AreEqual(isMain ? new[] { additionalTitle, additionalArtist } : new[] { additionalStatus }, ExpectedHeaders(), "追加辞書の見出しは同梱辞書と異なる値です。");
+                    }
+                    AssertStage(dictionary);
+                }
+                Assert.AreEqual(3, pixelsByDictionary.Count);
+                CollectionAssert.AreNotEqual(pixelsByDictionary["ja-JP"], pixelsByDictionary["added"], "追加辞書の見出しは日本語と異なる描画になります。");
+                CollectionAssert.AreNotEqual(pixelsByDictionary["en-US"], pixelsByDictionary["added"], "追加辞書の見出しは英語と異なる描画になります。");
+                Assert.IsTrue(shown.HandleKeyDown(Key.Escape, ModifierKeys.None));
+            }
+            finally
+            {
+                try
+                {
+                    if (table != null)
+                    {
+                        if (onEnded != null) { table.CellEditEnded -= onEnded; }
+                        if (onSort != null) { table.SortRequested -= onSort; }
+                    }
+                    if (window != null) { window.Content = null; }
+                    if (table != null) { table.ItemsSource = null; }
+                    window?.Close();
+                    mainRows?.DisposeRealizedRows();
+                }
+                finally
+                {
+                    if (languageBackup != null) { File.WriteAllBytes(languagePath, languageBackup); }
+                    else { File.Delete(languagePath); }
+                    JsonLanguageCatalog.Invalidate(additionalCulture);
+                    JsonLanguageCatalog.InvalidateLanguages();
+                    ResourceService.Current.ChangeCulture(previousResourcesCulture?.Name ?? "en-US");
+                    Resources.Culture = previousResourcesCulture;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                }
+            }
+        });
+    }
+
+    /// <summary>描画失効を呼ばず、現在の描画内容のまま見出し帯の画素を読みます。</summary>
+    private static byte[] RenderHeaderBandAsIs(CustomTableView table)
+    {
+        // 描画失効は呼ばず、通知が残した未描画分を描画段階まで進めてから読む。
+        table.UpdateLayout();
+        table.Dispatcher.Invoke(() => { }, DispatcherPriority.Render);
+        var bitmap = new RenderTargetBitmap((int)table.ActualWidth, (int)table.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(table);
+        // 表は左上へ寄せて配置するため、描画結果の上端が見出し帯の上端です。
+        int height = (int)table.HeaderHeight;
+        int stride = bitmap.PixelWidth * 4;
+        byte[] pixels = new byte[stride * height];
+        bitmap.CopyPixels(new Int32Rect(0, 0, bitmap.PixelWidth, height), pixels, stride, 0);
+        return pixels;
     }
 
     /// <summary>実見出しresizeで40→41→広幅→40を描画し、URL値・tooltip・hit/actionとカーソルが追随することを確認します。未編集中は同じ列と他列の保持値を保ち、未表示行を追加評価しません。設定通知あり/直接Columnsの両入口を使います。</summary>
