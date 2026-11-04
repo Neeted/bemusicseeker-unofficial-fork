@@ -6,20 +6,16 @@ namespace BeMusicSeeker.ViewModels;
 
 internal static class PlaylistSyncStatusMapper
 {
-    internal static PlaylistSyncRuntimeStatus CreateNone()
+    private static readonly PlaylistSyncRuntimeStatus None = new()
     {
-        return new PlaylistSyncRuntimeStatus
-        {
-            Kind = PlaylistSyncStatusKind.None,
-            StatusText = Resources.Playlist_sync_status_none,
-            Detail = string.Empty,
-            StatusSortOrder = 120,
-            HasFailureStatus = false,
-            CheckedAt = DateTime.MinValue
-        };
-    }
+        Kind = PlaylistSyncStatusKind.None,
+        CheckedAt = DateTime.MinValue
+    };
 
-    /// <summary>同期結果と検査日時を投影します。日時の説明は時刻帯を変えずGregorianの固定書式へ揃えます。</summary>
+    /// <summary>未実施の状態を返します。不変値のため共有します。</summary>
+    internal static PlaylistSyncRuntimeStatus CreateNone() => None;
+
+    /// <summary>同期結果と検査日時の事実を保持します。文言は読取り時に現在の資源から作り、日時の説明は時刻帯を変えずGregorianの固定書式へ揃えます。</summary>
     internal static PlaylistSyncRuntimeStatus Create(PlaylistSyncAttemptResult result, DateTime checkedAt)
     {
         if (result == null)
@@ -27,16 +23,13 @@ internal static class PlaylistSyncStatusMapper
             return CreateNone();
         }
         PlaylistSyncStatusKind playlistSyncStatusKind = result.Succeeded ? (result.Updated ? PlaylistSyncStatusKind.Updated : PlaylistSyncStatusKind.Ok) : result.FailureKind;
-        string statusText = GetStatusText(playlistSyncStatusKind);
-        string detail = BuildDetail(result, statusText, checkedAt);
         return new PlaylistSyncRuntimeStatus
         {
             Kind = playlistSyncStatusKind,
-            StatusText = statusText,
-            Detail = detail,
-            StatusSortOrder = GetStatusSortOrder(playlistSyncStatusKind),
-            HasFailureStatus = playlistSyncStatusKind != PlaylistSyncStatusKind.None && playlistSyncStatusKind != PlaylistSyncStatusKind.Ok && playlistSyncStatusKind != PlaylistSyncStatusKind.Updated,
-            CheckedAt = checkedAt
+            CheckedAt = checkedAt,
+            PageUri = result.PageUri?.ToString() ?? string.Empty,
+            Diagnostic = result.Succeeded ? string.Empty : result.Detail ?? string.Empty,
+            HasResult = true
         };
     }
 
@@ -78,16 +71,15 @@ internal static class PlaylistSyncStatusMapper
         };
     }
 
-    private static string BuildDetail(PlaylistSyncAttemptResult result, string statusText, DateTime checkedAt)
+    /// <summary>保持した事実から現在語の詳細文を作ります。先頭行は現在の状態名です。</summary>
+    internal static string BuildDetail(PlaylistSyncRuntimeStatus status)
     {
-        string timestampText = (checkedAt == DateTime.MinValue) ? string.Empty : DateTimeDisplayFormatter.FormatTimestamp(checkedAt);
-        string pageUriText = result?.PageUri?.ToString() ?? string.Empty;
-        string diagnosticText = result?.Detail ?? string.Empty;
-        if (result != null && result.Succeeded)
+        if (!status.HasResult)
         {
-            return JoinNonEmptyLines(statusText, timestampText, pageUriText);
+            return string.Empty;
         }
-        return JoinNonEmptyLines(statusText, timestampText, pageUriText, diagnosticText);
+        string timestampText = status.CheckedAt == DateTime.MinValue ? string.Empty : DateTimeDisplayFormatter.FormatTimestamp(status.CheckedAt);
+        return JoinNonEmptyLines(GetStatusText(status.Kind), timestampText, status.PageUri, status.Diagnostic);
     }
 
     private static string JoinNonEmptyLines(params string[] values)

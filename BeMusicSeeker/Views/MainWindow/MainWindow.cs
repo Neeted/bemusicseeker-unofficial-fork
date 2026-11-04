@@ -674,6 +674,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         subscribedViewModel = viewModel;
         viewModel.PlayHistory.AttachLanguagePresentation();
         viewModel.MainChartList.AttachLanguagePresentation();
+        viewModel.ProgressHub?.AttachLanguagePresentation();
         viewModel.ChartFilters.AttachKeywordSearchPresentation();
         viewModel.PlaylistWorkspace.AttachPlaylistSummaryKeywordSearchPresentation();
         viewModel.RequiredStartupUiApplying += ApplyRequiredStartupPlayerHost;
@@ -711,6 +712,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         subscribedViewModel.ChartFilters.DetachKeywordSearchPresentation();
         subscribedViewModel.PlayHistory.DetachLanguagePresentation();
         subscribedViewModel.MainChartList.DetachLanguagePresentation();
+        subscribedViewModel.ProgressHub?.DetachLanguagePresentation();
         subscribedViewModel.PlaylistWorkspace.DetachPlaylistSummaryKeywordSearchPresentation();
         subscribedViewModel.RequiredStartupUiApplying -= ApplyRequiredStartupPlayerHost;
         subscribedViewModel.SettingDialog.DetachPresentationPort(this);

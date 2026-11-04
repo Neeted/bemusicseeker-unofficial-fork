@@ -14,6 +14,8 @@
 
 同期STATUSの説明日時は、保存値と時刻帯を変えずGregorianの `yyyy-MM-dd HH:mm:ss` で表示します。
 
+同期STATUSは、分類・確認日時・取得元・失敗時の診断を事実として保持し、状態名と詳細の文言、整列順、失敗判定は読取りのたびにその事実から作ります（`PlaylistSyncRuntimeStatus`）。表示言語を変えても同じ状態で現在の資源（追加辞書を含む）の語に更新され、詳細の先頭行は現在の状態名、残りの日時・取得元・診断は変わりません。概要の行は状態の事実とエントリ読込み済みかを保持し、STATUSとtooltipは現在語で作ります。エントリ未読込みの行は、状態があれば現在語の区切り書式で読込み中の案内を付け、なければ案内だけを示します。
+
 ### 正本と識別
 
 永続化の正本は本アプリの `playlist`、`playlist_entry`、`playlist_course` です。アプリ内の現在値・所属・明示順序は `BMSPlaylist` / `PlaylistAggregatePersistenceOwner` / `BMSTable` が所有し、DB確定後に同じentry参照へ採用します。共通の `app_schema=1` に含まれ、プレイリスト専用のスキーマ版は持ちません。LR2連携・スタンドアロンの両方で保存します。
@@ -115,6 +117,7 @@ STATUSには404、403、その他HTTPエラー、通信失敗、ヘッダー未�
 | --- | --- | --- |
 | 取得失敗の局所化、STATUS、正常表の確定、旧表の保持、明示再取得 | `PlaylistExternalSyncOwner.ReloadPlaylistTargetCoreAsync`、`PlaylistSyncAttemptResult`、`PlaylistWorkspaceViewModel` | `PlaylistExternalFailureBoundaryTests.ExternalSync_SourceFailurePreservesStatusAndCommittedTables`。実HTTP 400/403/404、ヘッダー・データ・項目形式不正、URL欠落、ローカル読取り失敗、未分類の取得失敗、全対象失敗。原因分類は表示のために使い、停止範囲を決める許可リストとして固定しない。 |
 | 手動再取得のSTATUS・現在参照・DB保持 | `PlaylistWorkspaceViewModel.ResyncPlaylistTableAsync` | `BmsPlaylistExternalReloadTests.PlaylistWorkspaceManualResync_UsesActiveTableAndPublishesLifecycle`。不正JSONの分類・日時・取得元を表示状態へ残し、Workspaceから詳細を再記録せず、直前の正常更新結果を保持する。 |
+| 同期STATUS全分岐の言語追従 | `PlaylistSyncRuntimeStatus`、`PlaylistSyncStatusMapper`、`PlaylistWorkspaceViewModel.RecordPlaylistSyncResult` | [`PlaylistSyncStatusLanguageTests.SyncStatus_AllBranchesFollowAdditionalAndBundledDictionaries`](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/PlaylistSyncStatusLanguageTests.cs) は12分岐（未実施・成功2・失敗9）で、追加辞書と同梱辞書（日英）の往復による状態名、先頭行が現在の状態名の詳細、種別・整列順・失敗判定・確認日時・取得元・診断の不変を、同じ状態インスタンスと実記録経路で確認する。 |
 | 取得境界での診断と元原因の保持 | `PlaylistExternalSyncOwner.LoadExternalTableAsync` | `PlaylistExternalFailureBoundaryTests.ExternalLoad_ReportsOriginalFailureWithoutRetainingItInStatus`。実HTTP 403・不正ヘッダーと診断先の正常・失敗で、元例外と取得元が診断先へ渡り、STATUSに元例外を持ち越さない。 |
 | 起動の対象失敗と保存失敗の区別 | `PlaylistWorkspaceViewModel.QueueExternalPlaylistSync`、`PlaylistExternalSyncOwner.PlaylistReloadOperationResult` | `ExternalSync_SourceFailurePreservesStatusAndCommittedTables` の起動条件は予約された実Taskの終端、旧表・正常表、全件成功でない完了通知を確認する。`PlaylistExternalFailureBoundaryTests.ExternalReload_DatabaseSaveFailureRemainsUnhandledAndPreservesCommittedTable` は実SQLiteの保存失敗を取得失敗として除外せず、旧正本・受付と次要求を保持する。 |
 | 単表属性保存の保存済み・同期未完了 | `PlaylistPropertySaveService`、`PlaylistPropertyDialogViewModel` | `BmsPlaylistCustomFolderOutputTests.PlaylistPropertyDialog_ExternalSourceFailureAdoptsSavedValuesAndCompletesRequiredOutput` は未分類の外部取得失敗でも属性DB保存と実BMT出力、通知時の保存値採用、Reset基準、次保存を確認する。表示STATUSの分類と例外を持ち越さない契約は `PlaylistSyncAttemptResultTests.CreateReportedExternalFailure_PreservesFailureClassificationWithoutExceptionTransport` が分担する。 |

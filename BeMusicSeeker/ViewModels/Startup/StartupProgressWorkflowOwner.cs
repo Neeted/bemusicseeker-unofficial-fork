@@ -252,8 +252,9 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     /// <summary>
     /// 起動・リロード進捗を失敗表示へ切り替えます。
     /// </summary>
-    /// <param name="subLabel">失敗時に表示する補足文言。</param>
-    internal void FailStartupProgressOperation(string subLabel)
+    /// <param name="subLabel">失敗時に表示する補足文言。一般の例外は技術診断として原文のまま保持します。</param>
+    /// <param name="isDirectoryPreflightFailure">登録フォルダ検査の失敗なら true。補足文言は表示のたびに現在語の資源から作り、<paramref name="subLabel"/> は使いません。</param>
+    internal void FailStartupProgressOperation(string subLabel, bool isDirectoryPreflightFailure = false)
     {
         SetStartupUiInteractionBlocked(false);
         lock (startupProgressLock)
@@ -264,6 +265,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             }
             startupProgressState.IsFailed = true;
             startupProgressState.FailureSubLabel = subLabel ?? string.Empty;
+            startupProgressState.IsDirectoryPreflightFailure = isDirectoryPreflightFailure;
             startupProgressState.CompletionHideScheduled = false;
         }
         RecomputeStartupProgressPresentation();
@@ -963,7 +965,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
                 {
                     return;
                 }
-                StartupProgressState state = startupProgressState;
                 if (!isActive)
                 {
                     label = string.Empty;
@@ -973,20 +974,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
                 }
                 else
                 {
-                    maximum = Math.Max(1.0, CountExpectedStartupProgressPhases(state));
-                    value = CountCompletedExpectedStartupProgressPhases(state);
-                    if (state.IsFailed)
-                    {
-                        label = GetStartupProgressFailedLabel(state.OperationKind);
-                        subLabel = state.FailureSubLabel;
-                    }
-                    else
-                    {
-                        label = AreExpectedStartupProgressPhasesCompleted(state)
-                            ? GetStartupProgressCompletedLabel(state.OperationKind)
-                            : GetStartupProgressRunningLabel(state.OperationKind);
-                        subLabel = string.Empty;
-                    }
+                    (label, subLabel, value, maximum) = ResolveActivePresentation(startupProgressState);
                 }
             }
             ApplyPresentation(isActive, label, subLabel, value, maximum);
@@ -997,6 +985,50 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             ScheduleStartupProgressHide(hideOperationToken);
         }
     }
+
+    /// <summary>
+    /// 実行中の状態から現在語の表示値を作ります。呼出し側は <see cref="startupProgressLock"/> を保持します。
+    /// </summary>
+    private static (string Label, string SubLabel, double Value, double Maximum) ResolveActivePresentation(StartupProgressState state)
+    {
+        double maximum = Math.Max(1.0, CountExpectedStartupProgressPhases(state));
+        double value = CountCompletedExpectedStartupProgressPhases(state);
+        if (state.IsFailed)
+        {
+            return (GetStartupProgressFailedLabel(state.OperationKind),
+                state.IsDirectoryPreflightFailure
+                    ? BeMusicSeeker.Properties.Resources.LibraryDirectoryPreflightProgressFailure : state.FailureSubLabel,
+                value, maximum);
+        }
+        string label = AreExpectedStartupProgressPhasesCompleted(state)
+            ? GetStartupProgressCompletedLabel(state.OperationKind)
+            : GetStartupProgressRunningLabel(state.OperationKind);
+        return (label, string.Empty, value, maximum);
+    }
+
+    /// <summary>
+    /// 言語変更後の現在語で、実行中の操作の表示だけを再適用します。
+    /// 完了記録・非表示予約・操作準備には触れません。実行中でなければ何もしません。
+    /// 通常の反映と異なりdispatchを通さず呼出し元のスレッドで表示へ適用するため、UIスレッドから呼びます
+    /// （言語変更の <c>ResourceService.ChangeCulture</c> はUIスレッドから呼ばれ、通常の反映もUIスレッドで実行されるため、両者は並行しません）。
+    /// </summary>
+    internal void ReapplyPresentationForLanguageChange()
+    {
+        string label;
+        string subLabel;
+        double value;
+        double maximum;
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive)
+            {
+                return;
+            }
+            (label, subLabel, value, maximum) = ResolveActivePresentation(startupProgressState);
+        }
+        ApplyPresentation(true, label, subLabel, value, maximum);
+    }
+
     internal void ScheduleStartupProgressHide(long operationToken)
     {
         Task.Run(async delegate
@@ -1260,7 +1292,11 @@ internal sealed class StartupProgressState
 
     internal bool IsRetryableFailure;
 
+    /// <summary>一般例外の技術診断の原文です。登録フォルダ検査の失敗では使いません。</summary>
     internal string FailureSubLabel = string.Empty;
+
+    /// <summary>失敗理由が登録フォルダ検査の失敗なら true です。補足文言は表示のたびに現在語で作ります。</summary>
+    internal bool IsDirectoryPreflightFailure;
 
     internal StartupProgressPhase CompletedPhases;
 

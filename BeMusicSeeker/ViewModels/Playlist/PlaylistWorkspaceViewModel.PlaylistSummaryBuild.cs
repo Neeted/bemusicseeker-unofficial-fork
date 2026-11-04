@@ -329,18 +329,6 @@ public sealed partial class PlaylistWorkspaceViewModel
 
             result.EntryScanCount += countResult.ScannedEntries;
             PlaylistSyncRuntimeStatus syncStatus = GetPlaylistSyncRuntimeStatus(table, syncStatusSnapshot);
-            string statusDetail = syncStatus.Detail;
-            if (!entriesLoaded)
-            {
-                statusDetail = string.IsNullOrWhiteSpace(statusDetail)
-                    ? BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_playlist_loading
-                    : string.Format(
-                        CultureInfo.CurrentCulture,
-                        BeMusicSeeker.Properties.Resources.Statusbar_progress_detail_separator_format,
-                        statusDetail,
-                        BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_playlist_loading);
-            }
-
             int totalCharts = countResult.TotalCharts;
             int ownedCharts = countResult.OwnedCharts;
             result.Rows.Add(new PlaylistSummaryRow
@@ -359,10 +347,8 @@ public sealed partial class PlaylistWorkspaceViewModel
                 HeaderUri = table.GetAbsoluteHeaderUrl(),
                 DataUri = table.GetAbsoluteDataUrl(),
                 IsExternalSync = table.is_external_sync,
-                Status = syncStatus.StatusText,
-                StatusDetail = statusDetail,
-                StatusSortOrder = syncStatus.StatusSortOrder,
-                HasFailureStatus = syncStatus.HasFailureStatus,
+                SyncStatus = syncStatus,
+                IsEntryLoadingPending = !entriesLoaded,
                 IsRootFolder = table.is_root_folder,
                 BmtSort = table.bmt_sort ?? int.MaxValue,
                 IsBmtOutput = table.is_bmt_output != false,

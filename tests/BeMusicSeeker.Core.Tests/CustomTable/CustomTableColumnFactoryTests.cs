@@ -488,9 +488,12 @@ public sealed class CustomTableColumnFactoryTests
             FolderNameUndefined = true,
             IsExternalSync = true,
             IsRootFolder = false,
-            Status = "-",
-            StatusDetail = "detail",
-            HasFailureStatus = true,
+            SyncStatus = new PlaylistSyncRuntimeStatus
+            {
+                Kind = PlaylistSyncStatusKind.NetworkError,
+                HasResult = true,
+                Diagnostic = "detail"
+            },
             LastUpdate = new DateTime(2026, 4, 30, 12, 34, 56),
             OwnedRatio = 99.8
         };
@@ -509,7 +512,8 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual("https://example.com/data/score.json", CustomTableDataTransfer.BuildCellText(row, columns["Data"]));
         Assert.AreEqual(true, columns["IsExternalSync"].GetChecked(row));
         Assert.AreEqual(false, columns["IsRootFolder"].GetChecked(row));
-        Assert.AreEqual("detail", columns["Status"].GetTooltip(row));
+        Assert.AreEqual(row.StatusDetail, columns["Status"].GetTooltip(row));
+        StringAssert.Contains(row.StatusDetail, "detail");
         Assert.AreEqual("2026-04-30 12:34:56", columns["LastUpdate"].GetText(row));
         Assert.AreEqual("99.8%", columns["OwnedRatio"].GetText(row));
         Assert.IsTrue(CustomTableColumnFactory.HasHighlightedWarning(row));

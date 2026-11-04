@@ -33,6 +33,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
     private readonly Dictionary<string, StartupBackgroundTaskProgressSnapshot> backgroundStatuses = new();
     private readonly Dictionary<string, PlaylistSyncProgressSnapshot> playlistStatuses = new();
     private long backgroundGeneration;
+    private bool isReapplyingLanguagePresentation;
 
     /// <summary>親操作の段階数と完了条件の正本を取得します。</summary>
     public StartupProgressWorkflowOwner StartupProgress { get; }
@@ -136,7 +137,49 @@ public sealed class OperationProgressHubViewModel : ViewModel
         RaiseRowsChanged();
     }
 
-    private void StartupProgressPropertyChanged(object sender, PropertyChangedEventArgs e) => RaiseRowsChanged();
+    private void StartupProgressPropertyChanged(object sender, PropertyChangedEventArgs e)
+    {
+        // 言語変更の再適用では、行の再通知を最後の一回にまとめます。
+        if (isReapplyingLanguagePresentation) { return; }
+        RaiseRowsChanged();
+    }
+
+    /// <summary>
+    /// 画面の購読寿命に従い、進捗行の言語変更だけを接続します。二重に呼んでも購読は一つです。
+    /// 言語変更の通知はUIスレッドで受ける前提で、受信時にdispatchせず起動進捗の再適用と行の再通知を行います。
+    /// </summary>
+    internal void AttachLanguagePresentation()
+    {
+        DetachLanguagePresentation();
+        ResourceService.Current.PropertyChanged += LanguageResourcesChanged;
+    }
+
+    /// <summary>画面の退役後に表示担当を残さないよう購読を解除します。</summary>
+    internal void DetachLanguagePresentation()
+    {
+        ResourceService.Current.PropertyChanged -= LanguageResourcesChanged;
+    }
+
+    /// <summary>
+    /// 資源差替えの通知で、行を現在の資源から読み直せるよう再通知します。
+    /// 任意の表示更新のため、再適用や通知の例外は呼出元へ伝播させず、既存の表示故障の診断規則に従います。
+    /// </summary>
+    private void LanguageResourcesChanged(object sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName != nameof(ResourceService.Resources) || isShellClosing?.Invoke() == true)
+        {
+            return;
+        }
+
+        isReapplyingLanguagePresentation = true;
+        try
+        {
+            try { StartupProgress.ReapplyPresentationForLanguageChange(); }
+            catch (Exception exception) { ReportPresentationFailureOnce(exception, "StartupProgress"); }
+        }
+        finally { isReapplyingLanguagePresentation = false; }
+        RaiseRowsChanged();
+    }
 
     /// <summary>再取得の逆順終了通知を投入前に除外し、件数と対象を同じ採用値から表示します。</summary>
     private void PlaylistWorkspacePlaylistSyncProgressChanged(object sender, PlaylistSyncProgressChangedEventArgs request)
@@ -219,8 +262,9 @@ public sealed class OperationProgressHubViewModel : ViewModel
             if (playlistUrlDownloadStatus.IsActive)
             {
                 PlaylistUrlDownloadStatusSnapshot status = playlistUrlDownloadStatus;
-                rows.Add(new("url", string.Format(string.IsNullOrWhiteSpace(status.LabelFormat)
-                    ? BeMusicSeeker.Properties.Resources.Playlist_url_download_progress_label_format : status.LabelFormat,
+                rows.Add(new("url", string.Format(status.Kind == PlaylistUrlAcquisitionKind.ExternalPackageLookup
+                    ? BeMusicSeeker.Properties.Resources.Playlist_external_package_lookup_progress_label_format
+                    : BeMusicSeeker.Properties.Resources.Playlist_url_download_progress_label_format,
                     Math.Max(0, status.CompletedCount), Math.Max(0, status.TotalCount)), status.CurrentDisplayName,
                     Math.Max(0, status.CompletedCount), Math.Max(1, status.TotalCount), status.TotalCount <= 0,
                     status.CanCancel ? OperationProgressAction.CancelUrlDownload : OperationProgressAction.None));
@@ -249,13 +293,9 @@ public sealed class OperationProgressHubViewModel : ViewModel
             foreach (KeyValuePair<string, PlaylistSyncProgressSnapshot> pair in playlistStatuses.OrderBy(x => x.Key, StringComparer.Ordinal))
             {
                 PlaylistSyncProgressSnapshot status = pair.Value;
-                string format = string.IsNullOrWhiteSpace(status.LabelFormat)
-                    ? BeMusicSeeker.Properties.Resources.Playlist_sync_progress_label_format : status.LabelFormat;
-                string single = string.IsNullOrWhiteSpace(status.SingleLabel)
-                    ? BeMusicSeeker.Properties.Resources.Playlist_sync_progress_single_label : status.SingleLabel;
+                (string format, string single) = GetPlaylistProgressLabels(status.Kind);
                 int completed = Math.Clamp(status.CompletedTableCount, 0, Math.Max(1, status.TotalTableCount));
-                string target = !string.IsNullOrWhiteSpace(status.CurrentTableName)
-                    ? status.CurrentTableName : status.CurrentUri?.ToString() ?? string.Empty;
+                string target = GetPlaylistProgressTarget(status);
                 string detail = IsProcessedPlaylistReload(status)
                     ? status.CompletedTableCount > 0 && !string.IsNullOrWhiteSpace(target)
                         ? string.Format(BeMusicSeeker.Properties.Resources.Playlist_reload_last_processed_label_format, target) : string.Empty
@@ -303,6 +343,72 @@ public sealed class OperationProgressHubViewModel : ViewModel
 
     /// <summary>共通行の有無に応じてステータスバー全体を表示します。</summary>
     public bool HasRows => Rows.Count != 0;
+
+    /// <summary>操作種別から、件数ありの書式と件数なしの作業名を現在の資源で作ります。</summary>
+    private static (string Format, string Single) GetPlaylistProgressLabels(PlaylistSyncProgressKind kind)
+    {
+        static (string, string) WithCount(string single) => (single + " {0}/{1}", single);
+        static (string, string) Processed(string single) =>
+            (string.Format(BeMusicSeeker.Properties.Resources.Playlist_reload_processed_label_format, single, "{0}", "{1}"), single);
+        return kind switch
+        {
+            PlaylistSyncProgressKind.ExternalPlaylistSync => Processed(BeMusicSeeker.Properties.Resources.Statusbar_progress_task_external_playlist_sync),
+            PlaylistSyncProgressKind.ManualPlaylistReload => Processed(BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_manual_reload),
+            PlaylistSyncProgressKind.PropertyUpdate => WithCount(BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_property_update),
+            PlaylistSyncProgressKind.ExternalPropertyInitialization => WithCount(BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_external_property_initialization),
+            PlaylistSyncProgressKind.CustomFolderRepair => WithCount(BeMusicSeeker.Properties.Resources.Statusbar_progress_task_custom_folder_repair),
+            PlaylistSyncProgressKind.BmtOutput => (BeMusicSeeker.Properties.Resources.Beatoraja_bmt_export_progress_label_format,
+                BeMusicSeeker.Properties.Resources.Beatoraja_bmt_export_progress_single_label),
+            PlaylistSyncProgressKind.CustomFolderOutput => (BeMusicSeeker.Properties.Resources.Custom_folder_output_progress_label_format,
+                BeMusicSeeker.Properties.Resources.Custom_folder_output_progress_single_label),
+            PlaylistSyncProgressKind.ExternalPlaylistImport => (BeMusicSeeker.Properties.Resources.Playlist_import_progress_label_format,
+                BeMusicSeeker.Properties.Resources.Playlist_import_progress_single_label),
+            PlaylistSyncProgressKind.BeatorajaTableUrlImport => (BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_label_format,
+                BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_single_label),
+            _ => (BeMusicSeeker.Properties.Resources.Playlist_sync_progress_label_format,
+                BeMusicSeeker.Properties.Resources.Playlist_sync_progress_single_label)
+        };
+    }
+
+    /// <summary>生の対象名・段階・取込みの段階から、詳細欄の対象を現在の資源で作ります。対象がなければURIを使います。</summary>
+    private static string GetPlaylistProgressTarget(PlaylistSyncProgressSnapshot status)
+    {
+        string name = status.CustomFolderStage switch
+        {
+            CustomFolderProgressStage.Output => BeMusicSeeker.Properties.Resources.Custom_folder_output_progress_single_label,
+            CustomFolderProgressStage.DbSync => BeMusicSeeker.Properties.Resources.Custom_folder_db_sync_progress_single_label,
+            _ => status.CurrentTableName ?? string.Empty
+        };
+        string phase = GetImportPhaseText(status.Kind, status.ImportPhase);
+        string detail = string.IsNullOrWhiteSpace(phase) ? name
+            : string.IsNullOrWhiteSpace(name) ? phase : phase + ": " + name;
+        return !string.IsNullOrWhiteSpace(detail) ? detail : status.CurrentUri?.ToString() ?? string.Empty;
+    }
+
+    private static string GetImportPhaseText(PlaylistSyncProgressKind kind, PlaylistImportProgressPhase phase)
+    {
+        bool beatoraja = kind == PlaylistSyncProgressKind.BeatorajaTableUrlImport;
+        return phase switch
+        {
+            PlaylistImportProgressPhase.CheckUrls => BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_check_urls,
+            PlaylistImportProgressPhase.LoadTables => beatoraja
+                ? BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_load_tables
+                : BeMusicSeeker.Properties.Resources.Playlist_import_progress_phase_load_tables,
+            PlaylistImportProgressPhase.RestoreBmt => BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_restore_bmt,
+            PlaylistImportProgressPhase.CheckDuplicates => BeMusicSeeker.Properties.Resources.Playlist_import_progress_phase_check_duplicates,
+            PlaylistImportProgressPhase.RegisterPlaylists => beatoraja
+                ? BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_register_playlists
+                : BeMusicSeeker.Properties.Resources.Playlist_import_progress_phase_register_playlists,
+            PlaylistImportProgressPhase.UpdateReferences => beatoraja
+                ? BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_update_references
+                : BeMusicSeeker.Properties.Resources.Playlist_import_progress_phase_update_references,
+            PlaylistImportProgressPhase.ApplyBmtSort => BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_apply_bmt_sort,
+            PlaylistImportProgressPhase.Finish => beatoraja
+                ? BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_finish
+                : BeMusicSeeker.Properties.Resources.Playlist_import_progress_phase_finish,
+            _ => string.Empty
+        };
+    }
 
     private static bool IsProcessedPlaylistReload(PlaylistSyncProgressSnapshot snapshot) =>
         snapshot?.Source is "external_playlist_sync" or "playlist_manual_reload";
@@ -517,12 +623,18 @@ public sealed class OperationProgressHubViewModel : ViewModel
         }
         catch (Exception exception)
         {
-            if (Interlocked.Exchange(ref rowsPresentationFailureActive, 1) == 0)
-            {
-                try { NLogWrapper.FileLogger?.Warn(exception, "operation progress presentation property=" + propertyName); }
-                catch { /* 任意表示の診断失敗を再通知しません。 */ }
-            }
+            ReportPresentationFailureOnce(exception, propertyName);
             return false;
+        }
+    }
+
+    // 連続した表示故障の元原因を、回復するまで一回だけ局所診断します。
+    private void ReportPresentationFailureOnce(Exception exception, string propertyName)
+    {
+        if (Interlocked.Exchange(ref rowsPresentationFailureActive, 1) == 0)
+        {
+            try { NLogWrapper.FileLogger?.Warn(exception, "operation progress presentation property=" + propertyName); }
+            catch { /* 任意表示の診断失敗を再通知しません。 */ }
         }
     }
 

@@ -1307,9 +1307,10 @@ public partial class BMSPlaylist : ObservableObject
             Lr2SongDbSyncPreparedDataSurface preparedSurface = Lr2SongDbSyncPreparedDataSurface.Empty;
             if (prepareAllCustomFolders)
             {
+                // LR2の段階識別子は翻訳対象ではなく、従来どおり原文のまま表示するため表名の位置へ渡します。
                 preparedSurface = await Task.Run(() => ReOutputAllCustomFoldersForLr2SongDbSyncUnderExistingReservation(
                     reason, capability, (stage, processed, total) => PublishCustomFolderOutputRepairProgress(
-                        CustomFolderOutputRepairProgressReporter, processed, total, stage, progressRequest), settings)).ConfigureAwait(false);
+                        CustomFolderOutputRepairProgressReporter, processed, total, CustomFolderProgressDetail.ForTable(stage), progressRequest), settings)).ConfigureAwait(false);
             }
             else if (forceCustomFolderOutput)
             {
@@ -1325,8 +1326,8 @@ public partial class BMSPlaylist : ObservableObject
                 }
                 await Task.Run(() => RepairMissingCustomFolderOutputsAfterHydrationCore(
                     reason, verifyRootOutputDirectoryRows, settings,
-                    (processed, total, name) => PublishCustomFolderOutputRepairProgress(CustomFolderOutputRepairProgressReporter,
-                        processed, total, name, progressRequest), capability)).ConfigureAwait(false);
+                    (processed, total, detail) => PublishCustomFolderOutputRepairProgress(CustomFolderOutputRepairProgressReporter,
+                        processed, total, detail, progressRequest), capability)).ConfigureAwait(false);
             }
             if (exportBeatorajaBmt)
             {
@@ -1358,7 +1359,7 @@ public partial class BMSPlaylist : ObservableObject
         }
         finally
         {
-            if (progressRequest != null) { PublishCustomFolderOutputRepairProgress(CustomFolderOutputRepairProgressReporter, 0, 0, string.Empty, progressRequest); }
+            if (progressRequest != null) { PublishCustomFolderOutputRepairProgress(CustomFolderOutputRepairProgressReporter, 0, 0, CustomFolderProgressDetail.ForTable(string.Empty), progressRequest); }
         }
     }
 
@@ -2358,7 +2359,7 @@ public partial class BMSPlaylist : ObservableObject
         string reason,
         bool verifyRootOutputDirectoryRows,
         CustomFolderOutputSettingsSnapshot settings,
-        Action<int, int, string> progressCallback = null, LibraryFileMutationCapability capability = null)
+        Action<int, int, CustomFolderProgressDetail> progressCallback = null, LibraryFileMutationCapability capability = null)
     {
         if (settings == null)
         {
@@ -2464,7 +2465,7 @@ public partial class BMSPlaylist : ObservableObject
         Action<PlaylistSyncProgressSnapshot> progressReporter,
         int processed,
         int total,
-        string tableName, OperationProgressRequest request = null)
+        CustomFolderProgressDetail detail, OperationProgressRequest request = null)
     {
         if (progressReporter == null)
         {
@@ -2487,9 +2488,9 @@ public partial class BMSPlaylist : ObservableObject
                 Request = request,
                 TotalTableCount = isActive ? total : 0,
                 CompletedTableCount = isActive ? Math.Min(processed, total) : 0,
-                CurrentTableName = isActive ? tableName ?? string.Empty : string.Empty,
-                LabelFormat = Resources.Statusbar_progress_task_custom_folder_repair + " {0}/{1}",
-                SingleLabel = Resources.Statusbar_progress_task_custom_folder_repair
+                CurrentTableName = isActive ? detail.TableName ?? string.Empty : string.Empty,
+                CustomFolderStage = isActive ? detail.Stage : CustomFolderProgressStage.TableName,
+                Kind = PlaylistSyncProgressKind.CustomFolderRepair
             });
         }
         catch (Exception exception)
@@ -4481,7 +4482,7 @@ public partial class BMSPlaylist : ObservableObject
     internal void ReOutputCustomFoldersAndCommitHeadersToDB(
         IEnumerable<BMSTable> bmsTables,
         string reason,
-        Action<int, int, string> progressCallback = null,
+        Action<int, int, CustomFolderProgressDetail> progressCallback = null,
         CustomFolderOutputSettingsSnapshot settings = null, LibraryFileMutationCapability capability = null)
     {
         using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("ReOutputCustomFoldersAndCommitHeadersToDB", capability: capability);
@@ -4566,7 +4567,7 @@ public partial class BMSPlaylist : ObservableObject
         IEnumerable<BMSTable> bmsTables,
         IReadOnlyDictionary<BMSTable, string> outputDirPathBeforeByTable,
         string reason,
-        Action<int, int, string> progressCallback = null,
+        Action<int, int, CustomFolderProgressDetail> progressCallback = null,
         IReadOnlyDictionary<BMSTable, bool> wasRootFolderBeforeByTable = null,
         string rootOutputBaseDirBefore = null,
         IReadOnlyDictionary<BMSTable, string> outputBaseDirPathBeforeByTable = null,

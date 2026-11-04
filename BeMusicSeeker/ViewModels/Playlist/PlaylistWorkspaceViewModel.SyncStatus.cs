@@ -43,7 +43,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     /// <summary>
-    /// Captures an isolated runtime status snapshot for one summary build.
+    /// 概要の一回の構築のために、同期状態の写しを取得します。状態は不変の事実なので共有します。
     /// </summary>
     internal IReadOnlyDictionary<string, PlaylistSyncRuntimeStatus> CapturePlaylistSyncStatusSnapshot()
     {
@@ -52,27 +52,10 @@ public sealed partial class PlaylistWorkspaceViewModel
             var snapshot = new Dictionary<string, PlaylistSyncRuntimeStatus>(StringComparer.OrdinalIgnoreCase);
             foreach (KeyValuePair<string, PlaylistSyncRuntimeStatus> pair in playlistSyncStatuses)
             {
-                snapshot[pair.Key] = ClonePlaylistSyncRuntimeStatus(pair.Value);
+                snapshot[pair.Key] = pair.Value;
             }
             return snapshot;
         }
-    }
-
-    private static PlaylistSyncRuntimeStatus ClonePlaylistSyncRuntimeStatus(PlaylistSyncRuntimeStatus value)
-    {
-        if (value == null)
-        {
-            return null;
-        }
-        return new PlaylistSyncRuntimeStatus
-        {
-            Kind = value.Kind,
-            StatusText = value.StatusText,
-            Detail = value.Detail,
-            StatusSortOrder = value.StatusSortOrder,
-            HasFailureStatus = value.HasFailureStatus,
-            CheckedAt = value.CheckedAt
-        };
     }
 
     private static string GetPlaylistSyncStatusKey(BMSTable table)

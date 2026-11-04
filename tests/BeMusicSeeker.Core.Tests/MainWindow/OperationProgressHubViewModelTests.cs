@@ -243,14 +243,13 @@ public sealed class OperationProgressHubViewModelTests
             CompletedTableCount = 9,
             CurrentTableName = "current table",
             CurrentUri = new System.Uri("https://example.invalid/table"),
-            LabelFormat = "{0}/{1}",
-            SingleLabel = "single"
+            Kind = PlaylistSyncProgressKind.Default
         });
 
         Assert.IsTrue(hub.Rows.Any(row => row.Key.StartsWith("playlist:")));
         Assert.AreEqual(2.0, (GetRow(hub, "playlist:playlist:0")?.Maximum ?? 0d));
         Assert.AreEqual(2.0, (GetRow(hub, "playlist:playlist:0")?.Value ?? 0d));
-        Assert.AreEqual("2/2", (GetRow(hub, "playlist:playlist:0")?.Label ?? string.Empty));
+        Assert.AreEqual(string.Format(Resources.Playlist_sync_progress_label_format, 2, 2), (GetRow(hub, "playlist:playlist:0")?.Label ?? string.Empty));
         Assert.AreEqual("current table", (GetRow(hub, "playlist:playlist:0")?.Detail ?? string.Empty));
         CollectionAssert.Contains(changedProperties, nameof(hub.Rows));
     }
@@ -266,8 +265,7 @@ public sealed class OperationProgressHubViewModelTests
             IsActive = true,
             TotalTableCount = 1,
             CompletedTableCount = 1,
-            CurrentTableName = "active",
-            LabelFormat = "{0}/{1}"
+            CurrentTableName = "active"
         });
 
         workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot());
@@ -289,8 +287,7 @@ public sealed class OperationProgressHubViewModelTests
             IsActive = true,
             TotalTableCount = 2,
             CompletedTableCount = 1,
-            CurrentTableName = "active",
-            LabelFormat = "{0}/{1}"
+            CurrentTableName = "active"
         });
         workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot());
 
@@ -318,8 +315,7 @@ public sealed class OperationProgressHubViewModelTests
             IsActive = true,
             TotalTableCount = 1,
             CompletedTableCount = 1,
-            CurrentTableName = "active",
-            LabelFormat = "{0}/{1}"
+            CurrentTableName = "active"
         });
         isShellClosing = true;
 
@@ -751,13 +747,13 @@ public sealed class OperationProgressHubViewModelTests
         hub.UpdateBackgroundTaskProgress(new("playlist_custom_folder_output_repair", 1, 2, true, true, repair));
         workspace.BeginPlaylistSyncProgressOperation();
         workspace.ReportPlaylistSyncProgress(new() { Source = "playlist", IsActive = true, TotalTableCount = 3, CompletedTableCount = 1 });
-        workspace.ReportPlaylistSyncProgress(new() { Source = "bmt", OperationId = 7, Request = bmt, SingleLabel = Resources.Statusbar_progress_task_bmt_output, LabelFormat = Resources.Statusbar_progress_task_bmt_output + " {0}/{1}", IsActive = true, TotalTableCount = 2, CompletedTableCount = 1 });
+        workspace.ReportPlaylistSyncProgress(new() { Source = "bmt", OperationId = 7, Request = bmt, Kind = PlaylistSyncProgressKind.BmtOutput, IsActive = true, TotalTableCount = 2, CompletedTableCount = 1 });
         workspace.ReportPlaylistSyncProgress(new() { Source = "bmt", OperationId = 8, Request = other, IsActive = true, TotalTableCount = 4, CompletedTableCount = 2 });
-        workspace.ReportPlaylistSyncProgress(new() { Source = "custom_folder_repair", Request = repair, SingleLabel = Resources.Statusbar_progress_task_custom_folder_repair, LabelFormat = Resources.Statusbar_progress_task_custom_folder_repair + " {0}/{1}", IsActive = true, TotalTableCount = 5, CompletedTableCount = 1 });
+        workspace.ReportPlaylistSyncProgress(new() { Source = "custom_folder_repair", Request = repair, Kind = PlaylistSyncProgressKind.CustomFolderRepair, IsActive = true, TotalTableCount = 5, CompletedTableCount = 1 });
         Assert.AreEqual(5, hub.Rows.Count);
         Assert.IsFalse(hub.Rows.Any(row => row.Key.StartsWith("background:")));
         Assert.IsTrue(hub.Rows.Where(row => row.Key.StartsWith("playlist:bmt:")).All(row => row.ParentKey == "startup_background"));
-        StringAssert.Contains(hub.Rows.Single(row => row.Key.StartsWith("playlist:bmt:7:")).Label, Resources.Statusbar_progress_task_bmt_output);
+        Assert.AreEqual(string.Format(Resources.Beatoraja_bmt_export_progress_label_format, 1, 2), hub.Rows.Single(row => row.Key.StartsWith("playlist:bmt:7:")).Label);
         StringAssert.Contains(hub.Rows.Single(row => row.Key.StartsWith("playlist:custom_folder_repair:")).Label, Resources.Statusbar_progress_task_custom_folder_repair);
         workspace.ReportPlaylistSyncProgress(new() { Source = "bmt", OperationId = 7, Request = bmt, IsActive = false });
         Assert.IsFalse(hub.Rows.Any(row => row.Key.StartsWith("playlist:bmt:7:")));
@@ -1042,7 +1038,6 @@ public sealed class OperationProgressHubViewModelTests
         OperationProgressRequest? request = source == "external_playlist_sync" ? new(1, 11, source, 1) : null;
         string label = source == "external_playlist_sync"
             ? Resources.Statusbar_progress_task_external_playlist_sync : Resources.Statusbar_progress_task_playlist_manual_reload;
-        string format = string.Format(Resources.Playlist_reload_processed_label_format, label, "{0}", "{1}");
         void Drain() { while (pending.TryDequeue(out Action? action)) { action(); } }
         PlaylistSyncProgressSnapshot Progress(int count, string name, Uri? uri = null) => new()
         {
@@ -1053,7 +1048,7 @@ public sealed class OperationProgressHubViewModelTests
             CompletedTableCount = count,
             CurrentTableName = name,
             CurrentUri = uri,
-            LabelFormat = format
+            Kind = source == "external_playlist_sync" ? PlaylistSyncProgressKind.ExternalPlaylistSync : PlaylistSyncProgressKind.ManualPlaylistReload
         };
 
         workspace.ReportPlaylistSyncProgress(Progress(0, string.Empty));

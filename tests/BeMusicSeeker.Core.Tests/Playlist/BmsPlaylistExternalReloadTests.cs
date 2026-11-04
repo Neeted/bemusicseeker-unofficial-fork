@@ -2407,6 +2407,7 @@ public sealed class BmsPlaylistExternalReloadTests
         PlaylistSyncProgressSnapshot[] notifications = progress.ToArray();
         Assert.IsTrue(notifications.Length > 0);
         Assert.IsTrue(notifications.All(snapshot => snapshot.Source == "playlist_manual_reload"));
+        Assert.IsTrue(notifications.Where(snapshot => snapshot.IsActive).All(snapshot => snapshot.Kind == PlaylistSyncProgressKind.ManualPlaylistReload));
         Assert.IsTrue(notifications.All(snapshot => snapshot.OperationId == 0));
         Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive
             && snapshot.TotalTableCount == 1 && snapshot.CurrentUri == targetUri));

@@ -70,8 +70,8 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    /// <summary>モデル共通通知の既存操作IDを保ち、呼出し元の識別と再取得の処理済み件数書式を付けます。</summary>
-    private void ReportPlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot, string source, string singleLabel = null, OperationProgressRequest request = null)
+    /// <summary>モデル共通通知の既存操作IDを保ち、呼出し元の識別と操作の種別を付けます。書式は種別から表示側が現在の資源で作ります。</summary>
+    private void ReportPlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot, string source, PlaylistSyncProgressKind? kind = null, OperationProgressRequest request = null)
     {
         if (snapshot == null)
         {
@@ -79,12 +79,9 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         snapshot.Source = source;
         snapshot.Request = request;
-        if (singleLabel != null)
+        if (kind is { } value)
         {
-            snapshot.SingleLabel = singleLabel;
-            snapshot.LabelFormat = source is ExternalPlaylistSyncProgressSource or ManualPlaylistReloadProgressSource
-                ? string.Format(BeMusicSeeker.Properties.Resources.Playlist_reload_processed_label_format, singleLabel, "{0}", "{1}")
-                : singleLabel + " {0}/{1}";
+            snapshot.Kind = value;
         }
         ReportPlaylistSyncProgress(snapshot);
     }

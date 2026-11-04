@@ -524,6 +524,13 @@ public sealed class PlaylistSummaryBulkEditTests
             PlaylistSyncProgressSnapshot[] bulkProgress = progress.Where(snapshot => snapshot.Source == "playlist_summary_bulk").ToArray();
             Assert.IsTrue(bulkProgress.Length > 0);
             Assert.IsFalse(bulkProgress[^1].IsActive);
+            // 外部属性の初期化は種別の事実で通知し、翻訳済み文言を持たせない。進捗に載る表名は生の名前のままである。
+            PlaylistSyncProgressSnapshot[] initializationProgress = bulkProgress.Where(snapshot => snapshot.Kind == PlaylistSyncProgressKind.ExternalPropertyInitialization).ToArray();
+            Assert.IsTrue(initializationProgress.Length > 0);
+            Assert.IsTrue(initializationProgress.All(snapshot => snapshot.CustomFolderStage == CustomFolderProgressStage.TableName && snapshot.ImportPhase == PlaylistImportProgressPhase.None));
+            // custom folder出力の段階通知は段階の事実で届き、段階を表す通知は表名を持たない。
+            Assert.IsTrue(bulkProgress.Where(snapshot => snapshot.CustomFolderStage != CustomFolderProgressStage.TableName)
+                .All(snapshot => string.IsNullOrEmpty(snapshot.CurrentTableName) && snapshot.Kind == PlaylistSyncProgressKind.CustomFolderOutput));
             Assert.AreEqual(1, receipts.Count(request => request.RouteName == "playlist summary external property initialization notification"));
             await fixture.Playlist.WaitForPlaylistMutationIdleAsync();
             using (fixture.Playlist.AcquirePlaylistMutationLease("bulk-failure-next-request")) { }
@@ -718,6 +725,8 @@ public sealed class PlaylistSummaryBulkEditTests
             Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.CurrentUri == new Uri(headerPath)),
                 "取得元の通知も一括編集が所有する進捗として届く。");
             Assert.IsFalse(notifications[^1].IsActive);
+            Assert.IsTrue(notifications.Where(snapshot => snapshot.IsActive).All(snapshot => snapshot.Kind is PlaylistSyncProgressKind.ExternalPropertyInitialization or PlaylistSyncProgressKind.CustomFolderOutput),
+                "外部属性初期化の通知は種別の事実で届き、翻訳済み文言を持たない（出力を伴う場合は概要から行うcustom folder出力の種別を含む）。");
 
             Assert.AreEqual(0, summaryRefreshCount);
             Assert.AreEqual(0, catalogChangedCount);

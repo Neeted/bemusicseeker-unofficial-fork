@@ -1046,7 +1046,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     RunPlaylistSummaryBulkOperationWithinSession(
                         () =>
                         {
-                            UpdatePlaylistSummaryCustomFolderOutputProgress(0, outputChangedTables.Count, string.Empty);
+                            UpdatePlaylistSummaryCustomFolderOutputProgress(0, outputChangedTables.Count, CustomFolderProgressDetail.ForTable(string.Empty));
                             tables.MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
                                 outputChangedTables,
                                 outputDirPathBeforeByTable,
@@ -1068,7 +1068,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     RunPlaylistSummaryBulkOperationWithinSession(
                         () =>
                         {
-                            UpdatePlaylistSummaryCustomFolderOutputProgress(0, sameOutputReOutputTableList.Count, string.Empty);
+                            UpdatePlaylistSummaryCustomFolderOutputProgress(0, sameOutputReOutputTableList.Count, CustomFolderProgressDetail.ForTable(string.Empty));
                             tables.ReOutputCustomFoldersAndCommitHeadersToDB(
                                 sameOutputReOutputTableList,
                                 reason,
@@ -1147,7 +1147,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         if (snapshot?.IsActive == true)
         {
             ReportPlaylistSyncProgress(snapshot, PlaylistSummaryBulkProgressSource,
-                BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_external_property_initialization);
+                PlaylistSyncProgressKind.ExternalPropertyInitialization);
         }
     }
 
@@ -1160,8 +1160,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             TotalTableCount = totalTableCount,
             CompletedTableCount = completedTableCount,
             CurrentTableName = currentTableName ?? string.Empty,
-            LabelFormat = BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_external_property_initialization + " {0}/{1}",
-            SingleLabel = BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_external_property_initialization
+            Kind = PlaylistSyncProgressKind.ExternalPropertyInitialization
         });
     }
 
@@ -1312,7 +1311,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 {
                     try
                     {
-                        UpdatePlaylistSummaryCustomFolderOutputProgress(0, changedTables.Count, string.Empty);
+                        UpdatePlaylistSummaryCustomFolderOutputProgress(0, changedTables.Count, CustomFolderProgressDetail.ForTable(string.Empty));
                         tables.ReOutputCustomFoldersAndCommitHeadersToDB(
                             changedTables,
                             "playlist_summary_bulk_custom_folder_output_changed",
@@ -1336,7 +1335,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }).ConfigureAwait(false);
     }
 
-    private void UpdatePlaylistSummaryCustomFolderOutputProgress(int completedTableCount, int totalTableCount, string currentTableName)
+    private void UpdatePlaylistSummaryCustomFolderOutputProgress(int completedTableCount, int totalTableCount, CustomFolderProgressDetail detail)
     {
         ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
         {
@@ -1344,9 +1343,9 @@ public sealed partial class PlaylistWorkspaceViewModel
             IsActive = true,
             TotalTableCount = totalTableCount,
             CompletedTableCount = completedTableCount,
-            CurrentTableName = currentTableName ?? string.Empty,
-            LabelFormat = BeMusicSeeker.Properties.Resources.Custom_folder_output_progress_label_format,
-            SingleLabel = BeMusicSeeker.Properties.Resources.Custom_folder_output_progress_single_label
+            CurrentTableName = detail.TableName ?? string.Empty,
+            CustomFolderStage = detail.Stage,
+            Kind = PlaylistSyncProgressKind.CustomFolderOutput
         });
     }
 
@@ -1499,7 +1498,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             RunPlaylistSummaryBulkOperation(
                 () =>
                 {
-                    UpdatePlaylistSummaryCustomFolderOutputProgress(0, changedTables.Count, string.Empty);
+                    UpdatePlaylistSummaryCustomFolderOutputProgress(0, changedTables.Count, CustomFolderProgressDetail.ForTable(string.Empty));
                     PersistPlaylistSummaryHeaderChanges(
                         () => tables.MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
                             changedTables,
@@ -1617,7 +1616,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 RunPlaylistSummaryBulkOperation(
                     () =>
                     {
-                        UpdatePlaylistSummaryCustomFolderOutputProgress(0, migrationTables.Count, string.Empty);
+                        UpdatePlaylistSummaryCustomFolderOutputProgress(0, migrationTables.Count, CustomFolderProgressDetail.ForTable(string.Empty));
                         PersistPlaylistSummaryHeaderChanges(
                             () => tables.MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
                                 migrationTables,

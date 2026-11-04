@@ -166,6 +166,8 @@ public sealed class CustomTablePhase6CacheTests
         const string additionalTitle = "ADDL DST TITLE";
         const string additionalArtist = "ADDL DST ARTIST";
         const string additionalStatus = "ADDL STATUS";
+        const string additionalHttp404 = "ADDL 404";
+        const string additionalLoading = "ADDL LOADING";
         bool isMain = kind == "main";
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
@@ -185,7 +187,10 @@ public sealed class CustomTablePhase6CacheTests
                 File.WriteAllText(languagePath, "{\"_language_name\":\"Header regression\","
                     + "\"Header_InstallDstTitle\":\"" + additionalTitle + "\","
                     + "\"Header_InstallDstArtist\":\"" + additionalArtist + "\","
-                    + "\"Playlist_summary_status_header\":\"" + additionalStatus + "\"}");
+                    + "\"Playlist_summary_status_header\":\"" + additionalStatus + "\","
+                    + "\"Playlist_sync_status_404\":\"" + additionalHttp404 + "\","
+                    + "\"Statusbar_progress_phase_playlist_loading\":\"" + additionalLoading + "\","
+                    + "\"Statusbar_progress_detail_separator_format\":\"{0} ADDL SEP {1}\"}");
                 JsonLanguageCatalog.Invalidate(additionalCulture);
                 JsonLanguageCatalog.InvalidateLanguages();
                 ResourceService.Current.ChangeCulture("ja-JP");
@@ -217,7 +222,19 @@ public sealed class CustomTablePhase6CacheTests
                 }
                 else
                 {
-                    object[] rows = [.. Enumerable.Range(0, 64).Select(index => new PlaylistSummaryRow { Name = "Row " + index.ToString("D2", CultureInfo.InvariantCulture), Status = "OK" })];
+                    // 同期状態は事実だけを持たせ、行3は未読込みの案内を付ける行にします。
+                    var http404 = new PlaylistSyncRuntimeStatus
+                    {
+                        Kind = PlaylistSyncStatusKind.Http404,
+                        HasResult = true,
+                        CheckedAt = new DateTime(2026, 3, 8, 20, 0, 0),
+                        PageUri = "https://example.invalid/status.html",
+                        Diagnostic = "diagnostic 原文"
+                    };
+                    object[] rows = [.. Enumerable.Range(0, 64).Select(index => new PlaylistSummaryRow
+                    {
+                        Name = "Row " + index.ToString("D2", CultureInfo.InvariantCulture), SyncStatus = http404, IsEntryLoadingPending = index == 3
+                    })];
                     editedId = "Name";
                     var settings = new PlaylistSummaryColumnSettings();
                     foreach (PlaylistSummaryColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumeratePlaylistSummaryColumnLayouts(settings)) { layout.Visibility = Visibility.Hidden; }
@@ -273,6 +290,32 @@ public sealed class CustomTablePhase6CacheTests
                     if (pixelsByDictionary.TryGetValue(dictionary, out byte[]? previous)) { CollectionAssert.AreEqual(previous, pixels, dictionary + " 同じ辞書の見出し帯画素"); }
                     else { pixelsByDictionary[dictionary] = pixels; }
 
+                    if (!isMain)
+                    {
+                        // 明示的な描画失効なしで、同じ行のSTATUSセル値とtooltipが現在の資源値へ追従する。
+                        string expectedStatus = Resources.Playlist_sync_status_404;
+                        string expectedDetail = string.Format(CultureInfo.CurrentCulture, Resources.Statusbar_progress_detail_separator_format,
+                            string.Join(Environment.NewLine, expectedStatus, DateTimeDisplayFormatter.FormatTimestamp(new DateTime(2026, 3, 8, 20, 0, 0)),
+                                "https://example.invalid/status.html", "diagnostic 原文"),
+                            Resources.Statusbar_progress_phase_playlist_loading);
+                        if (dictionary == "added")
+                        {
+                            Assert.AreEqual(additionalHttp404, expectedStatus);
+                            StringAssert.Contains(expectedDetail, additionalLoading);
+                            StringAssert.Contains(expectedDetail, " ADDL SEP ");
+                        }
+                        CustomTableColumn statusColumn = shown.Columns.Single(item => item.Id == "Status");
+                        var summaryRow = (PlaylistSummaryRow)selectedRow;
+                        Assert.AreEqual(expectedStatus, summaryRow.Status, dictionary);
+                        Assert.AreEqual(expectedDetail, summaryRow.StatusDetail, dictionary);
+                        Assert.AreEqual(expectedStatus, shown.GetCellValue(selectedRow, statusColumn, out bool cellHit).Text, dictionary + " STATUSセル値");
+                        Assert.IsTrue(cellHit);
+                        CustomTableHitTestResult statusCell = shown.HitTestTable(new Point(110 + 20, 20 + 25 * 1 + 12));
+                        Assert.AreEqual(CustomTableHitKind.Cell, statusCell.Kind, dictionary);
+                        Assert.AreSame(statusColumn, statusCell.Column, dictionary);
+                        Assert.AreSame(selectedRow, statusCell.Row, dictionary);
+                        Assert.AreEqual(expectedDetail, shown.ResolveCellToolTip(statusCell), dictionary + " STATUS tooltip");
+                    }
                     Assert.AreSame(columns, shown.Columns);
                     CollectionAssert.AreEqual(columnInstances, shown.Columns.ToArray());
                     CollectionAssert.AreEqual(layoutBefore, shown.VisibleColumns.Select(column => column.Id + ":" + column.Width + ":" + column.DisplayIndex).ToArray());

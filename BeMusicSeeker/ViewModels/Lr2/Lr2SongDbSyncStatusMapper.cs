@@ -13,18 +13,11 @@ internal static class Lr2SongDbSyncStatusMapper
         return new Lr2SongDbSyncRuntimeStatus
         {
             Kind = Lr2SongDbSyncStatusKind.NotNeeded,
-            StatusText = string.Empty,
-            Detail = string.Empty,
-            ProgressText = string.Empty,
-            ProgressValue = 0.0,
-            ProgressMaximum = 1.0,
-            HasProgress = false,
-            HasWarningStatus = false,
             CheckedAt = DateTime.MinValue
         };
     }
 
-    /// <summary>実処理の状態を表示へ投影します。検査日時はGregorianの固定書式に揃え、既知の旧段階は翻訳し、未知の保存済み識別子は診断に残します。</summary>
+    /// <summary>実処理の状態の事実を保持します。文言は読取り時に現在の資源から作り、検査日時はGregorianの固定書式に揃え、既知の旧段階は翻訳し、未知の保存済み識別子は診断に残します。</summary>
     internal static Lr2SongDbSyncRuntimeStatus Create(Lr2SongDbSyncStatusSnapshot snapshot, DateTime checkedAt, OperationProgressRequest request = null)
     {
         if (snapshot == null)
@@ -32,32 +25,22 @@ internal static class Lr2SongDbSyncStatusMapper
             return CreateNone();
         }
 
-        string statusText = GetStatusText(snapshot.Status);
         return new Lr2SongDbSyncRuntimeStatus
         {
             Kind = snapshot.Status,
             Request = request,
-            StatusText = statusText,
-            Detail = BuildDetail(snapshot, checkedAt),
-            ProgressText = BuildProgressText(snapshot),
-            ProgressValue = Math.Max(0.0, snapshot.StageProcessedCount.GetValueOrDefault()),
-            ProgressMaximum = Math.Max(1.0, snapshot.StageTotalCount.GetValueOrDefault()),
-            HasProgress = HasProgress(snapshot),
-            HasWarningStatus = HasWarningStatus(snapshot.Status),
+            Stage = snapshot.Stage,
+            StageProcessedCount = snapshot.StageProcessedCount,
+            StageTotalCount = snapshot.StageTotalCount,
+            SavedProcessedCount = snapshot.ProcessedCursor,
+            SavedTotalCount = snapshot.TotalCount,
+            LastError = snapshot.LastError,
             CheckedAt = checkedAt
         };
     }
 
-    private static bool HasWarningStatus(Lr2SongDbSyncStatusKind kind)
-    {
-        return kind == Lr2SongDbSyncStatusKind.Needed
-            || kind == Lr2SongDbSyncStatusKind.Running
-            || kind == Lr2SongDbSyncStatusKind.Failed
-            || kind == Lr2SongDbSyncStatusKind.Incomplete
-            || kind == Lr2SongDbSyncStatusKind.Cancelled;
-    }
-
-    private static string GetStatusText(Lr2SongDbSyncStatusKind kind)
+    /// <summary>状態種別の現在語を返します。</summary>
+    internal static string GetStatusText(Lr2SongDbSyncStatusKind kind)
     {
         return kind switch
         {
@@ -71,28 +54,25 @@ internal static class Lr2SongDbSyncStatusMapper
         };
     }
 
-    private static string BuildDetail(Lr2SongDbSyncStatusSnapshot snapshot, DateTime checkedAt, OperationProgressRequest request = null)
+    /// <summary>保持した事実から現在語の詳細文を作ります。</summary>
+    internal static string BuildDetail(Lr2SongDbSyncRuntimeStatus status)
     {
-        string timestampText = checkedAt == DateTime.MinValue ? string.Empty : DateTimeDisplayFormatter.FormatTimestamp(checkedAt);
-        string stageText = GetStageText(snapshot.Stage);
-        string countText = snapshot.TotalCount.GetValueOrDefault() > 0
-            ? string.Format(Resources.Lr2_song_db_sync_saved_position, snapshot.ProcessedCursor.GetValueOrDefault(), snapshot.TotalCount.GetValueOrDefault())
+        string timestampText = status.CheckedAt == DateTime.MinValue ? string.Empty : DateTimeDisplayFormatter.FormatTimestamp(status.CheckedAt);
+        string stageText = GetStageText(status.Stage);
+        string countText = status.SavedTotalCount.GetValueOrDefault() > 0
+            ? string.Format(Resources.Lr2_song_db_sync_saved_position, status.SavedProcessedCount.GetValueOrDefault(), status.SavedTotalCount.GetValueOrDefault())
             : string.Empty;
-        return JoinNonEmptyLines(timestampText, countText, stageText, GetErrorText(snapshot.Stage, snapshot.LastError));
+        return JoinNonEmptyLines(timestampText, countText, stageText, GetErrorText(status.Stage, status.LastError));
     }
 
-    private static string BuildProgressText(Lr2SongDbSyncStatusSnapshot snapshot)
+    /// <summary>保持した事実から現在語の段階進捗文を作ります。</summary>
+    internal static string BuildProgressText(Lr2SongDbSyncRuntimeStatus status)
     {
-        if (snapshot == null)
-        {
-            return string.Empty;
-        }
-
-        string stageText = GetStageText(snapshot.Stage);
-        int stageTotalCount = snapshot.StageTotalCount.GetValueOrDefault();
+        string stageText = GetStageText(status.Stage);
+        int stageTotalCount = status.StageTotalCount.GetValueOrDefault();
         if (stageTotalCount > 0)
         {
-            string countText = "[" + snapshot.StageProcessedCount.GetValueOrDefault() + "/" + stageTotalCount + "]";
+            string countText = "[" + status.StageProcessedCount.GetValueOrDefault() + "/" + stageTotalCount + "]";
             return string.IsNullOrWhiteSpace(stageText) ? countText : stageText + " " + countText;
         }
         return stageText;
@@ -168,12 +148,6 @@ internal static class Lr2SongDbSyncStatusMapper
             "cancelled" or "shutdown_skipped" => Resources.Lr2_song_db_sync_status_incomplete,
             _ => null,
         };
-    }
-
-    private static bool HasProgress(Lr2SongDbSyncStatusSnapshot snapshot)
-    {
-        return snapshot?.Status == Lr2SongDbSyncStatusKind.Running
-            && snapshot.StageTotalCount.GetValueOrDefault() > 0;
     }
 
     private static string JoinNonEmptyLines(params string[] values)

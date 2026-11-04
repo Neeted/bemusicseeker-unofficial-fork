@@ -752,7 +752,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         bool buildPreparedDataSurface,
         bool yieldBetweenTables,
         Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization,
-        Action<int, int, string> progressCallback = null,
+        Action<int, int, CustomFolderProgressDetail> progressCallback = null,
         Action<string, int, int> stageProgressReporter = null)
     {
         ArgumentNullException.ThrowIfNull(preparation);
@@ -788,7 +788,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         bool buildPreparedDataSurface,
         bool yieldBetweenTables,
         Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization,
-        Action<int, int, string> progressCallback = null,
+        Action<int, int, CustomFolderProgressDetail> progressCallback = null,
         CustomFolderOutputSettingsSnapshot settings = null,
         int projectionFailedCount = 0,
         Stopwatch stopwatch = null,
@@ -818,7 +818,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         string reason,
         string operation,
         bool buildPreparedDataSurface,
-        Action<int, int, string> progressCallback,
+        Action<int, int, CustomFolderProgressDetail> progressCallback,
         CustomFolderOutputSettingsSnapshot settings,
         int projectionFailedCount,
         Stopwatch stopwatch,
@@ -832,13 +832,15 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         progressCallback?.Invoke(
             Math.Min(tableCount, total),
             total,
-            Resources.Custom_folder_output_progress_single_label);
+            CustomFolderProgressDetail.ForStage(CustomFolderProgressStage.Output));
         PlaylistCustomFolderOutputOwner.CustomFolderBatchMaterializationResult materialization = outputOwner.MaterializeBatch(
             projections,
             progressCallback: (completed, count, tableName) => progressCallback?.Invoke(
                 Math.Min(tableCount + completed, total),
                 total,
-                tableName ?? Resources.Custom_folder_output_progress_single_label),
+                tableName == null
+                    ? CustomFolderProgressDetail.ForStage(CustomFolderProgressStage.Output)
+                    : CustomFolderProgressDetail.ForTable(tableName)),
             operation: operation,
             reason: reason,
             settingsOverride: settings,
@@ -848,15 +850,15 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         Lr2FolderFileDbSyncResult syncResult = materializationSyncCompleted
             ? syncMaterialization(new CustomFolderBatchMaterializationRequest(materialization))
             : null;
-        string completionLabel = materializationSyncCompleted
-            ? Resources.Custom_folder_db_sync_progress_single_label
-            : Resources.Custom_folder_output_progress_single_label;
+        CustomFolderProgressStage completionStage = materializationSyncCompleted
+            ? CustomFolderProgressStage.DbSync
+            : CustomFolderProgressStage.Output;
         if (!materialization.HasUnverifiedFiles)
         {
             progressCallback?.Invoke(
                 total,
                 total,
-                completionLabel);
+                CustomFolderProgressDetail.ForStage(completionStage));
             progress.Begin("playlist_state_saving");
             statusOwner.PersistStatuses(
                 [.. projections],
@@ -891,7 +893,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             ProgressFact = new CustomFolderProgressFact(
                 total,
                 total,
-                completionLabel),
+                completionStage),
             PerformanceMessage = performanceMessage,
             ElapsedMs = stopwatch.ElapsedMilliseconds
         });
@@ -1005,7 +1007,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
 
     private static void PublishProgressFact(
         CustomFolderBatchOutputResult result,
-        Action<int, int, string> progressCallback)
+        Action<int, int, CustomFolderProgressDetail> progressCallback)
     {
         if (result?.ProgressFact == null || progressCallback == null)
         {
@@ -1014,7 +1016,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         progressCallback(
             result.ProgressFact.ProcessedCount,
             result.ProgressFact.TotalCount,
-            result.ProgressFact.Label);
+            CustomFolderProgressDetail.ForStage(result.ProgressFact.Stage));
     }
 
     private void PublishWarning(CustomFolderBatchOutputResult result)
@@ -1043,7 +1045,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
     /// <param name="propagatePrimaryFailure">既定のtrueでは元の失敗を伝播します。保存サービスが結果を採用する場合はfalseとし、元の失敗を結果から受け取ります。</param>
     internal void PublishPostLeaseResult(
         CustomFolderBatchOutputResult result,
-        Action<int, int, string> progressCallback, bool propagatePrimaryFailure = true)
+        Action<int, int, CustomFolderProgressDetail> progressCallback, bool propagatePrimaryFailure = true)
     {
         InvokeBestEffort(() => PublishProgressFact(result, progressCallback), "custom_folder_progress_publication_failed");
         InvokeBestEffort(() => PublishWarning(result), "custom_folder_warning_publication_failed");
@@ -1417,7 +1419,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         LongPathFileSystem.DeleteDirectory(outputDirectory, recursive: false);
     }
 
-    private static int GetProgressTotal(int tableCount, Action<int, int, string> progressCallback)
+    private static int GetProgressTotal(int tableCount, Action<int, int, CustomFolderProgressDetail> progressCallback)
     {
         return progressCallback == null ? tableCount : Math.Max(tableCount, 0) * 2 + 1;
     }
@@ -1487,18 +1489,18 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
 
     internal sealed class CustomFolderProgressFact
     {
-        internal CustomFolderProgressFact(int processedCount, int totalCount, string label)
+        internal CustomFolderProgressFact(int processedCount, int totalCount, CustomFolderProgressStage stage)
         {
             ProcessedCount = Math.Max(0, processedCount);
             TotalCount = Math.Max(0, totalCount);
-            Label = label ?? string.Empty;
+            Stage = stage;
         }
 
         internal int ProcessedCount { get; }
 
         internal int TotalCount { get; }
 
-        internal string Label { get; }
+        internal CustomFolderProgressStage Stage { get; }
     }
 
     internal sealed class MigrationPlan

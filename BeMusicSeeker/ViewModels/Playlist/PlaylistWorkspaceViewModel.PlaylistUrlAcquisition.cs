@@ -8,9 +8,19 @@ using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
 
+/// <summary>URL取得行の種別です。表示の書式は種別から読取り時に現在の資源で選び、取消後の再送でも保持します。</summary>
+internal enum PlaylistUrlAcquisitionKind
+{
+    /// <summary>URL候補の取得です。</summary>
+    UrlDownload,
+
+    /// <summary>外部パッケージの探索です。</summary>
+    ExternalPackageLookup
+}
+
 internal sealed class PlaylistUrlDownloadStatusSnapshot : EventArgs
 {
-    internal static PlaylistUrlDownloadStatusSnapshot Inactive { get; } = new(false, 0, 0, string.Empty, false, string.Empty);
+    internal static PlaylistUrlDownloadStatusSnapshot Inactive { get; } = new(false, 0, 0, string.Empty, false, PlaylistUrlAcquisitionKind.UrlDownload);
 
     internal PlaylistUrlDownloadStatusSnapshot(
         bool isActive,
@@ -18,14 +28,14 @@ internal sealed class PlaylistUrlDownloadStatusSnapshot : EventArgs
         int completedCount,
         string currentDisplayName,
         bool canCancel,
-        string labelFormat)
+        PlaylistUrlAcquisitionKind kind)
     {
         IsActive = isActive;
         TotalCount = isActive ? Math.Max(0, totalCount) : 0;
         CompletedCount = isActive ? Math.Max(0, completedCount) : 0;
         CurrentDisplayName = isActive ? currentDisplayName ?? string.Empty : string.Empty;
         CanCancel = isActive && canCancel;
-        LabelFormat = isActive ? labelFormat ?? string.Empty : string.Empty;
+        Kind = kind;
     }
 
     internal bool IsActive { get; }
@@ -38,7 +48,8 @@ internal sealed class PlaylistUrlDownloadStatusSnapshot : EventArgs
 
     internal bool CanCancel { get; }
 
-    internal string LabelFormat { get; }
+    /// <summary>取得行の種別です。表示用の書式は保持しません。</summary>
+    internal PlaylistUrlAcquisitionKind Kind { get; }
 }
 
 internal sealed class PlaylistUrlContextMenuAvailability
@@ -144,7 +155,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private string playlistUrlAcquisitionCurrentDisplayName = string.Empty;
 
-    private string playlistUrlAcquisitionLabelFormat = string.Empty;
+    private PlaylistUrlAcquisitionKind playlistUrlAcquisitionKind;
 
     internal event EventHandler<PlaylistUrlDownloadStatusSnapshot> PlaylistUrlDownloadStatusChanged;
 
@@ -263,7 +274,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         if (GetPlaylistUrlAcquisitionOptions().ShouldAutoInstall)
         {
-            using CancellationTokenSource cancellation = BeginPlaylistUrlAcquisition(1, url.ToString(), string.Empty);
+            using CancellationTokenSource cancellation = BeginPlaylistUrlAcquisition(1, url.ToString(), PlaylistUrlAcquisitionKind.UrlDownload);
             if (cancellation == null) { return; }
             requestCancellation = cancellation.Token;
             PlaylistUrlDownloadResult result = await DownloadSinglePlaylistUrlCandidateWithStatusAsync(url, cancellation).ConfigureAwait(false);
@@ -342,7 +353,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         int duplicateCount = 0;
         int failedCount = 0;
         int canceledCount = 0;
-        using CancellationTokenSource cancellation = BeginPlaylistUrlAcquisition(targets.Count, string.Empty, string.Empty);
+        using CancellationTokenSource cancellation = BeginPlaylistUrlAcquisition(targets.Count, string.Empty, PlaylistUrlAcquisitionKind.UrlDownload);
         if (cancellation == null)
         {
             return;
@@ -363,7 +374,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     i,
                     target.ToString(),
                     canCancel: true,
-                    labelFormat: null);
+                    kind: PlaylistUrlAcquisitionKind.UrlDownload);
                 PlaylistUrlDownloadResult result;
                 try
                 {
@@ -395,7 +406,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         browserFallbackCount++;
                         break;
                 }
-                UpdatePlaylistUrlDownloadStatus(true, targets.Count, i + 1, target.ToString(), !cancellation.IsCancellationRequested, null);
+                UpdatePlaylistUrlDownloadStatus(true, targets.Count, i + 1, target.ToString(), !cancellation.IsCancellationRequested, PlaylistUrlAcquisitionKind.UrlDownload);
                 if (cancellation.IsCancellationRequested)
                 {
                     canceledCount = targets.Count - i - 1;
@@ -466,7 +477,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         using CancellationTokenSource cancellation = BeginPlaylistUrlAcquisition(
             targets.Count,
             string.Empty,
-            BeMusicSeeker.Properties.Resources.Playlist_external_package_lookup_progress_label_format);
+            PlaylistUrlAcquisitionKind.ExternalPackageLookup);
         if (cancellation == null)
         {
             return;
@@ -487,7 +498,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     i,
                     targetMd5,
                     canCancel: true,
-                    labelFormat: BeMusicSeeker.Properties.Resources.Playlist_external_package_lookup_progress_label_format);
+                    kind: PlaylistUrlAcquisitionKind.ExternalPackageLookup);
                 PlaylistExternalPackageWorkflowResult result;
                 try
                 {
@@ -535,7 +546,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     i + 1,
                     targetMd5,
                     !cancellation.IsCancellationRequested,
-                    BeMusicSeeker.Properties.Resources.Playlist_external_package_lookup_progress_label_format);
+                    PlaylistUrlAcquisitionKind.ExternalPackageLookup);
                 if (cancellation.IsCancellationRequested)
                 {
                     canceledCount = targets.Count - i - 1;
@@ -594,7 +605,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 playlistUrlAcquisitionCompletedCount,
                 playlistUrlAcquisitionCurrentDisplayName,
                 canCancel: false,
-                labelFormat: playlistUrlAcquisitionLabelFormat);
+                kind: playlistUrlAcquisitionKind);
         }
     }
 
@@ -604,10 +615,10 @@ public sealed partial class PlaylistWorkspaceViewModel
         PlaylistUrlDownloadResult result = null;
         try
         {
-            UpdatePlaylistUrlDownloadStatus(true, 1, 0, displayName, canCancel: true, labelFormat: null);
+            UpdatePlaylistUrlDownloadStatus(true, 1, 0, displayName, canCancel: true, kind: PlaylistUrlAcquisitionKind.UrlDownload);
             result = await playlistUrlAcquisitionWorkflow.DownloadCandidateAsync(url, cancellationToken: cancellation.Token).ConfigureAwait(false);
             cancellation.Token.ThrowIfCancellationRequested();
-            UpdatePlaylistUrlDownloadStatus(true, 1, 1, displayName, canCancel: false, labelFormat: null);
+            UpdatePlaylistUrlDownloadStatus(true, 1, 1, displayName, canCancel: false, kind: PlaylistUrlAcquisitionKind.UrlDownload);
             return result;
         }
         catch (Exception exception)
@@ -662,7 +673,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         };
     }
 
-    private CancellationTokenSource BeginPlaylistUrlAcquisition(int totalCount, string currentDisplayName, string labelFormat)
+    private CancellationTokenSource BeginPlaylistUrlAcquisition(int totalCount, string currentDisplayName, PlaylistUrlAcquisitionKind kind)
     {
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(playlistUrlShutdownCancellation.Token);
         lock (playlistUrlAcquisitionSync)
@@ -675,7 +686,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             playlistUrlAcquisitionTotalCount = Math.Max(0, totalCount);
             playlistUrlAcquisitionCompletedCount = 0;
             playlistUrlAcquisitionCurrentDisplayName = currentDisplayName ?? string.Empty;
-            playlistUrlAcquisitionLabelFormat = labelFormat ?? string.Empty;
+            playlistUrlAcquisitionKind = kind;
             playlistUrlAcquisitionCancellation = cancellation;
             playlistUrlAcquisitionRunning = 1;
             return cancellation;
@@ -708,13 +719,13 @@ public sealed partial class PlaylistWorkspaceViewModel
             playlistUrlAcquisitionTotalCount = 0;
             playlistUrlAcquisitionCompletedCount = 0;
             playlistUrlAcquisitionCurrentDisplayName = string.Empty;
-            playlistUrlAcquisitionLabelFormat = string.Empty;
+            playlistUrlAcquisitionKind = PlaylistUrlAcquisitionKind.UrlDownload;
             playlistUrlAcquisitionRunning = 0;
             shouldPublishInactive = true;
         }
         if (shouldPublishInactive)
         {
-            UpdatePlaylistUrlDownloadStatus(false, 0, 0, string.Empty, canCancel: false, labelFormat: null);
+            UpdatePlaylistUrlDownloadStatus(false, 0, 0, string.Empty, canCancel: false, kind: PlaylistUrlAcquisitionKind.UrlDownload);
         }
     }
 
@@ -724,7 +735,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         int completedCount,
         string currentDisplayName,
         bool canCancel,
-        string labelFormat)
+        PlaylistUrlAcquisitionKind kind)
     {
         lock (playlistUrlAcquisitionSync)
         {
@@ -733,14 +744,14 @@ public sealed partial class PlaylistWorkspaceViewModel
                 playlistUrlAcquisitionTotalCount = Math.Max(0, totalCount);
                 playlistUrlAcquisitionCompletedCount = Math.Max(0, completedCount);
                 playlistUrlAcquisitionCurrentDisplayName = currentDisplayName ?? string.Empty;
-                playlistUrlAcquisitionLabelFormat = labelFormat ?? string.Empty;
+                playlistUrlAcquisitionKind = kind;
             }
             else
             {
                 playlistUrlAcquisitionTotalCount = 0;
                 playlistUrlAcquisitionCompletedCount = 0;
                 playlistUrlAcquisitionCurrentDisplayName = string.Empty;
-                playlistUrlAcquisitionLabelFormat = string.Empty;
+                playlistUrlAcquisitionKind = PlaylistUrlAcquisitionKind.UrlDownload;
             }
             PublishPlaylistProgressEvent(
                 PlaylistUrlDownloadStatusChanged,
@@ -750,7 +761,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     completedCount,
                     currentDisplayName,
                     canCancel,
-                    labelFormat));
+                    kind));
         }
     }
 

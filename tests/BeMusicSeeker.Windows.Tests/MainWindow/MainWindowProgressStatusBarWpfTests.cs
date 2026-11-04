@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -5,6 +6,7 @@ using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Media;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -138,6 +140,91 @@ public sealed class MainWindowProgressStatusBarWpfTests
             Assert.IsTrue(labels.All(text => text.ActualWidth > 0));
             Assert.IsTrue(window.MinHeight >= statusBar.ActualHeight);
         });
+    }
+
+    /// <summary>実起動状態のStartupProgressと型付きplaylist進捗が、言語変更で実status barのTextBlockとtooltipをHub行の現在語へ更新し、窓を閉じた後はRows通知もStartupProgress通知も出さないことを確認します。</summary>
+    /// <remarks>ApplyPresentationを直接呼ばず、実状態でStartupProgressを開始します。入口は本番の <see cref="ResourceService.ChangeCulture"/> で、標準構成ではMainWindow構築でAttach・閉鎖でDetachされます。</remarks>
+    [TestMethod]
+    public void ProgressStatusBar_LanguageChangeUpdatesBoundRowsAndStopsAfterClose()
+    {
+        CultureInfo? previous = Resources.Culture;
+        try
+        {
+            var terminals = new MainWindowProgressStatusBarTerminals(() => { }, () => { }, () => { });
+            RunConstructorOnlyWithStatusBarTerminals(terminals, (viewModel, window, host) =>
+            {
+                ResourceService.Current.ChangeCulture("ja-JP");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                OperationProgressHubViewModel hub = viewModel.ProgressHub;
+                ItemsControl rows = GetNamedElement<ItemsControl>(window, "progressRows");
+                viewModel.ProgressHub.StartupProgress.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+                viewModel.PlaylistWorkspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
+                {
+                    Source = "w6_import",
+                    IsActive = true,
+                    TotalTableCount = 3,
+                    CompletedTableCount = 1,
+                    CurrentTableName = "表A",
+                    Kind = PlaylistSyncProgressKind.ExternalPlaylistImport,
+                    ImportPhase = PlaylistImportProgressPhase.RegisterPlaylists
+                });
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                host.UpdateLayout();
+
+                void AssertBoundToHub(string stage)
+                {
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    host.UpdateLayout();
+                    OperationProgressRow[] expected = [.. hub.Rows];
+                    Assert.IsTrue(expected.Length >= 2, stage);
+                    TextBlock[] texts = [.. FindVisualChildren<TextBlock>(rows).Where(text => text.DataContext is OperationProgressRow && text.Inlines.Count > 0)];
+                    Assert.AreEqual(expected.Length, texts.Length, stage);
+                    foreach (OperationProgressRow row in expected)
+                    {
+                        TextBlock text = texts.Single(item => ((OperationProgressRow)item.DataContext).Key == row.Key);
+                        Assert.AreEqual(row.Label + " " + row.Detail, string.Concat(text.Inlines.OfType<Run>().Select(run => run.Text)), stage + " " + row.Key);
+                        Assert.AreEqual(row.FullText, (string)((Grid)VisualTreeHelper.GetParent(text)).ToolTip, stage + " " + row.Key);
+                    }
+                    Assert.AreEqual(string.Format(Resources.Playlist_import_progress_label_format, 1, 3), expected.Single(row => row.Key == "playlist:w6_import:0").Label, stage);
+                    Assert.AreEqual(Resources.Playlist_import_progress_phase_register_playlists + ": 表A", expected.Single(row => row.Key == "playlist:w6_import:0").Detail, stage);
+                    Assert.IsTrue(expected.Single(row => row.Key == "startup").Label.EndsWith(Resources.Statusbar_progress_startup, StringComparison.Ordinal), stage);
+                }
+                AssertBoundToHub("ja-JP");
+                string japanese = string.Join("|", hub.Rows.Select(row => row.FullText));
+                ResourceService.Current.ChangeCulture("en-US");
+                AssertBoundToHub("en-US");
+                Assert.AreNotEqual(japanese, string.Join("|", hub.Rows.Select(row => row.FullText)));
+                ResourceService.Current.ChangeCulture("ja-JP");
+                AssertBoundToHub("ja-JP again");
+                Assert.AreEqual(japanese, string.Join("|", hub.Rows.Select(row => row.FullText)));
+
+                // 窓を実際に閉じた後は、言語変更でHub・StartupProgressの通知を出しません。
+                var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                window.Closed += (_, _) => closed.TrySetResult();
+                window.Close();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.CloseCompletion, "progress-language.close-completion");
+                if (!closed.Task.IsCompleted) { window.Close(); }
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "progress-language.closed");
+                var notifications = new List<string>();
+                hub.PropertyChanged += (_, args) => notifications.Add("hub:" + args.PropertyName);
+                hub.StartupProgress.PropertyChanged += (_, args) => notifications.Add("startup:" + args.PropertyName);
+                string labelAfterClose = hub.StartupProgress.Label;
+                ResourceService.Current.ChangeCulture("en-US");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                CollectionAssert.DoesNotContain(notifications, "hub:" + nameof(OperationProgressHubViewModel.Rows));
+                CollectionAssert.DoesNotContain(notifications, "hub:" + nameof(OperationProgressHubViewModel.HasRows));
+                CollectionAssert.DoesNotContain(notifications, "startup:" + nameof(StartupProgressWorkflowOwner.Label));
+                CollectionAssert.DoesNotContain(notifications, "startup:" + nameof(StartupProgressWorkflowOwner.SubLabel));
+                CollectionAssert.DoesNotContain(notifications, "startup:" + nameof(StartupProgressWorkflowOwner.IsActive));
+                Assert.AreEqual(labelAfterClose, hub.StartupProgress.Label);
+            });
+        }
+        finally
+        {
+            ResourceService.Current.ChangeCulture(previous?.Name ?? "en-US");
+            Resources.Culture = previous;
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+        }
     }
 
     /// <summary>導入・URL取得・メンテナンスの各進捗ボタンから対応する取消入口だけを一回呼ぶことを確認し、compiled行テンプレートで別作業を取り消す誤りを検出します。</summary>

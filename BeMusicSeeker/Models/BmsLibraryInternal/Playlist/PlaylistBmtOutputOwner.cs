@@ -643,8 +643,7 @@ internal sealed class PlaylistBmtOutputOwner
             TotalTableCount = totalCount,
             CompletedTableCount = completedCount,
             CurrentTableName = currentTableName ?? string.Empty,
-            LabelFormat = Resources.Beatoraja_bmt_export_progress_label_format,
-            SingleLabel = Resources.Beatoraja_bmt_export_progress_single_label
+            Kind = PlaylistSyncProgressKind.BmtOutput
         }), "export_progress");
     }
 

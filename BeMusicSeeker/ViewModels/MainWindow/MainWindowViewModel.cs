@@ -3388,8 +3388,7 @@ public partial class MainWindowViewModel : ViewModel,
         if (!IsStartupCompletionTokenCurrent(operationToken)) { return; }
         if (!startupProgressWorkflowOwner.IsFailed)
         {
-            startupProgressWorkflowOwner.FailStartupProgressOperation(failure is LibraryDirectoryPreflightException
-                ? BeMusicSeeker.Properties.Resources.LibraryDirectoryPreflightProgressFailure : failure.Message);
+            startupProgressWorkflowOwner.FailStartupProgressOperation(failure.Message, failure is LibraryDirectoryPreflightException);
         }
         if (!startupProgressWorkflowOwner.IsRetryableFailure)
         {

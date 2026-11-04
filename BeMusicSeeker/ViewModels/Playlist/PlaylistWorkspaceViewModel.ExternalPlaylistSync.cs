@@ -100,7 +100,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     target => AdoptPlaylistReloadTarget(target, "external_playlist_sync", adoptionFailures,
                         applyReferences: publishReferenceReceipt),
                     snapshot => ReportPlaylistSyncProgress(snapshot, ExternalPlaylistSyncProgressSource,
-                        BeMusicSeeker.Properties.Resources.Statusbar_progress_task_external_playlist_sync, request),
+                        PlaylistSyncProgressKind.ExternalPlaylistSync, request),
                     cancellationToken: playlists.StartupReadiness.ShutdownToken,
                     publishReferenceReceipts: false, capability: authority).ConfigureAwait(false);
                 if (result.Exception is Exception reloadFailure) { failures.Add(reloadFailure); }

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Windows;
@@ -422,6 +423,51 @@ public sealed class MainWindowViewModelStartupProgressTests
             Assert.IsTrue(retry.GetAwaiter().GetResult());
             Assert.AreEqual(1, fixture.CompletionNotifications);
         });
+    }
+
+    /// <summary>実起動の必須UIが登録フォルダ検査の失敗で終わった後、Attach済みHubの言語変更で失敗理由が現在語の資源文言へ追従し、日本語へ戻すと元の文言になることを確認します。</summary>
+    /// <remarks>失敗理由は検査失敗の事実として保持し、翻訳済み文字列を保持しません。入口は本番の <see cref="ResourceService.ChangeCulture"/> です。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void StartupPreflightFailure_ProgressReasonFollowsLanguage()
+    {
+        CultureInfo? previousCulture = Resources.Culture;
+        OperationProgressHubViewModel? attachedHub = null;
+        try
+        {
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                ResourceService.Current.ChangeCulture("ja-JP");
+                var failure = new LibraryDirectoryPreflightException(
+                    LibraryDirectoryPreflightUse.BmsRoot, @"C:\library\missing", LibraryDirectoryPreflightFailureCause.NotFound, "not_found");
+                using var fixture = new CompletionFixture(new CallbackFailurePresenter(_ => { }));
+                UseOwnedEmptyCatalog(fixture);
+                attachedHub = fixture.Owner.ProgressHub;
+                attachedHub.AttachLanguagePresentation();
+                fixture.Owner.RequiredStartupUiApplying += () => throw failure;
+                fixture.Ui.Arm();
+                Task<bool> initialization = fixture.Start();
+                AwaitArrival(fixture.Ui.Entered.Task, initialization, "startup-preflight-language-arrival");
+                fixture.Ui.Release.TrySetResult();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "startup-preflight-language-terminal");
+                StartupProgressWorkflowOwner progress = attachedHub.StartupProgress;
+                Assert.IsTrue(progress.IsFailed);
+                Assert.AreEqual(Resources.LibraryDirectoryPreflightProgressFailure, progress.SubLabel);
+                string japanese = progress.SubLabel;
+                ResourceService.Current.ChangeCulture("en-US");
+                Assert.AreEqual(Resources.LibraryDirectoryPreflightProgressFailure, progress.SubLabel);
+                Assert.AreNotEqual(japanese, progress.SubLabel);
+                Assert.IsTrue(progress.IsFailed);
+                ResourceService.Current.ChangeCulture("ja-JP");
+                Assert.AreEqual(japanese, progress.SubLabel);
+            });
+        }
+        finally
+        {
+            attachedHub?.DetachLanguagePresentation();
+            ResourceService.Current.ChangeCulture(previousCulture?.Name ?? "en-US");
+            Resources.Culture = previousCulture;
+        }
     }
 
     /// <summary>実Score処理・親解放後の必須UIの失敗をOperationFailedで返し、設定不備や成功にせず、元原因・解放・次の明示要求を保持します。</summary>

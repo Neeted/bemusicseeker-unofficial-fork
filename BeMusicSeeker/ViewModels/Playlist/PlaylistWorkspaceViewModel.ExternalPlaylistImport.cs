@@ -189,7 +189,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     return;
                 }
                 ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
-                UpdateExternalPlaylistImportProgress(0, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Playlist_import_progress_phase_load_tables);
+                UpdateExternalPlaylistImportProgress(0, progressTotalCount, null, string.Empty, PlaylistImportProgressPhase.LoadTables);
                 List<PlaylistExternalSyncOwner.PlaylistExternalTableLoadResult> loadResults = await tables.ExternalSyncOwner.LoadExternalTableSnapshotsAsync(
                     loadItems.Select(item => item.SourceTable),
                     inheritLocalTableProperties: false,
@@ -204,7 +204,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                             progressTotalCount,
                             snapshot?.CurrentUri,
                             snapshot?.CurrentTableName ?? string.Empty,
-                            BeMusicSeeker.Properties.Resources.Playlist_import_progress_phase_load_tables);
+                            PlaylistImportProgressPhase.LoadTables);
                     },
                     "external_playlist_import",
                     cancellationToken,
@@ -230,7 +230,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 }
 
                 ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
-                UpdateExternalPlaylistImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Playlist_import_progress_phase_check_duplicates);
+                UpdateExternalPlaylistImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, PlaylistImportProgressPhase.CheckDuplicates);
                 bool operationModeLR2DB = tables.GetCustomFolderOutputSettings().OperationModeLR2DB;
                 List<ExternalPlaylistImportWorkItem> registrationItems = PrepareExternalPlaylistImportRegistrationItems(loadItems, outcomes, operationModeLR2DB);
                 postProgressCompletedCount++;
@@ -243,7 +243,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     {
                         ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
                         UpdateExternalPlaylistImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty,
-                            BeMusicSeeker.Properties.Resources.Playlist_import_progress_phase_register_playlists);
+                            PlaylistImportProgressPhase.RegisterPlaylists);
                         await tables.ExternalSyncOwner.RegistrateExternalTablesAsync(
                             registrationItems.Select(item => item.LoadedTable), renameDuplicateName: false,
                             "external_playlist_import", cancellationToken, authority).ConfigureAwait(false);
@@ -271,7 +271,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     try
                     {
                         ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
-                        UpdateExternalPlaylistImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Playlist_import_progress_phase_update_references);
+                        UpdateExternalPlaylistImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, PlaylistImportProgressPhase.UpdateReferences);
                         referenceUpdateCompleted = CompleteImportedPlaylistRegistrations(
                             [.. registeredItems.Select(item => item.LoadedTable)],
                             "external_playlist_import",
@@ -325,9 +325,9 @@ public sealed partial class PlaylistWorkspaceViewModel
                 }
                 postProgressCompletedCount++;
                 ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
-                UpdateExternalPlaylistImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Playlist_import_progress_phase_finish);
+                UpdateExternalPlaylistImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, PlaylistImportProgressPhase.Finish);
                 ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
-                UpdateExternalPlaylistImportProgress(progressTotalCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Playlist_import_progress_phase_finish);
+                UpdateExternalPlaylistImportProgress(progressTotalCount, progressTotalCount, null, string.Empty, PlaylistImportProgressPhase.Finish);
             }
         }
         catch (OperationCanceledException) when (readiness.IsShutdownRequested || tables.IsShutdownRequested || cancellationToken.IsCancellationRequested)
@@ -445,35 +445,19 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    private void UpdateExternalPlaylistImportProgress(int completedCount, int totalCount, Uri currentUri, string currentTableName, string phaseText = null)
+    private void UpdateExternalPlaylistImportProgress(int completedCount, int totalCount, Uri currentUri, string currentTableName, PlaylistImportProgressPhase phase = PlaylistImportProgressPhase.None)
     {
-        string detail = BuildExternalPlaylistImportProgressDetail(phaseText, currentTableName);
         ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
         {
             Source = ExternalPlaylistImportProgressSource,
             IsActive = totalCount > 0,
             TotalTableCount = Math.Max(totalCount, 0),
             CompletedTableCount = completedCount,
-            CurrentTableName = detail,
+            CurrentTableName = currentTableName ?? string.Empty,
+            ImportPhase = phase,
             CurrentUri = currentUri,
-            LabelFormat = BeMusicSeeker.Properties.Resources.Playlist_import_progress_label_format,
-            SingleLabel = BeMusicSeeker.Properties.Resources.Playlist_import_progress_single_label
+            Kind = PlaylistSyncProgressKind.ExternalPlaylistImport
         });
-    }
-
-    private static string BuildExternalPlaylistImportProgressDetail(string phaseText, string currentTableName)
-    {
-        string phase = phaseText ?? string.Empty;
-        string detail = currentTableName ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(phase))
-        {
-            return detail;
-        }
-        if (string.IsNullOrWhiteSpace(detail))
-        {
-            return phase;
-        }
-        return phase + ": " + detail;
     }
 
     private static Uri NormalizeExternalPlaylistImportUri(Uri uri)

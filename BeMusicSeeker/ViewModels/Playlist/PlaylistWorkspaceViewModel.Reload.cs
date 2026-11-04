@@ -154,7 +154,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     target => AdoptPlaylistReloadTarget(target, "manual_playlist_resync", adoptionFailures,
                         beforeSummaryRefresh: generation => Interlocked.Exchange(ref requestedSummaryGeneration, generation)),
                     snapshot => ReportPlaylistSyncProgress(snapshot, ManualPlaylistReloadProgressSource,
-                        BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_manual_reload),
+                        PlaylistSyncProgressKind.ManualPlaylistReload),
                     "manual_resync",
                     requireCurrentTargetForApply: true,
                     publishReferenceReceipts: false, capability: capability);

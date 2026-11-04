@@ -483,6 +483,11 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             PlaylistSyncProgressSnapshot[] notifications = progress.ToArray();
             Assert.IsTrue(notifications.Length > 0);
             Assert.IsTrue(notifications.All(snapshot => snapshot.Source == "external_playlist_import"));
+            // 種別と段階は事実で届き、段階名は対象名へ連結しない（生の対象名のまま）。
+            Assert.IsTrue(notifications.Where(snapshot => snapshot.IsActive).All(snapshot => snapshot.Kind == PlaylistSyncProgressKind.ExternalPlaylistImport));
+            Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.ImportPhase == PlaylistImportProgressPhase.LoadTables));
+            Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.ImportPhase == PlaylistImportProgressPhase.Finish));
+            Assert.IsTrue(notifications.All(snapshot => !(snapshot.CurrentTableName ?? string.Empty).Contains(": ", StringComparison.Ordinal)));
             Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.CurrentUri?.AbsoluteUri == firstUri));
             Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.CurrentUri?.AbsoluteUri == secondUri));
             Assert.IsFalse(notifications[^1].IsActive);
@@ -772,6 +777,10 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             PlaylistSyncProgressSnapshot[] notifications = progress.ToArray();
             Assert.IsTrue(notifications.Length > 0);
             Assert.IsTrue(notifications.All(snapshot => snapshot.Source == "beatoraja_table_url_import"));
+            Assert.IsTrue(notifications.Where(snapshot => snapshot.IsActive).All(snapshot => snapshot.Kind == PlaylistSyncProgressKind.BeatorajaTableUrlImport));
+            Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.ImportPhase == PlaylistImportProgressPhase.CheckUrls));
+            Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.ImportPhase == PlaylistImportProgressPhase.Finish));
+            Assert.IsTrue(notifications.All(snapshot => !(snapshot.CurrentTableName ?? string.Empty).Contains(": ", StringComparison.Ordinal)));
             Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.CurrentUri?.AbsoluteUri == inputUri));
             Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.CompletedTableCount > 0));
             Assert.IsFalse(notifications[^1].IsActive);

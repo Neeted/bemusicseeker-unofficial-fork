@@ -166,7 +166,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             BeginPlaylistSyncProgressOperation(BeatorajaTableUrlImportProgressSource);
             try
             {
-                UpdateBeatorajaTableUrlImportProgress(completedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_check_urls);
+                UpdateBeatorajaTableUrlImportProgress(completedCount, progressTotalCount, null, string.Empty, PlaylistImportProgressPhase.CheckUrls);
                 List<BeatorajaTableUrlImportTarget> pendingRawUrlChanges = [];
                 List<BeatorajaTableUrlImportWorkItem> loadItems = [];
                 async Task ApplyPendingRawUrlsAsync()
@@ -191,14 +191,14 @@ public sealed partial class PlaylistWorkspaceViewModel
                     if (target == null)
                     {
                         completedCount++;
-                        UpdateBeatorajaTableUrlImportProgress(completedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_check_urls);
+                        UpdateBeatorajaTableUrlImportProgress(completedCount, progressTotalCount, null, string.Empty, PlaylistImportProgressPhase.CheckUrls);
                         continue;
                     }
                     if (target.Uri == null)
                     {
                         RecordOutcome(target, BeatorajaTableUrlImportOutcome.Failed(target.RawUrl, target.Exception ?? new ArgumentException(BeMusicSeeker.Properties.Resources.Error_URIMustBeAbsolute)));
                         completedCount++;
-                        UpdateBeatorajaTableUrlImportProgress(completedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_check_urls);
+                        UpdateBeatorajaTableUrlImportProgress(completedCount, progressTotalCount, null, string.Empty, PlaylistImportProgressPhase.CheckUrls);
                         continue;
                     }
                     BMSTable existingTable = FindBMSTableByConfigTableUrl(target.RawUrl, target.Uri);
@@ -208,7 +208,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         RecordOutcome(target, BeatorajaTableUrlImportOutcome.Existing(target.Uri, existingTable.name));
                         importedTablesByTarget.Add(target, existingTable);
                         completedCount++;
-                        UpdateBeatorajaTableUrlImportProgress(completedCount, progressTotalCount, target.Uri, existingTable.name, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_check_urls);
+                        UpdateBeatorajaTableUrlImportProgress(completedCount, progressTotalCount, target.Uri, existingTable.name, PlaylistImportProgressPhase.CheckUrls);
                         continue;
                     }
                     loadItems.Add(item);
@@ -225,7 +225,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                             progressTotalCount,
                             snapshot?.CurrentUri,
                             snapshot?.CurrentTableName ?? string.Empty,
-                            BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_load_tables),
+                            PlaylistImportProgressPhase.LoadTables),
                         "beatoraja_table_url_import",
                         CancellationToken.None,
                         schedulePlaylistUrlCompletionRefresh: false, initialImport: true).ConfigureAwait(false);
@@ -233,7 +233,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     completedCount = totalCount;
                     if (loadResults.Any(result => result?.Succeeded != true))
                     {
-                        UpdateBeatorajaTableUrlImportProgress(totalCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_restore_bmt);
+                        UpdateBeatorajaTableUrlImportProgress(totalCount, progressTotalCount, null, string.Empty, PlaylistImportProgressPhase.RestoreBmt);
                     }
                     foreach (PlaylistExternalSyncOwner.PlaylistExternalTableLoadResult loadResult in loadResults)
                     {
@@ -269,7 +269,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                             item.Failure = failure;
                             RecordOutcome(item.Target, BeatorajaTableUrlImportOutcome.Failed(item.Target.Uri, failure));
                             RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(null, item.Target.Uri, failure));
-                            UpdateBeatorajaTableUrlImportProgress(totalCount, progressTotalCount, item.Target.Uri, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_restore_bmt);
+                            UpdateBeatorajaTableUrlImportProgress(totalCount, progressTotalCount, item.Target.Uri, string.Empty, PlaylistImportProgressPhase.RestoreBmt);
                         }
                     }
 
@@ -281,7 +281,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         item.Failure = new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_OutputDirNameEmpty);
                         RecordOutcome(item.Target, BeatorajaTableUrlImportOutcome.Failed(item.Target.Uri, item.Failure));
                         RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(null, item.Target.Uri, item.Failure));
-                        UpdateBeatorajaTableUrlImportProgress(totalCount, progressTotalCount, item.Target.Uri, item.LoadedTable.name, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_restore_bmt);
+                        UpdateBeatorajaTableUrlImportProgress(totalCount, progressTotalCount, item.Target.Uri, item.LoadedTable.name, PlaylistImportProgressPhase.RestoreBmt);
                     }
                     registrationItems = [.. registrationItems.Where(item => item.Failure == null)];
                     await ApplyPendingRawUrlsAsync();
@@ -290,7 +290,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         bool registered = false;
                         try
                         {
-                            UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_register_playlists);
+                            UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, PlaylistImportProgressPhase.RegisterPlaylists);
                             await tables.ExternalSyncOwner.RegistrateExternalTablesAsync(
                             registrationItems.Select(item => item.LoadedTable),
                             renameDuplicateName: true,
@@ -308,7 +308,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                                 RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(null, item.Target.Uri, ex));
                             }
                             postProgressCompletedCount += 2;
-                            UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_apply_bmt_sort);
+                            UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, PlaylistImportProgressPhase.ApplyBmtSort);
                         }
                         if (registered)
                         {
@@ -321,7 +321,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                             Exception referenceUpdateException = null;
                             try
                             {
-                                UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_update_references);
+                                UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, PlaylistImportProgressPhase.UpdateReferences);
                                 CompleteImportedPlaylistRegistrations(
                                     [.. registrationItems.Select(item => item.LoadedTable)],
                                     "beatoraja_table_url_import");
@@ -357,14 +357,14 @@ public sealed partial class PlaylistWorkspaceViewModel
                     postProgressCompletedCount += 2;
                 }
 
-                UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_apply_bmt_sort);
+                UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, PlaylistImportProgressPhase.ApplyBmtSort);
                 List<BMSTable> orderedImportedTables = [.. (targets ?? [])
                     .Where(target => target != null && importedTablesByTarget.ContainsKey(target))
                     .Select(target => importedTablesByTarget[target])];
                 await ApplyImportedTablesToBmtFrontAsync(orderedImportedTables, authority);
                 postProgressCompletedCount++;
-                UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_finish);
-                UpdateBeatorajaTableUrlImportProgress(progressTotalCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_finish);
+                UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, PlaylistImportProgressPhase.Finish);
+                UpdateBeatorajaTableUrlImportProgress(progressTotalCount, progressTotalCount, null, string.Empty, PlaylistImportProgressPhase.Finish);
             }
             finally
             {
@@ -434,35 +434,19 @@ public sealed partial class PlaylistWorkspaceViewModel
             (message ?? string.Empty);
     }
 
-    private void UpdateBeatorajaTableUrlImportProgress(int completedCount, int totalCount, Uri currentUri, string currentTableName, string phaseText = null)
+    private void UpdateBeatorajaTableUrlImportProgress(int completedCount, int totalCount, Uri currentUri, string currentTableName, PlaylistImportProgressPhase phase = PlaylistImportProgressPhase.None)
     {
-        string detail = BuildBeatorajaTableUrlImportProgressDetail(phaseText, currentTableName);
         ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
         {
             Source = BeatorajaTableUrlImportProgressSource,
             IsActive = totalCount > 0,
             TotalTableCount = Math.Max(totalCount, 0),
             CompletedTableCount = Math.Max(0, completedCount),
-            CurrentTableName = detail,
+            CurrentTableName = currentTableName ?? string.Empty,
+            ImportPhase = phase,
             CurrentUri = currentUri,
-            LabelFormat = BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_label_format,
-            SingleLabel = BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_single_label
+            Kind = PlaylistSyncProgressKind.BeatorajaTableUrlImport
         });
-    }
-
-    private static string BuildBeatorajaTableUrlImportProgressDetail(string phaseText, string currentTableName)
-    {
-        string phase = phaseText ?? string.Empty;
-        string detail = currentTableName ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(phase))
-        {
-            return detail;
-        }
-        if (string.IsNullOrWhiteSpace(detail))
-        {
-            return phase;
-        }
-        return phase + ": " + detail;
     }
 
     private bool ApplyBeatorajaTableUrlImportRawUrl(BMSTable table, string rawUrl, Uri uri)

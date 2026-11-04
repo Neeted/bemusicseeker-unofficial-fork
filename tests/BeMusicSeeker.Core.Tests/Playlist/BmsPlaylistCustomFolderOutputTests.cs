@@ -2940,10 +2940,10 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
-    /// <summary>実カスタムフォルダ同期の進捗に専用ラベルを届け、全体song DB同期の表示を流用しません。処理内容を誤って案内する接続を検出します。</summary>
+    /// <summary>実カスタムフォルダ同期の進捗を、出力段階・DB同期段階・生の表名の事実で届け、翻訳済み文言を持たせません。全体song DB同期の段階を流用して処理内容を誤って案内する接続を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void ReOutputCustomFoldersAndCommitHeadersToDB_ProgressUsesFolderTableSyncLabel()
+    public void ReOutputCustomFoldersAndCommitHeadersToDB_ProgressReportsStageFactsWithRawTableName()
     {
         using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string tempDirectory = Path.Combine(migrationWorkspace.RootDirectory, "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
@@ -2981,15 +2981,18 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty);
             BMSPlaylist playlist = CreatePlaylist(databaseScope, songDbPath, synchronization, new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(lr2RootPath, bmsRoot)), settings: testSettings, modelUiScheduler: new TestUiScheduler(() => null));
             playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { table });
-            var progressLabels = new List<string>();
+            var progressDetails = new List<CustomFolderProgressDetail>();
 
             playlist.ReOutputCustomFoldersAndCommitHeadersToDB(
                 [table],
                 "test_progress_label",
-                (_, _, label) => progressLabels.Add(label));
+                (_, _, detail) => progressDetails.Add(detail));
 
-            CollectionAssert.Contains(progressLabels, Resources.Custom_folder_db_sync_progress_single_label);
-            Assert.IsFalse(progressLabels.Contains(Resources.Lr2_song_db_sync_status_running));
+            // 段階は翻訳済み文言ではなく段階の事実で渡し、表名は生の名前のまま渡す。
+            Assert.IsTrue(progressDetails.Any(detail => detail.Stage == CustomFolderProgressStage.DbSync));
+            Assert.IsTrue(progressDetails.Any(detail => detail.Stage == CustomFolderProgressStage.Output));
+            Assert.IsTrue(progressDetails.Any(detail => detail.Stage == CustomFolderProgressStage.TableName && detail.TableName == "ProgressLabel"));
+            Assert.AreEqual(CustomFolderProgressStage.DbSync, progressDetails[^1].Stage);
         }
         finally
         {

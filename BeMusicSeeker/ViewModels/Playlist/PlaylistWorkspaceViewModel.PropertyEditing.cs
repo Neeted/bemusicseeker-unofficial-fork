@@ -89,7 +89,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (request?.Snapshot is PlaylistSyncProgressSnapshot snapshot)
             {
                 ReportPlaylistSyncProgress(snapshot, "property_save",
-                    BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_property_update);
+                    PlaylistSyncProgressKind.PropertyUpdate);
             }
         });
     }

@@ -3,6 +3,7 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Globalization;
 using BeMusicSeeker.Diagnostics;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Wpf;
@@ -546,6 +547,104 @@ public sealed class PlaylistWorkspacePresentationStateTests
 
         workspace.InvalidatePlaylistSummaryCache();
         Assert.IsNull(workspace.GetPlaylistSummaryRowsCacheSnapshot(out _, out _));
+    }
+
+    /// <summary>実の概要buildを通した同じ行インスタンスで、STATUSと詳細が言語往復・raw cache再利用・STATUS並べ替え後も現在語になり、整列順・失敗判定・時刻・URI・診断とbuild/データ世代が変わらないことを確認します。</summary>
+    /// <remarks>fixtureが持つ表は一つのため、STATUS並べ替え順の不変は同じ行の整列順と、失敗の種類が異なる複数行の相対順序までは比較せず、行ごとの値（整列順・失敗判定）の不変に限定します。未読込み行は同期状態があれば現在語の区切り書式で読込み中の案内を付け、なければ案内だけにします。入口は本番の <see cref="ResourceService.ChangeCulture"/> です。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow("loadedHttp404", true, true)]
+    [DataRow("unloadedWithStatus", false, true)]
+    [DataRow("unloadedNoStatus", false, false)]
+    [DataRow("loadedNone", true, false)]
+    public async Task PlaylistSummaryStatusLanguage_SameRowsAndRawCacheReuseFollowLanguageWithoutRebuild(string scenario, bool entriesLoaded, bool withStatus)
+    {
+        CultureInfo? previousCulture = Resources.Culture;
+        await using var fixture = new PlaylistPrefixCommitTestFixture();
+        try
+        {
+            ResourceService.Current.ChangeCulture("ja-JP");
+            PlaylistWorkspaceViewModel workspace = fixture.Workspace;
+            if (!entriesLoaded) { fixture.Table.MarkEntriesNotLoaded(); }
+            var pageUri = new Uri("https://example.invalid/status-page.html");
+            if (withStatus)
+            {
+                workspace.RecordPlaylistSyncResult(new PlaylistSyncAttemptResult
+                {
+                    SourceTable = fixture.Table,
+                    ResultTable = fixture.Table,
+                    PageUri = pageUri,
+                    Succeeded = false,
+                    FailureKind = PlaylistSyncStatusKind.Http404,
+                    Detail = "diagnostic 原文"
+                });
+            }
+            workspace.RequestPlaylistSummaryMode(enabled: true);
+            workspace.RebuildPlaylistSummaryView(runAsync: false);
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            PlaylistSummaryRow row = workspace.PlaylistSummaryView.Single(item => ReferenceEquals(item.TableRef, fixture.Table));
+            int builds = 0;
+            workspace.PlaylistSummaryBuildStarted += (_, _) => builds++;
+            long dataGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+            // 未読込みの表を含む集計はraw cacheを再利用できないため、再利用の確認は再利用できる場合だけ行います。
+            bool cacheReusable = workspace.GetPlaylistSummaryRowsCacheSnapshot(out long cacheGeneration, out _) != null;
+
+            string StatusText() => withStatus ? Resources.Playlist_sync_status_404 : Resources.Playlist_sync_status_none;
+            string ExpectedDetail()
+            {
+                string detail = withStatus
+                    ? string.Join(Environment.NewLine, StatusText(), DateTimeDisplayFormatter.FormatTimestamp(row.SyncStatus!.CheckedAt), pageUri, "diagnostic 原文")
+                    : string.Empty;
+                if (entriesLoaded) { return detail; }
+                return withStatus
+                    ? string.Format(CultureInfo.CurrentCulture, Resources.Statusbar_progress_detail_separator_format, detail, Resources.Statusbar_progress_phase_playlist_loading)
+                    : Resources.Statusbar_progress_phase_playlist_loading;
+            }
+            (int Order, bool Failure, DateTime At, string Uri, string Diagnostic) Facts() =>
+                (row.StatusSortOrder, row.HasFailureStatus, row.SyncStatus!.CheckedAt, row.SyncStatus.PageUri, row.SyncStatus.Diagnostic);
+            void AssertCurrent(string stage)
+            {
+                Assert.AreEqual(StatusText(), row.Status, stage + " " + scenario);
+                Assert.AreEqual(ExpectedDetail(), row.StatusDetail, stage + " " + scenario);
+                Assert.AreSame(row, workspace.PlaylistSummaryView.Single(item => ReferenceEquals(item.TableRef, fixture.Table)), stage);
+                Assert.AreEqual(dataGeneration, workspace.CurrentPlaylistSummaryDataRebuildGeneration, stage);
+                Assert.AreEqual(0, builds, stage);
+            }
+            (int Order, bool Failure, DateTime At, string Uri, string Diagnostic) facts = Facts();
+            AssertCurrent("ja-JP");
+            string japaneseStatus = row.Status, japaneseDetail = row.StatusDetail;
+
+            ResourceService.Current.ChangeCulture("en-US");
+            AssertCurrent("en-US");
+            // 同梱の404は両言語で同じ語のため、言語で変わる語を持つ未読込みの案内だけで差を確認します。
+            if (!entriesLoaded) { Assert.AreNotEqual(japaneseDetail, row.StatusDetail); }
+
+            // 絞込みの再評価はraw cacheを再利用し、同じ行を現在語のまま採用します。
+            if (cacheReusable)
+            {
+                workspace.PlaylistSummaryOwnedFilter = PlaylistOwnedFilter.OwnedIncomplete;
+                workspace.RefreshPlaylistSummaryPresentation();
+                await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                AssertCurrent("en-US filtered");
+                Assert.IsNotNull(workspace.GetPlaylistSummaryRowsCacheSnapshot(out long cacheAfterFilter, out _));
+                Assert.AreEqual(cacheGeneration, cacheAfterFilter);
+                workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.StatusSortOrder), ListSortDirection.Descending);
+                workspace.RefreshPlaylistSummaryPresentation();
+                await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                AssertCurrent("en-US sorted");
+            }
+
+            ResourceService.Current.ChangeCulture("ja-JP");
+            AssertCurrent("ja-JP again");
+            Assert.AreEqual(japaneseStatus, row.Status);
+            Assert.AreEqual(japaneseDetail, row.StatusDetail);
+            Assert.AreEqual(facts, Facts());
+        }
+        finally
+        {
+            ResourceService.Current.ChangeCulture(previousCulture?.Name ?? "en-US");
+            Resources.Culture = previousCulture;
+        }
     }
 
 }

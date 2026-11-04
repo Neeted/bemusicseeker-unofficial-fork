@@ -1321,9 +1321,11 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
-    /// <summary>実取得からhubへ進捗行を届け、取消受付後は再取消を不可にして取得終端で行を除去します。進捗購読の接続漏れと終端行の残留を検出します。</summary>
+    /// <summary>実取得（URL・外部パッケージ探索）からhubへ種別ごとの書式の進捗行を届け、取消受付後は再取消を不可にして書式を保ち、取得終端で行を除去します。進捗購読の接続漏れ・取消後の書式の取り違え・終端行の残留を検出します。</summary>
     [TestMethod]
-    public async Task PlaylistUrlProgressAttachedHubPublishesActiveCancelAndTerminalStates()
+    [DataRow(false)] // URL取得は URL 取得の書式を使います。
+    [DataRow(true)] // 外部パッケージ探索は探索の書式を使います。
+    public async Task PlaylistUrlProgressAttachedHubPublishesActiveCancelAndTerminalStates(bool lookup)
     {
         using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string temporaryDirectory = Path.Combine(
@@ -1332,6 +1334,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
         var gateway = new BlockingPlaylistUrlDownloadGateway(temporaryDirectory);
+        var lookupProvider = new BlockingLookupProvider();
         Task? acquisition = null;
         try
         {
@@ -1343,23 +1346,29 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceViewModel workspace = CreateWorkspace(databaseScope,
                 action => action(),
                 acquisitionWorkflow: acquisitionWorkflow,
-                dialogService: dialogs);
+                dialogService: dialogs,
+                externalLookupService: lookup ? new PlaylistExternalPackageLookupService([lookupProvider]) : null);
             var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
             hub.AttachPlaylistProgressSources(workspace, action => action(), () => false);
+            string expectedLabel = string.Format(
+                lookup ? Resources.Playlist_external_package_lookup_progress_label_format : Resources.Playlist_url_download_progress_label_format, 0, 1);
 
-            acquisition = workspace.RunPlaylistUrlBatchAsync(
-                [new Uri("https://example.invalid/running.zip")],
-                isDiffUrl: false);
-            await TestUiDispatcherHost.AwaitNotificationAsync(gateway.ReadStarted.Task, acquisition, "url-acquisition.read-started");
+            acquisition = lookup
+                ? workspace.RunPlaylistExternalPackageLookupAsync([CreatePlaylistExternalPackageRow("11111111111111111111111111111111")])
+                : workspace.RunPlaylistUrlBatchAsync([new Uri("https://example.invalid/running.zip")], isDiffUrl: false);
+            await TestUiDispatcherHost.AwaitNotificationAsync(lookup ? lookupProvider.Started.Task : gateway.ReadStarted.Task, acquisition, "url-acquisition.read-started");
 
             Assert.IsTrue(hub.Rows.Any(row => row.Key == "url"));
             Assert.IsTrue(hub.Rows.Single(row => row.Key == "url").CanCancel);
+            Assert.AreEqual(expectedLabel, hub.Rows.Single(row => row.Key == "url").Label);
             workspace.CancelPlaylistUrlDownload();
             Assert.IsFalse(hub.Rows.Single(row => row.Key == "url").CanCancel);
+            Assert.AreEqual(expectedLabel, hub.Rows.Single(row => row.Key == "url").Label, "取消後の再送も同じ種別の書式を保ちます。");
 
             gateway.Response.TrySetResult(new AppHttpResponse(
                 new Uri("https://example.invalid/running.zip"),
                 new MemoryStream([1, 2, 3], writable: false)));
+            lookupProvider.Result.TrySetResult(null);
             await acquisition;
 
             Assert.IsFalse(hub.Rows.Any(row => row.Key == "url"));
@@ -1368,6 +1377,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         finally
         {
             gateway.Response.TrySetCanceled();
+            lookupProvider.Result.TrySetCanceled();
             try
             {
                 if (acquisition != null)
@@ -1382,6 +1392,27 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
                     Directory.Delete(temporaryDirectory, recursive: true);
                 }
             }
+        }
+    }
+
+    /// <summary>探索の開始と応答を試験側で制御し、取消を観測するproviderです。</summary>
+    private sealed class BlockingLookupProvider : IPlaylistExternalPackageLookupProvider
+    {
+        internal TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal TaskCompletionSource<PlaylistExternalPackageLookupResult?> Result { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public string ProviderId => "blocking-test";
+
+        public async Task<PlaylistExternalPackageLookupResult> LookupAsync(string chartMd5, CancellationToken cancellationToken)
+        {
+            Started.TrySetResult();
+            // 取消の継続を呼出し元スレッドへ戻さないよう非同期に再開させます。本ケースは取消時の同期継続という既存事象を対象にしません。
+            var canceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using CancellationTokenRegistration registration = cancellationToken.Register(() => canceled.TrySetResult());
+            await Task.WhenAny(Result.Task, canceled.Task);
+            cancellationToken.ThrowIfCancellationRequested();
+            return (await Result.Task)!;
         }
     }
 
