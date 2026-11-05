@@ -119,7 +119,7 @@ Windowsはmodule全体のsession leaseを取得せず、実Activateを使うPlay
 
 `preparationMs` は復元・整形・実行条件取得、`buildMs` はbuild、`distributionMs` はFullの指定候補検査・展開です。summaryの `passed` は全選択moduleと必須IDを含む最終判定、`distributionCatalog` と `releaseArtifacts` は公開時に同じZIPを照合する入力です。主時計はsummaryの `testStageStartTimestamp`（test段階開始QPC）から同machineでrunner実復帰直後までを受入側で測定します。lang copy・Gate・summary保存・回収を含みます。`executionMs` は最初のtest起動からGate後・summary保存前までの補助wall timeです。module別の `ElapsedMs` はそのmoduleの起動から出力・所有childの回収までで、未起動ならnullです。`cleanupMs` は重なりを除いた回収区間で、`executionMs` の内数です。`totalMs` は入口全体のwall timeで、cleanupを重複加算しません。ケースdurationや並行moduleの時間の合計をwall timeと比較しません。
 
-dev/verifyのtest段階の運用上限は600秒、Fullは全testで共有する1380秒です。Fullの600秒は後段の速度目標であり実行上限とは区別し、整形・build・候補検査と展開をtest時間へ含めません。個々のscenarioの180秒・updateの240秒も共通期限を延長しません。formatは180秒、restore/buildは各300秒、候補生成の固定旧ZIP取得とCurrent/Nextのpublish＋検査、Fullの指定候補検査・展開は各段階独立240秒、回収は10秒です。実行中の各待機で段階期限を作り直しません。速度目標の判定と期限変更は後段で判断しますが、旧基盤からの切替には既存保証と旧約305秒からの非退行が必要です。[受入条件](../../devdocs/spec/development/testing.md#通常テストの分割と並列実行)に従い、運用上限延長だけで完了にはしません。
+dev/verifyのtest段階の運用上限は600秒、Fullは全testで共有する1380秒です。Fullの600秒は後段の速度目標であり実行上限とは区別し、整形・build・候補検査と展開をtest時間へ含めません。個々のscenarioの180秒・updateの240秒も共通期限を延長しません。formatは180秒、restore/buildは各300秒、候補生成の固定旧ZIP取得とCurrent/Nextのpublish＋検査、Fullの指定候補検査・展開は各段階独立240秒、回収は10秒です。実行中の各待機で段階期限を作り直しません。速度目標の判定と期限変更は後段で判断し、[時間比較の規則](../../devdocs/spec/development/testing.md#テスト整理前後の時間比較)に従って運用上限延長だけで完了にはしません。
 
 全format batchは一つの段階期限を共有し、restore/buildはそれぞれ別の段階です。test段階はCore・Windows各実行・Scenarios・Desktopで期限を共有します。正常Core終了時には致命失敗用の回収期限を確定しません。致命失敗を検出した時に、検出時刻+10秒と段階実行期限+10秒の早い方を一度だけ確定し、同段階の停止・出力保存で共有します。processごとの新しい10秒は与えません。
 

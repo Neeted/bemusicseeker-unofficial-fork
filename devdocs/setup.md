@@ -66,7 +66,7 @@ dotnet run --project tools/BeMusicSeeker.Verify -- verify
 
 ### 生成したアプリの実機確認（任意）
 
-`verify`が成功すれば、通常開発を始められる状態です。初期設定や実環境での読込みを確認したい場合は、生成されたアプリを起動できます。実施と未実施の扱いは[検証方針](spec/development/testing.md#検証方針)に従い、AIエージェントによる実機確認はユーザーの明示依頼がある場合に行います。次の例は、出力フォルダを作業ディレクトリとして明示します。
+`verify`が成功すれば、通常開発を始められる状態です。初期設定や実環境での読込みを確認したい場合は、生成されたアプリを起動できます。実施と未実施の扱いは[検証方針](spec/development/testing.md#検証方針)に従い、AIエージェントによる実機確認は利用者の明示依頼がある場合に行います。次の例は、出力フォルダを作業ディレクトリとして明示します。
 
 ```powershell
 $appDirectory = Join-Path (Get-Location).Path 'BeMusicSeeker\bin\x64\Release\net10.0-windows'

@@ -68,4 +68,4 @@
 
 Linuxでの編集・クロスビルド・既存テストの局所検証は[Linuxの構築手順](devdocs/setup-linux.md)に従います。Linuxの確認をWindowsの `verify` / `full` の成功として扱わず、未実施のWindows検証を引き継ぎます。
 
-実機確認の実施・推奨・未実施の扱いは[検証方針](devdocs/spec/development/testing.md#検証方針)に従います。エージェントは原則自動検証を使い、ユーザーの明示依頼がある場合に実機確認を行います。起動する実行ファイル・利用データの確認から、中断・終了・後片付けまでは[画面確認の手順](devdocs/spec/development/testing.md#画面確認)に従います。
+実機確認の実施・推奨・未実施の扱いは[検証方針](devdocs/spec/development/testing.md#検証方針)に従います。エージェントは原則自動検証を使い、利用者の明示依頼がある場合に実機確認を行います。起動する実行ファイル・利用データの確認から、中断・終了・後片付けまでは[画面確認の手順](devdocs/spec/development/testing.md#画面確認)に従います。

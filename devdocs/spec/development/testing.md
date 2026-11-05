@@ -18,17 +18,13 @@
 
 開発環境の構築、実装、統合、レビュー、コミット、リリースを通じて、実機確認を必須工程にしません。エージェントは原則として自動テストと静的確認で検証し、表示・配置などの確認に必要なら画面外のWPF描画スクリーンショットを使います。スクリーンショットを全件の必須条件にせず、この方針のためだけに代替基盤やテストを増設しません。
 
-実機確認が有用な場合は、変更に関係する理由、条件、操作、期待結果をユーザーへ簡潔に推奨します。結果待ちを必須工程にせず、エージェント自身が実施するのはユーザーが明示的に依頼した場合です。実機確認の未実施だけで各工程の完了を妨げません。
+実機確認が有用な場合は、変更に関係する理由、条件、操作、期待結果を利用者へ簡潔に推奨します。結果待ちを必須工程にせず、エージェント自身が実施するのは利用者が明示的に依頼した場合です。実機確認の未実施だけで各工程の完了を妨げません。
 
 自動検証の成功を実機確認済みとは扱わず、未実施・未確認の範囲を報告します。必須の自動検証、失敗の報告と修正、既知不具合への対処は維持します。以下の実行区分・期限・失敗条件と、各機能仕様の自動検証をこの方針で緩和しません。
 
 静的レビューと実行検証は独立した合格条件です。レビューの開始条件と進め方は[レビューの進行](agent-workflow.md#レビューの進行)に従い、`verify`・`full`・性能測定の完了や成功を待ちません。全体テストの未完了・未成功だけを静的な不合格理由にせず、統合・完了時には最終差分に適用できる両方の合格を要求します。レビュー合格で必要なテストを省略せず、失敗・未実行を成功へ読み替えません。
 
 ### 実行範囲の選択
-
-復旧の実製品process代表は[`RecoveryScenarioTests`](../../../tests/BeMusicSeeker.Scenarios.Tests/Recovery/RecoveryScenarioTests.cs)のSC13一件とSC14二件をFullで実行します。Dailyには追加しません。専有`TestWorkspace`、`OwnedProcess`、UI moduleのsession排他を共有し、各ケースの同じ期限で確認到達・操作Task・応答・実退出を待ちます。自然退出は入力前に期待登録し、未知切断や未応答を成功として許可しません。SQL復元だけは実handlerが開始する通常終了と応答が重なるため、その実Task終端の応答を制御窓口の破棄より先に回収します。
-
-SQLの固定入力では、実modalの帰還と実handlerの終端を分けます。dialog decoratorはmodalが閉じた時点で既存の同期呼出元へ帰還し、SQL commandだけが同じ実handlerの終端・入力消費・元例外を待ちます。固定入力はhandlerのfinallyまで保持します。modal帰還を復元成功とは数えず、handler終端後のcommand応答、制御窓口の回収、実退出の順を維持します。非SQLの入力と通常Viewsの待機契約は変更しません。
 
 検証区分は作業段階で選びます。反復中は対象moduleの直接MTP実行または `dev`、通常開発の最終検証は `verify` を使います。必要な実行検証の成功と独立した最終静的レビューの合格を揃えて、通常開発のコミット・`dev` への統合を行えます。文書のみの変更は[文書と検証](../../../AGENTS.md#文書と検証)に従います。
 
@@ -134,11 +130,11 @@ dev/verifyのtest段階の運用上限は600秒、Fullは1380秒を全moduleで�
 
 成功時の運用目標超過だけでは追加調査・再実行を始めません。利用者から調査を依頼された場合は、テスト別所要時間だけでなく最長ホストの遅延区間を確認し、ロックの保持側やDBの確定回数など共通処理まで追います。
 
-旧基盤からの切替は既存保証の保持と時間の非退行を必須とし、上限内の成功だけでは完了にしません。旧warm5の中央値304.9799643秒を基準に、新Release日常の主時計が294.211秒未満なら明瞭非退行、294.211〜335.133秒なら同版あと2回を含む中央値が基準以下で合格です。335.133秒超または中央値超は再設計します。Windowsの既存2389行と、新Windows3実行TRX＋Coreへ移した条件はFQN・DataRowを区別する標準testName等のidentity多重集合で一度照合し、和集合一致と群間重複なしを確認します。新規ケース差分は既存対応表とreportへ明記し、件数だけで欠落と重複を相殺しません。
-
 ### 通常テストの分割と並列実行
 
-Windowsは同じassemblyをSettings、Shell（MainWindow・Playlist）、両カテゴリの補集合の3実行に分け、各1workerとします。未分類ケースは補集合へ入り、追加filterのOR全体を分類条件とANDします。CPU予算Bを1〜16へ制限し、UI同時数Wは `clamp(B/4整数, 1, 3)`、Coreは `max(1, B-W-1)` workerです。CoreとWindowsを優先して並行させ、dev/verifyのDaily Scenariosは同じ有界UI幅の4番目の要求として空いた枠で開始します。Fullだけは全Windows所有対象の終端後にScenariosを開始します。B1だけ全体を逐次実行し、W1でも3要求を省略しません。同projectのbuildは一度だけで、ExecutionId別にrunsettings・TRX・runroot・profile・Jobを分離します。ケース分配はMTPのMethodLevelへ委ね、`DoNotParallelize` は標準属性として扱います。 runnerはtest段階のQPC始点を記録後、実行体のドライブ直下の `bms-tests/<unique>` に専有親領域を一つ作り、ExecutionId別の子領域を `BMS_TEST_RUN_ROOT` で渡します。親領域の絶対パスは起動時とsummaryの `caseRoot` に記録し、runnerによる親領域の再帰削除は行いません。直接MTPの既定も同じ基底へ揃え、repository監視下やOSのsystem tempへケース入力を置きません。ケースのTestWorkspace・PreserveArtifactsは維持し、TRX・ログ・runsettings・配布catalogはartifacts側に残します。
+Windowsは同じassemblyをSettings、Shell（MainWindow・Playlist）、両カテゴリの補集合の3実行に分け、各1workerとします。未分類ケースは補集合へ入り、追加filterのOR全体を分類条件とANDします。CPU予算Bを1〜16へ制限し、UI同時数Wは `clamp(B/4整数, 1, 3)`、Coreは `max(1, B-W-1)` workerです。CoreとWindowsを優先して並行させ、dev/verifyのDaily Scenariosは同じ有界UI幅の4番目の要求として空いた枠で開始します。Fullだけは全Windows所有対象の終端後にScenariosを開始します。B1だけ全体を逐次実行し、W1でも3要求を省略しません。同projectのbuildは一度だけで、ExecutionId別にrunsettings・TRX・runroot・profile・Jobを分離します。ケース分配はMTPのMethodLevelへ委ね、`DoNotParallelize` は標準属性として扱います。
+
+runnerはtest段階のQPC始点を記録後、実行体のドライブ直下の `bms-tests/<unique>` に専有親領域を一つ作り、ExecutionId別の子領域を `BMS_TEST_RUN_ROOT` で渡します。親領域の絶対パスは起動時とsummaryの `caseRoot` に記録し、runnerによる親領域の再帰削除は行いません。直接MTPの既定も同じ基底へ揃え、repository監視下やOSのsystem tempへケース入力を置きません。ケースのTestWorkspace・PreserveArtifactsは維持し、TRX・ログ・runsettings・配布catalogはartifacts側に残します。
 
 Windowsはmodule全体のsession leaseを取得せず、実Activateを使うPlaylistLampViewerWindowManagerTestsが非UI側でケース前に取得し、Windowと開始済み処理の回収後に解放します。Scenarios・Desktop・Compatibility・Performanceは従来どおりmodule全体のsession leaseを維持します。Coreは実Window・プロセス全体の可変設定を所有しません。所有する一時領域と入力の分離は[資源の分離と共有](#資源の分離と共有)に従います。
 
@@ -239,7 +235,7 @@ constructor-only harnessは `PrepareConstructorOnlyShell` で既存のshell acti
 
 通常テストに前面操作の例外は設けません。実OSカーソルの取得・移動や `Mouse.GetPosition` による物理位置、実フォーカスの取得成功、物理修飾キー、入力キャプチャ、Popupが外部入力で閉じないことを合否条件にしません。イベントを明示しても呼出先がOS状態を参照する場合は分離できていないため、本番の処理へ明示入力を渡す境界で検証します。Popupの内容と接続は、開閉イベント・操作入力、閉じたテンプレートのBinding、明示配置などで確認します。
 
-非公開WPFメソッドによるフォーカス偽装や、テスト専用の本番分岐、外部入力を無視する製品仕様の変更は行いません。実フォーカス移動・IME等のOS接続は[実機確認](#ユーザーに推奨する実機確認)と分担します。共有Dispatcherの待機中には別テストが再入し得るため、Dispatcherの利用だけで排他できると考えず、[資源の分離と共有](#資源の分離と共有)に従います。
+非公開WPFメソッドによるフォーカス偽装や、テスト専用の本番分岐、外部入力を無視する製品仕様の変更は行いません。実フォーカス移動・IME等のOS接続は[実機確認](#利用者に推奨する実機確認)と分担します。共有Dispatcherの待機中には別テストが再入し得るため、Dispatcherの利用だけで排他できると考えず、[資源の分離と共有](#資源の分離と共有)に従います。
 
 開始時の共有スレッドのウィンドウ・HWNDを基準に、追跡したPopup、深い所有関係から順にウィンドウ、購読、Dispatcherの残描画処理、残留HWNDを片付けます。開始時に存在して明示追跡していない別ownerのWindowは、後からHWNDを持っても当scopeの残留破棄へ含めません。そのWindowに属する実native ownerも、既訪問handleで停止する所有チェーンから導出して保護します。閉鎖前に `Closed` を購読し、実閉鎖を待ってから購読を解除します。未開・既閉の対象は区別し、閉鎖取消やWindow/HWNDの残留を成功にしません。機能処理の開始済みTaskは呼出側が回収し、一般的な `ApplicationIdle` はその終端や閉鎖の証明に使いません。設定画面には `CloseForOwnerShutdown` を使います。失敗の優先順位はテスト本体、表示観測、後片付けです。
 
@@ -248,6 +244,10 @@ constructor-only harnessは `PrepareConstructorOnlyShell` で既存のshell acti
 ### Fullの処理順と期限
 
 `prepare-candidate` が公開可能なHTML付きCurrent、固定Legacy、試験Nextとcatalogを先に生成します。Fullは全体整形・Release build後に、絶対パスで明示したcatalogの検査と候補の展開・接続を行い、Core・Scenarios・Desktopを各一回、Windowsを重複のない3分類で実行します。製品publishやZIP再生成は行いません。明示環境/性能suiteは含めません。Scenariosの必須12IDは `SC-01, SC-02, SC-05, SC-09, SC-10A, SC-10B, SC-11, SC-12, SC-13, SC-14, SC-ExistingData, SC-CurrentUpdate`、Desktopの必須IDは `DT-01, DT-02, DT-03, SC-16, SC-15A, SC-15C` です。同じmodule内の同じIDに複数行を許し、全行Passedを要求します。
+
+復旧の実製品process代表は[`RecoveryScenarioTests`](../../../tests/BeMusicSeeker.Scenarios.Tests/Recovery/RecoveryScenarioTests.cs)のSC13一件とSC14二件をFullで実行し、Dailyには追加しません。専有`TestWorkspace`、`OwnedProcess`、UI moduleのsession排他を共有し、各ケースの同じ期限で確認到達・操作Task・応答・実退出を待ちます。自然退出は入力前に期待登録し、未知切断や未応答を成功として許可しません。SQL復元だけは実handlerが開始する通常終了と応答が重なるため、その実Task終端の応答を制御窓口の破棄より先に回収します。
+
+SQLの固定入力では、実modalの帰還と実handlerの終端を分けます。dialog decoratorはmodalが閉じた時点で既存の同期呼出元へ帰還し、SQL commandだけが同じ実handlerの終端・入力消費・元例外を待ちます。固定入力はhandlerのfinallyまで保持します。modal帰還を復元成功とは数えず、handler終端後のcommand応答、制御窓口の回収、実退出の順を維持します。非SQLの入力と通常Viewsの待機契約は変更しません。
 
 Desktopは既存のsession leaseと単一workerで実入力を専有し、Scenariosの後に実行します。各caseは共有suite期限と3分の早い方（更新処理を含むSC-15A・SC-15Cは4分の早い方）を外側期限とし、所有入力と資源の回収に10秒を先取りした操作期限を使います。残時間が回収余裕以下なら新入力を開始しません。実入力後の失敗では最初の検出時刻+10秒と外側期限の早い方を一度だけ確定し、所有Up・source STA・返却済みapp session・fixtureの回収へ渡します。通常回収は操作期限内で行い、遅い完了や回収失敗を成功へ変えません。起動接続の返却前失敗は既存driverの回収を維持します。
 
@@ -311,7 +311,7 @@ ACLは専有領域の実操作終端後に両DACLを復旧してからworkspace�
 
 ### 画面確認
 
-ユーザーの明示依頼によりエージェントが実機で画面確認を行う場合は、[検証方針](#検証方針)に加えて、以下の起動・操作・終了手順に従います。
+利用者の明示依頼によりエージェントが実機で画面確認を行う場合は、[検証方針](#検証方針)に加えて、次の起動・操作・終了手順に従います。
 
 実アプリを確認するときは、作成したリポジトリ内の `BeMusicSeeker.exe` の正確なパスを指定します。作業ディレクトリと利用データも確認し、インストール版を名前検索で起動しません。起動したPIDと生成時刻を控え、確認後は通常終了を要求して終了を待ち、操作セッションも終了します。無関係な同名プロセスを停止しません。
 
@@ -319,11 +319,11 @@ ACLは専有領域の実操作終端後に両DACLを復旧してからworkspace�
 
 画面の表示、入力、完了状態は区別して確認します。単にウィンドウが現れたことやログが静かになったことを、対象操作の成功条件にしません。
 
-### ユーザーに推奨する実機確認
+### 利用者に推奨する実機確認
 
-入力・フォーカス経路、表示、機器対応、担当設定などを変更し、実環境との接続を確かめることが有用な場合に、次の項目から関係する確認を推奨します。必須工程やレビューの合格条件にはしません。通常の局所MTP実行・`verify`・`full` の成功だけで、この範囲を確認済みとはしません。専用CI、操作禁止のPC、入力遮断を通常テストの前提にせず、エージェントへの明示依頼がある場合の起動と後片付けは[画面確認](#画面確認)に従います。
+入力・フォーカス経路、表示、機器対応、担当設定などを変更し、実環境との接続を確かめることが有用な場合に、次の観点から関係する確認を推奨します。必須工程やレビューの合格条件にはしません。通常の局所MTP実行・`verify`・`full` の成功だけで、この範囲を確認済みとはしません。専用CI、操作禁止のPC、入力遮断を通常テストの前提にせず、エージェントへの明示依頼がある場合の起動と後片付けは[画面確認](#画面確認)に従います。
 
-具体的な操作と期待結果は変更対象の機能仕様から選び、条件・対象操作・観測結果を短く示します。以下は確認観点であり、全項目を毎回実施する一覧ではありません。
+具体的な操作と期待結果は変更対象の機能仕様から選び、条件・対象操作・観測結果を短く示します。次の表は確認観点であり、全項目を毎回実施する一覧ではありません。
 
 | 確認観点 | 操作と観測 |
 | --- | --- |
