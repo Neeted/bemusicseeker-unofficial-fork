@@ -573,6 +573,14 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.BmtSort), System.ComponentModel.ListSortDirection.Ascending);
                 workspace.RebuildPlaylistSummaryView(runAsync: false);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "selection-bmt-summary-idle");
+                // 並べ替え要求が予約した再表示(Background)は、直接の再構築では消費されません。
+                // dropより先に受理された要求の公開がdrop中に走ると開始時の世代が古くなり、意図が退役します。
+                // 人の操作では作れない時系列なので、既存の公開入口で先に消費し、dropの受理時点で保留がないことを前提にします。
+                workspace.DrainDeferredPlaylistSummaryRefresh(dataRefreshRequired: false, rebuildAsync: false);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "selection-bmt-deferred-refresh-idle");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsFalse(workspace.HasDeferredPlaylistSummaryRefresh(), "drop前に並べ替えの再表示要求が保留されていません。");
+                Assert.IsTrue(workspace.WaitForPlaylistSummaryDataBuildIdleAsync().IsCompleted, "drop前に集計buildが終端しています。");
                 table.SelectRowsByPredicate(row => row is PlaylistSummaryRow summary && summary.PlaylistId == 1);
                 PlaylistSummaryRow[] visible = workspace.PlaylistSummaryView.ToArray();
                 PlaylistSummaryRow dragged = visible.Single(row => row.PlaylistId == 3);
@@ -587,7 +595,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 {
                     operation = workspace.DropSummaryRowsInBmtOrderAsync(visible, [dragged], 0, 3);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "selection-bmt-drop-terminal");
-                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(applied.Task, "selection-bmt-applied");
+                    // dropのTaskはUI適用の完了をawaitしてから終端するため、終端時点で意図付き完了は発行済みです。
+                    Assert.IsTrue(applied.Task.IsCompletedSuccessfully, "drop終端までに意図付きの選択更新完了が発行されています。");
                 }
                 finally { selectionSource.SelectionUpdateCompleted -= matchingCompleted; }
                 CollectionAssert.AreEqual(new[] { 3 }, Selected());
