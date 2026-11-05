@@ -132,7 +132,7 @@ public sealed class SearchAndMemoDesktopTests
         using var dictionary = JsonDocument.Parse(File.ReadAllText(Path.Combine(assets, "lang", locale + ".json")));
         string themeName = dictionary.RootElement.GetProperty("Appearance_theme_green_terminal").GetString()
             ?? throw new InvalidDataException("現localeのテーマ表示名がありません。");
-        Window settings = OpenSettings(session, deadline, step);
+        Window settings = OpenSettings(session.Window, deadline, step);
         FindUnique(settings, "SettingsCategoryAppearance", deadline, step).Patterns.SelectionItem.Pattern.Select();
         AutomationElement theme = FindUnique(settings, "SettingsTheme", deadline, step);
         if (change)
@@ -147,7 +147,7 @@ public sealed class SearchAndMemoDesktopTests
             AssertSelectedOption(theme, themeName);
             Assert.AreEqual("GreenTerminal", RawSetting(fixture.SettingsPath, "AppearanceTheme"));
         }
-        CloseSettings(session, settings, deadline, step);
+        CloseSettings(session.Window, settings, deadline, step);
     }
 
     private static async Task SearchSelectAndSortAsync(DesktopApplicationSession session, DesktopPlaylistFixture fixture,

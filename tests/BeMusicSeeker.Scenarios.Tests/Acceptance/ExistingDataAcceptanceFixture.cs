@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Xml.Linq;
 using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Scenarios;
 using SQLite;
 
 namespace BeMusicSeeker.Tests;
@@ -114,6 +115,8 @@ internal sealed class ExistingDataAcceptanceFixture
     internal string PortablePath => Path.Combine(AppRoot, @"config\user.config");
     /// <summary>親を変更せず通常childへ渡す専有環境です。</summary>
     internal IReadOnlyDictionary<string, string?> ChildEnvironment { get; }
+    /// <summary>旧受入の起動記述です。CWDと診断の保存先は展開済み配布のrootです。</summary>
+    internal PublishedApplicationSession.Launch Launch => new(AppRoot, AppRoot, ChildEnvironment, AppRoot);
 
     /// <summary>各旧受入固有のoracleで保存行と元設定を照合し、既存データ受入では設定・譜面不変とLR2同期完了も確認します。</summary>
     internal void AssertSavedState()

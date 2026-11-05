@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.Diagnostics;
-using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -10,68 +9,101 @@ using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Processes;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.TestSupport.Scenarios;
 
-/// <summary>旧実配布受入だけの通常起動・実HWND・所有後継・全終端を管理します。</summary>
+/// <summary>実配布受入の通常起動・実HWND・所有後継・全終端を管理します。</summary>
+/// <remarks>Scenariosの旧実配布受入とDesktop.E2Eの通常起動受入が同じ起動・回収規則を共有するため、TestSupportに置きます。</remarks>
 internal sealed class PublishedApplicationSession
 {
     private readonly List<OwnedProcess> processes = [];
     private readonly List<Process> observations = [];
     private readonly List<SingleRequestHttpServer> servers = [];
     private readonly CancellationTokenSource operation;
-    private readonly Lazy<ProcessDeadline> cleanup = new(() => ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(10)));
+    private readonly Lazy<ProcessDeadline> cleanup;
+    private readonly Func<nint, WindowFacts?> describe;
 
-    /// <summary>case全体の期限を一度だけ取り込み、可変媒体と通常childの所有を開始します。</summary>
+    /// <summary>case全体の期限を一度だけ取り込み、可変媒体と通常childの所有を開始します。失敗回収は独立した10秒です。</summary>
     internal PublishedApplicationSession(int seconds)
+        : this(ProcessDeadline.FromSuiteEnvironment(TimeSpan.FromSeconds(seconds)), DescribeWithManagedUia,
+            () => ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(10)))
     {
-        Deadline = ProcessDeadline.FromSuiteEnvironment(TimeSpan.FromSeconds(seconds));
+    }
+
+    private PublishedApplicationSession(ProcessDeadline deadline, Func<nint, WindowFacts?> describe, Func<ProcessDeadline> cleanupFactory)
+    {
+        Deadline = deadline;
+        this.describe = describe;
+        cleanup = new Lazy<ProcessDeadline>(cleanupFactory);
         operation = new CancellationTokenSource(Deadline.Remaining);
         Workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
     }
 
-    /// <summary>case全段階が共有するsuite/localの早い期限です。</summary>
+    /// <summary>
+    /// Desktop.E2Eの期限規則で開始します。外側の期限(suiteと指定時間の早い方)から回収用の10秒を除いた操作期限を
+    /// 全段階へ渡し、最初の失敗では外側の期限を超えない範囲で10秒の回収期限を一度だけ確定します。
+    /// </summary>
+    internal static PublishedApplicationSession ForDesktop(TimeSpan outerMaximum, Func<nint, WindowFacts?> describe)
+    {
+        var outer = ProcessDeadline.FromSuiteEnvironment(outerMaximum);
+        TimeSpan remaining = outer.Remaining;
+        if (remaining <= TimeSpan.FromSeconds(10)) { throw new TimeoutException("入力と回収に必要な残期限がありません。"); }
+        return new PublishedApplicationSession(outer.LimitRemaining(remaining - TimeSpan.FromSeconds(10)), describe,
+            () => outer.LimitRemaining(TimeSpan.FromSeconds(10)));
+    }
+
+    /// <summary>case全段階が共有する操作期限です。</summary>
     internal ProcessDeadline Deadline { get; }
     /// <summary>配布コピー・profile・診断を保持する専有媒体です。</summary>
     internal TestWorkspace Workspace { get; }
 
+    /// <summary>起動する配布の場所、起動時のCWD、通常childへ渡す専有環境、診断の保存先です。</summary>
+    /// <param name="AppRoot">展開済み実配布の専有installationです。</param>
+    /// <param name="WorkingDirectory">childのCWDです。</param>
+    /// <param name="ChildEnvironment">親を変更せず通常childへ渡す専有環境です。nullの値は子から除きます。</param>
+    /// <param name="DiagnosticsDirectory">既知フォルダ観測など、診断fileの保存先です。</param>
+    internal sealed record Launch(string AppRoot, string WorkingDirectory,
+        IReadOnlyDictionary<string, string?> ChildEnvironment, string DiagnosticsDirectory);
+
     /// <summary>同じ専有子環境の.NET 10 probeで既知フォルダを確認し、不一致では通常appを起動しません。</summary>
     /// <remarks>製品のPathSnapshotも同じGetFolderPathを使います。配布runtimeのbytes同一や既知フォルダAPI内部の解決経路は保証しません。</remarks>
-    internal async Task AssertIsolationAsync(ExistingDataAcceptanceFixture fixture)
+    internal async Task AssertIsolationAsync(Launch launch)
     {
         string executable = Path.Combine(AppContext.BaseDirectory, @"fixtures\windows-process-probe\WindowsProcessProbe.exe");
-        OwnedProcess probe = Start(executable, ["known-folder"], fixture.AppRoot, fixture.ChildEnvironment);
+        OwnedProcess probe = Start(executable, ["known-folder"], launch.WorkingDirectory, launch.ChildEnvironment);
         ProcessCompletion result = await probe.WaitForExitAsync(Deadline);
         Assert.AreEqual(0, result.ExitCode, result.StandardError);
         Assert.AreEqual(string.Empty, result.StandardError);
         using var document = JsonDocument.Parse(result.StandardOutput);
         JsonElement observation = document.RootElement;
-        string expected = fixture.ChildEnvironment["LOCALAPPDATA"] ?? throw new InvalidDataException();
+        string expected = launch.ChildEnvironment["LOCALAPPDATA"] ?? throw new InvalidDataException();
         Assert.IsTrue(string.Equals(expected, observation.GetProperty("LocalApplicationData").GetString(), StringComparison.OrdinalIgnoreCase),
             "通常childのLocalApplicationDataが専有先と一致しません。");
         string runtimeVersion = observation.GetProperty("RuntimeVersion").GetString()
             ?? throw new InvalidDataException("probeの実行runtime版がありません。");
         Assert.AreEqual(10, Version.Parse(runtimeVersion).Major, "隔離前提のprobeには.NET 10が必要です。");
         Console.WriteLine("通常childの既知フォルダ/runtime観測: " + result.StandardOutput);
-        File.WriteAllText(Path.Combine(fixture.AppRoot, "known-folder-observation.json"), result.StandardOutput);
+        File.WriteAllText(Path.Combine(launch.DiagnosticsDirectory, "known-folder-observation.json"), result.StandardOutput);
     }
 
     /// <summary>global singletonを維持し、専有NoUpdate入力だけを一般CLIへ渡して通常起動します。</summary>
-    internal async Task<(OwnedProcess Owner, Process Process)> StartApplicationAsync(ExistingDataAcceptanceFixture fixture, bool maintenance)
+    internal async Task<(OwnedProcess Owner, Process Process)> StartApplicationAsync(Launch launch, bool maintenance)
     {
         Process[] existing = Process.GetProcessesByName("BeMusicSeeker");
         try { Assert.AreEqual(0, existing.Length, "既存の利用者appが占有しています。停止せず受入を失敗にします。"); }
         finally { foreach (Process process in existing) { process.Dispose(); } }
-        ArchiveLogs(fixture.AppRoot);
+        ArchiveLogs(launch.AppRoot);
         SingleRequestHttpServer server = StartNoUpdateServer();
-        OwnedProcess owner = Start(Path.Combine(fixture.AppRoot, "BeMusicSeeker.exe"),
-            ["--update-manifest-url=" + server.Address.AbsoluteUri], fixture.AppRoot, fixture.ChildEnvironment);
+        OwnedProcess owner = Start(Path.Combine(launch.AppRoot, "BeMusicSeeker.exe"),
+            ["--update-manifest-url=" + server.Address.AbsoluteUri], launch.WorkingDirectory, launch.ChildEnvironment);
         var observation = Process.GetProcessById(owner.ProcessId);
         observations.Add(observation);
         _ = observation.Handle;
         Assert.IsTrue(owner.ContainsProcess(observation));
-        await WaitReadyAsync(observation, fixture.AppRoot, maintenance);
+        await WaitReadyAsync(observation, launch.AppRoot, maintenance);
         // 更新用workを準備する前に、この起動が先に行う旧work回収とNoUpdate応答を完了させます。
         await server.Completion.WaitAsync(operation.Token);
+        // 単一要求のserverなので、保証するのは要求が届いたことです。2回目以降の要求は検出しません。
+        Assert.AreEqual(1, server.RequestTargets.Length, "起動時の更新確認の要求が届いていません。");
         return (owner, observation);
     }
 
@@ -140,10 +172,9 @@ internal sealed class PublishedApplicationSession
             string logDirectory = Path.Combine(appRoot, "log");
             string logs = Directory.Exists(logDirectory)
                 ? string.Join("\n", Directory.EnumerateFiles(logDirectory, "*.log").Select(ReadSharedLog)) : string.Empty;
-            foreach (string blocker in new[] { "startup_setting_validation_failed", "app_schema_preflight_prompt_show", "Startup library initialization failure notification" })
-            {
-                Assert.IsFalse(logs.Contains(blocker, StringComparison.Ordinal), blocker);
-            }
+            // schema確認と初期化失敗の通知は所有modalなので、上のAssertNoModalが検出します。初期化失敗の経路はreadyを出さないため、
+            // modalを観測する前に閉じられても期限切れとして失敗します。ログで見るのは、modalを出さない設定検証の失敗だけです。
+            Assert.IsFalse(logs.Contains("startup_setting_validation_failed", StringComparison.Ordinal), "startup_setting_validation_failed");
             if (main != 0 && logs.Contains("startup_ready_operable", StringComparison.Ordinal)
                 && (!maintenance || logs.Contains("startup_post_initialization_maintenance_complete", StringComparison.Ordinal))) { return; }
             await Task.Delay(100, operation.Token);
@@ -292,14 +323,13 @@ internal sealed class PublishedApplicationSession
         return reader.ReadToEnd();
     }
 
-    private static nint FindMainWindow(int pid)
+    private nint FindMainWindow(int pid)
     {
         nint found = 0;
         foreach (nint window in Windows(pid))
         {
             if (GetWindow(window, 4) != 0 || !IsWindowVisible(window)) { continue; }
-            var element = AutomationElement.FromHandle(window);
-            if (element.Current.AutomationId == "BeMusicSeekerMainWindow")
+            if (describe(window)?.AutomationId == "BeMusicSeekerMainWindow")
             {
                 Assert.AreEqual((nint)0, found, "MainWindowが複数あります。");
                 found = window;
@@ -308,15 +338,47 @@ internal sealed class PublishedApplicationSession
         return found;
     }
 
-    private static void AssertNoModal(int pid, nint main)
+    private void AssertNoModal(int pid, nint main)
     {
         foreach (nint window in Windows(pid))
         {
             if (GetWindow(window, 4) != main || !IsWindowVisible(window) || !IsWindowEnabled(window)) { continue; }
-            var element = AutomationElement.FromHandle(window);
-            if (!element.Current.IsOffscreen && element.TryGetCurrentPattern(WindowPattern.Pattern, out object pattern)
-                && ((WindowPattern)pattern).Current.IsModal) { throw new InvalidOperationException("予期しない所有modalがあります。"); }
+            WindowFacts? facts = ObserveWindow(window);
+            if (facts is { IsOffscreen: false, IsModal: true }) { throw new InvalidOperationException("予期しない所有modalがあります。"); }
         }
+    }
+
+    /// <summary>可視で有効な所有windowの事実を、session期限内で再観測します。読めないまま期限が来たら通過させず失敗にします。</summary>
+    private WindowFacts? ObserveWindow(nint window)
+    {
+        while (true)
+        {
+            WindowFacts? facts = describe(window);
+            if (facts is not null) { return facts; }
+            if (Deadline.Remaining == TimeSpan.Zero) { throw new InvalidOperationException("可視で有効な所有windowのUIA情報を期限内に観測できません。"); }
+            Thread.Sleep(50);
+        }
+    }
+
+    /// <summary>最初の失敗を検出した時点で、失敗回収の期限を一度だけ確定します。以後の破棄や回収は、この期限内で行います。</summary>
+    /// <remarks>既に確定済みなら何もしません。<see cref="CompleteAsync"/>も一次失敗があれば同じ期限を使います。</remarks>
+    internal void BeginFailureCleanup() => _ = cleanup.Value;
+
+    /// <summary>window handleから読むUIAの事実です。provider未準備で読めない間はnullを返し、呼出元は次の観測で判定します。</summary>
+    /// <param name="AutomationId">UIAのAutomationIdです。</param>
+    /// <param name="IsOffscreen">UIAのIsOffscreenです。</param>
+    /// <param name="IsModal">WindowPatternのIsModalです。patternがない場合はfalseです。</param>
+    internal sealed record WindowFacts(string AutomationId, bool IsOffscreen, bool IsModal);
+
+    /// <summary>
+    /// System.Windows.Automationで観測する既定です。同じprocessでFlaUI(UIA3)を併用すると後者のproperty取得が不安定になるため、
+    /// FlaUIで操作するDesktop.E2Eは、同じUIA3接続で観測する関数を<see cref="ForDesktop"/>へ渡します。
+    /// </summary>
+    private static WindowFacts? DescribeWithManagedUia(nint window)
+    {
+        var element = AutomationElement.FromHandle(window);
+        bool modal = element.TryGetCurrentPattern(WindowPattern.Pattern, out object pattern) && ((WindowPattern)pattern).Current.IsModal;
+        return new WindowFacts(element.Current.AutomationId, element.Current.IsOffscreen, modal);
     }
 
     private static List<nint> Windows(int pid)

@@ -278,7 +278,11 @@ internal sealed class DesktopPlaylistFixture : IAsyncDisposable
         settings.Save();
     }
 
-    private static DesktopChartInput CreateChart(string directory, string basename, string title)
+    /// <summary>
+    /// 指定ディレクトリへ音源1件とBMSを作り、parserに依存しないMD5・SHA-256付きの入力を返します。
+    /// 既存のDesktop fixtureと通常起動の受入（SC-16）が同じ譜面生成を共用するためにinternalとします。
+    /// </summary>
+    internal static DesktopChartInput CreateChart(string directory, string basename, string title)
     {
         Directory.CreateDirectory(directory);
         byte[] resource = CreateWave();

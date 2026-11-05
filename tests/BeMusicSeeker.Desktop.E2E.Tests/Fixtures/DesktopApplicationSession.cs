@@ -68,16 +68,7 @@ internal sealed class DesktopApplicationSession : IAsyncDisposable
         {
             attached = Application.Attach(driver.ProcessId);
             automation = new UIA3Automation();
-            Window window = Retry.WhileNull(() =>
-            {
-                if (driver.RootExit.IsCompleted) { throw new InvalidOperationException("UIA接続前に所有processが終了しました。"); }
-                Window[] windows = attached.GetAllTopLevelWindows(automation)
-                    .Where(candidate => !candidate.IsOffscreen && candidate.AutomationId == "BeMusicSeekerMainWindow").ToArray();
-                if (windows.Length > 1) { throw new InvalidOperationException("所有PIDのMainWindow識別子が重複しています。"); }
-                return windows.SingleOrDefault();
-            }, timeout: deadline.Remaining, throwOnTimeout: true, ignoreException: false,
-                timeoutMessage: "所有PIDの実MainWindowへ接続できませんでした。").Result
-                ?? throw new InvalidOperationException("所有PIDのMainWindowがありません。");
+            Window window = FindMainWindow(attached, automation, () => driver.RootExit.IsCompleted, deadline);
             return new DesktopApplicationSession(driver, attached, automation, window);
         }
         catch (Exception primary)
@@ -90,6 +81,20 @@ internal sealed class DesktopApplicationSession : IAsyncDisposable
             throw;
         }
     }
+
+    /// <summary>接続済みprocessの可視な実MainWindowを、期限内に一意に取得します。</summary>
+    /// <remarks>driver経由と、通常起動受入のようにdriverを使わず接続する経路が同じ一意性規則を共有するための入口です。</remarks>
+    internal static Window FindMainWindow(Application attached, UIA3Automation automation, Func<bool> hasExited, ProcessDeadline deadline)
+        => Retry.WhileNull(() =>
+        {
+            if (hasExited()) { throw new InvalidOperationException("UIA接続前に所有processが終了しました。"); }
+            Window[] windows = attached.GetAllTopLevelWindows(automation)
+                .Where(candidate => !candidate.IsOffscreen && candidate.AutomationId == "BeMusicSeekerMainWindow").ToArray();
+            if (windows.Length > 1) { throw new InvalidOperationException("所有PIDのMainWindow識別子が重複しています。"); }
+            return windows.SingleOrDefault();
+        }, timeout: deadline.Remaining, throwOnTimeout: true, ignoreException: false,
+            timeoutMessage: "所有PIDの実MainWindowへ接続できませんでした。").Result
+            ?? throw new InvalidOperationException("所有PIDのMainWindowがありません。");
 
     /// <summary>通常Closeから実退出・両pipe・全childの完了まで、既存OwnedProcess境界で待ちます。</summary>
     internal Task CloseAsync(ProcessDeadline deadline) => driver.CloseAsync(deadline);

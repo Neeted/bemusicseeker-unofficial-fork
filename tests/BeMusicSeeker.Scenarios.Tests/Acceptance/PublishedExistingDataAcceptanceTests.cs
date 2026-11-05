@@ -5,6 +5,7 @@ using System.Text.Json;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Components.Update;
 using BeMusicSeeker.TestSupport.Processes;
+using BeMusicSeeker.TestSupport.Scenarios;
 using BeMusicSeeker.TestSupport.Verification;
 
 namespace BeMusicSeeker.Tests;
@@ -31,11 +32,11 @@ public sealed class PublishedExistingDataAcceptanceTests
                 string name = lr2 ? "lr2" : "standalone";
                 string app = await catalog.Current.ExtractInstallationAsync(session.Workspace, name + "/app", session.Deadline);
                 var fixture = new ExistingDataAcceptanceFixture(repository, session.Workspace.GetPath(name), app, lr2, update: false);
-                await session.AssertIsolationAsync(fixture);
+                await session.AssertIsolationAsync(fixture.Launch);
                 string? savedHash = null;
                 for (int startup = 0; startup < 2; startup++)
                 {
-                    (OwnedProcess owner, Process process) = await session.StartApplicationAsync(fixture, maintenance: true);
+                    (OwnedProcess owner, Process process) = await session.StartApplicationAsync(fixture.Launch, maintenance: true);
                     await session.CloseAsync(owner, process, waitWholeJob: true);
                     fixture.AssertSavedState();
                     string currentHash = ExistingDataAcceptanceFixture.Hash(fixture.PortablePath);
@@ -62,7 +63,7 @@ public sealed class PublishedExistingDataAcceptanceTests
             Console.WriteLine($"受入入力: Current={catalog.Current.Version}, SHA256={catalog.Current.Sha256}, ZIP={catalog.Current.PackagePath}; ソースbuildの実行体とは別のcatalog配布を使用します。");
             string app = await catalog.Current.ExtractInstallationAsync(session.Workspace, "success/app", session.Deadline);
             var fixture = new ExistingDataAcceptanceFixture(repository, session.Workspace.GetPath("success"), app, lr2: false, update: true);
-            await session.AssertIsolationAsync(fixture);
+            await session.AssertIsolationAsync(fixture.Launch);
             string executable = Path.Combine(app, "BeMusicSeeker.exe");
             string expectedExecutableHash = ExistingDataAcceptanceFixture.Hash(executable);
             string obsolete = Path.Combine(app, "verification-obsolete.txt");
@@ -72,7 +73,7 @@ public sealed class PublishedExistingDataAcceptanceTests
             Directory.CreateDirectory(Path.GetDirectoryName(marker) ?? throw new InvalidDataException());
             File.WriteAllText(marker, "E2 unmanaged marker standalone\n", new UTF8Encoding(false));
             string markerHash = ExistingDataAcceptanceFixture.Hash(marker);
-            (OwnedProcess originalOwner, Process original) = await session.StartApplicationAsync(fixture, maintenance: false);
+            (OwnedProcess originalOwner, Process original) = await session.StartApplicationAsync(fixture.Launch, maintenance: false);
             Dictionary<string, string> settingsBefore = fixture.ReadSettings();
             string current = Path.Combine(app, @"update_work\current");
             string downloads = Path.Combine(app, @"update_work\downloads");

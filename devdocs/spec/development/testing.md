@@ -247,7 +247,7 @@ constructor-only harnessは `PrepareConstructorOnlyShell` で既存のshell acti
 
 ### Fullの処理順と期限
 
-`prepare-candidate` が公開可能なHTML付きCurrent、固定Legacy、試験Nextとcatalogを先に生成します。Fullは全体整形・Release build後に、絶対パスで明示したcatalogの検査と候補の展開・接続を行い、Core・Scenarios・Desktopを各一回、Windowsを重複のない3分類で実行します。製品publishやZIP再生成は行いません。明示環境/性能suiteは含めません。Scenariosの必須12IDは `SC-01, SC-02, SC-05, SC-09, SC-10A, SC-10B, SC-11, SC-12, SC-13, SC-14, SC-ExistingData, SC-CurrentUpdate`、Desktopの必須IDは `DT-01, DT-02, DT-03` です。同じmodule内の同じIDに複数行を許し、全行Passedを要求します。
+`prepare-candidate` が公開可能なHTML付きCurrent、固定Legacy、試験Nextとcatalogを先に生成します。Fullは全体整形・Release build後に、絶対パスで明示したcatalogの検査と候補の展開・接続を行い、Core・Scenarios・Desktopを各一回、Windowsを重複のない3分類で実行します。製品publishやZIP再生成は行いません。明示環境/性能suiteは含めません。Scenariosの必須12IDは `SC-01, SC-02, SC-05, SC-09, SC-10A, SC-10B, SC-11, SC-12, SC-13, SC-14, SC-ExistingData, SC-CurrentUpdate`、Desktopの必須IDは `DT-01, DT-02, DT-03, SC-16` です。同じmodule内の同じIDに複数行を許し、全行Passedを要求します。
 
 Desktopは既存のsession leaseと単一workerで実入力を専有し、Scenariosの後に実行します。各caseは共有suite期限と3分の早い方を外側期限とし、所有入力と資源の回収に10秒を先取りした操作期限を使います。残時間が回収余裕以下なら新入力を開始しません。実入力後の失敗では最初の検出時刻+10秒と外側期限の早い方を一度だけ確定し、所有Up・source STA・返却済みapp session・fixtureの回収へ渡します。通常回収は操作期限内で行い、遅い完了や回収失敗を成功へ変えません。起動接続の返却前失敗は既存driverの回収を維持します。
 
@@ -354,7 +354,7 @@ ACLは専有領域の実操作終端後に両DACLを復旧してからworkspace�
 | loopback HTTPの共有操作期限・独立cleanup、通知前のclient/server終端、実取消とpeer切断 | [`SingleRequestHttpServer`](../../../tests/BeMusicSeeker.TestSupport/Components/SingleRequestHttpServer.cs)、HTTPを使う各機能fixture | [`AppHttpClientTests`](../../../tests/BeMusicSeeker.Core.Tests/Runtime/AppHttpClientTests.cs) は有限二応答の未要求accept回収、取消済みcleanup tokenで未終端clientを成功扱いしないこと、補助producer正常終了後のclient先行故障、通知有無と同時終端・元故障、準備待機取消後の遅い結果・故障、GET/formの元要求取消とlocal解放前の実peer切断を確認する。PlaylistのURL acquisition/completionは、未終端処理の依存DB・設定をTestCleanupでも保持して非成功にすることをgateで確認する。Playlist/MainWindowは同じ期限・回収入口で既存の取得・保存・表示保証を保持する。 |
 | 公開旧版の適用・現行更新 | [Scenarios/Update](../../../tests/BeMusicSeeker.Scenarios.Tests/Update) | LegacyUpdaterDistributionMigrationTests / UpdaterPackageSyncTestsとSC-CurrentUpdateで実配布の適用・保存・再起動を確認する。 |
 | 利用済み設定・既存DBの移行 | [Scenarios/Acceptance](../../../tests/BeMusicSeeker.Scenarios.Tests/Acceptance) | PublishedExistingDataAcceptanceTestsでStandalone/LR2の各2起動、意味保持・設定安定と元入力保持を確認する。 |
-| 予期しない所有モーダルの拒否 | [PublishedApplicationSession](../../../tests/BeMusicSeeker.Scenarios.Tests/Acceptance/PublishedApplicationSession.cs) | SC-ExistingData / SC-CurrentUpdateが実所有Windowと通常終了を観測し、自動応答で異常を隠さない。 |
+| 予期しない所有モーダルの拒否 | [PublishedApplicationSession](../../../tests/BeMusicSeeker.TestSupport/Scenarios/PublishedApplicationSession.cs) | SC-ExistingData / SC-CurrentUpdate / SC-16が実所有Windowと通常終了を観測し、自動応答で異常を隠さない。schema確認と初期化失敗の通知は所有modalの観測で検出する。 |
 | 外部エンコーダー | [`BassAudioWriter`](../../../BeMusicSeeker/Ribbit/Media/BassAudioWriter.cs) | [`ExternalAudioEncoderSmokeTests`](../../../tests/BeMusicSeeker.Compatibility.Tests/Playback/ExternalAudioEncoderSmokeTests.cs) |
 
 ## 関連資料

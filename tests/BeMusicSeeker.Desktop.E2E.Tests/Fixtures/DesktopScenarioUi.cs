@@ -229,9 +229,9 @@ internal static class DesktopScenarioUi
         => table.Patterns.Selection.Pattern.Selection.Value.Select(row => row.AutomationId).ToArray();
 
     /// <summary>所有MainWindowの実設定ボタンから一意な設定modalへ到達します。</summary>
-    internal static Window OpenSettings(DesktopApplicationSession session, ProcessDeadline deadline, Action<string> step)
+    internal static Window OpenSettings(Window mainWindow, ProcessDeadline deadline, Action<string> step)
     {
-        AutomationElement open = FindUnique(session.Window, "OpenSettings", deadline, step);
+        AutomationElement open = FindUnique(mainWindow, "OpenSettings", deadline, step);
         step("before OpenSettings IsEnabled wait");
         _ = Retry.WhileFalse(() => open.IsEnabled, timeout: deadline.Remaining, throwOnTimeout: true, ignoreException: false);
         step("after OpenSettings IsEnabled wait; before Invoke OpenSettings");
@@ -241,7 +241,7 @@ internal static class DesktopScenarioUi
         Window result = Retry.WhileNull(() =>
         {
             if (!sampled) { step("before first MainWindow.ModalWindows/SettingsClose query"); }
-            Window[] windows = session.Window.ModalWindows.Where(window =>
+            Window[] windows = mainWindow.ModalWindows.Where(window =>
                 window.FindAllDescendants(cf => cf.ByAutomationId("SettingsClose")).Length == 1).ToArray();
             if (!sampled) { step("after first MainWindow.ModalWindows/SettingsClose query matches=" + windows.Length); sampled = true; }
             if (windows.Length > 1) { throw new InvalidOperationException("所有MainWindowの設定Windowが重複しています。"); }
@@ -254,7 +254,7 @@ internal static class DesktopScenarioUi
     }
 
     /// <summary>設定の実Closeから所有MainWindowの復帰を同じ期限で待ちます。</summary>
-    internal static void CloseSettings(DesktopApplicationSession session, Window settings, ProcessDeadline deadline, Action<string> step)
+    internal static void CloseSettings(Window mainWindow, Window settings, ProcessDeadline deadline, Action<string> step)
     {
         AutomationElement close = FindUnique(settings, "SettingsClose", deadline, step);
         step("before SettingsClose IsEnabled wait");
@@ -262,7 +262,7 @@ internal static class DesktopScenarioUi
         step("after SettingsClose IsEnabled wait; before Invoke SettingsClose");
         close.Patterns.Invoke.Pattern.Invoke();
         step("after Invoke SettingsClose; before MainWindow enabled/noModal wait");
-        _ = Retry.WhileFalse(() => session.Window.IsEnabled && session.Window.ModalWindows.Length == 0,
+        _ = Retry.WhileFalse(() => mainWindow.IsEnabled && mainWindow.ModalWindows.Length == 0,
             timeout: deadline.Remaining, throwOnTimeout: true, ignoreException: false,
             timeoutMessage: "設定画面が終了して所有MainWindowへ戻りませんでした。");
         step("after MainWindow enabled/noModal wait");

@@ -458,7 +458,7 @@ public sealed class VirtualPlaylistRowDesktopTests
         step("before MainChartTable original Name read");
         string originalTableName = table.Name;
         step("after MainChartTable original Name read");
-        Window settings = OpenSettings(session, deadline, step);
+        Window settings = OpenSettings(session.Window, deadline, step);
         string settingsHandle = settings.Properties.NativeWindowHandle.Value.ToString();
         void SettingsStep(string message) => step($"settingsHwnd={settingsHandle} {message}");
         SelectCategory(settings, "SettingsCategoryGeneral", deadline, SettingsStep);
@@ -499,9 +499,9 @@ public sealed class VirtualPlaylistRowDesktopTests
             timeout: deadline.Remaining, throwOnTimeout: true, ignoreException: false,
             timeoutMessage: "設定を閉じる前にテーマの実保存値が公開されませんでした。");
         SettingsStep("after raw AppearanceTheme wait");
-        CloseSettings(session, settings, deadline, SettingsStep);
+        CloseSettings(session.Window, settings, deadline, SettingsStep);
 
-        settings = OpenSettings(session, deadline, step);
+        settings = OpenSettings(session.Window, deadline, step);
         settingsHandle = settings.Properties.NativeWindowHandle.Value.ToString();
         SelectCategory(settings, "SettingsCategoryGeneral", deadline, SettingsStep);
         language = FindUnique(settings, "SettingsLanguage", deadline, SettingsStep);
@@ -517,7 +517,7 @@ public sealed class VirtualPlaylistRowDesktopTests
         Assert.AreEqual(languageName, RawSetting(fixture.SettingsPath, "LangDisplayName"));
         Assert.AreEqual("GreenTerminal", RawSetting(fixture.SettingsPath, "AppearanceTheme"));
         SettingsStep("after raw setting checks");
-        CloseSettings(session, settings, deadline, SettingsStep);
+        CloseSettings(session.Window, settings, deadline, SettingsStep);
     }
 
     private static void SelectCategory(Window settings, string id, ProcessDeadline deadline, Action<string> step)
