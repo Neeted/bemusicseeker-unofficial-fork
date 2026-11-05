@@ -884,7 +884,10 @@ public sealed class ReleaseScriptVersionSourceTests
             ProcessResult result = await RunProcessAsync(gitPath, arguments, workingDirectory);
             if (result.ExitCode != 0)
             {
-                throw new InvalidOperationException("git failed: " + result.CombinedOutput);
+                throw new InvalidOperationException(
+                    $"git failed: exit=0x{unchecked((uint)result.ExitCode):X8} ({result.ExitCode}), " +
+                    $"cwd={workingDirectory}, args=[{string.Join(' ', arguments)}], " +
+                    $"stdout=[{result.StandardOutput}], stderr=[{result.StandardError}]");
             }
             return result.StandardOutput.Trim();
         }
@@ -981,8 +984,19 @@ public sealed class ReleaseScriptVersionSourceTests
             child["GH_ASSETS"] = GhAssetsPath;
             child["GH_LOG"] = GhLogPath;
             // 実gh/uvや別Gitの発見を避け、子だけを専有代替と解決済み実行体へ限定します。
-            child["PATH"] = string.Join(Path.PathSeparator, FakeBinRoot,
-                Path.GetDirectoryName(gitPath), Path.GetDirectoryName(pwshPath), Environment.SystemDirectory);
+            // Git Bash等からMSYSTEMを継承した子でGit for WindowsのmingwXX\bin\git.exeを直接起動すると、gitがPATHを補わず
+            // ローカルpushが起動するshを解決できないため、0xC0000005で異常終了します。MSYSTEMが未設定ならmingw側のgitも
+            // cmd\git.exeも自前でPATHを補うため、PATH先頭がmingw側でMSYSTEMを継承した環境でだけ起きます。
+            // 同じ導入先のusr\binを末尾へ足し、PATHの並びに依らず同じ結果にします。usr\binにはfind.exeなど
+            // System32と同名のUnix版があるため、System32より前に置いて置き換えません。shはSystem32にないので末尾でも解決できます。
+            string gitDirectory = Path.GetDirectoryName(gitPath)
+                ?? throw new InvalidOperationException($"gitの格納ディレクトリを解決できません: {gitPath}");
+            string pwshDirectory = Path.GetDirectoryName(pwshPath)
+                ?? throw new InvalidOperationException($"pwshの格納ディレクトリを解決できません: {pwshPath}");
+            string gitShellDirectory = Path.GetFullPath(Path.Combine(gitDirectory, "..", "..", "usr", "bin"));
+            var searchPath = new List<string> { FakeBinRoot, gitDirectory, pwshDirectory, Environment.SystemDirectory };
+            if (Directory.Exists(gitShellDirectory)) { searchPath.Add(gitShellDirectory); }
+            child["PATH"] = string.Join(Path.PathSeparator, searchPath);
             child["PATHEXT"] = ".COM;.EXE;.BAT;.CMD";
             return child;
         }
