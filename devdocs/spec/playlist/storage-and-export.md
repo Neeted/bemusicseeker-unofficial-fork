@@ -10,7 +10,7 @@
 
 ## 仕様
 
-数値JSONの `level_order` / `folder_order` と本文の数値 `level` / `folder` を所属・順序の文字列へ採用するときはInvariantを使います。受理済みprimitiveの範囲、文字列・装飾名・null、互換接頭辞の扱いは維持し、文字列を一律にJSON化しません。LR2のLEVEL分類はfloorした整数をASCII表記で名前・SQLへ共用し、通常版とRANDOM版の選曲集合を一致させます。旧地域の負号で壊れた出力は該当表の内容・出力設定を明示保存したときに再出力して修復し、強制再出力や同期署名の変更は行いません。
+数値JSONの `level_order` / `folder_order` と本文の数値 `level` / `folder` を所属・順序の文字列へ採用するときはInvariantを使います。受理済みprimitiveの範囲、文字列・装飾名・null、互換接頭辞の扱いは維持し、文字列を一律にJSON化しません。LR2のLEVEL分類はfloorした整数をASCII表記で名前・SQLへ共用し、通常版とRANDOM版の選曲集合を一致させます。旧地域の負号で壊れた出力は該当表の内容・出力設定を明示保存したときに再出力して修復し、強制再出力は行いません。
 
 同期STATUSの説明日時は、保存値と時刻帯を変えずGregorianの `yyyy-MM-dd HH:mm:ss` で表示します。
 
