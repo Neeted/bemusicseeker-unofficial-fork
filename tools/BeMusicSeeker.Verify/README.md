@@ -22,9 +22,9 @@ Windowsの日常検証には外部プレイヤーの実起動2件、更新Gatewa
 
 通常コミット・dev統合は `verify`、整形を省く反復は `dev`、公開候補は `full` を使います。旧単一TestsとPowerShell検証runnerは廃止し、読み取り専用TestDataだけを現位置へ保持します。
 
-`full` はReleaseのCore・Scenarios・Desktopを各1回、Windowsを重複のない3分類で実行します。Scenariosの必須12IDは `SC-01, SC-02, SC-05, SC-09, SC-10A, SC-10B, SC-11, SC-12, SC-13, SC-14, SC-ExistingData, SC-CurrentUpdate`、Desktopの必須IDは `DT-01, DT-02, DT-03, SC-16, SC-15A` です。明示導入先消失後の再読込・再選択を `SC-05` で確認します。DesktopはScenariosの後に単一workerで実入力を専有し、同じIDの複数行を含め全行Passedを要求します。正式Fullの `--filter` は準備前に拒否し、局所検証は対象projectを直接実行します。
+`full` はReleaseのCore・Scenarios・Desktopを各1回、Windowsを重複のない3分類で実行します。Scenariosの必須12IDは `SC-01, SC-02, SC-05, SC-09, SC-10A, SC-10B, SC-11, SC-12, SC-13, SC-14, SC-ExistingData, SC-CurrentUpdate`、Desktopの必須IDは `DT-01, DT-02, DT-03, SC-16, SC-15A, SC-15C` です。明示導入先消失後の再読込・再選択を `SC-05` で確認します。DesktopはScenariosの後に単一workerで実入力を専有し、同じIDの複数行を含め全行Passedを要求します。正式Fullの `--filter` は準備前に拒否し、局所検証は対象projectを直接実行します。
 
-`prepare-candidate` が固定Legacy、公開可能なCurrent、試験Nextとcatalogを先に生成します。NextはCurrentの実バイナリ版の末尾をcheckedで1増やした実行限定の版で、通常公開版とAssemblyVersionは変えず、publishの `-ApplicationVersion` とvariant別ArtifactRootで分離します。Fullは全C#の整形・build後、明示catalogの検査と候補の展開・接続を行い、製品publishやZIP再生成をせずtest段階へ進みます。fixtureの成功を候補生成・Full成功の代わりにはしません。Nextは、SC-15AがUIから更新する先として、ケース所有のloopback配信がそのZIPの実bytesとサイズ・SHA-256で配ります。
+`prepare-candidate` が固定Legacy、公開可能なCurrent、試験Nextとcatalogを先に生成します。NextはCurrentの実バイナリ版の末尾をcheckedで1増やした実行限定の版で、通常公開版とAssemblyVersionは変えず、publishの `-ApplicationVersion` とvariant別ArtifactRootで分離します。Fullは全C#の整形・build後、明示catalogの検査と候補の展開・接続を行い、製品publishやZIP再生成をせずtest段階へ進みます。fixtureの成功を候補生成・Full成功の代わりにはしません。Nextは、SC-15AがUIから更新する先として、ケース所有のloopback配信がそのZIPの実bytesとサイズ・SHA-256で配ります。SC-15Cは、そのNext ZIPから実行ファイルだけを実行できないbytesへ差し替えた手作りpackageをケース内で作って先に配り、巻き戻しと通知の後に本物のNextを配ります。
 
 ## 手動整形の準備
 

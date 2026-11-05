@@ -62,7 +62,7 @@ public sealed class VerificationPlanTests
         Assert.AreEqual(TimeSpan.FromSeconds(600), VerificationPlan.Create("dev", 8).TestTimeout);
         Assert.AreEqual(TimeSpan.FromSeconds(600), VerificationPlan.Create("verify", 8).TestTimeout);
         CollectionAssert.AreEqual(new[] { "SC-01", "SC-02", "SC-05", "SC-09", "SC-10A", "SC-10B", "SC-11", "SC-12", "SC-13", "SC-14", "SC-ExistingData", "SC-CurrentUpdate" }, full.RequiredScenarioIds["Scenarios"].ToArray());
-        CollectionAssert.AreEqual(new[] { "DT-01", "DT-02", "DT-03", "SC-16", "SC-15A" }, full.RequiredScenarioIds["Desktop.E2E"].ToArray());
+        CollectionAssert.AreEqual(new[] { "DT-01", "DT-02", "DT-03", "SC-16", "SC-15A", "SC-15C" }, full.RequiredScenarioIds["Desktop.E2E"].ToArray());
         Assert.AreEqual(2, full.RequiredScenarioIds.Count);
         Assert.AreEqual("Release", VerificationPlan.Create("verify", 8).Configuration);
         Assert.IsTrue(VerificationPlan.Create("verify", 8).Format);

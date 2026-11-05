@@ -247,9 +247,9 @@ constructor-only harnessは `PrepareConstructorOnlyShell` で既存のshell acti
 
 ### Fullの処理順と期限
 
-`prepare-candidate` が公開可能なHTML付きCurrent、固定Legacy、試験Nextとcatalogを先に生成します。Fullは全体整形・Release build後に、絶対パスで明示したcatalogの検査と候補の展開・接続を行い、Core・Scenarios・Desktopを各一回、Windowsを重複のない3分類で実行します。製品publishやZIP再生成は行いません。明示環境/性能suiteは含めません。Scenariosの必須12IDは `SC-01, SC-02, SC-05, SC-09, SC-10A, SC-10B, SC-11, SC-12, SC-13, SC-14, SC-ExistingData, SC-CurrentUpdate`、Desktopの必須IDは `DT-01, DT-02, DT-03, SC-16, SC-15A` です。同じmodule内の同じIDに複数行を許し、全行Passedを要求します。
+`prepare-candidate` が公開可能なHTML付きCurrent、固定Legacy、試験Nextとcatalogを先に生成します。Fullは全体整形・Release build後に、絶対パスで明示したcatalogの検査と候補の展開・接続を行い、Core・Scenarios・Desktopを各一回、Windowsを重複のない3分類で実行します。製品publishやZIP再生成は行いません。明示環境/性能suiteは含めません。Scenariosの必須12IDは `SC-01, SC-02, SC-05, SC-09, SC-10A, SC-10B, SC-11, SC-12, SC-13, SC-14, SC-ExistingData, SC-CurrentUpdate`、Desktopの必須IDは `DT-01, DT-02, DT-03, SC-16, SC-15A, SC-15C` です。同じmodule内の同じIDに複数行を許し、全行Passedを要求します。
 
-Desktopは既存のsession leaseと単一workerで実入力を専有し、Scenariosの後に実行します。各caseは共有suite期限と3分の早い方（更新処理を含むSC-15Aは4分の早い方）を外側期限とし、所有入力と資源の回収に10秒を先取りした操作期限を使います。残時間が回収余裕以下なら新入力を開始しません。実入力後の失敗では最初の検出時刻+10秒と外側期限の早い方を一度だけ確定し、所有Up・source STA・返却済みapp session・fixtureの回収へ渡します。通常回収は操作期限内で行い、遅い完了や回収失敗を成功へ変えません。起動接続の返却前失敗は既存driverの回収を維持します。
+Desktopは既存のsession leaseと単一workerで実入力を専有し、Scenariosの後に実行します。各caseは共有suite期限と3分の早い方（更新処理を含むSC-15A・SC-15Cは4分の早い方）を外側期限とし、所有入力と資源の回収に10秒を先取りした操作期限を使います。残時間が回収余裕以下なら新入力を開始しません。実入力後の失敗では最初の検出時刻+10秒と外側期限の早い方を一度だけ確定し、所有Up・source STA・返却済みapp session・fixtureの回収へ渡します。通常回収は操作期限内で行い、遅い完了や回収失敗を成功へ変えません。起動接続の返却前失敗は既存driverの回収を維持します。
 
 | 段階 | 制限時間 |
 | --- | ---: |
@@ -259,7 +259,7 @@ Desktopは既存のsession leaseと単一workerで実入力を専有し、Scenar
 | 候補生成: Current / Nextのpublish・検査 | 各240秒 |
 | Full: 指定候補の検査・Current展開 | 240秒 |
 | 全test moduleの共有段階 | 1380秒 |
-| 既存データ起動 / 現行更新 / UIからの更新（SC-15A）の局所上限 | 180秒 / 240秒 / 240秒（共有期限を延長しない） |
+| 既存データ起動 / 現行更新 / UIからの更新（SC-15A）/ 更新の再起動失敗からの回復（SC-15C）の局所上限 | 180秒 / 240秒 / 240秒 / 240秒（共有期限を延長しない） |
 
 [VerificationPlan](../../../tests/BeMusicSeeker.TestSupport/Verification/VerificationPlan.cs)と[Runner](../../../tests/BeMusicSeeker.TestSupport/Verification/VerificationRunner.cs)が期限・選択を所有します。候補生成は存在しない専有絶対出力先の `v/`・`next/` に分離し、完成後だけ直下へ `catalog.json` を保存します。任意のmetadata同梱Currentも同じcatalogで保持します。Fullは検査済Currentをrun専有 `application/` に展開し、catalogとそのrootを子へ明示します。通常起動の実行体・assets・lang・nativeを同じinstallationへ揃え、profileはケース専有のままです。更新・故障fixtureの明示installationは維持します。候補指定が片方だけの場合は日常buildへ代替せず失敗します。consumerはcatalogと追跡された旧版identityを照合し、必要なケースでは所有TestWorkspaceへ展開します。再publish、別catalog探索、欠落入力の自動代替は行いません。詳細は[配布物の受渡し](../../../tools/BeMusicSeeker.Verify/README.md#配布物の受渡し)を参照します。
 
@@ -352,7 +352,7 @@ ACLは専有領域の実操作終端後に両DACLを復旧してからworkspace�
 | 共有hostのテーマ・意味別リソース | [`TestUiDispatcherHost`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestUiDispatcherHost.cs) | [`WpfThemeResourceTests`](../../../tests/BeMusicSeeker.Windows.Tests/Themes/WpfThemeResourceTests.cs)。Lightと実コンストラクターの意味別ブラシへの到達を確認する。 |
 | UI moduleの配置と終了所有 | [`UiModuleLifetime`](../../../tests/ModuleInitialization/UiModuleLifetime.cs)、[`TempDirectoryPublisher`](../../../BeMusicSeeker/TempDirectoryPublisher.cs) | 初期化・例外時を含む回収順序とlease解放は静的確認。[`WpfHostLifecycleTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/WpfHostLifecycleTests.cs) と共通probeの [`WpfHostLifecycleProbe`](../../../tests/Fixtures/WindowsProcessProbe/WpfHostLifecycleProbe.cs) は同じSupport hostを使い、子の生存中にHWND・実thread・temp sessionの消失を確認し、release後に全childと両pipeを回収する。 |
 | loopback HTTPの共有操作期限・独立cleanup、通知前のclient/server終端、実取消とpeer切断 | [`SingleRequestHttpServer`](../../../tests/BeMusicSeeker.TestSupport/Components/SingleRequestHttpServer.cs)、HTTPを使う各機能fixture | [`AppHttpClientTests`](../../../tests/BeMusicSeeker.Core.Tests/Runtime/AppHttpClientTests.cs) は有限二応答の未要求accept回収、取消済みcleanup tokenで未終端clientを成功扱いしないこと、補助producer正常終了後のclient先行故障、通知有無と同時終端・元故障、準備待機取消後の遅い結果・故障、GET/formの元要求取消とlocal解放前の実peer切断を確認する。PlaylistのURL acquisition/completionは、未終端処理の依存DB・設定をTestCleanupでも保持して非成功にすることをgateで確認する。Playlist/MainWindowは同じ期限・回収入口で既存の取得・保存・表示保証を保持する。 |
-| 公開旧版の適用・現行更新 | [Scenarios/Update](../../../tests/BeMusicSeeker.Scenarios.Tests/Update) | LegacyUpdaterDistributionMigrationTests / UpdaterPackageSyncTestsとSC-CurrentUpdateで実配布の適用・保存・再起動を確認する。UIの更新ダイアログからの提示・適用・別PIDの再起動と同じ配信での非循環は、[Desktop.E2E/Update](../../../tests/BeMusicSeeker.Desktop.E2E.Tests/Update)のSC-15Aが実UIAで確認する。 |
+| 公開旧版の適用・現行更新 | [Scenarios/Update](../../../tests/BeMusicSeeker.Scenarios.Tests/Update) | LegacyUpdaterDistributionMigrationTests / UpdaterPackageSyncTestsとSC-CurrentUpdateで実配布の適用・保存・再起動を確認する。UIの更新ダイアログからの提示・適用・別PIDの再起動と同じ配信での非循環は、[Desktop.E2E/Update](../../../tests/BeMusicSeeker.Desktop.E2E.Tests/Update)のSC-15Aが実UIAで確認する。更新ツールの再起動失敗から、前版への巻き戻し・失敗記録の公開・次の明示起動での通知と記録の消費・配信を本物のNextへ切り替えた次の更新までの連続した流れは、同じ場所のSC-15Cが実UIAで確認する。 |
 | 利用済み設定・既存DBの移行 | [Scenarios/Acceptance](../../../tests/BeMusicSeeker.Scenarios.Tests/Acceptance) | PublishedExistingDataAcceptanceTestsでStandalone/LR2の各2起動、意味保持・設定安定と元入力保持を確認する。 |
 | 予期しない所有モーダルの拒否 | [PublishedApplicationSession](../../../tests/BeMusicSeeker.TestSupport/Scenarios/PublishedApplicationSession.cs) | SC-ExistingData / SC-CurrentUpdate / SC-16が実所有Windowと通常終了を観測し、自動応答で異常を隠さない。schema確認と初期化失敗の通知は所有modalの観測で検出する。 |
 | 外部エンコーダー | [`BassAudioWriter`](../../../BeMusicSeeker/Ribbit/Media/BassAudioWriter.cs) | [`ExternalAudioEncoderSmokeTests`](../../../tests/BeMusicSeeker.Compatibility.Tests/Playback/ExternalAudioEncoderSmokeTests.cs) |

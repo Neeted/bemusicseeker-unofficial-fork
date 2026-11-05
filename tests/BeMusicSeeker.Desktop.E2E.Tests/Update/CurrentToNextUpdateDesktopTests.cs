@@ -9,6 +9,7 @@ using BeMusicSeeker.TestSupport.Processes;
 using BeMusicSeeker.TestSupport.Verification;
 using BeMusicSeeker.ViewModels;
 using FlaUI.Core.AutomationElements;
+using static BeMusicSeeker.Desktop.E2E.Tests.Fixtures.UpdateScenarioAssertions;
 
 namespace BeMusicSeeker.Desktop.E2E.Tests.Update;
 
@@ -56,6 +57,7 @@ public sealed class CurrentToNextUpdateDesktopTests
             DistributionCatalog catalog = await DistributionCatalog.ReadFromEnvironmentAsync(repository, deadline);
             Console.WriteLine($"受入入力: Current={catalog.Current.Version}, Next={catalog.Next.Version}, Next ZIP={catalog.Next.PackagePath}; ソースbuildの実行体とは別のcatalog配布を使用します。");
             fixture = await CurrentToNextUpdateFixture.CreateAsync(workspace, catalog, operation.Token, deadline);
+            _ = fixture.PublishNextPackage();
             string current = catalog.Current.Version;
             string next = catalog.Next.Version;
 
@@ -212,21 +214,6 @@ public sealed class CurrentToNextUpdateDesktopTests
         }
     }
 
-    private static bool IsStartupSuccess(ScenarioInitializationResult startup)
-        => startup.Outcome == StartupInitializationOutcome.Succeeded && startup.CompletionPublished
-            && startup.IsInitializationCompleted && startup.Failure is null;
-
-    private static void AssertStartupSucceeded(ScenarioInitializationResult startup)
-        => Assert.IsTrue(IsStartupSuccess(startup), $"実製品の初期化が成功していません: {startup}");
-
-    private static void AssertRequest(LoopbackUpdateFeed.FeedRequest request, string path)
-    {
-        Assert.AreEqual("GET", request.Method);
-        Assert.AreEqual(path, request.Path);
-        Assert.AreEqual(200, request.Status);
-        Assert.AreEqual(1, request.Generation);
-    }
-
     /// <summary>配信の全記録が、manifest(旧版)→package(全bytes送信済み)→manifest(新版)の3件だけであることを確認します。</summary>
     private static void AssertFeed(CurrentToNextUpdateFixture fixture, DistributionCatalog catalog)
     {
@@ -245,28 +232,5 @@ public sealed class CurrentToNextUpdateDesktopTests
 
         static void Step(IReadOnlyList<LoopbackUpdateFeed.FeedRequest> all)
             => Console.WriteLine("配信の要求: " + string.Join(" | ", all.Select(request => $"#{request.Sequence} {request.Method} {request.Target} -> {request.Status}")));
-    }
-
-    /// <summary>この配布コピーの実行ファイルから起動したprocessが残っていないことを確認します。</summary>
-    private static void AssertNoResidue(string appRoot)
-    {
-        var residue = new List<string>();
-        foreach (string name in new[] { "BeMusicSeeker", "BeMusicSeeker.Updater" })
-        {
-            foreach (Process process in Process.GetProcessesByName(name))
-            {
-                using (process)
-                {
-                    try
-                    {
-                        string? path = process.MainModule?.FileName;
-                        if (path is not null && path.StartsWith(appRoot, StringComparison.OrdinalIgnoreCase)) { residue.Add($"{process.Id}:{path}"); }
-                    }
-                    catch (System.ComponentModel.Win32Exception) { /* 終了済みまたは参照できないprocessは、この配布コピーの残留と判定できません。 */ }
-                    catch (InvalidOperationException) { /* 列挙中に終了したprocessです。 */ }
-                }
-            }
-        }
-        Assert.AreEqual(0, residue.Count, "配布コピーのprocessが残留しています: " + string.Join(", ", residue));
     }
 }

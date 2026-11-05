@@ -10,7 +10,8 @@ namespace BeMusicSeeker.Desktop.E2E.Tests.Update;
 /// <remarks>文言や構造位置では特定しません。予期しない所有modalは閉じず、失敗として報告します。</remarks>
 internal static class UpdateDialogUi
 {
-    private const string DialogId = "UpdateAvailableDialog";
+    /// <summary>更新ダイアログのAutomationIdです。他の所有modalとの区別に使います。</summary>
+    internal const string DialogId = "UpdateAvailableDialog";
 
     /// <summary>所有MainWindowの更新ダイアログを期限内に一意に見つけます。他の所有modalがあれば閉じず失敗にします。</summary>
     /// <param name="shouldAbort">真を返したら待機を失敗として打ち切る条件です。起動の失敗など、待っても出現しない場合に使います。</param>

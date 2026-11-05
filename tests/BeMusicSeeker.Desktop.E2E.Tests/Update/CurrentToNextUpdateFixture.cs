@@ -18,7 +18,7 @@ namespace BeMusicSeeker.Desktop.E2E.Tests.Update;
 /// 実配布のCurrentを専有コピーへ展開し、UIから次版へ更新する受入の起動前入力と、更新後の配置・設定・登録の照合を担います。
 /// </summary>
 /// <remarks>
-/// 入力は起動前だけに準備し、起動後に補充しません。profileは配布コピーの外に置き、配信はケース所有のloopbackです。
+/// 入力は起動前に準備します。配信内容の公開は呼出元の責任で、ケースが起動後に世代を切り替えることもできます。profileは配布コピーの外に置き、配信はケース所有のloopbackです。
 /// 配布ZIPを基準にした配置の照合は、更新先がNextでもCurrentへの巻き戻しでも使える形にしています。
 /// </remarks>
 internal sealed class CurrentToNextUpdateFixture : IAsyncDisposable
@@ -29,6 +29,8 @@ internal sealed class CurrentToNextUpdateFixture : IAsyncDisposable
     internal const string SentinelName = "sc15a-sentinel.txt";
     /// <summary>更新後に除去されるべき、旧管理ファイルの相対パスです。</summary>
     internal const string ObsoleteName = "sc15a-obsolete.txt";
+    /// <summary>旧管理ファイルの内容です。巻き戻し後に元のbytesで残っていることの照合に使います。</summary>
+    private static readonly byte[] ObsoleteBytes = new UTF8Encoding(false).GetBytes("obsolete managed file");
     private const string ManifestName = "update-managed-files.txt";
     private const string Language = "en-US";
 
@@ -64,22 +66,28 @@ internal sealed class CurrentToNextUpdateFixture : IAsyncDisposable
     internal IReadOnlyDictionary<string, byte[]> Sentinels { get; private set; } = new Dictionary<string, byte[]>();
     /// <summary>更新先のpackageのファイル名です。配信path・ダイアログの表示名と一致します。</summary>
     internal string NextPackageFileName { get; private set; } = string.Empty;
+    private string nextVersion = string.Empty;
+    private byte[] nextPackageBytes = [];
     /// <summary>manifestの更新配信path(配信の起点からの相対)です。</summary>
     internal const string ManifestPath = "update.json";
     /// <summary>配信するmanifestが示す配布ページのURLです。配信は応答せず、到達すれば404として記録します。</summary>
     internal string ReleasePageUrl { get; private set; } = string.Empty;
     /// <summary>test sessionへ渡す更新manifestのURLです。</summary>
     internal string UpdateManifestUrl => new Uri(Feed.BaseAddress, ManifestPath).AbsoluteUri;
-    /// <summary>更新先packageの配信URLです。</summary>
-    internal string PackageUrl => new Uri(Feed.BaseAddress, "packages/" + NextPackageFileName).AbsoluteUri;
     /// <summary>更新先packageの配信path(配信の起点からの相対)です。</summary>
-    internal string PackagePath => "packages/" + NextPackageFileName;
+    internal string PackagePath => PackagePathOf(NextPackageFileName);
+
+    /// <summary>指定したファイル名のpackageの配信path(配信の起点からの相対)です。</summary>
+    internal static string PackagePathOf(string fileName) => "packages/" + fileName;
+
+    /// <summary>指定したファイル名のpackageの配信URLです。</summary>
+    private string PackageUrlOf(string fileName) => new Uri(Feed.BaseAddress, PackagePathOf(fileName)).AbsoluteUri;
     /// <summary>起動する配布の実行ファイルです。</summary>
     internal string ExecutablePath => Path.Combine(AppRoot, "BeMusicSeeker.exe");
     /// <summary>profileの設定ファイルです。</summary>
     internal string UserConfigPath => Path.Combine(ProfileDirectory, "config", "user.config");
 
-    /// <summary>入力を完成させます。起動後に追加する入力はありません。</summary>
+    /// <summary>起動前の入力を完成させます。配信内容は公開せず、呼出元が <see cref="PublishNextPackage"/> または <see cref="PublishPackage"/> で公開します。</summary>
     internal static async Task<CurrentToNextUpdateFixture> CreateAsync(TestWorkspace workspace, DistributionCatalog catalog,
         CancellationToken operationToken, ProcessDeadline deadline)
     {
@@ -124,7 +132,7 @@ internal sealed class CurrentToNextUpdateFixture : IAsyncDisposable
             await File.WriteAllBytesAsync(path, bytes);
         }
         Sentinels = sentinels;
-        await File.WriteAllTextAsync(Path.Combine(AppRoot, ObsoleteName), "obsolete managed file", new UTF8Encoding(false));
+        await File.WriteAllBytesAsync(Path.Combine(AppRoot, ObsoleteName), ObsoleteBytes);
         await File.AppendAllTextAsync(Path.Combine(AppRoot, ManifestName), "\n" + ObsoleteName + "\n", new UTF8Encoding(false));
 
         LibraryRoot = workspace.GetPath("library");
@@ -157,17 +165,31 @@ internal sealed class CurrentToNextUpdateFixture : IAsyncDisposable
         LegacySettingsFixture.Write(UserConfigPath, Settings);
 
         // 配信はNextの実bytesとそこから計算したサイズ・hashだけを使う。catalogの申告と一致することも確認する。
-        byte[] package = await File.ReadAllBytesAsync(Catalog.Next.PackagePath);
-        string sha256 = Convert.ToHexStringLower(SHA256.HashData(package));
-        Assert.AreEqual(Catalog.Next.SizeBytes, package.LongLength);
-        Assert.AreEqual(Catalog.Next.Sha256, sha256, ignoreCase: true);
+        // 公開は入力の準備と分け、呼出元が最初に配る内容を選べるようにする。
+        nextPackageBytes = await File.ReadAllBytesAsync(Catalog.Next.PackagePath);
+        Assert.AreEqual(Catalog.Next.SizeBytes, nextPackageBytes.LongLength);
+        Assert.AreEqual(Catalog.Next.Sha256, Convert.ToHexStringLower(SHA256.HashData(nextPackageBytes)), ignoreCase: true);
         NextPackageFileName = Path.GetFileName(Catalog.Next.PackagePath);
+        nextVersion = next.ToString(4);
         ReleasePageUrl = new Uri(Feed.BaseAddress, "releases/v" + next).AbsoluteUri;
-        string manifest = UpdateFeedManifest.Create(next.ToString(4), ReleasePageUrl, "SC-15A next", NextPackageFileName, PackageUrl, sha256, package.LongLength);
-        Feed.Publish(new Dictionary<string, byte[]>
+    }
+
+    /// <summary>Nextの実bytesを、実サイズ・実SHA-256のmanifestとともに新しい世代として配信します。</summary>
+    /// <returns>公開した世代番号です。</returns>
+    internal int PublishNextPackage() => PublishPackage(NextPackageFileName, nextPackageBytes, "update acceptance next");
+
+    /// <summary>
+    /// 指定したファイル名・bytesのpackageを、そのbytesから計算したサイズ・SHA-256のmanifest(版=Next)とともに新しい世代として配信します。
+    /// </summary>
+    /// <returns>公開した世代番号です。</returns>
+    internal int PublishPackage(string fileName, byte[] package, string label)
+    {
+        string sha256 = Convert.ToHexStringLower(SHA256.HashData(package));
+        string manifest = UpdateFeedManifest.Create(nextVersion, ReleasePageUrl, label, fileName, PackageUrlOf(fileName), sha256, package.LongLength);
+        return Feed.Publish(new Dictionary<string, byte[]>
         {
             [ManifestPath] = Encoding.UTF8.GetBytes(manifest),
-            [PackagePath] = package
+            [PackagePathOf(fileName)] = package
         });
     }
 
@@ -187,25 +209,48 @@ internal sealed class CurrentToNextUpdateFixture : IAsyncDisposable
     }
 
     /// <summary>
-    /// 配布ZIPを基準に、installationの配置を照合します。管理一覧の全パスが存在して同じentryのhashと一致し、
+    /// 配布ZIPを基準に、更新が確定したinstallationの配置を照合します。管理一覧の全パスが存在して同じentryのhashと一致し、
     /// 管理一覧自身のパス集合が配布のものと一致し、更新前に追記した旧管理ファイルが除去されていることを確認します。
     /// </summary>
     /// <param name="zipPath">基準にする配布ZIPです。</param>
-    /// <param name="expectObsoleteFileRemoved">更新前に追記した旧管理ファイルが除去されている前提かどうかです。更新が適用されない(巻き戻しなど)基準では false にします。</param>
-    internal void AssertInstallationMatches(string zipPath, bool expectObsoleteFileRemoved = true)
+    internal void AssertInstallationMatches(string zipPath)
+    {
+        string[] zipManaged = AssertManagedFilesMatchZip(zipPath, [], "installationの管理一覧が配布の一覧と一致しません。");
+        Assert.IsFalse(File.Exists(Path.Combine(AppRoot, ObsoleteName)), "旧管理ファイルが除去されていません。");
+        Assert.IsFalse(zipManaged.Contains(ObsoleteName, StringComparer.OrdinalIgnoreCase), "配布の管理一覧に旧管理ファイルがあります。");
+    }
+
+    /// <summary>
+    /// 更新が確定せず更新前の構成へ戻った後のinstallationを、更新前の配布ZIPを基準に照合します。
+    /// 管理一覧のパス集合が「配布の一覧 + 旧管理ファイル」と一致し、配布の各管理ファイルが同じentryのhashと一致し、
+    /// 旧管理ファイルが元のbytesで残り、更新先のpackage専用ファイルが存在しないことを確認します。
+    /// </summary>
+    /// <param name="zipPath">更新前の配布ZIPです。</param>
+    /// <param name="packageOnlyFileName">更新先のpackageだけが持つファイルの相対パスです。巻き戻し後は存在してはいけません。</param>
+    internal void AssertInstallationRolledBackTo(string zipPath, string packageOnlyFileName)
+    {
+        string[] zipManaged = AssertManagedFilesMatchZip(zipPath, [ObsoleteName], "巻き戻し後の管理一覧が「更新前の配布の一覧 + 旧管理ファイル」と一致しません。");
+        Assert.IsFalse(zipManaged.Contains(packageOnlyFileName, StringComparer.OrdinalIgnoreCase), "更新前の配布の管理一覧にpackage専用ファイルがあります。");
+        string obsolete = Path.Combine(AppRoot, ObsoleteName);
+        Assert.IsTrue(File.Exists(obsolete), "旧管理ファイルが復元されていません。");
+        CollectionAssert.AreEqual(ObsoleteBytes, File.ReadAllBytes(obsolete), "旧管理ファイルのbytesが元と異なります。");
+        Assert.IsFalse(File.Exists(Path.Combine(AppRoot, packageOnlyFileName.Replace('/', '\\'))), "更新先のpackage専用ファイルが巻き戻し後に残っています。");
+    }
+
+    private string[] AssertManagedFilesMatchZip(string zipPath, IReadOnlyCollection<string> additionalManagedPaths, string listMessage)
     {
         IReadOnlyDictionary<string, string> expected = ReadZipHashes(zipPath);
         string[] managed = ReadManifestPaths(File.ReadAllText(Path.Combine(AppRoot, ManifestName)));
         string[] zipManaged = ReadZipManifestPaths(zipPath);
-        CollectionAssert.AreEquivalent(zipManaged, managed, "installationの管理一覧が配布の一覧と一致しません。");
+        string[] expectedPaths = [.. zipManaged, .. additionalManagedPaths];
+        CollectionAssert.AreEquivalent(expectedPaths, managed, listMessage);
         foreach (string relative in zipManaged)
         {
             string path = Path.Combine(AppRoot, relative.Replace('/', '\\'));
             Assert.IsTrue(File.Exists(path), "管理ファイルが存在しません: " + relative);
             Assert.AreEqual(expected[relative], HashFile(path), "管理ファイルが配布と一致しません: " + relative);
         }
-        if (expectObsoleteFileRemoved) { Assert.IsFalse(File.Exists(Path.Combine(AppRoot, ObsoleteName)), "旧管理ファイルが除去されていません。"); }
-        Assert.IsFalse(zipManaged.Contains(ObsoleteName, StringComparer.OrdinalIgnoreCase), "配布の管理一覧に旧管理ファイルがあります。");
+        return zipManaged;
     }
 
     /// <summary>installationの`BeMusicSeeker.exe`が、指定した配布ZIPの同じentryと一致するかを返します。</summary>
