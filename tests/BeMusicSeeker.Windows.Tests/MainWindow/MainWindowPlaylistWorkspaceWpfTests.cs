@@ -7307,6 +7307,11 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 initialization,
                 "MainWindowPlaylistWorkspaceWpfTests.main-window-initialization");
             Assert.IsTrue(viewModel.IsInitializationCompleted);
+            // 初期化完了後も、受理済みの起動後保守(catalog hydrationやinstallable maintenance)が背景で共通受付を取得する。
+            // 後続の明示的なライブラリ操作が受付Busyにならないよう、その実終端を観測してからfixtureを渡す。
+            SettingsStartupTestFixture.AwaitStartupBackgroundCompletionOnDispatcher(
+                viewModel,
+                "MainWindowPlaylistWorkspaceWpfTests.startup-background-terminal");
 
             window = ownership.CreateWindow(() => new MainWindow(
                 viewModel,
