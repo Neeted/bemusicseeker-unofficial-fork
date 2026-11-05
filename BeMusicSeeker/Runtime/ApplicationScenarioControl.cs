@@ -190,15 +190,15 @@ internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
                         .Task.Unwrap().ConfigureAwait(false);
                 }
             }
-            catch (Exception failure) when (!stopping.IsCancellationRequested || request is ScenarioPlaylistSqlCommand or ScenarioSettingsSectionCommand)
+            catch (Exception failure) when (!stopping.IsCancellationRequested || KeepsResponseThroughShutdown(request))
             { response = new ScenarioCommandFailed(request.RequestId, ScenarioFailure.FromException(failure)); }
             // 復元・環境確定が通常終了を要求しても、同じ実Task終端の応答をDisposeが待つcommandから返します。
-            await SendAsync(response, drainTerminal: request is ScenarioPlaylistSqlCommand or ScenarioSettingsSectionCommand).ConfigureAwait(false);
+            await SendAsync(response, drainTerminal: KeepsResponseThroughShutdown(request)).ConfigureAwait(false);
             afterAcknowledged?.Invoke();
         }
-        catch (OperationCanceledException) when (stopping.IsCancellationRequested && request is not ScenarioPlaylistSqlCommand and not ScenarioSettingsSectionCommand) { }
-        catch (IOException) when (stopping.IsCancellationRequested && request is not ScenarioPlaylistSqlCommand and not ScenarioSettingsSectionCommand) { }
-        catch (ObjectDisposedException) when (stopping.IsCancellationRequested && request is not ScenarioPlaylistSqlCommand and not ScenarioSettingsSectionCommand) { }
+        catch (OperationCanceledException) when (stopping.IsCancellationRequested && !KeepsResponseThroughShutdown(request)) { }
+        catch (IOException) when (stopping.IsCancellationRequested && !KeepsResponseThroughShutdown(request)) { }
+        catch (ObjectDisposedException) when (stopping.IsCancellationRequested && !KeepsResponseThroughShutdown(request)) { }
     }
 
     private async Task<ScenarioMessage> ExecuteAsync(ScenarioCommand request)
@@ -228,6 +228,8 @@ internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
         }
         if (request is ScenarioSnapshotCommand)
         { return new ScenarioSnapshotCompleted(request.RequestId, CaptureSnapshot(model)); }
+        // 起動完了前から受け付けます。更新確認の終端は初期化完了とは独立です。
+        if (request is ScenarioStartupUpdateCommand) { return await ObserveStartupUpdateAsync(model, request.RequestId); }
         if (!model.IsInitializationCompleted)
         { throw new InvalidOperationException("The library is not ready for this command."); }
         if (request is ScenarioPlaybackCommand playbackCommand) { return await ExecutePlaybackAsync(model, playbackCommand); }

@@ -162,6 +162,7 @@ public partial class App : System.Windows.Application
                     settingsDialogService: scenarioControl?.Dialogs,
                     fileDbMutationDialogService: scenarioControl?.Dialogs,
                     playlistWorkspaceDialogService: scenarioControl?.Dialogs,
+                    externalShellGateway: scenarioControl?.ExternalShell,
                     rootFileEnumerator: applicationRuntimeOptions.TestSession == null ? null : new FastRootFileEnumerator(),
                     chartFileScanner: applicationRuntimeOptions.TestSession == null ? null : new FastDirectoryFileScanner(),
                     uiScheduler: new WpfUiScheduler(() => base.Dispatcher),

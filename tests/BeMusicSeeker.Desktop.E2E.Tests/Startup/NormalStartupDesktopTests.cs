@@ -150,14 +150,26 @@ public sealed class NormalStartupDesktopTests
     {
         string[] expectedKeys = [.. expected.Select(chart => Key(chart.Path, chart.Title)).Order(StringComparer.Ordinal)];
         string[] actual = [];
+        Exception? lastUnavailable = null;
         bool matched = Retry.WhileFalse(() =>
         {
-            AutomationElement[] rows = table.FindAllChildren(cf => cf.ByControlType(ControlType.ListItem));
-            actual = [.. rows.Select(row => row.IsOffscreen ? "<offscreen>" : Key(DecodePath(row.AutomationId), row.Name)).Order(StringComparer.Ordinal)];
-            return actual.SequenceEqual(expectedKeys, StringComparer.Ordinal);
+            try
+            {
+                AutomationElement[] rows = table.FindAllChildren(cf => cf.ByControlType(ControlType.ListItem));
+                actual = [.. rows.Select(row => row.IsOffscreen ? "<offscreen>" : Key(DecodePath(row.AutomationId), row.Name)).Order(StringComparer.Ordinal)];
+                return actual.SequenceEqual(expectedKeys, StringComparer.Ordinal);
+            }
+            // 一覧の切替え中は行が消える瞬間がある。期限内の再観測で待ち、他の例外は失敗にする。
+            catch (Exception exception) when (IsElementNotAvailable(exception)) { lastUnavailable = exception; return false; }
         }, timeout: deadline.Remaining, throwOnTimeout: false, ignoreException: false).Success;
-        Assert.IsTrue(matched, message + " expected=[" + string.Join(" | ", expectedKeys) + "] actual=[" + string.Join(" | ", actual) + "]");
+        Assert.IsTrue(matched, message + " expected=[" + string.Join(" | ", expectedKeys) + "] actual=[" + string.Join(" | ", actual) + "]"
+            + (lastUnavailable is null ? string.Empty : " lastUnavailable=" + lastUnavailable));
     }
+
+    /// <summary>UIA_E_ELEMENTNOTAVAILABLE(0x80040201)または同等のFlaUI例外かどうかを返します。</summary>
+    private static bool IsElementNotAvailable(Exception exception)
+        => exception is FlaUI.Core.Exceptions.ElementNotAvailableException
+            || exception is System.Runtime.InteropServices.COMException { HResult: unchecked((int)0x80040201) };
 
     private static string Key(string path, string title) => Path.GetFullPath(path).ToUpperInvariant() + "|" + title;
 

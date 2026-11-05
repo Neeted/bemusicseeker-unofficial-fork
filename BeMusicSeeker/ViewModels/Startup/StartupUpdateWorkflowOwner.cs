@@ -14,6 +14,17 @@ internal enum StartupUpdateWorkflowOutcome
     Closing
 }
 
+/// <summary>起動時更新確認が開始前か、実行中か、終端済みかを表します。</summary>
+internal enum StartupUpdateWorkflowState
+{
+    /// <summary>まだ開始していません。閉鎖要求で開始しないまま終わる場合も含みます。</summary>
+    NotStarted,
+    /// <summary>開始済みで、終端の受領を確定していません。</summary>
+    Running,
+    /// <summary>終端の受領を確定済みです。</summary>
+    Terminal
+}
+
 internal sealed class StartupUpdateWorkflowCompletionReceipt
 {
     internal StartupUpdateWorkflowCompletionReceipt(
@@ -108,6 +119,8 @@ internal sealed class StartupUpdateWorkflowOwner
 
     private bool terminalPending;
 
+    private StartupUpdateWorkflowCompletionReceipt terminalReceipt;
+
     private TaskCompletionSource<bool> shutdownPreparationPortCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     internal StartupUpdateWorkflowOwner(
@@ -174,6 +187,27 @@ internal sealed class StartupUpdateWorkflowOwner
     }
 
     internal bool IsIdle => !IsActive;
+
+    /// <summary>
+    /// 更新確認の開始状態と、終端していればその実receiptを同じlock下で一貫して返します。
+    /// </summary>
+    /// <remarks>
+    /// 受領はlock下で確定してから終端通知を発行するため、<see cref="TerminalPublished"/>の購読時機に依存せず、
+    /// 購読より先に終端した更新確認も後から観測できます。検証起動の制御経路が、開始前の状態を
+    /// 終端種別で補わずに失敗として扱うために使います。終端した受領は後続の呼出しでも変わりません。
+    /// </remarks>
+    /// <param name="receipt">状態が<see cref="StartupUpdateWorkflowState.Terminal"/>のときだけ非nullの実receiptです。</param>
+    /// <returns>現在の開始状態です。</returns>
+    internal StartupUpdateWorkflowState CaptureState(out StartupUpdateWorkflowCompletionReceipt receipt)
+    {
+        lock (syncRoot)
+        {
+            receipt = terminalReceipt;
+            return terminalReceipt != null
+                ? StartupUpdateWorkflowState.Terminal
+                : started ? StartupUpdateWorkflowState.Running : StartupUpdateWorkflowState.NotStarted;
+        }
+    }
 
     internal bool IsShutdownPreparationStarted
     {
@@ -547,6 +581,7 @@ internal sealed class StartupUpdateWorkflowOwner
         Exception exception = null,
         bool shutdownPrepared = false)
     {
+        StartupUpdateWorkflowCompletionReceipt receipt;
         lock (syncRoot)
         {
             if (!active || !ReferenceEquals(activeRun, run))
@@ -555,10 +590,12 @@ internal sealed class StartupUpdateWorkflowOwner
             }
             active = false;
             activeRun = null;
+            // 終端通知より先に、観測用の保持値を同じlock下で確定します。
+            receipt = new StartupUpdateWorkflowCompletionReceipt(run.Generation, outcome, exception, shutdownPrepared);
+            terminalReceipt = receipt;
         }
         idleCompletion.TrySetResult(true);
 
-        var receipt = new StartupUpdateWorkflowCompletionReceipt(run.Generation, outcome, exception, shutdownPrepared);
         if (!DispatchToUi(() =>
         {
             try

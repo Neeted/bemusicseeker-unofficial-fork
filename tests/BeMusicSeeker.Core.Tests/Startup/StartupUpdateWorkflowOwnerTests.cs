@@ -59,6 +59,53 @@ public sealed class StartupUpdateWorkflowOwnerTests
     }
 
     /// <summary>
+    /// 保証：開始状態と終端の実receiptは、終端通知の発行前から同じ値で保持される。購読の時機に依らず、
+    /// 開始前を終端として補わず、終端後の照会も通知と同じreceiptを返す。
+    /// </summary>
+    [TestMethod]
+    public async Task CaptureState_RetainsTheRealReceiptBeforeTerminalNotification()
+    {
+        var gate = new TaskCompletionSource<UpdateCheckResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        StartupUpdateWorkflowOwner owner = CreateOwner(() => gate.Task);
+        StartupUpdateWorkflowCompletionReceipt? published = null;
+        StartupUpdateWorkflowCompletionReceipt? retainedDuringNotification = null;
+        owner.TerminalPublished += receipt =>
+        {
+            published = receipt;
+            owner.CaptureState(out retainedDuringNotification);
+        };
+
+        Assert.AreEqual(StartupUpdateWorkflowState.NotStarted, owner.CaptureState(out StartupUpdateWorkflowCompletionReceipt? none));
+        Assert.IsNull(none);
+        Assert.IsTrue(owner.Start());
+        Assert.AreEqual(StartupUpdateWorkflowState.Running, owner.CaptureState(out none));
+        Assert.IsNull(none);
+
+        gate.SetResult(UpdateCheckResult.NoUpdate("1.0.0.0"));
+        await WaitForCompletion(owner);
+
+        Assert.AreEqual(StartupUpdateWorkflowState.Terminal, owner.CaptureState(out StartupUpdateWorkflowCompletionReceipt? retained));
+        Assert.IsNotNull(retained);
+        Assert.AreEqual(StartupUpdateWorkflowOutcome.NoUpdate, retained.Outcome);
+        Assert.AreSame(published, retained);
+        Assert.AreSame(retained, retainedDuringNotification, "終端通知の発行時点で、保持済みの受領を照会できる必要があります。");
+    }
+
+    /// <summary>
+    /// 保証：開始せずに閉鎖された所有者は終端を持たない。閉鎖後の開始拒否を終端種別へ読み替えない。
+    /// </summary>
+    [TestMethod]
+    public void CaptureState_DoesNotInventATerminalForAClosedUnstartedWorkflow()
+    {
+        StartupUpdateWorkflowOwner owner = CreateOwner(() => Task.FromResult(UpdateCheckResult.NoUpdate("1.0.0.0")));
+        owner.NotifyClosing();
+
+        Assert.IsFalse(owner.Start());
+        Assert.AreEqual(StartupUpdateWorkflowState.NotStarted, owner.CaptureState(out StartupUpdateWorkflowCompletionReceipt? receipt));
+        Assert.IsNull(receipt);
+    }
+
+    /// <summary>
     /// 保証：journal・receiptなしで同期ロックを排他保持する新版起動時も実清掃から更新なし終端へ一度進み、
     /// lock/currentを保持して古いdownloadsを回収する。清掃の省略とロック解放待ちによる停滞を検出する。
     /// </summary>

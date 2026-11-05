@@ -3,6 +3,7 @@ using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.Runtime;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
@@ -174,6 +175,45 @@ public sealed class ApplicationScenarioObservationTests
             Assert.IsInstanceOfType<ScenarioCommandFailed>(await peer.Send(new ScenarioInitialPlaylistSyncCommand(1)));
             model.PlaylistWorkspace.QueueExternalPlaylistSync("Initialize", false, true, 0);
             Assert.IsInstanceOfType<ScenarioCommandFailed>(await peer.Send(new ScenarioInitialPlaylistSyncCommand(2)));
+        });
+
+    /// <summary>
+    /// 更新確認の終端観測が、開始前の要求を失敗にし、実行中の要求を実終端まで保留し、終端後の要求にも同じ実receiptを返すことを確認します。
+    /// 開始前を終端種別で補う誤り、終端の種別・失敗を落とす誤り、終端後の要求で受領を失う誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void StartupUpdateObservationReturnsOnlyTheRetainedRealReceipt()
+        => Run(async (model, peer) =>
+        {
+            // Runは更新確認を開始させない状態にするため、開始前の要求は終端種別を作らず失敗する。
+            var notStarted = (ScenarioCommandFailed)await peer.Send(new ScenarioStartupUpdateCommand(1));
+            StringAssert.Contains(notStarted.Failure.Message, "has not started", "未開始が失敗の理由でなければなりません。");
+            var gate = new TaskCompletionSource<UpdateCheckResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var owner = new StartupUpdateWorkflowOwner(() => gate.Task, _ => Task.FromResult(string.Empty),
+                _ => throw new InvalidOperationException("Unexpected updater launch."), () => { }, _ => { },
+                action => Task.Run(action), action => action());
+            // 実modelの更新確認は通常構成では開始状態を制御できないため、観測経路を変えずにownerだけを差し替えます。
+            // setterはprivateなので限定反射を使い、存在しなければ前提の崩れとして失敗させます。
+            (typeof(MainWindowViewModel).GetProperty(nameof(MainWindowViewModel.StartupUpdateWorkflow),
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)
+                ?? throw new MissingMemberException(nameof(MainWindowViewModel), nameof(MainWindowViewModel.StartupUpdateWorkflow)))
+                .SetValue(model, owner);
+            var replacedNotStarted = (ScenarioCommandFailed)await peer.Send(new ScenarioStartupUpdateCommand(2));
+            StringAssert.Contains(replacedNotStarted.Failure.Message, "has not started", "未開始が失敗の理由でなければなりません。");
+            Assert.IsTrue(owner.Start());
+            await peer.Write(new ScenarioStartupUpdateCommand(3));
+            // 同じreaderの後続要求が先に応答した時点で、実行中の要求は終端まで保留されている。
+            Assert.IsInstanceOfType<ScenarioTableStateCompleted>(await peer.Send(new ScenarioTableStateCommand(4)));
+            gate.SetException(new InvalidOperationException("startup-update-check-failure"));
+            var running = (ScenarioStartupUpdateCompleted)await peer.Read();
+            Assert.AreEqual(3L, running.RequestId);
+            Assert.AreEqual(StartupUpdateWorkflowOutcome.Failed, running.Outcome);
+            Assert.IsFalse(running.ShutdownPrepared);
+            Assert.AreEqual("startup-update-check-failure", running.Failure?.Message);
+            var terminal = (ScenarioStartupUpdateCompleted)await peer.Send(new ScenarioStartupUpdateCommand(5));
+            Assert.AreEqual(StartupUpdateWorkflowOutcome.Failed, terminal.Outcome);
+            Assert.AreEqual("startup-update-check-failure", terminal.Failure?.Message);
+            Assert.AreEqual(0, terminal.ExternalShell.Length);
         });
 
     private static void Run(Func<MainWindowViewModel, Peer, Task> body, MainWindowViewModel? preparedModel = null)

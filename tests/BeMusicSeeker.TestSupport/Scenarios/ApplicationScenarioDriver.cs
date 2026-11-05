@@ -216,12 +216,7 @@ internal sealed partial class ApplicationScenarioDriver : IAsyncDisposable
     /// <summary>環境確認の実到達後、ACK送信完了から回答を解放し、同一Jobの後継へ一回だけ接続します。</summary>
     internal async Task<ScenarioSettingsSectionCompleted> RestartEnvironmentAsync(string songDb, string configPath, ProcessDeadline deadline)
     {
-        lock (exitExpectationGate)
-        {
-            if (restartExpected || rebound || naturalExitExpected || closeRequested || readerTerminated || readFailure is not null || unansweredRequestFailure is not null || peerExit.IsCompleted)
-            { throw new InvalidOperationException("再起動の期待を登録できません。"); }
-            restartExpected = true;
-        }
+        ExpectRestart();
         Task<ScenarioSettingsSectionCompleted> operation = SettingsSectionAsync(ScenarioSettingsSectionAction.DetailsRestart, songDb, configPath, deadline);
         try
         {
@@ -243,6 +238,37 @@ internal sealed partial class ApplicationScenarioDriver : IAsyncDisposable
             if (operation.IsFaulted) { _ = operation.Exception; }
             throw;
         }
+    }
+
+    /// <summary>
+    /// 実UI入力より先に、外部要因による再起動の期待期間を同期登録します。既知の終了・通信失敗・登録済みの期待を追認しません。
+    /// </summary>
+    /// <remarks>
+    /// 旧processが応答公開より先に退出しても、未応答の要求が残らない限り通信故障にしません。後継への接続は
+    /// <see cref="WaitForRestartAsync"/>で一回だけ行います。
+    /// </remarks>
+    internal void ExpectRestart()
+    {
+        lock (exitExpectationGate)
+        {
+            if (restartExpected || rebound || naturalExitExpected || closeRequested || readerTerminated || readFailure is not null || unansweredRequestFailure is not null || peerExit.IsCompleted)
+            { throw new InvalidOperationException("再起動の期待を登録できません。"); }
+            restartExpected = true;
+        }
+    }
+
+    /// <summary>
+    /// 登録済みの再起動で、旧rootのexit 0と旧readerの終端、未応答なしを確認し、所有Job内で生存する別PIDの後継へ一回だけ接続します。
+    /// </summary>
+    /// <returns>後継helloで保持した実processのPIDと開始時刻です。wireの申告値は使いません。</returns>
+    internal async Task<(int ProcessId, DateTime StartTime)> WaitForRestartAsync(ProcessDeadline deadline)
+    {
+        lock (exitExpectationGate)
+        {
+            if (!restartExpected || rebound) { throw new InvalidOperationException("再起動の期待がないか、既に後継へ接続済みです。"); }
+        }
+        await RebindAfterRestartAsync(deadline).ConfigureAwait(false);
+        return (ProcessId, successorStartTime ?? throw new InvalidOperationException("後継の開始時刻がありません。"));
     }
 
     private async Task RebindAfterRestartAsync(ProcessDeadline deadline)
@@ -346,6 +372,13 @@ internal sealed partial class ApplicationScenarioDriver : IAsyncDisposable
     /// <summary>行・選択の投影を発生させずに現在の表示状態を読みます。</summary>
     internal Task<ScenarioTableStateCompleted> TableStateAsync(ProcessDeadline deadline)
         => RequestAsync<ScenarioTableStateCompleted>(id => new ScenarioTableStateCommand(id), deadline);
+
+    /// <summary>
+    /// 起動時の更新確認の実終端を取得します。未開始なら失敗し、終端種別を補いません。起動完了前から要求できます。
+    /// </summary>
+    /// <remarks>更新による終了へ向かう途中でも、製品は確定済みの応答を配送します。</remarks>
+    internal Task<ScenarioStartupUpdateCompleted> WaitForStartupUpdateAsync(ProcessDeadline deadline)
+        => RequestAsync<ScenarioStartupUpdateCompleted>(id => new ScenarioStartupUpdateCommand(id), deadline);
 
     /// <summary>Attachから捕捉した初回同期の実Taskとreceiptだけを一回消費します。</summary>
     internal Task<ScenarioInitialPlaylistSyncCompleted> WaitForInitialPlaylistSyncAsync(ProcessDeadline deadline)

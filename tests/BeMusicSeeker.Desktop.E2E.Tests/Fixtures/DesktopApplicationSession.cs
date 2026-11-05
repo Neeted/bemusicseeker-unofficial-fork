@@ -14,7 +14,7 @@ namespace BeMusicSeeker.Desktop.E2E.Tests.Fixtures;
 internal sealed class DesktopApplicationSession : IAsyncDisposable
 {
     private readonly ApplicationScenarioDriver driver;
-    private readonly Application attached;
+    private Application attached;
 
     private DesktopApplicationSession(ApplicationScenarioDriver driver, Application attached, UIA3Automation automation, Window window)
     {
@@ -27,7 +27,7 @@ internal sealed class DesktopApplicationSession : IAsyncDisposable
     /// <summary>このsessionだけが所有するUIA3接続です。</summary>
     internal UIA3Automation Automation { get; }
     /// <summary>所有PID内で一意と確認した、可視の実製品Windowです。</summary>
-    internal Window Window { get; }
+    internal Window Window { get; private set; }
 
     /// <summary>既存のtyped観測と期待自然終了を使うための、sessionが所有するdriverです。呼出元では破棄しません。</summary>
     internal ApplicationScenarioDriver Driver => driver;
@@ -57,11 +57,23 @@ internal sealed class DesktopApplicationSession : IAsyncDisposable
 
     /// <summary>初期化完了を待たず、既存driverの接続と同じ所有PIDのMainWindow取得まで進めます。</summary>
     /// <remarks>起動時確認modalの実操作に使います。返却だけでは起動成功を意味せず、呼出元が実初期化または期待退出を観測します。</remarks>
-    internal static async Task<DesktopApplicationSession> StartConnectedAsync(DesktopPlaylistFixture fixture, string manifestPath,
+    internal static Task<DesktopApplicationSession> StartConnectedAsync(DesktopPlaylistFixture fixture, string manifestPath,
         string caseId, ProcessDeadline deadline)
+        => StartConnectedAsync(DesktopPlaylistFixture.ExecutablePath, fixture.ProfileDirectory, manifestPath, caseId,
+            fixture.UpdateManifestUrl, deadline);
+
+    /// <summary>
+    /// 明示した実行ファイル・profile・更新URLでtest sessionを起動し、初期化完了を待たず所有PIDのMainWindow取得まで進めます。
+    /// </summary>
+    /// <remarks>
+    /// 展開した配布物のように、日常buildと異なる専有installationを起動するケースが使います。
+    /// 返却だけでは起動成功を意味せず、呼出元が実初期化または期待退出を観測します。
+    /// </remarks>
+    internal static async Task<DesktopApplicationSession> StartConnectedAsync(string executablePath, string profileDirectory,
+        string manifestPath, string caseId, string updateManifestUrl, ProcessDeadline deadline)
     {
-        ApplicationScenarioDriver driver = await ApplicationScenarioDriver.StartAsync(DesktopPlaylistFixture.ExecutablePath,
-            fixture.ProfileDirectory, manifestPath, caseId, fixture.UpdateManifestUrl, deadline).ConfigureAwait(false);
+        ApplicationScenarioDriver driver = await ApplicationScenarioDriver.StartAsync(executablePath,
+            profileDirectory, manifestPath, caseId, updateManifestUrl, deadline).ConfigureAwait(false);
         Application? attached = null;
         UIA3Automation? automation = null;
         try
@@ -95,6 +107,33 @@ internal sealed class DesktopApplicationSession : IAsyncDisposable
         }, timeout: deadline.Remaining, throwOnTimeout: true, ignoreException: false,
             timeoutMessage: "所有PIDの実MainWindowへ接続できませんでした。").Result
             ?? throw new InvalidOperationException("所有PIDのMainWindowがありません。");
+
+    /// <summary>
+    /// 外部要因の再起動を<see cref="ApplicationScenarioDriver.ExpectRestart"/>で登録済みの前提で、driverの後継接続を待ち、
+    /// FlaUIを後継PIDへ付け直して後継のMainWindowを一意に取得します。
+    /// </summary>
+    /// <remarks>
+    /// 旧processのexit 0・所有Job内の別PIDの確認はdriverが担います。旧processのUIA参照は、後継への接続とMainWindowの取得に成功した後に解放します。取得に失敗した場合は新しい接続だけを解放します。
+    /// </remarks>
+    /// <returns>後継の実PIDと開始時刻です。</returns>
+    internal async Task<(int ProcessId, DateTime StartTime)> RebindAfterRestartAsync(ProcessDeadline deadline)
+    {
+        (int ProcessId, DateTime StartTime) successor = await driver.WaitForRestartAsync(deadline).ConfigureAwait(false);
+        Application previous = attached;
+        var next = Application.Attach(successor.ProcessId);
+        try
+        {
+            using var observed = System.Diagnostics.Process.GetProcessById(successor.ProcessId);
+            Window = FindMainWindow(next, Automation, () => observed.HasExited, deadline);
+            attached = next;
+        }
+        catch { next.Dispose(); throw; }
+        previous.Dispose();
+        return successor;
+    }
+
+    /// <summary>接続中の所有PIDで、可視な最上位Windowを列挙します。予期しない複数Windowの検出に使います。</summary>
+    internal Window[] VisibleTopLevelWindows() => [.. attached.GetAllTopLevelWindows(Automation).Where(candidate => !candidate.IsOffscreen)];
 
     /// <summary>通常Closeから実退出・両pipe・全childの完了まで、既存OwnedProcess境界で待ちます。</summary>
     internal Task CloseAsync(ProcessDeadline deadline) => driver.CloseAsync(deadline);

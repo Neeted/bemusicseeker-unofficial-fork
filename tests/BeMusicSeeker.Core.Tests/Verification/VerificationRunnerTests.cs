@@ -1203,7 +1203,7 @@ public sealed class VerificationRunnerTests
                 IEnumerable<string> names = name switch
                 {
                     "Scenarios" => ScenarioIds.Select(id => $"[{id}] report fixture"),
-                    "Desktop.E2E" => new[] { "[DT-01] search", "[DT-02] drop", "[DT-02] schema", "[DT-03] virtual row", "[SC-16] normal startup" },
+                    "Desktop.E2E" => new[] { "[DT-01] search", "[DT-02] drop", "[DT-02] schema", "[DT-03] virtual row", "[SC-16] normal startup", "[SC-15A] update" },
                     "Compatibility" => CompatibilityNames,
                     "Performance" => PerformanceNames,
                     _ => ["report fixture"],

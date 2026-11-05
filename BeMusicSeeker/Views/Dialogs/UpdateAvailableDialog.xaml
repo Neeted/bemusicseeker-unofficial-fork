@@ -4,6 +4,7 @@
         xmlns:views="clr-namespace:BeMusicSeeker.Views"
         xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels"
         Title="{Binding Title}"
+        AutomationProperties.AutomationId="UpdateAvailableDialog"
         Width="560"
         SizeToContent="Height"
         MinWidth="500"
@@ -31,13 +32,14 @@
         <RowDefinition Height="Auto" />
       </Grid.RowDefinitions>
       <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding CurrentVersionLabel}" Margin="0,0,8,4" />
-      <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding CurrentVersionText}" Margin="0,0,0,4" />
+      <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding CurrentVersionText}" Margin="0,0,0,4" AutomationProperties.AutomationId="UpdateCurrentVersion" />
       <TextBlock Grid.Row="1" Grid.Column="0" Text="{Binding LatestVersionLabel}" Margin="0,0,8,0" />
-      <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding LatestVersionText}" />
+      <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding LatestVersionText}" AutomationProperties.AutomationId="UpdateLatestVersion" />
     </Grid>
 
     <GroupBox Style="{StaticResource App.Canonical.GroupBoxStyle}" Header="{Binding PackageLabel}" Margin="{StaticResource App.Layout.SectionMargin}">
       <ListBox Style="{StaticResource App.Canonical.ListBoxStyle}" ItemsSource="{Binding Packages}"
+               AutomationProperties.AutomationId="UpdatePackages"
                SelectedItem="{Binding SelectedPackage, Mode=TwoWay}"
                BorderThickness="0"
                Background="{DynamicResource App.ControlBackgroundBrush}"

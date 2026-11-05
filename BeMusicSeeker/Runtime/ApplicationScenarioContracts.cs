@@ -38,6 +38,7 @@ namespace BeMusicSeeker.Runtime;
 [JsonDerivedType(typeof(ScenarioSchemaAnswerCommand), "schema-answer")]
 [JsonDerivedType(typeof(ScenarioPlaylistSqlCommand), "playlist-sql")]
 [JsonDerivedType(typeof(ScenarioPlaylistRemoveCommand), "playlist-remove")]
+[JsonDerivedType(typeof(ScenarioStartupUpdateCommand), "startup-update")]
 internal abstract record ScenarioCommand(long RequestId);
 
 /// <summary>現在の実catalogと表示を読取り、変更不能な値として返します。</summary>
@@ -71,6 +72,7 @@ internal sealed record ScenarioCloseCommand(long RequestId) : ScenarioCommand(Re
 [JsonDerivedType(typeof(ScenarioRecoveryAcknowledged), "recovery-ack")]
 [JsonDerivedType(typeof(ScenarioSettingsSectionCompleted), "settings-section")]
 [JsonDerivedType(typeof(ScenarioHistoryCompleted), "history")]
+[JsonDerivedType(typeof(ScenarioStartupUpdateCompleted), "startup-update")]
 internal abstract record ScenarioMessage(long RequestId);
 
 /// <summary>pipe接続だけの通知です。初期化・操作可能の通知ではありません。</summary>
