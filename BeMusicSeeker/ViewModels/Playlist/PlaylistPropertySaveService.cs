@@ -662,7 +662,7 @@ internal sealed class PlaylistPropertySaveService
                 if (migration.PrimaryException != null) { failures.Add(migration.PrimaryException); }
                 else if (!migration.Succeeded)
                 {
-                    failures.Add(new System.IO.IOException(migration.WarningMessage
+                    failures.Add(new System.IO.IOException(migration.Warning?.Format()
                         ?? BeMusicSeeker.Properties.Resources.Msg_error_unexpected));
                 }
                 else { pending.NeedsLr2Output = false; }

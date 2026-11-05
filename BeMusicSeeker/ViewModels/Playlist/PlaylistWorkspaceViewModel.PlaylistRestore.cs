@@ -68,9 +68,9 @@ public sealed partial class PlaylistWorkspaceViewModel
                     or PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning))
             {
                 tables.OperationNotificationOwner.QueueError(
-                    BeMusicSeeker.Properties.Resources.Msg_failed_playlist_restore
-                        + Environment.NewLine + Environment.NewLine + exception.Message,
-                    BeMusicSeeker.Properties.Resources.Error);
+                    PlaylistOperationNotificationOwner.OperationNotificationText.FromResourceWithDetail(
+                        nameof(BeMusicSeeker.Properties.Resources.Msg_failed_playlist_restore), exception.Message, detailSeparatorLineBreaks: 2),
+                    nameof(BeMusicSeeker.Properties.Resources.Error));
             }
         }
 
@@ -89,8 +89,8 @@ public sealed partial class PlaylistWorkspaceViewModel
         if (restored)
         {
             tables.OperationNotificationOwner.QueueInformation(
-                BeMusicSeeker.Properties.Resources.Msg_success_playlist_restore,
-                BeMusicSeeker.Properties.Resources.Success);
+                PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(BeMusicSeeker.Properties.Resources.Msg_success_playlist_restore)),
+                nameof(BeMusicSeeker.Properties.Resources.Success));
         }
         PublishBackupRestoreNotificationBestEffort(session, "playlist restore notification");
         return restored;

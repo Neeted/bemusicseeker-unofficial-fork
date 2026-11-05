@@ -1184,7 +1184,7 @@ public sealed class SettingsWindowPresentationTests
                     foreach (PlaylistOperationNotificationOwner.OperationNotification notice in request.Receipt.Notifications)
                     {
                         UiDialogResult result = dialogs.ShowMessageAsync(new UiMessageRequest(
-                            notice.Message, notice.Caption, MessageBoxButton.OK, MessageBoxImage.Hand,
+                            notice.FormatMessage(), notice.FormatCaption(), MessageBoxButton.OK, MessageBoxImage.Hand,
                             MessageBoxResult.OK, owner: window)).GetAwaiter().GetResult();
                         UiDialogRoute.ThrowIfNotShown(result, request.RouteName);
                     }
@@ -1603,7 +1603,7 @@ public sealed class SettingsWindowPresentationTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(restoreTask, "settings restore failure");
                 Assert.IsTrue(restoreTask.IsCompletedSuccessfully);
                 Assert.AreEqual(1, restoreNotifications.Count);
-                StringAssert.Contains(restoreNotifications.Single().Receipt.Notifications.Single().Message,
+                StringAssert.Contains(restoreNotifications.Single().Receipt.Notifications.Single().FormatMessage(),
                     "restore UI completion failure");
                 Assert.AreEqual(0, dialogs.MessageRequests.Count, "下位の失敗receiptを再通知せず、終了案内も出さない。");
                 Assert.IsTrue(window.IsVisible);

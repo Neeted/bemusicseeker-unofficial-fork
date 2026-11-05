@@ -1072,7 +1072,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 if (failCleanup)
                 {
                     Assert.IsTrue(File.Exists(oldPath));
-                    Assert.IsTrue(receipt.Notifications.Any(notification => notification.Message.Contains(oldDirectory, StringComparison.Ordinal)), "元の旧先削除失敗警告を保持します。");
+                    Assert.IsTrue(receipt.Notifications.Any(notification => notification.FormatMessage().Contains(oldDirectory, StringComparison.Ordinal)), "元の旧先削除失敗警告を保持します。");
                 }
             }
             using (LR2SongDBExtended status = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
@@ -1154,7 +1154,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             using (PlaylistOperationNotificationOwner.OperationNotificationSession notifications = playlist.OperationNotificationOwner.BeginSession())
             {
                 playlist.RegenerateCustomFolderOutputs([], CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings));
-                Assert.IsTrue(notifications.TakeReceipt().Notifications.Any(notification => notification.Message.Contains("MissingAdditionalBase", StringComparison.Ordinal)));
+                Assert.IsTrue(notifications.TakeReceipt().Notifications.Any(notification => notification.FormatMessage().Contains("MissingAdditionalBase", StringComparison.Ordinal)));
             }
 
             Assert.IsTrue(Directory.Exists(targetDir));
@@ -1840,8 +1840,8 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             Assert.AreEqual("keep", File.ReadAllText(sentinel));
             Assert.AreEqual(0, Directory.GetFiles(normal, "*.lr2folder", SearchOption.AllDirectories).Length);
             PlaylistOperationNotificationOwner.OperationNotification warning = notifications.TakeReceipt().Notifications.Single();
-            StringAssert.Contains(warning.Message, "Unregistered");
-            StringAssert.Contains(warning.Message, "Missing");
+            StringAssert.Contains(warning.FormatMessage(), "Unregistered");
+            StringAssert.Contains(warning.FormatMessage(), "Missing");
         }
         finally { playlist?.RequestShutdown("unregistered-single-output"); Directory.Delete(directory, true); }
     }

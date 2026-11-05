@@ -84,10 +84,11 @@ public sealed partial class PlaylistWorkspaceViewModel
                 TryLogPlaylistDropSecondaryFailure(exception,
                     "playlist_json_export_write_failed stage=" + writeStage + " path=" + writePath);
                 notificationOwner.QueueError(
-                    writeStage == "data"
-                        ? BeMusicSeeker.Properties.Resources.Playlist_json_export_partial_failure
-                        : BeMusicSeeker.Properties.Resources.Msg_failed_save_playlist,
-                    BeMusicSeeker.Properties.Resources.Error);
+                    PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(
+                        writeStage == "data"
+                            ? nameof(BeMusicSeeker.Properties.Resources.Playlist_json_export_partial_failure)
+                            : nameof(BeMusicSeeker.Properties.Resources.Msg_failed_save_playlist)),
+                    nameof(BeMusicSeeker.Properties.Resources.Error));
             }
         }
         finally

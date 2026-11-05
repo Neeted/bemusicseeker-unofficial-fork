@@ -901,9 +901,11 @@ public partial class BMSPlaylist : ObservableObject
                 {
                     throw new PlaylistMutationPostCommitException("ExternalPlaylistSyncCustomFolderOutput", result.PrimaryException);
                 }
-                if (result?.Succeeded != true || !string.IsNullOrWhiteSpace(result.WarningMessage))
+                if (result?.Succeeded != true || result.Warning != null)
                 {
-                    throw new PlaylistMutationPostCommitException(result?.WarningMessage ?? Resources.Warn_PlaylistMutationStale);
+                    // 例外本文は診断として、例外を作る時点の言語で整形します。
+                    throw new PlaylistMutationPostCommitException((result?.Warning
+                        ?? PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(Resources.Warn_PlaylistMutationStale))).Format());
                 }
                 return true;
             },

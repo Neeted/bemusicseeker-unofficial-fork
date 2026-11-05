@@ -818,14 +818,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MessageBoxImage icon,
         string routeName)
     {
+        ShowPlaylistWorkspaceUiMessage(
+            new UiMessageRequest(messageBoxText, caption, MessageBoxButton.OK, icon, MessageBoxResult.OK, owner: this),
+            routeName);
+    }
+
+    private void ShowPlaylistWorkspaceUiMessage(UiMessageRequest request, string routeName)
+    {
         UiDialogResult result = playlistWorkspaceDialogService
-            .ShowMessageAsync(new UiMessageRequest(
-                messageBoxText,
-                caption,
-                MessageBoxButton.OK,
-                icon,
-                MessageBoxResult.OK,
-                owner: this))
+            .ShowMessageAsync(request)
             .GetAwaiter()
             .GetResult();
         ThrowIfUiDialogNotShown(result, routeName);
@@ -1013,16 +1014,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 {
                     return;
                 }
-                MessageBoxImage icon = notification.Severity switch
-                {
-                    PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information => MessageBoxImage.Asterisk,
-                    PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning => MessageBoxImage.Exclamation,
-                    PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error => MessageBoxImage.Hand,
-                    _ => MessageBoxImage.None,
-                };
-                UiDialogResult notificationResult = await playlistWorkspaceDialogService.ShowMessageAsync(new UiMessageRequest(
-                    notification.Message, notification.Caption, MessageBoxButton.OK, icon, MessageBoxResult.OK,
-                    owner: this));
+                UiDialogResult notificationResult = await playlistWorkspaceDialogService.ShowMessageAsync(
+                    CreatePlaylistOperationNotificationRequest(notification));
                 ThrowIfUiDialogNotShown(notificationResult, "external playlist import notification");
             }
         }
@@ -1085,15 +1078,26 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         foreach (PlaylistOperationNotificationOwner.OperationNotification notification in receipt.Notifications)
         {
-            MessageBoxImage icon = notification.Severity switch
-            {
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information => MessageBoxImage.Asterisk,
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning => MessageBoxImage.Exclamation,
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error => MessageBoxImage.Hand,
-                _ => MessageBoxImage.None,
-            };
-            ShowPlaylistWorkspaceUiMessage(notification.Message, notification.Caption, icon, routeName);
+            ShowPlaylistWorkspaceUiMessage(CreatePlaylistOperationNotificationRequest(notification), routeName);
         }
+    }
+
+    /// <summary>
+    /// 通知の事実から、表示する直前の選択言語で本文と見出しを整形した表示要求を作ります。
+    /// 操作中に確定した通知を後で初めて表示するとき、確定時の言語ではなく表示時の言語にするため、整形はここでだけ行います。
+    /// </summary>
+    private UiMessageRequest CreatePlaylistOperationNotificationRequest(PlaylistOperationNotificationOwner.OperationNotification notification)
+    {
+        MessageBoxImage icon = notification.Severity switch
+        {
+            PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information => MessageBoxImage.Asterisk,
+            PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning => MessageBoxImage.Exclamation,
+            PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error => MessageBoxImage.Hand,
+            _ => MessageBoxImage.None,
+        };
+        return new UiMessageRequest(
+            notification.FormatMessage(), notification.FormatCaption(), MessageBoxButton.OK, icon, MessageBoxResult.OK,
+            owner: this);
     }
 
     private void MainWindowViewModel_ElevatedProcessWarningPresentationRequested(ElevatedProcessWarningPresentationRequest request)

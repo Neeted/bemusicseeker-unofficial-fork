@@ -7,6 +7,7 @@ using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
+using BeMusicSeeker.ViewModels;
 using Ribbit.Net;
 using static BeMusicSeeker.TestSupport.Components.BmsPlaylistTestSupport;
 using static BeMusicSeeker.TestSupport.Components.PlaylistRecommendedTableTestSupport;
@@ -118,6 +119,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
 
     /// <summary>fr-FRでも取得元名の★数値と差分を固定表記で表示し、増減して通知設定ONの推薦だけ一回通知する。同値表記・比較不能・設定OFF・推定表は通知せず、手動名や更新日時を通知判断へ混ぜる誤りを検出する。</summary>
     [TestMethod]
+    [DoNotParallelize]
     // 増加・減少は通知し、同値表記・比較不能・OFF・推定表では通知しない。
     [DataRow("旧方針 ★10.00", "新方針 ★10.75", 10.75, .75, true, "bmseeker:table.recommended", 1)]
     [DataRow("旧方針 ★10.75", "新方針 ★10.00", 10.00, -.75, true, "bmseeker:table.recommended", 1)]
@@ -129,8 +131,12 @@ public sealed class PlaylistRecommendedTableOwnerTests
         string previousName, string currentName, double newSkill, double difference, bool enabled, string uri, int expectedCount)
     {
         CultureInfo previousCulture = System.Globalization.CultureInfo.CurrentCulture;
+        CultureInfo? previousResourcesCulture = Resources.Culture;
         try
         {
+            // 通知はja-JPで積み、初表示相当の整形をfr-FRで行って、本文・見出しが整形時の言語になることを確かめる。
+            ResourceService.Current.ChangeCulture("ja-JP");
+            string japaneseTitle = Resources.Recommend_SkillUpdatedTitle;
             System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo("fr-FR");
             var notifications = new PlaylistOperationNotificationOwner();
             PlaylistRecommendedTableOwner owner = CreateOwner(notifications: notifications, showSkillUpdates: enabled);
@@ -144,16 +150,23 @@ public sealed class PlaylistRecommendedTableOwnerTests
             });
             PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = session.TakeReceipt();
             Assert.AreEqual(expectedCount, receipt.Notifications.Count);
+            ResourceService.Current.ChangeCulture("fr-FR");
             if (expectedCount != 0)
             {
+                Assert.AreNotEqual(japaneseTitle, Resources.Recommend_SkillUpdatedTitle);
                 PlaylistOperationNotificationOwner.OperationNotification notification = receipt.Notifications.Single();
-                Assert.AreEqual(Resources.Recommend_SkillUpdatedTitle, notification.Caption);
+                Assert.AreEqual(Resources.Recommend_SkillUpdatedTitle, notification.FormatCaption());
                 Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information, notification.Severity);
                 Assert.AreEqual(string.Format(Resources.Recommend_SkillUpdatedMessage, newSkill == 10.75 ? "10.75" : "10.00",
-                    difference > 0 ? " (+0.75)" : " (-0.75)"), notification.Message);
+                    difference > 0 ? " (+0.75)" : " (-0.75)"), notification.FormatMessage());
             }
         }
-        finally { System.Globalization.CultureInfo.CurrentCulture = previousCulture; }
+        finally
+        {
+            ResourceService.Current.ChangeCulture(previousResourcesCulture?.Name ?? "en-US");
+            Resources.Culture = previousResourcesCulture;
+            System.Globalization.CultureInfo.CurrentCulture = previousCulture;
+        }
     }
     private string NewDirectory()
     {

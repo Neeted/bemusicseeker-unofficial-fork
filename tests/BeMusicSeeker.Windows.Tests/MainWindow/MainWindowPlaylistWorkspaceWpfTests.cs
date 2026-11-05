@@ -3872,6 +3872,210 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     }
 
     /// <summary>
+    /// 全再読込みの途中（一部の表の完了後、別の表のHTTP本文待ち）で表示言語を変え、終端で初めて表示される
+    /// 推薦表の実力値更新の通知が、確定時のjaではなく表示時のfr-FRで整形されることを実MainWindowで確認します。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    [TestCategory("Playlist")]
+    public void RecommendationReload_LanguageChangeBeforeFirstDisplayUsesDisplayLanguage()
+    {
+        CultureInfo? previousResourcesCulture = Resources.Culture;
+        CultureInfo previousCurrentCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            ResourceService.Current.ChangeCulture("ja-JP");
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("ja-JP");
+            string japaneseTitle = Resources.Recommend_SkillUpdatedTitle;
+            int scoreReads = 0;
+            TestUiDispatcherHost.RunWindowTest(windowTest =>
+            {
+                var displayed = new List<(Window Owner, UiMessageRequest Request)>();
+                ActualMainWindowFixture fixture = CreateActualMainWindowFixture(windowTest,
+                    recommendationScoreReader: _ =>
+                    {
+                        Interlocked.Increment(ref scoreReads);
+                        return Task.FromResult(ReadWalkureInput("standard"));
+                    },
+                    configureSettings: settings => settings.ShowRecommUpdatedMsg = true,
+                    messagePresenter: (owner, request) =>
+                    {
+                        displayed.Add((owner, request));
+                        return new ThemedMessageBoxResponse(MessageBoxResult.OK, closedWithoutSelection: false);
+                    });
+                BlockingPlaylistJsonServer? server = null;
+                Task? reload = null;
+                Task? producer = null;
+                Exception? primaryFailure = null;
+                try
+                {
+                    string blockedHeader = Path.Combine(fixture.Root, "blocked-header.json");
+                    string blockedData = Path.Combine(fixture.Root, "blocked-data.json");
+                    const string oldData = "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"}]";
+                    File.WriteAllText(blockedHeader, "{\"name\":\"B blocked\",\"symbol\":\"B\",\"data_url\":\"blocked-data.json\"}");
+                    File.WriteAllText(blockedData, oldData);
+                    Task<BMSTable> recommendedLoad = fixture.Playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri("bmseeker:table.recommended"));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(recommendedLoad, "language-reload.seed-recommended");
+                    BMSTable recommended = recommendedLoad.GetAwaiter().GetResult();
+                    Task<BMSTable> blockedLoad = fixture.Playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(blockedHeader));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(blockedLoad, "language-reload.seed-blocked");
+                    BMSTable blocked = blockedLoad.GetAwaiter().GetResult();
+                    server = new BlockingPlaylistJsonServer(
+                        "{\"name\":\"B blocked\",\"symbol\":\"B\",\"data_url\":\"./score.json\"}",
+                        "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"B after\",\"level\":\"1\"}]");
+                    blocked.Page_url = server.PageUri;
+                    blocked.Header_url = server.PageUri;
+                    blocked.Data_url = new Uri("./score.json", UriKind.Relative);
+                    recommended.playlist_id = 7541;
+                    blocked.playlist_id = 7543;
+                    recommended.name = "Manual name";
+                    recommended.org_name = "旧方針 ★3.87";
+                    recommended.header_sha256 = null;
+                    recommended.data_sha256 = null;
+                    foreach (BMSTable table in new[] { recommended, blocked })
+                    {
+                        table.last_update = new DateTime(2001, 2, 3, 4, 5, 6);
+                        table.is_bmt_output = false;
+                        Assert.IsTrue(table.EnableExternalSync());
+                    }
+                    fixture.Playlist.BMSTables = new ObservableCollection<BMSTable>([recommended, blocked]);
+                    fixture.Playlist.CommitBMSTablesWithEntriesToDB(fixture.Playlist.BMSTables);
+                    PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                    workspace.RefreshPlaylistTreeTables(fixture.Playlist, fixture.Library);
+
+                    TaskCompletionSource<PlaylistExternalSyncRequestEventArgs> queued = NewCompletion<PlaylistExternalSyncRequestEventArgs>();
+                    TaskCompletionSource<object?> completedTargets = NewCompletion();
+                    TaskCompletionSource<PlaylistExternalSyncCompletionEventArgs> completed = NewCompletion<PlaylistExternalSyncCompletionEventArgs>();
+                    TaskCompletionSource<object?> progressTerminal = NewCompletion();
+                    int notificationTerminalCount = 0;
+                    workspace.PlaylistExternalSyncQueued += (_, request) =>
+                    {
+                        if (request.Reason == "ReloadTables") { queued.TrySetResult(request); }
+                    };
+                    workspace.PlaylistSyncProgressChanged += (_, request) =>
+                    {
+                        if (!queued.Task.IsCompletedSuccessfully
+                            || request.Snapshot.Source != "external_playlist_sync"
+                            || request.Snapshot.Request != queued.Task.Result.ProgressRequest) { return; }
+                        if (request.Snapshot.IsActive && request.Snapshot.CompletedTableCount == 1) { completedTargets.TrySetResult(null); }
+                        if (!request.Snapshot.IsActive) { progressTerminal.TrySetResult(null); }
+                    };
+                    workspace.PlaylistExternalSyncCompleted += (_, request) =>
+                    {
+                        if (queued.Task.IsCompletedSuccessfully && request.Reason == "ReloadTables"
+                            && request.OperationToken == queued.Task.Result.OperationToken) { completed.TrySetResult(request); }
+                    };
+                    workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
+                    {
+                        if (request.RouteName == "external playlist sync notification") { Interlocked.Increment(ref notificationTerminalCount); }
+                    };
+                    displayed.Clear();
+                    int scoreReadsBeforeReload = Volatile.Read(ref scoreReads);
+
+                    reload = fixture.ViewModel.ReloadTablesAsync();
+                    producer = Task.WhenAny(reload, server.Completion).Unwrap();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        TestUiDispatcherHost.AwaitNotificationAsync(queued.Task, producer, "language-reload.sync-start"), "language-reload.sync-start");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        TestUiDispatcherHost.AwaitNotificationAsync(server.DataRequestAccepted.Task, producer, "language-reload.http-body-gate"), "language-reload.http-body-gate");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        TestUiDispatcherHost.AwaitNotificationAsync(completedTargets.Task, producer, "language-reload.completed-targets"), "language-reload.completed-targets");
+                    Assert.AreEqual(0, displayed.Count, "終端前は通知を表示しない。");
+                    Assert.AreEqual(0, Volatile.Read(ref notificationTerminalCount));
+
+                    // 通知の事実が確定した後、初表示の前に本番の言語変更を行う。
+                    ResourceService.Current.ChangeCulture("fr-FR");
+                    CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+                    string frenchTitle = Resources.Recommend_SkillUpdatedTitle;
+                    Assert.AreNotEqual(japaneseTitle, frenchTitle);
+                    server.ReleaseResponse();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reload, "language-reload.terminal");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        TestUiDispatcherHost.AwaitNotificationAsync(completed.Task, reload, "language-reload.completed"), "language-reload.completed");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        TestUiDispatcherHost.AwaitNotificationAsync(progressTerminal.Task, reload, "language-reload.progress-terminal"), "language-reload.progress-terminal");
+
+                    double skill = ReadWalkureCase("standard")["rating"]!.Value<double>("playerStarRating");
+                    Assert.AreEqual(1, Volatile.Read(ref notificationTerminalCount));
+                    (Window Owner, UiMessageRequest Request)[] information = displayed.Where(call => call.Request.Icon == MessageBoxImage.Information).ToArray();
+                    Assert.AreEqual(1, information.Length);
+                    Assert.AreSame(fixture.Window, information[0].Owner);
+                    Assert.AreEqual(frenchTitle, information[0].Request.Caption);
+                    Assert.AreEqual(string.Format(Resources.Recommend_SkillUpdatedMessage,
+                        skill.ToString("F2", CultureInfo.InvariantCulture),
+                        (skill - 3.87).ToString(" (+#0.00); (-#0.00);", CultureInfo.InvariantCulture)), information[0].Request.MessageBoxText);
+                    Assert.AreEqual(1, displayed.Count);
+                    Assert.AreEqual(scoreReadsBeforeReload + 1, Volatile.Read(ref scoreReads), "推薦読取りを通知のために再実行しない。");
+                    Assert.AreEqual("B after", fixture.Playlist.BMSTables.Single(table => table.playlist_id == blocked.playlist_id).entries.Single().title);
+                }
+                catch (Exception exception) { primaryFailure = exception; throw; }
+                finally
+                {
+                    try
+                    {
+                        server?.ReleaseResponse();
+                        if (reload != null)
+                        {
+                            try { TestUiDispatcherHost.AwaitTaskOnDispatcher(reload, "language-reload.drain"); }
+                            catch when (primaryFailure != null) { }
+                        }
+                        server?.Dispose();
+                        fixture.Close();
+                    }
+                    catch when (primaryFailure != null) { }
+                }
+            });
+        }
+        finally
+        {
+            ResourceService.Current.ChangeCulture(previousResourcesCulture?.Name ?? "en-US");
+            Resources.Culture = previousResourcesCulture;
+            CultureInfo.CurrentCulture = previousCurrentCulture;
+        }
+    }
+
+    /// <summary>実MainWindowでバックアップ失敗を一件表示し、重要度Errorがアイコンの手のマークと整形済みの本文・見出しになることを確認します。</summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void PlaylistBackupFailure_ActualMainWindowShowsErrorWithHandIcon()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var displayed = new List<(Window Owner, UiMessageRequest Request)>();
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(windowTest,
+                messagePresenter: (owner, request) =>
+                {
+                    displayed.Add((owner, request));
+                    return new ThemedMessageBoxResponse(MessageBoxResult.OK, closedWithoutSelection: false);
+                });
+            Exception? primaryFailure = null;
+            try
+            {
+                fixture.Playlist.BMSTables = new ObservableCollection<BMSTable>([new BMSTable { playlist_id = 7551, name = "Backup", symbol = "BK" }]);
+                fixture.Playlist.CommitBMSTablesWithEntriesToDB(fixture.Playlist.BMSTables);
+                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                workspace.RefreshPlaylistTreeTables(fixture.Playlist, fixture.Library);
+                string missing = Path.Combine(fixture.Root, "missing-directory", "backup.sql");
+
+                Task backup = workspace.BackupPlaylistAsync(missing);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(backup, "backup-failure-presentation");
+
+                (Window Owner, UiMessageRequest Request) shown = displayed.Single();
+                Assert.AreSame(fixture.Window, shown.Owner);
+                Assert.AreEqual(MessageBoxImage.Hand, shown.Request.Icon);
+                Assert.AreEqual(Resources.Failure, shown.Request.Caption);
+                StringAssert.StartsWith(shown.Request.MessageBoxText, Resources.Msg_failed_playlist_backup + Environment.NewLine + Environment.NewLine);
+            }
+            catch (Exception exception) { primaryFailure = exception; throw; }
+            finally
+            {
+                try { fixture.Close(); }
+                catch when (primaryFailure != null) { }
+            }
+        });
+    }
+
+    /// <summary>
     /// 同じ所有プロパティ画面の実Bindingと保存ボタンから、外部置換後の実BMT失敗、
     /// 実Warningの本文・ownerと採用後のHand通知、両表示失敗後も正常終了する待機Task、画面維持、旧失敗を含まない再保存成功とCloseを確認します。出力失敗点の組合せは保存サービス群へ分担します。
     /// </summary>
@@ -5457,10 +5661,10 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                             Assert.IsFalse(published.Receipt.IsEmpty);
                             PlaylistOperationNotificationOwner.OperationNotification notification = published.Receipt.Notifications.Single();
                             Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, notification.Severity);
-                            Assert.AreEqual(Resources.MessageBoxTitle_Warning, notification.Caption);
-                            Assert.AreEqual(string.Format(Resources.Warn_CustomFolderOutputFailed, tableName, outputDirectory), notification.Message);
-                            Assert.AreEqual(notification.Caption, request.Caption);
-                            Assert.AreEqual(notification.Message, request.MessageBoxText);
+                            Assert.AreEqual(Resources.MessageBoxTitle_Warning, notification.FormatCaption());
+                            Assert.AreEqual(string.Format(Resources.Warn_CustomFolderOutputFailed, tableName, outputDirectory), notification.FormatMessage());
+                            Assert.AreEqual(notification.FormatCaption(), request.Caption);
+                            Assert.AreEqual(notification.FormatMessage(), request.MessageBoxText);
                             Assert.AreEqual(MessageBoxImage.Exclamation, request.Icon);
                             // 警告presenterの応答前でも、別の明示変更を受け付ける。
                             Assert.IsTrue(active.Playlist.TryEnterPlaylistMutation(out IDisposable admission));

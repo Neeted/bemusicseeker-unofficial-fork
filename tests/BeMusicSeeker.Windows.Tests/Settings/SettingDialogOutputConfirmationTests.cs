@@ -584,7 +584,7 @@ public sealed class SettingDialogOutputConfirmationTests
                 owner.PlaylistWorkspace.RefreshPlaylistTreeTables(playlist);
                 var warnings = new List<string>();
                 owner.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
-                    warnings.AddRange(request.Receipt.Notifications.Select(notification => notification.Message));
+                    warnings.AddRange(request.Receipt.Notifications.Select(notification => notification.FormatMessage()));
                 var externalSync = new RecordingOutputSettingsSyncRuntime { FailNext = syncFailure };
                 SetPrivateField(owner.SettingDialog, "lr2SongDbSyncWorkflow", new Lr2SongDbSyncWorkflowOwner(externalSync));
                 try

@@ -52,6 +52,10 @@
 
 保留復元の未確定失敗は専用の`PendingPackageRestoreWindow`を`ShowWindowAsync`で表示し、「再試行」「保留一覧を初期化して続行」「終了」の明示値を区別します。全保留登録の消去と、元ファイル・導入済み楽曲をこの操作では削除しないことを本文で示します。一覧初期化は`IsAccepted`と明示Resetの両方を要求し、×・Escに承認値を与えません。復元・一覧初期化の元原因は画面と既存ログへ渡します。DB確定後の障害や表示不能をこの復旧選択へ再分類しません。範囲と終了引渡しは[起動の保留復元](../runtime/startup.md#保留復元の失敗時選択)に従います。
 
+### 操作中に確定した通知の言語
+
+プレイリスト操作中に確定し、操作の終端で初めて表示する通知（推薦表の実力値更新、custom folder出力の警告、JSON出力・バックアップ・復元・BMT出力・ドロップ・Level入力の結果など）は、本文と見出しを確定時点の言語ではなく、表示直前に選択されている言語で整形します。通知は重要度・見出しの資源名・本文の資源名・翻訳対象でない生の書式引数（パス、表名、Invariant書式の数値）・生の詳細（例外本文など）を変更不能な事実として保持し、表示窓口が表示する一件ごとに整形します。例外本文などの診断は翻訳せず、例外を作った時点の文字列のまま保持します。そのため、失敗から表示までの間に言語を変えると、外側の文は表示時の言語、内側の例外本文は作成時の言語になり得ます。表示中のモーダルは言語変更に追従せず、通知のために元の処理を再実行しません。
+
 ### 設定画面と子ウィンドウ
 
 設定画面は、親を必須とする `ShowWindowAsync` のモーダル表示です。設定内の選択・通知・子ウィンドウでは、表示中の `SettingsWindow` を親とし、`MainWindow` へ勝手に戻しません。
@@ -78,6 +82,7 @@ LR2個別参照の確認・選択で表示失敗が起きた場合は、元の�
 | 設定終了後の保存完了通知と再表示 | [MainWindow](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs)、[SettingsWindow](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs) | [SettingsWindowPresentationTests](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsWindowPresentationTests.cs) の `MainWindow_InitialSettingsCloseBeforeRealCompletionMessageAndRecoverAfterInitialization`: 実通知の表示と親、旧画面の終了、新しい設定画面の編集受付。 |
 | 一括編集の実確認寿命、任意通知失敗、更新リンク失敗 | [`PlaylistSummaryBulkEditDialog`](../../../BeMusicSeeker/Views/Playlist/PlaylistSummaryBulkEditDialog.cs)、[`UpdateAvailableDialog`](../../../BeMusicSeeker/Views/Dialogs/UpdateAvailableDialog.xaml.cs) | [`MainWindowPlaylistWorkspaceWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) の `MainWindowPlaylistDialogs_UseOwnedNativeModalLifetimeAndCleanup` は確認中の実`applyTask`・閉鎖抑止、確認失敗の未適用と編集値保持、出力確定後の通知失敗と後片付けを確認する。[`DialogPresentationTests`](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogPresentationTests.cs) の `UpdateLinkLaunchFailureKeepsWindowAndDrainsCompiledEvent` は実ボタンと通知Taskの終端後も成功で閉じないことを確認する。 |
 | 進捗ダイアログと表プロパティの取消ボタンの翻訳 | `ProgressDialog.xaml`、`PlaylistPropertyDialog.xaml` | [DialogPresentationTests](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogPresentationTests.cs) の `CancelButtons_NewDialogsUseCurrentLanguageAndKeepCancellation` は6言語で新しく開いたContentが `Resources.Cancel` と一致し、進捗の取消が処理側へ届き `CancelledByUser` で閉じることを確認する。 |
+| 操作中に確定した通知の初表示時の言語 | [PlaylistOperationNotificationOwner](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistOperationNotificationOwner.cs)、[MainWindow](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [PlaylistOperationNotificationLanguageTests](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/PlaylistOperationNotificationLanguageTests.cs) は各生成元の通知を言語Aで確定して言語Bで整形し、本文・見出し・重要度を確認する。[MainWindowPlaylistWorkspaceWpfTests](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) の `RecommendationReload_LanguageChangeBeforeFirstDisplayUsesDisplayLanguage` は全再読込みの途中で言語を変え、終端で表示される推薦表の通知が表示時の言語になり読取りが再実行されないこと、`PlaylistBackupFailure_ActualMainWindowShowsErrorWithHandIcon` は重要度とアイコンの対応を確認する。[PlaylistRecommendedTableOwnerTests](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/PlaylistRecommendedTableOwnerTests.cs) の `AppliedSkillNotification_UsesOrgNameNumbersAndSettingWithoutDate` は数値のInvariant書式を確認する。 |
 
 ## 関連資料
 

@@ -248,8 +248,8 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
                 .GetResult();
             if (result.HasUnverifiedFiles)
             {
-                result.WarningMessage = string.Format(
-                    Resources.Warn_CustomFolderOutputFailed,
+                result.Warning = PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(
+                    nameof(Resources.Warn_CustomFolderOutputFailed),
                     preparation.Tables.FirstOrDefault()?.name,
                     preparation.Projections.FirstOrDefault()?.OutputDirectory);
                 result.Succeeded = false;
@@ -262,8 +262,8 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         {
             return new CustomFolderBatchOutputResult
             {
-                WarningMessage = string.Format(
-                    Resources.Warn_CustomFolderOutputFailed,
+                Warning = PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(
+                    nameof(Resources.Warn_CustomFolderOutputFailed),
                     preparation.Tables.FirstOrDefault()?.name,
                     preparation.Projections.FirstOrDefault()?.OutputDirectory),
                 PrimaryException = ex
@@ -353,8 +353,8 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
                 .GetResult();
             if (result.HasUnverifiedFiles)
             {
-                result.WarningMessage = string.Format(
-                    Resources.Warn_CustomFolderOutputFailed,
+                result.Warning = PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(
+                    nameof(Resources.Warn_CustomFolderOutputFailed),
                     plan.Table?.name,
                     plan.OutputDirectoryAfter);
                 result.Succeeded = false;
@@ -373,8 +373,8 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         {
             return new CustomFolderBatchOutputResult
             {
-                WarningMessage = string.Format(
-                    Resources.Warn_CustomFolderOutputFailed,
+                Warning = PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(
+                    nameof(Resources.Warn_CustomFolderOutputFailed),
                     plan.Table?.name,
                     plan.OutputDirectoryAfter),
                 PrimaryException = ex
@@ -402,7 +402,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             {
                 return new CustomFolderBatchOutputResult
                 {
-                    WarningMessage = string.Format(Resources.Warn_FileOrDirDeleteFailed, outputDirectory),
+                    Warning = PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(Resources.Warn_FileOrDirDeleteFailed), outputDirectory),
                     Succeeded = false
                 };
             }
@@ -421,7 +421,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         {
             return new CustomFolderBatchOutputResult
             {
-                WarningMessage = string.Format(Resources.Warn_FileOrDirDeleteFailed, outputDirectory),
+                Warning = PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(Resources.Warn_FileOrDirDeleteFailed), outputDirectory),
                 PrimaryException = ex,
                 Succeeded = false
             };
@@ -577,7 +577,8 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         }
         catch (Exception failure)
         {
-            notificationOwner.QueueWarning(string.Format(Resources.Warn_CustomFolderCleanupFailed,
+            notificationOwner.QueueWarning(PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(
+                nameof(Resources.Warn_CustomFolderCleanupFailed),
                 string.Join(Environment.NewLine, plans.Select(plan => plan.OutputDirectoryBefore).Distinct(StringComparer.OrdinalIgnoreCase)), failure.Message));
         }
     }
@@ -623,7 +624,8 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         {
             // 設定操作は新先への生成まで成立済みです。旧先整理の残存だけを通知し、後続の必要同期へ進みます。
             // 表プロパティ保存の未完了継続は別契約のため、共有の整理処理では例外を変換しません。
-            notificationOwner.QueueWarning(string.Format(Resources.Warn_CustomFolderCleanupFailed,
+            notificationOwner.QueueWarning(PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(
+                nameof(Resources.Warn_CustomFolderCleanupFailed),
                 string.Join(Environment.NewLine, plans.Select(plan => plan.OutputDirectoryBefore).Distinct(StringComparer.OrdinalIgnoreCase)), failure.Message));
         }
     }
@@ -648,7 +650,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             }
             else if (deletionFailure)
             {
-                result.WarningMessage = string.Format(Resources.Warn_FileOrDirDeleteFailed, plan.OutputDirectoryBefore);
+                result.Warning = PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(Resources.Warn_FileOrDirDeleteFailed), plan.OutputDirectoryBefore);
                 result.Succeeded = false;
             }
         }
@@ -666,7 +668,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
     {
         bool unknown = table != null && !table.is_root_folder && !string.IsNullOrWhiteSpace(table.custom_folder_output_base_name)
             && !CustomFolderOutputBaseRegistry.ContainsBaseName(table.custom_folder_output_base_name, settings.LR2CustomFolderAdditionalOutputBaseDirs);
-        if (unknown) { notificationOwner.QueueWarning(string.Format(Resources.Warn_UnregisteredCustomFolderOutputBase, table.name, table.custom_folder_output_base_name)); }
+        if (unknown) { notificationOwner.QueueWarning(PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(Resources.Warn_UnregisteredCustomFolderOutputBase), table.name, table.custom_folder_output_base_name)); }
         return unknown;
     }
 
@@ -980,9 +982,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             result.Succeeded = false;
             if (deletionFailure)
             {
-                result.WarningMessage = string.Format(
-                    Resources.Warn_FileOrDirDeleteFailed,
-                    plan.OutputDirectoryBefore);
+                result.Warning = PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(Resources.Warn_FileOrDirDeleteFailed), plan.OutputDirectoryBefore);
             }
             return result;
         }
@@ -1021,9 +1021,9 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
 
     private void PublishWarning(CustomFolderBatchOutputResult result)
     {
-        if (!string.IsNullOrWhiteSpace(result?.WarningMessage))
+        if (result?.Warning != null)
         {
-            notificationOwner.QueueWarning(result.WarningMessage);
+            notificationOwner.QueueWarning(result.Warning);
         }
     }
 
@@ -1584,7 +1584,8 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
 
         internal string PerformanceMessage { get; init; }
 
-        internal string WarningMessage { get; set; }
+        /// <summary>警告の事実です。通知は表示直前に、例外本文は例外を作る時点に整形して使います。</summary>
+        internal PlaylistOperationNotificationOwner.OperationNotificationText Warning { get; set; }
 
         internal Exception PrimaryException { get; init; }
 

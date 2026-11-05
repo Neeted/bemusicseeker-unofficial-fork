@@ -505,7 +505,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
             }
             workspace = CreatePlaylistWorkspace(playlist, library);
             var notifications = new List<string>();
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, args) => notifications.AddRange(args.Receipt.Notifications.Select(item => item.Message));
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, args) => notifications.AddRange(args.Receipt.Notifications.Select(item => item.FormatMessage()));
             var progress = new List<PlaylistSyncProgressSnapshot>();
             workspace.PlaylistSyncProgressChanged += (_, args) => progress.Add(args.Snapshot);
             bool? succeeded = null;

@@ -791,8 +791,9 @@ public sealed partial class PlaylistWorkspaceViewModel
     {
         var receipt = PlaylistOperationNotificationOwner.OperationNotificationReceipt.Create(
             failures.Select(failure => new PlaylistOperationNotificationOwner.OperationNotification(
-                string.Format(Resources.Beatoraja_bmt_output_failure_format, failure.Path, failure.Cause),
-                Resources.MessageBoxTitle_Warning,
+                PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(
+                    nameof(Resources.Beatoraja_bmt_output_failure_format), failure.Path, failure.Cause),
+                nameof(Resources.MessageBoxTitle_Warning),
                 PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning)));
         RaiseRequiredEvent(
             PlaylistOperationNotificationPresentationRequested,
@@ -804,7 +805,13 @@ public sealed partial class PlaylistWorkspaceViewModel
         PlaylistOperationNotificationOwner.OperationNotificationSession session,
         string routeName)
     {
-        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = session.TakeReceipt();
+        PublishPlaylistOperationNotificationReceipt(session.TakeReceipt(), routeName);
+    }
+
+    private void PublishPlaylistOperationNotificationReceipt(
+        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt,
+        string routeName)
+    {
         var request = new PlaylistOperationNotificationPresentationRequestedEventArgs(receipt, routeName);
         try
         {
@@ -843,10 +850,9 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 session.Add(
                     new PlaylistOperationNotificationOwner.OperationNotification(
-                        Resources.Msg_error_unexpected
-                            + Environment.NewLine
-                            + primaryException.Message,
-                        Resources.Error,
+                        PlaylistOperationNotificationOwner.OperationNotificationText.FromResourceWithDetail(
+                            nameof(Resources.Msg_error_unexpected), primaryException.Message, detailSeparatorLineBreaks: 1),
+                        nameof(Resources.Error),
                         PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error));
                 receipt = session.TakeReceipt();
             }

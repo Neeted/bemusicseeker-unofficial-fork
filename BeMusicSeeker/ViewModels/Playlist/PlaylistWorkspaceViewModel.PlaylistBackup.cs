@@ -18,19 +18,19 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             if (PlaylistTreeTables == null || PlaylistTreeTables.Count() == 0)
             {
-                PublishBackupNotification(
-                    BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup,
-                    BeMusicSeeker.Properties.Resources.Warning,
-                    PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning);
+                PublishBackupNotification(new PlaylistOperationNotificationOwner.OperationNotification(
+                    PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup)),
+                    nameof(BeMusicSeeker.Properties.Resources.Warning),
+                    PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning));
             }
             else
             {
                 TryLogBackupRestoreFailure(new InvalidOperationException("Playlist persistence is not available."),
                     "playlist backup path=" + fileName);
-                PublishBackupNotification(
-                    BeMusicSeeker.Properties.Resources.Msg_failed_playlist_backup,
-                    BeMusicSeeker.Properties.Resources.Failure,
-                    PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error);
+                PublishBackupNotification(new PlaylistOperationNotificationOwner.OperationNotification(
+                    PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(BeMusicSeeker.Properties.Resources.Msg_failed_playlist_backup)),
+                    nameof(BeMusicSeeker.Properties.Resources.Failure),
+                    PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error));
             }
             return Task.CompletedTask;
         }
@@ -49,9 +49,9 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             TryLogBackupRestoreFailure(ex, "playlist backup path=" + fileName);
             tables.OperationNotificationOwner.QueueError(
-                BeMusicSeeker.Properties.Resources.Msg_failed_playlist_backup
-                    + Environment.NewLine + Environment.NewLine + ex.Message,
-                BeMusicSeeker.Properties.Resources.Failure);
+                PlaylistOperationNotificationOwner.OperationNotificationText.FromResourceWithDetail(
+                    nameof(BeMusicSeeker.Properties.Resources.Msg_failed_playlist_backup), ex.Message, detailSeparatorLineBreaks: 2),
+                nameof(BeMusicSeeker.Properties.Resources.Failure));
         }
         PublishBackupRestoreNotificationBestEffort(session, "playlist backup notification");
     }
@@ -65,8 +65,8 @@ public sealed partial class PlaylistWorkspaceViewModel
         if (PlaylistTreeTables.Count() == 0)
         {
             tables.OperationNotificationOwner.QueueWarning(
-                BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup,
-                BeMusicSeeker.Properties.Resources.Warning);
+                PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup)),
+                nameof(BeMusicSeeker.Properties.Resources.Warning));
             return;
         }
 
@@ -77,32 +77,22 @@ public sealed partial class PlaylistWorkspaceViewModel
             stagingStream.Write(bytes, 0, bytes.Length);
         });
         tables.OperationNotificationOwner.QueueInformation(
-            BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup,
-            BeMusicSeeker.Properties.Resources.Success);
+            PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup)),
+            nameof(BeMusicSeeker.Properties.Resources.Success));
     }
 
-    private void PublishBackupNotification(
-        string message,
-        string caption,
-        PlaylistOperationNotificationOwner.OperationNotificationSeverity severity)
+    private void PublishBackupNotification(PlaylistOperationNotificationOwner.OperationNotification notification)
     {
-        PlaylistOperationNotificationOwner owner = new();
-        using PlaylistOperationNotificationOwner.OperationNotificationSession session = owner.BeginSession();
-        switch (severity)
+        // storeがない経路では操作sessionがないため、確定した通知からreceiptを直接作ります。
+        var receipt = PlaylistOperationNotificationOwner.OperationNotificationReceipt.Create([notification]);
+        try
         {
-            case PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information:
-                owner.QueueInformation(message, caption);
-                break;
-            case PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning:
-                owner.QueueWarning(message, caption);
-                break;
-            case PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error:
-                owner.QueueError(message, caption);
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(severity), severity, null);
+            PublishPlaylistOperationNotificationReceipt(receipt, "playlist backup notification");
         }
-        PublishBackupRestoreNotificationBestEffort(session, "playlist backup notification");
+        catch (Exception exception)
+        {
+            TryLogBackupRestoreFailure(exception, "playlist backup notification");
+        }
     }
 
     private void PublishBackupRestoreNotificationBestEffort(

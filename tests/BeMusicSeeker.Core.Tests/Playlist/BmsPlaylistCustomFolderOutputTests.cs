@@ -315,7 +315,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             {
                 playlist.RegenerateCustomFolderOutputs([], settings);
                 PlaylistOperationNotificationOwner.OperationNotification warning = notifications.TakeReceipt().Notifications.Single();
-                StringAssert.Contains(warning.Message, "Unknown"); StringAssert.Contains(warning.Message, "Missing");
+                StringAssert.Contains(warning.FormatMessage(), "Unknown"); StringAssert.Contains(warning.FormatMessage(), "Missing");
             }
             Assert.IsFalse(Directory.Exists(Path.Combine(normal, "Unknown")));
             Assert.IsTrue(File.Exists(Path.Combine(normal, "Healthy", "0000.lr2folder")));
@@ -630,7 +630,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = session.TakeReceipt();
                 Assert.AreEqual(1, receipt.Notifications.Count);
                 Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, receipt.Notifications[0].Severity);
-                StringAssert.Contains(receipt.Notifications[0].Message, table.name);
+                StringAssert.Contains(receipt.Notifications[0].FormatMessage(), table.name);
             }
         }
         finally
@@ -1223,6 +1223,103 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             release.Set();
             if (saving != null) { try { await saving; } catch (Exception) { } }
             blocker?.Dispose();
+            dialog?.Dispose();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 旧出力先の削除失敗は、DBをB確定のまま保留出力として残し、保存の例外本文と通知の警告に同じ整形済み警告を使います。
+    /// ロック解除後の再保存で旧Aが回収されることで、警告の事実化が保留出力の分類と回収を変えていないことを確認します。
+    /// </summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task PlaylistPropertySave_OldOutputCleanupFailureKeepsWarningTextAsPendingFailure()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string directory = Path.Combine(migrationWorkspace.RootDirectory, nameof(BmsPlaylistCustomFolderOutputTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        PlaylistPropertyDialogViewModel? dialog = null;
+        TestBmsLibrary? library = null;
+        TestBmsPlaylist? playlist = null;
+        FileStream? lockedFile = null;
+        try
+        {
+            string songPath = CreateTempSongDbPath(databaseScope, directory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songPath);
+            string rootBase = Path.Combine(directory, "root-output");
+            string normalBase = Path.Combine(directory, "normal-output");
+            string a = Path.Combine(rootBase, "A");
+            string b = Path.Combine(rootBase, "B");
+            LR2Config config = TestLr2ConfigFactory.CreateLr2Config(directory, Path.Combine(directory, "manual-root"), a);
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
+            CustomFolderOutputSettingsSnapshot outputSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2RootPath = directory,
+                LR2CustomFolderOutputBaseDir = normalBase,
+                LR2CustomFolderOutputBaseDirRootType = rootBase,
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = true;
+                values.LR2RootPath = directory;
+                values.BMSRootPath = Path.Combine(directory, "manual-root");
+                values.LR2CustomFolderOutputBaseDir = normalBase;
+                values.LR2CustomFolderOutputBaseDirRootType = rootBase;
+                values.EnablePlaylistUrlCompletion = false;
+            });
+            library = new TestBmsLibrary(databaseScope, songPath, configOwner, null, null, null, new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
+            playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songPath, () => outputSettings, configOwner, () => new PlaylistUrlCompletionOptionsSnapshot(), () =>
+                new BeatorajaBmtOptionsSnapshot(), settings: settings, uiScheduler: new TestUiScheduler(() => null));
+            var table = new BMSTable
+            {
+                playlist_id = 7411,
+                name = "CleanupFailure",
+                symbol = "X",
+                Output_dir = "A",
+                is_root_folder = true,
+                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                entries = [CreateEntry("1234567890abcdef1234567890abcdef", "Alpha")],
+                Folder_order = ["Alpha"]
+            };
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+            playlist.CommitBMSTablesWithEntriesToDB([table]);
+            playlist.ReOutputCustomFolder(table);
+            string[] outputFiles = Directory.GetFiles(a, "*.lr2folder");
+            Assert.IsTrue(outputFiles.Length > 0);
+            PlaylistWorkspaceViewModel workspace = CreatePlaylistWorkspace(playlist, library, () => outputSettings, () => configOwner);
+            var receipts = new List<PlaylistOperationNotificationOwner.OperationNotificationReceipt>();
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, e) => receipts.Add(e.Receipt);
+            dialog = await workspace.OpenPropertyDialogAsync(table)
+                ?? throw new AssertFailedException("Edit dialog was not created.");
+            dialog.output_dir = "B";
+            lockedFile = new FileStream(outputFiles[0], FileMode.Open, FileAccess.Read, FileShare.None);
+
+            IOException failure = await Assert.ThrowsExactlyAsync<IOException>(async () => await dialog.SaveAndApplyAsync());
+
+            string expected = string.Format(Resources.Warn_FileOrDirDeleteFailed, a);
+            Assert.AreEqual(expected, failure.Message);
+            PlaylistOperationNotificationOwner.OperationNotification warning = receipts.SelectMany(receipt => receipt.Notifications).Single();
+            Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, warning.Severity);
+            Assert.AreEqual(expected, warning.FormatMessage());
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual("B", db.Table<BMSTable>().Single(row => row.playlist_id == table.playlist_id).Output_dir);
+            }
+            Assert.IsTrue(Directory.Exists(a));
+
+            lockedFile.Dispose();
+            lockedFile = null;
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+            Assert.IsFalse(Directory.Exists(a));
+            Assert.IsTrue(Directory.GetFiles(b, "*.lr2folder").Length > 0);
+        }
+        finally
+        {
+            lockedFile?.Dispose();
             dialog?.Dispose();
             Directory.Delete(directory, recursive: true);
         }
@@ -4034,9 +4131,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 Assert.IsFalse(receipts[0].Receipt.IsEmpty);
                 PlaylistOperationNotificationOwner.OperationNotification warning = receipts[0].Receipt.Notifications.Single();
                 Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, warning.Severity);
-                Assert.AreEqual(Resources.MessageBoxTitle_Warning, warning.Caption);
+                Assert.AreEqual(Resources.MessageBoxTitle_Warning, warning.FormatCaption());
                 Assert.AreEqual(string.Format(Resources.Warn_CustomFolderOutputFailed, table.name,
-                    Path.Combine(providerOutputBaseDir, table.Output_dir)), warning.Message);
+                    Path.Combine(providerOutputBaseDir, table.Output_dir)), warning.FormatMessage());
                 Assert.AreSame(warning, displayAttempts.Single());
             }
             else

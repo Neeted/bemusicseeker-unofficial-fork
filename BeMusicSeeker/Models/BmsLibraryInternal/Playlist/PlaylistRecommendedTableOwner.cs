@@ -243,9 +243,10 @@ internal sealed class PlaylistRecommendedTableOwner
         double? oldSkill = Skill(previousName), newSkill = Skill(appliedTable.org_name);
         if (oldSkill.HasValue && newSkill.HasValue && oldSkill != newSkill)
         {
-            notificationOwner.QueueInformation(string.Format(Resources.Recommend_SkillUpdatedMessage,
+            // 数値はInvariant書式の文字列を事実として保持し、本文の言語だけを表示直前に決めます。
+            notificationOwner.QueueInformation(PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(Resources.Recommend_SkillUpdatedMessage),
                 newSkill.Value.ToString("F2", CultureInfo.InvariantCulture), (newSkill.Value - oldSkill.Value).ToString(" (+#0.00); (-#0.00);", CultureInfo.InvariantCulture)),
-                Resources.Recommend_SkillUpdatedTitle);
+                nameof(Resources.Recommend_SkillUpdatedTitle));
         }
     }
 }

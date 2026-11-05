@@ -1074,11 +1074,11 @@ public sealed class BmsPlaylistExternalReloadTests
             Assert.IsFalse(terminalReceipt.Receipt.IsEmpty);
             PlaylistOperationNotificationOwner.OperationNotification information = terminalReceipt.Receipt.Notifications.Single();
             Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information, information.Severity);
-            Assert.AreEqual(Resources.Recommend_SkillUpdatedTitle, information.Caption);
+            Assert.AreEqual(Resources.Recommend_SkillUpdatedTitle, information.FormatCaption());
             double expectedSkill = ReadWalkureCase("standard")["rating"]?.Value<double>("playerStarRating")
                 ?? throw new AssertFailedException("The independent recommendation skill expectation is missing.");
             Assert.AreEqual(string.Format(Resources.Recommend_SkillUpdatedMessage,
-                expectedSkill.ToString("F2"), (expectedSkill - 3.87).ToString(" (+#0.00); (-#0.00);")), information.Message);
+                expectedSkill.ToString("F2"), (expectedSkill - 3.87).ToString(" (+#0.00); (-#0.00);")), information.FormatMessage());
             Assert.AreSame(information, displayAttempts.Single(attempt => attempt.Route == "external playlist sync notification").Notification);
             PlaylistOperationNotificationPresentationRequestedEventArgs[] bmtReceipts = receipts.Where(request =>
                 request.RouteName == "beatoraja BMT output failure").ToArray();
@@ -1147,14 +1147,14 @@ public sealed class BmsPlaylistExternalReloadTests
                 PlaylistOperationNotificationOwner.OperationNotification warning = bmtReceipts.Single().Receipt.Notifications.Single();
                 Assert.IsFalse(bmtReceipts.Single().Receipt.IsEmpty);
                 Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, warning.Severity);
-                Assert.AreEqual(Resources.MessageBoxTitle_Warning, warning.Caption);
+                Assert.AreEqual(Resources.MessageBoxTitle_Warning, warning.FormatCaption());
                 BmtTableExportService.FileOperationFailure manifestFailure = bmtFailures.Single();
                 Assert.AreEqual(bmt, manifestFailure.Path, "manifest公開の例外はBMT出力先の失敗として通知されます。");
                 StringAssert.Contains(manifestFailure.Cause, manifest);
                 StringAssert.Contains(manifestFailure.Cause, cause.Message);
                 StringAssert.Contains(manifestFailure.Cause, cause.GetBaseException().Message);
                 Assert.AreEqual(string.Format(Resources.Beatoraja_bmt_output_failure_format,
-                    manifestFailure.Path, manifestFailure.Cause), warning.Message);
+                    manifestFailure.Path, manifestFailure.Cause), warning.FormatMessage());
                 Assert.AreSame(warning, displayAttempts.Single(attempt => attempt.Route == "beatoraja BMT output failure").Notification);
                 Assert.IsFalse(failure.ToString().Contains(presentationFailure.Message, StringComparison.Ordinal));
                 Assert.IsFalse(failure.ToString().Contains(diagnosticFailure.Message, StringComparison.Ordinal));
@@ -1514,7 +1514,7 @@ public sealed class BmsPlaylistExternalReloadTests
                     double oldSkill = inputName == "mixed" ? 6.60 : 3.87;
                     Assert.AreEqual(string.Format(Resources.Recommend_SkillUpdatedMessage,
                         expectedSkill.ToString("F2"), (expectedSkill - oldSkill).ToString(" (+#0.00); (-#0.00);")),
-                        receipt.Notifications.Single().Message);
+                        receipt.Notifications.Single().FormatMessage());
                 }
             }
         }

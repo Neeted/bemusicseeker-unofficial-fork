@@ -71,10 +71,10 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             IReadOnlyList<PlaylistOperationNotificationOwner.OperationNotification> receipt = notifications.Single().Receipt.Notifications;
             Assert.IsTrue(receipt.Any(item => item.Severity == PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning));
             Assert.IsTrue(receipt.Any(item => item.Severity == PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning
-                && item.Message.Contains(oldDirectory, StringComparison.OrdinalIgnoreCase)), "残存する旧配置を警告で識別できます。");
-            Assert.IsTrue(receipt.Any(item => item.Message.Contains(Resources.Msg_success_playlist_restore, StringComparison.Ordinal)));
+                && item.FormatMessage().Contains(oldDirectory, StringComparison.OrdinalIgnoreCase)), "残存する旧配置を警告で識別できます。");
+            Assert.IsTrue(receipt.Any(item => item.FormatMessage().Contains(Resources.Msg_success_playlist_restore, StringComparison.Ordinal)));
             Assert.IsFalse(receipt.Any(item => item.Severity == PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error
-                || item.Message.Contains(Resources.Msg_failed_playlist_restore, StringComparison.Ordinal)));
+                || item.FormatMessage().Contains(Resources.Msg_failed_playlist_restore, StringComparison.Ordinal)));
             Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
             Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
             held?.Dispose();
@@ -233,8 +233,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Assert.IsNotNull(observed);
         PlaylistOperationNotificationOwner.OperationNotification notification = observed!.Receipt.Notifications.Single();
         Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, notification.Severity);
-        StringAssert.Contains(notification.Message, "owned-output/locked.bmt");
-        StringAssert.Contains(notification.Message, "sharing-denied");
+        StringAssert.Contains(notification.FormatMessage(), "owned-output/locked.bmt");
+        StringAssert.Contains(notification.FormatMessage(), "sharing-denied");
     }
 
     /// <summary>代表順序入口を実configの解析・読取り・置換失敗へ接続し、確定DB、実通知中のP、出力保全と修復後の明示操作を保証します。</summary>
@@ -268,7 +268,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             List<string> notifications = [];
             workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
             {
-                notifications.Add(request.Receipt.Notifications.Single().Message);
+                notifications.Add(request.Receipt.Notifications.Single().FormatMessage());
                 entered.TrySetResult();
                 release.Task.GetAwaiter().GetResult();
             };
@@ -556,7 +556,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning,
                 unavailableNotifications[0].Receipt.Notifications.Single().Severity);
             StringAssert.Contains(
-                unavailableNotifications[0].Receipt.Notifications.Single().Message,
+                unavailableNotifications[0].Receipt.Notifications.Single().FormatMessage(),
                 BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup);
 
             string successDbDirectory = Path.Combine(tempDirectory, "success");
@@ -604,7 +604,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information,
                 successNotifications[0].Receipt.Notifications.Single().Severity);
             StringAssert.Contains(
-                successNotifications[0].Receipt.Notifications.Single().Message,
+                successNotifications[0].Receipt.Notifications.Single().FormatMessage(),
                 BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup);
 
             EventHandler<PlaylistOperationNotificationPresentationRequestedEventArgs> brokenSubscriber =
@@ -656,7 +656,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning,
                 emptyNotifications[0].Receipt.Notifications.Single().Severity);
             StringAssert.Contains(
-                emptyNotifications[0].Receipt.Notifications.Single().Message,
+                emptyNotifications[0].Receipt.Notifications.Single().FormatMessage(),
                 BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup);
 
             string failureDbDirectory = Path.Combine(tempDirectory, "failure");
@@ -684,11 +684,11 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error,
                 failureNotification.Severity);
             StringAssert.Contains(
-                failureNotification.Message,
+                failureNotification.FormatMessage(),
                 BeMusicSeeker.Properties.Resources.Msg_failed_playlist_backup);
-            StringAssert.Contains(failureNotification.Message, "missing");
+            StringAssert.Contains(failureNotification.FormatMessage(), "missing");
             Assert.IsFalse(failureNotifications.Any(request => request.Receipt.Notifications.Any(
-                notification => notification.Message.IndexOf(
+                notification => notification.FormatMessage().IndexOf(
                     BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup,
                     StringComparison.Ordinal) >= 0)));
         }
@@ -794,7 +794,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual(1, notifications.Count);
             PlaylistOperationNotificationOwner.OperationNotification failure = notifications[0].Receipt.Notifications.Single();
             Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error, failure.Severity);
-            StringAssert.Contains(failure.Message, BeMusicSeeker.Properties.Resources.Msg_failed_playlist_restore);
+            StringAssert.Contains(failure.FormatMessage(), BeMusicSeeker.Properties.Resources.Msg_failed_playlist_restore);
             using (LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual("Keep on failure", verify.Table<BMSTable>().Single().name);
@@ -952,8 +952,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.IsTrue(playlistReleasedBeforeNotification);
             PlaylistOperationNotificationOwner.OperationNotification failure = notifications.Single().Receipt.Notifications.Single();
             Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error, failure.Severity);
-            StringAssert.Contains(failure.Message, BeMusicSeeker.Properties.Resources.Msg_failed_playlist_restore);
-            StringAssert.Contains(failure.Message, missingPath);
+            StringAssert.Contains(failure.FormatMessage(), BeMusicSeeker.Properties.Resources.Msg_failed_playlist_restore);
+            StringAssert.Contains(failure.FormatMessage(), missingPath);
         }
         finally
         {
@@ -1130,7 +1130,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 Assert.IsNull(table.Data_url);
                 PlaylistOperationNotificationOwner.OperationNotification failure = notifications.Single().Receipt.Notifications.Single();
                 Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error, failure.Severity);
-                Assert.AreEqual(message, failure.Message);
+                Assert.AreEqual(message, failure.FormatMessage());
                 Assert.AreEqual(1 + (failNotification ? 1 : 0), diagnostics.Count);
                 Assert.IsInstanceOfType<IOException>(diagnostics[0].Exception);
                 Assert.IsNotNull(diagnostics[0].Exception.InnerException, "元のI/O原因を保持します。");

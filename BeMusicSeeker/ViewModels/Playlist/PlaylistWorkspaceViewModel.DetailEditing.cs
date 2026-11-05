@@ -156,7 +156,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 if (propertyName == nameof(PlaylistDetailRow.Level) && !BMSTableEntry.TryParseEditedLevel(text, out _))
                 {
-                    playlistStore.OperationNotificationOwner.QueueWarning(BeMusicSeeker.Properties.Resources.Error_PlaylistEntryLevelFormat);
+                    playlistStore.OperationNotificationOwner.QueueWarning(PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(BeMusicSeeker.Properties.Resources.Error_PlaylistEntryLevelFormat)));
                 }
                 else
                 {
