@@ -186,6 +186,8 @@ If BMS, score, or BMT processing fails, its section shows that the settings are 
 
 Configure the language, operating mode, BMS directories, LR2 directory, beatoraja directory, and player to use.
 
+When you change the language, the headers, warnings, and progress display in the main window, and notifications shown from then on, also switch to the selected language, while running operations and the contents, selection, and scroll position of lists stay as they are.
+
 #### Registering BMS Directories
 
 In either mode, edit the search-root list with `Add`, drag and drop, and removal, then press `Change BMS directories`. Multiple edits apply once using the final list. When removing the current install destination, check `Current install destination (to be removed)` and select a remaining BMS directory under `New install destination` before confirming. Selection alone does not save changes. If no directories remain, add a BMS directory or use `Discard these changes` to restore the list and install destination.

@@ -844,14 +844,16 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <p>Once the first build is complete, later launches mainly use differential updates. If you move the entire BMS folder tree significantly, or rebuild the DB from an empty state, the heavy processing will run again.</p>
 <h2 id="settings-dialog">Settings Dialog</h2>
 <p>Ordinary settings save when you select or check a value. Text fields save on Enter or when you leave the field, and sliders save when you finish the adjustment.</p>
-<p>Valid combinations of beatoraja directory and score source, audio output, player selection, and external image settings save automatically. Output locations save after folder selection and migration confirmation; additional locations save when added, removed, or renamed. Use each section’s confirmation button for BMS directories, BMT output, individual LR2 paths, and record editing. Switching categories keeps your input. <code>Discard these changes</code> resets that section’s unconfirmed input. <code>Close</code> discards remaining unconfirmed input and keeps saved settings.</p>
+<p>Valid combinations of beatoraja directory and score source, audio output, player selection, and external image settings save automatically. Output locations save after folder selection and migration confirmation; additional locations save when added, removed, or renamed. Use each section’s confirmation button for BMS directories, BMT output, individual LR2 paths, and record editing. Switching categories keeps your input. <code>Discard these changes</code> resets that section’s unconfirmed input. <code>Close</code> discards remaining unconfirmed input and keeps saved settings. Reopening shows the latest saved values, including the BMT file retention option. Changing the language preserves your input and updates path and URL errors, history database status, and audio test results.</p>
 <p>Changing the score source reloads scores and play history together. Changing the beatoraja directory updates the required scores, history, and table output. The same window waits for processing to finish. Change and confirmation buttons are highlighted when there is an applicable change and disabled in gray when unnecessary. Right-click actions and play-log presets are confirmed one record at a time and apply from the next display or execution.</p>
 <p>If BMS, score, or BMT processing fails, its section shows that the settings are saved but processing is incomplete. Use the retry or confirmation button in that section. Saving another setting does not start a retry. During processing, you can still save unrelated ordinary settings and change audio output, images, and player selection or confirm right-click records. Audio tests and environment startup or restart retain their operation restrictions.</p>
 <h3 id="general">General</h3>
 <p><img alt="General Settings" src="img/設定_一般.PNG"/></p>
 <p>Configure the language, operating mode, BMS directories, LR2 directory, beatoraja directory, and player to use.</p>
+<p>When you change the language, the headers, warnings, and progress display in the main window, and notifications shown from then on, also switch to the selected language, while running operations and the contents, selection, and scroll position of lists stay as they are.</p>
 <h4 id="registering-bms-directories">Registering BMS Directories</h4>
 <p>In either mode, edit the search-root list with <code>Add</code>, drag and drop, and removal, then press <code>Change BMS directories</code>. Multiple edits apply once using the final list. When removing the current install destination, check <code>Current install destination (to be removed)</code> and select a remaining BMS directory under <code>New install destination</code> before confirming. Selection alone does not save changes. If no directories remain, add a BMS directory or use <code>Discard these changes</code> to restore the list and install destination.</p>
+<p>Removing a folder from search unregisters its charts and leaves the original files in place. To switch to an empty folder, select it as the new-install destination and confirm the directory list. You can then install charts there.</p>
 <p>Registered paths adopt the actual folder-name casing confirmed during scanning.</p>
 <p>In LR2 linked mode, registrations are saved as absolute paths, including paths entered in relative form. If you move the LR2 installation to another location, register the BMS directories at their new locations.</p>
 <p>When an LR2 directory is configured, its built-in <code>LR2files\CustomFolder</code> and subfolders cannot be explicitly registered as BMS directories in either mode. Its parent folders and drive root remain available for registration.</p>
@@ -1345,6 +1347,7 @@ Reloading an individual playlist, or reloading from a selection in the summary, 
 You can use field specifiers such as <code>title:</code>, <code>artist:</code>, <code>playlist:</code>, and <code>rate:</code>, as well as exclusion search, OR, regular expressions, and numeric range searches. Cells with background colors in columns such as <code>TOTAL</code> and <code>DIFFICULTY</code> indicate that the value was undefined. They can be searched with terms such as <code>total:undef</code>.</p>
 <p><img alt="Library search example" src="img/一覧_ライブラリ_検索例.PNG"/></p>
 <p>Click a column header to sort. Many columns can be displayed, including <code>TITLE</code>, <code>ARTIST</code>, <code>PATH</code>, <code>LEVEL</code>, and <code>CLEAR</code>. Column visibility and order can be changed from the header context menu.</p>
+<p>The scroll bars of every list (library list, pending list, playlist detail, play log, and playlist summary) show the scroll thumb on an opaque background even in the thin state. When you hover over or drag the bar, the background and thumb widen inward while keeping the outer edge fixed, leaving equal margins on both sides of the thumb.</p>
 <h3 id="selecting-and-editing-rows">Selecting and Editing Rows</h3>
 <p>Click for one row, <code>Ctrl + click</code> to toggle individual rows, <code>Shift + click</code> for a range, and <code>Ctrl + A</code> for all rows. Use Up / Down to move between rows and <code>Shift + Up / Down</code> to extend the range. While not editing, Left / Right moves to the previous or next visible cell in the same row without changing the selected rows. Movement stops at the first or last column and scrolls horizontally to reveal an off-screen destination. Up / Down keeps the same column. Press F2 or type to edit the current editable cell; while editing, Left / Right remains available in the text box. At the minimum width of 40 DIPs, click the icon in a URL column to retrieve its linked content. Widen the column to display the URL as text; editable cells support another click, F2, or typing to edit, just like other cells.</p>
 <h3 id="copy-operations">Copy Operations</h3>
@@ -1390,10 +1393,12 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 <ul>
 <li><code>Move to</code>: Moves the entire folder containing the selected charts to another library root folder selected from the menu.</li>
 <li><code>Remove entry</code>: In playlist detail, removes the selected row from the playlist.</li>
-<li><code>Delete file</code>: Lets you choose <code>Rename to invalid extension (*.bmx/*.pmx)</code> or <code>Move to Recycle bin</code>.</li>
+<li><code>Delete file</code>: Lets you choose <code>Rename to invalid extension (*.bmx/*.pmx)</code> or <code>Move to Recycle bin</code>. When moving library charts to the Recycle Bin, deletion begins after you answer all confirmations. Choose <code>No</code> for whole-folder deletion to delete only the selected charts, or <code>Cancel</code> to cancel the entire operation. If you choose <code>No</code> for a child folder, choosing <code>Yes</code> for its parent still preserves both folders and their bundled files; only the selected charts are deleted.</li>
 <li><code>Automatic folder renaming</code>: Renames the selected chart's folder according to the folder-name format in settings.</li>
 <li><code>Convert to audio file</code>: Outputs BMS / bmson chart playback as an audio file according to the recording settings in the settings dialog.</li>
 </ul>
+<p>Edit a chart’s <code>FOLDER</code> cell to rename its folder. Confirming the original name, including after changing it and changing it back, leaves the folder unchanged. Both manual and automatic renaming support case-only changes such as <code>song</code> to <code>Song</code>.</p>
+<p>With LR2 integration enabled, renaming or moving a folder also updates external custom folders beneath it to their new locations. When deleting or disabling charts leaves <code>folderinfo.txt</code> or custom folders in place, the LR2 folder hierarchy they require is retained.</p>
 <h4 id="removing-list-items-and-parse-records">Removing List Items and Parse Records</h4>
 <ul>
 <li><code>Remove from list</code>: Removes the target from the new / pending / installed package display. Distinguish this from operations that delete actual files.</li>
@@ -1447,7 +1452,7 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 <p>Some menus are opened from buttons at the top of the screen rather than by right-clicking.</p>
 <ul>
 <li>Playback control menu: See <a href="#playback-panel-controls">Playback Panel Controls</a>.</li>
-<li>Mode filter: Switches display targets for <code>5KEYS</code>, <code>7KEYS</code>, <code>9KEYS</code>, <code>10KEYS</code>, and <code>14KEYS</code>.</li>
+<li>Mode filter: Switches display targets for <code>5KEYS</code>, <code>7KEYS</code>, <code>9KEYS</code>, <code>10KEYS</code>, <code>14KEYS</code>, <code>24KEYS</code>, and <code>48KEYS</code>.</li>
 <li>Playlist summary ownership filter: Switches between <code>All</code>, <code>OWNED=100%</code>, and <code>OWNED&lt;100%</code>.</li>
 </ul>
 <h2 id="search">Search</h2>
@@ -1964,6 +1969,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <li>LR2 resource path too long: The actual resource path LR2 would reference, formed by combining the chart folder and resource definition, may be too long. Consider moving the chart folder to a shorter location or shortening resource folder / file names.</li>
 </ul>
 <p>A resource definition containing a parent-directory reference such as <code>..</code> is not treated as LR2-incompatible by itself. However, if the actual referenced path including the placement location becomes too long, it is subject to <code>LR2 resource path too long</code>.</p>
+<p>With character restriction turned OFF, renaming a folder to include unsupported characters keeps the charts managed at their new location in BeMusicSeeker. Folders that LR2 cannot represent are omitted from its folder hierarchy. Renaming them back to CP932 / Shift_JIS-compatible names restores that hierarchy.</p>
 <p>BeMusicSeeker does not delete these charts; it only visualizes them as warnings. LR2 may still fail to select or play them. If necessary, rename chart files, resource files, or parent folders to CP932 / Shift_JIS-compatible names and shorter paths.</p>
 <h3 id="zero-note-search">Zero-Note Search</h3>
 <p><img alt="Zero-Note Search" src="img/一覧_ゼロノート検索.PNG"/></p>
