@@ -200,7 +200,7 @@ v2.1.6.0からの更新受入には、[固定成果物の定義](../../acceptanc
 
 Windowsの実Gateway検査は既存 `WindowsProcessProbe` 内で実fixtureを起動し、親の `OwnedProcess` が全子孫を所有する。受付の10秒、復旧の50ms、停止後の実rootと両pipeを観測する5秒は製品・ケースの契約として維持し、親の全終端期限360秒と失敗回収10秒で置き換えない。公開関数のrestore/publish引数は [`UpdaterDeploymentBoundaryTests`](../../../tests/BeMusicSeeker.Windows.Tests/Update/UpdaterDeploymentBoundaryTests.cs) の既定出力・明示root・次版の3行で検査し、実R2R生成・配布出力はprepare-candidateの実publishが担い、Fullは指定した同じ候補を利用する。
 
-Fullの実配布更新境界は非Daily `Scenarios/Update` の35メソッド・53行で検査します。Current実updater・公開root・ZIPと固定Legacy ZIPをcatalogから受け取り、専有領域で元の故障入力・表明を保持します。固定旧版の実updaterがCurrent ZIPを適用する方向は、現行updaterで旧layoutを更新するSC-15bとは別の保証です。managed callbackだけは明示build fixtureを使用し、実Processが必要な生存延期・再起動診断は既存WindowsProcessProbeへ配置します。全親Job終端後のHKCU登録とtemp回収は親caseが所有します。
+Fullの実配布更新境界は非Daily `Scenarios/Update` の35メソッド・53行で検査します。Current実updater・公開root・ZIPと固定Legacy ZIPをcatalogから受け取り、専有領域で元の故障入力・表明を保持します。公開旧版の配置を現行updaterで更新する保証は専用ケースを設けず、旧配置を旧updaterでCurrentへ更新する方向を `LegacyUpdaterDistributionMigrationTests`、旧データからの現行updaterによる適用と実再起動をSC-CurrentUpdate、旧manifestのない旧DLL配置への現行updaterの適用を [`UpdaterPackageSyncTests`](../../../tests/BeMusicSeeker.Scenarios.Tests/Update/UpdaterPackageSyncTests.cs) が分担します。managed callbackだけは明示build fixtureを使用し、実Processが必要な生存延期・再起動診断は既存WindowsProcessProbeへ配置します。全親Job終端後のHKCU登録とtemp回収は親caseが所有します。
 
 ## 関連資料
 

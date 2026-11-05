@@ -377,6 +377,20 @@ BMIIDX/LR2でAの捕捉済み終了通知がB開始後に届くと、Bのprocess
 
 根拠は [通常補完からの反映要求](../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoBuildService.cs)、[通常補完時のlevel更新](../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbWriter.cs)、[全体同期時の生成列更新](../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs)。
 
+## 起動走査直後のメモリ上の譜面とsong.dbの差
+
+起動時の走査直後のメモリ上の譜面一覧では、Tagがnull、AddDateが未設定になる。一方でsong.dbはTagを空文字、AddDateを設定済みで保存している。表示・検索・保存への影響は未調査である。
+
+採用時は、利用者が見る値と保存値のどちらに揃えるべきかを通常操作の到達から確認する。[現行版からNextへの更新の受入シナリオ](../../tests/BeMusicSeeker.Desktop.E2E.Tests/Update/CurrentToNextUpdateDesktopTests.cs)は実DBの値を正として比較しており、この差を正解として固定していない。
+
+根拠は [保存行への変換](../../BeMusicSeeker/Models/BmsLibraryInternal/ChartSongStorageMapping.cs) の `ToBmsRow`、[song.dbの行](../../BeMusicSeeker/Models/LR2/LR2SongDB.cs) の `tag`、[新しい行の既定値](../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbWriter.cs) の `ApplyGeneratedPersistenceDefaults`。
+
+## 巻き戻し後の片付け失敗での旧アプリの起動
+
+[ポータブル更新](../spec/integration/portable-update.md#適用と巻き戻し)は、通常の適用失敗では復元後に旧アプリを自動起動しないと定める。ただし通常の適用失敗の後片付けで退避の削除またはジャーナルの削除に失敗すると、ジャーナルが残る。復元に成功した後なら巻き戻し済み、本体の変更前なら退避中のphaseのままである。監視プロセスはphaseを問わず、[更新ツール](../../BeMusicSeeker.Updater/Program.cs) の `StartRecoveredApplication` で旧アプリを起動する。退避中のphaseでは、`RecoverIncompleteTransaction` の再削除が成功した場合に起こる。既存の挙動である。
+
+採用時は、これらの経路で旧アプリを起動するかどうかを利用者の目的から決め、仕様の例外として記述するか実装を揃えるかを選ぶ。同じ仕様の回復登録の解除条件と、回復経路で旧アプリを起動する規定との関係、復元済みの構成とジャーナルの整合、失敗記録の通知との関係を合わせて確認する。
+
 ## 採用・完了時
 
 採用する場合は未確定の利用者挙動を質問し、実装計画へ必要な入口・契約・検証条件を移す。完了した項目は契約・採用理由・検証対応を仕様へ移して計画から除き、完了記録だけを残さない。[計画の運用](README.md#運用)に従う。

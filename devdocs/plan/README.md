@@ -4,7 +4,7 @@
 
 | 計画 | 内容 |
 | --- | --- |
-| [テスト基盤移行の残作業](test-platform-migration.md) | SC-12の再開条件、追加速度目標と環境不足。 |
+| [テスト基盤の残課題](test-platform-migration.md) | 追加速度目標、環境不足で未実行の条件、テスト側の改善候補。 |
 | [既知の課題・未採用の任意改善](release-follow-up-candidates.md) | 今回着手しない改善・検討項目。共有URLのBMTと標準偏差0のT-SCOREを含む。 |
 
 ## 運用
