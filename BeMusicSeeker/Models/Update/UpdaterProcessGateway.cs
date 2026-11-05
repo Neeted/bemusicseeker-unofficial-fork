@@ -242,6 +242,7 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
         return true;
     }
 
+    /// <summary>完成名への移動用ハンドルが残っていても受付内容を読み取り、既存期限内の受付を確認します。</summary>
     private static void WaitForReady(Process process, string readyFilePath)
     {
         DateTime deadline = DateTime.UtcNow.AddSeconds(10);
@@ -251,7 +252,10 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
             {
                 if (File.Exists(readyFilePath))
                 {
-                    string marker = File.ReadAllText(readyFilePath).Trim();
+                    // Windowsでは名前の変更後も移動用のDELETEハンドルが閉じるまで残り得ます。
+                    using var stream = new FileStream(readyFilePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+                    using var reader = new StreamReader(stream, Encoding.UTF8);
+                    string marker = reader.ReadToEnd().Trim();
                     if (string.Equals(marker, "1", StringComparison.Ordinal))
                     {
                         return;

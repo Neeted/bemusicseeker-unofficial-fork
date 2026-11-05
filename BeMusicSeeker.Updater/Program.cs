@@ -355,6 +355,7 @@ internal static partial class Program
             stream => stream.Write(marker, 0, marker.Length));
     }
 
+    /// <summary>完成名への移動用ハンドルが残っていても決定を読み取り、消費して起動可否を返します。</summary>
     private static bool WaitForLaunchDecision(UpdateRequest request)
     {
         try
@@ -375,7 +376,8 @@ internal static partial class Program
                 if (UpdaterFileSystem.FileExists(decisionFilePath))
                 {
                     string decision;
-                    using (FileStream stream = UpdaterFileSystem.OpenRead(decisionFilePath))
+                    // Windowsでは名前の変更後も移動用のDELETEハンドルが閉じるまで残り得ます。
+                    using (FileStream stream = UpdaterFileSystem.Open(decisionFilePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
                     using (var reader = new StreamReader(stream, Encoding.UTF8))
                     {
                         decision = reader.ReadToEnd().Trim();

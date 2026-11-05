@@ -50,6 +50,8 @@ https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/upda
 
 受付・決定マーカーは、完成名と同じディレクトリの一意な一時名へ全内容を書き、`Flush(true)` とクローズの完了後に完成名へ移動して公開します。書込み中は完成名を新たに公開せず、通常の読取り側は完成名の存在を確認した直後に読み取れます。受付は既存の完成名を拒否し、決定は既存の完成名を置換します。内容はUTF-8・改行なしとし、受付はInvariant整数のプロトコル版、決定は既存の `proceed` / `cancel` を維持します。境界・reparse pointの検査と更新ツールの長パス変換は呼出側が担います。
 
+Windowsでは完成名への変更後も、移動用の `DELETE` 権限を持つハンドルが閉じるまで残る区間があります。受付・決定の読取りは `FileShare.Read | FileShare.Delete` とし、この区間でも完成内容を一回の読取りで取得します。書込み共有は許可せず、UTF-8とBOMの検出、前後空白の除去、内容の比較、期限、例外の扱い、決定の消費は維持します。根拠はMicrosoftの[名前変更とハンドル寿命の説明](https://devblogs.microsoft.com/oldnewthing/20211022-00/?p=105822)と[CreateFileWの共有仕様](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)です。
+
 作成・出力・永続化・クローズ・移動の失敗を成功へ読み替えず、作成できた自分の一時ファイルだけ削除を試みます。他の書込み主体の一時物、旧固定名の `.tmp`、既存完成ファイルを回収しません。一時物の削除にも失敗した場合は元の公開失敗とスタックを保持し、残ったパスと回収失敗を補助診断へ添えることを試みます。強制終了で残った一時物の自動掃除や、読取り失敗の再試行は加えません。失敗記録・ジャーナル・管理ファイル一覧の保存と回復はそれぞれの既存契約に従います。
 
 受付期限はGatewayの起動処理が `Process` を返した後、受付待ち入口で一回だけ設定する既存の10秒です。親終了待ちの60秒、決定待ちの延長、回復・停止の期限とは独立し、厳密な10.000秒の精度は保証しません。受付公開の失敗・未公開の期限切れではreceiptを返さず、開始した更新プロセスの終端を確認します。アプリは終了準備を開始せず更新失敗を通知して存続します。receipt取得後に終了準備を受理した失敗は、前述の終了継続の契約に従います。
@@ -173,6 +175,7 @@ v2.1.6.0からの更新受入には、[固定成果物の定義](../../acceptanc
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 完成名への変更後・移動用ハンドル解放前の読取り | [`Program`](../../../BeMusicSeeker.Updater/Program.cs) の `WaitForLaunchDecision`、[`WindowsUpdaterProcessGateway`](../../../BeMusicSeeker/Models/Update/UpdaterProcessGateway.cs) の `WaitForReady` | [`UpdateMarkerReaderSharingTests`](../../../tests/BeMusicSeeker.Windows.Tests/Update/UpdateMarkerReaderSharingTests.cs) は実際に名前変更へ使ったDELETEハンドルを保持し、旧共有の読取りが共有違反32となる同じ区間で、本番のproceed/cancel判定・決定消費と、通常Gatewayのready receipt・完全bytes・読取りハンドル回収を確認する。更新テストが管理する限定反射は、既存managed fixtureの `UpdateRequest.Parse` と `WaitForLaunchDecision` だけに絞り、本番API追加と更新全体の準備を避ける。通常の狭い本番境界が責務整理で得られた時に退役する。公開処理と実CLIの保証は既存テストが分担する。 |
 | ローカル更新検証の配信先・起動案内 | [`prepare-local-update-test.ps1`](../../../scripts/prepare-local-update-test.ps1) の起動例と `StartServer` / `StopServer` | 恒久テストは設けず、python / pyの両経路で空白入り `OutputDir` からHTTPでmanifest・ZIPを取得し、サイズ・SHA-256を照合する実行確認を行う。案内する配布ZIP展開先の本体・Updaterの共存と、同じ `OutputDir` を指定した停止後の待受・所有プロセスの解放を確認する。 |
 | 不正JSONの分類と原因保持 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs) の `ParseManifest` | [`UpdateCheckServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateCheckServiceTests.cs) の `ParseManifest_MalformedJsonRetainsValidationCause` は検証失敗への変換と元原因の保持を確認する。有効・無効マニフェストの資産検証は同クラスの既存ケースが分担する。 |
 | マニフェスト整数の`Int32`/`Int64`上下範囲外と`BigInteger`、表現可能な非対応版・非正数、最大サイズの維持 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs) の `ReadRequiredInt` / `ReadRequiredLong` | [`UpdateCheckServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateCheckServiceTests.cs) の `ParseManifest_OutOfRangeIntegerRetainsValidationCause`、`ParseManifest_RepresentableIntegerKeepsSemanticValidation`、`ParseManifest_MaximumInt64SizeRemainsAccepted` は実JSON解析から型付き失敗・元原因・従来意味検証と正の上限受理を確認する。 |
